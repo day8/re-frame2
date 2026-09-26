@@ -249,12 +249,43 @@
     (drain!))
   nil)
 
+(def ^:private no-teardown-failure
+  "Presence sentinel for a cleanup step that returned normally. Compared by
+  identity, never by truthiness: `nil` and `false` are legal CLJS throws."
+  #?(:clj (Object.) :cljs (js-obj)))
+
+#?(:cljs
+   (def ^:private teardown-secondary-errors-key
+     "The property carrying a teardown's later cleanup failures on the
+     rethrown primary — the same string key `re-frame.substrate.spine` writes,
+     so a consumer reads one name whichever step failed."
+     "rfAdapterTeardownSecondaryErrors"))
+
+(defn- attach-secondary-teardown-failure!
+  "Attach `later`, a cleanup failure raised after `primary`, to `primary` as
+  secondary diagnostic evidence (Spec 006 §Adapter disposal lifecycle). The
+  JVM uses the throwable's suppressed exceptions; CLJS appends to the
+  `rfAdapterTeardownSecondaryErrors` array. A primary that cannot carry the
+  attachment — a thrown non-object, or a frozen one — loses the evidence and
+  keeps its identity."
+  [primary later]
+  #?(:clj  (when-not (identical? primary later)
+             (.addSuppressed ^Throwable primary ^Throwable later))
+     :cljs (when (instance? js/Object primary)
+             (try
+               (let [existing (unchecked-get primary teardown-secondary-errors-key)]
+                 (if (array? existing)
+                   (.push existing later)
+                   (unchecked-set primary teardown-secondary-errors-key (array later))))
+               (catch :default _ nil))))
+  nil)
+
 (defn dispose-adapter!
   "Tear down the installed adapter. Calls the adapter's :dispose-adapter!
   fn (if present), then ALWAYS clears the install slot and sets the disposed
   breadcrumb so a new adapter can install and subsequent delegation calls raise
   `:rf.error/adapter-disposed` instead of `:rf.error/no-adapter-installed`.
-  A throwing adapter cleanup is rethrown unchanged only AFTER
+  A throwing cleanup is rethrown unchanged only AFTER
   this process-owned lifecycle reaches its terminal state. Finalization clears
   only the generation this call claimed: stale teardown can never erase a
   replacement installation. One failed host cleanup cannot leave the single-use
@@ -262,18 +293,30 @@
   breadcrumb untouched — it doesn't pretend a never-installed adapter was
   disposed.
 
-  Package-owned host roots go FIRST, in a `finally` over the adapter's own
-  cleanup — see `drain-fresco-client-roots!`. That order lets React
-  unmounts run while the substrate is still whole, and a throwing drain
-  cannot skip the adapter disposer or the finalization below it."
+  Package-owned host roots go FIRST, before the adapter's own cleanup — see
+  `drain-fresco-client-roots!`. That order lets React unmounts run while the
+  substrate is still whole. A throwing drain skips neither the adapter
+  disposer nor the finalization below it. When both steps throw, the drain's
+  failure is the first, so it is the one rethrown, and the disposer's rides on
+  it as secondary evidence (Spec 006 §Adapter disposal lifecycle): among its
+  suppressed exceptions on the JVM, and in its
+  `rfAdapterTeardownSecondaryErrors` array on CLJS."
   []
   (when-let [{:keys [adapter generation]} (claim-installed-for-dispose!)]
     (try
-      (try
-        (drain-fresco-client-roots!)
-        (finally
+      (let [drain-failure (try
+                            (drain-fresco-client-roots!)
+                            no-teardown-failure
+                            (catch #?(:clj Throwable :cljs :default) e e))]
+        (try
           (when-let [f (:dispose-adapter! adapter)]
-            (f))))
+            (f))
+          (catch #?(:clj Throwable :cljs :default) e
+            (if (identical? no-teardown-failure drain-failure)
+              (throw e)
+              (attach-secondary-teardown-failure! drain-failure e))))
+        (when-not (identical? no-teardown-failure drain-failure)
+          (throw drain-failure)))
       (finally
         ;; Lifecycle finalization is process ownership, not adapter-owned
         ;; cleanup. It must happen even when the host teardown reports failure,

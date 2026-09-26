@@ -226,6 +226,35 @@
           (when orig-restore
             (rf.late-bind/set-fn! :schemas/restore-by-frame! orig-restore)))))))
 
+(deftest make-reset-runtime-fixture-resets-per-frame-schemas-with-no-option
+  (testing "an app schema registered before the fixture runs is absent inside
+            the body and back afterwards — the per-frame schema reset is part
+            of every fixture run, with no option to ask for it"
+    (rf/reg-app-schema [:counter] :int)
+    (let [present? #(some? (rf.schemas/app-schema-meta {:frame :rf/default :path [:counter]}))
+          in-body  (atom :unset)]
+      (is (present?) "precondition: the schema is registered on :rf/default")
+      ((rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+       (fn [] (reset! in-body (present?))))
+      (is (false? @in-body) "the body sees no per-frame schemas")
+      (is (present?) "the schema is restored when the fixture finishes"))))
+
+(deftest make-reset-runtime-fixture-clears-per-frame-schemas-once
+  (testing "the fixture takes no option that clears per-frame schemas: passing
+            `:clear-app-schemas? true` leaves the one per-frame schema reset
+            every run makes, and adds no second clear"
+    (let [snapshot @rf.late-bind/hooks
+          clears   (atom 0)]
+      (try
+        (rf.late-bind/set-fn! :schemas/clear-by-frame! (fn [] (swap! clears inc) nil))
+        ((rf.test-support/make-reset-runtime-fixture
+           {:adapter rf.substrate.plain-atom/adapter :clear-app-schemas? true})
+         (fn [] :ran))
+        (is (= 1 @clears))
+        (finally
+          (reset! rf.late-bind/hooks snapshot)
+          (rf.late-bind/invalidate-cache! :schemas/clear-by-frame!))))))
+
 (deftest make-reset-runtime-fixture-pre-dispose-fires-before-adapter-dispose
   (testing "the `:pre-dispose` phase fires BEFORE adapter dispose and
             the `:post-dispose` phase fires AFTER — phase ordering is

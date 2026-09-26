@@ -710,7 +710,8 @@
                    stamps the immediate trigger.
     :ms            a NUMBER arms the frame-owned timer (delayed dispatch);
                    absent / non-number dispatches immediately to the router
-                   queue. A `:dispatch-later` always supplies a number; a plain
+                   queue. A `:dispatch-later` always supplies a number (its
+                   reserved body refuses any other `:ms`); a plain
                    `:dispatch` never does.
     :source-detail optional; rides onto the `:rf.event/dispatched` trace (e.g.
                    `{:ms n}` for the delayed path).
@@ -952,7 +953,20 @@
    ;; frame-owned `dispatch-later-timers` table inside `child-dispatch!`
    ;; (retain + cancel-on-destroy), carrying the `:source` /
    ;; `:source-detail {:ms n}` stamps.
+   ;;
+   ;; A missing or non-numeric `:ms` is refused before anything is queued:
+   ;; `child-dispatch!` reads a non-number as "dispatch now", which would turn
+   ;; a typo'd delay into an immediate dispatch nobody asked for. The typed
+   ;; throw reaches the always-on channel through the reserved-fx catch in
+   ;; `handle-one-fx`, and the rest of the `:fx` walk continues.
    (fn [frame-id parent-envelope {:keys [ms event]}]
+     (when-not (number? ms)
+       (rf.error/throw-error!
+         :rf.error/fx-handler-exception 're-frame.fx
+         (str "`:dispatch-later` needs a number of milliseconds under `:ms`; got "
+              (if (nil? ms) "none" (pr-str ms))
+              ". The event was not queued. Pass `{:ms <n> :event <event-vec>}`.")
+         {:extra {:ms ms}}))
      (child-dispatch! frame-id parent-envelope event
                       {:source        (if (:rf.machine/internal? parent-envelope)
                                         :machine-action
@@ -1017,7 +1031,13 @@
    (fn [frame-id _parent-envelope args]
      (when-let [f (rf.late-bind/get-fn :flows/reg-flow)]
        (let [[flow-id metadata derive-fn] args]
-         (f flow-id (assoc metadata :frame frame-id) derive-fn)
+         ;; Only a map takes the `:frame` key. Anything else reaches the
+         ;; registry as written, which refuses it with the same
+         ;; `:rf.error/invalid-flow-metadata` the public `reg-flow` raises,
+         ;; carrying the offending value.
+         (f flow-id
+            (if (map? metadata) (assoc metadata :frame frame-id) metadata)
+            derive-fn)
          ;; AFTER the hook returned, so a throw from `reg-flow` (a cycle, a
          ;; bad registration shape) requests nothing — there is no mutation
          ;; to settle. Inside the `when-let`, so a build without the flows
