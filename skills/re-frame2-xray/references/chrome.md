@@ -41,9 +41,7 @@ current-route slice; see [`panels.md` §Static mode](panels.md)).
 - **Tool frames are hidden unconditionally.** `:rf/xray` and
   `:rf/re-frame2-pair` are filtered out of the picker — invariant **I1**:
   Xray observes ANOTHER frame, never itself. There is no setting and no
-  override: rf2-y8doi.27 removed the orphaned `:show-tool-frames?` config
-  slot, which had lost its Settings UI on 2026-05-27 and could no longer
-  be written by anything. The exclusion set is
+  override — no `:show-tool-frames?` config slot exists. The exclusion set is
   `frame-switcher/internal-frames` and it applies unconditionally. (The
   "Show tool frames in picker" power-user toggle still described in
   `018-Event-Spine.md` / `007-UX-IA.md` is normative-future and is NOT
@@ -72,7 +70,7 @@ historical event, which drops to **RETRO** (inspecting a past epoch).
 `:mode` on `:live`, pinning the shown dispatch and its epoch while the buffer
 keeps collecting. `Space` again resumes; `l` (unshifted) snaps back to LIVE
 from either. There is **no mode pill and no animated head-row cue** — LIVE vs
-RETRO is conveyed by the `[◀ ▶ ⏭]` nav cluster plus the focused-row state (a
+RETRO is conveyed by the ribbon's `‹ › »` nav cluster plus the focused-row state (a
 background wash + a leading `>` caret on the focused row, which in LIVE tracks
 the head).
 
@@ -87,7 +85,8 @@ is reporting a stale epoch as current. Spec
 
 ## Time-travel: passive inspect vs explicit rewind
 
-The ribbon `[◀ ▶ ⏭]` nav cluster + the L2 list walk history **without
+The ribbon's `‹ › »` nav cluster (previous · next · fast-forward to
+head) + the L2 list walk history **without
 disturbing the live app** — picking an epoch is *passive INSPECTION*
 (panels rebase; the live frame does NOT move). Rewind is the *separate,
 explicit* **`Reset` button** on the far-right of the L3 tab-bar ribbon:
@@ -135,10 +134,10 @@ poppable item. Command verbs include Clear trace buffer, Reset
 redacted-events counter, Snapshot app-db, Toggle theme, Cycle
 reduced-motion, Jump to Settings, Toggle mode, Open pop-out, Close
 command palette (Cycle display density rides the separate `settings`
-source). There is **no epoch-history verb** — `:clear-epoch-history` was
-removed under rf2-y8doi.27 (Xray's `:epoch-history` slot is a mirror of
-the framework's ring, so the verb re-seeded itself on the next event);
-the Buffer tab's **Clear buffer now** is the real scrub. Source
+source). There is **no clear-epoch-history verb** — Xray's
+`:epoch-history` slot mirrors the framework's ring, so clearing it would
+re-seed on the next event; the Buffer tab's **Clear buffer now** is the
+real scrub. Source
 [`palette/sources.cljc`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
 
 ## Settings popup (`,` / `s`)
@@ -159,9 +158,9 @@ popup controls are:
 - **Keybindings** — a read-only chord catalogue + the master "Handle
   keys?" switch.
 
-**Density is NOT a popup control** — density is a config / `init!` /
-`configure!` concern (the
-`:general :density` slot + `:rf.xray/density` sub read the boot default).
+**Density is NOT a popup control** — it is set at boot (`init!` /
+`configure!`, the `:general :density` slot) or cycled at runtime with the
+palette's **Cycle display density** entry.
 **Panel width is NOT a popup control** — width is driven by the **drag
 handle** on the panel's outer
 edge (double-click to reset), persisted via `:general :panel-width-px`.
@@ -175,12 +174,13 @@ init! opts`. `init!` and `configure!` are NOT one layer —
 
 - **`configure!` sits BELOW the persisted Settings.** A value passed as
   `(configure! {:rf.xray/settings {:general {:epoch-history 50 :density
-  :compact}} :theme :dark})` becomes the new default for any user who
+  :compact} :theme :dark}})` becomes the new default for any user who
   has not yet mutated that key, and the popup overrides it at runtime.
   This is the layer a host wants for a **user-overridable** boot
-  default. Mind the nesting: bare top-level `:density` and
-  `:buffer-depths` are *not* `configure!` keys — density and epoch depth
-  go at their `:general` paths inside `:rf.xray/settings`.
+  default. Mind the nesting: bare top-level `:theme`, `:density` and
+  `:buffer-depths` are *not* `configure!` keys and are silently ignored —
+  theme, density and epoch depth go inside `:rf.xray/settings` (`:theme`
+  at its top, the other two under `:general`).
 - **`init! opts` sits ABOVE them.** `init!` loads the persisted Settings
   first, then writes each supplied opt through `update-setting!`, which
   persists — so for the keys they name the opts win, and they are

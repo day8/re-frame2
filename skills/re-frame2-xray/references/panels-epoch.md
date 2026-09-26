@@ -90,8 +90,8 @@ cascade's step model, so the two tabs tell one story. Two usage facts:
  drill-down is per-row click, which expands the row's raw trace-event
  map inline. (Spec 009's programmatic trace-buffer filter vocabulary is
  real for the API but is not Trace-panel UI.)
-- **No film-strip header** — the L2 events list owns spine navigation;
- this tab opts out of the shared `[◀ Prev] [Next ▶]` header.
+- **No per-panel prev/next header** — the L2 events list and the ribbon's
+ `‹ › »` cluster own spine navigation for every tab.
 
 **Open when:** "show me every raw op in this epoch", "is `:rf.fx/*`
 firing as expected?", "what order did these emit in?"
@@ -102,23 +102,23 @@ Spec: [`023-Trace-Panel.md` §3](https://github.com/day8/re-frame2/blob/main/too
 
 The L2 event spine above the panels carries the cross-epoch signal.
 
-**The row is glyph-free** — gutter glyphs, dispatch-origin prefix
-glyphs and the activity-badge cluster were all RETIRED under rf2-pjjwh.
-Don't send a user hunting for row decorations. What the row actually
+**The row is glyph-free** — no gutter glyphs, no dispatch-origin prefix
+glyphs, no activity-badge cluster. Don't send a user hunting for row
+decorations. What the row actually
 carries:
 
 - **A text `source` column** — the bare source name for substrate
  origins (`router`, `http`, `ssr-hydration`, `fx-dispatch`,
- `after-timer`, `tool`, …) and `ui` for app code (plus the un-stamped
- `:unknown` / `:other` / `:repl` / `:frame-init` defaults). Every row is
- tagged; the cell is never blank.
+ `after-timer`, `tool`, …) and `ui` for app code (`:ui`, and the
+ un-stamped `:unknown` / `:other` / `:repl` / `:frame-init` sources).
+ Every row is tagged; the cell is never blank.
 - **The `>` selection caret** + a background tint on the active row.
 - **Issue pink-wash** per row — a cascade carrying an issue washes its
  whole L2 row pink. Together with the Epoch cascade's per-step ✓/✗ this
  is the primary "which epochs are broken?" signal, and it is the only
  row decoration that ships.
 
-The retired signals did not vanish — error / HTTP / machine context
+Error / HTTP / machine context
 lives in the cascade record and surfaces inline in the Epoch and Trace
 panels, and the redaction count sits on the chrome ribbon. See
 [`018-Event-Spine.md` §Gutter glyphs / row badges / redaction marker —

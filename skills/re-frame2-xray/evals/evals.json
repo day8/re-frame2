@@ -239,7 +239,7 @@
  "The output says the Settings slider wins for the rest of the session but init! re-applies (and re-persists) its opt on the next boot, so init! opts are NOT a value the user's popup choice permanently overrides.",
  "The output states (or clearly implies) the four-layer merge order: defaults < configure! < persisted Settings < init! opts.",
  "The output names configure! {:rf.xray/settings {:general {:epoch-history N}}} (not a bare init! opt) as the way to set a user-overridable boot default.",
- "The output does NOT claim density is a Settings-popup control (the density radio was removed 2026-05-27 — density is a boot/configure! concern only)."
+ "The output does NOT claim density is a Settings-popup control (there is no density control in the popup — density is set at boot or cycled from the command palette)."
  ]
  },
  {
