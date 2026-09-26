@@ -1,17 +1,17 @@
 ---
 name: re-frame2-pair
 description: >
-  Pair-program against a **running** re-frame2 application via its
-  Tool-Pair contract — attach to a live shadow-cljs nREPL, inspect a
-  frame's app-db, dispatch events, hot-swap handlers, read the trace
-  stream and per-frame epoch history, time-travel with `restore-epoch`,
-  and replay a retained epoch strictly with `replay-epoch`. Use when the user is operating on (or wants to
-  operate on) a live runtime they have running locally. **Do not use**
-  for static spec reading, architecture questions, design discussion,
-  or ordinary source edits when no runtime is involved — those belong
-  to `skills/re-frame2/` (authoring) or direct spec reading. See
-  `references/vocabulary.md` for the surface glossary; vocabulary
-  matches alone do not justify activation.
+  Drive a **running** re-frame2 app from the agent over its shadow-cljs
+  nREPL: read a frame's app-db, subs and screen, dispatch or dry-run events,
+  hot-swap handlers, walk traces and epochs, time-travel with
+  `restore-epoch`, replay an epoch. Use whenever the user wants the agent to
+  look at or change their live app, read-only included — "what's in app-db",
+  "why didn't my view update", "what did that click do", "try this handler
+  fix". Not for code work with no runtime (`re-frame2`), new projects
+  (`re-frame2-setup`), touring the Xray panel (`re-frame2-xray`),
+  pair-session retros (`re-frame2-pair-retro`), v1 migration incl. its
+  boot-smoke (`re-frame-migration`). `dispatch` fires real effects; state
+  rewrites need the server's `--allow-writes`.
 allowed-tools:
   # Pair-MCP — single persistent nREPL connection per session
   # (not yet on npm — build/run from a re-frame2 clone; see docs/LOCAL_DEV.md).
@@ -71,6 +71,16 @@ Pair-program on a **live, running re-frame2 application** (a browser tab behind 
 **Router skill.** This file carries the core workflow and the guard rails; the op catalogue, recipes, error handling and setup live in `references/`, loaded on demand through [the loading map](#where-the-depth-lives--loading-map).
 
 **One runtime — the browser heap on the other end of the nREPL connection.** Every op this skill teaches or allow-lists reads and writes *that* heap and nothing else. Story variants are no exception: a variant is an ordinary frame in the same heap, so you enumerate and run it through `eval-cljs` over `re-frame.story/*` and then address it with the ordinary frame tools ([references/stories.md](references/stories.md)). Never start or call a second MCP server mid-session to reach a runtime — a separate process has a separate registry and a separate `app-db`, so a keyword that exists in both is two different objects, and composing reads across them produces confident nonsense. Explicitly headless, no-browser Story work is a different task with a different host: route it to [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md) and the authoring skill, and don't run it from inside a live pair session.
+
+## What this skill changes — say so before you do it
+
+You are operating on the developer's own running app, so every write is real. Tell the user before any of these, and why:
+
+- **`dispatch` and `replay-epoch` run the app's real handlers** — HTTP requests, navigation, storage writes and `:dispatch-later`s fire exactly as a user click would, and none of them is undone by a later restore. When you only need the consequence, use `dispatch-dry-run`, which suppresses declared effects and rolls the frame back.
+- **`eval-cljs` can do anything the page can**, is on by default, and is not covered by the write or privacy gates. Hot-swapped handlers and REPL-set state are ephemeral (gone on page reload); source edits with `Edit` / `Write` are permanent.
+- **`restore-epoch` and `replace-app-db` rewrite frame-state wholesale** and refuse (`:rf.error/writes-disabled`) unless the operator launched the server with `--allow-writes`. That gate is the operator's decision, not yours — relay the refusal rather than routing around it through an eval form.
+
+Everything else — `orient`, the reads, traces, epochs, recordings, screen reads — is read-only. You cannot reload the browser; ask the user to.
 
 ## The three primitives
 
@@ -144,7 +154,7 @@ Mental model: **breadth-first shallow (`orient`) → depth-first narrow (`read-s
 
 re-frame2 supports multiple, named frames (Spec 002). Most apps run one app frame (registered at the root — whatever id the app chose, e.g. `:app/main`); larger apps run several. **The public address is the frame (EP-0023)** — `image -> frame -> event stream`: target a **frame** id in a single process-local frame-id space, no realm/container coordinate. Every read/write op resolves an operating frame through a **four-tier cascade**: per-call `frame` arg (tier 1) → session pin (tier 2) → the sole registered **app frame** (tier 3) → nil/ambiguous (tier 4). Tier 3 is *unique resolution*, not synthesis. Framework-reserved `:rf/*` **tool frames** (Xray's `:rf/xray`, SSR/stories slots) are excluded from the ambiguity count, so a single-app session also running Xray auto-resolves to its one app frame. (`:rf/default`, if an app registers it, is an ordinary app frame — no framework privilege, still counted.) Full detail: [references/ops.md §Frames](references/ops.md#frames).
 
-**Set the session pin with the dedicated operating-frame tools** — three MCP tools surface tier 2 directly, no eval round-trip: `set-operating-frame {frame: ":foo"}` (pin — the escape from the tier-4 refusal; validates the id, returns the `{:frames :selected :operating}` triple), `reset-operating-frame {}` (clear), `get-operating-frame {}` (read; `:operating nil` means ambiguous). These three are NOT subject to the `:ambiguous-frame` refusal — they *resolve* it.
+**Set the session pin with the dedicated operating-frame tools** — three MCP tools surface tier 2 directly, no eval round-trip: `set-operating-frame {frame: ":foo"}` (pin — the escape from the tier-4 refusal; validates the id, returns the `{:frames :selected :operating}` triple), `reset-operating-frame {}` (clear), `get-operating-frame {}` (read; `:operating nil` means ambiguous). These three are exempt from the `:ambiguous-frame` refusal — they *resolve* it.
 
 When the operating frame is ambiguous (two-plus **app** frames, no pin), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write into the wrong frame is unrecoverable without `restore-epoch`. Reads refuse too (the validated read helpers return `:reason :ambiguous-frame` rather than silently reading `:rf/default`). Mirrors Spec 002 §Frame presets / lifecycle convention.
 
@@ -193,7 +203,7 @@ Load at most two references for a single task. Wanting three means the request s
 - **Read before you write — `orient` first, then drill into slices.** Your first read each session is `orient`, never a whole-frame read; ground a hypothesis by drilling into a *slice* (`read-sub` / `get-path` / `snapshot {path}`). See [Orient before you drill](#orient-before-you-drill) for the rule and the `:rf/xray` overflow.
 - **Prefer a structured op when one FITS the gesture; `eval-cljs` is the workhorse for the long tail, not a last resort.** Dedicated tools (`orient`, `read-sub`, `get-path`, `read-ui`, `dispatch`, …) give a validated, elided, single-round-trip answer for the gesture they own; epoch forensics, arbitrary-selector DOM reads, cross-referencing, and recovery are first-class `eval-cljs` work — see [recipes.md §eval-cljs is the workhorse](references/recipes.md#eval-cljs-is-the-workhorse). (Privacy caveat: raw `eval-cljs` is un-elided — see the privacy bullet below.)
 - **Hypothesis-test through `dispatch-dry-run`.** It runs the registered event with declared fx bodies suppressed, then restores the actual pre-call frame-state through `replace-frame-state!`. It requires enabled epoch recording; otherwise it refuses before dispatching. Both the simulation and the synthetic rollback can remain in history. Proceed only on `:ok? true` and `:rolled-back? true`. It does not simulate fx-dispatched child events, synchronously flush renders, or undo arbitrary side effects in handler/listener code; listeners can observe the temporary state. For a throwaway handler, register it with `eval-cljs`, then dry-run its event. See [the dry-run recipe](references/recipes.md#what-would-this-event-do-dry-run) for the limits and failure handling.
-- **WARNING — a `reg-event` handler returning `{:db <bare-map>}` REPLACES app-db wholesale** (does NOT merge), so a throwaway probe driven by a **live** `dispatch` nukes the entire frame's app-db, unrecoverable without `restore-epoch`. Two safe paths: prefer `dispatch-dry-run` (rolls back), or if you must commit return `{:db (assoc db …)}` from the live `db` cofx — never a bare literal map. Full treatment: [recipes.md §Experiment loop](references/recipes.md#experiment-loop).
+- **A `reg-event` handler returning `{:db <bare-map>}` replaces app-db wholesale** (it does not merge), so a throwaway probe driven by a **live** `dispatch` wipes the frame's app-db, unrecoverable without `restore-epoch`. Two safe paths: prefer `dispatch-dry-run` (rolls back), or if you must commit return `{:db (assoc db …)}` from the live `db` cofx — never a bare literal map. Full treatment: [recipes.md §Experiment loop](references/recipes.md#experiment-loop).
 - **Keep it in re-frame2's vocabulary.** Dispatch, reg-event, reg-sub, reg-machine, frame, epoch — speak the app's language. Avoid `reset!` of a frame's app-db except when surgically needed, and say so when you do.
 - **On ambiguous/failing tool resolution, read the project config (`shadow-cljs.edn`, `deps.edn`) rather than bouncing off the tool.** "Which build is this port?" / "where does this artefact live?" usually sits in the source config in plain sight.
 - **Experiment, don't speculate.** When an answer isn't obvious, probe at the REPL against live data.
