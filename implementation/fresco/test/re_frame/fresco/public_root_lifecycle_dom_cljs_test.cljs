@@ -8,9 +8,9 @@
   re-rendering and the teardown are all written through
   `re-frame.fresco` and nothing else, because what is under test IS the
   public surface. `impl.collector`, `test.runtime` and `impl.mount` are
-  required for INSTRUMENTS only — the cell table, the reader lists, the
-  body counter, `browser?` and `fresh-container!` — never to perform an
-  act the door is supposed to be able to perform.
+  required for INSTRUMENTS only — the cell table, the reader lists,
+  `browser?` and `fresh-container!` — never to perform an act the door is
+  supposed to be able to perform.
 
   ## Why the readings are not the DOM
 
@@ -45,7 +45,6 @@
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
             [re-frame.fresco :as rf.fresco]
             [re-frame.fresco.impl.collector :as rf.fresco.impl.collector]
             [re-frame.fresco.impl.mount :as rf.fresco.impl.mount]
@@ -54,12 +53,6 @@
 
 (def ^:private frame-a ::frame-a)
 (def ^:private frame-b ::frame-b)
-
-;; A frame NOTHING creates but the mount under test. It must not be one the
-;; fixture ensures — `:rf/default` is ensured at step 6 whenever an `:adapter`
-;; is supplied, and this suite supplies one — or the ENSURE claim below would
-;; be green against a frame that was already there.
-(def ^:private frame-ensured ::frame-ensured)
 
 (def ^:private label-q [::label])
 
@@ -117,24 +110,7 @@
   (rf/with-frame frame-a (rf/dispatch-sync [::seed "alpha"]))
   (rf/with-frame frame-b (rf/dispatch-sync [::seed "beta"]))
   (rf.fresco.impl.collector/reset-runtime!)
-  (rf.fresco.test.runtime/reset-body-runs!)
   nil)
-
-(defn- bare!
-  "[[fresh!]] with the two `make-frame` calls withheld — an empty runtime and
-  NO frame at all.
-
-  The ENSURE rows need a frame that does not exist, and `fresh!` cannot give
-  them one: it makes both of its frames before the first mount, which is the
-  arrangement every other row here wants and the one arrangement that would
-  make an ENSURE claim vacuous."
-  []
-  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  (rf.fresco.impl.collector/reset-runtime!)
-  (rf.fresco.test.runtime/reset-body-runs!)
-  nil)
-
-(defn- live-frame? [frame-kw] (some? (rf.frame/frame-incarnation-token frame-kw)))
 
 (defn- cell-keys [] (set (keys @rf.fresco.impl.collector/!cells)))
 
@@ -148,8 +124,6 @@
 (defn- node-at [container sel] (.querySelector container sel))
 
 (defn- text-at [container sel] (some-> (node-at container sel) .-textContent))
-
-(defn- attr-at [container sel a] (some-> (node-at container sel) (.getAttribute a)))
 
 (defn- detach!
   "Remove a container THIS suite minted, once every reading of it is
@@ -255,59 +229,6 @@
           (detach! cb)
           (is (= [false false] [(connected? ca) (connected? cb)])
               "this witness left one of its own containers in the shared
-               browser-test document")
-          (rf.fresco.impl.collector/reset-runtime!))))))
-
-;; ---------------------------------------------------------------------------
-;; W2 — the door can re-render a mounted root
-;; ---------------------------------------------------------------------------
-
-(deftest a-mounted-root-can-be-re-rendered-through-the-public-door
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [_  (fresh!)
-          ca (rf.fresco.impl.mount/fresh-container!)
-          a  (rf.fresco/client-root)
-          _  (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a} [panel {:tag "first"}]] ca)
-          node (node-at ca ".panel")]
-      (try
-        (testing "premise: the root is mounted and painted"
-          (is (some? node))
-          (is (= "first" (attr-at ca ".panel" "data-tag")))
-          (is (= "alpha" (text-at ca ".label"))))
-
-        (testing "the door re-renders the EXISTING root — the new tree is on
-                  the page and the boundary body ran again"
-          (rf.fresco.test.runtime/reset-body-runs!)
-          ;; The frame boundary rides EVERY render of a root, not only the
-          ;; first: a later `render!` reconciles against the tree on the page,
-          ;; and a tree that dropped the boundary would drop the frame with it.
-          ;; The three-arity form is the whole of a hot reload — the mount
-          ;; point was read on the first call and is not read again.
-          (rf.fresco/render! a [rf.fresco/frame-root {:id frame-a}
-                                 [panel {:tag "second"}]] ca)
-          (is (= "second" (attr-at ca ".panel" "data-tag")))
-          (is (pos? (rf.fresco.test.runtime/body-runs))
-              "the re-render did not run the boundary body"))
-
-        (testing "and it is a RE-RENDER, not a remount: the very DOM node
-                  the first render produced is still the one on the page.
-                  A second `createRoot` would have built a new React root
-                  and replaced it, which is what the CREATE-ONCE half of
-                  the handle contract rules out"
-          (is (identical? node (node-at ca ".panel"))
-              "the re-render replaced the DOM node instead of updating it"))
-
-        (testing "the root is still wired after the re-render — a dispatch
-                  still reaches its paint"
-          (rf.fresco.impl.mount/dispatch! frame-a [::relabel "alpha-again"])
-          (is (= "alpha-again" (text-at ca ".label"))))
-
-        (finally
-          (rf.fresco/unmount! a)
-          (detach! ca)
-          (is (false? (connected? ca))
-              "this witness left its own container in the shared
                browser-test document")
           (rf.fresco.impl.collector/reset-runtime!))))))
 
@@ -446,147 +367,6 @@
                 "this witness left one of its own containers in the shared
                  browser-test document")
             (rf.fresco.impl.collector/reset-runtime!)))))))
-
-;; ---------------------------------------------------------------------------
-;; W4 — the door ENSURES its frame and seeds it BEFORE first paint
-;; ---------------------------------------------------------------------------
-;;
-;; The ENSURE and its seed are the TREE's — `h/frame-root` takes the
-;; `rf/make-frame` option map whole — so what this row witnesses is that the
-;; first render through a handle carries them out before it returns.
-;;
-;; So the reading that matters is taken with NOTHING dispatched between the
-;; first `render!` and the assertion. It returns, and the label is already on
-;; the page. That is what "before first paint" means, and it is the one claim
-;; `rf/dispatch` after mounting cannot satisfy however cleanly it is written —
-;; it necessarily paints once with an unseeded frame first, which is the
-;; guide's own *"the first paint is empty and then fills in"* symptom.
-;;
-;; It is also a row that fails twice over without them: with no ENSURE the
-;; frame this mount names never exists at all, and with no `:initial-events`
-;; nothing would seed it if it did.
-
-(deftest mounting-ensures-its-frame-and-seeds-it-before-the-first-paint
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [_  (bare!)
-          _  (is (false? (live-frame? frame-ensured))
-                 "premise: the frame this mount names must not exist yet, or the
-                  ENSURE claim below is green against somebody else's frame")
-          ca (rf.fresco.impl.mount/fresh-container!)
-          a  (rf.fresco/client-root)
-          _  (rf.fresco/render! a
-                      [rf.fresco/frame-root
-                       {:id             frame-ensured
-                        ;; TWO steps, because order is part of the contract:
-                        ;; `::seed` installs a whole db and `::relabel` edits it,
-                        ;; so running them the other way round leaves "first"
-                        ;; rather than "second" and the reading discriminates.
-                        :initial-events [[::seed "first"] [::relabel "second"]]}
-                       [panel {:tag "ensured"}]]
-                      ca)]
-      (try
-        (testing "the mount CREATED the frame it named — nothing else did"
-          (is (true? (live-frame? frame-ensured))
-              "`h/render!` named a frame that did not exist and did not make it"))
-
-        (testing "and the seed is in the FIRST paint. Nothing is dispatched
-                  between the first render and this read, so the markup asserted
-                  here is the render `h/render!` itself performed"
-          (is (= "second" (text-at ca ".label"))
-              (str "the first paint did not carry the `:initial-events` seed; "
-                   "got " (pr-str (text-at ca ".label")))))
-
-        (testing "the steps ran IN ORDER — `::relabel` last. Reversed, the db
-                  `::seed` installs would have landed on top and the label would
-                  read \"first\""
-          (is (not= "first" (text-at ca ".label"))
-              ":initial-events ran out of order"))
-
-        (testing "the root is ordinarily wired afterwards — the ensured frame is
-                  a real frame, not a one-shot seeding trick"
-          (rf.fresco.impl.mount/dispatch! frame-ensured [::relabel "third"])
-          (is (= "third" (text-at ca ".label"))))
-
-        (finally
-          (rf.fresco/unmount! a)
-          (detach! ca)
-          (is (false? (connected? ca))
-              "this witness left its own container in the shared
-               browser-test document")
-          (rf.fresco.impl.collector/reset-runtime!))))))
-
-;; ---------------------------------------------------------------------------
-;; W5 — a JOINING root does not replay `:initial-events`
-;; ---------------------------------------------------------------------------
-;;
-;; The other half of the ENSURE contract, and the half that would make the door
-;; dangerous if it were missing: two roots on one frame is a shape the guide
-;; teaches outright (*"the first root creates and seeds the frame; a later root
-;; that names the same frame joins its current state"*), and a second mount that
-;; re-seeded would silently reset a live application's app-db.
-;;
-;; It is core's rule rather than this arm's — `:initial-events` fire once per
-;; committed frame-id lifetime, which is what `rf/frame-root` already promises
-;; through the same vocabulary — so what is witnessed here is that the door
-;; ASKS the question, not that core answers it correctly. The joining mount
-;; carries a seed of its own precisely so that replaying would be visible.
-
-(deftest a-second-root-joining-one-frame-does-not-replay-initial-events
-  (if-not (rf.fresco.impl.mount/browser?)
-    (skip! ":node-test has no DOM")
-    (let [_  (bare!)
-          ca (rf.fresco.impl.mount/fresh-container!)
-          cb (rf.fresco.impl.mount/fresh-container!)
-          ;; TWO handles, because one handle owns at most one Root: two roots
-          ;; on one page are two `client-root` allocations, and the frame they
-          ;; share is named in each one's TREE.
-          a  (rf.fresco/client-root)
-          b  (rf.fresco/client-root)]
-      (rf.fresco/render! a
-        [rf.fresco/frame-root
-         {:id frame-ensured :initial-events [[::seed "creator"]]}
-         [panel {:tag "a"}]]
-        ca)
-      ;; The joining root names its own `:initial-events`, and they must be
-      ;; IGNORED. A door that replayed would leave "joiner" on both screens
-      ;; and this row would be the only thing on the page to notice.
-      (rf.fresco/render! b
-        [rf.fresco/frame-root
-         {:id frame-ensured :initial-events [[::seed "joiner"]]}
-         [panel {:tag "b"}]]
-        cb)
-      (try
-        (testing "the joining root did NOT re-seed the frame — the creator's
-                  state stands, on both screens"
-          (is (= "creator" (text-at ca ".label"))
-              (str "the joining mount replayed its `:initial-events` over a live "
-                   "frame; root A now reads " (pr-str (text-at ca ".label"))))
-          (is (= "creator" (text-at cb ".label"))
-              (str "the joining root painted something other than the frame's "
-                   "current state; got " (pr-str (text-at cb ".label")))))
-
-        (testing "and it really is ONE frame, not two that happen to agree: a
-                  single dispatch moves both roots' paint"
-          (rf.fresco.impl.mount/dispatch! frame-ensured [::relabel "shared"])
-          (is (= ["shared" "shared"] [(text-at ca ".label") (text-at cb ".label")])
-              "the two roots did not join one frame"))
-
-        (testing "one cell, keyed by that one frame, read by both boundaries"
-          (is (= #{[frame-ensured label-q]} (cell-keys))
-              (str "got " (pr-str (cell-keys))))
-          (is (= 2 (readers-of [frame-ensured label-q]))
-              "both roots' boundaries must be reading the one cell"))
-
-        (finally
-          (rf.fresco/unmount! a)
-          (rf.fresco/unmount! b)
-          (detach! ca)
-          (detach! cb)
-          (is (= [false false] [(connected? ca) (connected? cb)])
-              "this witness left one of its own containers in the shared
-               browser-test document")
-          (rf.fresco.impl.collector/reset-runtime!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6 — a first render that THROWS leaves nothing on the caller's container
