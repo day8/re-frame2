@@ -187,7 +187,7 @@ So the choice is whether the boundary should create the frame or you already hav
 
 ??? note "True ownership is explicit"
 
-    Neither component destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway frame torn down on close), call `rf/make-frame` and `rf/destroy-frame!` ([below](#ending-and-resetting-a-frame)) from the component's mount and unmount lifecycle, e.g. inside a `create-class`.
+    Neither component destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway frame torn down on close), call `rf/make-frame` and `rf/destroy-frame!` ([below](#ending-and-resetting-a-frame)) from the component's mount and unmount lifecycle (a `useEffect` and its cleanup in a UIx or React component, `create-class` in Reagent).
 
 Re-mounting `frame-root` is idempotent. If the view re-mounts — a hot reload, a Story re-evaluation — the existing frame keeps its state: `app-db` is not reset and `:initial-events` do not run again, which is why hot reload doesn't lose your place. Changing a *mounted* `frame-root`'s `:id` or opts raises `:rf.error/frame-root-reconfigured`. To switch to a different frame, give the `frame-root` a React `key` that changes with it; to change the same frame's config, call `rf/make-frame` with the same `:id`, which updates the config without resetting state. For a genuinely fresh start, destroy and re-create the frame ([below](#ending-and-resetting-a-frame)).
 

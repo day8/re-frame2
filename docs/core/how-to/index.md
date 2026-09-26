@@ -1,42 +1,34 @@
 # How-to guides
 
-You've got a working app and one task in front of you. Each page here is a recipe for exactly that task — and nothing else. Goal first, then the steps, then the complete code, then the working result, in that order, so you never have to hold a half-built picture in your head. No theory in the way: by the time you're reaching for a recipe you don't need it sold to you again — you need it done.
+Each page here completes one task in an app you already have running: a form, login, a slow view, production error reporting. A recipe states the goal, shows the complete code, and links to the concept page for the *why* instead of re-teaching it. If you are still learning the [event pipeline](../glossary.md#event-pipeline), start with the [introduction](../introduction.md) and the pages from [events](../events.md) through [views](../views.md) first.
 
-> **Find the task, follow the recipe.**
-
-These recipes assume you've already built something — the [introduction](../introduction.md) and the pure-pipeline pages ([events](../events.md) through [views](../views.md)) get you there — and that the [event pipeline](../glossary.md#event-pipeline) is familiar. Every dispatch sets off one traversal of that pipeline: [handler](../glossary.md#event-handler) → [effect map](../glossary.md#effect-map) → effects → derivations → view → DOM. Every recipe below fills one stage of that pipeline for a real feature, and links to the concept page that owns the *why*.
-
-The recipes are grouped by where they sit in the life of an app — **build it**, then, when something's off, **debug it**, and finally **ship it**. (Testing has grown into [its own section](../testing/index.md) — handlers, subscriptions, views, and whole pipeline runs, one page each.) You don't read the recipes in order; drop into the group that matches what's in front of you. Each is self-contained, so jumping straight to "Report errors in production" without having read "Build a form" costs you nothing.
+Testing has [its own section](../testing/index.md).
 
 !!! note "If your views are Fresco"
 
-    The view code in these recipes is written on a React substrate adapter and registered `reg-view` views — the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Fresco](../fresco/index.md) accepts none of those spellings, so a recipe's view code will not run as written. What does carry over is everything below the view: the events, effects, subscriptions and frames are ordinary re-frame2 on either. For the view and the mount, read [Installation](../fresco/00-installation.md) and [Views and reads](../fresco/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../fresco/16-diagnostics.md) and [Performance](../fresco/19-performance.md).
+    The view code in these recipes is written for a React substrate adapter with `reg-view` views: the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Fresco](../fresco/index.md) accepts none of those spellings, so a recipe's view code will not run as written there. Everything below the view carries over unchanged: events, effects, subscriptions and frames. For the view and the mount, read [Installation](../fresco/00-installation.md) and [Views and reads](../fresco/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../fresco/16-diagnostics.md) and [Performance](../fresco/19-performance.md).
 
 ## Build it
-
-This is where most of your time goes: turning a feature request into stages of the event pipeline. Each recipe takes one common feature — a form, a paginated feed, a write that has to refresh the right reads — and shows the complete slice: the [events](../glossary.md#event), the [subscriptions](../glossary.md#subscription), the [effects](../glossary.md#effect), and the [view](../glossary.md#view), with nothing left as an exercise.
 
 | I want to… | Recipe |
 |---|---|
 | boot and mount the app, with hot reload | [Boot and mount an app](boot-and-mount-an-app.md) |
 | add login and keep the user logged in | [Add authentication](add-auth.md) |
-| build a form — local edits, validation, clean submit | [Build a form](build-a-form.md) |
+| build a form: local edits, validation, clean submit | [Build a form](build-a-form.md) |
 | load a feed one page at a time | [Paginate a feed](../../resources/how-to/paginate-a-feed.md) |
 | refetch the right server data after a write | [Invalidate after a mutation](../../resources/how-to/invalidate-after-a-mutation.md) |
 | catch bad state and malformed events early | [Validate with schemas](validate-with-schemas.md) |
 
 ## Debug it
 
-When the app does something you didn't ask for, you don't reach for `println` — you read the [trace](../glossary.md#trace-stream), the timeline every event already wrote down, one [epoch](../glossary.md#epoch) per dispatch ([why it works](../observability.md)). These recipes are how you read it: replaying the timeline, and tracking down a view that recomputes more than it should.
+Every dispatch records what it did on the [trace stream](../glossary.md#trace-stream), one [epoch](../glossary.md#epoch) per event ([Observability](../observability.md) explains how). These recipes read that record.
 
 | I want to… | Recipe |
 |---|---|
 | see exactly why the app just did that | [Debug with Xray](../../xray/index.md) |
 | find the view that re-renders too much, and stop it | [Find and fix a slow view](fix-a-slow-view.md) |
 
-!!! note
-
-    **Want to poke at the running app instead of reading a trace after the fact?** Several of these tasks have a *live* counterpart: attach to a running [frame](../glossary.md#frame), read its [app-db](../glossary.md#app-db), dispatch events, and hot-swap a handler from your editor through the Tool-Pair surface the pair MCP rides. That's pairing against a live runtime rather than following a recipe — the recipes here cover the after-the-fact read; the live path is the [pair skill](../../skills/re-frame2-pair.md)'s territory.
+To inspect a *running* app instead — read a [frame](../glossary.md#frame)'s app-db, dispatch events, hot-swap a handler from your editor — use the [pair skill](../../skills/re-frame2-pair.md).
 
 ## Ship it
 
@@ -44,21 +36,13 @@ When the app does something you didn't ask for, you don't reach for `println` �
 |---|---|
 | keep tokens, passwords, and large blobs out of traces | [Keep secrets and large things out of traces](keep-secrets-out-of-traces.md) |
 | hear about production errors with their full context | [Report errors in production](report-errors-in-production.md) |
-| set up dev and production builds — tools in, tools out | [Configure dev and production builds](configure-dev-and-prod.md) |
-| swap the substrate (the React-family rendering layer) — the event pipeline is identical on all of them | [Use UIx or reagent-slim](use-uix-or-slim.md) |
+| set up dev and production builds | [Configure dev and production builds](configure-dev-and-prod.md) |
+| render with UIx or reagent-slim instead of Reagent | [Use UIx or reagent-slim](use-uix-or-slim.md) |
 
-??? info "For JavaScript developers"
+## When a recipe is the wrong shape
 
-    Treat this section the way you'd treat the "Recipes" or "Guides" part of any framework's docs — [React](https://react.dev)'s "you might not need an effect", the Rails guide's "how do I do file uploads". They're task-shaped, copy-pasteable, and deliberately opinionated: one good way, shown fully, rather than a tour of the option space. When you want every option on a surface, the [API reference](../../api/README.md) carries the exact shapes.
+Some questions are design decisions rather than tasks:
 
-## Can't find your task?
-
-A recipe answers "how do I do X." Some questions sit a step *before* that — they're design decisions, not tasks, and a recipe is the wrong shape for them. Those live elsewhere:
-
-- "Where should this value live — [subscription](../glossary.md#subscription), [flow](../glossary.md#flow), [resource](../../resources/glossary.md#resource), or [machine](../../machines/glossary.md#machine)?" That's [the four homes](../glossary.md#the-four-homes-where-state-lives) decision, and it earns its own page rather than a recipe: [Where should this value live?](../where-state-lives.md)
-- Your task spans several features and you'd rather watch one app grow through them in order? The [RealWorld tutorial](../../resources/tutorial/index.md) builds auth, feeds, forms, and invalidation end to end — the same pieces as these recipes, assembled into one running app.
-- For the exact shape of any public function, the [API reference](../../api/README.md) is the complete catalogue.
-
-!!! note "Why split recipes from design decisions at all?"
-
-    Because they fail differently. A recipe you can follow *wrong* — and you'll know, because the result won't match the page; the failure is local and reversible. A design decision you can follow *right* and still regret six months later, when the value you parked in the wrong place is wired into forty subscriptions; the failure is non-local and expensive to unwind. Recipes are reversible, placement isn't — so the two get different pages, different shapes, and different amounts of your attention.
+- "Should this value be a [subscription](../glossary.md#subscription), a [flow](../glossary.md#flow), a [resource](../../resources/glossary.md#resource), or a [machine](../../machines/glossary.md#machine)?" See [Where should this value live?](../where-state-lives.md)
+- To watch one app grow through auth, feeds, forms, and invalidation in order, follow the [RealWorld tutorial](../../resources/tutorial/index.md).
+- For the exact shape of a public function, use the [API reference](../../api/README.md).

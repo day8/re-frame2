@@ -1,14 +1,14 @@
 # Configure dev and production builds
 
-You're about to ship. Two questions matter: what's actually in your production bundle, and which knobs do you need to touch? Take the second one first: *almost none*. The defaults are already correct. **This page is the pre-ship pass.** One piece at a time: the single flag that makes a build "production", then gating your *own* dev code so it disappears alongside the framework's, then the JVM/SSR variant, then the dev knobs, and finally the guardrails you can't turn off.
+Before you ship, you need to know what ends up in the production bundle and which settings to change. The defaults are correct, so the answer to the second is almost none. This page covers the one flag that makes a build "production", gating your own dev-only code, the JVM/SSR equivalent, the dev settings, and the guardrails that stay on in every build. It ends with a checklist.
 
 ??? info "Coming from React?"
 
-    You know `NODE_ENV=production` — the build where the bundler strips out dev warnings. re-frame2's flag is the same idea with a bigger reach. ClojureScript ships its production builds through Google's *Closure compiler* in `:advanced` mode — an aggressive optimiser that, among other things, deletes code it can prove will never run (this pass is called *dead-code elimination*, or DCE). ClojureScript also has a standard `goog.DEBUG` flag, and when you set it off, the Closure compiler doesn't just *skip* re-frame2's dev surface at runtime — it [**elides**](../glossary.md#elide) it from the bundle entirely: the dev-time schema diagnostics, the trace stream, epoch history, all gone. Zero cost, rather than a cost you've cleverly avoided. What *doesn't* go is anything the framework relies on to keep a promise of its own — and a few of those read a schema *you* wrote, so "I declared it" is not the test. The three piles below sort that out.
+    re-frame2's production flag plays the role of `NODE_ENV=production`, with a bigger reach. ClojureScript production builds go through the Closure compiler in `:advanced` mode, which deletes code it can prove never runs (dead-code elimination, or DCE). With ClojureScript's standard `goog.DEBUG` flag set to `false`, Closure [elides](../glossary.md#elide) re-frame2's dev surface from the bundle: dev-time schema checks, the trace stream, and epoch history are all absent rather than skipped at runtime.
 
 ## 1. Production is one flag
 
-Here is the whole production story — one line in your release build:
+One setting in your release build:
 
 ```clojure
 ;; shadow-cljs.edn — the release build
@@ -17,37 +17,37 @@ Here is the whole production story — one line in your release build:
         :release {:compiler-options {:closure-defines {goog.DEBUG false}}}}}}
 ```
 
-That's it. Most production CLJS builds already set `goog.DEBUG false`, so re-frame2 reuses the canonical flag rather than inventing its own — odds are you have this line already.
+Most production ClojureScript builds already set `goog.DEBUG false`, and re-frame2 reuses that flag rather than adding its own.
 
-Under that `:advanced` build with `goog.DEBUG=false`, the framework's *surfaces* — the distinct things you can attach to or read from, like the [trace stream](../glossary.md#trace-stream) or [schema](../glossary.md#schema) validation — sort into three piles. Know which is which before you ship.
+Under an `:advanced` build with `goog.DEBUG=false`, the framework's surfaces sort into three groups.
 
-**Elided — gone from the bundle, zero cost:**
+**Elided (absent from the bundle):**
 
-- **The schema checks you declared over your own code** — the `:schema` on an [event](../glossary.md#event), a [subscription](../glossary.md#subscription)'s return, an [fx](../glossary.md#effect)'s args, an *ambient* [cofx](../glossary.md#coeffect), a flow's output, and every `reg-app-schema` path on [`app-db`](../glossary.md#app-db). Those assert something about code you wrote, and a release build takes you at your word. Schemas stay *registered* so tooling can still introspect them; they are simply never *checked* at these checkpoints. What survives is what the framework relies on to keep a promise of its own — two lists down, and note that it can be the very same `:schema`, read at a different checkpoint: `:boundary? true` on the registration keeps the handler's own declaration in force. ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays))
-- **The trace stream** — the `:trace` listener stream and the per-frame trace rings; nothing emits, no [listener](../glossary.md#listener) ever fires.
-- **Epoch history** — the per-frame [time-travel](../glossary.md#time-travel) ring; nothing records, so there is nothing to rewind.
-- **Dev tooling attachment points** — [Xray](../glossary.md#xray) and the pair server consume the trace surface; their artefacts must not be on a release build's classpath.
+- **The schema checks you declared over your own code:** the `:schema` on an [event](../glossary.md#event), a [subscription](../glossary.md#subscription)'s return, an [fx](../glossary.md#effect)'s args, an *ambient* [cofx](../glossary.md#coeffect), a flow's output, and every `reg-app-schema` path on [app-db](../glossary.md#app-db). Schemas stay registered so tools can read them; they are never checked. The same `:schema` can survive when the framework reads it at a different checkpoint, as `:boundary? true` does below ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays)).
+- **The trace stream:** the `:trace` listener stream and the per-frame trace rings. Nothing emits and no [listener](../glossary.md#listener) fires.
+- **Epoch history:** the per-frame [time-travel](../glossary.md#time-travel) ring. Nothing is recorded.
+- **Dev tooling:** [Xray](../glossary.md#xray) and the pair server read the trace surface; keep their artefacts off a release build's classpath.
 
-**Survives — always-on by design:**
+**Kept in every build:**
 
-- **The event-emit and error-emit substrates** — one tight record per processed event, and one per [error record](../glossary.md#error-record). This is the production observability surface, and it has **one** door: a **frame `:observability` sink**. The frame declares `:handled-events` / `:errors` entries with an egress profile, you register the sink fn with `rf/register-observability-sink!`, and each record arrives already projected under that frame's classification. Wire your APM and error monitor there. For a seat across every frame — and for records whose frame does not resolve — declare the same entries once with `(rf/configure! {:observability …})` rather than per frame. ([Report errors in production](report-errors-in-production.md))
-- **Every guardrail in §5.**
-- **A handler registered `:boundary? true`** — a boolean key in the registration metadata map. Set it and that handler's own `:schema` is checked on untrusted ingress (an HTTP reply, a `postMessage` payload) regardless of the flag, at the router's resolve step, before any interceptor runs. In dev it changes nothing (the handler's `:schema` is already checked); in production it keeps that same check. `:interceptor-overrides` cannot remove it, and registering it without a `:schema` key is rejected on the spot with `:rf.error/at-boundary-missing-schema`. Set it on exactly those handlers; everything else stays zero-cost. The report survives with the check: a production rejection lands one `:rf.error/schema-validation-failure` record (`:source :boundary`) on the error-emit stream two bullets up, and settles that dispatch `:outcome :rejected` on the event-emit stream beside it. The rich trace — the offending value, Malli's explanation — is the dev-only half; the production record is structural, carrying identifiers and no payload, because a boundary payload is untrusted by definition. ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays))
-- **The framework's other load-bearing checks** — a **recordable** [cofx](../glossary.md#coeffect)'s `:schema`, which throws rather than record a value a later replay would reconstruct corrupt state from; a declared route's shape, checked whenever the schemas artefact is present and the route declares one; a managed-HTTP `:decode` schema, which is an *argument to* the framework's parse of the response rather than a diagnostic *over* it; and the reserved `:rf.server/*` effects' own arguments. Same reason each time: a promise kept only in dev is not a promise. Note that most of these read a schema *you* declared — the recordable cofx's comes off your own `reg-cofx`, exactly as a handler's `:schema` comes off your own `reg-event`, and only one of the two survives. What settles it is what the check is for, not who wrote it. ([C-000.35](../../../spec/000-Vision.md#contract--pattern-obligations) settles the rule.)
+- **The handled-event and error streams:** one record per processed event and one per [error record](../glossary.md#error-record). This is the production observability surface. A frame declares `:handled-events` / `:errors` entries under `:observability` with an egress profile, you register the sink function with `rf/register-observability-sink!`, and each record arrives already projected under that frame's classification. To cover every frame, and records whose frame does not resolve, declare the entries once with `(rf/configure! {:observability …})` ([Report errors in production](report-errors-in-production.md)).
+- **Every guardrail in [section 5](#5-the-guardrails-you-cant-turn-off).**
+- **A handler registered `:boundary? true`.** Its own `:schema` is checked on untrusted input (an HTTP reply, a `postMessage` payload) in every build, before any interceptor runs. In dev it changes nothing, since the check already runs. `:interceptor-overrides` cannot remove it, and registering it without a `:schema` throws `:rf.error/at-boundary-missing-schema`. A production rejection produces one `:rf.error/schema-validation-failure` record (`:source :boundary`) on the error stream and a `:rejected` status on that dispatch's handled-event record. The production record carries identifiers only, never the payload ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays)).
+- **Checks the framework relies on to keep its own promises:** a *recordable* [cofx](../glossary.md#coeffect)'s `:schema` (which throws rather than record a value a replay would rebuild corrupt state from), a declared route's shape (checked whenever the schemas artefact is present), a managed-HTTP `:decode` schema (part of parsing the response, not a diagnostic over it), and the arguments of the reserved `:rf.server/*` effects. Most of these read a schema you wrote; what decides survival is what the check is for, not who wrote the schema.
 
-**Opt-in:** the Performance API channel rides its own independent flag — `{:closure-defines {re-frame.performance/enabled? true}}` — for event/sub/fx/render timing in production via `PerformanceObserver`. It's off by default in every build, so you turn it on only when you specifically want production timing. ([Find and fix a slow view](fix-a-slow-view.md))
+**Opt-in:** event, sub, fx, and render timing through the browser Performance API has its own flag, `{:closure-defines {re-frame.performance/enabled? true}}`, and is off by default in every build ([Find and fix a slow view](fix-a-slow-view.md#4-only-slow-in-production-the-rf-timing-channel)).
 
 ??? info "From re-frame v1"
 
-    There is no separate tracing dependency and no `10x` preload-and-`closure-define` dance: dev builds trace by default with zero config, and production elision rides the `goog.DEBUG=false` you were already setting. The single flag does the whole job.
+    There is no separate tracing dependency and no `10x` preload or `closure-define` to add: dev builds trace by default, and production elision uses the `goog.DEBUG=false` you already set.
 
-??? note "Going deeper"
+??? note "Why elision rather than a runtime check"
 
-    Why is this *elision* and not a runtime `if`? The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` — a constant the Closure compiler can fold. In `:advanced` mode with `goog.DEBUG=false` the predicate folds to the literal `false`, every guarded body becomes provably unreachable, and DCE removes it along with everything only *it* referenced. The "three piles" above aren't a policy the runtime enforces; they're a consequence of which code is reachable once one constant is pinned. That's why the cost isn't "small" — it's structurally *absent*, and the elision probe (`npm run test:elision`) asserts the strings simply aren't in the bundle.
+    The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` constant. With `goog.DEBUG=false` in `:advanced` mode it folds to `false`, every guarded body becomes unreachable, and DCE removes it along with everything only it referenced. This repository's `npm run test:elision` probe checks that the strings are absent from the bundle.
 
 ## 2. Gate your own dev-only code
 
-The framework elides its own dev surface; yours needs the same gate so it disappears alongside it. Any trace listener or debug hook you wrote should sit behind the framework's own predicate, placed as the **outermost** form:
+Your own dev-only code, such as a trace listener or debug hook, needs the same gate to disappear with the framework's. Put the framework's predicate as the outermost form:
 
 ```clojure
 (when ^boolean re-frame.interop/debug-enabled?   ;; alias of goog.DEBUG
@@ -56,36 +56,30 @@ The framework elides its own dev surface; yours needs the same gate so it disapp
       (js/console.log (:operation trace-event) trace-event))))
 ```
 
-In production, `debug-enabled?` is the constant `false`, so the `when` body is dead code and the whole registration disappears with everything else.
+In production `debug-enabled?` is the constant `false`, so the registration is dead code and is removed.
 
-One rookie mistake quietly defeats this gate: `(when (and something debug-enabled?) ...)` does **not** constant-fold. Closure can't rule out `something`, so it can't prove the branch is dead, and the code ships in your bundle. Keep `debug-enabled?` as the outermost test, on its own. The same applies to every dev-only call you write — a `register-epoch-listener!`, a `trace-buffer` read, a `(rf/configure! {:trace-buffer …})` — each belongs under its own `when ^boolean re-frame.interop/debug-enabled?` guard.
+`(when (and something debug-enabled?) ...)` does not constant-fold: Closure can't rule out `something`, so the code ships. Keep `debug-enabled?` as the outermost test, on its own. The same applies to every dev-only call you write, such as `register-epoch-listener!`, a `trace-buffer` read, or `(rf/configure! {:trace-buffer …})`.
 
 ## 3. Shipping a JVM/SSR tier? One system property
 
-On the JVM there's no Closure compiler, so the same gate becomes a runtime flag instead of a compile-time one. It defaults to *on* for dev parity. A production [SSR](../../ssr/glossary.md#ssr) or webhook process facing untrusted input should flip it off, so the trace rings and epoch history don't retain user input:
+On the JVM there's no Closure compiler, so the gate is a runtime flag, and it defaults to on. A production [SSR](../../ssr/glossary.md#ssr) or webhook process that handles untrusted input should turn it off, so the trace rings and epoch history don't retain user input:
 
 ```
 java -Dre-frame.debug=false -jar app.jar
 ```
 
-Two spellings; pick whichever fits your deployment:
+You can use either spelling:
 
-- **Java system property `re-frame.debug`** — the `-Dre-frame.debug=false` above, on the JVM command line.
-- **Environment variable `RE_FRAME_DEBUG`** — set in the process environment, which is often the cleaner fit for a containerised deploy (`RE_FRAME_DEBUG=false` in the Dockerfile / orchestrator config, no command-line surgery).
+- the Java system property `re-frame.debug`, as above;
+- the environment variable `RE_FRAME_DEBUG`, often simpler in a container (`RE_FRAME_DEBUG=false` in the Dockerfile or orchestrator config).
 
-Either accepts the conventional false-y vocabulary — `false`, `0`, `no`, `off`, or the empty string, case-insensitively — and *anything else (including unset) leaves the flag at its default of `true`*. So a typo like `RE_FRAME_DEBUG=disabled` does **not** turn the gate off; it reads as an unrecognised value and dev mode stays on. If you set both at once, the **system property wins** over the env var.
+Each accepts `false`, `0`, `no`, `off`, or the empty string, case-insensitively. Anything else, including unset, leaves the flag on, so a typo like `RE_FRAME_DEBUG=disabled` keeps dev mode on. If both are set, the system property wins.
 
-The flag is read **once**, at namespace load, so set it before `re-frame.interop` loads — i.e. as a real process-level setting, not something you `System/setProperty` after the app has booted. With it off, every JVM-side dev surface drops to the same no-op floor that Closure DCE gives an `:advanced` + `goog.DEBUG=false` browser build: no trace rings, no epoch history retaining user input. The always-on event/error streams and the SSR error projector — the registered projector that turns a server-render failure into a safe, public-facing error page — keep firing; they exist precisely for this posture.
-
-??? note "Going deeper"
-
-    The browser path elides code; the JVM path can't (no Closure pass), so it reads `re-frame.debug` *once* into a plain `def` at namespace load and branches on that constant for the process lifetime. Reading once is deliberate: a per-call check would be a hot-path tax, and a value that can change mid-run would make "is tracing on?" ambiguous. The contract is the same on both substrates — *gated off ⇒ no retention of user input* — only the mechanism differs: DCE on CLJS, a load-time constant on the JVM.
+The flag is read once, when `re-frame.interop` loads, so set it at process level rather than with `System/setProperty` after boot. With it off, the JVM drops the same dev surfaces an `:advanced` browser build does: no trace rings and no epoch history. The handled-event and error streams, and the SSR error projector that turns a server-render failure into a safe public error page, keep working.
 
 ## 4. The dev knobs: three buckets, one rule
 
-Now the dev-side configuration. It lives in exactly three places, sorted by how long the configured thing lives, with one rule on top: **one option, one bucket.** Nothing is settable in two places, so there's never a question of where a setting "really" comes from.
-
-One term in the table below: a [**frame**](../glossary.md#frame) is one isolated, running instance of your app — its own `app-db`, event queue, and subscription cache. (Frames isolate *state*, not registrations; see [Frames](../frames.md).)
+Dev-side configuration lives in three places, sorted by the lifetime of what you configure. Each option has exactly one place, so there is never a question of where a setting comes from.
 
 | Lifetime | Surface | What lives there |
 |---|---|---|
@@ -95,7 +89,7 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
 
 ### The `configure!` bucket: process-wide data
 
-`configure!` takes a single nested map; its vocabulary is just four top-level keys, fixed-and-additive, shown here at their defaults:
+`configure!` takes one nested map with four top-level keys, shown here at their defaults:
 
 ```clojure
 (rf/configure!
@@ -105,34 +99,30 @@ One term in the table below: a [**frame**](../glossary.md#frame) is one isolated
    :observability nil})                             ;; production sinks; none by default
 ```
 
-A missing top-level key leaves that subsystem untouched, so you can pass just the one knob you want — `(rf/configure! {:trace-buffer {:events-retained 200}})` — or compose all four in one value. An unknown top-level key applies nothing, which is what lets a wrapper hand `configure!` a composed config without first filtering it.
+A missing top-level key leaves that subsystem untouched, so you can pass one setting, such as `(rf/configure! {:trace-buffer {:events-retained 200}})`, or all four at once.
 
-Applying nothing is not the same as saying nothing, though. The four keys above are the whole closed vocabulary and they are *bare*, so a bare key the runtime doesn't recognise is almost always a typo of a real one — `{:epoch-histroy {:depth 100}}` silently tuning nothing is exactly the bug worth catching. In dev builds an unknown **bare** (or `rf`-namespaced) key emits `:rf.warning/unknown-configure-key`, naming what you typed and what the runtime reads. Your call still returns `nil` and still applies nothing — the warning is a signal, not a refusal — and it is compiled out of production entirely. A key under **your own namespace** (`:myapp/thing`) stays silent, so a wrapper composing its own config keys alongside re-frame2's is unaffected.
+An unknown top-level key applies nothing. In dev builds, an unknown bare (or `rf`-namespaced) key such as `:epoch-histroy` also emits `:rf.warning/unknown-configure-key`, naming what you typed and the keys the runtime reads; the call still returns `nil`. A key under your own namespace (`:myapp/thing`) is silent, so a wrapper can pass its own keys through in the same map. The argument itself must be a map: a vector or `nil` throws `:rf.error/configure-bad-arg` in every build.
 
-One thing fails loud, though: the *argument* must be a map. `(rf/configure! [:trace-buffer …])` — a vector, say, because you mistyped — doesn't quietly do nothing; it throws. The applies-nothing behaviour is reserved for *unknown keys inside* a well-formed map; a malformed argument is a programming error and surfaces as one.
+The four keys:
 
-The four keys, in detail:
+- **`:epoch-history`**: depth of the per-frame epoch ring, the buffer of recent [app-db](../glossary.md#app-db) states behind Xray's [time travel](../glossary.md#time-travel); `:depth 0` disables it. `:trace-events-keep` (a non-negative integer) caps how many raw trace events each epoch record keeps. Dev-only. There is no scrub hook: an epoch leaving the process goes through `rf/project-egress`, and a forwarder that needs more than the built-in [data classification](../glossary.md#data-classification) applies its own scrub to the projected value, `(-> record rf/project-egress my-scrub)`, which never touches the in-process ring or `restore-epoch!` ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md#classification-and-time-travel-epoch-records-stay-raw)).
+- **`:trace-buffer`**: how many events the dev trace ring keeps, one slot per dispatched event however many trace events it emitted. Raise it for a bug that spans more user actions than the default 50. `:events-retained 0` keeps nothing while listeners still fire. Dev-only.
+- **`:elision`**: the size above which an *undeclared* large value on a wire-bound surface triggers the `:rf.warning/large-value-unschema'd` warning. The value is still forwarded whole; only values you declared large (or marked `:large?` in a schema) are replaced by the `:rf.size/large-elided` marker. `:rf.egress/threshold-bytes 0` turns the warning off. Declared `:large` elision is not dev-only: it shapes the records your production sinks receive ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md#two-axes-sensitive-and-large)).
+- **`:observability`**: the process default for production sinks, in the same grammar as a frame's `:observability` (below): `{:handled-events [<entry>…] :errors [<entry>…]}`. Declare your Sentry or Datadog policy once here instead of on every frame. Unlike the other three keys it applies in production, `nil` clears it (`(rf/configure! {:observability nil})`), and it is validated at the call: a malformed policy throws `:rf.error/bad-frame-classification` ([Report errors in production](report-errors-in-production.md#declare-it-once-for-the-whole-process)).
 
-- **`:epoch-history`** — depth of the per-frame *epoch ring* (a fixed-size circular buffer of recent [app-db](../glossary.md#app-db) states) that powers Xray's [time travel](../glossary.md#time-travel); `:depth 0` disables it. This one is dev-only: in production the ring elides whatever you set. It carries one more opt for the security-conscious deployment: `:trace-events-keep` (a non-negative integer) caps how many raw trace events each epoch record retains. There is no scrub hook — an epoch leaving the process is projected by `rf/project-egress` (the one record-level egress door; it recognises an epoch record by its stamped `:kind`), and a forwarder that needs more than the framework's built-in [data classification](../glossary.md#data-classification) covers composes its own scrub over the projected value, `(-> record rf/project-egress my-scrub)`. That never touches the in-process ring, so it never affects `restore-epoch!` fidelity. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
-- **`:trace-buffer`** — how many *events* (one dispatch each — one slot per event, regardless of how many trace events its run emitted) the dev trace ring retains; bump it for a bug spanning more user actions than the default 50. `:events-retained 0` disables retention while the surface stays live (listeners still fire; nothing is *kept*). Dev-only, same as `:epoch-history`.
-- **`:elision`** — the size threshold above which the walker flags an *undeclared* large value with the `:rf.warning/large-value-unschema'd` advisory on wire-bound surfaces. That advisory is a nudge, not a cap: the oversized value is still forwarded raw. Only values you *declared* large (or marked via a schema `:large?`) are replaced by the `:rf.size/large-elided` marker; `:rf.egress/threshold-bytes 0` turns off the runtime size auto-detection warning entirely. The `:large` elision this key sits alongside is *not* dev-only — it shapes the always-on listener records your production monitors receive, so it matters in a release build too. ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md))
-- **`:observability`** — the **process default** for production observation sinks, in exactly the grammar a frame's `:observability` takes (below): `{:handled-events [<entry>…] :errors [<entry>…]}`. Declare your Sentry / Datadog policy once here instead of restating it on every `make-frame`. The odd one out in this table in three ways, all deliberate. It is the only key that is *not* dev-only — it is the production wiring. It is the only one a *bare `nil` clears*: `(rf/configure! {:observability nil})` removes the default, because a deployment must be able to take a policy out without knowing what put it in. And it is the only one **validated at the call**: a malformed policy throws `:rf.error/bad-frame-classification` there and then rather than installing quietly and surfacing as a record that never arrived. ([Report errors in production](report-errors-in-production.md))
-
-!!! note "Looking for `:sub-cache`?"
-
-    It's gone. The old `:sub-cache {:grace-period-ms N}` knob — a deferred-disposal timer for subscriptions — no longer exists: a [subscription](../glossary.md#subscription) is now disposed synchronously the instant its last reader lets go, so there's no grace window to tune. If you have it in an old config, drop it (it'll no-op as an unknown key, but it's dead weight).
+There is no `:sub-cache` key: a [subscription](../glossary.md#subscription) is disposed as soon as its last reader goes away, so there is no grace period to tune.
 
 ### The `set-…!` bucket: swappable implementations
 
-You touch the `set-…!` bucket only to replace an implementation — a non-Malli validator or explainer via `schemas/set-schema-fns!` (on `re-frame.schemas`, not the `rf/` front porch), a [substrate](../glossary.md#substrate) via `rf/init!` — and on the happy path the boot wiring sets all of these for you, so most apps never call them directly.
+You use this bucket only to replace an implementation: a non-Malli validator or explainer with `re-frame.schemas/set-schema-fns!` ([Validate with schemas](validate-with-schemas.md#swap-the-validator-malli-is-the-default)), or a [substrate](../glossary.md#substrate) with `rf/init!`. Most apps call only `rf/init!`, at boot.
 
 ### The per-frame bucket: frame-lifetime overrides
 
-The per-frame bucket rides the frame config (two of its keys — `:fx-overrides` and `:interceptor-overrides` — can also arrive per-dispatch on the `dispatch` opts argument, where the per-call value wins on conflict; the rest are frame-config-only). Its keys are the frame-lifetime ones — `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and the production-relevant `:observability`:
+These keys live in the frame config: `:drain-depth`, `:fx-overrides`, `:interceptor-overrides`, `:interceptors`, `:initial-events`, `:on-destroy`, and `:observability`. `:fx-overrides` and `:interceptor-overrides` can also be passed per dispatch in the `dispatch` opts, where the per-call value wins.
 
 ```clojure
-;; A frame that ships its own error sink — survives goog.DEBUG=false,
-;; because production observability is a frame-owned policy, not a dev knob.
+;; A frame with its own error sink. Observability is frame policy, so it
+;; applies in production.
 (rf/make-frame
   {:id :my-app/main
    :initial-events [[:my-app/boot]]
@@ -140,39 +130,31 @@ The per-frame bucket rides the frame config (two of its keys — `:fx-overrides`
    :observability  {:errors [{:sink :my-app.sinks/sentry}]}})
 ```
 
-An `:observability` entry names a user- or library-owned `:sink` keyword (you register the sink; the framework routes pre-redacted records to it), with an optional `:rf.egress/profile`. The entry is a closed map — those two keys and no others; anything else fails loud at `make-frame`, and vendor configuration belongs in the sink fn you register, which closes over it. The two collections it accepts are `:handled-events` and `:errors` — the production read of the event-emit and error-emit streams, declared once on the frame rather than wired imperatively. ([Report errors in production](report-errors-in-production.md))
+An `:observability` entry names a `:sink` keyword that you register, with an optional `:rf.egress/profile`. The entry takes those two keys only; anything else throws at `make-frame`. Vendor configuration belongs in the sink function you register, which closes over it. The frame key accepts `:handled-events` and `:errors` ([Report errors in production](report-errors-in-production.md)).
 
-Most apps do not need this key at all: declare the policy once with `(rf/configure! {:observability …})` above and every frame inherits it. Reach for the frame key when *this* frame differs. The two compose **per stream**, not per map — a frame declaring only `:errors` still inherits the default's `:handled-events`, so naming one stream never silently switches the other off. Declaring a stream as the empty vector (`{:errors []}`) is how a frame opts *out*: it names the stream and names no sink, which is a different statement from leaving the key off. Exactly one of the two is consulted per record, so a sink listed in both fires once rather than twice. What a frame inherits is the **sink list** — records are still projected under that frame's own classification, so an admin frame that classifies more redacts more even while sharing the default's Sentry entry.
+Most apps don't need this frame key: declare the policy once with `(rf/configure! {:observability …})` and every frame inherits it. Use the frame key when one frame differs. The two combine per stream: a frame that declares only `:errors` still inherits the default's `:handled-events`, and `{:errors []}` opts that frame out of the error stream. Only one of the two is consulted per record, so a sink listed in both fires once. A frame inherits the sink list only; its records are still projected under its own classification, so an admin frame that classifies more paths redacts more while sharing the default's Sentry entry.
 
-Its safety-relevant knob is `:drain-depth`, which comes up next in the guardrails.
-
-!!! note "Why three buckets, not one config map?"
-
-    The split sorts settings by the lifetime and *shape* of the thing being set: process-wide data (a number, a map) goes through `configure!`; a swappable *implementation* (a function, an adapter) goes through `set-…!`; a per-frame *override* rides that frame's metadata. Each shape has exactly one home, so reading config is never a scavenger hunt and merging two configs never produces a conflict — a property worth more than the convenience of a single grab-bag map.
+`:drain-depth` is covered with the guardrails below.
 
 ??? info "Coming from React?"
 
-    No `.env` files, no `process.env` reads scattered through the app, no a-context-provider-here-a-prop-there config drift. The closest analogy is a single typed config object — except it's split by *lifetime*: process-global data, swappable services, and per-instance overrides each have their own setter, so two pieces of config can never disagree about who owns a key.
+    There are no `.env` files or scattered `process.env` reads. Configuration is split by lifetime: process-wide data through `configure!`, swappable implementations through their setters, and per-frame overrides on the frame, so no key has two owners.
 
-Tune narrowly, usually for one debug session. If the knob you want isn't here, it doesn't exist — new knobs arrive by design change, not by accumulating flags. The full key catalogue is [`configure!` in the API reference](../../api/re-frame.core.md).
+If the setting you want isn't listed here, it doesn't exist. The full catalogue is [`configure!` in the API reference](../../api/re-frame.core.md).
 
 ## 5. The guardrails you can't turn off
 
-These run in every build, dev and production alike. Each one [fails loud](../glossary.md#fail-loud-not-silent) — rejecting with a structured `:rf.error/*` instead of silently stripping and warning — so a failure surfaces like any other bug rather than slipping past you.
+These run in every build, dev and production alike, and each [fails loud](../glossary.md#fail-loud-not-silent) with a structured `:rf.error/*`:
 
-- **Drain depth** (default 100, per-frame `:drain-depth`) — a runaway dispatch [drain](../glossary.md#drain--run-to-completion) halts at the ceiling with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Already-settled events in the drain stay committed (each [commit](../glossary.md#commit) is atomic on its own); the offending event that tipped over the limit is the one that doesn't land. A drain near the ceiling is a bug to fix, not a number to raise — the error's recovery is `:no-recovery` precisely because hitting it always means runaway recursion.
-- **HTTP keyword cap** (`:rf.http/max-decoded-keys`, default 10000) — a hostile JSON reply can't intern unbounded keywords and slowly kill a long-running process; the decode fails onto your `:on-failure` path.
-- **Slow-loris timeout** (`:timeout-ms`, default 30000) — every [managed HTTP](../../resources/glossary.md#managed-http) request gets a wall-clock per-attempt timeout; opting out is deliberately loud (`:timeout-ms nil`) so a reviewer sees it.
-- **CRLF fail-fast** — server-side `:rf.server/*` response fx refuse to put a `\r` or `\n` on the wire: a header `:value` containing one throws with `:rf.error/header-invalid-value`, a redirect location containing one throws with `:rf.error/redirect-invalid-location`, and cookies go through structured maps that can't be string-spliced. Header injection is closed at the fx site, not normalised away.
-- **Open-redirect guard** — `:rf.server/redirect` is *caller-trusted* (you composed the location), so it only gets the CRLF check above. For a location built from untrusted input — the classic `?next=…` query param — reach for `:rf.server/safe-redirect` instead: it parses the URL, rejects `javascript:` / `data:` / `vbscript:` schemes (`:rf.error/safe-redirect-scheme-rejected`), rejects an unparseable URL (`:rf.error/safe-redirect-invalid-url`), and can gate to relative-only or an `:allow` host allowlist (`:rf.error/safe-redirect-host-disallowed`). Dispatching attacker-controlled input straight into `:rf.server/redirect` is the open-redirect bug this variant exists to close.
-- **Editor-URI scheme rejection** — click-to-source links refuse `javascript:` / `data:` / `vbscript:` schemes (everything else — `vscode:`, `idea:`, `cursor:`, future editor schemes — passes), so a custom editor template can't run script in your dev tab.
-- **The `:rf/*` reserved namespace** — registering anything under an `:rf`-prefixed id is refused territory; one prefix answers "is this framework-owned?".
+- **Drain depth** (default 100, per-frame `:drain-depth`): a runaway dispatch [drain](../glossary.md#drain--run-to-completion) halts at the limit with `:rf.error/drain-depth-exceeded` instead of freezing the tab. Events already settled stay committed (each [commit](../glossary.md#commit) is atomic on its own); the event that would exceed the limit does not run. The recovery is `:no-recovery`, because reaching the limit means a dispatch cycle to fix, not a number to raise.
+- **HTTP keyword cap** (`:rf.http/max-decoded-keys`, default 10000): a hostile JSON reply can't intern unbounded keywords in a long-running process; the decode fails and your `:on-failure` runs.
+- **Request timeout** (`:timeout-ms`, default 30000): every [managed HTTP](../../resources/glossary.md#managed-http) attempt has a wall-clock timeout, which defends against slow-loris servers. Opting out takes an explicit `:timeout-ms nil` that a reviewer can see.
+- **CRLF rejection**: the server-side `:rf.server/*` response effects won't put `\r` or `\n` on the wire. A header `:value` containing one throws `:rf.error/header-invalid-value`, a redirect location containing one throws `:rf.error/redirect-invalid-location`, and cookies are structured maps that can't be string-spliced.
+- **Open-redirect guard**: `:rf.server/redirect` trusts its caller and gets only the CRLF check. For a location built from untrusted input, such as a `?next=…` query param, use `:rf.server/safe-redirect`. It rejects `javascript:` / `data:` / `vbscript:` schemes (`:rf.error/safe-redirect-scheme-rejected`) and unparseable URLs (`:rf.error/safe-redirect-invalid-url`), and can restrict to relative URLs or an `:allow` host list (`:rf.error/safe-redirect-host-disallowed`).
+- **Editor-URI scheme rejection**: click-to-source links refuse `javascript:` / `data:` / `vbscript:` schemes (editor schemes such as `vscode:`, `idea:`, and `cursor:` pass), so a custom editor template can't run script in your dev tab.
+- **Reserved effects can't be overridden**: an `:fx-overrides` entry that targets a framework-owned effect such as `:rf.machine/spawn` is ignored and reported as `:rf.error/reserved-fx-override`; the real effect runs.
 
-!!! note "Why always-on, not dev-only?"
-
-    A guardrail that only runs in development is a guardrail you've disabled for the exact users who can attack you. Each of these defends a *production* threat — a recursive dispatch DoS, a keyword-interning DoS, header injection — so each survives `goog.DEBUG=false` by design.
-
-The elision mechanism itself — what disappears from a production build, and the two always-on streams that survive — is [Observability](../observability.md#production-the-wire-disappears--errors-dont)'s territory.
+Each of these defends against a production threat (a recursive dispatch loop, keyword interning, header injection), which is why none of them is dev-only. [Observability](../observability.md#in-production-builds) covers the elision mechanism and the always-on streams in depth.
 
 ## The pre-ship checklist
 

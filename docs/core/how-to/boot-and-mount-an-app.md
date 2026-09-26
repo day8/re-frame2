@@ -1,34 +1,29 @@
 # Boot and mount an app
 
-An app's entry/boot namespace has three jobs. Only three, and always the same three:
+Your app's entry namespace has three jobs:
 
 - require the namespaces that register the app's behaviour;
 - install the reactive adapter for the process;
 - render a view tree inside a frame.
 
-A [frame](../glossary.md#frame) is one isolated running instance of your app: its own
-[app-db](../glossary.md#app-db), event queue, runtime state, and subscription cache.
-One division of labour catches nearly everyone, so hear it before the code:
-`rf/init!` does not create a frame. It only installs the
-[adapter](../glossary.md#adapter) for your React substrate, such as Reagent or
-UIx. The frame is created later by the rendered
-[frame-root](../glossary.md#frame-root).
+On first page load that creates and seeds the app. On hot reload it re-renders
+the changed views without losing app-db.
 
-The whole recipe serves two moments. First page load should create and seed the
-app. Hot reload should re-render changed views without losing app-db.
+A [frame](../glossary.md#frame) is one isolated running instance of your app,
+with its own [app-db](../glossary.md#app-db), event queue, and subscription
+cache. `rf/init!` does not create one. It only installs the
+[adapter](../glossary.md#adapter) for your React substrate, such as Reagent or
+UIx. The frame is created when the [frame-root](../glossary.md#frame-root) you
+render first mounts.
 
 !!! note "Fresco apps boot the same way"
 
-    The three jobs are the substrate's, not Reagent's, and
     [Fresco](../fresco/00-installation.md#fresco-needs-a-substrate-adapter)
-    does not exempt itself from the second: it interprets Hiccup and owns the
-    render boundary, but the reactive container still comes from an adapter, so
-    a Fresco app opens with the same `(rf/init! …)` line. The third job is
-    spelled the same way too: a Fresco tree carries `[h/frame-root {:id …}]`
-    exactly where a Reagent tree carries `[rf/frame-root {:id …}]`, over the
-    same options and the same commit-owned ensure. Only the *root call* differs
-    — the same `client-root` / `render!` / `unmount!` trio Reagent has — and its opts
-    carries React-root options only.
+    still takes its reactive container from an adapter, so a Fresco app opens
+    with the same `(rf/init! …)` line. Its tree carries `[h/frame-root {:id …}]`
+    where a Reagent tree carries `[rf/frame-root {:id …}]`, with the same
+    options and behaviour, and it mounts through the same
+    `client-root` / `render!` / `unmount!` trio.
 
 ## The small shape
 
@@ -67,17 +62,16 @@ function. Keep the process setup inline in `run`, and put the DOM work in `mount
 Wire `run` as the build's `:init-fn` — for example
 `:init-fn counter.core/run` in `shadow-cljs.edn`.
 
-`rf/init!` is process setup. `mount!` is browser setup. The split is not
-ceremony: keeping the DOM touch inside `mount!` lets the namespace load in tests
-or Node hosts where `js/document` is not present.
+`rf/init!` is process setup and `mount!` is browser setup. Keeping the DOM work
+inside `mount!` lets the namespace load in tests or Node hosts where
+`js/document` is not present.
 
 The `ns` form is also part of boot. `counter.events` and `counter.subs` look
-unused in this namespace — nothing in the file names them again — but requiring
-them loads their `reg-event` and `reg-sub` forms. Registration happens as a
-direct result of loading the code; there is no manifest and no wiring step. A
-real app's entry/boot namespace usually requires every namespace whose
-top-level registrations must exist before the app runs: events, effects,
-coeffects, subscriptions, views, routes, resources, machines, and schemas.
+unused, but requiring them runs their `reg-event` and `reg-sub` forms. Loading
+the code is the registration; there is no manifest and no wiring step. A real
+app's entry namespace requires every namespace whose registrations must exist
+before the app runs: events, effects, coeffects, subscriptions, views, routes,
+resources, machines, and schemas.
 
 ## What the root does
 
@@ -89,27 +83,22 @@ This form:
  [counter-app]]
 ```
 
-is `frame-root`, the **ensure** component — *roots ensure; providers scope*.
-
-On the first mount it:
+is `frame-root`, the component that *ensures* a frame exists. On the first
+mount it:
 
 - creates the frame named by `:id`;
 - applies the frame config;
-- runs the `:initial-events` once, in order, to seed app-db;
+- runs the `:initial-events` once, in order, to seed app-db (they are ordinary
+  events with ordinary handlers);
 - scopes descendant views, subscriptions, and dispatches to that frame.
 
-Notice how the seeding happens. `:initial-events` are ordinary events, handled
-by ordinary handlers — even the initial values arrive by event. Those are the
-rules.
-
-On a later remount under the same `:id` — a hot reload, say — it reuses the
+On a later remount under the same `:id`, such as a hot reload, it reuses the
 live frame. It does not replay `:initial-events`, and it does not destroy the
-frame on unmount. That sentence is the whole hot-reload story: it is why app-db
-survives a reload.
+frame on unmount. That is why app-db survives a reload.
 
-Which cuts both ways. If you edit the setup event itself and want the new setup
-to run, reset the frame or reload the page. Hot reload preserves state by
-design, and it will preserve it right past your edited setup event.
+It also means an edit to the setup event does not run on reload. To run the new
+setup, reload the page, or [reset the frame](../frames.md#ending-and-resetting-a-frame)
+(`rf/destroy-frame!` followed by `rf/make-frame` with the same config).
 
 ## Hot reload
 
@@ -123,10 +112,9 @@ Two pieces make hot reload work:
 ```
 
 `defonce` keeps the same handle across reloads, and the handle keeps the same
-React root: the first `render!` through it creates the root, every later one
-updates that root. React should not get a second `create-root` call for a live
-DOM node, and with the adapter owning the root it never does — you hold no raw
-root, and there is no create-or-render branch to get right.
+React root: the first `render!` through it creates the root, and every later one
+updates that root. You never hold a raw React root or write a create-or-render
+branch.
 
 `^:dev/after-load` tells shadow-cljs to call `mount!` after a successful
 reload. That re-renders the edited views into the same root and the same frame.
@@ -138,32 +126,29 @@ explicitly; both are safe to repeat.
 
 ## Host listeners
 
-Some apps also install browser listeners: `hashchange`, `popstate`, `storage`,
-or similar. Those listeners are process/browser wiring, not frame creation.
+Some apps also install browser listeners, such as `storage`, `online`, or
+`visibilitychange`. They are browser wiring, separate from frame creation.
 
-Here's the trap. The browser removes listeners by exact function object
-identity, and after a hot reload your namespace holds *new* function objects —
-so removing "the listener" by name removes nothing, and each reload stacks
-another copy. The cure: keep the installed listener in a `defonce` cell, and
-remove that stored value before adding the new one. When listener code can
-change during development, reinstall the listener from a hot-reload hook as
-well as from `run`.
+The browser removes a listener by function identity, and after a hot reload
+your namespace holds *new* function objects. Removing "the listener" by name
+removes nothing, and each reload stacks another copy. Keep the installed
+listener in a `defonce` cell and remove that stored value before adding the new
+one. When listener code can change during development, reinstall it from the
+hot-reload hook as well as from `run`.
 
 ```clojure
-(defonce hash-listener (atom nil))
+(defonce storage-listener (atom nil))
 
-(defn- current-path []
-  (subs (.-hash js/location) 1))   ;; your URL-reading helper — hash-based here
-
-(defn- on-hashchange [_event]
-  (rf/dispatch [:rf.route/handle-url-change (current-path)]
+(defn- on-storage [event]
+  ;; A browser callback has no frame in scope, so name the frame explicitly.
+  (rf/dispatch [:settings/storage-changed (.-key event)]
                {:frame app-frame}))
 
 (defn- install-host-listeners! []
-  (when-let [previous @hash-listener]
-    (.removeEventListener js/window "hashchange" previous))
-  (.addEventListener js/window "hashchange" on-hashchange)
-  (reset! hash-listener on-hashchange))
+  (when-let [previous @storage-listener]
+    (.removeEventListener js/window "storage" previous))
+  (.addEventListener js/window "storage" on-storage)
+  (reset! storage-listener on-storage))
 
 (defn mount! []
   ...)
@@ -185,12 +170,14 @@ optional; use one only if it makes your app's entry point clearer.
 In this shape, put `^:dev/after-load` on `reload!`, not on `mount!`, so a
 reload reinstalls listeners and renders once.
 
-For history routing, prefer the routing helper where it fits. It already owns
-this same hot-reload-safe listener pattern.
+URL routing needs none of this: a frame declared `:url-bound? true` installs
+and manages its own `hashchange` / `popstate` listener (see the TodoMVC example
+below).
 
-## Two frame components (recipe only)
+## Two frame components
 
-**Roots ensure; providers scope.** Full split and edge cases:
+Roots ensure a frame exists; providers scope a frame that already exists. The
+full split and its edge cases are in
 [Frames](../frames.md#frame-provider-and-frame-root).
 
 | Need | Use |
@@ -220,81 +207,48 @@ The whole recipe, one moment per row:
 | First mount of `frame-root {:id ...}` | Ensure creates the frame (if absent) and runs `:initial-events`. |
 | Hot reload | The reload hook re-renders into the same root and reuses the same frame. |
 | Host listener edit | Reinstall the stored listener so the browser calls the current code. |
-| Fresh setup wanted | Reset the frame or reload the page; remounting does not replay setup. |
+| Fresh setup wanted | Reload the page, or destroy and re-create the frame; remounting does not replay setup. |
 
 ## No DOM work at namespace load
 
-Keep `render!` and browser listener installation out of top-level namespace
-code. Requiring registration namespaces is fine; browser work is not.
-Allocating the handle is fine too — `client-root` touches nothing until the
-first `render!`.
-
-Top-level registration is fine:
-
-```clojure
-(rf/reg-event :counter/initialise ...)
-(rf/reg-sub :counter/value ...)
-```
-
-Top-level DOM work is not:
+Top-level `reg-*` forms and allocating the `client-root` handle are fine at
+namespace load; `client-root` touches nothing until the first `render!`. Keep
+`render!` and listener installation out of top-level code, because the
+namespace may be loaded by a test host, a Story tool, or another namespace that
+wants the registrations without mounting the app.
 
 ```clojure
-;; Avoid this at namespace load.
+;; Don't do this at namespace load.
 (reagent-adapter/render! app-root [counter-app] (js/document.getElementById "app"))
 ```
 
-Why so strict? The namespace may be loaded by a test host, a Story tool, or
-another namespace that wants the registrations without mounting the app. Lazy
-DOM work keeps all of those safe.
-
 ## Troubleshooting
 
-Boot is where the "did you wire it up?" mistakes surface, and each one [fails loud](../glossary.md#fail-loud-not-silent) with a named [error](../errors.md) rather than a blank page. Three, in the order you're likely to meet them.
+Each of these wiring mistakes [fails loud](../glossary.md#fail-loud-not-silent)
+with a named [error](../errors.md) rather than a blank page.
 
-**You touched the substrate before `init!`.** `rf/init!` installs the
-[adapter](../glossary.md#adapter); until it runs there is nothing to render
-through. A `mount!` that beats `(rf/init! …)` fails at the `frame-root`'s
-frame creation with `:rf.error/no-adapter-installed`, naming the call; a
-`dispatch` or `subscribe`
-fired from a bare top-level form fails on its missing frame scope first
-(`:rf.error/no-frame-context`). Either way the cure is the same: boot before
-anything runs — in the shapes above, `run` installs the adapter on its first
-line.
-
-**You pointed `{:frame …}` at a frame that doesn't exist.** The scope shape
-only *scopes* a frame someone else created; it creates nothing. Point
-`[rf/frame-provider {:frame :checkout} …]` at a frame that was never
-created (nor ensured by a `frame-root`) and it throws
-`:rf.error/frame-provider-frame-absent`. When the subtree should bring its own
-frame into being, use the **ensure** component `frame-root {:id …}` instead —
-that's the whole difference between [the two components](#two-frame-components-recipe-only).
-
-**You forgot to require a registration namespace.** A `reg-event` or `reg-sub`
-runs only when its namespace loads, so a missing `require` means the
-registration never happened. Drop `counter.events` from the entry `ns` and the
-first `[:counter/inc]` dispatch — or `[:counter/value]` subscribe — is a loud
-`:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming the missing id,
-not a silent dead button. The fix is the require list in the `ns` form above.
+| Symptom | Cause | Fix |
+|---|---|---|
+| `:rf.error/no-adapter-installed` when the `frame-root` creates its frame | `mount!` ran before `(rf/init! …)` | Call `rf/init!` first, as `run` does above |
+| `:rf.error/no-frame-context` from a `dispatch` or `subscribe` | Called from a top-level form, or from a callback, with no frame in scope | Dispatch from views or handlers inside the `frame-root`, or pass `{:frame …}` |
+| `:rf.error/frame-provider-frame-absent` | A `frame-provider {:frame …}` names a frame that was never created | Create it with `make-frame` first, or use `frame-root {:id …}` ([the two components](#two-frame-components)) |
+| `:rf.error/no-such-handler` / `:rf.error/no-such-sub` naming an id you did register | The namespace holding that `reg-event` / `reg-sub` is never required, so it never loaded | Add it to the entry namespace's `:require` list |
 
 ## Worked examples
 
 - [`examples/core/counter/core.cljs`](../../../examples/core/counter/core.cljs)
   shows the smallest app shape.
 - [`examples/core/todomvc/core.cljs`](../../../examples/core/todomvc/core.cljs)
-  adds URL routing via `:url-bound? true` and a hash `:url-strategy` — the
-  frame installs the `hashchange` listener, so the example hand-rolls none.
-
-The UIx examples use the same lifecycle. Only the adapter and the render call
-change — the UIx adapter publishes the same `client-root` / `render!` /
-`unmount!` trio as Reagent, over a React element instead of hiccup.
+  adds URL routing with `:url-bound? true` and a hash `:url-strategy`; the
+  frame installs the `hashchange` listener, so the example writes none.
+- [`examples/substrates/uix/counter/core.cljs`](../../../examples/substrates/uix/counter/core.cljs)
+  is the same lifecycle on UIx: the UIx adapter has the same `client-root` /
+  `render!` / `unmount!` trio, taking a React element instead of hiccup.
 
 ??? info "From re-frame v1"
 
     The old `mount-root` pattern rendered again after a hot reload while a
-    global app-db survived as a top-level value — the state container was
-    ambient. In re-frame2 it is explicit: a frame. The provider ensures or
-    scopes that frame, and `:initial-events` seed it through the normal event
-    pipeline.
-
-That's the recipe. The full frame lifecycle is covered in
-[Frames](../frames.md).
+    global app-db survived as a top-level value. In re-frame2 the state
+    container is an explicit frame: `frame-root` ensures it, and
+    `:initial-events` seed it through the normal event pipeline. The full
+    frame lifecycle is in [Frames](../frames.md).

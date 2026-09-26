@@ -138,7 +138,8 @@ One table can hold several routes. Each request is matched on its `:request :met
    [:post   "/api/articles"]       {:reply {:ok {:article {:slug "hello"}}}}
    [:delete "/api/articles/old"]   {:reply {:failure {:kind :rf.http/http-4xx :status 403}}}}
   (fn []
-    ;; ... dispatch the events whose handlers fire those three requests ...))
+    ;; ... dispatch the events whose handlers fire those three requests ...
+    ))
 ```
 
 A request that matches no route is answered with a failure of kind `:rf.http/transport`, tagged `"no stub matched"` with the method and URL, through the normal `:on-failure` path. The miss shows up in your failure handler's state, where the next assertion catches it, so the table must name every request the path under test fires.

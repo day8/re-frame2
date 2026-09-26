@@ -1,26 +1,20 @@
 # Report errors in production
 
-Ship a re-frame2 app as an optimised production build and the compiler **[elides](../glossary.md#elide)** the whole dev-time *trace surface* — the rich "here's everything that just happened" feed that powers tools like [Xray](../glossary.md#xray). No [trace stream](../glossary.md#trace-stream), no per-frame [epoch](../glossary.md#epoch) rings, none of it. Good. You're not shipping a debugger to every user.
+This recipe sends production failures to an error monitor such as Sentry, with the context needed to act on them. A production build [elides](../glossary.md#elide) the dev-time [trace stream](../glossary.md#trace-stream) and [epoch](../glossary.md#epoch) history, but the error stream stays on in every build. For each failure it covers, it builds one [error record](../glossary.md#error-record) carrying:
 
-But it leaves a gap. An [event handler](../glossary.md#event-handler) can still throw at 3am, and when it does you want that failure to land in your monitor with real context attached — not a bare stack trace stripped of *what the app was doing*.
+- the [event](../glossary.md#event) that was being handled;
+- the [frame](../glossary.md#frame) it ran in;
+- the host exception, with its stack, when there is one.
 
-re-frame2 closes the gap with an **always-on error substrate**: a small slice of runtime that survives elision *on purpose*. For every failure the substrate covers it builds one structured **[error record](../glossary.md#error-record)** carrying three things worth having at 3am:
-
-- **the [event](../glossary.md#event) that was in flight** — the data vector describing what the user asked for;
-- **the [frame](../glossary.md#frame) it ran in** — the isolated app instance, with its own [app-db](../glossary.md#app-db); and
-- **the host exception** — the actual throwable, stack and all.
-
-The normal way that record reaches your monitor is a **frame `:observability` sink**. The frame declares which sink handles its errors and under what egress profile; the runtime then hands that sink an **already-projected** record — paths your app classified as sensitive arrive redacted, oversized ones elided, before your code sees them. Your integration never scrubs anything. That is the route this guide builds.
-
-One step at a time: declare the policy and register the sink, gate it so it can't leak dev data, then branch correctly on every record shape the substrate hands you. Smallest thing that works first. Safety as we go.
+The record reaches your monitor through a frame `:observability` sink. The frame declares which sink handles its errors and under which egress profile, and the runtime passes the sink an already-projected record: paths your app classified as sensitive arrive redacted and large values elided, so your integration scrubs nothing. The steps below register the sink, keep it out of dev builds, handle every record shape, and add event metrics.
 
 ??? info "Coming from plain JavaScript?"
 
-    You'd reach for `Sentry.init` plus the global `window.onerror` hook. That gives you the exception and its stack — genuinely useful — but it can't tell you what the app was actually *doing* when things went sideways. re-frame2's record carries the in-flight event alongside the throwable, so your issue tracker shows the *cause*, not just the crash site. The slogan: **production keeps the dossiers, not the firehose.**
+    `Sentry.init` plus `window.onerror` gives you the exception and its stack, but not what the app was doing. The error record carries the event being handled alongside the throwable, so the issue shows the cause as well as the crash site.
 
 ## 1. Declare the policy, register the sink
 
-Two moves. The **frame** says where its error records go; you register the concrete function against the id it named:
+The frame names the sink that takes its error records, and you register the function behind that name:
 
 ```clojure
 (ns app.monitoring
@@ -42,41 +36,43 @@ Two moves. The **frame** says where its error records go; you register the concr
       (Sentry/captureException (:exception record)))))
 ```
 
-The `:observability` map on the frame is a **policy**, not a callback: `:errors` lists the sink ids that receive this frame's error records, and each entry's `:rf.egress/profile` names the boundary the data is allowed to cross. That profile is what decides how much survives projection — §5 is where you choose it deliberately. `register-observability-sink!` binds the function to the id; it returns the `sink-id`, re-registering the same id replaces it, and a throwing sink is isolated from its siblings.
+Call `init!` once at boot, after `rf/init!`. If your app creates its frame with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put the `:observability` key in the `frame-root` options instead of calling `make-frame`, or declare it once for every frame as shown below.
 
-Routing is **fail-closed**: with no policy in reach nothing routes, and there is no `:rf/default` synthesised on your behalf, so you can't leak from a frame you never classified. Declaring the policy is not the same as routing, either — an entry naming a sink id you never registered routes nowhere, visibly and on purpose.
+`:observability` is a policy, not a callback: `:errors` lists the sink ids that receive this frame's error records, and each entry's `:rf.egress/profile` decides how much of the record survives projection ([step 5](#5-choose-the-profile-and-know-what-survives-elision)). `register-observability-sink!` binds a function to the id and returns the id. Registering the same id again replaces it, and a sink that throws doesn't affect other sinks.
+
+Routing fails closed: with no policy in reach, nothing is sent anywhere, and no default frame is invented for you. An entry naming a sink id you never registered sends nothing either.
 
 ### Declare it once for the whole process
 
-Sentry is a property of the *deployment*, not of any one frame, and most apps have more than one frame. So the same policy can be declared once at boot and inherited:
+Sentry belongs to the deployment rather than to one frame, and most apps have more than one frame, so declare the policy once at boot and let every frame inherit it:
 
 ```clojure
-  ;; (a′) instead of restating it on every make-frame
+  ;; instead of repeating it on every make-frame
   (rf/configure! {:observability {:errors [{:sink :app.sinks/sentry
                                             :rf.egress/profile :rf.egress/off-box-observability}]}})
 ```
 
-A frame then only needs its own `:observability` when it *differs*. Inheritance is **per stream**: a frame that declares `:errors` uses its own entries for errors and still inherits the default's `:handled-events`, and `{:errors []}` — the stream named with no sinks — is how one frame opts out. Exactly one source is consulted per record, so a sink id in both fires once. What a frame inherits is the **sink list**, never the redaction authority: its records are still projected under *its* classification, so an admin frame that classifies more redacts more while sharing the same Sentry entry.
+A frame then needs its own `:observability` only when it differs. Inheritance is per stream: a frame that declares `:errors` uses its own error entries and still inherits the default's `:handled-events`, and `{:errors []}` opts one frame out. Only one source is consulted per record, so a sink listed in both fires once. A frame inherits the sink list only; its records are still projected under its own classification, so an admin frame that classifies more paths redacts more while sharing the same Sentry entry.
 
-This also closes a gap the frame key alone cannot. Some error records have **no frame to ask** — an error raised with no frame in scope, a server-side hydration parse that failed before any frame existed, a teardown report from a frame that is already gone. Those reach the process default and nothing else, projected as though no frame vouched for them: the ids you triage on survive, the payload comes through `:rf/redacted`. A dead frame's id rides along as a diagnostic, and is never re-resolved — if a new frame has since taken that id, the dead one's report does **not** land in its sink.
+The process default also catches records that have no frame to ask: an error raised with no frame in scope, a server-side hydration parse that failed before any frame existed, a teardown report from a frame that is already gone. Those records keep their ids, but their payload arrives as `:rf/redacted`, because no frame's classification applies. A destroyed frame's id is kept as a diagnostic and never looked up again, so if a new frame has since taken that id, the old frame's report doesn't land in the new frame's sink.
 
-Two things behave unlike the other `configure!` keys, both on purpose. `(rf/configure! {:observability nil})` **clears** the default — a deployment must be able to take a policy out without knowing what put it in. And the policy is checked *at the call*: a malformed one throws `:rf.error/bad-frame-classification` immediately rather than installing quietly and surfacing weeks later as a record that never arrived.
+`(rf/configure! {:observability nil})` clears the default. The policy is checked when you call `configure!`: a malformed one throws `:rf.error/bad-frame-classification` immediately.
 
-That's a working bridge — but it's naive in three ways we'll fix in turn: it registers in dev too, it assumes every record carries an `:exception` (some don't), and it ships nothing useful about *what* the app was doing. The rest of this page is those three fixes.
+This bridge works but has three problems, fixed in the steps below: it also runs in dev, it assumes every record has an `:exception`, and it sends nothing about what the app was doing.
 
-One trap to disarm before you go further. There's a *different* surface, `register-listener! :trace`, and it's tempting because it carries everything. Don't reach for it here. It's dev-only and gets **elided** in a production build (`:advanced` + `goog.DEBUG=false`), so a monitor built on `:trace` works beautifully on your laptop and ships *nothing* in production — and you discover the gap mid-incident, which is the worst possible time. The error substrate behind the sink is the always-on half that survives elision. That's the one.
+Don't build a monitor on `register-listener! :trace` instead. The trace stream is elided from production builds, so such a monitor works on your laptop and sends nothing in production.
 
 ??? info "From re-frame v1"
 
-    v1 had no always-on error wire — production monitoring meant wrapping `dispatch` yourself or hanging off `window.onerror`. v2's substrate is new: the frame-owned `:observability` sink taught here, plus the process default of §1 that catches the records no frame owns (§8). Both are *designed* to survive elision. `register-listener!` is a separate, dev-only verb whose vocabulary is `:trace` and `:epoch` and nothing else — there is no bare-trace default and no compatibility alias, so an unknown stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
+    v1 had no production error stream; monitoring meant wrapping `dispatch` or relying on `window.onerror`. In re-frame2 the frame `:observability` sink and the process default both stay in production builds. `register-listener!` is a separate, dev-only function that accepts only `:trace` and `:epoch`; any other stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
 
 ??? info "Coming from Redux?"
 
-    The closest analogue is a logging / crash-reporting middleware you `applyMiddleware` once at store creation. The difference: this sink sits *outside* the data path entirely. It observes failures; it never sits in the reducer chain; it has no power to swallow, retry, or rewrite the action. It's a read-only seat by design — more on that in §5.
+    The nearest equivalent is crash-reporting middleware added once with `applyMiddleware`, except that this sink sits outside the data path. It observes failures and cannot swallow, retry, or rewrite anything ([step 5](#5-choose-the-profile-and-know-what-survives-elision)).
 
 ## 2. Gate it so it can't fire in dev
 
-The substrate is always on, in dev *and* production, so the bare sink from §1 ships to your real Sentry project every time something throws while you're developing. Not what you want. The fix is to register the sink function only in an actual production build — gate it behind your own build flag:
+The error stream is on in dev too, so the sink from step 1 would send to your real Sentry project every time something throws while you develop. Register the sink function only in a production build, behind your own build flag:
 
 ```clojure
 (ns app.monitoring
@@ -95,30 +91,21 @@ The substrate is always on, in dev *and* production, so the bare sink from §1 s
         (Sentry/captureException (:exception record))))))
 ```
 
-(That `^boolean` is a Clojure *type hint* on `interop/debug-enabled?` — it tells the compiler "this is a true boolean," which lets the production compiler constant-fold the check away. Read it as if it weren't there.)
+The three conditions:
 
-Three gates, redundant on purpose, each earning its keep:
+- `config/production?` is your own build flag. It is what keeps the bridge out of dev, because the error stream doesn't turn itself off.
+- `(not ^boolean interop/debug-enabled?)` catches a dev bundle deployed with production config: the sink doesn't register, and the silence on your dashboard tells you something is wrong. (`^boolean` is a type hint that lets the compiler fold the check away.)
+- `config/sentry-dsn`: without a DSN there is nothing to send to.
 
-- `config/production?` is your own build flag — the thing that *actually* keeps the bridge out of dev, since the substrate survives `goog.DEBUG=false` and won't gate itself.
-- `(not ^boolean interop/debug-enabled?)` is the belt-and-braces check. It catches one specific nasty deploy: a **dev** bundle that shipped with **production** config baked in. There, the sink refuses to register rather than fire dev-verbose data at Sentry — and the resulting silence on your dashboard is exactly the signal you want.
-- `config/sentry-dsn` means no DSN, no bridge. A missing DSN is a misconfiguration, not a reason to half-wire a monitor.
+Keep the `:observability` policy from step 1 declared unconditionally; gate only the sink function. In a dev build the policy then names no registered sink, and the framework prints the record to the console instead, which is what you want while developing.
 
-Notice what the frame keeps: the `:observability` policy from §1 stays declared unconditionally. It's data, and it costs nothing. What you gate is the *sink function*. In a dev build the policy therefore resolves to no registered sink, the record is routed nowhere, and the framework's own console fallback prints it for you — which is precisely what you want on your laptop, and why the gate belongs on the registration rather than on the declaration.
-
-Two more properties fall out of the substrate's design for free:
-
-- **Re-registering the same id replaces it.** Register `:app.sinks/sentry` twice and the second binding wins, so the bridge is **hot-reload safe**: dev refreshes won't stack duplicate sinks.
-- **A sink that throws is isolated.** The runtime wraps each invocation in its own try/catch, so a bug in *your* bridge can't block the [pipeline run](../glossary.md#run) or take down sibling sinks.
-
-To take the bridge back down — a feature flag flipping off, say — call `(rf/unregister-observability-sink! :app.sinks/sentry)`.
+Registering the same id again replaces the sink, so hot reload doesn't stack duplicates. Each sink call is wrapped in its own try/catch, so a bug in your bridge can't block the [pipeline run](../glossary.md#run) or other sinks. To remove the bridge, for example when a feature flag turns off, call `(rf/unregister-observability-sink! :app.sinks/sentry)`.
 
 ## 3. Branch on the category, never the prose
 
-Now the second naive assumption. The `record` your sink receives isn't one fixed shape — it's one of several related shapes (a *union*), and not all of them carry an `:exception`. So your bridge has to look at a record and decide *which* kind it's holding before it reads fields off it.
+Records don't all have the same shape, and not all of them carry an `:exception`. Tell them apart by `(:error record)`, a category keyword such as `:rf.error/handler-exception`, never by the message text, which may change between releases. Projection passes `:error` through untouched, along with the other summary slots: `:frame`, `:event-id`, `:elapsed-ms`, `:time`, and `:correlation`.
 
-Your first instinct might be to tell them apart by reading the message text. Resist it. The real discriminator is `(:error record)` — a category keyword like `:rf.error/handler-exception` — and it's stable in a way human-facing prose simply isn't. Projection leaves it alone: `:error` is a *summary* slot, passed through untouched, as are `:frame`, `:event-id`, `:elapsed-ms`, `:time` and `:correlation`.
-
-The single rule that keeps the branch honest: **check whether `:exception` is present; never assume it.** The `if-let` below does exactly that. (`if-let` is Clojure's "bind-and-test in one move": it pulls `(:exception record)` out, and if that value is non-`nil` it runs the first branch with `ex` bound to it, otherwise it runs the second.) Exception present, ship it as an exception; absent, ship a message:
+Check whether `:exception` is present rather than assuming it. With an exception, send it as one; without, send a message:
 
 ```clojure
 (rf/register-observability-sink! :app.sinks/sentry
@@ -133,39 +120,31 @@ The single rule that keeps the branch honest: **check whether `:exception` is pr
         (Sentry/captureMessage (str (:error record)) ctx)))))
 ```
 
-(`clj->js` converts the Clojure map into the plain JS object Sentry's API wants; `pr-str` renders the event vector as a readable string. Nothing re-frame-specific — just the two adapters you reach for when handing Clojure data to a JS library.)
+The records without a throwable are the invalid-operation categories, raised when the runtime refuses an operation rather than something throwing: a handler that was never registered, a [dispatch](../glossary.md#dispatch) into a destroyed frame. A stale closure or a race with teardown can trigger them in production, so they are kept in release builds, and they arrive with `:exception nil`:
 
-So why can the `:exception` be absent? Most failures carry the host throwable, but a meaningful set don't — the **invalid-operation** categories. These fire when the runtime *refuses* an operation outright rather than letting something throw: addressing a handler that was never registered, [dispatching](../glossary.md#dispatch) into a frame that's already been destroyed. They're production-reachable (a stale closure or a race against teardown can both trigger them), so they survive elision, and they arrive with `:exception nil`:
+- `:rf.error/no-such-handler` / `:rf.error/no-such-sub` / `:rf.error/no-such-fx` / `:rf.error/unregistered-cofx`: a dispatch, [subscription](../glossary.md#subscription), or effect named an id nothing is registered under. The last is raised when a handler's `:rf.cofx/requires` names a [coeffect](../glossary.md#coeffect) with no `reg-cofx`.
+- `:rf.error/frame-destroyed`: an operation targeted a frame that has been destroyed, typically a callback firing after teardown.
+- `:rf.error/write-after-destroy`: a write to app-db was dropped because the frame was already gone.
+- `:rf.error/override-fallthrough`: a frame's [image](../glossary.md#image), the set of [registrations](../glossary.md#registration) it resolves against, had no provider for an overridden id.
+- `:rf.error/no-frame-context`: a `subscribe` or `dispatch` using the ambient `rf/` form ran with no frame in scope, typically from a plain function outside a view or from an async callback. The record has `:frame nil`, so no frame policy can route it; only the process default from step 1 receives it (see [step 8](#8-the-two-records-no-frame-owns)). To avoid it, [capture the frame](../glossary.md#capture-frame) before the async boundary ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
+- `:rf.error/bad-frame-provider-arg`: a [`frame-provider`](../glossary.md#frame-provider) got a non-nil `:frame` that was neither a frame-id keyword nor a frame value, such as a string or a number.
+- `:rf.error/machine-spawn-unregistered-type`: a runtime spawn of an unregistered [machine](../../machines/glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused. The record carries only `:machine-id`, `:frame`, and `:reason`.
 
-- `:rf.error/no-such-handler` / `:rf.error/no-such-sub` / `:rf.error/no-such-fx` / `:rf.error/unregistered-cofx` — you dispatched / [subscribed](../glossary.md#subscription) / requested an id nothing is registered under (the last fires when a handler's `:rf.cofx/requires` names a [coeffect](../glossary.md#coeffect) with no `reg-cofx`).
-- `:rf.error/frame-destroyed` — an operation targeted a frame whose lifecycle already ended (a callback fired after teardown).
-- `:rf.error/write-after-destroy` — a write to app-db was suppressed because the target frame was already gone (the write-path partner of `frame-destroyed`).
-- `:rf.error/override-fallthrough` — an [image](../glossary.md#image) (the sealed set of [registrations](../glossary.md#registration) a frame resolves against) resolved to no provider for an overridden id.
-- `:rf.error/no-frame-context` — a frame-scoped op (a `subscribe` / `dispatch` using the ambient 1-arity `rf/` forms) ran with **no frame in scope** — the classic "a plain Reagent function can't see its frame" footgun, or a native async callback whose continuation fired after the run had already unwound. This record is itself **frameless** (`:frame nil`), so no *frame* policy can route it — the process default (§1, and §8) is the seat that sees it. ([Frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — and a callback that lost its frame is the price of breaking that rule; capture a [capture-frame](../glossary.md#capture-frame) before the async boundary to avoid it.)
-- `:rf.error/bad-frame-provider-arg` — a public [`frame-provider`](../glossary.md#frame-provider) got a non-nil `:frame` that was neither a frame id keyword nor a live frame value (a string, a number). Those two are the whole target grammar; this fails fast before the bad value reaches React context.
-- `:rf.error/machine-spawn-unregistered-type` — a runtime spawn of an unregistered [machine](../../machines/glossary.md#machine) (`:machine-id` with no inline `:definition`) was refused fail-closed. A structural-only record: `:machine-id`, `:frame`, `:reason`. (Machine *registration*-time rejections are dev-only and never reach this surface.)
+The `if-let` sends these through `captureMessage`.
 
-Because these have no throwable, your bridge falls through to `captureMessage` — the `if-let` handles it automatically. And there's a second reason to branch on the category keyword rather than the message: human-facing prose is allowed to change between releases. The structured slots are the contract; lean on those, not the prose.
+!!! note "Records that name the failing component"
 
-!!! note "Producer attribution rides the sink record"
-
-    Two categories fail a component **distinct** from the dispatched event: `:rf.error/interceptor-exception` (a user [interceptor](../glossary.md#interceptor) in the chain threw) and `:rf.error/coeffect-exception` (a [coeffect](../glossary.md#coeffect) supplier threw while assembling the handler's inputs). For both, `:event-id` still names the dispatched event while the *actually broken* component is something else — and the record your sink receives names it: `:failing-id` and the `:source-coord` definition site ride at its top level, and the human `:reason` rides its `:tags`, projected under the frame's classification like any other tree slot. So if grouping by "*this* interceptor is failing across many events" is what you need, group on `:failing-id`.
-
-??? note "Going deeper"
-
-    The error payload is a *tagged union* (a sum type) keyed by `(:error record)`, with `:exception` an *optional* field rather than a guaranteed one — so a correct consumer is a fold over the discriminant with a presence-check on the optional. The substrate guarantees the tag is a stable closed vocabulary while leaving human prose free to vary: the classic move of pinning the machine-readable variant tag and treating the human string as a non-contractual rendering. Branch on the tag, project the optional, ignore the prose.
+    For `:rf.error/interceptor-exception` (an [interceptor](../glossary.md#interceptor) threw) and `:rf.error/coeffect-exception` (a [coeffect](../glossary.md#coeffect) supplier threw), `:event-id` names the dispatched event, but the broken component is something else. The record names it in `:failing-id`, with its `:source-coord` definition site, at the top level; the human-readable `:reason` is under `:tags`. Group on `:failing-id` to see one interceptor failing across many events.
 
 ### Don't scrub the `:event` yourself
 
-You don't have to redact the event vector by hand to keep secrets out of Sentry. The record arrives already projected under the frame's classification and the entry's egress profile. Paths your app classified as sensitive arrive as `:rf/redacted`, and oversized payloads arrive as the `:rf.size/large-elided` marker rather than the full thing. That's [data classification](../glossary.md#data-classification) doing its job at the egress boundary ([Keep secrets out of traces](keep-secrets-out-of-traces.md)).
-
-The `:exception` is the one slot that does **not** get that treatment under the default profile — §5 is where that choice is made, and made deliberately.
+The record arrives already projected under the frame's classification and the entry's egress profile: sensitive paths arrive as `:rf/redacted`, and large payloads as a `:rf.size/large-elided` marker ([Keep secrets out of traces](keep-secrets-out-of-traces.md)). The `:exception` doesn't get that treatment under the default profile; [step 5](#5-choose-the-profile-and-know-what-survives-elision) covers when to change that.
 
 ## 4. Handle the frame-teardown report
 
-One record shape breaks bridges written for "an error is an event with an exception," and it deserves its own branch. When a frame is destroyed it runs a batch of best-effort cleanup hooks — [flow](../glossary.md#flow) teardown, [resource](../../resources/glossary.md#resource) cleanup, [schema](../glossary.md#schema) deregistration, trace-ring release. Any of those may throw, and the runtime reports *all the ones that threw together*, in one bounded record with **no `:event` and no top-level `:exception`**.
+When a frame is destroyed it runs best-effort cleanup hooks: [flow](../glossary.md#flow) teardown, [resource](../../resources/glossary.md#resource) cleanup, [schema](../glossary.md#schema) deregistration, trace-ring release. Any of them may throw, and the runtime reports all the failures together in one record with no `:event` and no top-level `:exception`, so it needs its own branch.
 
-This is the family where the sink's shape differs from the raw record, so it is worth seeing both. The substrate builds the union record with flat, category-specific slots:
+The runtime builds the record with flat, category-specific keys:
 
 ```clojure
 {:error         :rf.error/frame-teardown-failed
@@ -176,11 +155,11 @@ This is the family where the sink's shape differs from the raw record, so it is 
  :time          1718900000000}
 ```
 
-On the way to a sink, every slot that is not a canonical summary key (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is lifted onto a `:tags` map, so the projector walks it under the frame's classification and redacts the paths you declared — an app value folded into `:reason` among them. **So your sink reads `(get-in record [:tags :hook-failures])`, not `(:hook-failures record)`.** The same lift applies to the SSR categories below.
+On the way to a sink, every key other than the summary keys (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is moved into a `:tags` map, which the projector walks under the frame's classification, redacting the paths you declared, including any app value that ended up in `:reason`. So your sink reads `(get-in record [:tags :hook-failures])`, not `(:hook-failures record)`. The SSR categories below work the same way.
 
-One limit of that walk is worth knowing before you ship the sample below. The walker redacts by **declared path**; a *throwable* is an opaque host value it cannot see inside, so it passes through unchanged wherever it sits. Each `:hook-failures` entry carries its own nested `:exception`, and that nested throwable — message and `ex-data` included — is **not** sanitised by classification. The example extracts only `ex-message`; if a teardown hook's throwable can carry a secret, treat that string the way you would the top-level exception in §5.
+The projector redacts by declared path, and it cannot see inside a throwable, so each `:hook-failures` entry's nested `:exception` passes through unchanged, message and `ex-data` included. The example below sends only `ex-message`; if a teardown hook's exception can carry a secret, treat it like the top-level exception in [step 5](#5-choose-the-profile-and-know-what-survives-elision).
 
-Give it its own arm in front of the catch-all. (`case` dispatches on the value of `(:error record)`; the first arm matches the teardown category, and the final arm — with no key in front of it — is the default, reusing the §3 logic verbatim.)
+Add a `case` arm for the teardown category in front of the step 3 logic, which becomes the default arm:
 
 ```clojure
 (rf/register-observability-sink! :app.sinks/sentry
@@ -199,7 +178,7 @@ Give it its own arm in front of the catch-all. (`case` dispatches on the value o
                                                  :error (some-> exception ex-message)})
                                               (get-in record [:tags :hook-failures]))}}))
 
-      ;; Every other category — the §3 branch.
+      ;; Every other category: the step 3 branch.
       (let [ctx (clj->js {:tags  {:category (str (:error record))
                                   :event-id (str (:event-id record))
                                   :frame    (str (:frame record))}
@@ -210,44 +189,39 @@ Give it its own arm in front of the catch-all. (`case` dispatches on the value o
           (Sentry/captureMessage (str (:error record)) ctx))))))
 ```
 
-(`mapv` walks the lifted `:hook-failures` and builds a new vector — one summary map per failed step. `some->` guards against a missing `:exception`: it calls `ex-message` only when the exception is non-`nil`, returning `nil` instead of crashing otherwise.) Each entry names the teardown step that threw (`:hook` — a late-bound cleanup-hook key, or a guarded direct step such as `:frame/notify-machine-destruction!`), carries *that step's* throwable (`:exception`), and stamps `:where` with the catch boundary that recorded it (`:safe-call-hook!` for a late-bound hook, `:safe-teardown-step!` for a guarded direct step) for provenance. Teardown stays best-effort by design — there is no slot here you act on; the disposition is a fixed property of the category.
+Each entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Teardown is best-effort, so nothing in the record calls for action; it is there for diagnosis.
 
-!!! note "Why a single bounded report?"
+The runtime reports one record per destroy rather than one per failed step, so an SSR host that destroys a frame per request can't flood your monitor, and the steps that failed together stay together. If teardown aborts partway, the failures collected so far are still reported.
 
-    A frame destroy may run *many* teardown steps — optional cleanup hooks plus a few guarded direct steps — several of which could throw. The runtime *could* fan out one error per failed step, but on a long-lived SSR host that destroys a frame per request, that's a flood pointed straight at your error shipper. Instead it accumulates failures into one bounded record with a `:hook-failures` vector. You keep the which-steps-failed-together correlation (external shippers won't reliably re-group it), and you keep your error budget. The destroy *is* the fact; the failed steps are detail rows. It's also **emit-safe on a partial teardown**: entries are flushed through a finally-shaped boundary, so even if teardown aborts after step 3 of 7, the entries collected so far still ship.
+!!! note "SSR categories arrive here too"
 
-!!! note "SSR categories ride the same union"
+    On a [server-side rendering](../../ssr/glossary.md#ssr) host, these categories reach the same sink: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` or `:event-id`, their own keys are moved under `:tags` as above, and only some carry an `:exception`. A hydration payload that fails to parse before any frame exists produces a record with no frame, which only the process default from step 1 receives.
 
-    On the [server-side-rendering](../../ssr/glossary.md#ssr) tier, a handful of non-event categories arrive here too: `:rf.error/ssr-render-failed`, `:rf.error/ssr-streaming-writer-failed`, `:rf.error/malformed-hydration-payload`, `:rf.error/ssr-head-resolution-failed`, `:rf.error/sanitised-on-projection`, `:rf.error/ssr-ring-error-view-failed`, and `:rf.error/hydration-frame-id-mismatch`. They carry no `:event` / `:event-id`, each has its own flat keys (lifted onto `:tags` on the sink route, exactly as above), and some carry an `:exception` while others don't — one more reason the structural branch checks `:exception` presence rather than assuming it. The pre-frame hydration-parse path is *frameless*, so like `:rf.error/no-frame-context` no frame policy can route it — a process default (§1) or §8's listener is where it lands.
+## 5. Choose the profile, and know what survives elision
 
-## 5. Choose the profile — and know what survives elision
+The `:rf.egress/profile` on each `:observability` entry decides whether your sink sees the host exception:
 
-The `:rf.egress/profile` on each `:observability` entry is the one slot that is easy to get wrong, and it decides exactly one interesting thing: whether your sink sees the host throwable.
+- **`:rf.egress/off-box-observability`** is the default when you omit the key. It redacts sensitive paths and elides large ones, and passes the `:exception` through, since the stack is the point of hosted monitoring.
+- **`:rf.egress/public-error`** drops the record's top-level `:exception`. Use it when the destination is less trusted than your APM.
 
-- **`:rf.egress/off-box-observability`** — the default, and what you get if you omit the key. It redacts sensitive paths and elides large ones, but **walks the `:exception` through**. That's hosted monitoring, where the stack is the point.
-- **`:rf.egress/public-error`** — *drops* the record's top-level `:exception` entirely. Reach for it when the record's destination is less trusted than your APM.
+An unknown profile throws `:rf.error/unknown-egress-profile`.
 
-So if the whole reason you reached for a frame sink was to strip the host exception, you must say `:rf.egress/profile :rf.egress/public-error` explicitly — leaving the profile off keeps the exception. (An unknown profile is rejected fail-closed with `:rf.error/unknown-egress-profile`, so a typo can't silently downgrade the boundary.)
+Under the default profile, a secret in an exception's message or `ex-data` is not redacted, because the projector can't see inside a throwable. `:rf.egress/public-error` removes the record's own top-level `:exception` only. A throwable nested under `:tags`, such as the per-step exception in a teardown report ([step 4](#4-handle-the-frame-teardown-report)), still passes through.
 
-One honest caveat about the default. The projector walks the exception as it walks any other slot, and an opaque host throwable is a value whose provenance it cannot prove — so a secret that landed in an exception *message* or in `ex-data` is not redacted by classification. `:rf.egress/public-error` is the answer for that, with one boundary worth naming precisely: it drops the record's **top-level** `:exception` outright, and only that one. A throwable nested inside the `:tags` tree — the per-step `:exception` on each `:hook-failures` entry in §4 — is walked like any other value and survives the profile, because the walker cannot see inside an opaque throwable to redact it and no declared path replaces the slot that contains it. So the profile is total for the record's own throwable, and not a blanket scrub of every throwable the record transitively holds.
+What still runs in a production build (`:advanced`, `goog.DEBUG=false`), in short ([Observability](../observability.md) has the full account):
 
-It is also worth being precise about what is still running in production, because the line isn't obvious from outside. ([Observability](../observability.md) is the full account of what [elision](../glossary.md#elide) removes and spares; here's the short version a monitor needs.)
+- **Removed:** trace emission, `register-listener! :trace` delivery, the per-frame trace rings, [epoch](../glossary.md#epoch) history and [time travel](../glossary.md#time-travel), dispatch-id correlation, source coordinates, [Xray](../glossary.md#xray), and the pair tooling.
+- **Kept:** the error stream (frame sinks and the process default), the `:handled-events` stream ([step 7](#7-pair-errors-with-its-handled-events-sibling)), and the opt-in Performance API channel, which has its own compile-time flag.
 
-- **Gone** from an `:advanced` + `goog.DEBUG=false` bundle: every trace emit, `register-listener! :trace` delivery, the per-frame trace rings, [epoch](../glossary.md#epoch) history and [time-travel](../glossary.md#time-travel), dispatch-id correlation, source-coords, [Xray](../glossary.md#xray), and the pair tooling. Zero code, zero cost.
-- **Still firing:** this error substrate — its frame-sink route and the process default of §8; the `:handled-events` metrics sibling (§7); and an opt-in Performance API channel behind its own compile-time flag.
-- **The sink observes; it never steers.** What to *do* about a failure — recover, retry, fall back — is decided by the framework's typed per-category default ([Errors: dossiers, not log lines](../errors.md)), not by your sink: frame-destroyed recovers and emits, a failed subscription returns `nil`, a thrown handler [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. There is no error *hook* that swallows, substitutes, or re-runs. Your sink is a read-only seat, full stop.
+The sink only observes. What happens after a failure is fixed per category by the framework ([Errors](../errors.md)): a destroyed frame's operation is ignored and reported, a failed subscription returns `nil`, and a handler that throws [fails loud](../glossary.md#fail-loud-not-silent) without crashing the app. Recovery has already happened by the time your sink runs, and there is no hook to swallow, substitute, or retry.
 
-!!! note "Recovery and observation are separate"
+!!! warning "Gotcha: turn off the JVM debug flag on an SSR host"
 
-    There is no lever for crash handling that catches inside an interceptor's `:after` and rewrites the context. re-frame2 separates *recovery* (a fixed per-category framework default) from *observation* (your read-only sink). You can't swallow or retry from the sink; recovery already happened before your `fn` ran.
-
-!!! warning "Gotcha — flip the JVM gate on an SSR host"
-
-    On the JVM the diagnostic gate defaults **on**, the opposite of what you want in production. A production SSR host must set `-Dre-frame.debug=false` explicitly to shed the dev-verbose overhead (otherwise it retains user input in trace rings, per request). The good news: the error substrate fires under *both* settings, so this bridge keeps working there regardless — flipping the gate is purely about cost, not coverage.
+    On the JVM the debug flag defaults to on. A production SSR host should set `-Dre-frame.debug=false`, or it keeps user input in trace rings for every request ([Configure dev and production builds](configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property)). The error stream runs either way, so this bridge works regardless of the setting.
 
 ## 6. Verify it in dev
 
-The substrate is live in dev too — only your gates keep the bridge *off* — which is convenient, because you can eyeball the branch before you ship. Register a sink body **without the gates** against the same id, dropping a `println` where the Sentry calls go:
+Because the error stream runs in dev, you can check the branching before you ship. Register a sink without the gates, printing where the Sentry calls would go:
 
 ```clojure
 (rf/register-observability-sink! :app.sinks/sentry
@@ -259,17 +233,17 @@ The substrate is live in dev too — only your gates keep the bridge *off* — w
              :has-exception? (some? (:exception record)))))
 ```
 
-Now exercise a few failing paths and watch the records print **synchronously**:
+Then trigger a few failures; each record prints synchronously:
 
-- **A handler that throws.** Click the thing that dispatches it. You get `:rf.error/handler-exception` with `:has-exception? true`.
-- **A bad dispatch.** Dispatch an event id nothing is registered under. You get `:rf.error/no-such-handler` with `:has-exception? false` — proof, with your own eyes, that the invalid-operation categories arrive with `:exception nil`.
-- **A sensitive path in the event.** Dispatch an event whose handler classified one of its `:db` paths as sensitive, then look at the printed `:event`: it arrives as `:rf/redacted`. That is projection, and it is the thing the sink route does for you that no listener does.
+- **A handler that throws.** You get `:rf.error/handler-exception` with `:has-exception? true`.
+- **An unregistered event.** Dispatch an event id nothing is registered under. You get `:rf.error/no-such-handler` with `:has-exception? false`.
+- **A secret in the event.** Register the throwing handler with `{:sensitive [[:password]]}` and dispatch it with a `:password` in its arg-map. In the printed `:event`, the password reads `:rf/redacted`, because the record was projected before your sink saw it.
 
-That same handler failure also lands on Xray's trace surface as the full dev dossier — the firehose you have in dev, sitting right next to the tight record production will actually keep. Seeing both side by side is the fastest way to build the right intuition for what gets dropped at the elision boundary.
+The same failure also appears in Xray with the full dev trace, so you can compare what dev shows with what production keeps.
 
 ## 7. Pair `:errors` with its `:handled-events` sibling
 
-Crash reporting is the error route's job. Its sibling, the **`:handled-events`** stream, answers the *other* production-observability question: how many events am I processing, how fast, and how many aborted? It delivers one tight record per processed event after the run settles, and it is declared on the same frame policy:
+The `:handled-events` stream answers the other production question: how many events you process, how fast, and how many fail. It delivers one record per processed event after its run settles, declared in the same frame policy:
 
 ```clojure
 (rf/make-frame
@@ -287,13 +261,11 @@ Crash reporting is the error route's job. Its sibling, the **`:handled-events`**
         {:event-id (str event-id) :frame (str frame) :status (name status)}))))
 ```
 
-!!! warning "The slot is `:status` on a sink — on **every** profile"
+!!! warning "Gotcha: the result is in `:status`, and there is no `:time`"
 
-    Same value, two spellings, one per layer. The `:rf.observe/handled-event` record your sink receives carries the dispatch result under **`:status`**. The implementation-tier substrate record underneath it carries the identical keyword under **`:outcome`** — and no egress profile reaches down to hand you that record. `:rf.egress/profile` selects projection *options*, never a different record constructor: the runtime builds the `:rf.observe/handled-event` first and projects it afterwards. So `:rf.egress/local-raw` does not swap the spelling back; its one visible effect here is to keep the `:event` args slot that the off-box default omits. Destructuring `outcome` in a sink fn binds `nil` on every profile, and `(name nil)` throws.
+    The handled-event record your sink receives carries the dispatch result under `:status`, on every profile. (The runtime's internal record uses `:outcome`, but no profile hands you that record; `:rf.egress/local-raw` only keeps the `:event` args that the off-box default omits.) Destructuring `outcome` in a sink binds `nil`, and `(name nil)` throws. A handled-event record also has no `:time` key, so stamp your own clock; error records do have `:time`.
 
-    There is no `:time` slot on a handled-event record either, on any profile — stamp your own clock. (`:time` *is* a summary slot on an `:rf.observe/error` record, which is where the two shapes part company.)
-
-The `:status` slot earns its keep, because it reports the dispatch result across **every** way a run can fail — so a dispatch that aborted is never mis-reported to your APM as a clean `:ok`. It takes one of five values:
+`:status` takes one of five values, so a run that failed is never reported as `:ok`:
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
@@ -301,31 +273,31 @@ The `:status` slot earns its keep, because it reports the dispatch result across
 - `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; flows and `:fx` were skipped.
 - `:flow-error` — a flow's `:output` threw; the run halted before `:fx`.
 
-!!! warning "`:rolled-back` is the quiet one in production; `:rejected` is the loud one"
+!!! warning "In production, `:rolled-back` never appears; `:rejected` does"
 
-    The handled-event stream survives the production gate, but app-db schema validation does not. `reg-app-schema` is a development-time assertion: a production build registers your schemas and never checks them, so nothing is left to reject a candidate and `:rolled-back` has no producer. A dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. Do not read a quiet `:rolled-back` metric as evidence that no schema was violated — in production it is quiet by construction. If you need a real production check, put the invariant in the handler, or validate untrusted input by registering that handler `:boundary? true`.
+    App-db schema validation is dev-only, so in a release build nothing produces `:rolled-back`: a dispatch whose `:db` violates a registered schema installs anyway and reports `:ok`. A flat `:rolled-back` line proves nothing. For a production check, put the invariant in the handler, or register the handler that receives untrusted input `:boundary? true`.
 
-    That interceptor is the complement of everything in the paragraph above, and the two are worth holding side by side because they are easy to conflate. Its check is ungated, and so is its **report**: a refused payload settles `:status :rejected` on your handled-event sink and fans one `:rf.error/schema-validation-failure` record (`:source :boundary`) onto the error route. Both surfaces on this page see it, in a release build, with no wiring of your own. So a spike of `:rejected` on your dashboard is a real one, and it is the value to alert on — a flat `:rolled-back` line, in the same build, means nothing at all.
+    A boundary check does run in release builds, and so does its report: a refused payload reports `:status :rejected` on the handled-event sink and sends one `:rf.error/schema-validation-failure` record (`:source :boundary`) to the error sink, with no wiring of your own. A spike in `:rejected` is real, and it is the value to alert on.
 
-    The boundary record is deliberately **structural only**. Its key set is closed: `:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, `:time` — and nothing derived from the payload. No event vector, no offending value, no Malli explanation, not even the interpolated `:reason` the development trace carries. That is *stricter* than the redaction applied elsewhere on this page rather than weaker, and the reason is worth internalising: a validation failure's natural detail is the value that failed, and at a boundary that value is attacker-controlled or user-private by definition, so it can carry secrets under keys your declared schema never anticipated — precisely the keys no schema-aware redactor can be trusted to have seen. Omitting the slot is the only policy that holds. You can therefore count refusals, attribute each to a frame and an event id, and alert on the rate; to *diagnose* one you read the dev trace, or branch in your own handler code. See [Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays).
+    The boundary error record carries only `:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, and `:time`: no event vector, value, Malli explanation, or `:reason` text. A boundary payload is untrusted and may carry secrets under keys your schema never anticipated, so it is omitted rather than redacted. You can count refusals and attribute each to a frame and event id; to diagnose one, read the dev trace or branch in the handler ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays)).
 
-The two pair naturally: `:handled-events` tells you *something is wrong* (a spike of `:error` or `:rejected` on your dashboard); `:errors` tells you *what* (the throwable and its stack, ready for the issue tracker — or, for a boundary rejection, the event and schema ids that name the refused ingress).
+Together, `:handled-events` tells you that something is wrong (a spike in `:error` or `:rejected`), and `:errors` tells you what: the exception and its stack, or for a boundary rejection, the event and schema ids.
 
 ??? info "Coming from TanStack Query?"
 
-    Think of `:handled-events` as the per-query lifecycle telemetry you'd feed a metrics dashboard, and `:errors` as the crash channel you'd feed an issue tracker — except here they're two entries in one frame's policy, differentiated by data, not two separate libraries you bolt on.
+    `:handled-events` is the per-event telemetry you'd feed a metrics dashboard, and `:errors` the crash channel you'd feed an issue tracker, declared as two entries in one frame policy rather than two libraries.
 
 ## 8. The two records no frame owns
 
-Everything above is **policy-selected, projected** delivery: a frame declares where its records go, and the runtime projects each one under that frame's classification before your sink sees it. Two kinds of record have no frame to declare anything, and the **process default** from §1 is what owns them:
+Normally a frame's policy decides where its records go, and each record is projected under that frame's classification. Two kinds of record have no frame policy to consult, and only the process default from step 1 receives them:
 
-- **Frameless records.** A `:frame nil` record — `:rf.error/no-frame-context`, the pre-frame SSR hydration-parse path — has no owning frame to supply a policy, so no *frame* sink can route it. The process default owns it, projected as though no frame vouched for it: ids intact, payload `:rf/redacted`.
-- **Records belonging to a frame that is already gone.** No frame's policy is consulted for these, so a dead frame's bare id can never resolve to a same-id successor's sink. The process default delivers the record, keeping the dead id as a diagnostic.
+- **Records with no frame**, such as `:rf.error/no-frame-context` or an SSR hydration payload that failed to parse before any frame existed. The process default receives them with ids intact and the payload `:rf/redacted`.
+- **Records from a frame that has been destroyed.** No frame policy is consulted, so a destroyed frame's id can never reach the sink of a new frame that reused the id. The process default receives the record with the old id kept as a diagnostic.
 
-Declare the default once and both are covered:
+Declaring the default covers both:
 
 ```clojure
-(rf/configure! {:observability {:errors [{:sink ::sentry}]}})
+(rf/configure! {:observability {:errors [{:sink :app.sinks/sentry}]}})
 ```
 
-There is no other door. re-frame2 used to offer a corpus-wide listener stream beside the sink — one unprojected fan-out per process, delivered regardless of any frame's policy — and it is **retired**: a raw seat nobody's policy governs is fail-open by construction, and the two things it alone carried are the two above. If you want a *wider* projection — classified-sensitive paths in the clear and large values whole, rather than redacted and elided — ask for it as a profile: `{:sink ::sentry :rf.egress/profile :rf.egress/local-raw}`. That is a trusted-local option set, not an escape hatch to the substrate envelope: what arrives is still a projected `:rf.observe/error`, with the same `:kind` and the same summary slots.
+There is no unprojected, process-wide error listener; every record reaches you through a sink, projected. If you want sensitive paths in the clear and large values whole, ask for a wider profile: `{:sink :app.sinks/sentry :rf.egress/profile :rf.egress/local-raw}`. That profile is meant for a trusted local destination, and what arrives is still a projected `:rf.observe/error` with the same `:kind` and summary keys.
