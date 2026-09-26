@@ -24,9 +24,7 @@
   Criterion 3 (Xray's own interactions) has no row: this panel is
   READ-ONLY by contract (Spec 016 §Active owners and causes — opening it
   pins nothing, and it registers no `:rf.resource/*` event), so a click
-  row would assert about a control the panel does not have. The
-  `resources_cljs_test` suite pins the read-only claim
-  structurally, against the registrar.
+  row would assert about a control the panel does not have.
 
   ## W5 IS THIS PANEL'S OWN ROW, AND IT IS THE ADVERSARIAL ONE
 
