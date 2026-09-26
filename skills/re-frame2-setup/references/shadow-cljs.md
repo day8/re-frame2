@@ -59,7 +59,7 @@ The top-level `:deps {:aliases [:shadow :dev]}` applies to `release` too: Story 
 
 ## nREPL — only if you'll use `re-frame2-pair`
 
-If the author plans to attach `re-frame2-pair` (the live-inspection skill) to the running app, shadow-cljs's dev build needs nREPL enabled. shadow-cljs **enables nREPL by default** when you run `shadow-cljs watch <build>` — no config change required. The port is written to `.shadow-cljs/nrepl.port` (or `target/shadow-cljs/nrepl.port` on older versions), which is where `re-frame2-pair`'s `discover-app` MCP tool looks for it. To pin the port explicitly (e.g. for editor integrations), add a top-level `:nrepl {:port 7002}` to `shadow-cljs.edn`. Not required for greenfield.
+If the author plans to attach `re-frame2-pair` (the live-inspection skill) to the running app, shadow-cljs's dev build needs nREPL enabled. shadow-cljs **enables nREPL by default** when you run `shadow-cljs watch <build>` — no config change required. The port is written to `.shadow-cljs/nrepl.port` (or `target/shadow-cljs/nrepl.port` on older versions), which is where `re-frame2-pair`'s `discover-app` MCP tool looks for it. To pin the port explicitly (e.g. for editor integrations), add a top-level `:nrepl {:port 7002}` to `shadow-cljs.edn`. nREPL is only half of it: `re-frame2-pair` also needs its `re-frame2-pair.runtime` preload (plus `day8/re-frame2-schemas`) on the dev build, and that wiring belongs to the pair skill's own §Setup — not to this scaffold. Not required for greenfield.
 
 **Dev-only — bind to localhost.** nREPL is a remote-evaluation surface; in development always leave it bound to `localhost` (the shadow-cljs default). Never expose the nREPL port on `0.0.0.0` or a public interface — anything that can connect can evaluate arbitrary code in the running JVM.
 
@@ -67,7 +67,7 @@ If the author plans to attach `re-frame2-pair` (the live-inspection skill) to th
 
 Things you might pull in by reflex from other CLJS framework setups that re-frame2 does not require:
 
-- **No preload, no `:devtools` block** — core has no preload analogue to re-frame v1, and hot reload is the `^:dev/after-load` hook above. Xray, the in-app devtools panel, is the one optional preload, attached later by its own recipe (the generated README's *Next steps* links it).
+- **No preload, no `:devtools` block** — core has no preload analogue to re-frame v1, and hot reload is the `^:dev/after-load` hook above. The optional preloads — Xray, the in-app devtools panel, and `re-frame2-pair`'s runtime — are each attached later by their own recipe (the generated README's *Next steps* links Xray; the pair skill carries its own).
 - **No `:closure-defines`** for re-frame2 in dev — the one exception is opting into the performance-API instrumentation (Spec 009), `:compiler-options {:closure-defines {re-frame.performance/enabled? true}}`, only if the author asks.
 - **No special compiler options** for dev. `{:compiler-options {:warnings {...}}}` is up to the author.
 - **No SSR build entry** unless the author wants SSR — opt-in via `day8/re-frame2-ssr` (a separate `:target :node-script` build). Out of scope for greenfield.
