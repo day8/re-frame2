@@ -44,7 +44,6 @@
 (def ^:private skill-md (delay (slurp-rel "SKILL.md")))
 (def ^:private errors-md (delay (slurp-rel "references/errors.md")))
 (def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
-(def ^:private hot-reload (delay (slurp-rel "references/ops.md")))
 
 ;; User-facing docs + the variant leaf the MCP-surface
 ;; conformance drift guards assert against.
@@ -53,7 +52,6 @@
 (def ^:private local-dev-md (delay (slurp-rel "docs/LOCAL_DEV.md")))
 (def ^:private testing-md (delay (slurp-rel "docs/TESTING.md")))
 (def ^:private stories-md (delay (slurp-rel "references/stories.md")))
-(def ^:private wire-size-md (delay (slurp-rel "references/wire-size-budget.md")))
 
 ;; Live Pair-MCP catalogue cardinality. The generated descriptor
 ;; manifest is the single source of truth for the tool count; read its
@@ -154,20 +152,12 @@
 ;; Assertions
 ;; ---------------------------------------------------------------------------
 
-(defn- recipe-section
- "Return the chunk of recipes.md starting at the heading matching
- `anchor` and ending at the next `## ` heading. Empty if no match."
- [md anchor]
- (let [pat (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)"))]
- (or (some-> (re-find pat md)) "")))
-
 (defn- contains-any? [text alts]
  (some #(str/includes? text %) alts))
 
 (defn- section-from
  "Return the chunk of `md` starting at the heading containing `anchor`
- and ending at the next `## ` heading (or EOF). Empty if no match.
- Generalises `recipe-section` to any markdown leaf."
+ and ending at the next `## ` heading (or EOF). Empty if no match."
  [md anchor]
  (let [pat (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)"))]
  (or (some-> (re-find pat md)) "")))
@@ -177,7 +167,7 @@
  (let [[leaf-name md] (if (= :stories leaf)
  ["stories.md" @stories-md]
  ["recipes.md" @recipes-md])
- section (recipe-section md recipe-anchor)]
+ section (section-from md recipe-anchor)]
  (is (seq section)
  (str leaf-name " missing the `" recipe-anchor "` heading — "
  "did the recipe get renamed? Update either the recipe or "
@@ -199,21 +189,13 @@
 ;; rename: the SKILL.md guidance still pointing at the old name.
 ;; ---------------------------------------------------------------------------
 
-(deftest skill-router-still-points-at-recipes
- (testing "SKILL.md mentions references/recipes.md as the recipe leaf"
- (is (str/includes? @skill-md "references/recipes.md"))))
-
-(deftest skill-router-still-points-at-ops
- (testing "SKILL.md mentions references/ops.md as the op leaf"
- (is (str/includes? @skill-md "references/ops.md"))))
-
-(deftest skill-router-still-points-at-errors
- (testing "SKILL.md mentions references/errors.md as the error leaf"
- (is (str/includes? @skill-md "references/errors.md"))))
-
-(deftest skill-router-still-points-at-hot-reload
- (testing "SKILL.md links to the hot-reload-coordination section in ops.md"
- (is (str/includes? @skill-md "ops.md#hot-reload-coordination"))))
+(deftest skill-router-still-points-at-its-leaves
+ (doseq [[target what] [["references/recipes.md"          "the recipe leaf"]
+                        ["references/ops.md"              "the op leaf"]
+                        ["references/errors.md"           "the error leaf"]
+                        ["ops.md#hot-reload-coordination" "the hot-reload-coordination section in ops.md"]]]
+ (is (str/includes? @skill-md target)
+ (str "SKILL.md no longer points at " what " (`" target "`)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Setup-recipe — discoverable + pointing at the preload mechanism.
@@ -268,9 +250,9 @@
 
 (deftest hot-reload-doc-still-describes-probe
  (testing "ops.md §Hot-reload coordination describes the probe-based contract"
- (is (str/includes? @hot-reload "Hot-reload coordination"))
- (is (str/includes? @hot-reload "probe"))
- (is (str/includes? @hot-reload "tail-build"))))
+ (is (str/includes? @ops-md "Hot-reload coordination"))
+ (is (str/includes? @ops-md "probe"))
+ (is (str/includes? @ops-md "tail-build"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Privacy-contract drift
@@ -609,7 +591,7 @@
 
 (deftest snapshot-recipe-uses-plural-frames-not-singular-frame
   (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame`"
-    (let [section (recipe-section @stories-md "Diff two variants")]
+    (let [section (section-from @stories-md "Diff two variants")]
       (is (seq section)
           "stories.md missing the 'Diff two variants' heading.")
       (is (str/includes? section "snapshot {frames:")
@@ -660,7 +642,7 @@
                "backstop.")))
     ;; The Experiment-loop recipe's restore step must call the dedicated tool,
     ;; not the eval form, as its primary invocation.
-    (let [section (recipe-section @recipes-md "Experiment loop")]
+    (let [section (section-from @recipes-md "Experiment loop")]
       (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
       (is (str/includes? section "mcp__re-frame2-pair__restore-epoch {epoch-id:")
           (str "the Experiment-loop restore step does not lead with the "
@@ -706,7 +688,7 @@
 ;; numbers.
 
 (deftest experiment-loop-rewinds-to-the-pre-dispatch-anchor
-  (let [section (recipe-section @recipes-md "Experiment loop")]
+  (let [section (section-from @recipes-md "Experiment loop")]
     (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
 
     (testing "the restore step passes the ANCHOR, not the baseline result"
@@ -784,7 +766,7 @@
 ;; `:handler-fn` — out of range.
 
 (deftest experiment-loop-names-the-handler-fn-hash-wire-key
-  (let [section (recipe-section @recipes-md "Experiment loop")]
+  (let [section (section-from @recipes-md "Experiment loop")]
     (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
 
     (testing "the fingerprint is named by its actual wire key"

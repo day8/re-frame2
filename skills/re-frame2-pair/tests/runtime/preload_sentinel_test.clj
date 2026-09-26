@@ -45,17 +45,13 @@
  form))
  all-forms))
 
-(deftest sentinel-defonce-present
+(deftest sentinel-defonce-installs-the-global-marker
  (is (some? sentinel-form)
  (str "preload/re_frame2_pair/runtime.cljs must contain a top-level "
  "`defonce` form that references the \"__re_frame2_pair_runtime\" "
- "string (the global marker the MCP server probes).")))
-
-(deftest sentinel-references-globalThis
+ "string (the global marker the MCP server probes)."))
  (is (form-contains? #(= 'js/globalThis %) sentinel-form)
- "Sentinel install must target `js/globalThis` so it's reachable from any context."))
-
-(deftest sentinel-carries-session-id
+ "Sentinel install must target `js/globalThis` so it's reachable from any context.")
  (is (form-contains? #(= 'session-id %) sentinel-form)
  "Sentinel must include `session-id` so the in-browser runtime exposes a usable handle."))
 
