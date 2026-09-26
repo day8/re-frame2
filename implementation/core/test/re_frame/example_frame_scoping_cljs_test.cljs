@@ -68,14 +68,12 @@
             [seven-guis.cells.core]
             [realworld-http.comments]))
 
-;; The fixture's ambient `:rf/default` pin is REMOVED (`:ambient-frame nil`)
-;; and `:clear-app-schemas?` is OMITTED so the example ns-load schemas
-;; registered on `:rf/default` stay live through the test body. This is the
-;; precise configuration the ns-load frame-scoping test needs:
-;;   - no ambient pin → a bare `reg-app-schema` would raise (the failure
-;;     mode is observable, not masked);
-;;   - schemas retained → the example's explicit-frame registration is
-;;     readable, proving it fired.
+;; The fixture's ambient `:rf/default` pin is REMOVED (`:ambient-frame nil`),
+;; so a bare `reg-app-schema` in a test body raises rather than landing on
+;; `:rf/default` — the failure mode is observable, not masked. The fixture's
+;; reset clears the per-frame schema side-table before every test body, which
+;; is why the examples' ns-load registrations are read from the snapshot taken
+;; at this ns's load (below) rather than from the live table.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.reagent/adapter

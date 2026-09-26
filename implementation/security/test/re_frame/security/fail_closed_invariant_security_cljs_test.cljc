@@ -25,8 +25,7 @@
 ;; App schemas are frame-local. Bind a scope for registration without creating
 ;; an adapter-backed frame; hydration tests carry their own explicit stamp.
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:clear-app-schemas? true})
+  (rf.test-support/make-reset-runtime-fixture)
   (fn [test-fn]
     (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))

@@ -140,7 +140,7 @@
                   `(async done …)` tests).
 
   Other core `make-reset-runtime-fixture` options (`:clear-kinds`,
-  `:clear-app-schemas?`, `:ambient-frame`) are intentionally NOT threaded
+  `:ambient-frame`) are intentionally NOT threaded
   — no Xray suite needs them; reach for the core fixture directly if you
   do.
 

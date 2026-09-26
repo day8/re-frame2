@@ -93,8 +93,7 @@
 ;; side-table — no registered frame / container needed (so no adapter, and
 ;; not `ensure-default-frame!`, which would require one).
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:clear-app-schemas? true})
+  (rf.test-support/make-reset-runtime-fixture)
   (fn [test-fn]
     (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))
@@ -393,8 +392,8 @@
 
 (defn- with-runtime*
   "Install the plain-atom substrate + ensure the `:rf/default` frame for the
-  extent of `thunk`. The shared adapter-less reset fixture (which
-  `:clear-app-schemas?`-resets and pins `:rf/default` as the ambient scope)
+  extent of `thunk`. The shared adapter-less reset fixture (which resets
+  the per-frame app schemas and pins `:rf/default` as the ambient scope)
   does NOT install an adapter — the flow drain / subscribe production paths
   need one. The outer fixture's `frame/*current-frame* :rf/default` binding
   supplies the ambient scope; we just stand up the substrate and the default
