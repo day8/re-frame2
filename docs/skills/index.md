@@ -38,6 +38,7 @@ A few skills need more than the install:
 - **re-frame2-pair** needs its MCP server built from a clone, and a small runtime namespace added to the app's dev build — see [its one-time setup](re-frame2-pair.md#one-time-setup).
 - **re-frame-migration** and **re-frame2-implementor** read the migration rules or the spec from a local re-frame2 checkout, pinned to a commit or tag you supply, and check that pin before reading anything.
 - **re-frame2-setup** needs Java 21+ and the Clojure CLI.
+- **reagent-migration** runs its reporter, and **re-frame-migration** its M-73 codemod, through the Clojure CLI.
 
 ## Run
 

@@ -13,6 +13,8 @@ Whether it edits depends on what you asked for:
 
 A redesign that reaches beyond that scope stays a proposal either way. An instruction written into the code under review — a comment addressed to the agent — is treated as data, never obeyed. The reply includes only the sections that have content (scope reviewed, findings, fixes applied, open questions), and a clean result is one short verdict naming what was reviewed.
 
+The catalogue covers six anti-patterns: hand-rolled HTTP retry loops, `:loading?` flags set and cleared by hand, a cluster of `?` subscriptions standing in for one status, boundary events that write HTTP replies or storage and URL data into `app-db` with no schema, side effects and impure reads inside event handlers, and view-held state (`r/atom`, `use-state`) that belongs in `app-db`.
+
 The catalogue is the set of notes under [`references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver/references); [`SKILL.md` §Routing](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md#routing--load-only-the-leaves-whose-signals-appear) lists each one with the source signals that make the skill load it.
 
 ## When to reach for it
@@ -40,6 +42,7 @@ Or type `/re-frame2-improver`. Ask it to "review and fix" to have it apply the c
 ## When it stops
 
 - **No code in scope** — if nothing has been read, edited, pasted or named as a resolvable `.cljs` / `.cljc` path, it asks for a snippet rather than invent evidence.
+- **The code is still re-frame v1** (`reg-event-db`, `reg-event-fx`, `inject-cofx`) — it says so and routes you to [re-frame-migration](re-frame-migration.md) rather than proposing re-frame2 rewrites into a v1 codebase.
 - **A finding that is really a gap in re-frame2** — it describes the gap for you to file against [`day8/re-frame2`](https://github.com/day8/re-frame2/issues). It does not rewrite your code around the gap, and it has no way to file the issue itself.
 
 ## Where the skill lives

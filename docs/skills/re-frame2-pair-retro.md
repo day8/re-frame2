@@ -27,6 +27,7 @@ Use a different skill for:
 
 - Inspecting or debugging a live app → [re-frame2-pair](re-frame2-pair.md) itself.
 - Writing new re-frame2 code → [re-frame2](re-frame2.md).
+- Reviewing re-frame2 source for anti-patterns → [re-frame2-improver](re-frame2-improver.md).
 - A retro on a Story recording session → [re-frame2-pair](re-frame2-pair.md)'s Stories reference covers it.
 - Greenfield setup or v1 migration → [re-frame2-setup](re-frame2-setup.md) or [re-frame-migration](re-frame-migration.md).
 
@@ -44,7 +45,7 @@ Asked for a draft, the same response includes one focused, copy-pasteable GitHub
 
 An explicit request over one clear session completes in one response; it does not stop at a list of candidates and ask which to pursue. It asks first only when:
 
-- **There is no pair session in the conversation** — it asks for a short recap rather than inventing evidence.
+- **There is no pair session in the conversation** — it asks for a short recap rather than inventing evidence. A session from an earlier conversation is not in front of it either, so it asks for a recap or the path of a transcript or log you have; it never searches your files for one.
 - **Two sessions are plausible** — it names both and asks which.
 - **The evidence is too thin** to support a finding, or the request is genuinely ambiguous.
 

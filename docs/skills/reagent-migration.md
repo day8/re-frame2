@@ -52,7 +52,7 @@ Use a different skill for:
 
 Ask in your own words with the code in scope — *"migrate the views under `src/app/cart/` to Fresco"* — or type `/reagent-migration`. Its first move is to check whether it has a job at all.
 
-Then it runs a reporter, [`migration/reagent-to-fresco/codemod`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod): a JVM tool that reads your source text and loads no re-frame2. Its report has two halves:
+Then it runs a reporter, [`migration/reagent-to-fresco/codemod`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod): a JVM tool that reads your source text, loads no re-frame2 and changes no file. It writes an EDN report with two halves:
 
 - a **census** of every Reagent API call site (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounts), which sizes the job;
 - a **fixer** for the `[:> …]` prop dialect at React crossings, six of whose rewrite families can be decided from source text alone.
@@ -62,6 +62,8 @@ No tool converts the views themselves; that is judgment. The skill runs the repo
 ## How the migration runs
 
 After the report, it converts one **closed subtree** at a time — a namespace, or a view and the views beneath it, leaf views first — so each pass ends compiling, rendering and tested. It converts or holds each view whole, so there is never a half-migrated view. The skill runs the compile and test gates itself and hands you the **render** check, because "compiles" is not done: the failures that cost most all compile clean. The procedure, the traps and the shipped shadow-comparison test kit are in [`references/procedure.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/procedure.md).
+
+When no Reagent view remains, it tells you the adapter choice is now open: Fresco's own adapter, `re-frame.fresco.substrate/adapter`, can replace `day8/re-frame2-reagent`. That call, and whether to drop `reagent/reagent` as well, stay yours.
 
 ## When it stops
 
