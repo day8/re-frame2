@@ -70,13 +70,13 @@ meaning, the payload and the recovery for each; the chapter column points
 at the guide page that teaches how not to hit it (`—` means no page names
 it yet).
 
-Three ids here are **corpus-owned** — Fresco reuses a spelling the wider
+Four ids here are **corpus-owned** — Fresco reuses a spelling the wider
 framework already defines rather than minting a private twin — and are
 rowed in Spec 009's main catalogue rather than in its Fresco section.
 
 | Complaint | Raised when you | Taught in |
 |---|---|---|
-| `:rf.error/fresco-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch16 |
+| `:rf.error/fresco-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch15 |
 | `:rf.error/fresco-bad-host-declaration` | wrote a `defhost` declaration outside its shape — options that are not a map, an option outside `#{:callbacks :slots :server :fallback}`, a `:callbacks` contract outside `:event`/`:render`, a malformed `:slots` set, or a form after the options map; the reason names which | ch09, ch18 |
 | `:rf.error/fresco-boundary-bad-on-error` | gave `h/error-boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
 | `:rf.error/fresco-boundary-unknown-prop` | wrote a key outside `h/error-boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
@@ -101,7 +101,7 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | `:rf.error/fresco-state-bad-argument` | gave `reg-state` a concern that is not namespace-qualified or options outside `{:default …}`, or used an instance key outside the accepted set (`nil` included) at a read or write; the reason names which | — |
 | `:rf.error/fresco-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
 | `:rf.error/fresco-true-child` | let `true` reach child position | ch02 |
-| `:rf.error/fresco-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
+| `:rf.error/fresco-test-bad-option` | gave an L2 `tree` non-map options or an option outside its closed roster `#{:subs}`, gave `hm/shadow!` an option or script step outside its roster, or called `hm/advance-clock!` on a handle whose mount was not given `{:clock true}` | ch15 |
 | `:rf.error/fresco-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
 | `:rf.error/fresco-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |
 | `:rf.error/fresco-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |
@@ -114,10 +114,11 @@ rowed in Spec 009's main catalogue rather than in its Fresco section.
 | `:rf.error/fresco-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
 | `:rf.error/fresco-test-not-a-render-form` | gave an L2 `tree` something other than a hiccup form | — |
 | `:rf.error/fresco-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
-| `:rf.error/fresco-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch16 |
+| `:rf.error/fresco-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch15 |
 | `:rf.error/fresco-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
 | `:rf.error/fresco-test-react-is-opaque` | let a raw React element reach the L2 semantic tree | — |
 | `:rf.error/no-frame-context` | (corpus-owned) rendered a Fresco boundary whose React context carries no frame | ch03, ch09, ch10, ch18, ch20 |
+| `:rf.error/poll-until-timeout` | (corpus-owned) let a test-kit wait run out: `hm/settle-until!`'s predicate never held within `:timeout-ms`, or `hm/hydrate!`'s adoption did not finish within its budget | ch15 |
 | `:rf.error/routing-artefact-missing` | (corpus-owned) rendered a route link with routing absent | ch07 |
 | `:rf.error/ui-tree-malformed` | (corpus-owned) let a value outside the structural-tree grammar reach an L2 tree or a projection | — |
 
