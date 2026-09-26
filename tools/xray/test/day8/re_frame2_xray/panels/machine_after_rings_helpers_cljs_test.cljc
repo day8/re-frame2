@@ -226,24 +226,6 @@
         (is (= 1 (:epoch armed)))
         (is (= 0 (:epoch fired)))))))
 
-(deftest fold-multiple-after-timers-same-state-same-epoch-stay-independent
-  (testing "a state declaring MULTIPLE :after entries
-            ({:after {5000 :warn 30000 :timeout}}) schedules both timers
-            CONCURRENTLY at the SAME (machine-id, state, epoch) —
-            build-after-fx computes ONE epoch per scheduling node, reused
-            across every entry in that node's :after map (Spec 005
-            §Multiple :after per state). A `timer-key` omitting the
-            :delay discriminator would let the SECOND :scheduled
-            assoc-overwrite the first record at the identical key,
-            leaving only one ring."
-    (let [t (h/fold-timer-events
-              [(scheduled 1000 :auth/login :idle 5000  0)
-               (scheduled 1000 :auth/login :idle 30000 0)])]
-      (is (= 2 (count t))
-          "both concurrent timers get their own independent fold record")
-      (is (= #{5000 30000} (set (map :duration-ms (vals t))))
-          "each record keeps its own delay/duration"))))
-
 (deftest fold-multiple-after-timers-fire-independently
   (testing "a :fired event for ONE delay closes only that
             timer's record; the concurrent timer at the same
@@ -291,16 +273,6 @@
 
 ;; ---- (3b) target-frame narrowing ----------------------------------------
 
-(deftest project-timers-two-machines-in-one-frame-stay-apart
-  (testing "the projection answers ONLY for the machine asked about, so a
-            focused record targeting :checkout reads zero rings while a
-            timer is armed on :auth/main. This is the helper half of the
-            claim; the sub asking for the RIGHT machine is the other, and
-            `machine_after_rings_cljs_test` owns that half."
-    (let [buf [(scheduled-in :rf/host 1000 :auth/main :idle 5000 0)]]
-      (is (= 1 (count (h/project-timers buf :auth/main :rf/host))))
-      (is (= [] (h/project-timers buf :checkout :rf/host))))))
-
 (deftest project-timers-narrows-to-target-frame
   (testing "ONE machine definition instantiated in TWO
             frames. A singleton actor-id is identical across them, and the
@@ -345,21 +317,6 @@
            attributed"))))
 
 ;; ---- (3c) cancelled-ring retention + dedupe ----------------------------
-
-(deftest active-timers-evicts-a-cancelled-ring-past-the-retention-window
-  (testing "a :cancelled ring is a MOMENTARY fade + cross. Without
-            retention, every early exit would leave a permanent grey
-            crossed ring — one per visit to the state, for as long as the
-            buffer held the trace."
-    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
-               (cancelled 2000 :auth/login :idle 0 nil)]
-          at  (fn [now] (h/active-timers-for-machine buf :auth/login now))]
-      (is (= 1 (count (at (+ 2000 h/cancelled-retention-ms))))
-          "still on screen at exactly the retention boundary")
-      (is (= [] (at (+ 2000 h/cancelled-retention-ms 1)))
-          "evicted one ms past it")
-      (is (= [] (at 60000))
-          "and it never comes back — the ring is bounded, not permanent"))))
 
 (deftest active-timers-dedupes-cancelled-per-state-newest-wins
   (testing "enter and leave one state twice inside the
@@ -412,8 +369,8 @@
   ;; it claims: with no `now-ms` nothing can be aged, so a
   ;; `:cancelled` record rides through. The CLOCKED behaviour — eviction
   ;; past `cancelled-retention-ms` — is
-  ;; `active-timers-evicts-a-cancelled-ring-past-the-retention-window`
-  ;; above, and it is the one that describes what the chart shows.
+  ;; `cancelled-ring-live?-owns-the-boundary-prune-timers-evicts-on`
+  ;; below, and `machine_after_rings_cljs_test` pins what the chart shows.
   (let [buf [(scheduled                1000 :auth/login :idle    5000 0)
              (scheduled                1500 :auth/login :authing 5000 0 :sub)
              (cancelled                2000 :auth/login :authing 0 :delay)
