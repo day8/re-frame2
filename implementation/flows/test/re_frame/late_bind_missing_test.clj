@@ -19,6 +19,7 @@
   `re-frame.core`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.late-bind :as rf.late-bind]
             ;; Loading flows registers its late-bind hooks. The
@@ -76,6 +77,33 @@
                 "ex-data carries :where = 'rf/reg-flow")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
+
+(deftest flow-fxs-raise-when-flows-artefact-missing
+  (testing ":rf.fx/reg-flow and :rf.fx/clear-flow raise :rf.error/flows-artefact-missing when the flows hooks are nil"
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (rf/make-frame {:id :late-bind-missing/fx})
+    (rf/reg-event :late-bind-missing/flow-fxs
+      (fn [_ _]
+        {:fx [[:rf.fx/reg-flow [:late-bind-missing/flow
+                                {:inputs [[:in]] :output-path [:out]}
+                                (fn [v] v)]]
+              [:rf.fx/clear-flow :late-bind-missing/flow]]}))
+    (let [records (atom [])]
+      (rf.error-emit/register-error-listener! ::flow-fxs #(swap! records conj %))
+      (try
+        (with-hook-as-nil :flows/reg-flow
+          (fn []
+            (with-hook-as-nil :flows/clear-flow
+              (fn []
+                (rf/dispatch-sync [:late-bind-missing/flow-fxs]
+                                  {:frame :late-bind-missing/fx})))))
+        (finally
+          (rf.error-emit/unregister-error-listener! ::flow-fxs)))
+      (is (= [[:rf.error/flows-artefact-missing :rf.fx/reg-flow]
+              [:rf.error/flows-artefact-missing :rf.fx/clear-flow]]
+             (mapv (juxt :error :failing-id) @records))
+          "each flow effect is refused with the missing-artefact id, naming the effect")
+      (is (= :late-bind-missing/fx (:frame (first @records)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Framework-internal hooks

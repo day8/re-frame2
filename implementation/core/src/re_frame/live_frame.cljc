@@ -137,6 +137,7 @@
   diagnostics), plus `re-frame.source-store`, `re-frame.frame`,
   `re-frame.late-bind`, `re-frame.subs.cache` and `re-frame.trace`."
   (:require [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
             [re-frame.registrar      :as rf.registrar]
             [re-frame.source-store   :as rf.source-store]
             [re-frame.frame          :as rf.frame]
@@ -455,6 +456,22 @@
       {:recovery :supply-at-least-one-image-or-omit-images-for-the-default
        :extra    {:images images}}))
   images)
+
+(defn- validate-frame-interceptors!
+  "Resolve the frame's `:interceptors` chain against `generation`, the sealed
+  generation the frame will run, and throw the error the chain would raise at
+  dispatch: `:rf.error/unregistered-interceptor` for an id with no
+  registration, `:rf.error/inline-interceptor-removed` for an inline value,
+  `:rf.error/invalid-interceptor-ref` for a malformed entry,
+  `:rf.error/interceptor-factory-arity` for a ref the factory cannot build
+  (Spec 002 §Validation and resolution timing: a live `make-frame` fails at
+  registration). The resolved values are discarded; dispatch resolves the chain
+  again, so a re-registered interceptor is picked up on the next event."
+  [interceptors generation]
+  (when (some? interceptors)
+    (binding [rf.registrar/*generation* generation]
+      (rf.interceptor-registry/resolve-chain (vec interceptors))))
+  nil)
 
 ;; ===========================================================================
 ;; Duplicate-id policy (EP-0024 §Duplicate id policy — idempotent replacement)
@@ -967,6 +984,10 @@
                        (if (nil? descriptors)
                          (rf.image-assembly/assemble-default)
                          (rf.image-assembly/assemble-default descriptors)))
+         ;; The frame's `:interceptors` refs resolve against that generation
+         ;; here, before any record exists, so a typo fails at the call that
+         ;; made it rather than at the first dispatch.
+         _           (validate-frame-interceptors! (:interceptors opts) generation)
          ;; Everything outside the image-selection/value keys is record-config
          ;; passed verbatim to the engine (`upsert-frame!`) — `:initial-events` /
          ;; `:fx-overrides` /

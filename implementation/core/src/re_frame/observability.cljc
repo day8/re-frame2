@@ -95,7 +95,9 @@
   (:require [re-frame.frame                :as rf.frame]
             [re-frame.frame-classification :as rf.frame-classification]
             [re-frame.late-bind            :as rf.late-bind]
-            [re-frame.projection           :as rf.projection]))
+            [re-frame.projection           :as rf.projection]
+            [re-frame.registrar            :as rf.registrar]
+            [re-frame.trace                :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -346,6 +348,10 @@
   that declares `{:handled-events []}` opts out ([[resolve-route]]). Returns
   nil.
 
+  A handler registered with `:rf.trace/no-emit? true` produces no record,
+  exactly as it produces no trace and no `event-emit` record (Spec 009
+  §Trace-emission opt-out).
+
   `effects` is the seq of effect keys the cascade walked; `correlation` is
   the `{:work-id ... :dispatch-id ...}` correlation map (or nil — the slot
   is then absent). Called once per processed event from the router's
@@ -353,7 +359,8 @@
   hook, ALONGSIDE the always-on `event-emit` fan-out."
   [event event-id frame-id status elapsed-ms effects correlation]
   (let [[entries governing-frame] (resolve-route frame-id :handled-events true)]
-    (when (seq entries)
+    (when (and (seq entries)
+               (not (rf.trace/no-emit?-from-meta (rf.registrar/lookup :event event-id))))
       (let [record (cond-> {:kind       :rf.observe/handled-event
                             :frame      frame-id
                             :event-id   event-id

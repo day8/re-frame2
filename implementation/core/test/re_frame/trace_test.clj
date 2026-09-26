@@ -27,6 +27,7 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.flows :as rf.flows]
+            [re-frame.subs :as rf.subs]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace :as rf.trace]
             ;; The public-tooling surface
@@ -747,6 +748,26 @@
                  (vec (map (juxt :op-type :operation) our-events)))))
 
       (rf/unregister-listener! :trace ::rec))))
+
+(deftest ^:requires-debug no-such-sub-recovery-is-replaced-with-default
+  (testing "an unregistered sub reads nil at both emit sites, so each
+            :rf.error/no-such-sub trace carries :recovery
+            :replaced-with-default (Spec 009 §Error event catalogue)"
+    (let [recorded (atom [])]
+      (rf/register-listener! :trace ::no-such-sub (fn [ev] (swap! recorded conj ev)))
+      (is (nil? @(rf/subscribe [:never/registered]))
+          "the reactive read substitutes nil")
+      (is (nil? (rf.subs/compute-sub-with-memo
+                  [:never/registered-cold] {}
+                  (atom {rf.subs/observation-opts-key {:frame :rf/default}})))
+          "the ownership-free cold read substitutes nil")
+      (rf/unregister-listener! :trace ::no-such-sub)
+      (let [by-site (group-by #(= :observation-cold-probe (get-in % [:tags :where]))
+                              (filter #(= :rf.error/no-such-sub (:operation %)) @recorded))]
+        (is (= [:replaced-with-default] (mapv :recovery (get by-site false)))
+            "the reactive build's trace")
+        (is (= [:replaced-with-default] (mapv :recovery (get by-site true)))
+            "the cold-probe trace")))))
 
 (deftest ^:requires-debug no-emit-flag-absent-emits-normally
   (testing "Baseline sanity: the SAME dispatch shape WITHOUT

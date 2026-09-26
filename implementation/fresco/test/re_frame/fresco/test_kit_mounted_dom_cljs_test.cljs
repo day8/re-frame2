@@ -730,6 +730,7 @@
                      (testing "it rejects rather than resolving with a handle
                                whose adoption never happened"
                        (is (instance? ExceptionInfo e))
+                       (is (= :rf.error/poll-until-timeout (:rf.error/id (ex-data e))))
                        (is (some? (re-find #"never shut" (ex-message e)))
                            (str "got " (pr-str (ex-message e)))))
 

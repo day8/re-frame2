@@ -333,7 +333,8 @@
                   it was written to rule out"
           (let [thrown (try (rf.fresco.test.mounted/advance-clock! m 5) nil (catch :default e e))]
             (is (some? thrown))
-            (is (= {:ms 5 :frame (:frame m)} (ex-data thrown)))))
+            (is (= {:rf.error/id :rf.error/fresco-test-bad-option :ms 5 :frame (:frame m)}
+                   (select-keys (ex-data thrown) [:rf.error/id :ms :frame])))))
 
         (-> (rf.fresco.test.mounted/assert-clean! m)
             (.then (fn [_]
@@ -343,7 +344,8 @@
                              thrown (try (rf.fresco.test.mounted/advance-clock! plain 5) nil
                                          (catch :default e e))]
                          (is (some? thrown))
-                         (is (= {:ms 5 :frame (:frame plain)} (ex-data thrown)))
+                         (is (= {:rf.error/id :rf.error/fresco-test-bad-option :ms 5 :frame (:frame plain)}
+                                (select-keys (ex-data thrown) [:rf.error/id :ms :frame])))
                          (-> (rf.fresco.test.mounted/unmount! plain)
                              (rf.fresco.test.mounted/assert-clean!)
                              (.then (fn [report]

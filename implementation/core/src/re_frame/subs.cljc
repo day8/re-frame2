@@ -1092,7 +1092,8 @@
                             {:rf.sub/id        query-id
                              :unresolved-input query-v
                              :resolved-inputs  []
-                             :frame            frame-id})))
+                             :frame            frame-id
+                             :recovery         :replaced-with-default})))
         body-fn       (:handler-fn sub-meta)
         ;; Read the discriminator ONCE — it drives the single-source detection,
         ;; the container resolution, and the memoised-body dispatch below.
@@ -2123,7 +2124,8 @@
          :unresolved-input query-v
          :resolved-inputs  []
          :where            :observation-cold-probe
-         :frame            frame})))
+         :frame            frame
+         :recovery         :replaced-with-default})))
   nil)
 
 (defn- compute-sub*

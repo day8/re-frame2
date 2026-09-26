@@ -172,6 +172,14 @@
   verdict rather than thrown — see that door on why a script step that
   cannot run is a red and not a raise.
 
+  The two refusals this namespace raises of its own reuse existing ids the
+  same way. [[advance-clock!]] on a handle whose mount was not given
+  `{:clock true}`, or whose clock came down with it, is that same
+  `:rf.error/fresco-test-bad-option`: the door needs an option the mount
+  never carried. [[hydrate!]]'s adoption wait running out of budget is
+  `:rf.error/poll-until-timeout`, the id every bounded wait that runs out
+  carries.
+
   ## Scope
 
   Dev/test only, and a browser tier: every DRIVING door needs a real
@@ -894,7 +902,9 @@
   `budget-ms` (default 3000) bounds the wait. Exceeding it REJECTS rather
   than resolving with a handle whose adoption never happened — a hydration
   that silently timed out and then asserted green is the exact failure
-  this door exists to prevent.
+  this door exists to prevent. The rejection carries
+  `:rf.error/poll-until-timeout`, the id of every bounded wait that ran out,
+  with `:elapsed-ms`, `:label`, `:frame` and `:budget-ms`.
 
   ## Every failure is a REJECTION, and every failure leaves nothing behind
 
@@ -944,7 +954,8 @@
          (do (abandon! frame-kw node supplied? nil)
              (js/Promise.reject refusal))
          (let [window   (:adoption root)
-               deadline (+ (js/Date.now) budget-ms)]
+               started  (js/Date.now)
+               deadline (+ started budget-ms)]
            (js/Promise.
              (fn [resolve reject]
                (letfn [(tick []
@@ -974,10 +985,16 @@
 
                            (< deadline (js/Date.now))
                            (do (abandon! frame-kw node supplied? root)
-                               (reject (ex-info (str "hydrate! waited " budget-ms
-                                                     "ms and this root's adoption window "
-                                                     "never shut — the tree was not adopted.")
-                                                {:frame frame-kw :budget-ms budget-ms})))
+                               (reject (rf.error/thrown-ex-info
+                                         :rf.error/poll-until-timeout
+                                         're-frame.fresco.test.mounted
+                                         (str "hydrate! waited " budget-ms
+                                              "ms and this root's adoption window "
+                                              "never shut — the tree was not adopted.")
+                                         {:extra {:frame      frame-kw
+                                                  :budget-ms  budget-ms
+                                                  :elapsed-ms (- (js/Date.now) started)
+                                                  :label      "hydrate! adoption"}})))
 
                            :else (js/setTimeout tick 4)))]
                  (tick)))))))
@@ -1105,6 +1122,8 @@
    (.then (rf.test-support/poll-until pred opts)
           (fn [_] (settle! handle)))))
 
+(declare bad-option!)
+
 (defn advance-clock!
   "Move this mount's virtual clock forward by `ms`, run everything that
   falls due on the way, and answer the handle.
@@ -1116,7 +1135,8 @@
         (is (= 1 (count (toasts m)))))  ;; the deadline passed
 
   Requires `{:clock true}` on the [[mount!]] or [[hydrate!]] that made
-  `handle`, and throws without it. That is not decoration: an advance
+  `handle`, and throws `:rf.error/fresco-test-bad-option` without it,
+  carrying `:ms` and `:frame`. That is not decoration: an advance
   with no clock under it would move nothing and assert nothing, and the
   row would go green for the reason it was written to rule out.
 
@@ -1169,14 +1189,15 @@
   [handle ms]
   (let [held (get handle clock-key)]
     (when-not (and (some? held) @held)
-      (throw (ex-info (str "advance-clock! moves the virtual clock a mount owns, "
-                           "and this handle owns none"
-                           (if (some? held)
-                             " any longer — it was released when the mount came down."
-                             ": mount! or hydrate! was not given {:clock true}.")
-                           " An advance with no clock under it would move nothing "
-                           "and assert nothing.")
-                      {:ms ms :frame (:frame handle)})))
+      (bad-option!
+        (str "advance-clock! moves the virtual clock a mount owns, "
+             "and this handle owns none"
+             (if (some? held)
+               " any longer — it was released when the mount came down."
+               ": mount! or hydrate! was not given {:clock true}.")
+             " An advance with no clock under it would move nothing "
+             "and assert nothing.")
+        {:ms ms :frame (:frame handle)}))
     (react-dom/flushSync (fn [] (fire-due! (+ (:now @!clock) ms))))
     handle))
 
@@ -1424,9 +1445,10 @@
   #{:click :type})
 
 (defn- bad-option!
-  "Refuse a malformed shadow option, reusing the kit's own
-  `:rf.error/fresco-test-bad-option`. See the namespace docstring §Refusals
-  on why this door refuses at all and why it mints no id to do it."
+  "Refuse a malformed shadow option, or an advance on a handle with no clock,
+  reusing the kit's own `:rf.error/fresco-test-bad-option`. See the namespace
+  docstring §Refusals on why these doors refuse at all and why they mint no
+  id to do it."
   [reason extra]
   (throw (rf.error/ex-info-from-data
            (merge extra

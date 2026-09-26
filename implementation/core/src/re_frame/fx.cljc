@@ -447,31 +447,28 @@
 ;;
 ;; Body-fn signature: `(fn [frame-id parent-envelope args])`. It is invoked
 ;; inside the perf bracket; on success it returns; the caller emits
-;; `:rf.fx/handled` uniformly. When a hook is unregistered (the producing
-;; artefact is not on the classpath) the body-fn is a no-op.
+;; `:rf.fx/handled` uniformly.
 ;;
 ;; `:dispatch` and `:dispatch-later` route through `child-dispatch!` (the
 ;; delayed one destructures `{:keys [ms event]}` from args);
 ;; `:rf.fx/reg-flow` threads the frame into its metadata; `:rf.fx/clear-flow`
 ;; is a uniform `(hook args {:frame frame-id})` call.
 
-(defn- call-frame-scoped-hook!
-  "Resolve `hook-key` and invoke it with `(hook args {:frame frame-id})`.
-  When the hook is unregistered (producing artefact absent), this is a
-  no-op.
-
-  Returns `true` when the hook resolved and ran, `nil` when it did not, so a
-  caller can tell \"the effect happened\" from \"the producing artefact is
-  absent, so this effect was inert\". `:rf.fx/clear-flow` needs exactly that
-  distinction to decide whether to request a flow settle (Spec 013
-  §Sequencing); the hooks themselves return nothing meaningful, so this is the
-  only signal available without widening their contracts. `handle-one-fx`
-  discards a reserved body's value (Spec 002 §`:fx` ordering rule 4), so
-  nothing downstream reads it."
-  [hook-key frame-id args]
-  (when-let [f (rf.late-bind/get-fn hook-key)]
-    (f args {:frame frame-id})
-    true))
+(defn- require-flows-hook!
+  "The `:flows/*` hook `hook-key` behind the flow effect `fx-id`. Without the
+  flows artefact the hook is unregistered, and this throws
+  `:rf.error/flows-artefact-missing` — the error every other flow door raises
+  (Spec 009) — so the effect is refused rather than skipped in silence. The
+  throw reaches both error channels through `handle-one-fx`'s typed-throw
+  arm, and the rest of the `:fx` walk continues."
+  [hook-key fx-id flow-id]
+  (or (rf.late-bind/get-fn hook-key)
+      (rf.error/throw-error!
+        :rf.error/flows-artefact-missing
+        're-frame.fx
+        (str "The `" fx-id "` effect requires day8/re-frame2-flows on the "
+             "classpath; add it to deps and require re-frame.flows at app boot.")
+        {:extra {:flow-id flow-id}})))
 
 ;; ---- the reserved-fx source policy ----------------------------------------
 ;;
@@ -771,8 +768,8 @@
   "Ask the current `:fx` walk to settle this frame's flows when it finishes.
 
   Called by `:rf.fx/reg-flow` / `:rf.fx/clear-flow` after the flows hook
-  returned — so a build without the flows artefact, where the hook is
-  unresolved and the effect no-ops, requests nothing and pays nothing — and by
+  returned — so an effect refused for a missing flows artefact requests
+  nothing — and by
   the flows registry itself, from the in-drain branches of `clear-flow` and of
   an `:output-path`-moving `reg-flow`. Those branches queue
   their vacation for the event's pending flow pass, which has ALREADY RUN when
@@ -980,8 +977,8 @@
    ;; Both fx-ids route through the SAME hooks the public API uses
    ;; (`:flows/reg-flow` / `:flows/clear-flow`) — the API-shape hooks
    ;; accept `(arg opts)` with opts carrying `:frame`, and
-   ;; `call-frame-scoped-hook!` passes `{:frame frame-id}` as the second
-   ;; arg, so one hook pair serves both surfaces.
+   ;; `:rf.fx/clear-flow` passes `{:frame frame-id}` as the second arg, so
+   ;; one hook pair serves both surfaces.
    ;;
    ;; SETTLING ON THE DISPATCHING FRAME (Spec 013 §Sequencing). The `:fx`
    ;; walk is the LAST drain stage — it runs AFTER the flow-transform
@@ -1024,35 +1021,35 @@
    ;; is the mounting concern — per Conventions §The `:frame` registration
    ;; key — not a positional arg), so the reserved fx stays frame-correct
    ;; without the author naming a frame in the args. The `:flows/reg-flow` hook
-   ;; is the 3-arity `re-frame.flows.registry/reg-flow`; a missing artefact
-   ;; leaves the hook unregistered and the effect no-ops (matching every other
-   ;; frame-scoped reserved fx).
+   ;; is the 3-arity `re-frame.flows.registry/reg-flow`; without the flows
+   ;; artefact the effect raises `:rf.error/flows-artefact-missing`, as the
+   ;; public `reg-flow` does.
    :rf.fx/reg-flow
    (fn [frame-id _parent-envelope args]
-     (when-let [f (rf.late-bind/get-fn :flows/reg-flow)]
-       (let [[flow-id metadata derive-fn] args]
-         ;; Only a map takes the `:frame` key. Anything else reaches the
-         ;; registry as written, which refuses it with the same
-         ;; `:rf.error/invalid-flow-metadata` the public `reg-flow` raises,
-         ;; carrying the offending value.
-         (f flow-id
-            (if (map? metadata) (assoc metadata :frame frame-id) metadata)
-            derive-fn)
-         ;; AFTER the hook returned, so a throw from `reg-flow` (a cycle, a
-         ;; bad registration shape) requests nothing — there is no mutation
-         ;; to settle. Inside the `when-let`, so a build without the flows
-         ;; artefact requests nothing either.
-         (request-flow-settle!))))
+     (let [[flow-id metadata derive-fn] args
+           f (require-flows-hook! :flows/reg-flow :rf.fx/reg-flow flow-id)]
+       ;; Only a map takes the `:frame` key. Anything else reaches the
+       ;; registry as written, which refuses it with the same
+       ;; `:rf.error/invalid-flow-metadata` the public `reg-flow` raises,
+       ;; carrying the offending value.
+       (f flow-id
+          (if (map? metadata) (assoc metadata :frame frame-id) metadata)
+          derive-fn)
+       ;; AFTER the hook returned, so a throw from `reg-flow` (a cycle, a
+       ;; bad registration shape, a missing artefact) requests nothing —
+       ;; there is no mutation to settle.
+       (request-flow-settle!)))
 
    :rf.fx/clear-flow
    (fn [frame-id _parent-envelope args]
-     (when (call-frame-scoped-hook! :flows/clear-flow frame-id args)
-       ;; `clear-flow` over an unregistered id is a legitimate no-op, and it
-       ;; still requests a settle. Distinguishing the two would mean widening
-       ;; the hook's return contract to report whether it MUTATED, to save a
-       ;; pass that a settle over an unchanged registry already makes free:
-       ;; the dirty check recomputes nothing, so the settle installs nothing.
-       (request-flow-settle!)))})
+     ((require-flows-hook! :flows/clear-flow :rf.fx/clear-flow args)
+      args {:frame frame-id})
+     ;; `clear-flow` over an unregistered id is a legitimate no-op, and it
+     ;; still requests a settle. Distinguishing the two would mean widening
+     ;; the hook's return contract to report whether it MUTATED, to save a
+     ;; pass that a settle over an unchanged registry already makes free:
+     ;; the dirty check recomputes nothing, so the settle installs nothing.
+     (request-flow-settle!))})
 
 (defn- emit-fx-error!
   "Fan a runtime `:rf.error/*` fx-category out through BOTH error
