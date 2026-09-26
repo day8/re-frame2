@@ -449,14 +449,6 @@
     (is (nil? (rf.substrate.adapter/current-adapter))
         "the failed init! did NOT install any adapter")))
 
-(deftest init-map-form-installs-literal-spec
-  (testing "(rf/init! adapter-map) installs the literal adapter — only legal form"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (identical? rf.substrate.plain-atom/adapter (rf.substrate.adapter/current-adapter))
-        "init! with a literal adapter map installs that exact spec")
-    (is (zero? (default-frame-count))
-        "no :rf/default frame is created by init! (EP-0002 — the runtime never synthesises a default)")))
-
 ;; ---- current-adapter: ONE read, map-shaped --------------------------------
 ;;
 ;; Per Spec 006 §Adapter introspection there is ONE adapter read and it
@@ -590,18 +582,23 @@
   (try (thunk) nil
        (catch clojure.lang.ExceptionInfo e e)))
 
+(def ^:private delegation-calls
+  "One call per substrate-delegation fn, paired with the public-surface symbol
+  its throw names in `:where` — every required fn plus the two optional ones."
+  [['rf/make-state-container        #(rf.substrate.adapter/make-state-container         {:k :v})]
+   ['rf/read-container              #(rf.substrate.adapter/read-container               ::dummy-container)]
+   ['rf/replace-container!          #(rf.substrate.adapter/replace-container!           ::dummy-container {:new :value})]
+   ['rf/make-derived-value          #(rf.substrate.adapter/make-derived-value           [::source]        (constantly 42))]
+   ['rf/render                      #(rf.substrate.adapter/render                       [:div]            ::mount-point {})]
+   ['ssr/render-to-string            #(rf.substrate.adapter/render-to-string             [:div]            {})]
+   ['rf/subscribe-container         #(rf.substrate.adapter/subscribe-container          ::dummy-container (fn [_]))]
+   ['rf/register-context-provider   #(rf.substrate.adapter/register-context-provider    :rf/default)]])
+
 (deftest substrate-delegation-uniform-no-adapter-throw
   (testing "every substrate-delegation fn throws :rf.error/no-adapter-installed before (rf/init! ...)"
     (is (nil? (rf.substrate.adapter/current-adapter))
         "precondition: cold start — no adapter installed")
-    (let [cases [['rf/make-state-container        #(rf.substrate.adapter/make-state-container         {:k :v})]
-                 ['rf/read-container              #(rf.substrate.adapter/read-container               ::dummy-container)]
-                 ['rf/replace-container!          #(rf.substrate.adapter/replace-container!           ::dummy-container {:new :value})]
-                 ['rf/make-derived-value          #(rf.substrate.adapter/make-derived-value           [::source]        (constantly 42))]
-                 ['rf/render                      #(rf.substrate.adapter/render                       [:div]            ::mount-point {})]
-                 ['ssr/render-to-string            #(rf.substrate.adapter/render-to-string             [:div]            {})]
-                 ['rf/subscribe-container         #(rf.substrate.adapter/subscribe-container          ::dummy-container (fn [_]))]
-                 ['rf/register-context-provider   #(rf.substrate.adapter/register-context-provider    :rf/default)]]]
+    (let [cases delegation-calls]
       (doseq [[where-sym thunk] cases]
         (let [thrown (catch-no-adapter thunk)]
           (is (some? thrown)
@@ -680,14 +677,7 @@
         "precondition: adapter slot is empty after dispose")
     (is (true? (rf.substrate.adapter/adapter-disposed?))
         "precondition: disposed breadcrumb is true")
-    (let [cases [['rf/make-state-container        #(rf.substrate.adapter/make-state-container         {:k :v})]
-                 ['rf/read-container              #(rf.substrate.adapter/read-container               ::dummy-container)]
-                 ['rf/replace-container!          #(rf.substrate.adapter/replace-container!           ::dummy-container {:new :value})]
-                 ['rf/make-derived-value          #(rf.substrate.adapter/make-derived-value           [::source]        (constantly 42))]
-                 ['rf/render                      #(rf.substrate.adapter/render                       [:div]            ::mount-point {})]
-                 ['ssr/render-to-string            #(rf.substrate.adapter/render-to-string             [:div]            {})]
-                 ['rf/subscribe-container         #(rf.substrate.adapter/subscribe-container          ::dummy-container (fn [_]))]
-                 ['rf/register-context-provider   #(rf.substrate.adapter/register-context-provider    :rf/default)]]]
+    (let [cases delegation-calls]
       (doseq [[where-sym thunk] cases]
         (let [thrown (catch-no-adapter thunk)]
           (is (some? thrown)

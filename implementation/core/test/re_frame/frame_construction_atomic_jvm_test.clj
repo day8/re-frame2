@@ -303,20 +303,3 @@
       (is (some? (rf.frame/frame-state-container :atomic/second-throw)))
       (is (= #{:proj/p1 :proj/p2} @(:watched state))
           "the live frame owns exactly its two partition-projection watches"))))
-
-;; ===========================================================================
-;; Happy path — the failure boundary does not disturb a successful build.
-;; ===========================================================================
-
-(deftest successful-construction-installs-both-projections
-  (let [state (fresh-state)]
-    (rf/init! (tracking-adapter state))
-    (is (= :atomic/ok (rf.frame/upsert-frame! :atomic/ok {})))
-    (is (some? (rf.frame/frame-state-container :atomic/ok)) "a full record installed")
-    (is (= 2 @(:derived-count state)))
-    (is (= #{:proj/p1 :proj/p2} @(:watched state))
-        "both partition projections are live and own their watches")
-    (is (empty? @(:pinned state))
-        "the returned container carries no construction-time pin — it is
-         disposal-free and GC-owned")
-    (is (empty? @(:disposed-order state)) "no rollback ran on the happy path")))

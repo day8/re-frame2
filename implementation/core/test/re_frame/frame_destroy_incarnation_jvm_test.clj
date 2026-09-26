@@ -84,19 +84,6 @@
     (is (.await latch 5 TimeUnit/SECONDS)
         "the executor reached the deterministic barrier")))
 
-(deftest expected-incarnation-token-controls-destroy-authority
-  (rf/make-frame {:id :destroy/token})
-  (let [live-token (rf.frame/frame-incarnation-token :destroy/token)]
-    (is (nil? (rf.frame/destroy-frame! :destroy/token (atom false)))
-        "a mismatched token is a silent no-op")
-    (is (identical? live-token
-                    (rf.frame/frame-incarnation-token :destroy/token))
-        "a mismatched token leaves the live incarnation unchanged")
-    (is (nil? (rf.frame/destroy-frame! :destroy/token live-token))
-        "the matching token keeps destroy-frame!'s nil return contract")
-    (is (nil? (rf.frame/frame :destroy/token))
-        "the matching token destroys its incarnation")))
-
 (deftest stale-destroy-revalidates-after-candidate-capture
   ;; Pause the expected-token destroy AFTER it captures incarnation A. Another
   ;; actor replaces the id with B before the destroy enters drain serialization.

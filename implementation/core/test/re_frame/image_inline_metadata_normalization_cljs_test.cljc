@@ -63,20 +63,19 @@
             [re-frame.cofx]))
 
 ;; ---------------------------------------------------------------------------
-;; The supported-kind matrix. `:spreads-meta?` marks the kinds whose lowering
-;; hoists authored metadata onto the descriptor TOP LEVEL — every kind does, as
-;; its `reg-*` stores it — so each must be clean of `:doc`
-;; at the top level too, not just under `:metadata`.
+;; The supported-kind matrix. Every kind's lowering hoists authored metadata
+;; onto the descriptor TOP LEVEL, as its `reg-*` stores it, so each must be
+;; clean of `:doc` at the top level too, not just under `:metadata`.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private supported-kinds
-  [{:label "event" :kind :event :section :reg-event :spreads-meta? true
+  [{:label "event" :kind :event :section :reg-event
     :body (fn [_cofx _event] {})}
-   {:label "sub"   :kind :sub   :section :reg-sub   :spreads-meta? true
+   {:label "sub"   :kind :sub   :section :reg-sub
     :body (fn [_db _query] :ok)}
-   {:label "fx"    :kind :fx    :section :reg-fx    :spreads-meta? true
+   {:label "fx"    :kind :fx    :section :reg-fx
     :body (fn [_args] nil)}
-   {:label "cofx"  :kind :cofx  :section :reg-cofx  :spreads-meta? true
+   {:label "cofx"  :kind :cofx  :section :reg-cofx
     :body (fn [] :v)}])
 
 (defn- assemble
@@ -97,7 +96,7 @@
 ;; ===========================================================================
 
 (deftest dev-retains-authored-doc-across-every-kind
-  (doseq [{:keys [label kind section spreads-meta? body]} supported-kinds]
+  (doseq [{:keys [label kind section body]} supported-kinds]
     (testing (str "inline " label " — dev retains authored :doc")
       (let [d (assemble section (keyword "counter" (str label "-doc"))
                         {:doc "author note" :tags [:audit]} body)]
@@ -106,16 +105,14 @@
         ;; at source under -Dre-frame.debug=false.
         (when rf.interop/debug-enabled?
           (is (= "author note" (get-in d [:metadata :doc]))
-              "nested [:metadata :doc] retained in dev"))
+              "nested [:metadata :doc] retained in dev")
+          (is (= "author note" (:doc d))
+              "the spread metadata carries :doc at the top level too in dev"))
         (is (= [:audit] (get-in d [:metadata :tags]))
             "the load-bearing witness key is nested")
         (is (fn? (:handler-fn d)) "the runnable :handler-fn slot is installed")
-        (when spreads-meta?
-          (when rf.interop/debug-enabled?
-            (is (= "author note" (:doc d))
-                "kinds that spread metadata carry :doc at the top level too in dev"))
-          (is (= [:audit] (:tags d))
-              "and the load-bearing witness key at the top level"))))))
+        (is (= [:audit] (:tags d))
+            "and the load-bearing witness key at the top level")))))
 
 ;; ===========================================================================
 ;; 2. PRODUCTION SENTINEL — `:doc` is elided at BOTH the top level and under
@@ -125,23 +122,21 @@
 
 (deftest production-strips-doc-everywhere-across-every-kind
   (with-redefs [rf.interop/debug-enabled? false]
-    (doseq [{:keys [label kind section spreads-meta? body]} supported-kinds]
+    (doseq [{:keys [label kind section body]} supported-kinds]
       (testing (str "inline " label " — production carries NO :doc anywhere")
         (let [d (assemble section (keyword "counter" (str label "-prod"))
                           {:doc "elided in prod" :tags [:audit]} body)]
           (is (= kind (:kind d)) "kind is preserved")
           (is (not (contains? d :doc))
-              "no top-level :doc in a production image, for any kind")
+              "no top-level :doc in a production image, for any kind, although
+               the lowering spreads metadata there")
           (is (not (contains? (:metadata d) :doc))
               "no dev-only :doc under nested [:metadata …] in a production image")
           (is (= [:audit] (get-in d [:metadata :tags]))
               "the load-bearing witness key is retained under nested :metadata")
           (is (fn? (:handler-fn d)) "the runnable :handler-fn slot survives")
-          (when spreads-meta?
-            (is (not (contains? d :doc))
-                "no top-level :doc even where the lowering spreads metadata")
-            (is (= [:audit] (:tags d))
-                "the load-bearing key is retained at the top level too")))))))
+          (is (= [:audit] (:tags d))
+              "the load-bearing key is retained at the top level too"))))))
 
 ;; ===========================================================================
 ;; 3. PRODUCTION — a doc-ONLY inline entry resurrects no stale nested map for

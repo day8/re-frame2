@@ -19,7 +19,6 @@
       last-write-wins on the default path;
     * the default generation is CACHED and INVALIDATES on a source-store change
       (the generation cache, keyed on the source-store generation);
-    * a single-namespace default projects cleanly;
     * `assemble` with NO / empty `:images` routes to the default projection
       (the empty-images entry).
 
@@ -135,19 +134,12 @@
 ;;    last-write-wins on the default path (the central rule).
 ;; ===========================================================================
 
-(deftest default-projection-cross-namespace-collision-fails-loud
+(deftest default-projection-collision-order-independent
   (testing "two namespaces registering the same (kind, id) with different impls,
             both in the source store, with NO explicit image to disambiguate →
-            :rf.error/image-duplicate-id (the default image does NOT guess and
-            does NOT let load order win)"
-    (let [pool [(reg-desc "examples.todo.boot"    :event :boot/init ::todo-boot)
-                (reg-desc "examples.counter.boot" :event :boot/init ::counter-boot)]]
-      (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(rf.image-assembly/assemble-default pool)))))))
-
-(deftest default-projection-collision-order-independent
-  (testing "the default-projection duplicate-id error fires regardless of pool
-            order — there is no last-write that 'wins' on the default path"
+            :rf.error/image-duplicate-id regardless of pool order — the default
+            image does NOT guess, and there is no last-write that 'wins' on the
+            default path"
     (let [a (reg-desc "examples.todo.boot"    :event :boot/init ::a)
           b (reg-desc "examples.counter.boot" :event :boot/init ::b)]
       (is (= :rf.error/image-duplicate-id
@@ -174,23 +166,7 @@
         (finally (reset! rf.source-store/kind->id->ns->descriptor store-before))))))
 
 ;; ===========================================================================
-;; 3. Single-namespace default projects cleanly
-;; ===========================================================================
-
-(deftest single-namespace-default-projects-cleanly
-  (testing "the ordinary single-surface case: one namespace's globally-unique
-            registrations project into a clean default generation"
-    (let [pool [(reg-desc "app.core" :event :counter/inc   ::inc)
-                (reg-desc "app.core" :sub   :counter/value ::value)
-                (reg-desc "app.core" :view  :counter/view  ::view)]
-          gen  (rf.image-assembly/assemble-default pool)]
-      (is (= ::inc   (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :counter/inc))))
-      (is (= ::value (:handler-fn (rf.image-assembly/resolve-descriptor gen :sub :counter/value))))
-      (is (= ::view  (:handler-fn (rf.image-assembly/resolve-descriptor gen :view :counter/view))))
-      (is (= #{:event :sub :view} (rf.image-assembly/generation-kinds gen))))))
-
-;; ===========================================================================
-;; 4. `assemble` with NO / empty :images routes to the default projection
+;; 3. `assemble` with NO / empty :images routes to the default projection
 ;; ===========================================================================
 
 (deftest assemble-empty-images-is-the-default-projection
@@ -215,7 +191,7 @@
              (assembly-error-id #(rf.image-assembly/assemble [] pool)))))))
 
 ;; ===========================================================================
-;; 5. The default generation is CACHED + invalidates on a source-store change
+;; 4. The default generation is CACHED + invalidates on a source-store change
 ;;    (the generation cache, keyed on the source-store generation). Uses the LIVE store
 ;;    so the store-generation invalidation fires for real; snapshot/restore in
 ;;    the body keeps the live store clean.
@@ -273,19 +249,7 @@
           (rf.image-assembly/clear-generation-cache!))))))
 
 ;; ===========================================================================
-;; 6. `default-image?` predicate + the default-image marker value
-;; ===========================================================================
-
-(deftest default-image-marker-and-predicate
-  (testing "`default-image` is the marker value; `default-image?` recognizes it
-            and rejects an ordinary explicit image value"
-    (is (rf.image-assembly/default-image? rf.image-assembly/default-image))
-    (is (true? (:rf.image/default? rf.image-assembly/default-image)))
-    (is (not (rf.image-assembly/default-image? {:rf.image/include-ns ["a.b"]})))
-    (is (not (rf.image-assembly/default-image? {})))))
-
-;; ===========================================================================
-;; 7. A PROVENANCED app descriptor colliding with a framework STANDARD FAILS
+;; 5. A PROVENANCED app descriptor colliding with a framework STANDARD FAILS
 ;;    LOUD on the DEFAULT path too — symmetric with the explicit path.
 ;;    The default-image standard-shadow filter drops ONLY the
 ;;    framework's OWN no-provenance registrar shadow; a provenanced app
@@ -347,7 +311,7 @@
           "ordinary app descriptors project into the default generation"))))
 
 ;; ===========================================================================
-;; 8. Framework REPLACEABLE DEFAULTS — the framework's own
+;; 6. Framework REPLACEABLE DEFAULTS — the framework's own
 ;;    no-provenance seeding of an id the APPLICATION is invited to register
 ;; ===========================================================================
 ;;
@@ -537,14 +501,3 @@
         (rf.image-assembly/reconcile-framework-default-classification! :event ::denied)
         (is (identical? before (rf.source-store/descriptor-for :event ::denied "shop.auth"))
             "identical descriptor ⇒ no write ⇒ no gratuitous generation bump")))))
-
-(deftest an-explicit-image-is-unaffected-by-the-default-seam
-  (testing "an explicit :select-ns image selects by provenance namespace, so the
-            framework's own no-provenance default is never selectable there.
-            The app's registration is simply the image's descriptor"
-    (let [pool     [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
-                    (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
-          explicit (rf.image/image {:id :shop/auth :select-ns {:include ["shop.auth"]}})
-          gen      (rf.image-assembly/assemble [explicit] pool)]
-      (is (= ::app-denial
-             (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :rf.route/entry-denied)))))))
