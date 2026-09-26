@@ -1,10 +1,8 @@
 # Reference
 
-The complete symbol table for Story's public surface, organised by namespace and section for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
+Every public Story symbol, one table per namespace, with its signature and a one-line description. Search this page when you know a symbol's name; the topical pages, [Registration](registration.md), [Scripts](script.md), [Runtime](runtime.md) and [MCP surface](mcp-surface.md), explain how the pieces fit.
 
-Surfaces fall into the facade plus the sub-namespaces listed after it. The facade carries every user-callable surface — registrations, runtime, recorder, configure!, shell-mount, privacy primitives. The sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset, not from authored story bodies.
-
-For the topical walk-through with intuition notes and use-when prose, see [Registration](registration.md), [Scripts](script.md), [Runtime](runtime.md), and [MCP surface](mcp-surface.md). For the index of *what* this reference covers (and what it omits — Story-internal chrome composers, the URL-state hydration helpers, the theme-token maps consumed only by chrome), see [the index](index.md#what-canonical-means-here).
+`re-frame.story` carries every surface an author or host calls. The sub-namespaces after it are public, but the shell, its bootstrap or the Xray bridge calls them, not a stories namespace. [What is not here](index.md#what-is-not-here) lists the internals this page leaves out.
 
 ## `re-frame.story`
 
@@ -41,7 +39,7 @@ The canonical facade. Every user-callable surface lives here.
 | `unregister!` | `(unregister! kind id)` | Remove a single id under `kind`. |
 | `clear-kind!` | `(clear-kind! kind)` | Remove every registration of `kind`. |
 | `clear-all!` | `(clear-all!)` | Reset every Story registration. Resets the auto-install gate. |
-| `install-canonical-vocabulary!` | `(install-canonical-vocabulary!)` | Idempotent explicit boot. Auto-install path is canonical; this is retained for hosts that want a literal boot step. |
+| `install-canonical-vocabulary!` | `(install-canonical-vocabulary!)` | Idempotent explicit boot, for hosts that want one; the first `reg-*` call installs the vocabulary anyway. |
 
 ### Global args + decorators
 
@@ -302,7 +300,7 @@ Several surfaces are **publicly visible** in the CLJS source but explicitly *not
 - **Panel-mount aggregators.** Story's shell calls `mount-<panel>!` aggregators internally; they're not part of the host-facing embed contract.
 - **`re-frame.story.config` atom handles.** Every state setter writes to a `defonce` atom; the atoms are reachable from CLJS-default-public visibility. The setters in `configure!` are the canonical write path.
 
-If you find yourself reading source for a Story-internal symbol because the chapters don't list it, the answer is almost always: the spec considers that surface internal, and a future minor release may rename or `^:private`-mark it. Reach for the documented surfaces in the chapters above instead.
+A symbol these pages do not list is internal, and a later release may rename it or make it private. Use the documented surfaces instead.
 
 ## See also
 

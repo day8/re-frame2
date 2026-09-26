@@ -1,9 +1,9 @@
 # 4. The variant is a test
 
-You already wrote setup and assertions, so you are closer to a test than you
-may have noticed. This chapter shows the Test mode UI and the three execution
-verbs: `rf.story/run`, `rf.story/is`, and `rf.story/explain`. The useful idea is that a
-variant does not need a second encoding to become a regression test.
+A variant with setup and assertions is already a test. This chapter runs one
+in the shell's Test mode, then from your own test suite with `rf.story/run`,
+`rf.story/is` and `rf.story/explain`, without writing the scenario a second
+time.
 
 ## The reveal
 
@@ -12,27 +12,25 @@ Look again at the error variant:
 ```clojure
 (rf.story/reg-variant :story.login/error
   {:setup  [...]
-   :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
-            [:dispatch-sync
-             [:rf.assert/sub-equals
-              [:login/error]
-              "Invalid credentials."]]]
-   :tags #{:dev :docs :test}})
+   :script [[:assert [:rf.assert/state-is :login/flow :error]]
+            [:assert [:rf.assert/sub-equals [:login/error] "Invalid credentials."]]]
+   :tags   #{:dev :docs :test}})
 ```
 
-It has preconditions. It runs behaviour. It records assertions. That is a
-test. It also renders in the workshop, appears in Docs mode, can be shared, and
-can be inspected with Xray. Same artifact, different faces.
+It has a precondition in `:setup`, checks in `:script`, and the `:test` tag.
+Test mode runs it in the shell, and `rf.story/is` runs the same registration
+in CI.
 
 ![Test mode showing the login error variant run, its runner, status summary, assertions, and promotion action.](../images/story/story-tutorial-04-test-mode.png)
 
 ## Test mode
 
-The **Tests** tab shows the selected variant's canvas at its top, and the
-canvas runs the variant with its view mounted, so a `:click` or `:assert-dom`
-step runs against the rendered view. The tab runs the variant each time you
-open it, and shows the latest run: a Controls edit, a mode or substrate
-change, a hot reload and **Re-run** each run it again. From the top, it shows:
+Test mode is the **Tests** tab above the canvas. It shows the selected
+variant's canvas at its top, and the canvas runs the variant with its view
+mounted, so a `:click` or `:assert-dom` step runs against the rendered view.
+The tab runs the variant each time you open it and shows the latest run; a
+Controls edit, a mode or substrate change, a hot reload and **Re-run** each
+run it again. From the top, it shows:
 
 - the variant's canvas, as the Canvas tab renders it;
 - the variant, its parent story, **Re-run**, when the run happened and how long
@@ -105,17 +103,14 @@ change keep their last result.
 The sidebar's status chips show the same results per variant, so a state
 matrix can tell you which variants have passed without opening each one.
 
-This is not a replacement for unit tests. It is a way for the examples you
-already maintain to participate in the test suite.
-
 ## The three verbs
 
-The public execution surface has three verbs:
+Outside the shell, three functions run variants:
 
 ```clojure
-(rf.story/run     target opts) ; returns a future/promise of the run result
+(rf.story/run     target opts) ; returns a promise of the run result
 (rf.story/is      target opts) ; reports through clojure.test / cljs.test
-(rf.story/explain target opts) ; returns the compiled plan explanation
+(rf.story/explain target opts) ; returns how the plan was assembled, without running it
 ```
 
 `target` can be a registered variant id:
@@ -128,16 +123,18 @@ or an inline plan:
 
 ```clojure
 (rf.story/run
-  {:setup [[:login/flow [:login/dismiss]]]
-   :script [[:dispatch-sync
-             [:rf.assert/state-is :login/flow :idle]]]})
+  {:setup  [[:login/flow [:login/dismiss]]]
+   :script [[:assert [:rf.assert/state-is :login/flow :idle]]]})
 ```
 
-Inline plans are useful for one-off tests that do not deserve a permanent place
-in the Story sidebar. Registered variants are useful when the state should be
-visible, documented, reviewed, or shared.
+Use an inline plan for a one-off test that does not need a place in the
+sidebar. Register a variant when the state should also be seen, documented,
+reviewed or shared.
 
 ## Using Story from tests
+
+Variants do not replace unit tests of pure functions. They let the examples you
+already maintain run in the same suite, under whatever runner runs it now.
 
 A test namespace needs three things beside your stories: a substrate adapter
 installed, which the reset fixture from `re-frame.test-support` does for you;
@@ -250,29 +247,27 @@ A run the runner refused carries a `:cannot-run` vector as well, one row per
 refused step or assertion, with the same required, available and missing
 capabilities Test mode shows.
 
-The top-level `:status` is not allowed to report `:pass` while the run contains
-unconsumed failure evidence. Schema failures, assertion failures, errors, and
-cannot-run rows all roll up into the status. The whole point is to kill the
-classic false green: a test that says pass because the one place you looked was
-green while the evidence elsewhere was red.
+The top-level `:status` cannot be `:pass` while the run holds failure evidence
+that no declaration consumed. Schema failures, assertion failures, errors and
+cannot-run rows all count toward it, so a run never reports green while
+evidence elsewhere in it is red.
 
 ## Explain
 
 `rf.story/explain` does not run the variant. It shows what the variant becomes
-after inheritance, composition, args, checks, setup, and script are normalized.
+after inheritance, composition, args, checks, setup and script are normalized.
 
-That matters the first time a composed variant surprises you. Instead of
-guessing which parent or fragment contributed a field, read the explanation:
-source chain, merge decisions, final setup order, final script order, runner
-requirements, tags, platforms, and source coordinates.
+Reach for it when a composed variant surprises you. Instead of guessing which
+parent or fragment contributed a field, read the explanation: source chain,
+merge decisions, final setup order, final script order, runner requirements,
+tags, platforms and source coordinates.
 
 The Explain panel in the right rail shows the same explanation for the
 selected variant, one section per question: source chain, merge decisions,
 args and their substitutions, network and sub-override lowering, fidelity,
 setup and script order, checks, assertions, runner requirements, platforms,
 tags and source coordinates. A toggle shows the raw EDN, and a button copies
-it. It is boring and explicit. Composition without a receipt is just global
-state wearing a clever moustache.
+it.
 
 `explain` throws when the variant cannot compile, for example on a `:compose`
 conflict, so the error arrives before anything runs. `rf.story/variant-plan`
@@ -297,8 +292,7 @@ Checks are named assertion packs:
 ```
 
 Checks are the inheritable expectation form. Ordinary assertions are local to
-the variant. That rule keeps a parent variant from silently forcing its verdict
-onto every child.
+the variant, so a parent variant cannot force its verdict onto every child.
 
 To write expectations without typing them, press **add expectations…** under
 Controls. Pick a kind (an app-db value or schema, a subscription value, the
@@ -324,9 +318,8 @@ axe could not decide, which a person has to look at. A login card can read no
 violations while axe leaves its colour-contrast checks incomplete, because it
 could not determine the background colour behind the text. The panel lists
 those checks under their own heading, and reads "no violations, nothing
-incomplete" only when both numbers are zero. An incomplete check is not a
-failure, but it is not a pass either: report both numbers. A clean bill never
-absorbs incomplete findings.
+incomplete" only when both numbers are zero. An incomplete check is neither a
+failure nor a pass, so report both numbers.
 
 An agent reads the same stored result through `read-a11y-violations`. That tool
 does not run a scan: it returns what the panel last stored, with the violations
@@ -334,6 +327,3 @@ under `:violations` and the incomplete checks beside them under `:incomplete`.
 It also needs the browser host, so the story-mcp stdio server answers
 capability-unavailable rather than an empty list.
 [Chapter 9](09-multi-substrate-and-agent-loop.md#two-hosts) names the two hosts.
-
-You now have a variant that renders, documents itself, and runs. The next
-problem is how to author scripts without hand-writing every click and wait.
