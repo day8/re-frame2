@@ -42,9 +42,20 @@
   humanized messages in its own production UI requires `malli.error`
   itself and pays for it once, on purpose.
 
+  `malli.transform` is required on CLJS for managed HTTP's schema
+  `:decode`, which coerces the parsed JSON with
+  `malli.transform/json-transformer` (Spec 014 §Schema-driven). The CLJS
+  decoder looks that function up with `resolve`, which loads nothing, so the
+  namespace must already be in the build; requiring it here puts it there
+  for every app that uses schemas. Nothing in this namespace calls it, so a
+  build without the HTTP decoder keeps none of it: Closure drops a
+  namespace nothing reaches. The JVM decoder loads it on demand with
+  `requiring-resolve`.
+
   See the `re-frame.schemas` namespace docstring for the bundle boundary."
   (:require [malli.core]
             [malli.error]
+            #?(:cljs [malli.transform])
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]))
 
