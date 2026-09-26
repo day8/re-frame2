@@ -17,6 +17,7 @@
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.routing :as rf.routing]
+            [re-frame.routing.address :as rf.routing.address]
             [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
@@ -96,6 +97,23 @@
          model and never emitted. What reaches the anchor is the routing-owned
          href, the click decision, and the author's passthrough attrs — nothing
          else")))
+
+(deftest navigation-policy-rides-the-click-and-never-the-anchor
+  (let [policy    {:replace? true :scroll false :bypass-leave? true}
+        [_ attrs] (rendered (merge {:to     :conduit.profile/show
+                                    :params {:username "jane"}
+                                    :class  "author"}
+                                   policy)
+                            "jane")]
+    (is (= rf.routing.address/policy-keys (set (keys policy)))
+        "the fixture carries every navigation policy key routing defines, so
+         a key routing adds fails here until route-link owns it too")
+    (is (= #{:href :on-click :class} (set (keys attrs)))
+        "policy keys are navigation, not attributes: none reaches the anchor")
+    (is (= [:rf.route/url-requested (assoc policy :url "/profile/jane")]
+           (:payload (second (:on-click attrs))))
+        "the click's payload carries the policy, which the navigation honours
+         as :rf.route/navigate does")))
 
 (deftest a-native-anchor-is-classified-at-render
   (let [[_ attrs] (rendered {:to :conduit.profile/show :params {:username "jane"}
