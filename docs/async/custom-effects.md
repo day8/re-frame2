@@ -57,6 +57,24 @@ Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worke
 
     The fx posts work and dispatches; the *reply handler* does the state write. Keeping that split is what keeps handlers pure and replays deterministic.
 
+!!! note "Guard against a stale reply"
+
+    A reply can land after the user has moved on: a second charge started, or the checkout was abandoned. Write a token into `app-db` when you issue the work (a counter works) and ride it on the reply vector, `:on-success [:checkout/charged token]`, so the handler receives `[_ token result]`. It commits only when that token still matches the one in `app-db`; on a mismatch it returns no effects.
+
+## Testing it
+
+Each half tests on its own. The issuing handler returns the effect as data, so a [handler test](../core/testing/event-handlers.md) asserts on its `:fx`. The reply is an ordinary event, so a test can dispatch `[:checkout/charged {:id "ch_1"}]` directly. To run the whole chain, redirect the effect with `:fx-overrides` to a function that dispatches a canned reply ([Redirect any effect](../core/testing/pipeline-runs.md#redirect-any-effect-fx-overrides)):
+
+```clojure
+(deftest checkout-pays
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:checkout/pay]
+                      {:fx-overrides
+                       {:payment/charge (fn [{:keys [frame]} {:keys [on-success]}]
+                                          (rf/dispatch (conj on-success {:id "ch_1"}) {:frame frame}))}})
+    (is (= :paid (:checkout/status (rf/app-db-value f))))))
+```
+
 ## When *not* to roll your own
 
 - **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — managed HTTP already gives you retries, abort, structured failures, and stale-result suppression. The example above is for APIs that *aren't* HTTP, so it only has the guarantees you put into it.

@@ -22,6 +22,10 @@ have a name on the same wire as everything else.
 
 <a id="in-this-section"></a>
 
+Start with the [tutorial](tutorial.md), which builds one request step by step. [Managed HTTP](http.md)
+is the model and every key; [Interceptors and secrets](http-going-further.md) and
+[Your own async effect](custom-effects.md) follow when you need them.
+
 Managed HTTP plugs into the event pipeline. It does not replace events or app-db.
 
 ## Scope

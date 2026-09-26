@@ -15,9 +15,8 @@ API surfaces (interceptors, stubs, traces): [Managed HTTP](../api/re-frame.http.
 !!! note "Optional artefact"
 
     Require `re-frame.http.managed` once at boot — Maven `day8/re-frame2-http`. Without
-    it, `[:rf.http/managed …]` raises `:rf.error/no-such-fx`. Late-bound helpers on
-    `re-frame.core` (e.g. test stubs, interceptor registration) raise
-    `:rf.error/http-artefact-missing`.
+    it, `[:rf.http/managed …]` raises `:rf.error/no-such-fx`, and
+    `rf/reg-http-interceptor` raises `:rf.error/http-artefact-missing`.
 
 ## The args map
 
@@ -72,7 +71,7 @@ The full envelope:
 | `:url` | **required** | A string. Validated at dispatch time *after* the interceptor chain runs, so a base-URL interceptor is honoured. |
 | `:headers` | none | Map of string → string (or string → vector for multi-valued). Names are case-insensitive. |
 | `:params` | none | Map of query-string params. URL-encoded and merged onto `:url` for you. |
-| `:body` | none | A Clojure collection, string, `FormData`, `Blob`, `ArrayBuffer`, or a **thunk** `(fn [] body)` invoked at send-time. |
+| `:body` | none | A Clojure collection, string, `FormData`, `Blob`, `ArrayBuffer`, or a **thunk** `(fn [] body)` invoked at send-time. A map, sequential or set body with no `:request-content-type` is sent as JSON, where keywords become their qualified names (`:user/id` → `"user/id"`) and UUIDs become strings. |
 | `:request-content-type` | none | `:json` / `:form` / `:text` / an explicit MIME. Sugar that both sets `Content-Type` and serialises `:body`. |
 | `:credentials` | `:same-origin` | `:omit` / `:same-origin` / `:include`. CLJS-only; the JVM transport ignores it. |
 | `:mode` | host default | Fetch passthrough. CLJS-only; ignored on the JVM. |
@@ -86,7 +85,7 @@ Three conveniences worth knowing:
 
 - **`:params` builds the query string for you.** Hand it a map and it URL-encodes each pair and merges them onto `:url` — no hand-built `?a=1&b=2`.
 - **`:request-content-type` serialises `:body` and stamps the header in one move.** `:json` runs the `:body` map through JSON serialisation and sets `Content-Type: application/json`; `:form` URL-encodes it as a form body instead. For a file upload, hand a `js/FormData` straight in as `:body` and leave `:request-content-type` off — the platform sets the multipart boundary itself.
-- **A bad `:url` fails loud, not silent.** A blank, nil, or non-string `:url` is rejected at dispatch with a named bad-request error rather than falling through to the transport as an opaque failure.
+- **A bad `:url` fails loud, not silent.** A blank, nil, or non-string `:url` is rejected at dispatch with `:rf.error/http-bad-request` rather than falling through to the transport as an opaque failure.
 
 !!! warning "Gotcha — don't thread auth by hand"
 
@@ -94,7 +93,7 @@ Three conveniences worth knowing:
 
 !!! warning "Gotcha — the CLJS-only keys are silently no-ops on the JVM"
 
-    The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible. (`:redirect` is the exception: it *is* honoured on the JVM.) If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
+    The six Fetch-passthrough keys (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`, and the top-level `:abort-signal`) are meaningful against the browser Fetch API and have no `java.net.http.HttpClient` analogue. On the JVM the request still goes out — the option is just dropped — and one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace fires per occurrence so the degraded path is visible. (`:redirect` is the exception: it *is* honoured on the JVM.) A relative `:url` fails on the JVM outright: there is no page to resolve it against, so it becomes a `:rf.http/transport` failure naming the url. Use an absolute URL there, or a `:before` [interceptor](http-going-further.md#interceptors-stamp-every-request-once) that prefixes a base. If a request runs on both hosts — SSR, a shared loader — keep cross-host code off these keys or feature-flag them at the call site. The same asymmetry hits `:rf.http/cors`, which only the browser ever emits.
 
 !!! warning "Gotcha — a malformed header is dropped, not fatal"
 
@@ -109,7 +108,7 @@ Every reply is the one **canonical reply envelope** — a plain map with a close
 | `:ok` | `{:status :ok :value value :meta {…} …}` | `value` is the decoded 2xx body. If you supplied `:accept`, this is the value inside `{:ok value}`. `:meta` carries the response's wire facts — `{:status 200 :status-text "OK" :headers {…}}`, with headers under lower-cased names — so a handler (or [`:after` interceptor](http-going-further.md#interceptors-stamp-every-request-once)) can read a rate-limit or `Cache-Control` header without any extra plumbing. |
 | `:error` | `{:status :error :error failure-map …}` | `failure-map` is one of the [category maps below](#failures-are-a-closed-set). Branch on `(-> reply :error :kind)`. |
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:rf.reply/cancel-reason` alongside. |
-| `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
+| `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
 So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled` — `:stale` never arrives), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:work/id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
 
@@ -180,10 +179,10 @@ The first time it runs there is no `reply`, so the handler issues the request. W
 
 ### Delivery rules
 
-- **Reply targets must be event vectors.** When you supply `:reply-to`, `:on-success`, or `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
+- **Reply targets must be event vectors.** When you supply `:reply-to`, `:on-success`, or `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected at dispatch, before the request is sent, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
 - **The two styles are exclusive.** `:reply-to` already addresses both branches, so a map carrying it beside `:on-success` or `:on-failure` is rejected at dispatch with `:rf.error/http-bad-reply-target` and `:reason :mixed-addressing`. The check is on key *presence*, so `{:reply-to [:a] :on-failure nil}` is a mixture too — to decline the reply entirely, write `:reply-to nil`.
 - **The reply lands in the same [frame](../core/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
-- **A stale reply is never delivered.** A reply whose correlation went obsolete before delivery ([below](#cancellation-supersession-and-abort)) — a superseded `:request-id`, or an actor destroy whose reply addressed the destroyed actor — does not reach your app at all; it is trace-only.
+- **A stale reply is never delivered.** A reply whose correlation went obsolete before delivery ([below](#cancellation-supersession-and-abort)) — a superseded `:request-id`, the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor — does not reach your app at all; it is trace-only.
 
 ### Timestamps come from a coeffect
 
@@ -288,7 +287,7 @@ Add a `:retry` policy — itself plain data — and the runtime handles the back
 ```
 
 - **`:on`** is the set of failure categories that trigger a retry.
-- **`:max-attempts`** is the total *including* the first try — `1` means no retry.
+- **`:max-attempts`** is the total *including* the first try — `1` means no retry, and so does leaving it out.
 - **`:backoff`** is exponential — `:base-ms` times `:factor` per attempt, capped at `:max-ms` — with optional `:jitter`, which adds ±25% randomness so a thousand clients don't retry in lockstep against your recovering server.
 
 Only the final exhausted failure dispatches your failure handler; intermediate attempts are trace rows (`:rf.http/retry-attempt`), not events your code sees. `:rf.http/aborted` is never retryable.
@@ -297,7 +296,7 @@ Only the final exhausted failure dispatches your failure handler; intermediate a
 
 Two guards keep a malformed `:on` from silently doing nothing:
 
-- Put a non-retryable category — or anything outside the `:rf.http/*` namespace — in `:on` and the request is rejected at dispatch with a named bad-retry-on error, rather than riding a useless policy for its lifetime.
+- Put a non-retryable category — or anything outside the `:rf.http/*` namespace — in `:on` and the request is rejected at dispatch with `:rf.error/http-bad-retry-on`, rather than riding a useless policy for its lifetime.
 - `:on` must be an actual *set* (`#{…}`). A bare keyword or a vector is rejected the same way — and for a sharp reason: the membership test is `contains?`, and `contains?` over a vector tests *indices*, not values, so a vector `:on` would silently disable retry for every category.
 
 The real discipline isn't *whether* to retry but *what*. Read-only fetches are safe. User-initiated writes are not, because retrying a submit or a payment risks doing it twice. The production shape is one shared policy for reads and conspicuously *no* `:retry` on writes — the RealWorld example's login, register, and settings requests carry none.
@@ -316,7 +315,7 @@ The real discipline isn't *whether* to retry but *what*. Read-only fetches are s
 
 Three related surfaces, one per situation.
 
-**Supersession — reuse a `:request-id`.** Give a request a stable `:request-id` — any `=`-comparable value: a keyword, a string, or a structural vector like `[:articles :load slug]` — and issuing a *new* request with the same id automatically supersedes the old one. The old reply is suppressed before delivery: your handler never sees it, only a trace row records it (`:reason :request-id-superseded`). This is the cure for the search-box race — the [tutorial demonstrates it](tutorial.md) — and it's a correctness guarantee, not an optimization: a suppressed reply *cannot* clobber fresh data no matter how late it arrives.
+**Supersession — reuse a `:request-id`.** Give a request a stable `:request-id` — any `=`-comparable value: a keyword, a string, or a structural vector like `[:articles :load slug]` — and issuing a *new* request with the same id automatically supersedes the old one. Ids belong to the frame that issued them, so the same id in code mounted in two frames never collides, and no frame can supersede or abort another's request. The old reply is suppressed before delivery: your handler never sees it, only a trace row records it (`:reason :request-id-superseded`). This is the cure for the search-box race — the [tutorial demonstrates it](tutorial.md) — and it's a correctness guarantee, not an optimization: a suppressed reply *cannot* clobber fresh data no matter how late it arrives.
 
 **Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a reply — a `:status :cancelled` envelope carrying `{:kind :rf.http/aborted :reason :user}` under `:error` — so a deliberate user-cancel can clear the spinner. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
 
@@ -328,13 +327,42 @@ Three related surfaces, one per situation.
 
     The request is always aborted, but a reply is not always delivered. A reply addressed to an ordinary event dispatches as `:status :cancelled` with `{:kind :rf.http/aborted :reason :actor-destroyed}` under `:error`. A reply addressed **back to the actor being destroyed** — the `[(:rf/self-id data) …]` shape — is never dispatched: the runtime classifies it `:status :stale` and records a `:rf.http/stale-suppressed` trace row. Expect no reply on that shape; clean up in the child's `:exit`, or address the reply to an event outside the actor. [Actors — Cancellation](../machines/actors.md#cancellation) has the actor-side detail.
 
-    Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
+    Requests dispatched from ordinary event handlers have no actor peg, but they belong to the frame that issued them. Destroying that frame, or restoring an earlier epoch in it, aborts every request it still has in flight, with or without a `:request-id`, and suppresses their replies; each leaves a `:rf.http/stale-suppressed` trace row. While the frame lives, `:request-id` is your app-level cancel handle.
 
 The [managed-http counter example](../../examples/core/managed_http_counter) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
 
 ## Timeouts
 
 Every attempt has a per-attempt timeout, default `30000` ms. Set `:timeout-ms` to change it; `nil` or `0` opts out entirely. A fired timeout classifies as `:rf.http/timeout` with `:elapsed-ms` and `:limit-ms` on the failure map, and is retryable under a `:retry` policy that includes it.
+
+## From a state machine
+
+When the machines artefact is loaded, `:rf.http/managed` is also a machine. A state can `:spawn` it with the args map as its `:data`, and the request lives exactly as long as that state:
+
+```clojure
+:loading
+{:spawn {:machine-id :rf.http/managed
+         :data       {:request {:url "/api/me"} :decode :json}}
+ :on    {:succeeded :ready
+         :failed    :load-failed}}
+```
+
+The child reports back as `[:succeeded value]` or `[:failed failure]`, and leaving `:loading` by any transition aborts the request. For several requests at once, spawn one child each under `:spawn-all` and join them. Each child's `:on-done` folds its value into the parent's `:data`:
+
+```clojure
+:hydrating
+{:spawn-all
+ {:children [{:id :user :machine-id :rf.http/managed :data {:request {:url "/api/me"}}
+              :on-done (fn [{:keys [data result]}] (assoc data :user result))}
+             {:id :prefs :machine-id :rf.http/managed :data {:request {:url "/api/prefs"}}
+              :on-done (fn [{:keys [data result]}] (assoc data :prefs result))}]
+  :join            :all
+  :on-all-complete [:hydrate/done]
+  :on-any-failed   [:hydrate/failed]}
+ :on {:hydrate/done :ready, :hydrate/failed :load-failed}}
+```
+
+Issue a request from an event handler with the fx form. Reach for the machine form when the request belongs to a state, or when several must all finish before the flow moves on. [Fan-out and join](../machines/actors.md#fan-out-and-join-with-spawn-all) has the join rules.
 
 ## Your own request builder
 
@@ -414,3 +442,16 @@ Managed HTTP is right for a **single request → single reply**. Elsewhere:
 | Same read, many screens, cache / invalidate | [Resources](../resources/concepts.md) (rides this transport) |
 | Long-lived connection or multi-step lifecycle | [Machines](../machines/concepts.md) — no managed streaming surface yet |
 | Non-HTTP async (SDK, IDB, worker) | [Your own fx](custom-effects.md) |
+
+## Troubleshooting
+
+| You see | What happened |
+|---|---|
+| `:rf.error/no-such-fx` naming `:rf.http/managed` | The artefact isn't loaded. Require `re-frame.http.managed` once at boot. |
+| `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying an `:rf.error/http-…` id | The args map was refused and nothing was sent: no reply address, a reply target that isn't a vector, a bad `:url`, or a bad `:retry :on`. The error names the key. |
+| `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
+| `:rf.warning/failure-swallowed` | A failure met `:on-failure nil` and was dropped. See [Silencing a reply](#silencing-a-reply). |
+| `:rf.error/http-interceptor-failed` or `:rf.error/http-reply-tail-failed` | An interceptor threw, or delivering the reply threw after the response arrived. No reply is delivered. |
+| `:rf.warning/http-malli-absent`, and a malformed body reached your handler | Malli isn't in the build, so the `:decode` schema was skipped. See [step 3 of the tutorial](tutorial.md#step-3--validate-the-body-with-a-schema). |
+
+Every other `:rf.http/*` trace row, and what each carries, is in [the API reference's trace table](../api/re-frame.http.md#trace-events).
