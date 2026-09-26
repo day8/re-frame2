@@ -1,6 +1,6 @@
 # Scripts
 
-This chapter is about a variant's **`:script`** — the slot that turns a variant body into a deterministic, replayable sequence of dispatches, DOM gestures, waits, and assertions. The core is **a tagged-step grammar** that a runner walks in order against the variant's frame. Around it sit the **seven canonical `:rf.assert/*` events** (the assertion vocabulary the `[:dispatch-sync …]` rail rides), the **record-don't-throw** discipline (failures append to the run rather than aborting), the **`:cannot-run`** refusal (a step the runner can't observe is refused, never silently passed), and the **recorder** (which authors a `:script` body from canvas interaction).
+This chapter is about a variant's **`:script`** — the slot that turns a variant body into a deterministic, replayable sequence of dispatches, DOM gestures, waits, and assertions. The core is **a tagged-step grammar** that a runner walks in order against the variant's frame. Around it sit the **`:rf.assert/*` assertions** (seven of them events that ride the `[:dispatch-sync …]` rail, the rest evaluated against the run's evidence), the **record-don't-throw** discipline (failures append to the run rather than aborting), the **`:cannot-run`** refusal (a step the runner can't observe is refused, never silently passed), and the **recorder** (which authors a `:script` body from canvas interaction).
 
 The public authoring slots are **`:setup`** (preconditions) and **`:script`** (behaviour under test); you execute a variant with the three verbs `rf.story/run` / `rf.story/is` / `rf.story/explain`.
 
@@ -10,8 +10,8 @@ The public authoring slots are **`:setup`** (preconditions) and **`:script`** (b
     composition, the schema floor, and the epoch-tape evidence projection — lives in
     [`017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md).
     `:script` is the only spelling there is: the recorder emits it too
-    ([tutorial chapter 5](../05-recorder-and-cannot-run.md)), and the registrar
-    rejects the retired `:play-script` key outright.
+    ([tutorial chapter 5](../05-recorder-and-cannot-run.md)), and a variant body
+    is closed, so any other key for a script is rejected at registration.
 
 ## The grammar — tagged step forms
 
@@ -20,9 +20,9 @@ Every step is a tagged vector. The runner iterates the script in order, settles 
 | Step | Semantics | Minimum runner |
 |---|---|---|
 | `[:dispatch event-vec]` | dispatch the event and advance when the runner reaches `settled-boundary` (in headless, the run-to-fixed-point drain). | `:headless` |
-| `[:dispatch-sync event-vec]` | low-level synchronous dispatch; the canonical seven `:rf.assert/*` ride this rail. | `:headless` |
-| `[:wait-until predicate]` | settle on a condition (`[:db path expected]` / `[:db path :pred fn]` / `[:queue-empty]`); deterministic; times out readably. | depends on predicate |
-| `[:wait ms]` | bounded wall-clock sleep — the explicit determinism opt-out; the determinism gate refuses a script containing one with `:cannot-run`. | runner-dependent |
+| `[:dispatch-sync event-vec]` | low-level synchronous dispatch; the seven event-backed `:rf.assert/*` assertions ride this rail. | `:headless` |
+| `[:wait-until predicate]` | settle on a condition (`[:db path expected]` / `[:db path :pred fn]` / `[:queue-empty]`), checked once the preceding step has settled; a condition that does not hold fails the step with a reason naming it, such as `wait-until [:db [:form :ready?] true] never became true`. | depends on predicate |
+| `[:wait ms]` | wall-clock sleep. `run` and `is` honour it; `assert-deterministic` refuses a program containing one as `:cannot-run`. | runner-dependent |
 | `[:assert assertion-vec]` | checkpoint assertion at this point in the script. **Illegal in `:setup`.** | depends on assertion |
 | `[:assert-db path value]` | checkpoint: the app-db value at `path` equals `value`. `[:assert-db path :pred f]` tests it with a predicate instead. | `:headless` |
 | `[:flush-presence]` / `[:flush-presence ms]` | advance the presence clock the host installed for enter and exit transitions, to quiescence or by `ms`. With no clock installed the step is `:cannot-run`. | `:headless` |
@@ -31,7 +31,7 @@ Every step is a tagged vector. The runner iterates the script in order, settles 
 | `[:focus selector]` | DOM focus. | `:dom` |
 | `[:assert-dom selector :visible \| :hidden \| :text txt]` | DOM-shape assertion: the element is present, is absent or hidden, or has that text. | `:dom` |
 
-A `:dispatch` or `:dispatch-sync` step takes an optional third element, `{:rf.cofx {...}}`, the coeffects to present to the handler; the recorder writes the clock reading this way, as `{:rf.cofx {:rf/time-ms 1790412881152}}`. A step whose tag is known but whose arguments are the wrong shape fails as an unknown or malformed step.
+A `:dispatch` or `:dispatch-sync` step takes an optional third element, `{:rf.cofx {...}}`, the coeffects to present to the handler; the recorder writes the clock reading this way, as `{:rf.cofx {:rf/time-ms 1790412881152}}`. A step whose tag is known but whose arguments are the wrong shape errors the run with `:rf.error/story-bad-step` before any step runs.
 
 ## Script shapes and plays
 
@@ -48,7 +48,7 @@ The map is closed: a misspelt key such as `:autorun?` throws at registration. `:
 
 `:plays` holds several named scripts instead, each `{:name "..." :script [...] :auto-run? bool}` with a required, unique `:name`. The first play auto-runs unless it sets `:auto-run? false`; the others run only when they set `:auto-run? true` or when you pick them from the toolbar's play dropdown. A variant declares `:script` or `:plays`, never both.
 
-A bare event vector (`[:my/event …]`) is accepted only as a transitional migration lift to `[:dispatch …]`; the P1 public grammar is uniformly tagged, so an app event genuinely named `:dispatch` or `:click` is never silently un-dispatchable.
+A bare event vector (`[:my/event …]`) is read as `[:dispatch [:my/event …]]`. A vector whose first element is a step tag is always read as that step, so an app event named `:click`, `:wait`, `:focus` or `:dispatch` is written in full as `[:dispatch [:click …]]`.
 
 ## The seven canonical `:rf.assert/*` events
 
@@ -59,12 +59,12 @@ The assertion vocabulary auto-registers at Story load (from the first `reg-*` ca
 | `:rf.assert/path-equals` | `[path expected]` | `(= (get-in @app-db path) expected)`. The workhorse. |
 | `:rf.assert/path-matches` | `[path schema]` | the value at `path` validates against a Malli schema. |
 | `:rf.assert/sub-equals` | `[query-vec expected]` | `(= @(subscribe query-vec) expected)`. **Honesty rule:** NOT satisfied by a `:sub-overrides` pin — it evaluates through `compute-sub`, which an override never touches. |
-| `:rf.assert/dispatched?` | `[event-vec]` | was this event dispatched into the frame during the script? (Script-phase only — not setup.) |
+| `:rf.assert/dispatched?` | `[event-vec]`, `[event-id]` or `[pred]` | was a matching event dispatched into the frame during the run, in `:setup` or `:script`? An event vector must match exactly, an event id matches any event with that id, and a predicate receives each dispatched event vector. |
 | `:rf.assert/state-is` | `[machine-id state]` | the active state of a `reg-machine` machine. |
 | `:rf.assert/no-warnings` | `[]` | no warning-severity trace event (`:op-type :warning`) fired during the run — any operation namespace, not only `:rf.warning/*`. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | the fx was emitted; the optional `pred` is a unary fn over the matched fx-id keyword. |
 
-Plus the tape-evaluated `:rf.assert/schema-error` (minted by the result boundary against the epoch tape, not dispatched), which requires the `:schema` capability and fails the run on a tape schema violation.
+Plus `:rf.assert/schema-error`, which is evaluated against the epoch tape rather than dispatched and needs the `:schema` capability. It declares a schema violation the run is expected to produce, such as `[:rf.assert/schema-error {:where :event :event :login/flow}]`, or `[:rf.assert/schema-error]` for any one, and fails when no matching violation happens. Each declaration consumes one matching violation, and any violation left unconsumed fails the run.
 
 ### Further assertion ids
 
@@ -103,7 +103,7 @@ Every assertion records its result and the script continues. A failing assertion
    :tags   #{:dev :docs :test}})
 ```
 
-Note the increments live in `:script`, not `:setup`: the `:rf.assert/dispatched?` accumulator only observes dispatches during the script phase. The general rule for hand-authored variants — **assertions about dispatches only see the script, not the setup.**
+`:rf.assert/dispatched?` sees every event the run dispatched, in `:setup` as well as `:script`, so an event that setup already dispatches satisfies it whatever the script does.
 
 ## `:cannot-run` — the third result state
 
@@ -119,7 +119,9 @@ A step or assertion the chosen runner cannot observe is refused, fail-closed, wi
  :unit             [:click "[data-test=submit]"]}
 ```
 
-The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:dom` → `:browser`) each advertise a set of capability tokens; each step/assertion declares the tokens it needs; the plan's `:required-runner` is the union; a runner is valid iff its tokens are a superset, and the cheapest valid runner wins. The aggregation rule: a variant whose only unmet assertions are `:cannot-run` is itself `:cannot-run` — never a silent pass. (Full runner model: [tutorial chapter 5](../05-recorder-and-cannot-run.md).)
+A headless run also records the step itself as `:runner-cannot-attempt-step`, with a `:message` such as `no DOM — cannot click "[data-test=submit]"`.
+
+The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:dom` → `:browser`) each advertise a set of capability tokens; each step/assertion declares the tokens it needs; the plan's `:required-runner` is the union; a runner is valid iff its tokens are a superset. A run uses the runner you pass, `:headless` by default; under `{:runner :auto}` or `{:escalate true}` the cheapest valid runner is chosen. The aggregation rule: a variant whose only unmet assertions are `:cannot-run` is itself `:cannot-run` — never a silent pass. (Full runner model: [tutorial chapter 5](../05-recorder-and-cannot-run.md).)
 
 ## Privacy posture
 
@@ -140,9 +142,9 @@ Story's canvas recorder captures dispatched events and DOM interactions into a p
 
 | Fn | Signature | Description |
 |---|---|---|
-| `start-recording!` | `(start-recording! variant-id) → nil` | begin recording user-source dispatches against the variant's frame. |
-| `stop-recording!` | `(stop-recording!) → events-vec` | stop; return the captured events vector. |
-| `clear-recording!` | `(clear-recording!) → nil` | drop the buffer; return to idle. |
+| `start-recording!` | `(start-recording! variant-id) → state-map` | begin recording user-source dispatches against the variant's frame, stopping any recording in flight; returns the new recorder state. |
+| `stop-recording!` | `(stop-recording!) → state-map` | stop; the returned state carries `:recording? false`, the captured `:events` in order and the source `:variant-id`. |
+| `clear-recording!` | `(clear-recording!) → state-map` | drop the buffer; return to idle, and return the idle state. |
 | `recording?` | `(recording?) → bool` | is a recording in flight? |
 | `recorder-state` | `(recorder-state) → map` | read-only recorder state. |
 | `gen-play-snippet` | `(gen-play-snippet events opts) → string` | render captured events as a paste-ready `reg-variant` EDN snippet (each event wrapped as a `[:dispatch-sync …]` step). |

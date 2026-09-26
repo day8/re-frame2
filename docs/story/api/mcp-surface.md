@@ -83,9 +83,9 @@ Story's core jar exposes these without depending on stdio / JSON-RPC. The MCP ja
 (run-variant variant-id opts)      (reset-variant variant-id opts)
 (watch-variant variant-id callback)
 (snapshot-identity variant-id opts)
-(read-assertions variant-id)       (assertions-passing? result)
+(read-assertions variant-id)       (assertions-passing? result-or-assertions)
 (canonical-assertion-ids)
-(variant-share-url variant-id base-url opts)
+(variant-share-url variant-id opts) (variant-share-url variant-id base-url opts)
 (registered-substrates)            ; CLJS-only
 ```
 
@@ -117,7 +117,8 @@ Story always exposes these helpers — the MCP jar's gate governs *its own* expo
 (reg-fragment*    id body)   (reg-check*       id body)
 (reg-workspace*   id body)   (reg-mode*        id body)
 (reg-story-panel* id body)   (reg-decorator*   id body)
-(reg-tag*         id body)
+(reg-tag*         id body)   (reg-fragment*    id body)
+(reg-check*       id body)
 (unregister! kind id) (clear-kind! kind) (clear-all!)
 ```
 
@@ -135,7 +136,7 @@ A clean split, no overlap:
 | Protocol-version pin | `tools/story-mcp/` |
 | The 19-tool registry (Dev / Docs / Testing / Write) | `tools/story-mcp/` |
 | The wire-egress classification and its indicator counts | `tools/story-mcp/` |
-| The `:rf.story-mcp/allow-writes?` gate | `tools/story-mcp/` |
+| The write gate, `re-frame.story-mcp.config/allow-writes?` | `tools/story-mcp/` |
 | The nine `reg-*` macros (and their `*`-suffix runtime helpers) | `tools/story/` |
 | The four-phase runtime | `tools/story/` |
 | The render shell (when CLJS is the runtime) | `tools/story/` |

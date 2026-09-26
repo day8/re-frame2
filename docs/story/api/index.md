@@ -15,11 +15,11 @@ Three audiences read these chapters. **Story authors** writing `reg-story` / `re
 Every row carries:
 
 - a **signature** — the call shape, in Clojure form
-- a **kind** — `M` (macro) or `Fn` (function); `Fx`, `Cofx`, or `Event` for the fx / cofx / canonical-assertion tables
-- a **status** — `v1` (stable), `v1 (dev-only)` (elided in `:advanced` + `re-frame.story.config/enabled?=false`)
 - an **intuition** — the one-line answer to "what's this for and when do I reach for it?"
 
-Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention `re-frame.core` uses for `reg-view` / `reg-machine` (its two surviving `*`-partnered macros post rf2-m90brg): the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
+The chapter pages add the **kind** — macro, function or Var — where it matters.
+
+Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention `re-frame.core` uses for `reg-view` and `reg-machine`: the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
 
 ## Where surfaces live
 
@@ -41,7 +41,7 @@ The dependency direction is one-way: hosts depend on `re-frame.story`; tools dep
 
 The reference is divided into four topical chapters plus a closing symbol-table reference. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
 
-The four topical chapters are **[Registration](registration.md)** (the seven `reg-*` macros, their `*`-fn partners, the EDN-first variant contract, the inclusion-tag vocabulary, the `:rf.story/global-args` / `:rf.story/global-decorators` boot-time entry points), **[Scripts](script.md)** (the `:script` grammar — every step, the canonical seven `:rf.assert/*` events, the record-don't-throw discipline, the recorder facade that authors a script from canvas interaction), **[Runtime](runtime.md)** (`run-variant` / `reset-variant` / `watch-variant` / `destroy-variant!`, the four-phase lifecycle, `snapshot-identity`, the registry-query family, `configure!` at boot, the shell-mount surface), and **[MCP surface](mcp-surface.md)** (the wire-elision boundary, the public read primitives consumed by `tools/story-mcp/`, the public write primitives behind the gated agent-write surface, the late-bind `reg-story-panel` contract).
+The four topical chapters are **[Registration](registration.md)** (the nine `reg-*` macros, their `*`-fn partners, the EDN-first variant contract, the inclusion-tag vocabulary, the `:rf.story/global-args` / `:rf.story/global-decorators` boot-time entry points), **[Scripts](script.md)** (the `:script` grammar — every step, the canonical seven `:rf.assert/*` events, the record-don't-throw discipline, the recorder facade that authors a script from canvas interaction), **[Runtime](runtime.md)** (`run-variant` / `reset-variant` / `watch-variant` / `destroy-variant!`, the four-phase lifecycle, `snapshot-identity`, the registry-query family, `configure!` at boot, the shell-mount surface), and **[MCP surface](mcp-surface.md)** (the wire-elision boundary, the public read primitives consumed by `tools/story-mcp/`, the public write primitives behind the gated agent-write surface, the late-bind `reg-story-panel` contract).
 
 The closing chapter is **[Reference](reference.md)** — the complete symbol table across `re-frame.story` and its sub-namespaces, organised for `Ctrl-F` use. If you want to know whether `gen-play-snippet` lives on the facade or in the recorder sub-namespace, this is the page.
 
