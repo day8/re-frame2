@@ -88,84 +88,52 @@
   ;; the inner event the parent handler sees after the router strips parent-id
   [:rf.machine.spawn/error invoke-id error])
 
-(deftest event-received-spawn-error-payload-redacted
-  (testing ":rf.machine/event-received carrying the
-            synthetic spawn-error event has its child-owned error payload
-            (3rd element) summarized at egress; the reserved id + invoke-id
-            survive so the trace is still locatable"
-    (let [err  (sensitive-error)
-          ev   {:operation :rf.machine/event-received
-                :tags      {:machine-id parent-id
-                            :frame      :rf/default
-                            :event      (spawn-error-event err)}}
-          out  (rf.classification/project-trace-event ev)
-          tags (:tags out)
-          proj-event (:event tags)]
-      (is (= :rf.machine.spawn/error (first proj-event))
-          "reserved event-id survives")
-      (is (= invoke-id (second proj-event))
-          "the invoke-id (routing key) survives")
-      (is (not (.contains (pr-str out) "4111-1111-1111-1111"))
-          "no raw child card number leaked through the parent event-received trace")
-      (is (not (.contains (pr-str out) "secret-child-jwt"))
-          "no raw child :exception-data token leaked"))))
-
-(deftest transition-spawn-error-payload-redacted
-  (testing ":rf.machine/transition carrying the synthetic
-            spawn-error event under :event summarizes the child error payload"
-    (let [err  (raw-child-output)
-          ev   {:operation :rf.machine/transition
-                :tags      {:actor-id parent-id
-                            :frame    :rf/default
-                            :event    (spawn-error-event err)
-                            :before   {:state :working :data {}}
-                            :after    {:state :failed  :data {}}}}
-          out  (rf.classification/project-trace-event ev)
-          proj-event (get-in out [:tags :event])]
-      (is (= :rf.machine.spawn/error (first proj-event)))
-      (is (= invoke-id (second proj-event)))
-      (is (not (.contains (pr-str out) "secret-output-leaf"))
-          "no raw child :output-key result leaked through the parent transition trace"))))
-
-(deftest guard-evaluated-spawn-error-input-event-redacted
-  (testing "a parent :on-error guard's :rf.machine/
-            guard-evaluated carries the synthetic event under :input :event;
-            its child error payload is summarized at egress"
-    (let [err  (sensitive-error)
-          ev   {:operation :rf.machine/guard-evaluated
-                :tags      {:actor-id parent-id
-                            :frame    :rf/default
-                            :guard-id :retryable?
-                            :state    :working
-                            :outcome  :pass
-                            :input    {:data  {}
-                                       :event (spawn-error-event err)}}}
-          out  (rf.classification/project-trace-event ev)
-          proj-event (get-in out [:tags :input :event])]
-      (is (= :rf.machine.spawn/error (first proj-event)))
-      (is (= invoke-id (second proj-event)))
-      (is (not (.contains (pr-str out) "4111-1111-1111-1111"))
-          "no raw child card number leaked through the parent guard :input :event")
-      (is (not (.contains (pr-str out) "secret-child-jwt"))))))
-
-(deftest action-ran-spawn-error-input-event-redacted
-  (testing "a parent :on-error action's :rf.machine/
-            action-ran carries the synthetic event under :input :event;
-            its child error payload is summarized at egress"
-    (let [err  (sensitive-error)
-          ev   {:operation :rf.machine/action-ran
-                :tags      {:actor-id  parent-id
-                            :frame     :rf/default
-                            :action-id :record-failure
-                            :phase     :transition
-                            :outcome   :ok
-                            :input     {:data  {}
-                                        :event (spawn-error-event err)}}}
-          out  (rf.classification/project-trace-event ev)
-          proj-event (get-in out [:tags :input :event])]
-      (is (= :rf.machine.spawn/error (first proj-event)))
-      (is (not (.contains (pr-str out) "4111-1111-1111-1111")))
-      (is (not (.contains (pr-str out) "secret-child-jwt"))))))
+(deftest spawn-error-payload-redacted-on-every-parent-machine-trace
+  ;; The parent's machine traces carry the synthetic spawn-error event under
+  ;; :event (event-received, transition) or [:input :event] (a parent
+  ;; :on-error guard's guard-evaluated, its action's action-ran); the
+  ;; child-owned error payload is the event's 3rd element.
+  (doseq [[op event-path tags secrets]
+          [[:rf.machine/event-received [:event]
+            {:machine-id parent-id
+             :frame      :rf/default
+             :event      (spawn-error-event (sensitive-error))}
+            ["4111-1111-1111-1111" "secret-child-jwt"]]
+           [:rf.machine/transition [:event]
+            {:actor-id parent-id
+             :frame    :rf/default
+             :event    (spawn-error-event (raw-child-output))
+             :before   {:state :working :data {}}
+             :after    {:state :failed  :data {}}}
+            ["secret-output-leaf"]]
+           [:rf.machine/guard-evaluated [:input :event]
+            {:actor-id parent-id
+             :frame    :rf/default
+             :guard-id :retryable?
+             :state    :working
+             :outcome  :pass
+             :input    {:data  {}
+                        :event (spawn-error-event (sensitive-error))}}
+            ["4111-1111-1111-1111" "secret-child-jwt"]]
+           [:rf.machine/action-ran [:input :event]
+            {:actor-id  parent-id
+             :frame     :rf/default
+             :action-id :record-failure
+             :phase     :transition
+             :outcome   :ok
+             :input     {:data  {}
+                         :event (spawn-error-event (sensitive-error))}}
+            ["4111-1111-1111-1111" "secret-child-jwt"]]]]
+    (testing (str op " summarizes the child error payload at egress")
+      (let [out        (rf.classification/project-trace-event {:operation op :tags tags})
+            proj-event (get-in out (into [:tags] event-path))]
+        (is (= :rf.machine.spawn/error (first proj-event))
+            "reserved event-id survives")
+        (is (= invoke-id (second proj-event))
+            "the invoke-id (routing key) survives, so the trace is still locatable")
+        (doseq [secret secrets]
+          (is (not (.contains (pr-str out) secret))
+              (str "no raw child payload (" secret ") leaked")))))))
 
 ;; ---- precision: a NORMAL (non-spawn-error) machine event is untouched -----
 
