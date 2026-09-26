@@ -34,6 +34,13 @@
  *     bundle init (sci.cljs :require's the artefact) and its top-level
  *     (subs/reg-sub :rf/machine ...) + (fx/reg-fx :rf.machine/* ...) forms ran.
  *
+ * Asserts the schemas contract:
+ *   - A ```cljs-rf2 cell requires re-frame.schemas and calls real
+ *     rf/reg-app-schema against a cell-created frame: a valid write installs,
+ *     and a write the schema rejects leaves app-db unchanged — proving the
+ *     schemas artefact's late-bind hooks and the Malli validator register at
+ *     bundle init (sci.cljs :require's the artefact).
+ *
  * Asserts the eager-creation-marker contract:
  *   - A fourth ```cljs-rf2 cell pins the quickstart shape: (ns ...) form,
  *     reg-view via the SCI macro shim (injected bare dispatch/subscribe),
@@ -330,6 +337,25 @@ const PAGE = `<!DOCTYPE html>
 (rf/make-frame {:id :orders :initial-events [[:demo.order/initialise]]})
 [rf/frame-provider {:frame :orders}
  [order-list]]</pre>
+  <h2>schemas cell (reg-app-schema, rf2 schemas artefact)</h2>
+  <pre class="language-cljs-rf2">(require '[re-frame.core :as rf]
+         '[re-frame.schemas])
+;; Pins the schemas artefact in the bundle: rf/reg-app-schema must resolve
+;; rather than throw :rf.error/schemas-artefact-missing, a valid write must
+;; install, and a write the schema rejects must leave app-db unchanged.
+(rf/reg-app-schema [:sv] {:frame :rf2smoke/schemaframe} [:maybe [:int {:min 0}]])
+(rf/reg-event :rf2smoke/sv-init (fn [_ _] {:db {:sv 0}}))
+(rf/reg-event :rf2smoke/sv-set (fn [{:keys [db]} [_ v]] {:db (assoc db :sv v)}))
+(rf/reg-event :rf2smoke/sv-inc (fn [{:keys [db]} _] {:db (update db :sv inc)}))
+(rf/reg-sub :rf2smoke/sv (fn [db _] (:sv db)))
+(rf/reg-view sv-view []
+  [:div
+   [:span#rf2-sv "sv: " (str @(subscribe [:rf2smoke/sv]))]
+   [:button#rf2-sv-ok {:on-click #(dispatch [:rf2smoke/sv-set 5])} "set 5"]
+   [:button#rf2-sv-bad {:on-click #(dispatch [:rf2smoke/sv-set -1])} "set -1"]
+   [:button#rf2-sv-inc {:on-click #(dispatch [:rf2smoke/sv-inc])} "inc"]])
+[rf/frame-root {:id :rf2smoke/schemaframe :initial-events [[:rf2smoke/sv-init]]}
+ [sv-view]]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -430,11 +456,11 @@ await page.waitForFunction(
 );
 await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 
-// All cells mount (3 plain-eval + 10 rf2 render: counter + toggle-machine +
+// All cells mount (3 plain-eval + 11 rf2 render: counter + toggle-machine +
 // eager-start-machine + reg-view + cofx + flow + program + mount +
-// two-stepper + order-list).
+// two-stepper + order-list + schemas).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 13, `13 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 14, `14 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
@@ -490,7 +516,7 @@ await page.waitForFunction(
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
 const rf2Cells = await page.$$(".cljs-cell--rf2");
-assert(rf2Cells.length === 10, `10 re-frame2 cells mounted (got ${rf2Cells.length})`);
+assert(rf2Cells.length === 11, `11 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event / reg-sub / dispatch-sync.
@@ -773,6 +799,42 @@ assert(
   `placed order renders on :orders with its label (got ${JSON.stringify(ordersAfter[0])})`
 );
 
+// --- schemas artefact (reg-app-schema) --------------------------------------
+//
+// The schemas artefact is bundled (re-frame.schemas is :require'd by the SCI
+// build, registering its late-bind hooks and the Malli validator at load). The
+// cell registers [:maybe [:int {:min 0}]] at [:sv]; a valid write installs, a
+// -1 write is rejected, and the follow-up inc then reads 6 — an installed -1
+// would read 0.
+const rf2SchemaErr = await rf2Cells[10].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2SchemaErr, "schemas cell not flagged error");
+await page.waitForSelector(".cljs-cell--rf2 #rf2-sv", { timeout: 20000 });
+const svBefore = (await page.locator("#rf2-sv").innerText()).trim();
+console.log("schemas cell (initial):", JSON.stringify(svBefore));
+assert(svBefore === "sv: 0", `schemas cell seeds a valid 0 (got ${JSON.stringify(svBefore)})`);
+await page.click("#rf2-sv-ok");
+await page.waitForFunction(
+  () => document.querySelector("#rf2-sv")?.innerText.trim() === "sv: 5",
+  null, { timeout: 5000 }
+).catch(() => {});
+const svValid = (await page.locator("#rf2-sv").innerText()).trim();
+console.log("schemas cell (after valid write):", JSON.stringify(svValid));
+assert(svValid === "sv: 5", `a write the schema accepts installs (got ${JSON.stringify(svValid)})`);
+await page.click("#rf2-sv-bad");
+await page.click("#rf2-sv-inc");
+await page.waitForFunction(
+  () => ["sv: 6", "sv: 0"].includes(document.querySelector("#rf2-sv")?.innerText.trim()),
+  null, { timeout: 5000 }
+).catch(() => {});
+const svAfterBad = (await page.locator("#rf2-sv").innerText()).trim();
+console.log("schemas cell (after invalid write + inc):", JSON.stringify(svAfterBad));
+assert(
+  svAfterBad === "sv: 6",
+  `the schema rejects the -1 write, so inc reads 6 (got ${JSON.stringify(svAfterBad)})`
+);
+
 // A plain eval cell on the SAME page still works alongside the re-frame2 bundle
 // (Scittle + window.rf2sci coexist without interference).
 const c1afterRf2 = await evalCell(0);
@@ -796,7 +858,7 @@ assert(
 //
 // Proves:
 //   - Detached roots released: post-nav live root count is page-2's
-//     cell count (3), NOT the accumulated 11 + 3 = 14. Without disposePage the
+//     cell count (3), NOT the accumulated 12 + 3 = 15. Without disposePage the
 //     roots leak.
 //   - Frame isolation / seed replay: :rf2smoke/frame carried {:rv 2}
 //     from page 1; page 2 re-`make-frame`s the SAME id with :initial-events.
@@ -822,7 +884,7 @@ assert(
 // cell BEFORE the nav. It is post-baseline (the framework baseline was snapshotted
 // at the first cell mount), so disposePage must clear it on the instant nav — the
 // page-2 leak-probe cell below dispatches it WITHOUT re-registering and must not
-// reach this handler. Mounting it adds one live root (page 1 now holds 11).
+// reach this handler. Mounting it adds one live root (page 1 now holds 12).
 await page.evaluate(() => {
   const host = document.createElement("div");
   const cell = document.createElement("pre");
@@ -842,8 +904,8 @@ await page.waitForSelector("#rf2-p1-stale", { timeout: 20000 });
 const rootsBeforeNav = await page.evaluate(() => window.rf2sci.liveRootCount());
 console.log("live roots before nav:", rootsBeforeNav);
 assert(
-  rootsBeforeNav === 11,
-  `page 1 holds one root per rf2 cell (10 + the :page1/stale registrar = 11) before nav (got ${rootsBeforeNav})`
+  rootsBeforeNav === 12,
+  `page 1 holds one root per rf2 cell (11 + the :page1/stale registrar = 12) before nav (got ${rootsBeforeNav})`
 );
 
 await page.evaluate(() => {
