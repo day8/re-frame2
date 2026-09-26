@@ -756,7 +756,7 @@
         [:div {:style (:rhs-section-h styles)}
          [:span "Controls"]
          [:span {:style (:rhs-section-sub styles)}
-          "args + modes"]]
+          "args + decorators"]]
         [rf.story.ui.controls/panel variant-id]])
      ;; Dispatch Console panel. Free-form event dispatch into
      ;; the running variant's frame. Default HIDDEN; opt-in via

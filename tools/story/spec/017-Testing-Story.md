@@ -2227,22 +2227,27 @@ make a successful render a passing test.
  :run-hash string                       ; over the canonical epoch slice
  :runner runner-kind
  :required-runner #{capability-token ...}
- :fidelity #{keyword ...}
  :elapsed-ms number
  :app-db final-db-or-redacted
- :sub-overrides {query-vector data}
  :epoch-tape [epoch-record ...]         ; evidence source when retained
  :narrative [narrative-span ...]        ; required scrubbable projection
  :assertions [assertion-record ...]
  :checks [check-record ...]
+ :consumed-selectors #{selector ...}    ; always present, #{} when empty
  :schema-violations [schema-record ...] ; projected from epoch trace events
  :warnings [warning-record ...]
  :effects [effect-record ...]
- :trace-summary {...}
- :run-artifact optional
- :cannot-run optional-refusal
- :error optional-error}
+ :sub-runs [sub-run-record ...]
+ :renders [render-record ...]
+ :reactive-counts {...}                 ; present when the tape carried reactive rows
+ :cannot-run [refusal ...]}             ; present iff an expectation could not be attempted
 ```
+
+A registered run also carries the frame's mount-state and provenance
+slots (`:lifecycle`, `:frame`, `:snapshot`, `:decorators`,
+`:effective-args`), and an artifact replay adds a `:run-artifact`
+back-link to the replayed source. A run's error rides `:assertions` as
+an `:error` record; there is no top-level `:error` slot.
 
 **The identity hashes are attached, not promised.** `story/run` (JVM and
 CLJS) and story-mcp `run-variant` return both strings (rf2-7vz97, PR

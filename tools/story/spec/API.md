@@ -594,8 +594,8 @@ code can see the three axes at a glance (rf2-zex19 follow-on, Finding
 
 The cluster gives the user three different "URLs from one shell":
 the **share** URL (variant-scoped, includes cell-overrides — surfaced
-as the live browser address-bar URL per rf2-ymnfx Issue B; there is
-no separate Share button or QR popover),
+as the live browser address-bar URL, which the toolbar's Share button
+copies from the share / export dialog; there is no QR popover),
 the **address-bar** URL (the same shareable state, including the focused
 variant's cell-overrides), and
 the **embed flag** (chrome-state, URL-only, one-shot). A reader

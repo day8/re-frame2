@@ -423,7 +423,7 @@ Three polish dimensions explicitly evaluated:
 | Animation timing | Staggered shell-mount entrance (0 / 60 / 120 / 180ms at 360ms per region), 180ms overlay fade, 220ms panel slide, 140ms hover, 120ms focus ring, 80ms chip-press rebound — six duration tokens, five easing curves, five `@keyframes`; `prefers-reduced-motion` clamps every one to `0.01ms`. The tab fade, the app-db diff-flash and the `--motion-scale` variable this cell used to name were never built (rf2-zxsd7) | mostly instant | **Story ahead** |
 | Focus rings + a11y posture | rf2-p1ai7 + rf2-u01y5 + rf2-07m13 (modal ARIA, arrow-key nav, accessible names) | mature; baseline | **Equivalent at this gate** |
 | HCM + forced-colors | rf2-ubhmn + rf2-846h2 (toggle + dogfood) | not first-party | **Story ahead** |
-| Share URL (no popover) | live browser address-bar URL via `url-state` pushState; Cmd-L Cmd-C copies it. No share button, no QR popover (rf2-ymnfx Issue B retired the affordance — redundant with the address bar). Earlier hardening (rf2-20w5i): the now-retired QR was generated locally, never via `api.qrserver.com`. | brand-pink image proxy via `api.qrserver.com` | **Story ahead** (privacy posture + chrome simplicity) |
+| Share URL (no popover) | live browser address-bar URL via `url-state` pushState; Cmd-L Cmd-C copies it, and the toolbar's Share button copies it from the share / export dialog. No QR popover. Earlier hardening (rf2-20w5i): the now-retired QR was generated locally, never via `api.qrserver.com`. | brand-pink image proxy via `api.qrserver.com` | **Story ahead** (privacy posture + chrome simplicity) |
 
 No polish-gap beads filed. The chrome differentiators are intentional
 and the identity is ahead.

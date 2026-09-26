@@ -389,7 +389,8 @@
 
      Modes are Chromatic-style saved tuples — when a variant is rendered
      against mode M, M's `:args` deep-merge into the variant's effective
-     args (precedence: global < mode < story < variant). Each
+     args (precedence: global < story < mode < variant < live control
+     override). Each
      `(variant × mode)` cell has its own snapshot-identity for visual
      regression keying."
      [id metadata]
@@ -1389,11 +1390,15 @@
 (defn assertions-passing?
   "Per `004-Assertions.md` §Test-runner integration + /spec/007-Stories.md
   §Story-as-test duality — the canonical predicate for the cljs.test /
-  clojure.test adapter pattern:
+  clojure.test adapter pattern. On the JVM `run-variant` returns a
+  `CompletableFuture`, which derefs:
 
       (deftest counter-empty-state
         (let [result @(story/run-variant :story.counter/empty {})]
           (is (story/assertions-passing? result))))
+
+  In CLJS it returns a `js/Promise`, so wait on it with `(async done …)`
+  and call this predicate from the `.then` callback.
 
   Given a `run-variant` RESULT MAP, this reflects the run VERDICT
   (`:status`) — the SAME authority as `result-passed?` — so a
@@ -1418,8 +1423,10 @@
 
 (defn canonical-assertion-ids
   "Per /spec/007-Stories.md §Inclusion tags + `004-Assertions.md`
-  §Canonical assertion vocabulary — return the set of seven
-  canonical `:rf.assert/*` event ids registered at boot."
+  §Canonical assertion vocabulary — return the set of eight canonical
+  `:rf.assert/*` ids: the seven event handlers registered at boot plus the
+  tape-evaluated `:rf.assert/schema-error`, which is recognised but never
+  dispatched."
   []
   rf.story.assertions/canonical-assertion-ids)
 
@@ -1433,7 +1440,7 @@
   `:rf.assert/a11y-structural`), and the reactive-count assertions
   declared in the requirement registry. This is the SAME set the plan
   compiler validates authored assertion atoms against
-  (`assertion-id-known?`); `canonical-assertion-ids` is its dispatched
+  (`assertion-id-known?`); `canonical-assertion-ids` is its canonical
   subset. Exposed for tooling (story-mcp `list-assertions`) that
   enumerates the recognised vocabulary."
   []

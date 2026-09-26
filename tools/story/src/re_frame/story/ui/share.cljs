@@ -3,8 +3,9 @@
   share / export / copy egress UX.
 
   Story's per-variant share URL is the same URL the browser's address
-  bar carries (Cmd-L / Cmd-A / Cmd-C copies it); there is no separate
-  Share button. This ns holds the read-
+  bar carries (Cmd-L / Cmd-A / Cmd-C copies it); the toolbar's Share
+  button (`share-chip`) opens the egress dialog, whose Share URL row
+  copies that same URL. This ns holds the read-
   side of the share URL contract plus the human-facing egress dialog.
 
   ## Human egress is not privacy-gated
@@ -282,9 +283,9 @@
   the globals compiles here as it runs, and its plan-derived downgrade
   reasons reach the report instead of a lost plan reading `:full`.
 
-  Returns nil when no variant is focused (nothing to share an artifact of)
-  — the egress dialog then reads the workspace/chrome-only share URL,
-  which is always fully reproducible (no per-variant data to omit)."
+  With no variant focused there is no plan and no overrides, so the report
+  classifies the workspace/chrome-only share URL and reads `:full` (no
+  per-variant data to omit). Never nil."
   [shell]
   (let [vid       (:selected-variant shell)
         overrides (when vid (get-in shell [:cell-overrides vid]))
@@ -485,7 +486,7 @@
   artifact less than fully replayable (a fn-valued override, a dropped
   override, …). NOT a privacy warning — a reproducibility honesty note.
 
-  Returns nil for a nil report (no variant focused → nothing to label)."
+  Returns nil for a nil report."
   [report]
   (when report
     (let [{:keys [status label reasons]} report]
