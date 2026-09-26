@@ -1,20 +1,19 @@
 ---
 name: reagent-migration
 description: >
-  Rewrites Reagent VIEW code into **Fresco** (`re-frame.fresco`, alias `h`)
-  — re-frame2's re-frame-native view layer: a view becomes an `h/defview`
-  mounted in brackets, `@(subscribe …)` becomes `(h/sub …)`, handlers become
-  event vectors, Form-2/Form-3 state moves out of the component. **First
-  establish whether the user needs Fresco**: re-frame2's Reagent adapter
-  is first-class and supported, so a v1 app keeps its view code and needs NO
-  rewrite to land on re-frame2 — that is `re-frame-migration`, and it finishes
-  the job. This is an OPTIONAL second step, and Fresco resolves like every
-  other re-frame2 artefact. **Do not use** for: the v1→v2
-  events/subs/db migration (`re-frame-migration`), writing new re-frame2 code
-  (`re-frame2`), greenfield setup (`re-frame2-setup`), or live-runtime
-  inspection (`re-frame2-pair`). Trigger on "migrate my Reagent views to
-  Fresco", "port this component to h/defview", or a Reagent view surface
-  (`r/atom`, `@(subscribe …)` in a view) named in a Fresco context.
+  Rewrites Reagent view code into Fresco (`re-frame.fresco`, alias `h`),
+  re-frame2's optional re-frame-native view layer: a view becomes an
+  `h/defview`, `@(subscribe …)` becomes `(h/sub …)`, handler closures become
+  event vectors, and Form-2/Form-3 state and lifecycle move out of the
+  component. Runs a reporter to size the job, applies the mechanical rewrites,
+  decides judgment cases with the author, and keeps the rest on Reagent.
+  Opt-in: use it only on an app already on re-frame2 whose author wants Fresco
+  — "migrate my Reagent views to Fresco", "port this component to h/defview",
+  or `r/atom`, `r/with-let`, `r/create-class` or `[:> …]` sites raised in a
+  Fresco context. The Reagent adapter is first-class, so a v1→v2 move keeps
+  its views and is `re-frame-migration`'s job. Not for new re-frame2 code
+  (`re-frame2`), project setup (`re-frame2-setup`) or live-app inspection
+  (`re-frame2-pair`).
 allowed-tools:
   - Bash(rg *)
   - Bash(rg -l *)
@@ -40,6 +39,8 @@ allowed-tools:
 # reagent-migration
 
 Helps an author rewrite **Reagent view code into Fresco** — `re-frame.fresco`, conventionally aliased `h`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes an `h/defview` mounted in brackets; subscription derefs collapse to `(h/sub …)`; DOM handlers stop being closures and become data the tree retains; and the two things Reagent kept inside the component — local atoms and lifecycle — move to where re-frame can see them.
+
+**What it changes:** the consumer's view namespaces (bodies, call sites, requires, the root), and nothing in the dataflow layer. It runs the project's own compile and test commands as it goes, and runs the reporter's file-rewriting `--rewrite --write` mode only as the last step, on a tree the author can diff.
 
 ## Read this first — establish that the user needs this at all
 
@@ -96,7 +97,7 @@ Reagent runs a view **at render time as an ordinary function** that returns hicc
 
 ## Cardinal rules (the invariants)
 
-1. **The view rewrite is JUDGMENT, not a codemod — but the reporter is a real tool.** Run the reporter first (above); it inventories the Reagent surface and fixes the prop dialect at React crossings. No tool converts views: for an ambiguous view the skill *reasons* about the right shape rather than emitting a flag.
+1. **The view rewrite is judgment, not a codemod — but the reporter is a real tool.** Run the reporter first (above); it inventories the Reagent surface and fixes the prop dialect at React crossings. No tool converts views: for an ambiguous view the skill *reasons* about the right shape rather than emitting a flag.
 2. **The whole view is the unit of migration — never half-migrate a view.** A converted `h/defview` has no ambient `subscribe`/`dispatch`, so a body with some sites rewritten and some not does not work. When a view raises a judgment call (D-tier), decide it with the author, then convert the **whole** view or hold the **whole** view. When a view needs a surface Fresco does not have (R-tier), hold it on Reagent and say why.
 3. **Incremental, never big-bang.** Migrate one namespace / one closed subtree at a time; verify it renders and its tests pass; then move on — [`references/procedure.md`](references/procedure.md).
 4. **The MIG rule catalog is the shared vocabulary.** Every rewrite cites a `MIG-NN` id, so the author can trace any change back to a rule. The id names the **Reagent construct you found**, not the destination shape. If a construct matches no rule, treat it as a hold (rule 2).
@@ -128,11 +129,9 @@ Full loop in [`references/procedure.md`](references/procedure.md). The shape:
 
 The traps that mangle a view silently → [`references/gotchas.md`](references/gotchas.md). The one to internalise before anything else:
 
-**A leftover `#(dispatch …)` closure compiles, renders, and fails at CLICK time.** Fresco passes an unmarked plain function through to React **by identity** — deliberately, so `React.memo` and handler-identity bail-outs keep working — so nothing refuses it at render. When the browser invokes it later there is no render extent, ambient dispatch has nothing to resolve, and it raises `:rf.error/no-frame-context`. That is the whole-view-coherence law (rule 2) with teeth: grep the converted bodies for surviving closures rather than finding them by clicking.
+**A half-converted view fails at three different times under three different ids**, and only the first is caught before a user finds it: a leftover ambient `rf/subscribe`/`rf/dispatch` in the body *or* a helper it inlines refuses at render (`:rf.error/ambient-frame-refused`); a surviving `#(dispatch …)` closure compiles, renders, and fails on click (`:rf.error/no-frame-context`), because Fresco hands a plain function to React untouched; an `h/sub` moved into a callback or timer fails when it fires (`:rf.error/fresco-sub-outside-render`). So grep converted bodies for `#(`, `(fn [`, `subscribe` and `dispatch` rather than finding them by clicking.
 
-**And it is one of three.** The same half-conversion fails at three different times under three different ids: a leftover ambient `rf/subscribe`/`rf/dispatch` inside the render extent — the body *or* a helper it inlines — refuses at RENDER with `:rf.error/ambient-frame-refused`; the closure above fails at CLICK with `:rf.error/no-frame-context`; an `h/sub` hoisted out into a callback or timer fails at FIRE with `:rf.error/fresco-sub-outside-render`. Branch on `:rf.error/id` and read `:reason`, which names the fix — the table and the complaint shape are in [`references/gotchas.md`](references/gotchas.md).
-
-The rest: the **bare-symbol trap** (`[:li item]` — `item` is *content*), **brackets vs parens**, **the exactly-one-props-map law**, **data-vectors-are-not-hiccup** (`[:buy 1]` in an `:on-click` is an event), **markers do not nest** (a `::h/value` below the vector's top level arrives as a literal keyword), and **a key map belongs at a keyboard event** (it reads `.key` first, so at `:on-submit` or `:on-click` it raises `:rf.error/fresco-intent-needs-the-event` when it fires).
+The rest — brackets versus parens, the bare-symbol trap, the `::h/…` keyword roster, and an index of the silent traps each rule carries — is in the gotchas file.
 
 ## Done checklist
 
@@ -144,7 +143,7 @@ The rest: the **bare-symbol trap** (`[:li item]` — `item` is *content*), **bra
 - [ ] The R-tier views were left on Reagent with an honest reason.
 - [ ] Every Fresco verb emitted exists in the shipped door, checked there rather than in a design page (cardinal rule 6).
 - [ ] Requires cleaned up last (MIG-24); no orphaned `reagent.*` requires, none dropped that a held view still needs.
-- [ ] **If no Reagent view remains**, the author was *told* the adapter choice is now open — `re-frame.fresco.substrate/adapter` retires `day8/re-frame2-reagent`, and dropping `reagent/reagent` too is a **separate** call resting on a whole-repository measurement — the reporter's *files that name Reagent* count, not its call-site count, plus a textual sweep of dependency config — rather than on the view count, because this skill never read the non-view code (MIG-24 → [`references/end-state.md`](references/end-state.md)) — and made both calls themselves. Not decided for them, and never raised while a Reagent view is still standing.
+- [ ] **If no Reagent view remains**, the author was told the adapter choice is now open and made both calls themselves: swapping to `re-frame.fresco.substrate/adapter` retires `day8/re-frame2-reagent`, while dropping `reagent/reagent` rests on a whole-repository measurement, not the view count ([`references/end-state.md`](references/end-state.md)). Never raised while a Reagent view still stands.
 - [ ] The subtree compiles and its tests pass (the skill ran the gates), and the programmer has **rendered** and eyeballed the converted views.
 
 Hand off: *"Views rewritten into Fresco where it made sense; the rest stay on Reagent, which is a fully-supported configuration. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection."*
@@ -152,13 +151,9 @@ Hand off: *"Views rewritten into Fresco where it made sense; the rest stay on Re
 ## Anti-patterns
 
 - **Don't run this before the v1→v2 migration.** Fresco is a re-frame2 view layer; it presupposes step 1 is done. → [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration).
-- **Don't sell the rewrite as required.** The Reagent and UIx adapters are first-class homes for views indefinitely. And don't invent a publication gap either: Fresco ships in the same release set as the adapters (pre-flight check 3).
-- **Don't half-migrate a view** (cardinal rule 2) — coherence over coverage.
-- **Don't auto-spread a bare symbol child** (`[:li item]`) — it is content, not props.
-- **Don't emit a verb because a guide or design page names it.** The callback form is `h/event` and there is no `h/fn`. Check the door. (A plain `merge` with the owned keys last IS the shipped spelling for forwarding caller attrs; there is no reserved merge key.)
+- **Don't sell the rewrite as required.** The Reagent and UIx adapters are first-class homes for views indefinitely. And don't invent a publication gap either: Fresco ships in the same release set as the adapters ([`references/procedure.md`](references/procedure.md) pre-flight check 3).
 - **Don't invent a listener-options map.** There is no `{:event […] :prevent-default true}`, no `:capture`, no `:passive`, no `:once`, no `:stop-propagation` — not undocumented, unrepresentable. `::h/prevent` is a reserved head and imperative event work belongs in `h/event`.
 - **Don't declare `:callbacks` for the usual case, and don't skip the check for the unusual one** — the contract is inferred from the spelling, and the override exists for the vendor's `on*`-named render prop, where the inferred `:event` wrapper blanks the UI silently. Check every `on*` prop's return value against the library's documentation.
-- **Don't reach into the dataflow layer** — name the `reg-sub`/event the view needs; let the author write it (cardinal rule 5).
 
 ---
 
