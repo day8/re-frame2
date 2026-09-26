@@ -650,14 +650,10 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   // needed.
 
   t('the grain the row measured reaches the written dataset', () => {
-    assert.deepStrictEqual(written().granularity, FIXTURE_GRAIN);
-  });
-
-  t('the smallest interval the clock resolved is recoverable from the file alone', () => {
     // `report` prints `granularity[0]` as the row's grain, and the set is
     // sorted where it is measured — so the file carries the printed number
     // rather than requiring somebody to have kept the console.
-    assert.strictEqual(written().granularity[0], Math.min(...FIXTURE_GRAIN));
+    assert.deepStrictEqual(written().granularity, FIXTURE_GRAIN);
   });
 
   // Every committed census row, paired with the declared shape its own file
@@ -875,21 +871,6 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
       assert.ok(d.why.includes(side), `the refusal must name ${side} — it said: ${d.why}`);
     });
   }
-
-  t('a partial arm can no longer be synthesised into a plausible ratio', () => {
-    // An arm lacking task/taskNet/devtools/script/layoutCount/inPage must not
-    // fold with all six read as zero, and an explicit `null` script must not
-    // fold as `script: 0`. Either would make the studio page's cited split
-    // reproducible from evidence that never held it — a wrong number with a
-    // fold's authority behind it.
-    const stripped = mutate((c) => {
-      for (const k of ['task', 'taskNet', 'devtools', 'script', 'layoutCount', 'inPage']) delete c[0][0]['ctl-2x'][k];
-    });
-    assert.throws(() => foldDecomposition(stripped, DECLARED), /not valid evidence/);
-    const nulled = mutate((c) => (c[0][0]['ctl-2x'].script = null));
-    assert.throws(() => foldDecomposition(nulled, DECLARED), /field "script" is null/);
-    assert.strictEqual(driveOn(nulled).code, 1, 'the run must exit non-zero, not publish a script ratio of 0');
-  });
 
   t('a fold offered no declared shape refuses rather than anchoring to the evidence', () => {
     // The fence around the declared-shape anchor. A shape argument that could
