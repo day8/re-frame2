@@ -76,7 +76,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required: a missing or `nil` `:frame` raises `:rf.error/no-frame-context`. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
     - A query id with no registered subscription emits `:rf.error/no-such-sub`, and a frame that does not exist or has been destroyed emits `:rf.error/frame-destroyed`. In both cases the hook returns `nil`.
     - Read with `use-sub`, not `rf/subscribe`, in a `defui` body. Dereferencing a subscription in a UIx render does not re-render the component, and the cache reference each `subscribe` call takes is never released. The same holds for the `:subscribe` op in [`use-frame`](#use-frame)'s map.
-    - See [Write a UIx view](../core/how-to/use-uix-or-slim.md#step-2--write-a-uix-view).
+    - See [Write a UIx view](../core/how-to/use-uix-or-slim.md#2-write-a-uix-view).
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -102,7 +102,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - It takes no options. For a named frame, call `(rf/capture-frame frame-id)` directly.
     - The map is the same object across re-renders while the resolved frame stays the same, so it is safe in effect deps and child props. A provider that switches frames re-renders the caller with a map for the new frame. Destroying the frame and creating another under the same id does not re-render the caller: its next render returns a map for the new frame, and until then the old map's ops emit `:rf.error/frame-destroyed`. The map belongs to the frame it was captured from, not to the id.
     - There is no hook that reads the frame context alone. `(:frame (use-frame))` gives the frame from React context; `(rf/current-frame-id)` checks a `with-frame` binding first, so inside a `with-frame` around a render the two can differ.
-    - See [Why callbacks dispatch off the frame api](../core/how-to/use-uix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api).
+    - See [Why callbacks dispatch off the frame api](../core/how-to/use-uix-or-slim.md#3-why-callbacks-dispatch-off-the-frame-api).
 - **Example**:
   ```clojure
   (defui inc-button []
@@ -112,7 +112,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
 
 ## Components
 
-`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse. See [Ensure a view's own frame](../core/how-to/use-uix-or-slim.md#step-5--ensure-a-views-own-frame).
+`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse. See [Ensure a view's own frame](../core/how-to/use-uix-or-slim.md#5-ensure-a-views-own-frame).
 
 ### `frame-provider`
 
