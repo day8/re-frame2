@@ -6,7 +6,8 @@ the instant its data leaves `app-db`, and a node that is gone cannot fade, so
 attributes you wrote on them. CSS declares the transition and the browser runs it.
 
 It is an optional namespace: `re-frame.fresco` does not require it, so an
-application that never requires it carries none of its code.
+application that never requires it carries none of its code. It is ClojureScript
+only; the namespace does not exist on the JVM.
 
 ```clojure
 (:require [re-frame.fresco :as h]

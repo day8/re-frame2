@@ -34,7 +34,7 @@ you use it.
 | Model a workflow as a state machine | [re-frame.machines](re-frame.machines.md) |
 | Map URLs to routes and render links | [re-frame.routing](re-frame.routing.md) |
 | Cache server data that views subscribe to, and write it back with mutations | [re-frame.resources](re-frame.resources.md) |
-| Render on the server and hydrate on the client | [re-frame.ssr](re-frame.ssr.md), [re-frame.ssr.head](re-frame.ssr.head.md) for the `<head>`, [re-frame.ssr.ring](re-frame.ssr.ring.md) for the Ring handler |
+| Render on the server and hydrate on the client | [re-frame.ssr](re-frame.ssr.md), [re-frame.ssr.head](re-frame.ssr.head.md) for the `<head>`, [re-frame.ssr.ring](re-frame.ssr.ring.md) for the Ring handler, [re-frame.ssr.ring.node](re-frame.ssr.ring.node.md) to render the body on a Node sidecar |
 | Inspect or rewind a frame's recent history in development | [re-frame.epoch](re-frame.epoch.md) |
 | Group the dev trace stream into one record per event | [re-frame.trace.projection](re-frame.trace.projection.md) |
 | Emit User-Timing measures in production builds | [re-frame.performance](re-frame.performance.md) |
@@ -55,7 +55,8 @@ Each var has an entry headed by its name:
   surfaces, effect, event, subscription, machine or interceptor reference.
 - **Signature**: every public arity, with its return value.
 - **Description**: what the var does, then its rules and edge cases. Longer
-  option lists and error lists appear as their own sub-lists.
+  option lists and error lists appear as their own **Options** and **Errors**
+  sub-lists; [Errors](#errors) says how to read an error id.
 - **Example**: a short, real call, where one is worth showing. Some entries,
   such as compile-time flags, have none.
 
@@ -73,6 +74,31 @@ called on its own namespace, for example `rf.machines/machine-transition`.
 **Framework integration.** Some pages end with vars that exist for adapters,
 tools and the test harness rather than for application code. They are grouped
 under their own headings, after the application-facing API.
+
+## Errors
+
+An entry's **Errors** name the error ids a caller can meet. The verb says how
+each one reaches you.
+
+- **Throws** (or **raises**): the call throws an `ex-info`. Its ex-data carries
+  the id under `:rf.error/id`, beside `:where` (the function that threw),
+  `:reason` (one sentence) and `:recovery`, and the message ends with the id in
+  brackets. Branch on `(:rf.error/id (ex-data e))`, never on the message.
+- **Emits** (or **reports**): nothing is thrown. The runtime recovers as the
+  entry says and records a trace event whose `:operation` is the id, with
+  `:op-type :error`, or `:warning` for a `:rf.warning/*` id. Trace events reach
+  [trace listeners](re-frame.core.md#register-listener) and the
+  [trace buffer](re-frame.core.md#trace-buffer) in development builds;
+  production builds remove them.
+- **Always-on**: some reported ids are also delivered in every build,
+  production included, as records on the `:errors` stream, which a frame's
+  [observability sink](re-frame.core.md#register-observability-sink) ships.
+  An entry calls such an id always-on where it matters, and the catalogue
+  below marks every one.
+
+"(development builds)" after an id means only a development build checks for
+it. [Spec 009's error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue)
+is the full list of ids, with each one's payload, default recovery and channel.
 
 ## Coverage
 

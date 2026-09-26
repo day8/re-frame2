@@ -43,6 +43,12 @@ fits](../core/fresco/index.md#when-fresco-fits) has the longer comparison.
 [`re-frame.fresco.substrate`](re-frame.fresco.substrate.md); a Reagent or UIx
 adapter works too.
 
+Fresco runs in ClojureScript. On the JVM this namespace holds only its three
+authoring macros (see [Authoring macros](#authoring-macros)), and the optional
+modules do not exist. [Fresco troubleshooting](../core/fresco/troubleshooting.md)
+explains each Fresco error id with its fix; [Errors](README.md#errors) says how to
+read a thrown id against a reported one.
+
 The frame functions are core's: inside a view body, `(rf/current-frame-id)` and
 zero-arity `(rf/capture-frame)` return the rendering view's frame, and this
 namespace does not duplicate them.

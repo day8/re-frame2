@@ -5,7 +5,8 @@ Use this module for popovers and modal dialogs on the browser's own top layer.
 `showModal`, and leave everything else to the platform.
 
 It is an optional namespace: `re-frame.fresco` does not require it, so an
-application that never requires it carries none of its code.
+application that never requires it carries none of its code. It is ClojureScript
+only; the namespace does not exist on the JVM.
 
 ```clojure
 (:require [re-frame.fresco :as h]

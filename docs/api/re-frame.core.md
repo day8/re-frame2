@@ -38,19 +38,23 @@ Optional features (machines, routing, flows, schemas, SSR, HTTP, resources) regi
 
 ## Registration
 
-The `reg-*` forms register a handler under an id. Each returns the id it registered (the path, for `reg-app-schema`).
+The `reg-*` forms register a handler under an id (for `reg-app-schema`, a path).
 
-Every `reg-*` form takes an optional metadata map before the handler. The bare keys each kind accepts:
+Most take a metadata map before the handler. It is optional for `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-interceptor`, `reg-view*`, `reg-machine`, `reg-app-schema`, `reg-head` and `reg-error-projector`, and required for `reg-route`, `reg-flow`, `reg-resource`, `reg-mutation` and `reg-resource-scope`. The others differ: `reg-view` takes a docstring and `^{:rf/id …}` metadata on its symbol, `reg-http-interceptor` carries its metadata in its one interceptor map, and `reg-app-schemas` takes its options after the schema map.
+
+On CLJS, the `reg-*` names are macros in call position and plain functions in value position, except `reg-view` and `reg-machine`, which are macros only; their function forms are `reg-view*` and `re-frame.machines/reg-machine*`. A call such as `(rf/reg-event :counter/inc handler)` records its source coordinates, so tools like Xray can go from a registration back to that expression. Passed as a value, as in `(apply rf/reg-event args)`, the name is a function that skips the recording: the registration has no namespace, so an image's `:select-ns` cannot select it and only the default image runs it, unless its metadata carries `:ns` (see [`image`](#image)). On the JVM the `reg-*` forms are macros only.
+
+`reg-event`, `reg-sub`, `reg-fx`, `reg-cofx` and `reg-interceptor` accept these bare metadata keys:
 
 | Kind | Bare metadata keys |
 |---|---|
-| every kind | `:doc`, `:schema`, `:tags`, `:platforms` |
+| all five | `:doc`, `:schema`, `:tags` |
 | `reg-event` | adds `:interceptors`, `:boundary?`, `:sensitive`, `:large`, `:large?` |
 | `reg-sub` | adds `:inputs`, `:sensitive`, `:large`, `:large?` |
-| `reg-fx` | adds `:sensitive`, `:large`, `:large?` |
-| `reg-cofx` | adds `:recordable?`, `:provided?`, `:sensitive`, `:large`, `:large?` |
+| `reg-fx` | adds `:platforms`, `:sensitive`, `:large`, `:large?` |
+| `reg-cofx` | adds `:platforms`, `:recordable?`, `:provided?`, `:sensitive`, `:large`, `:large?` |
 
-Namespaced keys (`:rf.cofx/requires`, `:myapp/owner`) are always accepted and stored. See [What is validated](re-frame.schemas.md#what-is-validated) for `:schema`, and [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for `:sensitive` and `:large`. Every registration can raise:
+`reg-event`, `reg-sub` and `reg-interceptor` also accept `:platforms` and store it, and nothing reads it. Namespaced keys (`:rf.cofx/requires`, `:myapp/owner`) are always accepted and stored. See [What is validated](re-frame.schemas.md#what-is-validated) for `:schema`, and [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md) for `:sensitive` and `:large`. Registering one of the five can raise these (see [Errors](README.md#errors)):
 
 - `:rf.error/retired-registration-key`: the map carries re-frame v1's `:spec`; use `:schema`. Thrown in every build.
 - `:rf.error/bad-classification`: `:sensitive` or `:large` is not a vector of path vectors (`[[]]` for the whole value).
@@ -290,7 +294,7 @@ Namespaced keys (`:rf.cofx/requires`, `:myapp/owner`) are always accepted and st
 
 `dispatch` sends an event to a frame; `subscribe` reads a subscription.
 
-On CLJS, `dispatch`, `dispatch-sync` and `subscribe` are macros in call position and plain functions in value position, as the `reg-*` forms are. A call such as `(rf/dispatch [:counter/inc])` records its source coordinates, so tools like Xray can go from a trace event back to that expression. Passed as a value, as in `(map rf/dispatch events)` or `(or dispatch-fn rf/dispatch)`, the name is a function that skips the recording. Both reach the same dispatcher, and there is no `*`-suffixed variant.
+On CLJS, `dispatch`, `dispatch-sync` and `subscribe` are macros in call position and plain functions in value position, as most `reg-*` forms are (see [Registration](#registration)). A call such as `(rf/dispatch [:counter/inc])` records its source coordinates, so tools like Xray can go from a trace event back to that expression. Passed as a value, as in `(map rf/dispatch events)` or `(or dispatch-fn rf/dispatch)`, the name is a function that skips the recording. Both reach the same dispatcher, and there is no `*`-suffixed variant.
 
 On the JVM the three are macros only. JVM code that needs a function calls `re-frame.router/dispatch!`, `re-frame.router/dispatch-sync!` or `re-frame.subs/subscribe`.
 
@@ -304,7 +308,7 @@ A `:frame` that names no live frame (a typo, or a destroyed frame) does not thro
 |---|---|
 | `:frame` | The frame to target: a frame-id keyword or a live frame value, as in `(rf/dispatch [::save x] {:frame :todo})`. |
 | `:fx-overrides` | `{fx-id override}` for this dispatch; see [`with-fx-overrides`](#with-fx-overrides) for override values and precedence. |
-| `:interceptor-overrides` | `{interceptor-ref replacement-ref-or-nil}` for this dispatch: substitutes or removes an interceptor in the chain. A keyword key matches every reference to that id; an `[id arg]` key matches only that exact reference. A key or replacement that is not an interceptor reference (or `nil`) raises `:rf.error/interceptor-override-invalid`. |
+| `:interceptor-overrides` | `{interceptor-ref replacement}` for this dispatch: replaces or removes interceptors in the chain. See [Interceptor overrides](#interceptor-overrides). |
 | `:rf.cofx` | Recordable coeffect values to supply, such as `{:rf/time-ms 0}`, for tests, replay and SSR hydration. The runtime adds `:rf/time-ms` when it is absent. A value that is not a map, or a non-integer `:rf/time-ms`, makes the call throw `:rf.error/invalid-cofx`; a value that is not plain EDN (a `js/Date`, a fn, a DOM node) throws `:rf.error/cofx-value-invalid`. Both are checked in every build. |
 | `:rf.cofx/mint-policy` | Whether a declared recordable coeffect the dispatch did not supply may be generated. `:live` and `:explicit-live` run its supplier; `:strict` fails the handler with `:rf.error/missing-required-cofx`, and any other value behaves as `:strict`. Unset, the frame's `:rf.cofx/mint-policy` applies (`:strict` under `:preset :test`), then `:live`. A test on a `:strict` frame opts back into generation with `:explicit-live`. See [Coeffects](../core/coeffects.md). |
 | `:source` | What triggered the dispatch, recorded on traces. Application code passes `:ui`, `:repl`, `:tool`, `:test`, `:websocket` or `:other`; unset, it is `:unknown`. The framework stamps the other values itself: `:frame-init`, `:fx-dispatch`, `:fx-dispatch-later`, `:machine-spawn`, `:machine-action`, `:always`, `:after-timer`, `:http`, `:router`, `:ssr-hydration`. |
@@ -314,6 +318,39 @@ A `:frame` that names no live frame (a typo, or a destroyed frame) does not thro
 An unrecognised key does nothing, and development builds emit `:rf.warning/unknown-dispatch-opt`. `subscribe` and `subscribe-once` read only `:frame`.
 
 Events a handler queues with `[:dispatch …]` or `[:dispatch-later …]` inherit `:frame`, `:fx-overrides`, `:interceptor-overrides`, `:rf.cofx/mint-policy`, `:origin` and `:trace-id` from the dispatch that ran it. Each queued event gets its own `:rf.cofx` and `:rf/time-ms`, and its `:source` is `:fx-dispatch` or `:fx-dispatch-later`.
+
+### Interceptor overrides
+
+`:interceptor-overrides` replaces or removes interceptors in an event's chain without re-registering the event, usually to stub or drop an interceptor such as logging or analytics in a test. It is a dispatch option, applying to that dispatch and the events it queues, and a [frame config key](#frame-config-keys), applying to every event in the frame.
+
+The value is a map `{interceptor-ref replacement}`:
+
+- A key is an interceptor reference: a keyword id, or an `[id arg]` 2-vector. A keyword key matches every reference to that id, `:my/ic` and `[:my/ic arg]` alike, because it matches the resolved interceptor's `:id`. An `[id arg]` key matches only that exact reference, so `{[:rf.interceptor/path [:cart]] nil}` removes that one and leaves `[:rf.interceptor/path [:cart :items]]` in the chain.
+- A replacement is `nil`, which removes the interceptor, or an interceptor reference, resolved through the registrar like any chain entry; an unregistered id throws `:rf.error/unregistered-interceptor`.
+- A malformed key, or a replacement that is neither `nil` nor a reference (such as an inline interceptor map), throws `:rf.error/interceptor-override-invalid`, with `:key` and `:replacement` in its ex-data and the recovery `:fix-overrides`. Keys are checked on every dispatch that has overrides; a replacement is resolved only when its key matches an entry in the chain.
+- The frame's `:interceptor-overrides` and the dispatch's merge, and the dispatch's wins on a shared key. The frame's `:interceptors` are prepended before overrides apply, so an override reaches them too.
+- Events queued with `[:dispatch …]` or `[:dispatch-later …]` inherit the dispatch's map.
+- The `{:boundary? true}` schema check of [`reg-event`](#reg-event) runs before the chain, so no override can remove it.
+- In development builds the run's `:rf.event/run-start` trace event carries `:rf.interceptor/override-summary`: `{:matched […] :replaced […] :removed […] :count n}`, naming the keys that matched an entry. A key that matched nothing is not listed.
+- An epoch record carries the dispatch's map as `:interceptor-overrides`, never the frame's, so [`replay-epoch!`](#replay-epoch) supplies the recorded map and the frame's own config applies as it stands at replay.
+
+```clojure
+(rf/reg-interceptor :app/audit
+  {:after (fn [ctx] (send-audit! (get-in ctx [:coeffects :event])) ctx)})
+(rf/reg-interceptor :test/audit-stub {:after identity})
+
+(rf/reg-event :cart/add
+  {:interceptors [:app/audit]}
+  (fn [{:keys [db]} [_ item]] {:db (update db :items (fnil conj []) item)}))
+
+;; In a test: swap the audit interceptor for a stub, or drop it.
+(rf/dispatch-sync [:cart/add :apple] {:interceptor-overrides {:app/audit :test/audit-stub}})
+(rf/dispatch-sync [:cart/add :pear]  {:interceptor-overrides {:app/audit nil}})
+
+;; Don't do this: a replacement is a registered id or nil, never an inline
+;; interceptor map. This throws :rf.error/interceptor-override-invalid.
+(rf/dispatch-sync [:cart/add :fig] {:interceptor-overrides {:app/audit {:after identity}}})
+```
 
 ### `dispatch`
 
@@ -569,6 +606,7 @@ Frames, subscriptions, dispatch, source metadata and registry ids work the same 
   (view view-id) → component
   ```
 - **Description**: Looks up a registered view by id and returns what renders it, or `nil` when the id is not registered. On CLJS that is the installed adapter's component head for the view, rendered as `[(rf/view :id) args...]` under Reagent and `($ (rf/view :id) props)` under UIx; on the JVM it is the registered render fn. It does not return hiccup. Use it as `[(rf/view :id) args...]` when you hold an id rather than the symbol: a stored view id, plugin-style dispatch, dynamic chrome. Otherwise render by Var reference (`[my-view args]`).
+    - Under UIx, register a `defui` component with `reg-view*` and mount the head with `$`; see [Registry-keyed views](re-frame.adapter.uix.md#registry-keyed-views) for how the head passes props and children.
 - **Example**:
   ```clojure
   [(rf/view :app/header) {:title "Cart"}]   ;; looks the view up by id at render time
@@ -599,7 +637,7 @@ Frames, subscriptions, dispatch, source metadata and registry ids work the same 
   ```clojure
   [rf/frame-root {:id :todo :images [todo-image]} & children]
   ```
-- **Description**: Creates the named frame if it is absent, or reuses it without re-seeding if it is live, and provides it to the subtree. It takes `make-frame`'s options (`:id`, `:images`, frame configuration including `:initial-events`). `:id` is required and must be a keyword; otherwise it raises `:rf.error/frame-root-missing-id`.
+- **Description**: Creates the named frame if it is absent, or reuses it without re-seeding if it is live, and provides it to the subtree. It takes `make-frame`'s options; see [Frame config keys](#frame-config-keys). `:id` is required and must be a keyword; otherwise it raises `:rf.error/frame-root-missing-id`.
     - The frame is created at commit, in a client `useLayoutEffect`, not during render. The first render emits no children; once the frame exists, the children render against it. A render React discards before commit (a Suspense abort, a discarded concurrent render) creates and seeds nothing.
     - A remount reuses the frame without re-seeding it. Hot reload, StrictMode's development double-invoke, Story re-evaluation and a keyed remount all keep durable state; `:initial-events` run once, when the frame is first created.
     - Unmounting does not destroy the frame. To own a frame's lifetime explicitly, call `make-frame` and `destroy-frame!` yourself, for example in a `create-class`.
@@ -780,7 +818,7 @@ The framework reserves a few `:fx` ids and one standard interceptor reference; r
 - **Kind**: effect (reserved fx-id)
 - **Payload**: `[:dispatch-later {:ms ms :event event-vec}]`
 - **Description**: Queues `event-vec` on the same frame after `ms` milliseconds. Use it instead of a `setTimeout` in a handler, which would have no frame when it fires.
-    - `:ms` is the delay in milliseconds. A missing or non-number `:ms` is not reported: the event is queued at once, as `[:dispatch …]` would queue it.
+    - `:ms` is the delay in milliseconds. A missing or non-numeric `:ms` is refused: nothing is queued, the always-on `:rf.error/fx-handler-exception` is emitted carrying the offending `:ms`, and the rest of the `:fx` vector still runs.
     - A pending timer is cancelled when its frame is destroyed, so the event never runs.
     - The queued event inherits opts from the event that queued it; see [Dispatch options](#dispatch-options).
 - **Example**:
@@ -830,30 +868,10 @@ Which function makes the frame depends on who owns its lifetime:
   (make-frame opts descriptors) → frame value
   ```
 - **Description**: Creates a frame and returns the live frame value. Use it when your code owns the frame's lifetime: devcards, modal stacks, several live instances of a widget, dynamic tabs, tests, and one frame per SSR request. For a frame tied to a view subtree, use `frame-root`. There is no `reg-frame`: a frame is a live runtime object, not a registration.
-    - `opts` must be a map.
-    - Image selection: `:images` (a non-empty vector; a frame with no app registrations passes `[(rf/image {:id :my/empty})]`), `:id` and `:adapter` (recorded on the frame for tools; rendering always uses the adapter installed by `init!`). Without `:images`, the frame runs every registration (the default image); see [`image`](#image). `:id` is optional. Without it, the frame is registered under a generated `:rf.frame/<n>` id, which `frame-ids` returns; address it through the value `make-frame` returns.
+    - `opts` must be a map. Every key is optional; the keys are listed under [Frame config keys](#frame-config-keys).
     - Creating a frame under an id that is already live replaces it idempotently, keeping durable state across a re-mount: `app-db`, `runtime-db`, the queue and the subscription cache survive. The new config replaces the old one whole, so a key you leave out is dropped rather than kept from the earlier call, and a new `:initial-events` is recorded but not run.
-    - Frame configuration keys. Every key is optional:
-        - `:doc`, `:tags`: registration metadata, read back with `frame-meta`.
-        - `:initial-events`: setup steps dispatched into the new frame at creation; see below.
-        - `:on-destroy`: one event vector that `destroy-frame!` runs before the frame is marked dead.
-        - `:fx-overrides`: `{fx-id replacement}` for every event in this frame. The replacement is an fx id or a function. A per-dispatch override wins. An override of `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` or `:rf.route/with-nav-token` is refused with `:rf.error/reserved-fx-override`, and the real effect runs.
-        - `:interceptor-overrides`: `{interceptor-id replacement-id-or-nil}` for every event in this frame. A per-dispatch override wins.
-        - `:interceptors`: interceptor references (an id, or `[id arg]`) added to every event's chain in this frame.
-        - `:drain-depth`: the most events one drain runs (default 100). Past it the drain halts, the queue is cleared, and `:rf.error/drain-depth-exceeded` is emitted.
-        - `:platform`: `:client` or `:server`. The default is `:client` on CLJS and `:server` on the JVM. It decides which `:platforms`-restricted effects and coeffects run.
-        - `:preset`: `:default` (nothing), `:test` (`:drain-depth 100`, `:rf.cofx/mint-policy :strict`, `:rf.http/managed` redirected to `:rf.http/managed-canned-success`) or `:story` (`:drain-depth 16` and the same redirect). Keys you pass win over the preset's. The redirect needs `re-frame.http.test-support` loaded. Any other value raises `:rf.error/unknown-preset`.
-        - `:rf.cofx/mint-policy`: this frame's default mint policy, `:live`, `:strict` or `:explicit-live`.
-        - `:rf.trace/events-retained`: this frame's trace ring size in development. It overrides `configure!`'s `:trace-buffer`.
-        - `:observability`: the sink policy; see [`register-observability-sink!`](#register-observability-sink).
-        - `:ssr`: the frame's SSR settings; see [Frame `:ssr` config](re-frame.ssr.md#frame-ssr-config).
-        - `:url-bound?`, `:url-strategy`: browser URL ownership; see [Browser URL listener](re-frame.routing.md#browser-url-listener) and [URL strategies](re-frame.routing.md#url-strategies).
-        - `:revalidate-on`: a subset of `#{:focus :reconnect}`; see [Revalidation is a frame property](re-frame.resources.md#revalidation-is-a-frame-property).
-    - `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
-    - Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
     - The two-argument form resolves `:images` against an explicit descriptor pool, for tests and harnesses.
     - Pass the returned value wherever a frame is expected. `dispatch`, `subscribe`, `app-db-value` and `frame-provider` accept the value or its id and treat them the same, so there is no value-to-id accessor. `destroy-frame!` accepts both too, but treats them differently; see [`destroy-frame!`](#destroy-frame).
-    - A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. To classify paths, return the classification effects from a `reg-event` alongside `:db` and run it at creation through `:initial-events`, as in the example. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
     - Pair each `make-frame` with a `destroy-frame!`, or use `frame-root` for frames tied to a view. See [Frames](../core/frames.md).
 - **Errors**: each one throws, and no frame is left behind. See [Assembly errors](../core/images.md#assembly-errors) for the `image-*` errors.
     - `:rf.error/make-frame-bad-opts`: `opts` is not a map, including `nil`.
@@ -889,6 +907,40 @@ Which function makes the frame depends on who owns its lifetime:
      :initial-events [[:app/init]]      ;; classifies [:auth :token] at creation
      :fx-overrides   {:rf.http/managed :auth.login.demo/managed-stub}})
   ```
+
+### Frame config keys
+
+The keys of the map `make-frame` and `frame-root` take. Every key is optional, except that `frame-root` requires `:id`.
+
+| Key | Value | Default | Meaning |
+|---|---|---|---|
+| `:id` | A keyword. | A generated `:rf.frame/<n>` id. | The frame's id. A frame made without one is listed by `frame-ids` under its generated id; address it through the value `make-frame` returns. |
+| `:images` | A non-empty vector of [images](#image). | The default image. | The registrations the frame runs. The default image runs every registration; a frame with no app registrations passes `[(rf/image {:id :my/empty})]`. |
+| `:adapter` | Any value. | None. | Recorded on the frame for tools. Rendering always uses the adapter installed by `init!`. |
+| `:doc`, `:tags` | A string; a set of keywords. | None. | Registration metadata, read back with [`frame-meta`](#frame-meta). |
+| `:initial-events` | A vector of setup steps. | None. | Events dispatched into the new frame when it is created; see below. |
+| `:on-destroy` | One event vector. | None. | The event `destroy-frame!` runs before the frame is marked dead. |
+| `:fx-overrides` | `{fx-id replacement}` | None. | Replaces effect handlers for every event in this frame. The replacement is an fx id or a function; see [`with-fx-overrides`](#with-fx-overrides). A per-dispatch override wins. |
+| `:interceptor-overrides` | `{interceptor-ref replacement}` | None. | Replaces or removes interceptors in every event's chain in this frame; see [Interceptor overrides](#interceptor-overrides). A per-dispatch override wins. |
+| `:interceptors` | A vector of interceptor references (an id, or `[id arg]`). | None. | Prepended to every event's chain in this frame. |
+| `:drain-depth` | An integer. | `100` | The most events one drain runs. Past it the drain halts, the rest of the queue is dropped, and `:rf.error/drain-depth-exceeded` is emitted; see [`dispatch`](#dispatch). |
+| `:platform` | `:client` or `:server`. | `:client` on CLJS, `:server` on the JVM. | Decides which `:platforms`-restricted effects and coeffects run. |
+| `:preset` | `:default`, `:test` or `:story`. | `:default`, which sets nothing. | A bundle of the keys above; see below. |
+| `:rf.cofx/mint-policy` | `:live`, `:strict` or `:explicit-live`. | `:live` | This frame's default [mint policy](#dispatch-options). |
+| `:rf.trace/events-retained` | An integer. | `configure!`'s `:trace-buffer` (`50`). | This frame's trace ring size in development builds. |
+| `:observability` | `{:handled-events [<entry>…] :errors [<entry>…]}` | `configure!`'s `:observability`. | The sink policy; see [`register-observability-sink!`](#register-observability-sink). |
+| `:ssr` | A map. | None. | The frame's SSR settings; see [Frame `:ssr` config](re-frame.ssr.md#frame-ssr-config). |
+| `:url-bound?` | `true` or `false`. | `false` | Whether this frame owns the browser URL; see [Browser URL listener](re-frame.routing.md#browser-url-listener). |
+| `:url-strategy` | A URL strategy. | The history strategy. | How routes map to URLs; see [URL strategies](re-frame.routing.md#url-strategies). |
+| `:revalidate-on` | A subset of `#{:focus :reconnect}`. | None. | The host signals that revalidate the frame's stale resources; see [Revalidation is a frame property](re-frame.resources.md#revalidation-is-a-frame-property). |
+
+- `:initial-events` is a vector of steps. A step is an event vector, or `{:event [...] :opts {...}}` where `:opts` are `dispatch-sync` opts without `:frame`. Each step is dispatched synchronously and drained before the next, and `make-frame` returns once they settle. Asynchronous effects they start are not awaited. A single step is still wrapped: `[[:app/boot]]`, not `[:app/boot]`. See [Seeding initial state](../core/frames.md#seeding-initial-state).
+- Setup is strict. If a step's handler, an interceptor, a coeffect or a flow throws, the frame is destroyed and `make-frame` throws. An effect that throws after its step's `:db` committed does not fail construction.
+- `:preset :test` sets `:drain-depth 100` and `:rf.cofx/mint-policy :strict` and redirects `:rf.http/managed` to `:rf.http/managed-canned-success`; `:preset :story` sets `:drain-depth 16` and the same redirect. Keys you pass win over the preset's. The redirect needs `re-frame.http.test-support` loaded.
+- An `:fx-overrides` entry for `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` or `:rf.route/with-nav-token` is refused with `:rf.error/reserved-fx-override`, and the real effect runs.
+- A frame config cannot classify `app-db` data: a config carrying `:sensitive` or `:large` is rejected. To classify paths, return the classification effects from a `reg-event` alongside `:db` and run it at creation through `:initial-events`, as in the [`make-frame`](#make-frame) example. See [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+- Any other key is stored with the frame and returned by `frame-meta`; nothing reads it, and nothing warns.
+- The errors a malformed config raises are listed under [`make-frame`](#make-frame).
 
 ### Resetting a frame
 
@@ -1117,8 +1169,8 @@ These functions start and stop a re-frame2 process and set process-wide options.
   (destroy-adapter!) → nil
   ```
 - **Description**: Tears down the installed adapter so another can be installed; the counterpart of `init!`. Returns `nil`.
-    - It releases every React root the adapter created, and every Fresco root on the page whatever adapter is installed. A root whose owner does not render again stays empty until the page reloads.
-    - It runs every cleanup step, then rethrows the first failure, keeping later failures as diagnostic evidence. The adapter counts as disposed even when cleanup throws.
+    - It releases every Fresco root on the page, whatever adapter is installed, and then runs the adapter's own cleanup, which releases every React root the adapter created. A root whose owner does not render again stays empty until the page reloads.
+    - A cleanup step that throws does not stop the steps after it. The first failure is rethrown with any later one attached: among its suppressed exceptions on the JVM, and in its `rfAdapterTeardownSecondaryErrors` array on CLJS. The adapter counts as disposed even when cleanup throws.
     - It clears only the adapter it tore down, so a late cleanup from the old adapter never clears a new one. With no adapter installed it does nothing.
     - Until `init!` installs another adapter, anything that needs one raises `:rf.error/adapter-disposed`.
 - **Example**:
@@ -1377,35 +1429,11 @@ Resources are cached server-state reads, and mutations are the writes that updat
 
 #### Reading a registered resource's or mutation's spec
 
-There is no `resource-meta` or `mutation-meta`. Read a registration's spec with the generic registrar query and its inner key, which needs no artefact (see [Reading registrations](re-frame.resources.md#reading-registrations)):
-
-```clojure
-(:rf/resource (rf/handler-meta {:source :store :kind :resource :id :article/by-slug}))
-(:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :article/save}))
-```
+Read it with `rf/handler-meta` and the kind's inner key, as [Reading registrations](re-frame.resources.md#reading-registrations) shows.
 
 #### Enumerating resources and mutations
 
-There is no `resources` or `mutations` function. Three reads answer three different questions:
-
-```clojure
-;; 1. What is registered? The process-wide registrar; no frame.
-(keys (rf/registrations {:source :store :kind :resource}))  ;; => (:article/by-slug :feed/timeline)
-(keys (rf/registrations {:source :store :kind :mutation}))  ;; => (:article/save)
-
-;; 2. The whole live table, from the frame's runtime-db.
-(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/resources :entries])
-;; => {<key-id> <entry> …}
-(get-in (rf/frame-state-value :app/main) [:rf.db/runtime :rf.runtime/mutations])
-;; => {<key-id> {:mutation/id … :instance/id … :status … :result … :error …} …}
-
-;; 3. One entry or one instance, with the per-target reads above.
-(rf/resource-state {:resource :article/by-slug :scope :rf.scope/global
-                    :params {:slug "welcome"} :frame :app/main})
-(rf/mutation-state {:instance :form/save-1 :frame :app/main})
-```
-
-Read the tables as they are keyed. `:entries` is keyed by each entry's `key-id`, a string encoding of the key in canonical EDN (CEDN-1) that keeps a list and a vector of the same values distinct; each entry carries its readable `:resource/key` tuple. `:rf.runtime/mutations` is keyed by the `key-id` of each mutation instance id, never by mutation id, and each row carries its own `:instance/id`. Re-keying either table on its human-readable field can collapse distinct rows. Both subtrees are created on first use, so either read can return `nil` before then. See [Enumerating the whole live table](re-frame.resources.md#enumerating-the-whole-live-table).
+List registered ids with `rf/registrations` and read the live tables at their reserved `runtime-db` paths, as [Enumerating the whole live table](re-frame.resources.md#enumerating-the-whole-live-table) shows.
 
 ## Instrumentation and listeners
 
@@ -1427,7 +1455,7 @@ See [Observability](../core/observability.md).
     - Delivery is synchronous: the callback returns before the next record. Records emitted while a frame is draining its event queue are held and delivered when the drain ends, before the call that ran it returns, so a listener sees settled state and never runs mid-drain. On the JVM, where emits can race across threads, each listener is called serially and never concurrently with itself, so tool appenders and stateful folds need no locking of their own.
     - Registering an id again on the same stream replaces the listener. Returns `id`, or `nil` on the `:epoch` stream when the `day8/re-frame2-epoch` artefact is absent. An unknown `stream` throws `:rf.error/unknown-listener-stream`.
     - A callback that throws does not stop delivery to other listeners. On `:trace` the exception is discarded without a report; on `:epoch` it emits `:rf.epoch.cb/listener-exception`.
-    - The `:epoch` stream's publication rules are under [Epoch-settled listeners](#epoch-settled-listeners).
+    - The `:epoch` stream's publication rules are under [Epoch listeners](re-frame.epoch.md#epoch-listeners).
     - Production code registers a sink with [`register-observability-sink!`](#register-observability-sink) instead; see [Report errors in production](../core/how-to/report-errors-in-production.md).
     - See [Write a listener](../core/observability.md#write-a-listener).
 - **Example**:
@@ -1642,108 +1670,37 @@ See [Observability](../core/observability.md).
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (epoch-history frame-id) → vector of epoch records
+  (epoch-history frame-target) → vector of epoch records
   ```
-- **Description**: Returns the frame's retained epoch records in development builds. Tools use it for time travel and post-mortem analysis. Production builds remove it. See [re-frame.epoch](re-frame.epoch.md).
-    - Ordinary processing records one epoch per dequeued event, not one per drain: a parent event and a `:fx [[:dispatch …]]` child it queues are separate records, while a machine macrostep is one.
-    - `replace-frame-state!` writes and `:halted-depth` halts also add synthetic records. A `:halted-destroy` halt goes to listeners only and is never retained (see [Epoch-settled listeners](#epoch-settled-listeners)).
-    - Returns `[]` for an unknown or destroyed frame, and when the `day8/re-frame2-epoch` artefact is absent.
-    - See [The epoch history](../core/observability.md#the-epoch-history-what-the-app-was).
-- **Example**:
-  ```clojure
-  (rf/epoch-history :app/main)
-  (last (rf/epoch-history :app/main))   ;; peek the latest
-  ```
+- **Description**: Returns the retained epoch records of `frame-target`, a frame id or a live frame value, oldest first, in development builds. See [`epoch-history`](re-frame.epoch.md#epoch-history) for the full contract.
 
 ### `restore-epoch!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (restore-epoch! frame-id epoch-id) → boolean
+  (restore-epoch! frame-target epoch-id) → boolean
   ```
-- **Description**: Development builds only. Rewinds the frame's whole state, `app-db` and `runtime-db`, to the named epoch's `:frame-state-after`, in one atomic write, so machine snapshots, the route slice and other `runtime-db` data rewind with `app-db`. Returns `true` on success. On a refusal it returns `false`, changes nothing, and emits a trace: `:rf.error/no-such-handler` (kind `:frame`), `:rf.epoch/restore-during-drain`, `:rf.epoch/restore-unknown-epoch`, `:rf.epoch/restore-non-ok-record`, `:rf.epoch/restore-schema-mismatch`, `:rf.epoch/restore-missing-handler` or `:rf.epoch/restore-version-mismatch`. It also returns `false` when the `day8/re-frame2-epoch` artefact is absent. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch).
-- **Example**:
-  ```clojure
-  ;; Time-travel: rewind a frame's whole frame-state to a recorded epoch.
-  (let [target (last (rf/epoch-history :app/main))]
-    (rf/restore-epoch! :app/main (:epoch-id target)))
-  ```
+- **Description**: Development builds only: rewinds `frame-target`, a frame id or a live frame value, to the state the named epoch recorded, `app-db` and `runtime-db` together, and returns `true`, or `false` when it refuses. See [`restore-epoch!`](re-frame.epoch.md#restore-epoch) for the full contract.
 
 ### `replay-epoch!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (replay-epoch! frame-id epoch-id)      → envelope map (false when elided / artefact absent)
-  (replay-epoch! frame-id epoch-id opts) → envelope map (false when elided / artefact absent)
+  (replay-epoch! frame-target epoch-id)      → envelope map (false when elided / artefact absent)
+  (replay-epoch! frame-target epoch-id opts) → envelope map (false when elided / artefact absent)
   ```
-- **Description**: Development builds only. Runs a retained epoch's event again, against the frame's current handlers and state, with what the epoch recorded: the triggering event, its coeffect values, and its `:fx-overrides` and `:interceptor-overrides`. It dispatches under `:rf.cofx/mint-policy :strict`, so no coeffect value is generated afresh. Use it to check a fixed handler against a recorded event.
-    - It replays into the same frame and does not restore state first; compose it with `restore-epoch!` for that. Effects run again, and the replay records a new ordinary epoch.
-    - The three-argument form passes `:origin`, `:source` and `:trace-id` from `opts` through to the dispatch.
-    - Returns a `{:ok? …}` envelope: on success `:epoch-id` is the new epoch and `:source-epoch-id` the replayed one. It returns `false` when the call is elided or the `day8/re-frame2-epoch` artefact is absent. Refusals come back as `{:ok? false :reason …}`, decided before anything dispatches: an unknown frame, a drain in flight, an unknown or aged-out id, a halted, synthetic or incomplete record, or an epoch whose fx overrides included a function (recorded as `:rf/fn-override`), which cannot be replayed.
-    - A declared coeffect missing from the record is the hard error `:rf.error/missing-required-cofx`; the supplier is never called in its place.
-    - See [`replay-epoch!`](re-frame.epoch.md#replay-epoch).
-- **Example**:
-  ```clojure
-  ;; Replay the latest event with the coeffect values it recorded.
-  (let [source (last (rf/epoch-history :app/main))]
-    (rf/replay-epoch! :app/main (:epoch-id source)))
-  ```
+- **Description**: Development builds only: runs a retained epoch's event again in `frame-target`, a frame id or a live frame value, with the coeffect values and overrides it recorded, and returns a `{:ok? …}` envelope. See [`replay-epoch!`](re-frame.epoch.md#replay-epoch) for the full contract.
 
 ### `replace-frame-state!`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (replace-frame-state! frame-id frame-state) → boolean
+  (replace-frame-state! frame-target frame-state) → boolean
   ```
-- **Description**: Writes one or both partitions of a frame's state directly, outside the event pipeline. `frame-state` is a partial map, any subset of `{:rf.db/app … :rf.db/runtime …}`: a present key replaces that partition and an absent key is left unchanged. It is the only function that writes frame state.
-    - It records a synthetic epoch, so `restore-epoch!` can rewind it.
-    - Development builds only: production builds remove it. Application code resets state with [`:rf/set-db`](#rfset-db) or [`:rf/install-frame-state`](#rfinstall-frame-state).
-    - Returns `true` on success and `false` on a documented failure, which changes nothing and emits an error trace:
-        - `:rf.error/replace-frame-state-bad-keys`: the map has no recognised partition key, or another key; checked before the frame is resolved.
-        - `:rf.error/no-such-handler`: the frame does not exist.
-        - `:rf.epoch/replace-during-drain`: the frame is processing events.
-        - `:rf.epoch/replace-schema-mismatch`: a supplied `app-db` fails the frame's app schemas, or a supplied `runtime-db` fails the framework's runtime-db check.
-        - `:rf.epoch/replace-history-disabled`: epoch history is off (depth 0), so the write could not be recorded.
-    - Throws `:rf.error/epoch-artefact-missing` when the `day8/re-frame2-epoch` artefact is absent.
-- **Example**:
-  ```clojure
-  ;; App-only state injection.
-  (rf/replace-frame-state! :app/main {:rf.db/app {:counter 0}})
-
-  ;; App-only reset to {} while runtime-db survives.
-  (rf/replace-frame-state! :app/main {:rf.db/app {}})
-
-  ;; Runtime-only injection — app-db untouched.
-  (rf/replace-frame-state! :app/main {:rf.db/runtime new-runtime-db})
-
-  ;; Full-frame install — both partitions atomically.
-  (rf/replace-frame-state! :app/main {:rf.db/app new-db :rf.db/runtime new-runtime-db})
-  ```
-
-### Epoch-settled listeners
-
-Epoch listeners register on the `:epoch` stream of `register-listener!`, exactly like `:trace`. There is no separate `register-epoch-listener!`.
-
-- **Signature**: `(rf/register-listener! :epoch key callback-fn)` / `(rf/unregister-listener! :epoch key)`
-- **Description**: Registers a process-wide listener for assembled epoch records, in development builds. The callback runs each time a record is published, which is not once per event:
-    - when an epoch first commits, and again with the same `:epoch-id` when a late render, sub run or unmount attributed to that epoch corrects the record, so a consumer caching `epoch-history` picks up the fixed record;
-    - for a `:rf.epoch/db-replaced` record on each `replace-frame-state!` write, and a `:halted-depth` record when a drain hits the depth ceiling (both retained in the ring when depth permits);
-    - for the terminal `:halted-destroy` record, an already-started event interrupted by frame destruction, which goes to listeners only and is never retained.
-
-    The listener is process-wide while `:epoch-id` is unique only within one frame, so key cached records on `[(:frame record) (:epoch-id record)]` and replace an entry on republication rather than counting callbacks; `:outcome` is record state, not identity. Registering the same `key` again replaces the listener. When a frame the callback observed is destroyed, a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace naming the callback (`:cb-id`) is emitted on the `:trace` stream (see [`epoch-silence-current?`](#epoch-silence-current)). Returns `key`, or `nil` when the `day8/re-frame2-epoch` artefact is absent.
-- **Example**:
-  ```clojure
-  ;; Key by [frame epoch-id]; a re-published record replaces its entry.
-  (def epochs (atom {}))
-  (rf/register-listener! :epoch :my-app/epoch-watch
-    (fn [record]
-      (swap! epochs assoc [(:frame record) (:epoch-id record)] record)))
-
-  (rf/unregister-listener! :epoch :my-app/epoch-watch)
-  ```
+- **Description**: Development builds only: writes one or both partitions of the state of `frame-target`, a frame id or a live frame value, outside the event pipeline, and records a synthetic epoch so `restore-epoch!` can rewind it. See [`replace-frame-state!`](re-frame.epoch.md#replace-frame-state) for the full contract.
 
 ### `epoch-silence-current?`
 
