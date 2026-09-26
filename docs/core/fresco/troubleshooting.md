@@ -57,9 +57,8 @@ brackets, and the id is in `ex-data`:
       (js/console.error id where reason))))
 ```
 
-Every error Fresco raises carries four keys, except `hm/advance-clock!`'s
-no-clock error, the `hm/hydrate!` timeout and `evidence/envelope`'s refusal,
-which carry no id:
+Every error Fresco raises carries four keys, except `evidence/envelope`'s
+refusal, which carries no id:
 
 | Key | What it tells you |
 | --- | --- |
@@ -302,7 +301,7 @@ Taught in [Controlled inputs](04-controlled-inputs.md).
 #### `:rf.error/fresco-revision-not-controlled`
 
 You put `::h/revision` on something that is not a controlled text field. It
-belongs on an `<input>` or `<textarea>` with `:value`.
+belongs on an `:input` or `:textarea` with `:value`.
 
 <a id="fresco-file-input-value-marker"></a>
 #### `:rf.error/fresco-file-input-value-marker`
@@ -544,7 +543,9 @@ You gave an L2 `tree` non-map options, or an option outside its closed roster
 `#{:subs}`. `hm/shadow!` raises it too, for options outside `:reference`,
 `:candidate`, `:initial-events` and `:script`, or a script step other than
 `{:click selector}` or `{:type [selector text]}`. Remove the key or step the
-message names.
+message names. `hm/advance-clock!` raises it on a handle whose `hm/mount!` or
+`hm/hydrate!` was not given `{:clock true}`, or whose mount has come down; pass
+`{:clock true}` to the mount that makes the handle.
 
 <a id="fresco-test-bad-reads"></a>
 #### `:rf.error/fresco-test-bad-reads`
@@ -619,4 +620,7 @@ dispatches into a real frame, or test the handler at L3.
 The predicate given to `hm/settle-until!` never held before its `:timeout-ms`
 (default 2000). The ex-data carries `:elapsed-ms` and your `:label`. Check that
 the predicate can become true for what the mount renders, and raise
-`:timeout-ms` only for work that is slow. Defined by core.
+`:timeout-ms` only for work that is slow. `hm/hydrate!` rejects with it too,
+when the root's adoption has not finished within the budget its third argument
+sets (default 3000 ms); the ex-data then carries `:elapsed-ms`, `:budget-ms`
+and the frame. Defined by core.

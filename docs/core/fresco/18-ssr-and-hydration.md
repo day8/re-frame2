@@ -168,9 +168,9 @@ The three calls have different jobs:
   only: every later render through `app-root` updates the root it adopted, and
   the key is ignored.
 
-Skipping step 1 does not fail at step 2, because `ssr/hydrate!` still returns
-the payload; it fails at step 3, where `h/frame-provider` raises
-`:rf.error/frame-provider-frame-absent`.
+Skipping step 1 does not throw at step 2: `ssr/hydrate!` applies nothing,
+emits `:rf.error/frame-destroyed` and returns `nil`. It fails at step 3, where
+`h/frame-provider` raises `:rf.error/frame-provider-frame-absent`.
 
 An adopting root is otherwise an ordinary root: its opts carry React-root
 options only, and `h/unmount!` takes it down.
@@ -189,9 +189,9 @@ A few more rules apply to an adopting root:
   content does not replay an entry animation.
 
 `ssr/hydrate!` returns the applied payload, or `nil` when the page carries
-none. A boot path shared by server-rendered and client-only pages can ask
-first with `ssr/read-server-payload`, which returns the payload map or `nil`
-without applying anything:
+none or the frame is not live. A boot path shared by server-rendered and
+client-only pages can ask first with `ssr/read-server-payload`, which returns
+the payload map or `nil` without applying anything:
 
 ```clojure
 ;; app.client, replacing run above

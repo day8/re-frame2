@@ -193,7 +193,7 @@ A subscription vector. The delay re-resolves while the state is active. If the s
 
 A function, evaluated once when the state is entered. It does not re-resolve. Delay functions receive `{:snapshot …}`, not the usual guard/action context (`{:data :event :state :meta}`).
 
-A subscription or function delay that throws, or resolves to anything but a positive number, arms no timer, so the state waits for an event instead. A throw is reported as `:rf.error/machine-after-sub-threw` or `:rf.error/machine-after-fn-threw`, and every skipped timer as `:rf.warning/no-clock-configured`.
+A subscription or function delay that throws, or resolves to anything but a positive number, arms no timer, so the state waits for an event instead. A throw is reported as `:rf.error/machine-after-sub-threw` or `:rf.error/machine-after-fn-threw`, and every skipped timer as `:rf.error/machine-bad-after-delay` with `:recovery :skipped`.
 
 ## Timer staleness
 

@@ -88,7 +88,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
         - `:rf.error/reg-event-bare-interceptor`: an interceptor map passed as the middle argument instead of under `:interceptors`.
         - `:rf.error/reg-event-bad-interceptors`: `:interceptors` is not a vector of interceptor ids (`:my/ic` or `[id arg]`); an inline interceptor map in it raises `:rf.error/inline-interceptor-removed`.
         - `:rf.error/reserved-event-id`: the id is one of the framework-owned events `:rf/set-db`, `:rf/install-frame-state` or `:rf/settle-flows`.
-        - `:rf.error/unregistered-interceptor`: an `:interceptors` entry names an id with no `reg-interceptor`. References are checked when `reg-event` runs, so register interceptors first.
+        - `:rf.error/unregistered-interceptor`: an `:interceptors` entry names an id with no `reg-interceptor`. References are checked when `reg-event` runs, and a frame's `:interceptors` when `make-frame` runs, so register interceptors first.
         - `:rf.error/interceptor-factory-arity`: an entry's shape does not match the registered interceptor (see [`reg-interceptor`](#reg-interceptor)). Factories run at registration, so `[:rf.interceptor/path :cart]` throws `:rf.error/path-interceptor-bad-path` here.
         - `:rf.error/cofx-request-invalid`: `:rf.cofx/requires` is not a vector, or an entry is neither an id nor `[id arg]`.
         - `:rf.error/cofx-name-collision`: `:rf.cofx/requires` declares the same id twice.
@@ -883,6 +883,7 @@ Which function makes the frame depends on who owns its lifetime:
     - `:rf.error/image-within-image-collision`: an inline registration collides with a selected one in the same image.
     - `:rf.error/image-standard-replacement-forbidden`: an app registration collides with a protected framework standard such as `:rf/set-db`.
     - `:rf.error/image-missing-reference`: an event names an interceptor, or a resource names a scope resolver, that the image does not provide.
+    - `:rf.error/unregistered-interceptor`: an entry in the frame's own `:interceptors` names an id the frame's image does not register. The chain is resolved when the frame is made, so a typo fails here rather than at the first dispatch.
     - `:rf.error/frame-construction-in-handler`: a new frame was created inside an event handler. Create frames at top level or with `frame-root`.
     - `:rf.error/frame-construction-in-progress`: the id's construction or destruction is still under way (re-entry from its own setup, or another JVM thread). Retry once it settles.
     - `:rf.error/bad-frame-classification`: a `:sensitive` or `:large` key, or a malformed `:observability` entry.

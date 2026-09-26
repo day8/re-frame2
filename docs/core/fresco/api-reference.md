@@ -27,8 +27,7 @@ and the few facts a signature cannot show, and links the chapter that teaches
 it.
 
 Errors are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`, except
-`hm/advance-clock!`'s no-clock error, the `hm/hydrate!` timeout and
-`evidence/envelope`'s refusal, which carry none. Entries, here and on the API
+`evidence/envelope`'s refusal, which carries none. Entries, here and on the API
 pages, name the ids a name raises;
 [Troubleshooting](troubleshooting.md#start-from-a-complaint) describes the
 shape every error carries and indexes each id.
@@ -448,12 +447,12 @@ hm/this-frame
 | Name | What it does |
 | --- | --- |
 | `hm/mount!` | mounts `form` on a fresh React root under a frame of this mount's own, and returns the handle. `:initial-events` seeds that frame in core's own vocabulary; `:container` renders into an element you already have; `:clock true` installs a virtual clock before anything else this call does |
-| `hm/hydrate!` | mounts by adopting server bytes, and returns a **promise** of the handle, resolved once this root's adoption window has shut. `:html` supplies the bytes, or `:container` a container you already filled; `:initial-events` is as for `hm/mount!`; `:clock true` is installed once adoption has finished, not before it. The default budget is 3000 ms |
+| `hm/hydrate!` | mounts by adopting server bytes, and returns a **promise** of the handle, resolved once this root's adoption window has shut. `:html` supplies the bytes, or `:container` a container you already filled; `:initial-events` is as for `hm/mount!`; `:clock true` is installed once adoption has finished, not before it. The default budget is 3000 ms, and an adoption that outruns it rejects with `:rf.error/poll-until-timeout` |
 | `hm/rerender!` | renders `form` into the existing root — same root, same frame, same DOM nodes wherever React can keep them |
 | `hm/dispatch-and-settle!` | dispatches into this mount's frame through the runtime's own synchronous dispatch, drains it, commits the echo, and returns the handle |
 | `hm/settle!` | lets everything React has already scheduled commit. The empty `flushSync`, with no work of its own — it cannot reach work that is merely enqueued |
 | `hm/settle-until!` | waits for `pred`, settles once, and returns a promise of the same handle. `opts` is core's `poll-until` options — `:timeout-ms` (default 2000), `:interval-ms`, `:label` — and a timeout rejects with `:rf.error/poll-until-timeout`. Use it for work a router has enqueued rather than scheduled |
-| `hm/advance-clock!` | moves this mount's virtual clock forward and runs what falls due. Throws without `{:clock true}`, because an advance with no clock under it would assert nothing |
+| `hm/advance-clock!` | moves this mount's virtual clock forward and runs what falls due. Throws `:rf.error/fresco-test-bad-option` without `{:clock true}`, because an advance with no clock under it would assert nothing |
 | `hm/unmount!` | tears the root down and touches nothing the runtime holds, which is what lets `hm/assert-clean!` see what leaked. The container stays in the document, emptied |
 | `hm/residue` | a promise of the report — `:clean?`, `:leaked`, `:baseline`, `:now` and the frame — asserting nothing and resetting nothing |
 | `hm/assert-clean!` | waits for quiescence, compares against this mount's baseline, reports through `cljs.test/do-report`, and only then resets. It never throws, so the promise never rejects |
