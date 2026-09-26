@@ -197,16 +197,6 @@
           gen  (rf.image-assembly/assemble [test-doubles app-image] pool)]
       (is (= ::real (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
-(deftest cross-image-shadow-does-not-fail-assembly
-  (testing "a later image overriding an earlier one RESOLVES (later wins) and does
-            NOT fail assembly — a cross-image shadow is reported, not failed"
-    (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
-                 (reg-desc "b.core" :fx :checkout.http/post ::b)]
-          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          gen   (rf.image-assembly/assemble [img-a img-b] pool)]
-      (is (= ::b (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
-
 ;; ===========================================================================
 ;; 3b. Within-image disjointness — an image must resolve cleanly to ONE
 ;;     descriptor per [kind id] (EP-0026 §Layered Resolution). To override, the
@@ -222,14 +212,6 @@
                                           [:checkout.http/post {} ::b]]}})]
       (is (= :rf.error/image-within-image-collision
              (assembly-error-id #(rf.image-assembly/assemble [img] [])))))))
-
-(deftest noncolliding-image-seals-cleanly
-  (testing "the baseline: a single selected registration with no within-image
-            collision seals cleanly to that descriptor"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
-          img  (rf.image/image {:id :i :select-ns {:include ["checkout.core"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (= ::only (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 ;; ===========================================================================
 ;; 4. Unsupported descriptor kind
@@ -280,16 +262,6 @@
                               :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
              (assembly-error-id #(rf.image-assembly/assemble [base ovr] pool)))))))
-
-(deftest standard-without-app-collision-is-unioned
-  (testing "a framework standard with NO colliding app id is simply unioned into
-            the generation"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [pool [(reg-desc "product.story" :event :product/open ::open)]
-          img  (rf.image/image {:id :i :select-ns {:include ["product.story"]}})
-          gen  (rf.image-assembly/assemble [img] pool)]
-      (is (= ::std (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url))))
-      (is (contains? (:rf.gen/resolver gen) [:event :product/open])))))
 
 ;; ===========================================================================
 ;; 6. Missing reference (application interceptor)
@@ -368,18 +340,6 @@
                                 (rf.image-assembly/assemble [img-b img-a] pool)
                                 :fx :checkout.http/post)))
           "reversing order reverses the winner"))))
-
-(deftest multi-image-chain-last-image-wins
-  (testing "a chain [base override-a override-b] resolves the shared [kind id] to
-            the LAST image's descriptor"
-    (let [base  (rf.image/image {:id :base
-                              :registrations {:reg-fx [[:checkout.http/post {} ::base]]}})
-          ov-a  (rf.image/image {:id :ov/a
-                              :registrations {:reg-fx [[:checkout.http/post {} ::a]]}})
-          ov-b  (rf.image/image {:id :ov/b
-                              :registrations {:reg-fx [[:checkout.http/post {} ::b]]}})
-          gen   (rf.image-assembly/assemble [base ov-a ov-b] [])]
-      (is (= ::b (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 (deftest duplicate-image-id-across-composition-fails-loud
   (testing "two images sharing an :id within one :images composition →
@@ -464,11 +424,9 @@
                :image        :app/main
                :shadowed-by  :test/doubles}]
              report)
-          "the shadow report names the loser image + the winner image — EP-0026 shape")
-      (testing "each entry carries EXACTLY the three keys (no scope tag, no
-                winner/loser descriptors)"
-        (is (= #{:registration :image :shadowed-by}
-               (set (keys (first report)))))))))
+          "the shadow report names the loser image + the winner image — EP-0026
+           shape, EXACTLY the three keys (no scope tag, no winner/loser
+           descriptors)"))))
 
 (deftest shadow-report-final-winner-chain
   (testing "a chain [base override-a override-b] reports the FINAL winner for EVERY

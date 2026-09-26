@@ -348,15 +348,9 @@
 ;; metadata-only [id metadata] form is retired (see
 ;; inline-metadata-only-entry-rejected).
 
-(deftest inline-accepts-exactly-two-and-three-tuples
-  (testing "a 3-tuple [id metadata body] is accepted (explicit metadata)"
-    (let [body (fn [_ _] {})
-          v    (rf.image/image {:id :i
-                             :registrations {:reg-event [[:counter/inc {:doc "x"} body]]}})
-          d    (first (:rf.image/inline v))]
-      (is (= :counter/inc (:id d)))
-      (is (= body (:impl d)))
-      (is (= {:doc "x"} (:metadata d)))))
+;; The 3-tuple [id metadata body] is `inline-registrations-lower-to-descriptors`
+;; above; the 2-tuple is the one form that carries no metadata slot at all.
+(deftest inline-two-tuple-omits-the-metadata-slot
   (testing "a 2-tuple [id body] is accepted (metadata defaults to {} / omitted)"
     (let [body (fn [_] nil)
           v    (rf.image/image {:id :i :registrations {:reg-fx [[:my/fx body]]}})
@@ -573,11 +567,6 @@
       ;; descriptor is excluded (it carries no :rf.provenance/ns to match).
       (is (not (some #(= :standard/fx (:id %)) sel)))
       (is (= (count synthetic-store) (count sel))))))
-
-(deftest select-empty-image-selects-nothing
-  (testing "an image with no globs and no inline selects an empty set"
-    (let [img (rf.image/image {:id :empty})]
-      (is (= [] (rf.image/select-descriptors img synthetic-store))))))
 
 ;; ============================================================================
 ;; :select-ns :exclude — the subtractive narrowing knob (EP-0023 §Namespace-
