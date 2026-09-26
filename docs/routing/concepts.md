@@ -99,49 +99,6 @@ A slot type must survive the trip URL → value → URL. `reg-route` throws
 `:rf.error/route-keyword-unbounded-unsupported` for a bare `:keyword` slot. For a
 keyword value, list the allowed ones in an `[:enum …]`, as `:sort` does above.
 
-### Carrying global state through the URL
-
-A destination is taken literally. `[:rf.route/navigate {:to :app/settings}]` goes to
-exactly `/settings`; it never picks up query keys from the current route.
-
-If your app carries a theme or locale across pages, write that policy as a function
-over the address:
-
-```clojure
-(defn with-shell-query
-  "Copy the shell's global URL state onto a destination address.
-   The destination's own query wins."
-  [current-query address]
-  (update address :query
-          (fn [destination-query]
-            (merge (select-keys current-query [:theme :locale])
-                   (or destination-query {})))))
-
-(rf/reg-view settings-link []
-  (let [query @(subscribe [:rf.route/query])]
-    [rf/route-link (with-shell-query query {:to :app/settings}) "Settings"]))
-```
-
-The carried keys are visible in the address, and
-`(with-shell-query {:theme "dark"} {:to :app/settings})` is a unit test with no
-frame. For an app-wide policy, apply it in your own navigation event or an
-interceptor.
-
-Two details. The helper tolerates a missing `:query`, because `{:to …}` usually has
-none and a destination replayed from a pending navigation omits an empty one. And a
-carried value has already been coerced by the *current* route's schema (an
-`[:enum :light :dark]` key is `:dark`, not `"dark"`); the helper doesn't re-parse it.
-
-So declare each carried key on every destination as well. A destination that doesn't
-declare `:theme` writes `:dark` as `?theme=%3Adark`, which comes back as the string
-key `"theme"` with the value `":dark"`, and the next page's helper no longer finds it.
-With the schemas artefact loaded, a declared key whose value doesn't fit is caught at
-the call site: `route-link` throws `:rf.error/route-url-validation` and a navigate is
-rejected.
-
-To change the *current* route's query, use an [in-place request](#staying-on-the-page)
-instead.
-
 ### Metadata keys
 
 <a id="the-metadata-map-in-full"></a>
@@ -361,7 +318,7 @@ error. A handler that throws reports on the ordinary
 <a id="declaring-resources-instead"></a>
 
 Data the page needs before it is ready is declared with `:resources`, from the
-Resources artefact, in place of an `:on-match` loader:
+Resources artefact, rather than fetched from `:on-match`:
 
 ```clojure
 (rf/reg-route :app/article
@@ -453,9 +410,9 @@ does this in [Step 11](tutorial.md#step-11--warn-before-losing-unsaved-changes).
 A blocked Back or Forward also carries `:url-restored? true`: the address bar had
 already moved, and the runtime put it back. `:rf.route/continue` replays the
 `:destination` with its `:policy`, so the navigation that happens is the one that was
-asked for, and it re-checks the destination's `:can-enter`. To skip
-the check for one navigation, such as "save and close", pass
-`{:bypass-leave? true}`. Recipe: [Guard against unsaved changes](how-to/guard-unsaved-changes.md).
+asked for, and it re-checks the destination's `:can-enter`. To leave without
+asking, as a "save and close" button does, navigate with `:bypass-leave? true`; it
+skips the current route's `:can-leave` for that one navigation. Recipe: [Guard against unsaved changes](how-to/guard-unsaved-changes.md).
 
 ### Guarding entry — `:can-enter`
 
@@ -465,14 +422,14 @@ first load and SSR.
 
 A refusal is final. Nothing commits, no pending value is created, and the runtime
 dispatches `:rf.route/entry-denied` once. The built-in handler does nothing, so an
-unhandled refusal simply keeps the reader where they are (and returns a `403` under
+unhandled refusal keeps the reader where they are (and returns a `403` under
 SSR). The tutorial's handler sends the reader to `/login`; this one also remembers
 where they were going:
 
 ```clojure
 (rf/reg-event :rf.route/entry-denied
   (fn [{:keys [db]} [_ {:keys [destination]}]]
-    {:db (assoc-in db [:auth :return-to] destination)
+    {:db (assoc db :auth/return-to destination)
      :fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
 ```
 
@@ -685,6 +642,49 @@ articles app:
 ```
 
 More in [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md).
+
+### Carrying global state through the URL
+
+A destination is taken literally. `[:rf.route/navigate {:to :app/settings}]` goes to
+exactly `/settings`; it never picks up query keys from the current route.
+
+If your app carries a theme or locale across pages, write that policy as a function
+over the address:
+
+```clojure
+(defn with-shell-query
+  "Copy the shell's global URL state onto a destination address.
+   The destination's own query wins."
+  [current-query address]
+  (update address :query
+          (fn [destination-query]
+            (merge (select-keys current-query [:theme :locale])
+                   (or destination-query {})))))
+
+(rf/reg-view settings-link []
+  (let [query @(subscribe [:rf.route/query])]
+    [rf/route-link (with-shell-query query {:to :app/settings}) "Settings"]))
+```
+
+The carried keys are visible in the address, and
+`(with-shell-query {:theme "dark"} {:to :app/settings})` is a unit test with no
+frame. For an app-wide policy, apply it in your own navigation event or an
+interceptor.
+
+The helper tolerates a missing `:query`, because `{:to …}` usually has
+none and a destination replayed from a pending navigation omits an empty one. And a
+carried value has already been coerced by the *current* route's schema (an
+`[:enum :light :dark]` key is `:dark`, not `"dark"`); the helper doesn't re-parse it.
+
+So declare each carried key on every destination as well. A destination that doesn't
+declare `:theme` writes `:dark` as `?theme=%3Adark`, which comes back as the string
+key `"theme"` with the value `":dark"`, and the next page's helper no longer finds it.
+With the schemas artefact loaded, a declared key whose value doesn't fit is caught at
+the call site: `route-link` throws `:rf.error/route-url-validation` and a navigate is
+rejected.
+
+To change the *current* route's query, use an [in-place request](#staying-on-the-page)
+instead.
 
 ### URL strategies
 

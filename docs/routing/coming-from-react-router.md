@@ -27,7 +27,7 @@ page starts from what you know.
 | `useNavigate()` → `navigate("/x")` | `(dispatch [:rf.route/navigate {:to :app/article :params {:slug "intro"}}])` | [Navigation is an event](concepts.md#move-2-navigation-is-an-event), so it is traced and can be intercepted. |
 | `redirect()` from a loader or action, `<Navigate replace>` | `:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]` in an event handler | A redirect is an ordinary navigation, returned as an effect. |
 | `action`, `<Form>`, `useSubmit()` | An ordinary event handler | Submitting dispatches an event; its handler saves and, to move on, returns a navigate in its `:fx`. Nothing about it is routing-specific. Under server rendering a real `POST` form reaches the same event — [the form action](../ssr/concepts.md#two-patterns-in-brief). |
-| `<Link to>` | `[rf/route-link {:to :app/articles}]` | Renders a real `<a href>`, handles plain clicks, and leaves cmd/shift/middle-click to the browser. |
+| `<Link to>` | `[rf/route-link {:to :app/articles}]` | Renders a real `<a href>`, handles plain clicks, and leaves cmd/shift/middle-click to the browser. `replace` and `preventScrollReset` are `:replace? true` and `:scroll :preserve` on the link. |
 | `<NavLink>`'s `isActive` | Compare against `@(subscribe [:rf.route/id])` in your own view | `route-link` has no active state; a small wrapper sets `:aria-current` and a class — [highlighting the active link](concepts.md#highlighting-the-active-link). |
 | `<Link prefetch="intent">` (framework mode) | `[rf/route-link {:to :app/article :params {:slug "intro"} :prefetch :intent}]` | Hover, focus or touch loads the destination's resources without navigating — [warming a destination](concepts.md#warming-a-destination-before-the-click). `:intent` is the only mode. |
 | `useNavigation().state` (`"loading"`) | `@(subscribe [:rf.route/transition])` | `:idle`, `:loading` or `:error`, readable from any view. It reports the route's blocking resources only. |
@@ -70,9 +70,10 @@ the URL is derived from the state, not the other way round.
 ### Loaders are data
 
 React Router's `loader` is a function, so you find out what a route fetches by reading
-or running it. In re-frame2 a route's [loader](glossary.md#loader) is `:resources`, a
-list of declarations, or `:on-match`, a vector of event vectors. Either can be read
-without running anything: `(rf/handler-meta {:source :store :kind :route :id :app/article})`
+or running it. In re-frame2 both are data: a route's [loader](glossary.md#loader) is
+`:resources`, a list of declarations, and its
+[activation work](glossary.md#activation-work) is `:on-match`, a vector of event
+vectors. Either can be read without running anything: `(rf/handler-meta {:source :store :kind :route :id :app/article})`
 returns the route's metadata.
 
 `:resources` also handles the click-away race. Each resource loaded on entry belongs
@@ -123,7 +124,7 @@ the list:
 (rf/reg-view root-view []
   (let [id @(subscribe [:rf.route/id])]
     [:div
-     [page-for (if (= id :app/article) :app/articles id)]   ;; keep the list mounted
+     (page-for (if (= id :app/article) :app/articles id))   ;; keep the list mounted
      (when (= id :app/article)
        [article-dialog])]))
 ```
