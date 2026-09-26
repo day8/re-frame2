@@ -22,7 +22,7 @@
 ;;;; relative root leaves the route NO command that both finds the template
 ;;;; and writes where the author asked.
 ;;;;
-;;;; WHY THIS IS NOT A STRING-COMPARISON TEST. A test asserting the README
+;;;; WHY THIS IS NOT A STRING-COMPARISON TEST. A test asserting the leaf
 ;;;; contains some expected command text passes whenever the docs prescribe a
 ;;;; broken command, because that is exactly the command they contain. Both
 ;;;; arms below therefore make a REAL observation:
@@ -88,8 +88,13 @@
   [^java.io.File f]
   (str/replace (.getCanonicalPath f) "\\" "/"))
 
-(def ^:private readme-md
-  (delay (slurp (io/file setup-root "README.md"))))
+(def ^:private generator-leaf
+  "The reference leaf carrying the generator route."
+  "references/generator-route.md")
+
+(def ^:private generator-leaf-md
+  (delay (let [f (io/file setup-root generator-leaf)]
+           (when (.isFile f) (slurp f)))))
 
 (def ^:private skill-md
   (delay (slurp (io/file setup-root "SKILL.md"))))
@@ -98,18 +103,18 @@
 ;; The command the skill teaches, read out of the skill's own docs
 ;; ---------------------------------------------------------------------------
 ;;
-;; The generator route is documented in README.md §Running the generator
-;; pre-publish. `local-root-form` is the literal `:local/root` VALUE that
-;; section prescribes; every assertion below is made against that value rather
-;; than against a copy of it kept here, so a doc edit that introduces a
+;; The generator route is documented in references/generator-route.md §The
+;; pre-publish command. `local-root-form` is the literal `:local/root` VALUE
+;; that section prescribes; every assertion below is made against that value
+;; rather than against a copy of it kept here, so a doc edit that introduces a
 ;; cwd-relative root is what goes red.
 
 (def ^:private generator-section
   (delay
-    (let [body @readme-md
-          start (str/index-of body "### Running the generator pre-publish")]
+    (let [body (or @generator-leaf-md "")
+          start (str/index-of body "## The pre-publish command")]
       (when start
-        (let [rest-of (subs body (+ start 4))
+        (let [rest-of (subs body (+ start 3))
               end (str/index-of rest-of "\n## ")]
           (if end (subs rest-of 0 end) rest-of))))))
 
@@ -159,9 +164,9 @@
 ;; filesystem whether the answer is the reviewed template.
 
 (deftest documented-command-is-present-and-shaped-for-an-absolute-root
-  (testing "README.md carries the pre-publish generator command (premise of this suite)"
+  (testing "references/generator-route.md carries the pre-publish generator command (premise of this suite)"
     (is (some? @generator-section)
-        (str "README.md has no '### Running the generator pre-publish' "
+        (str generator-leaf " has no '## The pre-publish command' "
              "section. If the generator route is gone deliberately, revisit "
              "this suite; otherwise the command the skill executes has no "
              "documented home."))
@@ -189,7 +194,7 @@
                "the EDN string free of hand-authored escaping."))))
   (testing "SKILL.md states the two coordinates so the executing agent cannot conflate them"
     (let [skill @skill-md]
-      (is (str/includes? skill "README.md#running-the-generator-pre-publish")
+      (is (str/includes? skill generator-leaf)
           (str "SKILL.md's generator rule does not point at the section "
                "carrying the working command."))
       (is (str/includes? skill "absolute")

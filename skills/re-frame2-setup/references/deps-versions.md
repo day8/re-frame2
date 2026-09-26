@@ -59,7 +59,7 @@ An author who supplies a pin gets it on every `day8/re-frame2*` line (lockstep) 
 **Pre-publish reality (today): re-frame2 is NOT on Clojars/npm yet.** The repo's [`README.md`](https://github.com/day8/re-frame2/blob/main/README.md) §Status confirms this. The `day8/re-frame2*` Maven coordinates **do not resolve** — the `{:mvn/version "…"}` lines the scaffold's `deps.edn` carries are forward-correct and fail resolution today with `Could not find artifact day8/re-frame2`. So the coordinate *shape* branches on publication state, and pointing the framework coords at something that resolves is `SKILL.md` step 2 on both routes:
 
 - **Before the first Clojars release (now):** a **`:local/root`** against a reviewed monorepo checkout — the default, because the skill is installed by link from exactly such a checkout and resolves its absolute path itself — OR a **`:git/url` + `:git/sha`** coord for each artefact. This is the **only** working manual route today.
-- **After publication (forward-correct):** leave the `{:mvn/version "<VERSION>"}` lines the scaffold ships — the post-publish destination, not usable until the coords resolve on Clojars.
+- **After publication (forward-correct):** leave the `{:mvn/version "<VERSION>"}` lines the scaffold ships — the post-publish destination, not usable until the coords resolve on Clojars; its shape is [`post-publish.md`](post-publish.md).
 
 **Two different "versions" — don't conflate them.** The repo `VERSION` is what release *tags* are cut from; the *published Maven version* is whatever has shipped to Clojars (currently: none). A repo `VERSION` of `0.0.1.alpha` does **not** mean `{:mvn/version "0.0.1.alpha"}` resolves.
 
@@ -105,18 +105,6 @@ day8/re-frame2-story   {:git/url "https://github.com/day8/re-frame2.git" :git/sh
 ```
 
 `<SHA>` is the reviewed full commit SHA; resolve a selected tag to its commit first. For UIx, replace the Reagent coordinate with `day8/re-frame2-uix` and `:deps/root "implementation/adapters/uix"`. Per-feature artefacts use the table's paths. Leaving Story's `../re-frame2/tools/story` in `:dev` still requires a sibling checkout. Verify with `clojure -Stree -A:shadow:dev`; plain `clojure -Stree` does not resolve Story or shadow-cljs.
-
-### Post-publish shape (NOT usable until the coordinates resolve on Clojars)
-
-Once `day8/re-frame2*` is published, every framework artefact is a single shared `:mvn/version` — the shape the scaffold already ships:
-
-```clojure
-;; AFTER PUBLICATION ONLY — these coords 404 on Clojars today.
-day8/re-frame2         {:mvn/version "<VERSION>"}
-day8/re-frame2-reagent {:mvn/version "<VERSION>"}
-```
-
-Verify it resolves on Clojars first. The tools (`-xray`, `-story`) flip to `:mvn/version` on **different** tags, so check Clojars per artefact rather than assuming the framework release brought the tools with it. In particular, the scaffold's Story entry is a sibling `:local/root`, not a Maven coordinate: replace it with an absolute reviewed checkout path or the Git coordinate above until the matching Story version is published. Once it resolves, use `day8/re-frame2-story {:mvn/version "<VERSION>"}` in `:aliases :dev :extra-deps`.
 
 ## `package.json` and latest-from-npm
 

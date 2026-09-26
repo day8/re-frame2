@@ -222,7 +222,7 @@ The four files, derived from the template's `_uix/` tree by `tests/first_counter
 
 <!-- END generated -->
 
-The `^:dev/after-load mount!` split is the same as the Reagent entry. The generator writes the same project — `clojure -Tnew create … :substrate :uix`, which the skill runs when the author asks for the generator route; the exact pre-publish command is in [`README.md` §Running the generator pre-publish](../README.md#running-the-generator-pre-publish).
+The `^:dev/after-load mount!` split is the same as the Reagent entry. The generator writes the same project — `clojure -Tnew create … :substrate :uix`, which the skill runs when the author asks for the generator route; the exact pre-publish command is in [`generator-route.md`](generator-route.md).
 
 ## Differences from re-frame v1
 
