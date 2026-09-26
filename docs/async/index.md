@@ -17,8 +17,8 @@ reply arrives later as an **ordinary [event](../core/events.md)**:
         :on-failure [:article/load-error]}]]}
 ```
 
-No `await`, no callback nesting, no resumed stack frame. Success and failure each
-have a name on the same wire as everything else.
+The handler never waits for the server. Success and failure each arrive as an event you
+named, handled like any other event.
 
 <a id="in-this-section"></a>
 

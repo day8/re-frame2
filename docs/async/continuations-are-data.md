@@ -23,7 +23,7 @@ Here is the [effect map](../core/glossary.md#effect-map) an [event handler](../c
 
 With `:on-success [:article/loaded]` you didn't write code to run when the answer arrives — you named an [event](../core/glossary.md#event) to dispatch when it arrives. The answer becomes an `:article/loaded` event, handled by an ordinary handler, exactly as if a user had clicked a button.
 
-The word for "the rest of the program" — everything that should happen after an async result lands — is a **continuation**. Every async model has one; the only interesting question is what a continuation is *made of*. Under `async/await` it's a hidden closure (the suspended rest of your function). Here it's that vector — `[:article/loaded]` — a value you can print, diff, store, and ship. Everything else on this page falls out of that one move.
+The word for "the rest of the program" — everything that should happen after an async result lands — is a **continuation**. Every async model has one; the only interesting question is what a continuation is *made of*. Under `async/await` it's a hidden closure (the suspended rest of your function). Here it's that vector — `[:article/loaded]` — a value you can print, diff, store, and ship.
 
 ??? info "Coming from Elm?"
 
@@ -38,11 +38,11 @@ Under `async/await`, the continuation is a **closure**. Write `const quote = awa
 - It **dies with the process** — reload the page and every pending `await` evaporates silently.
 - It **closes over the world as it was** — every captured variable is a snapshot from suspension time, not arrival time.
 
-That event vector — `[:article/loaded]` — has none of those properties. It *has* a name (it *is* a name). It serializes. It survives a reload. And it never reads a stale world.
+The event vector `[:article/loaded]` has none of those properties: it is a name, it serializes, it survives a reload, and its handler reads the world as it is when the reply lands.
 
 ## The bug this kills: the stale-world trap
 
-The fourth closure property — "closes over the world as it was" — isn't an inconvenience. It's a correctness trap, and it's the part that actually bites people. Here's the shape someone writes in their first week, adapted from real migration code:
+The fourth closure property, closing over the world as it was, causes real bugs. Here's the shape someone writes in their first week, adapted from real migration code:
 
 ```clojure
 ;; THE TRAP — do not copy.
@@ -102,11 +102,13 @@ Naming the continuation makes it a value, and values are governable. Five proper
 - **Inspectable.** In-flight work and its continuation are both data, so the runtime can show them to you. An HTTP request puts a `:rf.http/issued` row on the [trace stream](../core/glossary.md#trace-stream) as it goes out, carrying its work id and reply target, and [Xray](../xray/index.md) shows it in flight until it lands; server-state work goes further with a durable **work ledger** — literally a table of outstanding continuations, each row carrying what was started, who owns it, and the reply target it will complete. "What is this app waiting on right now?" is a query, not a hunt through invisible suspended stack frames.
 - **Survivable.** The event vector is a *name*, resolved at delivery time. Hot-reload mid-flight and the reply finds the newest handler registered under that name — a closure would have resumed the stale one. And because a work-ledger row is plain data, it serializes: server-side rendering can wait on outstanding work and ship its summary across the wire, which no captured closure could survive. (Honest footnote: the *host work itself* — the socket, the timer — is never revived across a reload or restore. A late completion whose correlation no longer matches is suppressed. The continuation survives as data; the in-flight attempt fails safe.)
 - **Lawful.** Re-targeting a continuation — a feature module relocating a reply onto its parent's event — is a pure data transform on the target vector. Picture a reusable child feature that issues work with `:on-success [:child/loaded]`; a parent embedding the child rewrites that target to `[:parent/child-loaded]` before the work flies, so the parent hears about it. Because the target is just a vector, this is data-in, data-out, and the guarantee is precise: mapping the target changes *only* which event completes — never the issuance, the work identity, the status classification, or the staleness checks. There is no hidden callback to smuggle behaviour through.
-- **Managed.** A value can be refused. Every managed reply carries a closed `:status` ([below](#one-envelope-under-every-async-surface)), and the runtime checks staleness *before* delivery, so a reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) never reaches your handler. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
+- **Managed.** A value can be refused. Every managed reply carries a closed `:status` ([below](#one-reply-map-under-every-async-surface)), and the runtime checks staleness *before* delivery, so a reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) never reaches your handler. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
 
 You can also decline the continuation: `:reply-to nil` is fire-and-forget. A dropped non-aborted failure still leaves a one-shot dev-only `:rf.warning/failure-swallowed` trace ([Silencing a reply](http.md#silencing-a-reply)).
 
-## One envelope under every async surface
+<a id="one-envelope-under-every-async-surface"></a>
+
+## One reply map under every async surface
 
 "A reply is an event" isn't just an HTTP convenience. It's [**the uniform reply**](../core/glossary.md#the-uniform-reply), and every managed async surface completes through it: HTTP, [resources and mutations](../resources/concepts.md), [state-machine async work](../machines/concepts.md), and [route loaders](../routing/concepts.md).
 

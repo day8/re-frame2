@@ -176,7 +176,7 @@ Give the request a stable `:request-id`. Issuing a new request with the same id 
 
 **What you see:** type fast against a slow API and the results always match the last keystroke.
 
-**Notice:** this isn't best-effort cancellation. The runtime classifies the superseded reply as stale *before delivery*, so it cannot clobber fresh data even if it arrives late. The same id is also your cancel handle — `[:rf.http/managed-abort :search/in-flight]` aborts the in-flight request explicitly. ([Cancellation in full](http.md#cancellation-supersession-and-abort).) A manual abort does reply: with split handlers it lands on `:on-failure` as a `:status :cancelled` reply whose `:error` has `:kind :rf.http/aborted`, which is why `failure->message` in Step 2 has a case for it.
+**Notice:** the runtime classifies the superseded reply as stale *before delivery*, so it cannot clobber fresh data even if it arrives late. The same id is also your cancel handle — `[:rf.http/managed-abort :search/in-flight]` aborts the in-flight request explicitly. ([Cancellation in full](http.md#cancellation-supersession-and-abort).) A manual abort does reply: with split handlers it lands on `:on-failure` as a `:status :cancelled` reply whose `:error` has `:kind :rf.http/aborted`, which is why `failure->message` in Step 2 has a case for it.
 
 ## Step 6 — test it without a network
 
