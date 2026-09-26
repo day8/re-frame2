@@ -35,6 +35,10 @@ effect overrides are world inputs. Runner requirements such as headless, DOM,
 or browser are also a different axis. The UI separates these chips because
 collapsing them would make a neat little lie.
 
+The rung shows in three places: the chip under the variant in the sidebar, the
+View State section of Controls, which numbers the three rungs and marks each
+"in use" or "available", and the Status & fidelity section of Docs mode.
+
 ## Rung 1: real setup
 
 The login error variant uses real setup:
@@ -69,7 +73,8 @@ state directly:
 
 The tradeoff is explicit. You skip the event/cofx path, so Story schema-checks
 the seeded data. If the seeded slice violates the registered app-db schema, the
-variant does not quietly render garbage.
+run fails with `:rf.error/story-db-seed-invalid`, naming each violating path,
+before the script starts, instead of quietly rendering garbage.
 
 Use this when the state is legitimate but tedious to reach.
 
@@ -86,6 +91,12 @@ The fastest design-state path is to pin the value a subscription returns:
 
 This is excellent for UI exploration. You can show loading, empty, error, or
 permission-denied states before the full event path exists.
+
+A pinned value is still checked against the subscription's output schema, when
+the subscription declares one. A value the real subscription could never
+return fails the variant with `:rf.error/story-sub-override-invalid` before it
+renders. In View State, a subscription with an output schema also gets a typed
+form for editing its pinned value.
 
 Pins are a dev-build feature. A published static export compiles them out, so
 there the variant renders its real subscription values; a state you intend to
@@ -112,6 +123,12 @@ A good workflow is to start cheap and upgrade when the state becomes important.
 2. Move important state to a db seed if the app-db shape is the thing you care about.
 3. Replace the seed with real setup events when the behaviour matters.
 4. Add assertions once the state is worth keeping.
+
+View State helps with steps 2 and 3. While sub-overrides is the lowest rung in
+use, it shows a "Low-fidelity: a picture, not proof" note and a button for each
+stronger rung. A button opens a `reg-variant` form to paste into your stories
+namespace: the same state without the pins, with an empty `:setup` or
+`:db-seed` for you to fill in.
 
 You do not need every visual state to be highest fidelity. You do need every
 state to say what kind of thing it is. Story's badge is not there to scold you;

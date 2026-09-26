@@ -144,6 +144,9 @@ tags, and decorators usually live.
 
 `reg-mode` creates toolbar-wide arg tuples such as light/dark theme or locale.
 
+`reg-fragment` and `reg-check` package reusable setup and reusable expectations
+for variants to `:compose`, and `reg-decorator` wraps or prepares a variant.
+
 `rf.story/run`, `rf.story/is`, and `rf.story/explain` are the three programmatic verbs.
 They run a registered variant or an inline plan, report through the test
 framework, or show how the final plan was assembled.

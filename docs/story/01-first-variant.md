@@ -50,6 +50,31 @@ tutorial uses the shorter `:story.login` your own app would, so
 This is the first payoff: the view is not reimplemented in the story file. The
 variant names a registered view id and supplies the state needed to render it.
 
+## The shell
+
+The shell has four regions:
+
+| Region | What it holds |
+|---|---|
+| Toolbar | The toolbar modes (chapter 7); **Dispatch**, which opens a console in the right rail for sending events to the selected variant; the play status of the variant's `:script`, with **Re-run**; the viewport and background pickers; **Inspect**, which lets you click an element on the canvas to open its view's source; **Share** (chapter 8); and **REC**, the recorder (chapter 5). |
+| Sidebar | A search box, a tag filter, the story tree, the workspaces, and the **Tests** widget with its pass and fail counts, **Run all** and **watch** (chapter 4). |
+| Canvas | The selected variant, under the **Canvas**, **Docs** and **Tests** tabs. The title row names the variant and its view, and **open** shows the variant's registration in your editor. |
+| Right rail | Xray (chapter 6), Explain (chapter 7), Evidence, Controls, and the a11y, Chrome a11y, Layout-debug and Schema validation panels. |
+
+Under each variant in the sidebar is a row of chips. The first is the variant's
+test status: Pending until it runs, then Pass, Fail, Error or Can't run. The
+others say how the state was reached (real setup, db seed or sub overrides,
+chapter 3), which world inputs the variant declares (args, route, network, fx
+overrides), the cheapest runner that can prove it (headless, hiccup,
+cljs-reactive, DOM or browser, chapter 5), and whether it runs in a fresh
+frame.
+
+With the focus outside a text field, `f` toggles a full-screen canvas, `s` the
+sidebar, `a` the right rail and `t` the toolbar; Escape leaves full-screen.
+Ctrl-K (Cmd-K on macOS) opens a command palette that searches stories,
+variants, workspaces, modes and decorators. The `?` button in the top-left
+corner reopens the help overlay that the shell shows on your first visit.
+
 ## `reg-story` is the parent
 
 The parent story groups variants that share a view and defaults.
@@ -67,6 +92,14 @@ stays where it belongs, in the app's view registry. The Story body stays data.
 The story id is also the navigation structure. `:story.login` is the parent;
 `:story.login/idle` and `:story.login/error` are variants under it. There is no
 separate `title: "Forms/Login/Error"` string to keep in sync with the id.
+
+The id shapes are fixed. A story id is an unqualified keyword whose name starts
+with `story.`, and a variant id takes its story's name as its namespace.
+Workspace ids have a namespace starting with `Workspace.` and mode ids one
+starting with `Mode.`, as in `:Workspace.login/all-states` and
+`:Mode.app/dark`. Registering an id of the wrong shape throws
+`:rf.error/story-id-shape`, `:rf.error/variant-id-shape` and so on, one id per
+kind.
 
 ## `reg-variant` is the state
 
@@ -99,6 +132,17 @@ global < mode < story < variant < live control override
 Most variants start with only `:setup` and `:script`; args become important when
 you want to explore presentation inputs.
 
+`:tags` classifies the variant. Story registers seven tags for you: `:dev`,
+`:docs`, `:test`, `:screenshot`, `:experimental`, `:internal` and `:agent`. The
+shell acts on one of them: a `:test` variant joins the sidebar's Tests widget.
+Chapter 7 covers the rest of the tag vocabulary. A variant that declares no
+`:tags` takes its story's; one that declares its own uses those instead.
+
+A variant body is a closed map. A misspelt or unknown key throws
+`:rf.error/variant-shape`, and the message names the key and the nearest valid
+one. The [registration reference](api/registration.md#variant-body) lists every
+key a variant accepts.
+
 ## A schema on the view gives you Controls
 
 `:args` are view inputs, so the view is where a valid input is defined. Give the
@@ -125,10 +169,18 @@ Schema validation panel below Controls reports "no schema registered for the
 variant's :component".
 
 Controls follow the schema's shape: `:string` gives a text field, `:int` and
-`:double` a number field, `:boolean` a checkbox, `[:enum ...]` a select, and
-`:map`, `:vector`, `:set` and `:tuple` nest their children. `:rf/props` is the
-canonical key; a `:schema` key in the same place also works. Where a derived
-control is not the one you want, the story's or variant's `:argtypes` wins.
+`:double` a number field, `:boolean` a checkbox, `:keyword` a text field read
+back as a keyword, `[:enum ...]` a select, and `[:maybe X]` the control for
+`X`. `:map`, `:vector`, `:set` and `:tuple` nest their children, and the vector
+and set editors add and remove rows. `:rf/props` is the canonical key; a
+`:schema` key in the same place also works.
+
+Where a derived control is not the one you want, name it in the story's or
+variant's `:argtypes`, keyed by arg, as `{:heading {:control :textarea}}`. The
+controls are `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`,
+`:date` and `:color`; `:select` and `:radio` take their choices from
+`:options`. A variant's `:argtypes` beats its story's, and both beat the
+schema.
 
 ## Every variant gets a frame
 
@@ -163,25 +215,30 @@ The common assertions are:
 | `:rf.assert/no-warnings` | checking the run emitted no warnings. |
 | `:rf.assert/effect-emitted` | checking that an effect id was emitted. |
 
+An eighth id, `:rf.assert/schema-error`, works the other way round. It declares
+a schema violation the run is expected to produce, such as
+`[:rf.assert/schema-error {:where :event :event :login/flow}]`, and fails when
+that violation does not happen. Without such a declaration, any schema
+violation during the run fails the run (chapter 6).
+
 The record-don't-throw rule is boring until a failure happens, and then it is
 lovely. A variant can collect multiple failures in one run, keep the shell
 alive, and hand you the full set of facts instead of one stack trace and a
 half-run scenario.
 
-## The first troubleshooting loop
+## Troubleshooting
 
-If the sidebar is empty, the stories namespace probably was not required by the
-dev entry point.
-
-If the canvas says the component cannot be resolved, check that `:component`
-matches a registered view id.
-
-If Test mode says no assertions were recorded, check that the variant's
-`:script` actually carries an assertion step, for example:
-
-```clojure
-[:assert [:rf.assert/state-is :login/flow :idle]]
-```
+| Symptom | Cause | Fix |
+|---|---|---|
+| The sidebar is empty | The stories namespace was never required, so its `reg-*` calls did not run | Require it from the dev entry point |
+| Registration throws `:rf.error/variant-shape` (or `:rf.error/story-shape`, `:rf.error/workspace-shape`, and so on) | The body carries a key that kind does not accept, often a typo | Use the key the message suggests; the [registration reference](api/registration.md#variant-body) lists every key |
+| Registration throws `:rf.error/story-id-shape` or `:rf.error/variant-id-shape` | The id does not have the required shape | Name stories `:story.<path>` and variants `:story.<path>/<name>` |
+| Registration throws `:rf.error/unknown-tag` | A tag in `:tags` is neither built in nor registered | Register it with `rf.story/reg-tag` before the variant that uses it |
+| The canvas reads "variant has no :component registered" | Neither the variant nor its story names a view | Add `:component` to the story or the variant |
+| The canvas reads ":component … is not registered as a view" | The view id is misspelt, or its namespace was not required | Require the views namespace and match the id `reg-view` registered |
+| Schema validation reads "no schema registered for the variant's :component" | The view has no `:rf/props` schema | Add one to get derived Controls and arg checks |
+| Test mode reads "No tests registered for this variant" | The variant has no `:script`, `:assertions` or `:checks` | Add a checkpoint such as `[:assert [:rf.assert/state-is :login/flow :idle]]` |
+| The run errors with `:rf.error/story-assert-in-setup` | An `[:assert …]` step sits in `:setup` | Move it to `:script` |
 
 You now have one named state. The next problem is the usual one: real UIs do not
 have one state. They have a whole little family of them, and at least one is

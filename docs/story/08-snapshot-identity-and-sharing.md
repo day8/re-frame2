@@ -210,14 +210,17 @@ The Share dialog exposes the common handoff paths.
 
 ![The Story Share dialog with URL, EDN, screenshot, and static build options.](../images/story/story-tutorial-06-share-dialog.png)
 
-The commands are:
+**Share ▸** in the toolbar opens it. Each row copies one thing to the clipboard:
 
-| Command | What it gives |
+| Command | What it copies |
 |---|---|
-| Share URL | The current Story URL, including selected variant/workspace and mode state. |
-| Copy EDN | A `reg-variant`-shaped snippet for the selected state. |
-| Screenshot | A PNG of the canvas. |
-| Static build | The command for producing a standalone Story site. |
+| Share URL | The address-bar URL, which lands a recipient on this exact view. |
+| Copy EDN | A `reg-variant` form for the selected variant's current state. It registers a new variant extending the selected one, so the original stays as it is. |
+| Screenshot | A PNG of the variant canvas. |
+| Static build | The `npm run story:build` command, for producing a standalone Story site (below). |
+
+Copy EDN appears only while a variant is selected. With a workspace selected
+instead, the Share URL shares the workspace.
 
 The browser address bar is already meaningful. Selecting the error state in the
 login-form testbed from [chapter 1](01-first-variant.md), where it is registered
@@ -225,6 +228,31 @@ as `:story.login-form/error`, produces a URL like:
 
 ```text
 http://localhost:8043/?variant=story.login-form%2Ferror#/stories
+```
+
+The URL carries everything you can choose in the shell:
+
+| Parameter | Holds |
+|---|---|
+| `variant` | The selected variant. |
+| `workspace` | The selected workspace. |
+| `mode-tab` | `docs` or `test`, when the variant is not on the Canvas tab. |
+| `modes` | The active toolbar modes, comma-separated. |
+| `viewport` | A viewport preset id, or `WxH`. |
+| `background` | A background preset id, or a colour. |
+| `tag-filter` | The selected tags, comma-separated. |
+| `overrides` | The selected variant's live Controls edits, as an EDN map. |
+| `substrate` | The substrate, when it is not `reagent`. |
+
+Selecting things pushes a new browser history entry, so Back returns to the
+previous view. When a pasted URL carries overrides for args the variant no
+longer has, the shell drops them and says so in a banner over the canvas.
+
+Adding `embed=1` renders the canvas alone, with no toolbar, sidebar or right
+rail, for embedding a variant in another page:
+
+```text
+http://localhost:8043/?variant=story.login-form%2Ferror&embed=1#/stories
 ```
 
 That is a small thing, but small things matter. If a tool has a stateful UI and
@@ -247,6 +275,12 @@ Copy EDN can be fully reproducible when the current state can be expressed as a
 variant body. If live controls, transient frame state, or non-serializable
 values cannot be represented, the save/share path should warn rather than
 inventing a variant that only sort of means what you saw.
+
+When a row is less than fully reproducible, the dialog lists why under its
+label. The reasons are an override whose value is a function, which is
+view-only, or one that does not survive as EDN; a subscription override or
+network reply given as a function; a setup or script step carrying a function;
+and overrides the URL could not apply.
 
 ## Save current versus promote
 
