@@ -80,6 +80,11 @@
             ;; `rf/reg-flow` (a copy-ns'd core fn-alias) is live in cells —
             ;; same pattern as re-frame.machines above (rf2 guide page 7).
             [re-frame.flows]
+            ;; schemas artefact (Spec 010): required for its late-bind hooks and
+            ;; the Malli validator so `rf/reg-app-schema` (a copy-ns'd core
+            ;; fn-alias) is live in cells, and exposed below as its own SCI
+            ;; namespace so a cell's `(require '[re-frame.schemas])` resolves.
+            [re-frame.schemas]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [reagent2.core :as r]
             [reagent2.ratom :as ratom]
@@ -213,6 +218,12 @@
 (def re-frame-capture-frame-namespace
   {'make-capture-frame (sci/copy-var rf.capture-frame/make-capture-frame capture-frame-ns)})
 
+;; The schemas artefact's public namespace, as a real app requires it: cells
+;; write `(require '[re-frame.schemas])` next to `rf/reg-app-schema`, and read
+;; registrations back through `re-frame.schemas/app-schemas` and friends.
+(def schemas-ns (sci/create-ns 're-frame.schemas nil))
+(def re-frame-schemas-namespace (sci/copy-ns re-frame.schemas schemas-ns))
+
 (def r-ns (sci/create-ns 'reagent2.core nil))
 (def reagent2-core-namespace (sci/copy-ns reagent2.core r-ns))
 
@@ -231,6 +242,7 @@
   (sci/init
    {:namespaces {'re-frame.core          re-frame-core-namespace
                  're-frame.capture-frame re-frame-capture-frame-namespace
+                 're-frame.schemas       re-frame-schemas-namespace
                  'reagent2.core        reagent2-core-namespace
                  'reagent2.ratom       reagent2-ratom-namespace
                  'reagent2.dom.client  reagent2-dom-client-namespace
@@ -416,6 +428,8 @@
        page's cells to recreate + RE-SEED their frames from scratch, so
        navigating between pages can't reuse another cell's frame state and
        returning to a page reproduces its documented initial state.
+       Destroying a frame also drops the app-db schemas a cell registered
+       against it, so a later page's same-id frame starts unschema'd.
 
     3. Page-owned registrations. Cells write `(kind, id)`
        registrations straight into the process-global registrar

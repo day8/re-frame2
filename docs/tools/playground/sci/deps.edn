@@ -44,4 +44,9 @@
          ;; flows late-bind hooks register at bundle init — live cells can
          ;; then call the real `rf/reg-flow` (guide page 7, One concept at a
          ;; time). Same pattern as machines above.
-         day8/re-frame2-flows    {:local/root "../../../../implementation/flows"}}}
+         day8/re-frame2-flows    {:local/root "../../../../implementation/flows"}
+         ;; Spec 010 schemas artefact (brings Malli): `:require`d by the SCI
+         ;; bundle ns so the schemas late-bind hooks and the Malli validator
+         ;; register at bundle init — live cells can then call the real
+         ;; `rf/reg-app-schema` and `(require '[re-frame.schemas])`.
+         day8/re-frame2-schemas  {:local/root "../../../../implementation/schemas"}}}
