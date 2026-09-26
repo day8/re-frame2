@@ -12,6 +12,8 @@ The skill answers three questions:
 2. **Which tab shows X?** — a route card from the evidence sought (one dispatch, changed state, renders, raw ordering, machines/routes, server state, structure, registered definitions) to one first surface: the visible mode/tab, the reason, and the first interaction.
 3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter pills, the command palette, and the Settings popup.
 
+A route-card answer names the mode and tab to open first, why it is the first stop, and the first thing to click — *"Dynamic → Views: pick the event, then read the render-cause chips"* — plus a second lens only when it is the natural next step. It lists every tab only when you ask for the inventory. It reads nothing from your running app; its grants are read-only file access to its own references.
+
 ## Two modes
 
 Xray runs in one of two modes, flipped by the L1 mode pill or a hotkey. **Dynamic** is the event-coupled spine — the mode for inspecting a single dispatch, though "Dynamic" names the *shell* rather than a uniform data scope, so some of its tabs browse live structure and do not rebind when you pick an epoch. **Static** is the event-independent registry browse, for reading what is *registered* rather than what just happened. The canonical tab inventory and scope matrix live in the skill package, at [`skills/re-frame2-xray/references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md), and the wired-hotkey contract at [`skills/re-frame2-xray/references/launch-lifecycle.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-lifecycle.md) — this page summarizes the role and defers the anatomy to those authorities.
@@ -25,6 +27,14 @@ Do **not** use this skill for:
 - **Agent runtime access** — the user asking the agent to inspect or change the running app, read-only included (read a sub, get a path, snapshot state, walk traces, dispatch, hot-swap) → use [re-frame2-pair](re-frame2-pair.md). The boundary is human panel vs agent runtime, not read vs write.
 - Writing new application code → use [re-frame2](re-frame2.md).
 - Implementing Xray itself → the spec under `tools/xray/spec/` is the source of truth (no implementor skill yet).
+
+## Kickoff
+
+Ask the question you have about the panel — *"which Xray tab shows why this view re-rendered?"*, *"how do I pop Xray out onto a second monitor?"* — or type `/re-frame2-xray`.
+
+## When the panel does not appear
+
+The most common launch failure is a preload that is in and a page that loaded with no inline panel. Xray reports why in the console and at `window.day8.re_frame2_xray.status()`, whose `:diagnostic :reason` is one of `:missing-layout-host` (nothing matched `[data-rf-xray-host]` — add the layout column, point the selector elsewhere, or fall back to `(xray/open-overlay!)`), `:no-substrate-adapter` (the host never called `rf/init!`), or `:auto-open-disabled` (auto-open was turned off on purpose). The skill routes these through [`references/launch-modes.md` §Launch diagnostics](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-modes.md#launch-diagnostics). There is no mobile launch mode.
 
 ## Where the skill lives
 

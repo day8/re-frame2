@@ -32,6 +32,13 @@ Do **not** use this skill for:
 
 A short paste-ready kickoff prompt ships in the skill router itself, at [`skills/re-frame2-implementor/SKILL.md` §Kickoff](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md). The engineer opens a fresh Claude Code session in the root of the port's repo and pastes it, filling in the spec-checkout path and pin. The session loads the skill on its own, records the port profile (no interview for a minimum port), and walks the EP loop from the foundation — bootstrapping the conformance seam alongside the first slice and reporting exact commands and results as it goes.
 
+## When it stops
+
+- **The spec checkout does not verify.** Before reading anything the skill checks that the checkout's `HEAD` and `origin` match the pin recorded in the port profile and that its `spec/` tree is clean — uncommitted edits would ride under the recorded commit. On a divergence it reports the paths and stops before deriving any obligation or score; it never resets, checks out or stashes to clear them — parking those edits, or pinning a commit that carries them, is yours to do.
+- **An out-of-scope target** — a non-React substrate or a host that does not cross-compile to JS. The skill cites the scope footnote and stops.
+- **A spec gap** — a fixture that cannot pass without outside sources. The skill does not paper over it or copy the reference implementation's behaviour: it searches the upstream `day8/re-frame2` issues (pointing you at an existing one if it matches), drafts one, shows you the full draft, and runs `gh issue create` only after an explicit yes.
+- **A choice that materially changes the port** and cannot be defaulted — the one kind of question it asks during Phase 1.
+
 ## Where the skill lives
 
 - Source: [`skills/re-frame2-implementor/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor)

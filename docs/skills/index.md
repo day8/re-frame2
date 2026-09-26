@@ -15,9 +15,17 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 ```
 
-It is idempotent and refuses to clobber a non-link copy without `--force`/`-Force`. See [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the full setup. Once installed, the skill's `description` triggers it whenever the conversation mentions one of its surfaces — you usually don't need to invoke it explicitly. You can also force-load it with `/skill <name>` if the agent's launcher supports slash-commands for skills.
+It is idempotent and refuses to clobber a non-link copy without `--force`/`-Force`; `--check`/`-Check` exits 0 when every skill is linked and current, and `--target DIR`/`-Target DIR` links somewhere other than `~/.claude/skills/`. The one other channel is `npx skills add` against the public repo, which installs a single skill directory on its own. Nothing is published to npm and there is no Claude Code plugin marketplace entry — the `package.json` and `.claude-plugin/plugin.json` beside each skill are packaging metadata, not install routes. See [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the full setup.
 
-The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the `re-frame2` skill — it points at it for spec-corpus depth and EP rationale. (Three skills route their deep-dives elsewhere: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`, and `reagent-migration` pins the pre-publication Fresco surface by checkout; `re-frame2-implementor` cites `spec/` directly from its pinned checkout.)
+Claude Code reads its skill registry at session start, so start a new session after installing. From then on a skill's `description` triggers it whenever the conversation matches one of its surfaces — you usually don't need to invoke it. To load one explicitly, type its name as a slash command (`/re-frame2-pair`) or name it in the prompt (*"Using re-frame2-pair, trace `[:cart/add 42]`"*).
+
+Most skills need nothing beyond the install. A few need more before they can do their job:
+
+- **re-frame2-pair** needs its MCP server built from a clone and the `re-frame2-pair.runtime` preload in the app's dev build — see [its Kickoff](re-frame2-pair.md#kickoff).
+- **re-frame-migration** and **re-frame2-implementor** read the migration or spec corpus from a local re-frame2 checkout pinned to a commit or tag you supply, and verify that pin before reading anything.
+- **re-frame2-setup** needs Java 21+ and the Clojure CLI.
+
+The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the `re-frame2` skill — it points at it for spec-corpus depth and EP rationale. (Three skills route their deep-dives elsewhere: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`, and `reagent-migration` reads Fresco's shipped public namespace rather than any guide page; `re-frame2-implementor` cites `spec/` directly from its pinned checkout.)
 
 ## The nine skills
 
@@ -39,7 +47,7 @@ A quick decision flow (human-facing rendering of [`skills/README.md` §Skill rou
 
 - **Starting from nothing?** → `re-frame2-setup`. When the counter mounts, switch to `re-frame2`.
 - **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
-- **Already on re-frame2 and want Fresco, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (a genuinely optional second step — the Reagent adapter is first-class, so staying put is a complete configuration, and Fresco is pre-publication with no released Maven coordinate).
+- **Already on re-frame2 and want Fresco, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (a genuinely optional second step — the Reagent adapter is first-class, so staying put is a complete configuration; Fresco ships in the same release set as the adapter and resolves the same way).
 - **Writing new code in an existing v2 project?** → `re-frame2`.
 - **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
 - **Building a NEW re-frame2 implementation in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages?** → `re-frame2-implementor`.
@@ -63,4 +71,4 @@ If a question spans more than one skill, pick the one whose **entry trigger** ma
 | `re-frame2-pair` | [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) |
 | `re-frame2-pair-retro` | [`skills/re-frame2-pair-retro/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) |
 
-Each sub-page on this tab is a brief discoverability entry-ramp — pitch, triggers, kickoff shape, link to the skill's own `SKILL.md`. The authoritative content always lives in the skill's source tree.
+Each sub-page on this tab is a brief entry-ramp — pitch, triggers, kickoff shape, what makes the skill stop, and links into the skill's own `SKILL.md`. The authoritative content always lives in the skill's source tree.

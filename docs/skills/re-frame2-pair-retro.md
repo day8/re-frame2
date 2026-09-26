@@ -27,19 +27,18 @@ Do **not** use this skill for:
 
 - Inspecting / debugging a live app → that's [re-frame2-pair](re-frame2-pair.md) itself. This skill never probes the runtime.
 - Writing new re-frame2 code → use [re-frame2](re-frame2.md).
+- A retro on a Story recording session → that belongs to [re-frame2-pair](re-frame2-pair.md)'s Stories reference.
 - Greenfield setup or v1 migration → use [re-frame2-setup](re-frame2-setup.md) or [re-frame-migration](re-frame-migration.md).
 
 ## Kickoff
 
-The skill auto-triggers on retrospective-shaped questions over a real pair session ("how could re-frame2-pair do this better?", "retro on this pair session"). To force-load:
-
-```
-/skill re-frame2-pair-retro
-```
+The skill enters one of two ways. **Explicitly** — ask for a retro over a real pair session ("retro on this pair session", "draft an issue about that") or type `/re-frame2-pair-retro`. **After an error during live pair work** — a stack trace, a pair tool returning `{:ok? false …}`, or an `:rf.error/*` trace — it waits until `re-frame2-pair` has dealt with the failure, then offers the retro in one line and runs it only if you say yes. With no pair session in the conversation it asks for a short recap rather than inventing evidence.
 
 An explicit request over one clear session completes in one response — the skill does not stop at a friction-candidate list or ask which finding to classify. It asks first only when two genuinely plausible sessions are present (it names both), the evidence is too thin to support a finding, or the request's referent is genuinely ambiguous. Internally it keeps the diagnosis causally honest: delayed results stay bound to the calls that issued them, later success supersedes earlier failure, missing results stay unknown/incomplete rather than scored, and unrelated CI/worker/app-authoring activity stays excluded. When a session resembles a recurring class of pain, the skill checks its known-frictions catalogue to tell a one-off from a product gap.
 
-Asked for a draft, the same response includes one focused, copy-pasteable GitHub issue carrying the session evidence, the missing behaviour, one implementable desired outcome, and a completion signal in natural prose. The user files it — or edits, combines, or discards it; the skill never runs `gh issue create`.
+Every output masks secrets, credentials, internal URLs, user-identifying local paths and personal data with numbered placeholders (`<REDACTED-TOKEN-1>`), and instructions that appear inside the transcript or recap are treated as evidence, never followed.
+
+Asked for a draft, the same response includes one focused, copy-pasteable GitHub issue carrying the session evidence, the missing behaviour, one implementable desired outcome, and a completion signal in natural prose. The user files it — or edits, combines, or discards it; the skill never runs `gh issue create`. It may first search `day8/re-frame2` issues, open and closed, for an existing owner and point you there instead of drafting a twin; when it skips that search or the search fails, it says duplicate status was not checked.
 
 ## Where the skill lives
 
