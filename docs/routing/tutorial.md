@@ -41,7 +41,8 @@ so you can watch every step from here on:
 
 ;; 2. The root view reads the active route id and picks a page.
 ;;    Inside reg-view you call `subscribe` unprefixed — the macro binds it
-;;    to this view's frame. (Outside a view: `rf/subscribe`, `rf/dispatch`.)
+;;    to this view's frame. (Outside a view, name the frame:
+;;    `(rf/dispatch event {:frame :app})`.)
 (rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :app/home [:h1 "Home"]
@@ -109,14 +110,16 @@ A detail page needs the article's slug *in the URL*. A colon segment captures it
 
 ```clojure
 (rf/reg-route :app/article
-  {:params [:map [:slug :string]]}     ;; validate & coerce the captured :slug
+  {:params [:map [:slug :string]]}     ;; coerce (and, with re-frame.schemas, validate) :slug
   "/articles/:slug")
 ```
 
 The `:slug` in `/articles/:slug` is a hole the matcher fills. The `:params`
-[schema](../core/how-to/validate-with-schemas.md) validates and coerces — declare
+[schema](../core/how-to/validate-with-schemas.md) always coerces — declare
 `[:id :int]` on an `/items/:id` route and `/items/42` arrives as the number `42`, not
-`"42"`. Read captured params with a subscription:
+`"42"`. It also validates, but only in an app that requires `re-frame.schemas`;
+without that require, a value the schema rejects passes through unchecked. Read
+captured params with a subscription:
 
 ```clojure
 (rf/reg-view article-page []
@@ -240,8 +243,8 @@ always has a page.
 **What you see:** visit `/nonsense` and your own 404 renders, with `/nonsense` shown
 back.
 
-> Register it. Skip it and unmatched URLs fall to a bare built-in placeholder (plus
-> `:rf.warning/no-not-found-route`). Not-found params also carry a `:reason` so you
+> Register it. Skip it and an unmatched URL still activates `:rf.route/not-found`,
+> but the runtime emits `:rf.warning/no-not-found-route`. Not-found params also carry a `:reason` so you
 > can tell a plain miss from a malformed URL from a failed schema; see
 > [The model → Not found](concepts.md#not-found-is-a-route-you-register).
 
@@ -435,7 +438,9 @@ the edit. `:query-merge` folds changes into the current query, and a `nil` value
 removes a key:
 
 ```clojure
-(dispatch [:rf.route/navigate {:query-merge {:tag nil}}])   ;; clear the filter
+;; inside a view, where `dispatch` is bound to the view's frame
+[:button {:on-click #(dispatch [:rf.route/navigate {:query-merge {:tag nil}}])}
+ "Clear filter"]
 ```
 
 **What you see:** click **#ssr** and the address bar reads `/articles?tag=ssr` with
@@ -759,7 +764,7 @@ Every step assembled into one namespace:
 | Clicking a link reloads the whole page | The link is a hand-written `[:a {:href …}]` | Use `rf/route-link` |
 | The address bar never changes, and Back does nothing | The frame has no `:url-bound? true` | Add it to `frame-root` (Step 6) |
 | Root view throws `No matching clause` | A registered route has no arm in the `case` | Add the route's arm |
-| Unmatched URLs show a bare placeholder, with `:rf.warning/no-not-found-route` | `:rf.route/not-found` is not registered | Register it (Step 5) |
+| `:rf.warning/no-not-found-route` on an unmatched URL | `:rf.route/not-found` is not registered | Register it (Step 5) |
 | `:on-match` stopped firing after adding `:parent` | `reg-route` replaces the whole metadata map | Re-register with every key you still want (Step 7) |
 | `(:tag query)` is `nil` although the URL has `?tag=` | The route does not declare `:tag` in `:query` | Declare it in the `:query` schema (Step 9) |
 | Navigation is refused with `:rf.error/navigate-bad-request` | The payload is not one request map | Write `[:rf.route/navigate {:to …}]` |

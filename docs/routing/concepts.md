@@ -38,7 +38,10 @@ To *build* a three-page app step by step, use the [tutorial](tutorial.md).
   "/articles/:id")
 
 ;; 2. Navigation is an event.
-(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"}}])
+(rf/reg-view home-page []
+  [:button {:on-click #(dispatch [:rf.route/navigate {:to     :app/article
+                                                      :params {:id "intro"}}])}
+   "Read intro"])
 
 ;; 3. The root view reads the active route through an ordinary subscription.
 (rf/reg-view article-page []
@@ -47,13 +50,16 @@ To *build* a three-page app step by step, use the [tutorial](tutorial.md).
 
 (rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
-    :app/home           [:h1 "Home"]
+    :app/home           [home-page]
     :app/article        [article-page]
     :rf.route/not-found [:h1 "Not found"]))
 ```
 
-Inside `reg-view`, `subscribe` / `dispatch` are injected (no `rf/` prefix). Outside
-a view, use `rf/subscribe` / `rf/dispatch`.
+Inside `reg-view`, `subscribe` / `dispatch` are injected (no `rf/` prefix) and bound
+to the view's frame, so they also work from an `:on-click`. Outside a view there is
+no frame in scope: navigate from an event handler's `:fx` ([below](#move-2-navigation-is-an-event)),
+or pass `{:frame …}` to `rf/dispatch` at the REPL. A bare `rf/dispatch` with no frame
+raises `:rf.error/no-frame-context`.
 
 ## Move 1: a route is a registry entry
 
@@ -128,11 +134,12 @@ policy, so write it as an ordinary function:
             (merge (select-keys current-query [:theme :locale])
                    (or destination-query {})))))
 
-(rf/dispatch [:rf.route/navigate
-              (with-shell-query @(rf/subscribe [:rf.route/query]) {:to :app/cart})])
+(rf/reg-view cart-link []
+  (let [query @(subscribe [:rf.route/query])]
+    [rf/route-link (with-shell-query query {:to :app/cart}) "Cart"]))
 ```
 
-Read the dispatch and you know the URL — the carried keys are right there in the
+Read the address and you know the URL — the carried keys are right there in the
 address. It is a plain pure function, so `(with-shell-query {:theme "dark"} {:to :app/cart})`
 is a one-line unit test with no frame and no router. Opting out is not calling it.
 
@@ -149,8 +156,9 @@ function you own.
     **Keep a carried key's type consistent.** A value pulled from the current query
     slice has already been coerced by *that* route's schema — an `[:enum :light :dark]`
     key is the keyword `:dark`, not `"dark"`. The helper merges; it does not re-parse.
-    A mismatch is caught, not silent: the destination route's `:query` schema validates
-    at the call site and rejects the navigation.
+    With the schemas artefact loaded a mismatch is caught at the call site: the
+    destination route's `:query` schema rejects it, so `route-link` throws
+    `:rf.error/route-url-validation` and a navigate is rejected.
 
 To edit the **current** route's query instead of building a new address, use the
 in-place `:query` / `:query-merge` request — that is the causal primitive for
@@ -198,13 +206,16 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 
 <a id="move-2-navigation-is-an-event"></a>
 
+Navigation is the event `[:rf.route/navigate request]`. Dispatch it like any other
+event: from a view's injected `dispatch`, or from an event handler's `:fx`.
+
 ```clojure
-(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"}}])
+[:rf.route/navigate {:to :app/article :params {:id "intro"}}]
 
 ;; One request map — address, policy, and edit keys side by side:
-(rf/dispatch [:rf.route/navigate {:to :app/search :query {:q "clojure" :page 2}}])
-(rf/dispatch [:rf.route/navigate {:to :app/login :replace? true}])
-(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "intro"} :fragment "section-2"}])
+[:rf.route/navigate {:to :app/search :query {:q "clojure" :page 2}}]
+[:rf.route/navigate {:to :app/login :replace? true}]
+[:rf.route/navigate {:to :app/article :params {:id "intro"} :fragment "section-2"}]
 ```
 
 | Key | Effect |
@@ -213,8 +224,8 @@ ranking cascade: [API `reg-route`](../api/re-frame.routing.md#reg-route).
 | `:params` | Path params for `:to` |
 | `:replace?` | `replaceState` instead of `pushState` |
 | `:query` | Replace query wholesale |
-| `:query-merge` | Edit current query — a **map** of deltas (a `nil` *member* value removes that key; a non-map value rejects) |
-| `:scroll` | `:top` / `:restore` / `:preserve` override |
+| `:query-merge` | In-place only: edit the current query — a **map** of deltas (a `nil` *member* value removes that key; a non-map value rejects) |
+| `:scroll` | `:top` / `:restore` / `:preserve` / `false` override |
 | `:fragment` | `#fragment` |
 | `:bypass-leave?` | `true` skips this route's `:can-leave` confirmation for one navigation |
 
@@ -239,7 +250,7 @@ that started the async work deliver its reply as an event (managed
 **Stay on this route, change query** — omit the destination for an *in-place* request:
 
 ```clojure
-(rf/dispatch [:rf.route/navigate {:query-merge {:page 2}}])
+[:rf.route/navigate {:query-merge {:page 2}}]
 ```
 
 No `:to` / `:url`: `:query-merge` folds into the current query, `:query` replaces it
@@ -250,16 +261,16 @@ exactly what it means:
 
 ```clojure
 ;; Pagination — change one key, keep the filters.
-(rf/dispatch [:rf.route/navigate {:query-merge {:page 2}}])
+[:rf.route/navigate {:query-merge {:page 2}}]
 
 ;; A new filter resets the page — nil removes a key rather than writing a blank.
-(rf/dispatch [:rf.route/navigate {:query-merge {:tag "clojure" :page nil}}])
+[:rf.route/navigate {:query-merge {:tag "clojure" :page nil}}]
 
 ;; Clear every filter — replace the query wholesale.
-(rf/dispatch [:rf.route/navigate {:query {}}])
+[:rf.route/navigate {:query {}}]
 
 ;; A tab the user shouldn't be able to Back through — replace, don't push.
-(rf/dispatch [:rf.route/navigate {:query-merge {:tab "comments"} :replace? true}])
+[:rf.route/navigate {:query-merge {:tab "comments"} :replace? true}]
 ```
 
 Reading it back is one sub — `@(subscribe [:rf.route/query])` — and the route's
@@ -328,24 +339,25 @@ dispatch activation events. State before URL on purpose.
 
 <a id="navigating-to-a-raw-url-string"></a>
 
-Raw URL escape hatch: `(rf/dispatch [:rf.route/navigate {:url "/articles/intro"}])`.
+Raw URL escape hatch: `[:rf.route/navigate {:url "/articles/intro"}]`.
 
 ## Move 3: the active route is a subscription
 
 <a id="move-3-the-active-route-is-a-subscription"></a>
 
-The current route lives in **runtime-db** (not app-db). You read; you never write:
+The current route lives in **runtime-db** (not app-db). You read it with these
+subscriptions — `@(subscribe [:rf.route/id])` in a view — and never write it:
 
 ```clojure
-@(rf/subscribe [:rf/route])              ;; full slice
-@(rf/subscribe [:rf.route/id])
-@(rf/subscribe [:rf.route/params])
-@(rf/subscribe [:rf.route/query])
-@(rf/subscribe [:rf.route/fragment])
-@(rf/subscribe [:rf.route/transition])   ;; :idle | :loading | :error
-@(rf/subscribe [:rf.route/error])
-@(rf/subscribe [:rf.route/chain])        ;; :parent ancestry (nested layouts)
-@(rf/subscribe [:rf/pending-navigation]) ;; a leave the user hasn't answered, or nil
+[:rf/route]              ;; full slice
+[:rf.route/id]
+[:rf.route/params]
+[:rf.route/query]
+[:rf.route/fragment]
+[:rf.route/transition]   ;; :idle | :loading | :error
+[:rf.route/error]
+[:rf.route/chain]        ;; :parent ancestry (nested layouts)
+[:rf/pending-navigation] ;; a leave the user hasn't answered, or nil
 ```
 
 `:transition` drives a global progress bar without per-page loading flags. It is a
@@ -357,7 +369,7 @@ about everything else:
 (rf/reg-view progress-bar []
   (case @(subscribe [:rf.route/transition])
     :loading [:div.progress.active]
-    :error   [:div.error (:rf.error/message @(subscribe [:rf.route/error]))]
+    :error   [:div.error (:reason @(subscribe [:rf.route/error]))]
     nil))
 ```
 
@@ -367,7 +379,7 @@ about everything else:
 
 Fragment-only changes update the slice and do **not** re-fire `:on-match`. Route
 `:scroll` (or navigate opts): `:top` (default forward), `:restore` (default
-back/forward), `:preserve`.
+back/forward), `:preserve`, or `false` for no scroll effect.
 
 ## Nested layouts
 
@@ -405,8 +417,9 @@ Tutorial builds this: [Step 7](tutorial.md#step-7--a-shared-layout).
 Two different jobs live next to a route, and keeping them apart is the whole trick.
 
 **`:on-match`** is the *activation hook* — a vector of event vectors the runtime
-fires and forgets whenever the route becomes active (including the same route with
-changed params; identical params don't re-fire):
+fires and forgets whenever the route becomes active — including the same route with
+changed params or query. An identical navigation, or one that only changes the
+`#fragment`, doesn't re-fire it:
 
 ```clojure
 (rf/reg-route :app/cart
@@ -414,8 +427,8 @@ changed params; identical params don't re-fire):
   "/cart")
 ```
 
-It runs client- and server-side, after the route slice is written and before any
-view renders off it. What it is *not* is a readiness mechanism: `:on-match` never
+It runs client- and server-side, after the route slice is written and the URL is
+pushed. If the route's resource plan fails, none of its `:on-match` events run. What it is *not* is a readiness mechanism: `:on-match` never
 moves `:rf.route/transition`, never waits for the async work its events start, and
 never turns a handler's failure into a route error. Work that `:on-match` merely
 kicks off keeps its status in the subsystem that owns it. A handler that throws
@@ -541,7 +554,7 @@ selected entry just sits `:idle`, and navigating to the same address is delibera
 a no-op. The causal door is one event:
 
 ```clojure
-(rf/dispatch [:rf.route/replan-resources {:cause [:session-restore]}])
+[:rf.route/replan-resources {:cause [:session-restore]}]
 ```
 
 It reruns the active route's effective parent-to-leaf plan against the current
@@ -572,7 +585,7 @@ parks in `[:rf/pending-navigation]`. Resolve with the pending **id**:
   "/articles/:id/edit")
 
 (rf/reg-view leave-dialog []
-  (when-let [p @(rf/subscribe [:rf/pending-navigation])]
+  (when-let [p @(subscribe [:rf/pending-navigation])]
     [:div.modal
      [:button {:on-click #(dispatch [:rf.route/cancel (:id p)])} "Stay"]
      [:button {:on-click #(dispatch [:rf.route/continue (:id p)])} "Leave"]]))
@@ -731,7 +744,7 @@ Copy-paste shape (pages and loaders are stubs — fill in as the tutorial does):
 | `reg-route` throws on `:sensitive` / `:large` | A path in the declaration is malformed | `:rf.error/invalid-route-classification` |
 | Warning about a `[:query k]` classification | `k` is not declared in `:query` or `:query-defaults`, so it stays a string key and is never redacted | `:rf.warning/route-classification-query-key-unpromoted` — declare the key |
 | Guards are ignored and every navigation is allowed | The subscription runtime isn't available to evaluate them | `:rf.warning/can-leave-subs-artefact-missing` |
-| First page shows `:rf.error/resource-route-plan` on boot | Routes or resources registered after the URL-bound frame was created | Register first, or dispatch `:rf.route/replan-resources` ([details](#several-frames-one-address-bar)) |
+| First page shows `:rf.error/resource-route-plan` on boot | A resource the route declares was registered after the URL-bound frame was created | Register first, or dispatch `:rf.route/replan-resources` ([details](#several-frames-one-address-bar)) |
 
 ## When *not* to use routing
 
@@ -767,17 +780,19 @@ that token still matches the current slice — otherwise suppresses and fires
       ;; :app/article-arrived with the captured token + payload.
       {:fx [[:app/fetch-article {:id id :on-reply [:app/article-arrived nav-token id]}]]})))
 
-;; Hand the CAPTURED token to :rf.route/with-nav-token. Fresh → :rf/reply-to runs;
-;; stale (newer navigation) → reply dropped before it can touch app-db.
+;; Hand the CAPTURED token to :rf.route/with-nav-token. Fresh → the :rf/reply-to
+;; event is dispatched with a reply map appended as its last argument, the payload
+;; under :value; stale (newer navigation) → nothing is dispatched.
 (rf/reg-event :app/article-arrived
   (fn [_ [_ captured-token id payload]]
     {:fx [[:rf.route/with-nav-token
-           {:rf/reply-to [:app/article-loaded id payload]
-            :nav-token   captured-token}]]}))
+           {:rf/reply-to [:app/article-loaded id]
+            :nav-token   captured-token
+            :value       payload}]]}))
 
 (rf/reg-event :app/article-loaded
-  (fn [{:keys [db]} [_ id payload]]
-    {:db (assoc db :article/current payload)}))
+  (fn [{:keys [db]} [_ _id {:keys [value]}]]    ;; reply = {:status :ok :value …}
+    {:db (assoc db :article/current value)}))
 ```
 
 `:resources` already does this — declare it and the race is closed. Hand-roll only
@@ -817,10 +832,11 @@ frame is URL-bound — in which case URL pushes do nothing and Back/Forward is
 ignored.
 
 A URL-bound frame syncs the current URL while `make-frame` runs, so register routes
-(and the resources they declare) before creating it. A route registered afterwards
-still matches later navigations, but the first page was planned without it; repair
-that with `[:rf.route/replan-resources {:cause …}]` rather than navigating to the
-same URL, which is a no-op.
+(and the resources they declare) before creating it. If the route itself is missing,
+the first page lands on not-found. If a resource it declares is missing, the plan
+fails with `:rf.error/resource-route-plan` and the route reads `:error`; repair that
+with `[:rf.route/replan-resources {:cause …}]` rather than navigating to the same
+URL, which is a no-op.
 
 ### URL strategies
 
