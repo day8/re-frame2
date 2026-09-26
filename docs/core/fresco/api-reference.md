@@ -248,9 +248,9 @@ forms/drafts       ;; the h/reg-state concern every draft lives under
 `forms/buffered-field` is a controlled `<input>` with an app-db draft in front of
 the committed value. `:control` is an address identifying the field (not an
 app-db path); `:value` is the committed value; `::h/revision` is your counter,
-advanced to reset the field after a rejection. `:value`, `:on-commit`,
-`:on-cancel`, `:key` and `::h/revision` are the field's own; every other prop
-goes to the `<input>`, with `:type` defaulting to `"text"`.
+advanced to reset the field after a rejection. `:control`, `:value`,
+`:on-commit`, `:on-cancel`, `:key` and `::h/revision` are the field's own;
+every other prop goes to the `<input>`, with `:type` defaulting to `"text"`.
 
 Internally the field dispatches three events of the forms module: edit on
 input, commit on Enter and blur, cancel on Escape. They appear in the rendered
