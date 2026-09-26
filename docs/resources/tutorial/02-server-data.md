@@ -277,6 +277,10 @@ and a background-refresh failure keeps the data and tucks the problem into `:ref
 
 `:kind` is one of a closed `:rf.http/*` set (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/transport`, `:rf.http/timeout`, `:rf.http/decode-failure`, …), so an error view branches on the kind of failure rather than parsing a string.
 
+A failed first load stays `:error` until something causes the read again; a request retries on its own only when it declares `:retry`. To offer a Retry button, dispatch the same `:rf.resource/refetch` that [Step 5](#step-5--refresh-on-demand) wires to its Refresh button — an ensure works too, because an entry in `:error` is never fresh. The entry goes back to `:loading`, and when the new load lands it is `:loaded` with `:error` cleared.
+
+On a `:blocking? true` route the failure reaches the route as well: `:rf.route/transition` turns `:error`, and `:rf.route/error` holds a `:rf.error/resource-route-blocking` map carrying the resource's failure under `:error`. A successful retry returns the route to `:idle` ([route readiness](../../routing/concepts.md#when-a-loader-fails)).
+
 A page has more render states than a cache entry does. One useful checklist names nine: *Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* The home page covers the first five — Nothing and Empty share the "No articles" line, and One and Some share the list — plus the error branch. The rest come later: Too Many is a pagination cap ([Paginate a feed](../how-to/paginate-a-feed.md)), Incorrect and Correct are form states (Part 3), and Done is the page after a successful write (Part 4). Deciding each one before you ship keeps blank screens out of production.
 
 ### The article page

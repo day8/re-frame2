@@ -69,6 +69,8 @@ What happens next depends on whether anything is still using the entry. An entry
 
 The write goes through the same [managed HTTP](../glossary.md#managed-http) transport as your reads, and **it does not retry by default** — no managed request does. Re-sending a write can repeat its side effect (charge the card twice, post the comment twice), so a mutation retries only when its own `:request` declares `:retry`. Leave it off unless the endpoint is idempotent. Auth headers and other decoration belong in a `reg-http-interceptor`, which decorates every managed request, rather than in each mutation's `:request`.
 
+A write whose params carry a secret — a password, a card number — names the path on the registration, `:sensitive [[:params :password]]`, so the value leaves the app as a redaction marker ([data classification](../../core/glossary.md#data-classification)).
+
 !!! warning "Gotcha — a lone vector is one tag"
 
     A tag is a vector, so a tag *set* is a set of vectors. If you return a single bare vector — `(fn [_ _] [:article slug])` — the runtime reads it as the one tag `#{[:article slug]}`, not as the set `#{:article slug}`. The same rule applies to the `:tags` of a direct `:rf.resource/invalidate-tags` event. When in doubt, wrap it: `#{[:article slug]}`.
@@ -132,7 +134,7 @@ A failed write settles `:error?` with the structured error under `:error`. There
 [:rf.mutation/clear {:instance [:article-save slug]}]
 ```
 
-`:rf.mutation/clear` resets the runtime instance (and makes a best-effort abort of any in-flight work for it). It is not `(rf/clear :mutation mutation-id)`, which unregisters the mutation entirely.
+`:rf.mutation/clear` resets the runtime instance (and makes a best-effort abort of any in-flight work for it). `{:mutation <id>}` in place of `:instance` clears every instance of that mutation. It is not `(rf/clear :mutation mutation-id)`, which unregisters the mutation entirely.
 
 That is the whole normal path: tag the reads, declare what the write breaks, fire it and watch the instance. The rest of this page is for writes that need more than "mark it stale and refetch."
 
@@ -289,7 +291,20 @@ A descriptor's `:scope` is one of: `:rf.scope/same` (the mutation's resolved sco
 
 Dev builds catch the miss for you. When a descriptor matches nothing in its resolved scope but the same tags *do* match an entry in another scope, the runtime emits `:rf.warning/mutation-scope-mismatch`, naming the mutation, the instance, both scopes and the tags, with a `:hint` naming the fix. The warning is [elided](../../core/glossary.md#elide) from production builds. A deliberate `:cross-scope? true` descriptor is never flagged, and neither is a tag that matches nothing anywhere.
 
-A direct `:rf.resource/invalidate-tags` event is stricter than a mutation: with no scope it raises `:rf.error/resource-invalidate-scope-required` instead of defaulting.
+### Invalidate from any event
+
+A change the server tells you about — a websocket push, a poll that reports an update — has no mutation to declare its consequences. Dispatch `:rf.resource/invalidate-tags` from that event's handler instead; owned matches refetch and unowned ones go stale, as after a mutation:
+
+```clojure
+(rf/reg-event :ws/article-changed
+  (fn [_cofx [_ {:keys [slug]}]]
+    {:fx [[:dispatch [:rf.resource/invalidate-tags
+                      {:scope :rf.scope/global
+                       :tags  #{[:article slug]}
+                       :cause [:server-push :article-changed]}]]]}))
+```
+
+It is stricter than a mutation about scope: with no `:scope` it raises `:rf.error/resource-invalidate-scope-required` instead of defaulting, and a `{:from-db …}` scope that resolves to `nil` raises `:rf.error/resource-scope-unresolved-reference` instead of dropping the invalidation.
 
 ### When you can't name the scopes: `:cross-scope? true`
 
