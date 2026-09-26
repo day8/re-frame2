@@ -30,7 +30,7 @@ Every `day8/re-frame2*` artefact ships at **one VERSION, in lockstep**, every re
 | `day8/re-frame2` | core | **Always.** Registry, drain, fx, dispatch, subscribe, frame-root, trace, the substrate-adapter contract. |
 | `day8/re-frame2-reagent` | substrate | **Always (for a Reagent app).** The Reagent adapter map. |
 | `day8/re-frame2-uix` | substrate | Instead of `-reagent` if you target UIx. |
-| `day8/re-frame2-schemas` | per-feature | When you call `reg-app-schema` / `reg-app-schemas`, or put a `:schema` on a registration. `:require` `re-frame.schemas` first — it self-wires its Malli adapter (no separate `re-frame.schemas.malli` require) and a registered schema then validates (Spec 010); without the artefact those calls throw `:rf.error/schemas-artefact-missing` — loud, not a silent soft-pass. |
+| `day8/re-frame2-schemas` | per-feature | When you call `reg-app-schema` / `reg-app-schemas`, or put a `:schema` on a registration. `:require` `re-frame.schemas` first — it self-wires its Malli adapter (no separate `re-frame.schemas.malli` require) and a registered schema then validates (Spec 010); without the artefact `reg-app-schema` / `reg-app-schemas` throw `:rf.error/schemas-artefact-missing` — loud, not a silent soft-pass. |
 | `day8/re-frame2-machines` | per-feature | When you call `reg-machine` or `make-machine-handler`. |
 | `day8/re-frame2-routing` | per-feature | When you dispatch `:rf.route/*` events or register routes. |
 | `day8/re-frame2-flows` | per-feature | When you call `reg-flow`. |
@@ -89,7 +89,7 @@ Lockstep is automatic — both resolve from one checkout, one commit — and edi
 | `day8/re-frame2-story` (tool; on the scaffold's `:dev` alias) | `tools/story` |
 | `day8/re-frame2-xray` (tool) | `tools/xray` |
 
-Use one checkout for all local roots. If it differs from the requested version/tag/commit, use that revision's full `:git/sha` for core, the adapter and Story, leaving the skill checkout unchanged.
+Use one checkout for all local roots; an explicit pin the checkout is not at takes the `:git/sha` route below (`SKILL.md` step 2).
 
 ### The `:git/sha` route (pre-publish, no checkout on disk)
 
@@ -132,7 +132,7 @@ re-frame2 ships no npm code, so every npm package in the scaffold is there for t
 
 **The last two are not optional.** Story rides the `:dev` alias, Story pulls Xray, Xray pulls `machines-viz`, and `machines-viz`'s chart requires `@xyflow/react` and `elkjs/lib/elk.bundled.js` directly — so a `package.json` carrying only the first three compiles until the dev build loads Story and then fails with shadow's `The required JS dependency "@xyflow/react" is not available`. Restore all five when recovering a broken install. Then run `npm install` yourself; on the default baseline there is nothing to pause for.
 
-**Latest-from-npm is opt-in only.** On an explicit request, run `npm view <pkg> version` for each, write exact compatible pins, then install, compile and report them. No second confirmation is needed. Reagent 2.x requires React 19; flag a pick below 19 as a conflict. Without an upgrade request, recover using the template pins and `npm install`, never bare `npm install react react-dom`.
+**Latest-from-npm is opt-in only.** On an explicit request, run `npm view <pkg> version` for each, write exact compatible pins, then install, compile and report them. No second confirmation is needed. React 19 is the re-frame2 adapters' floor; flag a pick below 19 as a conflict. Without an upgrade request, recover using the template pins and `npm install`, never bare `npm install react react-dom`.
 
 ## When to add the optional per-feature artefacts
 
@@ -148,6 +148,6 @@ Add them **at the moment** the author writes code that calls into them — not b
 | Server-side `render-to-string` for SSR | `day8/re-frame2-ssr` |
 | `(rf/epoch-history ...)` or `(rf/restore-epoch! ...)` directly | `day8/re-frame2-epoch` |
 
-(**`re-frame2-pair` does not add `-epoch` for you.** The pair skill's runtime helper ships into your app as a shadow-cljs `:devtools` preload, not as a Maven artefact injected over nREPL — a preload cannot put a jar on the classpath. So to get the pair skill's epoch history / `restore-epoch` time-travel, add `day8/re-frame2-epoch` to your own `deps.edn`; without it the pair runtime reports `:rf.error/epoch-artefact-missing` and time-travel is a no-op.)
+(**`re-frame2-pair` does not add `-epoch` for you.** Its runtime ships as a shadow-cljs `:devtools` preload, and a preload cannot put a jar on the classpath. So to get the pair skill's epoch history / `restore-epoch` time-travel, add `day8/re-frame2-epoch` to your own `deps.edn` and require `re-frame.epoch` at boot; without it every epoch read comes back empty and `restore-epoch` refuses, mostly silently — only the pair skill's `replace-app-db` raises `:rf.error/epoch-artefact-missing`.)
 
 Each artefact registers its load-time hooks on require, so beyond the dep the only step is a `:require` of its primary namespace from your entry ns. The main `re-frame2` skill's per-feature leaves give the canonical require shape.
