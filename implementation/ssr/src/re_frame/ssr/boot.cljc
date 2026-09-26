@@ -227,7 +227,8 @@
 
   Opts:
 
-    :frame          — REQUIRED. The target frame id to hydrate into. The
+    :frame          — REQUIRED. The target frame to hydrate into: its id,
+                      or the frame value `rf/make-frame` returns. The
                       same frame the host passes to the root provider,
                       streaming `install!`, resource preload, and Xray. The
                       client target is supplied, not synthesised. An absent
@@ -319,8 +320,12 @@
         ;; The client hydration target is supplied explicitly. A nil stamp is an absent target,
         ;; not a request to synthesise `:rf/default`; surface the always-on
         ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
+        ;; A frame VALUE normalises to its id first: the payload frame-id
+        ;; check, the install ledger and the incarnation check that gates the
+        ;; verify step all key on the id, and a value would match none of them.
         frame   (rf.frame/require-frame-stamp!
-                  frame :rf.ssr/hydrate {:where 'rf.ssr/hydrate!})
+                  (rf.frame/frame-target->id frame)
+                  :rf.ssr/hydrate {:where 'rf.ssr/hydrate!})
         payload (or payload
                     #?(:cljs (read-server-payload
                                (or element-id rf.ssr.constants/payload-script-id))
@@ -520,7 +525,7 @@
       (catch #?(:clj Throwable :cljs :default) t
         (report-root-boot-failed!
          {:where     'rf.ssr/hydrate-page!
-          :frame     (:frame opts)
+          :frame     (rf.frame/frame-target->id (:frame opts))
           :root-id   root-id
           :phase     @phase
           :exception t})
