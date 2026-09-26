@@ -8,7 +8,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 Path: `spec/` in the re-frame2 repo.
 
-**The spec is the contract.** Every claim the skill makes about what an implementation must do traces to a normative claim in `spec/`. The skill's job is to **route**, **sequence**, and **operationalise** consumption of the corpus for the specific task of porting — not to duplicate it. Since the 2026-08 reduction the leaves carry links and derivation instructions only; anything enumerable (fixture counts, capability tags, operator sets) is derived from the corpus at the port's pin, never transcribed.
+**The spec is the contract.** Every claim the skill makes about what an implementation must do traces to a normative claim in `spec/`. The skill's job is to **route**, **sequence**, and **operationalise** consumption of the corpus for the specific task of porting — not to duplicate it. The leaves carry links and derivation instructions only; anything enumerable (fixture counts, capability tags, operator sets) is derived from the corpus at the port's pin, never transcribed.
 
 The most load-bearing files:
 
@@ -27,7 +27,7 @@ The skill cites spec files by the published docs URL (`https://day8.github.io/re
 
 Path: `implementation/` in the re-frame2 repo.
 
-**The reference is a worked example, not normative.** There is no dedicated tour leaf since the 2026-08 reduction: a port author who wants to see how *someone* solved a problem opens the matching artefact directory at the pin (`implementation/core/` for the runtime heart, `implementation/adapters/*` plus `implementation/fresco/` for the view layer, per-feature artefacts `machines`/`routing`/`flows`/`http`/`schemas`/`ssr`/`ssr-ring`/`resources`/`epoch`), reads the source, and tests everything against `spec/` before adopting it. The same roster rides the EP index's **Worked example** column in `references/phase-2-impl-order.md`, which is where a session actually meets it; keep the two in step.
+**The reference is a worked example, not normative.** There is no dedicated tour leaf: a port author who wants to see how *someone* solved a problem opens the matching artefact directory at the pin (`implementation/core/` for the runtime heart, `implementation/adapters/*` plus `implementation/fresco/` for the view layer, per-feature artefacts `machines`/`routing`/`flows`/`http`/`schemas`/`ssr`/`ssr-ring`/`resources`/`epoch`), reads the source, and tests everything against `spec/` before adopting it. The same roster rides the EP index's **Worked example** column in `references/phase-2-impl-order.md`, which is where a session actually meets it; keep the two in step.
 
 ## 3. Tertiary inputs
 
@@ -39,7 +39,7 @@ Path: `implementation/` in the re-frame2 repo.
 
 A re-authoring pass MUST keep these green (they run on every PR):
 
-- **`scripts/check_skill_implementor_order.py`** — foundation-order + required-foundation-gate guard over SKILL.md, README.md, cardinal-rules.md, phase-1-decisions.md, phase-2-impl-order.md, and this spec/ folder's design.md + authoring-prompt.md. Any line stating the foundation order must include both v1-required tail EPs, 015 and 013; any line pinning the gate-1 fixture scope must name all four v1-required families. Its owner cross-check is two-sided: `references/conformance.md` §Capability tagging must still teach every required root, AND the root set is derived from the normative owner, `spec/Implementor-Checklist.md` Part 3's always-run family rows — checking the skill alone is circular, and that circularity is what let `:flow/*` go missing from the skill and the guard at once.
+- **`scripts/check_skill_implementor_order.py`** — foundation-order + required-foundation-gate guard over SKILL.md, README.md, cardinal-rules.md, phase-1-decisions.md, phase-2-impl-order.md, and this spec/ folder's design.md + authoring-prompt.md. Any line stating the foundation order must include both v1-required tail EPs, 015 and 013; any line pinning the gate-1 fixture scope must name all four v1-required families. Its owner cross-check is two-sided: `references/conformance.md` §Capability tagging must still teach every required root, AND the root set is derived from the normative owner, `spec/Implementor-Checklist.md` Part 3's always-run family rows — checking the skill alone is circular, because a family missing from the skill would then be missing from the guard too.
 - **`scripts/check_skill_implementor_partition_drift.py`** — stale-API denylist (listener verbs, managed-HTTP naming, adapter lifecycle, machine classification keys, reply-contract spellings) plus the no-bead-id scan over the user-facing leaves.
 - **`scripts/check_skill_mcp_drift.py`** — keys on the paths `references/cardinal-rules.md` (spec-pin `rev-parse` command; the local gh-issue body/title/search safety clauses) and `references/phase-1-decisions.md` (spec-pin `remote get-url` command). Keep those filenames and the literal commands/clauses.
 - **`scripts/check_adapter_disposition.py`** — rosters `references/phase-2-impl-order.md` as a scanned authority; keep that filename.
