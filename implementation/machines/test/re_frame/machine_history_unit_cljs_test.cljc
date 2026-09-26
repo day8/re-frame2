@@ -1,9 +1,9 @@
 (ns re-frame.machine-history-unit-cljs-test
-  "Comprehensive UNIT matrix for the first-class history ENGINE. The
-  COMPLEMENT of `machine_history_smoke_test` — the smoke proves
-  record/restore is wired end-to-end; this suite pins the corners the spec
-  (005 §History states + 009 §History trace events) enumerates and that the
-  smoke leaves uncovered:
+  "Comprehensive UNIT matrix for the first-class history ENGINE — the
+  record/restore behaviours the spec (005 §History states + 009 §History
+  trace events) enumerates. `machine_history_smoke_test` holds the
+  single-machine trace-shape pins, the one-region restore and the
+  owning-compound exit-set cases:
 
     - SHALLOW vs DEEP depth distinction at the SAME exit leaf (a single shared
       compound, exited from the same deep leaf, restores differently under
@@ -16,7 +16,9 @@
       entry-shallowest-first along the LCA, NOT a bespoke mechanism.
     - DEFAULT-TARGET fallback (no recording) — both with `:default-target`
       declared AND with it absent (the compound's `:initial`).
-    - `:initial`-fallback when neither a recording nor a `:default-target`.
+    - `:initial`-fallback when neither a recording nor a `:default-target`
+      (a missing `:deep?` reads as shallow — the §1 contrast's shallow arm
+      declares none).
     - DANGLING recorded path after hot-reload falls back, never enters the
       dead path, no `:rf.error/*`.
     - PER-REGION parallel history at STRUCTURALLY-IDENTICAL region paths —
@@ -243,15 +245,6 @@
           restored (step m (seed :away) [:resume])]
       (is (= [:player :stopped] (:state restored))
           "no :default-target ⇒ :player's :initial (:stopped)"))))
-
-(deftest absent-deep-key-is-shallow
-  (testing "a missing :deep? reads as shallow (records the direct child, descends :initial)"
-    ;; player(false) has no :deep? at all — proves missing ≡ shallow. :leave
-    ;; exits :player (the owner) so the shallow recording fires.
-    (let [m (player false)
-          after-leave (step m (seed [:player :playing :mid-track]) [:leave])]
-      (is (= :playing (get-in after-leave [:rf/history [:player]]))
-          "missing :deep? records the direct child (shallow)"))))
 
 ;; ===========================================================================
 ;; §5. DANGLING recorded path after hot-reload
