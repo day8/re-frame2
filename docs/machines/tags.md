@@ -3,15 +3,12 @@
 <a id="tags"></a>
 <a id="state-tags"></a>
 
-The [first machine](tutorial.md) already put `#{:auth/busy}` on `:submitting`
-so the view could ask "busy?" without naming that state. This page is that
-idea as a contract.
-
 A view often does not care which exact state a machine is in. It cares about a
 semantic question: is this flow busy? read-only? terminal?
 
 A **[state tag](glossary.md#state-tag)** is a label on a state that answers
-those questions without forcing the view to enumerate state names.
+those questions without the view enumerating state names. The
+[first machine](tutorial.md) already tags `:submitting` with `:auth/busy`.
 
 ## Declare tags on states
 
@@ -185,72 +182,22 @@ read-only.
 
 ## Tags as a cross-region signal
 
-In a [parallel machine](parallel-states.md) the tag union spans every region. One
-region can advertise a tag; another region's guard reads it.
-
-```clojure
-(rf/reg-machine :checkout/page
-  {:type :parallel
-   :data {}
-
-   :guards
-   {:form-valid?
-    (fn [{:keys [tags]}]
-      (contains? tags :form/valid))}
-
-   :regions
-   {:form
-    {:initial :editing
-     :states  {:editing {:tags #{:form/editing}
-                         :on   {:complete :valid}}
-               :valid   {:tags #{:form/valid}}}}
-
-    :checkout
-    {:initial :idle
-     :states  {:idle       {:on {:submit {:target :submitting
-                                          :guard  :form-valid?}}}
-               :submitting {:tags #{:checkout/submitting}}}}}})
-```
-
-The checkout region does not need the form region's state names. It reads
-`:form/valid`.
-
-A region guard or action also receives `:all-state`, the region → state map,
-when the precise sibling state matters:
-
-```clojure
-(fn [{:keys [all-state]}]
-  (= :valid (:form all-state)))
-```
-
-Prefer tags. They survive a sibling refactor.
-
-Two rules:
-
-- **A tag is a guard input, not a trigger.** A tag appearing does not fire a
-  transition. The dependent region still moves on its next event or a guarded
-  `:always`; the guard only reads the sibling's tag when it runs.
-- **`:tags` and `:all-state` are parallel-only.** A flat or compound machine's
-  guard/action context is `{:data :event :state :meta}`. There is no sibling to
-  coordinate with.
-
-The frozen-snapshot selection rules live in
-[Parallel states → Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein).
+In a [parallel machine](parallel-states.md) the tag union spans every region,
+and a region's guards and actions receive it as `:tags`. One region can
+advertise `:form/valid` and another region's guard can read it without knowing
+the first region's state names. A tag is a guard input, not a trigger: a tag
+appearing fires nothing, and the dependent region moves on its next event or a
+guarded `:always`, whose guard reads the tag when it runs.
+[Parallel regions → Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
+has the example and the selection rules.
 
 ## What tags are not
 
 - **Not transition labels.** `:tags` is a state-node slot. Transitions carry
   none.
-- **Not a trigger.** A tag appearing never fires a transition by itself. For a
-  move that should follow a condition on its own, use a guarded `:always`.
-- **Not user-writable.** An action cannot return `:tags`. The runtime projects
-  the slot from active state.
 - **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
   tooling-visible metadata. `:tags` is the live projection of the active
-  configuration. Both can sit on the same state; they are not the same thing.
-- **Not a replacement for `[:rf/machine id]`.** When a view needs the whole
-  snapshot it still subscribes to `:rf/machine`. `[:rf.machine/has-tag? …]` is
-  the predicate-shaped question.
+  configuration. Both can sit on the same state.
 
 ## Troubleshooting
 

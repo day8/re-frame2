@@ -1,8 +1,5 @@
 # Coming from XState
 
-This page is a translation, not a tutorial. It maps XState v5/v6 ideas onto
-re-frame2.
-
 If you know XState, the statechart ideas transfer well:
 
 - states and transitions;
@@ -15,7 +12,7 @@ If you know XState, the statechart ideas transfer well:
 - history;
 - run-to-completion.
 
-The biggest change is not the chart. It is where the running machine lives.
+The biggest change is where the running machine lives.
 
 In XState, you create an actor, start it, and send to it.
 
@@ -80,7 +77,7 @@ completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 | `invoke` `onError` | `:spawn`'s `:on-error` transition |
 | multiple invokes / fan-out | `:spawn-all` |
 | `enq.raise` (v5 `raise`) | `:fx [[:raise [:tick]]]` |
-| `enq.sendTo` (v5 `sendTo`) | `:fx [[:dispatch [other-id [:their/event]]]]` — the id you hold IS the address |
+| `enq.sendTo` (v5 `sendTo`) | `:fx [[:dispatch [other-id [:their/event]]]]` — the id you hold is the address |
 | `output` | `:output-key` on a final state |
 | `schemas.internalEvents` (a map; the top-level `internalEvents` array is deprecated) | `:internal-events #{…}` |
 | TypeScript types / v6 `schemas` | `:schemas {:data … :output …}` |
@@ -145,8 +142,6 @@ handler's.
 
 ## Actions return effects
 
-This is the most important behavioural difference.
-
 An XState v5 action performs work or uses `assign` to update context; in v6 an
 entry/exit function returns a `{ context }` patch and queues effects through
 `enq`. A re-frame2 action returns a value:
@@ -168,7 +163,7 @@ In re-frame2, functions live in guards and actions. The graph stays declarative.
 That means:
 
 - targets are data;
-- candidate lists are data;
+- candidate vectors are data;
 - `:choice` is a vector of guarded candidates, not a routing function;
 - guard composition happens inside named guard functions, not a separate
   combinator DSL.
@@ -184,8 +179,7 @@ XState event objects commonly look like:
 { type: "SUBMIT", credentials }
 ```
 
-XState's `{ type: "SUBMIT", credentials }` is one event object. re-frame2
-writes that same object as a **trigger** vector:
+re-frame2 writes that object as a **trigger** vector:
 
 ```clojure
 [:auth.login/submit credentials]
@@ -276,7 +270,7 @@ The app owns the rest:
   partition, is refused with `:rf.error/handler-exception` and changes
   nothing.
 
-The full contract is [Spec 002 §Installing a persisted frame-state](../../spec/002-Frames.md#installing-a-persisted-frame-state).
+The full contract is in the [`:rf/install-frame-state` reference](../api/re-frame.core.md#rfinstall-frame-state).
 
 ## Tags
 
@@ -345,7 +339,6 @@ result into the parent's `:data` without moving the parent.
 `spawn` is the same lifecycle idea as `invoke`, renamed because a child actor
 exists while the state is active. The parent registered with `reg-machine` is
 the **singleton**. Each `:spawn` creates a **spawned** instance of a type.
-The spec heading says "dynamic actors"; this guide uses those two words.
 
 ## Completion is event-shaped
 

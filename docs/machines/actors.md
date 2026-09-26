@@ -12,9 +12,6 @@ at run time. It gets an allocated id (`:auth/request#1`). Use one when you
 need many concurrent instances, or a child whose lifetime is bound to a
 parent state.
 
-The spec heading says "dynamic actors." That is an adjective for spawned
-instances, not a third kind. This guide says **singleton** and **spawned**.
-
 Login stays the singleton. The HTTP request becomes a spawned child: it
 starts when `:submitting` is entered and is destroyed on every exit.
 
@@ -114,8 +111,7 @@ children:
 ```
 
 The socket is spawned on the `:active` *parent*, so one actor spans
-`:connecting` → `:authenticating` → `:connected`. Cleanup is tied to the
-statechart, not to hand-written cancel branches.
+`:connecting` → `:authenticating` → `:connected`.
 
 A state carries at most one `:spawn`. For several children, use a compound
 state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all).
@@ -194,8 +190,7 @@ separate *send* verb.
 ### `:fixed-actor-id`
 
 Give the actor a well-known address when you want a stable name rather than an
-allocated instance id. The address IS the id: nothing else has to be bound, and
-nothing else has to be looked up.
+allocated instance id.
 
 ```clojure
 :spawn {:machine-id     :request/protocol
@@ -210,9 +205,9 @@ else:
 {:fx [[:dispatch [:primary-request [:request/cancel]]]]}
 ```
 
-A re-entered `:fixed-actor-id` child is a NEW INCARNATION at the SAME address.
-An ordinary dispatch to that address reaches whichever incarnation currently
-owns it; the join and lifecycle machinery tells incarnations apart internally.
+Re-entering the spawning state creates a new incarnation of the child at the
+same address. A dispatch to that address reaches whichever incarnation currently
+holds it; the runtime tells incarnations apart itself.
 
 ## Recording the spawned id
 
@@ -229,11 +224,8 @@ new id into the **parent's** `:data` under `:rf/spawned`, keyed by the
 ```
 
 The slot clears itself when the actor is destroyed. A later read returns `nil`,
-not a dead id.
-
-Use `:fixed-actor-id` instead when you want to choose the address yourself.
-The allocated id is also at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`
-for reads *outside* a machine action.
+not a dead id. Outside a machine, read the same slot off the parent's snapshot:
+`(get-in @(rf/subscribe [:rf/machine :ws/connection]) [:data :rf/spawned [:active]])`.
 
 ## When a child finishes
 
@@ -335,13 +327,12 @@ Destroy releases exactly three framework-managed kinds:
 - this actor's armed `:after` timers;
 - `:rf.resource/*` owners this actor holds.
 
-The request is always aborted, but a reply is not always delivered. A reply
-addressed to an ordinary event dispatches with `:status :cancelled` and an
-`:error` of `{:kind :rf.http/aborted :reason :actor-destroyed}`. A reply
-addressed back to the actor being destroyed — the `[(:rf/self-id data) …]`
-shape `:auth/request` uses above — is never dispatched. The runtime classifies
-it `:status :stale` and records a `:rf.http/stale-suppressed` trace row
-carrying `:rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete`.
+The request is always aborted. A reply addressed to an ordinary event still
+dispatches, with `:status :cancelled` and
+`:error {:kind :rf.http/aborted :reason :actor-destroyed}`. One addressed back
+to the destroyed actor, the `[(:rf/self-id data) …]` shape `:auth/request`
+uses above, is suppressed as `:status :stale` and only traced
+(`:rf.http/stale-suppressed`).
 
 Anything else — a `js/WebSocket`, an interval, a Worker — is owned by an
 effect you register, keyed by the actor's `:rf/self-id`. The handle itself
@@ -379,12 +370,9 @@ pending `:after` yield-timers included.
 
 ## Timeouts
 
-There is no `:timeout-ms` on `:spawn` or `:spawn-all`. Registration rejects
-it with `:rf.error/spawn-timeout-ms-removed`.
-
-`:timeout` / `:on-timeout` **on the spawn spec** is fine. It lowers onto the
-spawn-bearing state's `:after`, so the deadline is anchored to that state's
-entry and spans the child's internal retries:
+`:timeout` / `:on-timeout` on the spawn spec bounds the child's lifetime. It
+lowers onto the spawn-bearing state's `:after`, so the deadline is anchored to
+that state's entry and spans the child's internal retries:
 
 ```clojure
 :authenticating
@@ -406,8 +394,9 @@ The same deadline as a state-level `:after`:
 ```
 
 One timer mechanism. When it fires, the state exits and the child is
-destroyed. Durations are a positive integer (ms) or an ISO-8601 string
-(`"PT30S"`). A `"5s"` shorthand is rejected.
+destroyed. [Timeout durations](automatic-transitions.md#timeout-durations)
+lists the accepted forms. A `:timeout-ms` key on `:spawn` or `:spawn-all`
+makes `reg-machine` throw `:rf.error/spawn-timeout-ms-removed`.
 
 ## Fan-out and join with `:spawn-all`
 
@@ -467,8 +456,7 @@ Rules:
   spawn keys. Duplicates are `:rf.error/machine-spawn-all-duplicate-id`.
 - **There are no child-vocabulary keys.** The block declares only how results
   combine: `:children`, `:join`, `:on-all-complete`, `:on-some-complete`,
-  `:on-any-failed`. Any other bare key — including the retired keys that once
-  named the events children dispatched — is
+  `:on-any-failed`. Any other bare key is
   `:rf.error/machine-spawn-all-bad-shape`.
 - **A child spec may declare `:on-done`** — a `:data` fold on the parent at
   that child's finality, run before the join fold. It must be a fn:
@@ -527,10 +515,10 @@ N separate `:spawn`s, not a non-cancelling join.
 | Spawn refused with `:rf.error/machine-spawn-all-duplicate-id` | Two parent machines spawn one type, so both mint `<type>#1` | Give each parent's spawn its own `:id-prefix` |
 | Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on `:spawn` / `:spawn-all` | Use `:timeout` / `:on-timeout`, or `:after` on the parent state |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. For quorum, count in each child's `:on-done` and decide in a guarded `:after` |
-| Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | a retired child-vocabulary key on the `:spawn-all` block | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
+| Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | the `:spawn-all` block names an event for its children to dispatch | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
 | Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
 | `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
 | `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
 | Socket / interval / Worker still open after destroy | not a framework-managed resource | Close it in the child's `:exit` |
 | A self-addressed `:on-failure` never fires when the actor is destroyed | the reply target names the actor being torn down, so it is obsolete | Expect no reply — it is suppressed as `:status :stale`. Clean up in the child's `:exit`, or address the reply to an event outside the actor |
-| Children torn down (or respawned) on a progress event | the parent's `:on` had a `:target` | Omit `:target` so the transition is internal |
+| Children torn down (or respawned) on a progress event | the parent's `:on` had a `:target` | Omit `:target` so the transition is targetless |

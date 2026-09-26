@@ -16,8 +16,6 @@ That gives you four inspection surfaces:
 
 ## Read the live snapshot
 
-The primary read is the framework subscription. There is no named-read-sugar function:
-
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting
@@ -25,34 +23,11 @@ The primary read is the framework subscription. There is no named-read-sugar fun
 ;;     :tags  #{:auth/busy}}
 ```
 
-The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed to a **singleton**. A spawned actor's snapshot exists from the moment it is spawned.
-
-For views, prefer projection subscriptions:
-
-```clojure
-(rf/reg-sub :auth.login/error {:inputs [[:rf/machine :auth.login/flow]]}
-  (fn [[m] _]
-    (get-in m [:data :error])))
-```
-
-Now the view reads `[:auth.login/error]` instead of destructuring the whole machine everywhere.
-
-## Ask by tag
-
-```clojure
-@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
-;; => true or false
-```
-
-Use this for busy, read-only, connected, terminal, and similar semantic questions. It returns `false` for an unknown or not-yet-started machine.
-
-See [Tags](tags.md) for collapsing several states into one render decision.
+The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed to a **singleton**. A spawned actor's snapshot exists from the moment it is spawned. For busy, read-only, connected and similar questions, ask a [tag](tags.md) instead; `[:rf.machine/has-tag? id tag]` returns `false` for an unknown or not-yet-started machine.
 
 ## Use Xray
 
-When a flow misbehaves, the useful question is often not "what is the current state?" but "which event moved it there?"
-
-[Xray's Machine Inspector](../xray/08-machine-inspector.md) answers that from the trace stream.
+When a flow misbehaves, [Xray's Machine Inspector](../xray/08-machine-inspector.md) shows which event moved the machine there, read from the trace stream.
 
 A good debugging loop:
 
@@ -62,8 +37,6 @@ A good debugging loop:
 4. compare before-state and after-state;
 5. inspect the guard and action records;
 6. if the topology is surprising, inspect the static machine definition.
-
-The dynamic view explains one transition. The static view explains the table.
 
 ## Trace records
 
@@ -114,45 +87,7 @@ In development this can include captured source, file, line, and handler functio
 
 ## Unit-test with `machine-transition`
 
-A transition table is a value. A transition is a pure function of:
-
-```clojure
-(definition, snapshot, trigger)
-```
-
-Import `login-flow` from the [first machine](tutorial.md#the-complete-machine) and call it directly:
-
-```clojure
-(ns app.login-test
-  (:require [clojure.test :refer [deftest is]]
-            [re-frame.machines :as rf.machines]
-            [app.login :refer [login-flow]]))
-
-(deftest login-flow-test
-  ;; cf. examples/capabilities/machines/state_machine_walkthrough
-  ;; :idle --submit--> :submitting; :entry describes the HTTP fx
-  (let [{:keys [status snapshot fx]}
-        (rf.machines/machine-transition
-          login-flow
-          {:state :idle :data {:attempts 0 :error nil}}
-          [:auth.login/submit {:email "a@b.com"
-                               :password "secret"}])]
-    (is (= :ok status))
-    (is (= :submitting (:state snapshot)))
-    (is (= :rf.http/managed (ffirst fx))))
-
-  ;; two failures already recorded; the third locks out and is still counted
-  (let [{:keys [status snapshot]}
-        (rf.machines/machine-transition
-          login-flow
-          {:state :submitting :data {:attempts 2 :error nil}}
-          [:auth.login/failure {:error {:message "bad creds"}}])]
-    (is (= :ok status))
-    (is (= :locked-out (:state snapshot)))
-    (is (= 3 (get-in snapshot [:data :attempts])))))
-```
-
-The result is one plain map:
+A transition is a pure function of the definition, a snapshot and a trigger. The [first machine's test](tutorial.md#step-6--test-it-a-transition-is-a-pure-function) imports [`login-flow`](tutorial.md#the-complete-machine) and calls `rf.machines/machine-transition` on it directly. The result is one plain map:
 
 ```clojure
 {:status :ok  :snapshot {:state … :data … :tags …} :fx [[:rf.http/managed …] …] :handled? true}   ;; success
@@ -164,9 +99,7 @@ The result is one plain map:
 - `:error` carries the diagnostics when a guard, action or `:data` fn throws (`:kind :rf.error/machine-action-exception`, with the `:exception` and the throwing ref) or a runaway `:always` / `:raise` cycle hits its depth limit (`:kind :rf.error/machine-always-depth-exceeded` or `:rf.error/machine-raise-depth-exceeded`). A failure carries no snapshot — nothing was committed.
 - Mistakes in the call itself — a malformed `:state`, a guard or action keyword with no entry in the definition — throw an `:rf.error/*` `ex-info` rather than returning `:status :error`, exactly as `reg-machine` would.
 
-Effects are asserted as data. The HTTP request is not performed in this test; the returned `:fx` description is inspected.
-
-`machine-transition` lives on `re-frame.machines`, not the `rf/` facade.
+Effects are asserted as data: the HTTP request is not performed, and the test inspects the returned `:fx` description.
 
 ## Testing registered definitions
 
@@ -186,7 +119,7 @@ Most tests should import the transition table value directly. Use registered met
 | Level | What it tests | When to use |
 |---|---|---|
 | `machine-transition` | table logic, guards, action effects | default |
-| unregistered handler (`make-machine-handler`) | lowering and handler-level integration | rare |
+| unregistered handler (`make-machine-handler`) | the event handler `reg-machine` would register, built without registering it | rare |
 | registered test frame | dispatch, tracing, spawn/destroy, actor messaging | actor-heavy integration |
 
 Keep most tests at the first level. It is fast, deterministic, and does not require a browser.
@@ -217,7 +150,7 @@ The third level runs the real pipeline in a fresh frame, so it is the one that e
 
 ## What failure means
 
-A throwing guard or action becomes a failure result at the pure testing surface. It does not escape as an exception from the test call: the result's `:status` is `:error` and its `:error` carries the diagnostic.
+At the pure testing surface, a guard or action that throws yields the `:status :error` result above rather than an exception from the test call.
 
 At runtime, the same failure aborts the macrostep atomically. The previous snapshot remains visible. The error is reported as `:rf.error/machine-action-exception` (a thrown guard does not fall through to the next candidate).
 

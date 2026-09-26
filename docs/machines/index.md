@@ -41,7 +41,7 @@ and effects. They do not replace them.
 
 A flat list is enough for one process. Some stages are really a *cluster*.
 `:connecting`, `:authenticating`, and `:connected` all share one live socket.
-Every authenticated screen should honour `:logout` the same way. Checkout is
+Every authenticated screen should honour `:auth/logout` the same way. Checkout is
 a sub-flow with its own start and end, inside a larger shopping flow.
 
 A **hierarchical** machine lets a state contain child states. The parent holds
@@ -51,7 +51,7 @@ live once, on the parent; a child can override or block them.
 ```clojure
 :authenticated
 {:initial :dashboard
- :on      {:logout :unauthenticated}   ;; every child inherits this
+ :on      {:auth/logout :unauthenticated}   ;; every child inherits this
  :states  {:dashboard {}
            :settings  {}
            :cart      {:initial :browsing
@@ -59,7 +59,7 @@ live once, on the parent; a child can override or block them.
                                  :paying   {}}}}}
 ```
 
-Entering `:authenticated` lands on `:dashboard`. `:logout` works from any
+Entering `:authenticated` lands on `:dashboard`. `:auth/logout` works from any
 child. Moving from `:browsing` to `:paying` does not leave `:authenticated`.
 [Hierarchical states](hierarchical-states.md) is the grammar.
 
@@ -92,34 +92,15 @@ an event handler. The id you register is the event id you dispatch to.
 ;; => {:state :submitting :data {}}
 ```
 
-Look at the `dispatch` line. You `dispatch`. You do not `send`.
-
-The outer vector is a re-frame2 **event**. `:auth.login/flow` is a normal
-event id — the same slot as `:todo/add`. You registered that id with
-`reg-machine`, so the handler that runs is the table.
-
-The second element is a **trigger**. In a statechart, a trigger is the thing
-that can fire a transition. Here it is another vector: `[:auth.login/submit]`.
-The table matches the first keyword against the current state's `:on` map.
-Anything after that keyword is payload.
-
-Not every trigger comes from `dispatch`. A timer expiry is a trigger, and so
-is an eventless `:always` step — [Automatic transitions](automatic-transitions.md).
+The outer vector is an ordinary event whose id is the machine id; the inner
+vector is the **trigger** the table matches. The [first machine](tutorial.md)
+builds this flow step by step.
 
 `reg-machine` is sugar over `reg-event`: same registry, same `dispatch`. Read
 the live value with an ordinary `subscribe`. That value — the snapshot — lives
 in [runtime-db](../core/glossary.md#runtime-db), the framework half of the
 frame, so undo, Xray, SSR, and tests see it the way they see any other event's
 result.
-
-`:auth.login/flow` is a **singleton**: one registered id, one live instance
-per frame. The snapshot sits in that frame's runtime-db and is `nil` until the
-first event; a second frame running the same app runs its own login machine. A
-**spawned** actor is a second live instance of a type, created at run time with
-an allocated id. Login is a singleton. An in-flight request protocol is often
-spawned. The spec heading says "dynamic actors" for the second kind; that is an
-adjective, not a third kind. This guide says **singleton** and **spawned**.
-[Actors](actors.md) is the full treatment.
 
 Already using XState? [Coming from XState](coming-from-xstate.md) is the
 translation.

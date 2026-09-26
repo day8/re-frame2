@@ -20,7 +20,7 @@ under `:authenticated`:
   {:initial :unauthenticated
    :data    {:attempts 0 :error nil}
 
-   ;; Unchanged from the first machine — nesting is a change to :states only.
+   ;; The first machine, trimmed to the parts nesting touches.
    :guards
    {:form-valid?
     (fn [{[_ creds] :event}]
@@ -48,15 +48,12 @@ under `:authenticated`:
                                     :action :store-session}
                :auth.login/failure :error-shown}}
       :error-shown
-      {:on {:auth.login/dismiss :idle}}
-      :locked-out
-      {:tags #{:auth/locked}
-       :meta {:terminal? true}}}}
+      {:on {:auth.login/dismiss :idle}}}}
 
     :authenticated
     {:initial :dashboard
      :tags    #{:auth/authed}
-     :on      {:auth.logout [:unauthenticated]}  ;; inherited by descendants
+     :on      {:auth/logout [:unauthenticated]}  ;; inherited by descendants
      :states
      {:dashboard {:on {:open-settings :settings}}
       :settings  {:on {:close :dashboard}}}}}})
@@ -68,7 +65,7 @@ Entering `:authenticated` does not stop at the parent. The machine follows the
 `:initial` chain to `[:authenticated :dashboard]`. Success uses a vector
 target so it leaves `:unauthenticated` entirely.
 
-This is still a **singleton**. The id did not change. Only the table grew.
+It is still the `:auth.login/flow` singleton; only the table grew.
 
 ## The snapshot state becomes a path
 
@@ -141,7 +138,7 @@ session machine, `:open-settings :settings` is a sibling of `:dashboard`;
 the root.
 
 A keyword target is resolved relative to the declaring state's parent, not the
-currently active leaf. That is a static rule. A target that names a compound
+currently active leaf. A target that names a compound
 enters its `:initial` child; to land on a particular leaf, use a vector path.
 
 ## Deepest wins, then parent fallthrough
@@ -155,11 +152,11 @@ That gives two useful patterns:
 
 ```clojure
 :authenticated
-{:on {:auth.logout [:unauthenticated]}  ;; factored to parent
+{:on {:auth/logout [:unauthenticated]}  ;; factored to parent
  :states
  {:dashboard {}
   :settings  {}
-  :modal     {:on {:auth.logout {}}}}}  ;; child consumes and blocks logout
+  :modal     {:on {:auth/logout {}}}}}  ;; child consumes and blocks logout
 ```
 
 - A parent can factor common transitions.
@@ -194,7 +191,7 @@ Moving from one path to another fires exits and entries along the least common
 compound ancestor.
 
 From `[:authenticated :settings]` to `[:unauthenticated :idle]`, the least
-common active ancestor is the root.
+common compound ancestor is the root.
 
 The cascade is:
 
@@ -206,9 +203,7 @@ The cascade is:
 A move from `[:authenticated :settings]` to `[:authenticated :dashboard]`
 does not exit `:authenticated`.
 
-The ancestor that remains active is not exited or re-entered.
-
-Targeting that ancestor from inside it is different. A transition declared on
+Targeting `:authenticated` from inside it is different. A transition declared on
 `:settings` with target `[:authenticated]` exits and re-enters
 `:authenticated`, running its `:exit` and `:entry` and restarting its `:spawn`,
 then lands on its `:initial` child.
@@ -298,6 +293,6 @@ child's root-level `:final?` is how it reports back — see
 | `reg-machine` throws `:rf.error/machine-compound-state-missing-initial` | A `:states` map with no `:initial` | Name the child to enter when the compound is targeted |
 | `reg-machine` throws `:rf.error/machine-unresolved-target` | A keyword target that is not a sibling of the declaring state | Use a vector path for a cross-level jump |
 | Landed in the wrong leaf | The target named a compound, so `:initial` cascaded | Target the leaf with a vector path |
-| `:auth.logout` does nothing in one child | That child declares `:auth.logout {}` or `:auth.logout nil` | Remove the key to inherit; keep it only to block |
+| `:auth/logout` does nothing in one child | That child declares `:auth/logout {}` or `:auth/logout nil` | Remove the key to inherit; keep it only to block |
 | View broke after reshaping the tree | The view matched a long `:state` path | Ask a tag: `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
 | Machine vanished after the "last screen" | A root-level `:final?` auto-destroys | Omit `:final?` on a resting leaf |
