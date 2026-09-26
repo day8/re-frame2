@@ -1,10 +1,7 @@
 # Tutorial: talk to a server
 
-Load an article from a server one idea at a time: request → failure path → view →
-schema → retry → race cure → network-free test. By the end you have every piece of
-`:rf.http/managed` everyday work needs.
-
-Full key catalogue: [Managed HTTP](http.md).
+This tutorial loads one article from a server and grows that request one step at a
+time.
 
 ## Step 0 — turn managed HTTP on
 
@@ -18,8 +15,7 @@ require `re-frame.http.managed` once at boot:
 ```
 
 Forget the require and the first `[:rf.http/managed …]` fails loud with
-`:rf.error/no-such-fx` (the fx was never registered). The test stubs live in their own
-namespace, `re-frame.http.test-support`, which tests require themselves (Step 6).
+`:rf.error/no-such-fx` (the fx was never registered).
 
 ## Step 1 — the smallest request that works
 
@@ -58,11 +54,9 @@ When the response lands — milliseconds or seconds later — the runtime dispat
 [:article/load-error {:status :error :error <failure-map> …}]    ;; failure
 ```
 
-That's the one canonical reply envelope — the same `:status`-keyed map every async surface delivers. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
+That map is the **reply map**, and every async surface in re-frame2 delivers the same `:status`-keyed shape ([the uniform reply](../core/glossary.md#the-uniform-reply)). That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
 
 **What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map.
-
-**Notice:** the failure path has its own name. It isn't bolted onto the success path as an afterthought — it's a first-class event with its own handler.
 
 ??? info "Coming from `js/fetch`?"
 
@@ -70,7 +64,7 @@ That's the one canonical reply envelope — the same `:status`-keyed map every a
 
 !!! note "Why an event, not an `await`?"
 
-    Your app's state is the running total of every event ever dispatched. An awaited value slips in through the call stack and leaves no record; a reply *event* lands in the ledger — traceable, replayable, safe under races. The full argument is [Why no await](continuations-are-data.md). You don't need it to keep going.
+    Your app's state is the running total of every event ever dispatched. An awaited value slips in through the call stack and leaves no record; a reply *event* lands in [the ledger](../core/coeffects.md#the-ledger) — traceable, replayable, safe under races. The full argument is [Why no await](continuations-are-data.md). You don't need it to keep going.
 
 ## Step 2 — turn the failure into something a user can read
 
@@ -88,6 +82,7 @@ The failure map (under the reply's `:error`) always carries a `:kind` — a keyw
     :rf.http/aborted    "Cancelled."
     "Something unexpected happened."))
 
+;; Re-registering replaces Step 1's :article/load-error.
 (rf/reg-event :article/load-error
   (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
     {:db (-> db
@@ -135,7 +130,7 @@ By default the body is parsed by sniffing the Content-Type (`:decode :auto`). Bu
 
 Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`, which loads `malli.core`: that is enough to validate. Coercing JSON into the schema's types (a string into a keyword or a UUID) also needs `malli.transform`, so a ClojureScript build requires it too; the JVM loads it for you. Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
 
-**Notice:** decode runs **only on 2xx responses** — status is classified first. A 404 that answers with an HTML error page is `:rf.http/http-4xx` with the raw HTML at `:body`, *not* a decode failure, because the decoder never ran. "The server said no" matters more than what shape the no was.
+**Notice:** decode runs **only on 2xx responses**. A 404 that answers with an HTML error page arrives as `:rf.http/http-4xx` with the raw HTML at `:body`, never as a decode failure ([how failures are classified](http.md#failures-are-a-closed-set)).
 
 `:decode` also takes a keyword (`:json` / `:text` / `:blob` / …) or a plain function when you need full control — see [the reference](http.md#validating-the-body-with-decode).
 
@@ -179,7 +174,7 @@ Give the request a stable `:request-id`. Issuing a new request with the same id 
             :on-failure [:search/error]}]]}))
 ```
 
-**What you see:** type fast against a slow API and the results always match the last keystroke. Zero lines of race-handling code.
+**What you see:** type fast against a slow API and the results always match the last keystroke.
 
 **Notice:** this isn't best-effort cancellation. The runtime classifies the superseded reply as stale *before delivery*, so it cannot clobber fresh data even if it arrives late. The same id is also your cancel handle — `[:rf.http/managed-abort :search/in-flight]` aborts the in-flight request explicitly. ([Cancellation in full](http.md#cancellation-supersession-and-abort).) A manual abort does reply: with split handlers it lands on `:on-failure` as a `:status :cancelled` reply whose `:error` has `:kind :rf.http/aborted`, which is why `failure->message` in Step 2 has a case for it.
 
@@ -228,8 +223,4 @@ The stubbed reply has the same `:status` / `:value` / `:error` shape a live requ
 | Receive | `:on-success` / `:on-failure` (or `:reply-to`) | Ordinary events; reply map **appended** |
 | Failures | `(:kind error)` closed set | Branch with `case`, never message strings |
 | Race | `:request-id` | Same id supersedes / suppresses stale |
-| Test | `with-request-stubs` | `re-frame.http.test-support` + canned envelope |
-
-Full catalogue (`:decode`, `:accept`, `:retry`, abort, your own request builder):
-[Managed HTTP](http.md). Production auth + secrets:
-[Interceptors and secrets](http-going-further.md).
+| Test | `with-request-stubs` | `re-frame.http.test-support` + canned reply map |
