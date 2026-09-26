@@ -61,12 +61,27 @@ want one.
   own substrate adapters under `re-frame.adapter.`, classified
   `:human-decision` or `:runtime-blocker`. Two rosters, because a re-frame2
   application on the Reagent adapter calls no Reagent API of its own and a
-  Reagent-only census scored it at zero. Most classes map onto a MIG rule, and
-  that mapping is the D/R gating for the whole codebase before you open a file.
-  Three do not: `:static-markup` lands on MIG-23's SSR leaf, and
-  `:reactive-graph-control` and `:cell-disposal` have no catalogue rule at all —
-  the census carries a recovery note for every class it emits, so read the note
-  for the class and decide from that.
+  Reagent-only census scored it at zero. Each class routes to a rule, so the
+  census is the D/R gating for the whole codebase before you open a file:
+
+  | Census `:class` | Route |
+  |---|---|
+  | `:local-reactive-cell` (`r/atom`), `:with-let`, `:cell-disposal` | MIG-16 in a view; a top-level store is MIG-20 |
+  | `:derived-cell` (`cursor`, `track`, `reaction`, `run!`) | MIG-19; a `run!` watcher over a store is MIG-20 |
+  | `:lifecycle-class` (`create-class`) | MIG-17, or MIG-36 for the update protocol |
+  | `:as-element`, `:adapt-react-class`, `:react-create-element` | MIG-09/10 |
+  | `:outward-bridge` (`reactify-component`) | MIG-22 |
+  | `:props-helper` (`merge-props`) | MIG-28 |
+  | `:reagent-partial` (`r/partial`) | MIG-27; at a `[:>]` crossing, the fixer's W4 |
+  | `:component-introspection`, `:render-control` | MIG-35 |
+  | `:root-mount` (Reagent's, or the adapter's `client-root`/`render!`/`unmount!`) | MIG-15 |
+  | `:static-markup` | MIG-23 ([`ssr-hydrate.md`](ssr-hydrate.md)) |
+  | `:substrate-read-hook` (the adapter's `use-sub`/`use-frame`) | in a converted view, `h/sub` and intents; in a React island, `re-frame.fresco.native`'s hooks (MIG-17) |
+  | `:substrate-test-seam`, `:substrate-test-harness` | test code — re-point it at the Fresco test kit (Step 5) |
+  | `:reactive-graph-control`, `:substrate-view-seam` | no rule — read the census's recovery note and decide with the author |
+
+  Every class the census emits carries a recovery note; read it beside the
+  route.
 - **The fixer (`:entries`)** covers only `[:> …]`-family crossings into React.
   A codebase that crosses into React nowhere gets **zero** entries — which is
   not a clean bill of health, it is a different population. Never read one half

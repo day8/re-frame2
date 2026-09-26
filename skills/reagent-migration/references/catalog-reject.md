@@ -77,11 +77,13 @@ Each encodes a Reagent-specific assumption about *this renderer's* component
 object and render scheduling. **The dangerous part:** these are ordinary calls,
 so a converted view **still compiles** with them in it and then fails or returns
 `nil` at runtime, outside a Reagent render. No build gate catches this; you
-must, and the census reports them as `:component-introspection`.
+must, and the census reports them as `:component-introspection` and
+`:render-control`.
 
 Some of it dissolves rather than migrating: `props` and `children` are the props
-map the view already receives (children arrive at `:children`), and
-`force-update` has no meaning under memoised boundaries.
+map the view already receives (children arrive at `:children`), `dom-node` is
+a callback ref (MIG-17), `force-update` has no meaning under memoised
+boundaries, and an `r/flush` in a test becomes the test kit's `hm/settle!`.
 
 **The schedulers are not a callback ref.** `next-tick` / `after-render` are
 one-shot render-queue callbacks that fire around a flush even when nothing

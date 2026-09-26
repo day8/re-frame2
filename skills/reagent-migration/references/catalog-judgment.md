@@ -61,6 +61,11 @@ this value belong to* — three answers, in order of how often they are right:
 Whichever way it goes, the setter closures disappear: `(reset! open? true)`
 becomes an event vector at the `:on-click`, and `@open?` becomes an `h/sub`.
 
+A `with-let` `(finally …)` clause, or an `r/dispose!` / `add-on-dispose!`
+teardown, is an unmount body: route it as MIG-17 routes
+`:component-will-unmount` — DOM cleanup to a callback ref's return value,
+domain cleanup re-homed out of the view.
+
 ## MIG-17 — Form-3 / `r/create-class` lifecycle
 
 ```clojure
@@ -81,12 +86,12 @@ hold the view on Reagent until the author chooses a redesign — the same
 ownership decision as [MIG-36](catalog-reject.md).
 Then, per lifecycle body:
 
-### Host / DOM work on mount and unmount → a callback ref
+### Host / DOM work on mount and unmount → a callback ref (MIG-29)
 
 Fresco's ref is **React's own callback ref**: a function at `:ref`, called with
 the node at commit, and **its return value is the detach cleanup**. That one
 mechanism answers both `component-did-mount` and `component-will-unmount` for
-DOM work.
+DOM work, and it replaces `(rdom/dom-node this)` — the ref hands you the node.
 
 ```clojure
 (defn- focus-on-mount [node]          ; top level — see below
@@ -251,7 +256,10 @@ foreign React component never forces a whole view onto Reagent. The decision is
 `[(r/adapt-react-class X) props]` becomes `[:> X props]`, which codemod family
 W5 does mechanically, and then takes the decision below. A
 `(def x (r/adapt-react-class X))` used as a head is already a declared,
-repeated crossing — it becomes `(h/defhost x X)`.
+repeated crossing — it becomes `(h/defhost x X)`. A hand-written
+`(r/create-element X #js {…})` in a view becomes the same `[:> X {…}]`
+crossing, and an `(r/as-element [:h2 …])` handed to a foreign prop becomes
+`(h/as-element [:h2 …])`, or a `:slots` entry on the host (below).
 
 - **A one-off crossing → keep `[:> Component …]`.** It is `defhost` with the
   declaration erased: no `:slots`, no `:callbacks` override, no server policy.
@@ -376,8 +384,8 @@ is [`ssr-hydrate.md`](ssr-hydrate.md). A client-only migration never opens it.
 |---|---|---|
 | **MIG-08** | unkeyed `for`; per-row reads; loop-capturing handlers | Fresco allows a per-row `h/sub` and a capturing handler, so this is a **shaping** call rather than a forced extraction: extract a keyed child view when the row has its own reads and intents (it also gives you the per-row memo boundary), keep the inline `for` when the row is presentational. Keys are React's list identity either way — and MIG-07 means an unkeyed `for` is a real defect, not a warning to silence. |
 | **MIG-13** | markup-returning `(map (fn …) xs)` in child position | Rewrite to a keyed `for` — `(for [t ts] [item {:key (:id t) :t t}])`. Mechanical only when the fn is a literal with a keyed hiccup body; confirm the candidate. |
-| **MIG-27** | fn-valued prop on an **internal-view** call site | A plain fn prop is an opaque identity-compared value. *Recommend*, don't force: forward a **data vector** where you want tool visibility (`:on-commit [:commit]`, and the child places it at its own DOM `:on-*` site). Fresco has no declared render-slot mechanism for internal views — `:slots` is `defhost`'s, for foreign components — so parameterised content is an ordinary hiccup-valued prop the child places. |
-| **MIG-28** | computed / dynamic DOM props (`(merge attrs {…})`) | **A plain `merge`, with the owned keys last, is the one spelling** — what the guide teaches (ch02 §Forward attributes, ch04 §Forward caller attributes) and what ships; there is no reserved merge key and no spread form. Write the caller's map first and the owned literals after it: `[:input (merge (dissoc attrs :key ::h/revision) {:type "text" :value draft :on-change …})]`. The owned keys win by presence because they are merged last; `dissoc` `:key` and `::h/revision` from the forwarded map, since both belong to the wrapper's element. The case where a caller override *should* win is spelled by not writing the owned literal. Forward maps in the same kebab-keyword spelling as the literals — an alternate spelling of the same React slot is a different map key, and which one lands is then map order, not law. |
+| **MIG-27** | fn-valued prop on an **internal-view** call site | A plain fn prop is an opaque identity-compared value. *Recommend*, don't force: forward a **data vector** where you want tool visibility (`:on-commit [:commit]`, and the child places it at its own DOM `:on-*` site). Fresco has no declared render-slot mechanism for internal views — `:slots` is `defhost`'s, for foreign components — so parameterised content is an ordinary hiccup-valued prop the child places. An `(r/partial f a)` passed for stable identity has no Fresco counterpart; the data vector is the stable spelling, because props memoise by `=`. |
+| **MIG-28** | computed / dynamic DOM props (`(merge attrs {…})`) | **A plain `merge`, with the owned keys last, is the one spelling** — what the guide teaches (ch02 §Forward attributes with owned keys last, ch04 §Forward caller attributes safely) and what ships; there is no reserved merge key and no spread form. Write the caller's map first and the owned literals after it: `[:input (merge (dissoc attrs :key ::h/revision) {:type "text" :value draft :on-change …})]`. The owned keys win by presence because they are merged last; `dissoc` `:key` and `::h/revision` from the forwarded map, since both belong to the wrapper's element. The case where a caller override *should* win is spelled by not writing the owned literal. Forward maps in the same kebab-keyword spelling as the literals — an alternate spelling of the same React slot is a different map key, and which one lands is then map order, not law. `r/merge-props` becomes the same plain `merge`, except that it also joined `:class` and merged `:style`; do that explicitly where both sides carry one (`:class [(:class attrs) "field"]` — `:class` takes a collection and drops nils). |
 | **MIG-30** | runtime-built markup (`(md/render …)` walking an AST) | **Converts directly.** A helper returning hiccup is ordinary content and Fresco walks it; there is no finite grammar to satisfy and no compiled tier to opt into. This is no longer a decision — it is MIG-14 pass-through. |
 | **MIG-31** | `capture-frame` in a render body | **The spelling is unchanged.** Zero-arity `(rf/capture-frame)` is legal inside a Fresco body and captures the rendering boundary's frame, exactly as it did in the Reagent view; `(rf/current-frame-id)` answers the id. Decide whether the async work belongs in the view at all: usually it re-homes to an event, which already runs against the committed frame. If it genuinely needs a carried frame in the view, keep the capture — but check the re-home first. |
 
