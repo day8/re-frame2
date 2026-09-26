@@ -1,74 +1,44 @@
 # Skills
 
-> Nine Claude Code skills that travel with the re-frame2 repo — for authoring code, critiquing existing code, bootstrapping a project, migrating from v1, rewriting Reagent views into Fresco, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
+A **skill** is a package of instructions, reference notes and optional scripts that an AI agent loads when your request matches it. re-frame2 ships nine skills for Claude Code (or any agent that reads Anthropic-format skills). With one loaded, a request like *"add an event that removes an item from the cart"* gets re-frame2's actual API and conventions instead of a guess.
 
-A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
+The skills live under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each one is self-contained: its own `SKILL.md`, its own reference notes, its own packaging metadata. The pages in this section are short entry points; the skill's own `SKILL.md` is the authority. Skills are for handing work to an agent — to learn re-frame2 yourself, read [the guide](../core/introduction.md).
 
-re-frame2 ships nine skills, colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
+## Which skill do I want?
 
-## How to load a skill
+| If you are… | Use |
+|---|---|
+| Starting a new project from nothing | [re-frame2-setup](re-frame2-setup.md), then switch to `re-frame2` once the counter mounts |
+| Writing or editing code in a re-frame2 project | [re-frame2](re-frame2.md) |
+| Asking for a review of existing re-frame2 code | [re-frame2-improver](re-frame2-improver.md) |
+| Moving a re-frame v1 codebase to re-frame2 | [re-frame-migration](re-frame-migration.md), then switch to `re-frame2` once the migration report is signed off |
+| On re-frame2 already and wanting Fresco for your Reagent views | [reagent-migration](reagent-migration.md) — optional; staying on the Reagent adapter is a complete, supported setup |
+| Debugging or pairing with a running re-frame2 app | [re-frame2-pair](re-frame2-pair.md) |
+| Just finished a pairing session and hit friction | [re-frame2-pair-retro](re-frame2-pair-retro.md) |
+| Looking for the right tab or launch mode in the Xray devtools panel | [re-frame2-xray](re-frame2-xray.md) |
+| Building a new re-frame2 implementation — TypeScript, F# (Fable) or another host that compiles to JavaScript and renders through React | [re-frame2-implementor](re-frame2-implementor.md) |
 
-The exact mechanics depend on the agent you're driving. In **Claude Code**, a skill lives at a project-level `.claude/skills/<name>/` or globally at `~/.claude/skills/<name>/`. **Link the repo directory in rather than copying it** — a copy snapshots the skill and then silently drifts as the repo is maintained, so Claude Code ends up loading a stale skill. From a re-frame2 clone, the cross-platform installer links every skill into `~/.claude/skills/` in one step (symlinks on macOS/Linux, directory junctions on Windows — no admin needed):
+If a question spans more than one skill, start with the one that matches best; each skill hands off to the others. The routing rules are kept in one place, [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source) — edit routing there first.
+
+## Install
+
+In Claude Code, a skill lives in a project's `.claude/skills/<name>/` or globally in `~/.claude/skills/<name>/`. **Link the repo's skill directories in rather than copying them** — a copy goes stale as the repo changes, and Claude Code keeps loading the old version. From a re-frame2 clone, the installer links every skill into `~/.claude/skills/` in one step (symlinks on macOS/Linux, directory junctions on Windows, no admin needed):
 
 ```bash
 scripts/install-skills.sh                                              # macOS / Linux
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 ```
 
-It is idempotent and refuses to clobber a non-link copy without `--force`/`-Force`; `--check`/`-Check` exits 0 when every skill is linked and current, and `--target DIR`/`-Target DIR` links somewhere other than `~/.claude/skills/`. The one other channel is `npx skills add` against the public repo, which installs a single skill directory on its own. Nothing is published to npm and there is no Claude Code plugin marketplace entry — the `package.json` and `.claude-plugin/plugin.json` beside each skill are packaging metadata, not install routes. See [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy) for the full setup.
+Running it again is safe. It will not overwrite a non-link copy unless you pass `--force` (`-Force`); `--check` (`-Check`) exits 0 when every skill is linked and current; `--target DIR` (`-Target DIR`) links somewhere other than `~/.claude/skills/`. The only other channel is `npx skills add` against the public repo, which installs one skill directory. Nothing is published to npm and there is no Claude Code plugin marketplace entry — the `package.json` and `.claude-plugin/plugin.json` beside each skill are packaging metadata, not install routes. The full setup is in [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy).
 
-Claude Code reads its skill registry at session start, so start a new session after installing. From then on a skill's `description` triggers it whenever the conversation matches one of its surfaces — you usually don't need to invoke it. To load one explicitly, type its name as a slash command (`/re-frame2-pair`) or name it in the prompt (*"Using re-frame2-pair, trace `[:cart/add 42]`"*).
-
-Most skills need nothing beyond the install. A few need more before they can do their job:
+A few skills need more than the install:
 
 - **re-frame2-pair** needs its MCP server built from a clone and the `re-frame2-pair.runtime` preload in the app's dev build — see [its Kickoff](re-frame2-pair.md#kickoff).
 - **re-frame-migration** and **re-frame2-implementor** read the migration or spec corpus from a local re-frame2 checkout pinned to a commit or tag you supply, and verify that pin before reading anything.
 - **re-frame2-setup** needs Java 21+ and the Clojure CLI.
 
-The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the `re-frame2` skill — it points at it for spec-corpus depth and EP rationale. (Three skills route their deep-dives elsewhere: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`, and `reagent-migration` reads Fresco's shipped public namespace rather than any guide page; `re-frame2-implementor` cites `spec/` directly from its pinned checkout.)
+## Run
 
-## The nine skills
+Claude Code reads its skills at session start, so start a new session after installing. From then on you usually don't invoke a skill at all: ask in your own words and the matching skill loads itself. To load one explicitly, type its name as a slash command (`/re-frame2-pair`) or name it in the prompt (*"Using re-frame2-pair, trace `[:cart/add 42]`"*).
 
-| Skill | Pitch |
-|---|---|
-| [**re-frame2** (authoring)](re-frame2.md) | Write re-frame2 ClojureScript code — events, subs, fx, machines, schemas, stories, routes, and the canonical patterns. |
-| [**re-frame2-improver**](re-frame2-improver.md) | Critique **existing** re-frame2 code against an anti-pattern catalogue. Explicit-pull-only; surfaces findings cross-linked to canonical idioms, may propose inline fixes. |
-| [**re-frame2-setup**](re-frame2-setup.md) | Bootstrap a fresh re-frame2 ClojureScript project from nothing. Walks the author to a working counter under `shadow-cljs watch`. |
-| [**re-frame-migration** (v1→v2)](re-frame-migration.md) | Migrate an existing re-frame v1.x codebase to re-frame2. Applies the mechanical `M-rules` automatically; flags judgment calls. |
-| [**reagent-migration** (views→Fresco)](reagent-migration.md) | The genuinely **optional, second** step after v1→v2: rewrite Reagent **view** code into **Fresco**, re-frame2's re-frame-native view layer. Runs the migration reporter, applies the mechanical `MIG` rewrites, reasons through the judgment calls, declines what Fresco has no equivalent for. The v1→v2 move **completes on its own** — the Reagent adapter is first-class and no view rewrite is required to land on re-frame2. |
-| [**re-frame2-implementor**](re-frame2-implementor.md) | Build a new re-frame2 implementation in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages. Two-phase workflow — Phase 1 records the port profile; Phase 2 walks the spec corpus with conformance as the acceptance test. |
-| [**re-frame2-xray**](re-frame2-xray.md) | Read-only tour of the **Xray** devtools panel — how to launch it and which tab, across its Dynamic event-spine and Static registry-browse modes, shows X. |
-| [**re-frame2-pair**](re-frame2-pair.md) | Pair-program with a live, running re-frame2 app. Dispatch events, inspect `app-db`, walk epochs, hot-swap handlers — all via Tool-Pair contract. |
-| [**re-frame2-pair-retro**](re-frame2-pair-retro.md) | Retrospect a `re-frame2-pair` session. Surfaces friction; proposes targeted improvements; routes upstream GitHub issues to re-frame2 when the cause is framework-shaped. |
-
-## Picking the right one
-
-A quick decision flow (human-facing rendering of [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source) — edit routing there first):
-
-- **Starting from nothing?** → `re-frame2-setup`. When the counter mounts, switch to `re-frame2`.
-- **Existing v1 codebase?** → `re-frame-migration`. When the migration report is signed off, switch to `re-frame2`.
-- **Already on re-frame2 and want Fresco, the re-frame-native view layer, for your Reagent views?** → `reagent-migration` (a genuinely optional second step — the Reagent adapter is first-class, so staying put is a complete configuration; Fresco ships in the same release set as the adapter and resolves the same way).
-- **Writing new code in an existing v2 project?** → `re-frame2`.
-- **Critiquing existing v2 code on explicit pull (anti-pattern audit)?** → `re-frame2-improver`.
-- **Building a NEW re-frame2 implementation in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages?** → `re-frame2-implementor`.
-- **Touring the Xray devtools panel — how to launch it, or which tab / mode shows X?** → `re-frame2-xray`.
-- **Debugging or pairing with a running v2 app?** → `re-frame2-pair`.
-- **Just finished a pairing session and noticed friction?** → `re-frame2-pair-retro`.
-
-If a question spans more than one skill, pick the one whose **entry trigger** matches and let it route — routing is single-sourced in [`skills/README.md` §Skill routing](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source), which every skill points at for its hand-offs.
-
-## Where each one lives
-
-| Skill | Source tree |
-|---|---|
-| `re-frame2` | [`skills/re-frame2/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) |
-| `re-frame2-improver` | [`skills/re-frame2-improver/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver) |
-| `re-frame2-setup` | [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) |
-| `re-frame-migration` | [`skills/re-frame-migration/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration) |
-| `reagent-migration` | [`skills/reagent-migration/`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration) |
-| `re-frame2-implementor` | [`skills/re-frame2-implementor/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor) |
-| `re-frame2-xray` | [`skills/re-frame2-xray/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-xray) |
-| `re-frame2-pair` | [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) |
-| `re-frame2-pair-retro` | [`skills/re-frame2-pair-retro/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro) |
-
-Each sub-page on this tab is a brief entry-ramp — pitch, triggers, kickoff shape, what makes the skill stop, and links into the skill's own `SKILL.md`. The authoritative content always lives in the skill's source tree.
+Each skill page covers what the skill does, when to use it, how to start it, when it stops and asks you, and where its source lives. For re-frame2's API and design rationale beyond what the `re-frame2` skill carries, [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the index.

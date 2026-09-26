@@ -1,34 +1,40 @@
 # re-frame2-pair
 
-> Pair-program with a live, running re-frame2 application. Attach via nREPL, inspect any frame's `app-db`, dispatch events, hot-swap handlers, walk epochs, and read the trace stream — through re-frame2's own Tool-Pair contract, no `re-frame-10x` dependency.
+> Pair-program with a running re-frame2 app: inspect any frame's `app-db`, dispatch events, hot-swap handlers, walk epochs and read the trace stream, over nREPL and with no `re-frame-10x` dependency.
 
 ## What it does
 
-The `re-frame2-pair` skill is the AI pair-programming companion for a running re-frame2 app. The app is up behind `shadow-cljs watch`; the skill attaches to its nREPL session in `:cljs` mode and operates on the live runtime — not just static source files.
+The `re-frame2-pair` skill pairs with you on a running re-frame2 app. With the app up under `shadow-cljs watch`, the skill attaches to its nREPL session in `:cljs` mode and works on the live runtime, not just the source files. It works through three things re-frame2 exposes to tools:
 
-Three primitives carry the skill's agency, all part of re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md):
+1. **The REPL** — ClojureScript evaluated against the real app, usually through helpers in the preloaded `re-frame2-pair.runtime` namespace.
+2. **The trace stream** — live trace events through `rf/register-listener!`, and recent ones through `rf/trace-buffer`.
+3. **The epoch history** — `rf/epoch-history` returns a frame's recent epochs, each with `:db-before`, `:db-after`, its trace events, and the sub runs, renders and effects it caused.
 
-1. **The REPL** — ClojureScript forms evaluated against the real app, usually through helpers in the preloaded `re-frame2-pair.runtime` namespace.
-2. **The trace stream** — `(rf/register-listener! :trace id listener)` for live trace events (the verb is stream-parameterised across the two raw dev streams, `:trace` and `:epoch` — a closed vocabulary with no bare two-argument default); `(rf/trace-buffer frame-id)` for the retain-N ring of recent events (frame-id is the first positional arg, `(rf/trace-buffer frame-id opts)` filters, and the fn exists on both platforms).
-3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying `:db-before`, `:db-after`, `:trace-events`, and the assembled `:sub-runs` / `:renders` / `:effects` projections.
+It works with apps that run several frames. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it coexists with other tools such as `re-frame-10x` v2 on the same bus, and an operation that changes state refuses with `:ambiguous-frame` when it is unclear which frame to act on.
 
-The skill is **multi-frame aware** (Spec 002 — most apps run with one frame, larger apps run several). It registers exactly **one** trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`) so it coexists with other tools (e.g. `re-frame-10x` v2) on the same bus. Mutating ops refuse with `:ambiguous-frame` when the operating frame is unclear.
-
-The cardinal rule: **REPL changes are ephemeral, source edits are permanent.** After any source edit, the skill waits on the hot-reload protocol before dispatching or tracing — otherwise you interact with the pre-reload code.
+**REPL changes are temporary; source edits are permanent.** After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
 
 ## When to reach for it
 
-Load this skill when the user mentions a **running** re-frame2 app, or any of: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-listener!`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
+Use it when you mention a **running** re-frame2 app, or any of `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, frame, epoch, interceptor, sub-cache, trace-buffer, `register-listener!`, `restore-epoch`, re-com, shadow-cljs — *and the question is about the live runtime*, not about writing new code.
 
-Do **not** use this skill for:
+Use a different skill for:
 
-- Writing new application code → use [re-frame2](re-frame2.md).
-- Greenfield setup → use [re-frame2-setup](re-frame2-setup.md).
-- Migrating a v1 project → use [re-frame-migration](re-frame-migration.md).
+- Writing new application code → [re-frame2](re-frame2.md).
+- Greenfield setup → [re-frame2-setup](re-frame2-setup.md).
+- Migrating a v1 project → [re-frame-migration](re-frame-migration.md).
 
 ## Kickoff
 
-Three steps, the first two one-time setup on the app you are pairing with:
+Once the [one-time setup](#one-time-setup) below is done, and with `shadow-cljs watch` running and the app open in a browser tab, ask about the running app in your own words:
+
+> *What's in `app-db` under `:cart`?*
+
+The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids, and only then reads the sub, path or slice you asked about. With one build running there is nothing to pass; with several, it refuses with the list of running builds rather than guessing, and a `port` taken from the tab's URL picks the build served there.
+
+### One-time setup
+
+Two steps, both on your side, before the first session:
 
 1. **Build and register the MCP server.** It is not published to npm yet, so
    build it from a re-frame2 clone
@@ -46,38 +52,27 @@ Three steps, the first two one-time setup on the app you are pairing with:
     }
     ```
 
-    The server's tools only appear in a session that **starts** after you
-    register it — a `--continue`d session will not surface them even when
+    The server's tools appear only in a session that **starts** after you
+    register it — a `--continue`d session will not show them even when
     `claude mcp list` reports `Connected`. Start a fresh session after
     registering, and again after rebuilding `out/server.js`.
 
 2. **Add the preload to the app.** The `re-frame2-pair.runtime` namespace ships in
-   the skill's own `preload/` directory — the MCP server does *not* carry it — so
-   put that directory on the app's build **classpath** and add
-   `re-frame2-pair.runtime` to its `:devtools :preloads`. The `:preloads` half is
-   always a `shadow-cljs.edn` line; the classpath half goes wherever the app's
-   classpath is actually owned — an activated alias's `:extra-paths` in `deps.edn`
-   for a `:deps` app, `:source-paths` in `project.clj` for a `:lein` app, and
-   `:source-paths` in `shadow-cljs.edn` only for a standalone shadow app. (Under
-   `:deps` and `:lein`, shadow *ignores* a `shadow-cljs.edn` `:source-paths` key
-   and warns that it did, so putting it there yields a preload that never loads.)
-   Two dev dependencies go alongside it, at the same revision as the app's core:
-   `day8/re-frame2-schemas`, which the preload requires (without it the build
-   fails on a missing `re-frame.schemas` namespace), and `day8/re-frame2-epoch`
-   with `re-frame.epoch` required at boot, which the epoch and time-travel tools
-   need. No package install, dev builds only. **The preload is required; there is no
-   per-session inject fallback.** See [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md#setup--preload-re-frame2-pairruntime)
-   for the branch and the snippets.
-
-3. **Start the app and ask.** With `shadow-cljs watch` running and the app open
-   in a browser tab, ask about the running app in your own words (*"what's in
-   `app-db` under `:cart`?"*). The skill's first call is always `discover-app`:
-
-```
-discover-app
-```
-
-This locates the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace landed. Its next read is `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids; only then does it drill into a single sub, path or slice. With one build running there is nothing to pass; with several, it refuses with the list of running builds rather than guessing, and a `port` taken from the tab's URL picks the build served there.
+   the skill's own `preload/` directory — the MCP server does *not* carry it. Put
+   that directory on the app's build **classpath** and add
+   `re-frame2-pair.runtime` to its `:devtools :preloads` in `shadow-cljs.edn`.
+   The classpath entry goes wherever the app's classpath is owned: an activated
+   alias's `:extra-paths` in `deps.edn` for a `:deps` app, `:source-paths` in
+   `project.clj` for a `:lein` app, and `:source-paths` in `shadow-cljs.edn` only
+   for a standalone shadow app. (Under `:deps` and `:lein`, shadow ignores a
+   `shadow-cljs.edn` `:source-paths` key and warns about it, so a preload put
+   there never loads.) Add two dev dependencies at the same revision as the
+   app's core: `day8/re-frame2-schemas`, which the preload requires (without it
+   the build fails on a missing `re-frame.schemas` namespace), and
+   `day8/re-frame2-epoch`, with `re-frame.epoch` required at boot, which the
+   epoch and time-travel tools need. Dev builds only, no package install. **The
+   preload is required; there is no per-session fallback.** The snippets for
+   each build tool are in [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md#setup--preload-re-frame2-pairruntime).
 
 ## Server options
 
@@ -110,7 +105,7 @@ The skill cannot reload a browser. When `discover-app`'s `:freshness` says the t
 
 - Source: [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
 - `SKILL.md`: [`skills/re-frame2-pair/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
-- Reference leaves: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md) §Where the depth lives — loading map names the leaf per question.
+- Reference notes: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `SKILL.md` §Where the depth lives names the note for each question.
 - Tool-Pair contract: [`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
-- Narrative companion: [Xray](../xray/index.md).
-- Retrospective companion skill: [`re-frame2-pair-retro`](re-frame2-pair-retro.md).
+- The devtools panel for humans: [Xray](../xray/index.md).
+- Retrospective skill: [re-frame2-pair-retro](re-frame2-pair-retro.md).
