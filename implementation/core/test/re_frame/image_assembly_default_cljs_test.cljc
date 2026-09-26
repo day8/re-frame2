@@ -134,19 +134,12 @@
 ;;    last-write-wins on the default path (the central rule).
 ;; ===========================================================================
 
-(deftest default-projection-cross-namespace-collision-fails-loud
+(deftest default-projection-collision-order-independent
   (testing "two namespaces registering the same (kind, id) with different impls,
             both in the source store, with NO explicit image to disambiguate →
-            :rf.error/image-duplicate-id (the default image does NOT guess and
-            does NOT let load order win)"
-    (let [pool [(reg-desc "examples.todo.boot"    :event :boot/init ::todo-boot)
-                (reg-desc "examples.counter.boot" :event :boot/init ::counter-boot)]]
-      (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(rf.image-assembly/assemble-default pool)))))))
-
-(deftest default-projection-collision-order-independent
-  (testing "the default-projection duplicate-id error fires regardless of pool
-            order — there is no last-write that 'wins' on the default path"
+            :rf.error/image-duplicate-id regardless of pool order — the default
+            image does NOT guess, and there is no last-write that 'wins' on the
+            default path"
     (let [a (reg-desc "examples.todo.boot"    :event :boot/init ::a)
           b (reg-desc "examples.counter.boot" :event :boot/init ::b)]
       (is (= :rf.error/image-duplicate-id

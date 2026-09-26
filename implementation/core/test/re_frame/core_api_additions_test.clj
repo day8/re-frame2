@@ -215,16 +215,9 @@
       (is (not (contains? alpha-only :hf.beta/one))
           ":hf.beta/one is filtered out"))))
 
-(deftest registrations-unknown-kind-throws
-  (testing "an unknown kind THROWS rather than returning an authoritative {}"
-    ;; `:rf2-hf/never-a-kind` is not a registrar kind; answering `{}` for it
-    ;; would be indistinguishable from "this kind exists and is empty". The
-    ;; query path throws the registrar's own catalogued id, with `where`
-    ;; naming the QUERY fn.
-    (let [e (is (thrown? clojure.lang.ExceptionInfo
-                  (rf/registrations {:source :store :kind :rf2-hf/never-a-kind})))]
-      (is (= :rf.error/unknown-registry-kind (:rf.error/id (ex-data e)))
-          "the catalogued id names the closed kind set"))))
+;; An unknown kind THROWS `:rf.error/unknown-registry-kind` rather than
+;; answering an authoritative-looking `{}` — pinned on both hosts by
+;; `registrar_query_source_cljs_test.cljc`'s `unknown-kinds-fail-loud`.
 
 ;; ===========================================================================
 ;; (rf/frame-ids ns-prefix) filter arity
