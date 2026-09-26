@@ -486,7 +486,7 @@
     :path
     [{:label "Power-cycle (parallel — BOTH regions, deep initial cascade)"
       :event [:hvac/controller [:hvac/power-cycle]]
-      :watch "Cascade: ONE event → :climate :idle──►:running (entry+initial cascade to [:running :conditioning :heating]) AND :fan :off──►:on."}
+      :watch "Cascade: ONE event → :climate [:idle]──►[:running :conditioning :heating] (entry + initial cascade) AND :fan :off──►:on."}
      {:label "Mode-toggle (:heating ⇄ :cooling — multi-level LCA cascade)"
       :event [:hvac/controller [:hvac/mode-toggle]]
       :watch "Cascade ORDER: exit :heating (deepest-first) → :swap-mode @ LCA :conditioning → entry :cooling (shallowest-first)."}
