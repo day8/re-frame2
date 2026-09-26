@@ -160,20 +160,6 @@
       (is (= [:active :authenticating] (:source-state-path enrich))
           "source-state-path from the inner vector's slot 3 (invoke-id)"))))
 
-(deftest dispatch-row-after-timer-defensive-degrade-test
-  (testing "when `:source :after-timer` is stamped but the
-            event vector doesn't match the canonical timer shape, the
-            row carries no enrichment (defensive fall-through; the
-            view renders the kind label only)"
-    (let [ev {:op-type   :rf.event
-              :operation :rf.event/dispatched
-              :tags      {:rf.event/v [:some/other-event]
-                          :source     :after-timer}}
-          r  (proj/dispatch-row [ev] nil)]
-      (is (= :after-timer (:source r)))
-      (is (nil? (:source-enrichment r))
-          "non-canonical timer-event shape → no enrichment"))))
-
 (deftest dispatch-row-after-timer-scalar-slot3-fail-soft-test
   (testing "a partial `:rf.machine.timer/after-elapsed`
             event whose slot-3 invoke-id is a SCALAR (or nil) passes the
@@ -263,34 +249,27 @@
       (is (= 9001 (:parent-dispatch-id enrich)))
       (is (nil? (:delay-ms enrich))))))
 
-(deftest dispatch-row-vanilla-source-has-no-enrichment-test
-  (testing "vanilla source kinds (`:ui`, `:frame-init`,
-            `:test-harness`, `:unknown`) carry no `:source-enrichment`
-            slot; their labels render through the plain
-            `from <source>` chrome"
-    (doseq [src [:ui :frame-init :test-harness :unknown]]
+(deftest dispatch-row-keeps-the-source-and-omits-enrichment-it-cannot-build-test
+  (testing "the row keeps its `:source` and carries no `:source-enrichment`,
+            so the view renders the kind label alone, when:"
+    (doseq [[src event why]
+            [;; vanilla kinds render through the plain `from <source>` chrome
+             [:ui           [:counter/inc]      "a vanilla source kind"]
+             [:frame-init   [:counter/inc]      "a vanilla source kind"]
+             [:test-harness [:counter/inc]      "a vanilla source kind"]
+             [:unknown      [:counter/inc]      "a vanilla source kind"]
+             ;; defensive fall-through for a non-canonical timer-event shape
+             [:after-timer  [:some/other-event] "the event is not the canonical timer shape"]
+             ;; no `:rf.trace/parent-dispatch-id` (a root cascade, or a fixture
+             ;; omitting dispatch-id correlation): the parent-epoch link is
+             ;; simply omitted and the kind label still reads `from fx`
+             [:fx-dispatch  [:cart/add :apple]  "no parent-dispatch-id rides the trace"]]]
       (let [ev {:op-type   :rf.event
                 :operation :rf.event/dispatched
-                :tags      {:rf.event/v [:counter/inc] :source src}}
+                :tags      {:rf.event/v event :source src}}
             r  (proj/dispatch-row [ev] nil)]
-        (is (= src (:source r)))
-        (is (nil? (:source-enrichment r))
-            (str src " — vanilla source kinds carry no enrichment"))))))
-
-(deftest dispatch-row-fx-dispatch-without-parent-test
-  (testing "when `:source :fx-dispatch` is stamped but the
-            trace carries no `:rf.trace/parent-dispatch-id` (root
-            cascade / test fixtures that omit dispatch-id correlation),
-            the row carries no enrichment (the parent-epoch link is
-            simply omitted; the kind label still reads `from fx`)"
-    (let [ev {:op-type   :rf.event
-              :operation :rf.event/dispatched
-              :tags      {:rf.event/v [:cart/add :apple]
-                          :source     :fx-dispatch}}
-          r  (proj/dispatch-row [ev] nil)]
-      (is (= :fx-dispatch (:source r)))
-      (is (nil? (:source-enrichment r))
-          "no parent-dispatch-id → no enrichment map (graceful degrade)"))))
+        (is (= src (:source r)) (str src " — " why))
+        (is (nil? (:source-enrichment r)) (str src " — " why))))))
 
 ;; ---- RECORDABLE COEFFECTS (EP-0010 · EP-0017 §9) -------------------------
 ;;
@@ -3883,26 +3862,21 @@
 ;; sibling `schema-violation-row` and runs on the JVM `clojure -M:test`
 ;; gate via this `.cljc` test ns.
 
-(deftest decode-malli-explain-returns-expected-got-test
+(deftest decode-malli-explain-summarises-the-first-error-test
   (testing "`decode-malli-explain` lifts the first error's
-            :schema + :value into a programmer-friendly summary map.
-            Pure data fn; JVM-testable."
+            :schema + :value into a programmer-friendly summary map."
     (is (= {:expected :int :got "bad" :more-errors 0}
            (proj/decode-malli-explain
              {:schema :int
               :value "bad"
-              :errors [{:path [] :in [] :schema :int :value "bad"}]})))))
-
-(deftest decode-malli-explain-falls-back-to-root-value-test
+              :errors [{:path [] :in [] :schema :int :value "bad"}]}))))
   (testing "when the first error does NOT carry :value
             (the value rides on the explain map's root), :got reads
             from `explain`'s `:value` slot."
     (is (= {:expected :int :got 42 :more-errors 0}
            (proj/decode-malli-explain
              {:schema :int :value 42
-              :errors [{:path [] :schema :int}]})))))
-
-(deftest decode-malli-explain-counts-additional-errors-test
+              :errors [{:path [] :schema :int}]}))))
   (testing "multi-error explain maps surface
             `:more-errors (- N 1)` so the call-site can paint a
             `(+N more)` chip beneath the first-error summary."
