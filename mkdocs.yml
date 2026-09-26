@@ -353,6 +353,7 @@ nav:
       - "5. Mutations and invalidation": resources/tutorial/05-mutations-and-invalidation.md
       - "6. Test and ship": resources/tutorial/06-test-and-ship.md
     - "The model": resources/concepts.md
+    - "Errors and warnings": resources/errors-and-warnings.md
     - "Recipes":
       - "Paginate a feed": resources/how-to/paginate-a-feed.md
       - "Invalidate after a mutation": resources/how-to/invalidate-after-a-mutation.md
