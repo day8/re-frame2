@@ -36,7 +36,7 @@
    4. No false reject: an all-valid `:spawn-all` keeps the fast path.
 
   Parent exit clears the sentinel whatever caused the reject (pinned in
-  `machine_spawn_unregistered_type_test`).
+  `machine_spawn_unregistered_type_cljs_test`).
 
   Moving schema validation into only the later per-child effect makes
   (1)–(3) fail: the live join publishes, the valid sibling installs, and the

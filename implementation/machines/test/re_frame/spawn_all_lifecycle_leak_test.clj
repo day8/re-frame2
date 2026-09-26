@@ -2,7 +2,7 @@
   "A `:spawn-all` lifecycle leak shape the runtime closes. (The MIXED
   registered/unregistered orphan shape — the whole invoke rejected so no
   registered sibling installs — is pinned in
-  `machine_spawn_unregistered_type_test`.)
+  `machine_spawn_unregistered_type_cljs_test`.)
 
   COMPLETED children at join resolution. A completed child that stayed a
       LIVE actor would rely on the parent's resolution transition EXITING the

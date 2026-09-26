@@ -1,4 +1,4 @@
-(ns re-frame.internal-events-test
+(ns re-frame.internal-events-cljs-test
   "Public/private `:internal-events`.
 
   Covers:
@@ -14,20 +14,32 @@
   The dispatch-boundary tests drive the real runtime (`reg-machine` +
   `dispatch-sync`) and read the settled snapshot + captured traces, so they
   exercise the boundary end-to-end: a self-raised internal event drives a
-  transition, but an outside caller's dispatch of the same event is refused."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
-            ;; Load the machines facade so its late-bind hooks (incl.
-            ;; `:machines/reg-machine`) are registered — `rf/reg-machine`
-            ;; routes through them.
-            [re-frame.machines]
-            [re-frame.machines.internal-events :as rf.machines.internal-events]
-            [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
-            [re-frame.subs]))
+  transition, but an outside caller's dispatch of the same event is refused.
+
+  Named `*-cljs-test.cljc` so both the JVM runner and shadow-cljs's
+  `cljs-test$` build run it; the CLJS lane runs it under the Reagent
+  substrate."
+  (:require
+   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [re-frame.core :as rf]
+   ;; Load the machines facade so its late-bind hooks (incl.
+   ;; `:machines/reg-machine`) are registered — `rf/reg-machine`
+   ;; routes through them.
+   [re-frame.machines]
+   [re-frame.machines.internal-events :as rf.machines.internal-events]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   [re-frame.subs]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]]))
+  ;; `with-trace-capture` is a `#?(:clj (defmacro …))` in a `.cljc` support ns,
+  ;; so the CLJS analyzer needs it required as a MACRO ns under the same alias.
+  #?(:cljs (:require-macros [re-frame.machines.test-support :as rf.machines.test-support])))
 
 (use-fixtures :each
-  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 (def ^:private snapshot rf.machines.test-support/snapshot)
 
@@ -57,7 +69,7 @@
 
 (defn- reg-error-id [machine]
   (try (rf/reg-machine (keyword "iet" (str (gensym))) machine) nil
-       (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (:rf.error/id (ex-data e)))))
 
 (deftest internal-events-accepts-valid-set
   (testing "a well-formed :internal-events SET (with a self-raise + :on clause) registers cleanly"

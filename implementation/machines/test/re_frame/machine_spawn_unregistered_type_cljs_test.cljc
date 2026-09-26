@@ -1,4 +1,4 @@
-(ns re-frame.machine-spawn-unregistered-type-test
+(ns re-frame.machine-spawn-unregistered-type-cljs-test
   "Fail-closed spawn of an UNREGISTERED machine TYPE.
 
   A `:rf.machine/spawn` (or a `:spawn-all` per-child) whose `:machine-id`
@@ -40,25 +40,36 @@
 
    5. **No false reject.** A registered `:machine-id` and an inline
       `:definition` spawn install cleanly (the gate fires only on the
-      unregistered-type case)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
-            ;; Loading the machines facade registers its late-bind hooks +
-            ;; the `:rf.machine/spawn` / `:rf.machine/destroy` reserved fxs
-            ;; (so `rf/reg-machine` is available when this ns runs alone).
-            [re-frame.machines]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
-            [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+      unregistered-type case).
 
-;; Fresh registrar + plain-atom adapter per test; the always-on
+  Named `*-cljs-test.cljc` so both the JVM runner and shadow-cljs's
+  `cljs-test$` build run it: the production path is `.cljc`, but the
+  always-on `:errors` fan-out and the dev trace are host wiring that could
+  regress on one runtime alone. The CLJS lane runs it under the Reagent
+  substrate."
+  (:require
+   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
+   [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
+   ;; Loading the machines facade registers its late-bind hooks +
+   ;; the `:rf.machine/spawn` / `:rf.machine/destroy` reserved fxs
+   ;; (so `rf/reg-machine` is available when this ns runs alone).
+   [re-frame.machines]
+   [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
+
+;; Fresh registrar + substrate per test; the always-on
 ;; error-listener registry (a `defonce` atom) cleared so a listener from
 ;; one test cannot leak into the next (mirrors
 ;; write_after_destroy_always_on_cljs_test).
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture
-    {:adapter rf.substrate.plain-atom/adapter
+    {:adapter #?(:clj  rf.substrate.plain-atom/adapter
+                 :cljs rf.adapter.reagent/adapter)
      :init-fn (fn [] (rf.error-emit/clear-error-listeners!))})
   rf.machines.test-support/trace-capture-fixture)
 
@@ -169,7 +180,7 @@
                (set (keys r)))
             "the always-on record carries ONLY structural keys — no :args/:start/:data")
         ;; No value anywhere in the record echoes the secret.
-        (is (not (some #(and (string? %) (.contains ^String % secret))
+        (is (not (some #(and (string? %) (str/includes? % secret))
                        (vals r)))
             "no record value contains the secret :start / :data payload")
         ;; The dev trace likewise carries no spawn args / secret.
@@ -183,7 +194,7 @@
               "dev trace carries no :data slot")
           (is (= :ghost/worker (get-in trace-ev [:tags :machine-id]))
               "dev trace carries the structural :machine-id")
-          (is (not (some #(and (string? %) (.contains ^String % secret))
+          (is (not (some #(and (string? %) (str/includes? % secret))
                          (vals (:tags trace-ev))))
               "no dev-trace tag value contains the secret"))))))
 
