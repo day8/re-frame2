@@ -408,6 +408,21 @@
       (is (= 1 (count devs)))
       (is (contains? devs :story.f2/a)))))
 
+(deftest drop-default-excluded-hides-until-toggled-on
+  (testing "a variant carrying a `:default-filter :exclude` tag is dropped
+            unless the active tag filter names that tag"
+    (let [vs {:story.dx/a {:tags #{:shipped}}
+              :story.dx/b {:tags #{:internal}}
+              :story.dx/c {:tags #{:internal :shipped}}}]
+      (is (= #{:story.dx/a}
+             (set (keys (rf.story.ui.state/drop-default-excluded vs #{:internal} #{}))))
+          "hidden while the filter is empty")
+      (is (= #{:story.dx/a :story.dx/b :story.dx/c}
+             (set (keys (rf.story.ui.state/drop-default-excluded vs #{:internal} #{:internal}))))
+          "shown once :internal is toggled on")
+      (is (= vs (rf.story.ui.state/drop-default-excluded vs #{} #{}))
+          "no default-excluded tags leaves the map unchanged"))))
+
 (deftest group-variants-by-story-keeps-untagged
   (testing "variants with no story namespace appear under their derived parent"
     (rf.story/reg-variant :story.g/a {:setup []})
@@ -587,6 +602,17 @@
                   :Workspace.other/all
                   {:layout :variants-grid :for :story.vge})]
       (is (= 2 (count cells))))))
+
+(deftest variants-grid-explicit-variants
+  (testing ":variants-grid renders an explicit :variants list, in declared
+            order, instead of enumerating the workspace id's story"
+    (rf.story/reg-variant :story.vgx/a {:setup []})
+    (rf.story/reg-variant :story.vgx/b {:setup []})
+    (rf.story/reg-variant :story.vgy/c {:setup []})
+    (let [cells (rf.story.ui.workspace/resolve-layout
+                  :Workspace.vgx/curated
+                  {:layout :variants-grid :variants [:story.vgy/c :story.vgx/a]})]
+      (is (= [:story.vgy/c :story.vgx/a] (mapv :variant-id cells))))))
 
 (deftest prose-layout-interleaves
   (testing ":prose preserves :content order"

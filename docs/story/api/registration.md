@@ -46,7 +46,7 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-workspace id metadata)
   ```
-- **Description**: Register a workspace — an arrangement of variants for side-by-side review. `metadata` carries `:layout` and the slot that layout needs: `:variants` (an ordered vector of variant ids) for `:grid` and `:tabs`, `:content` for `:prose`, `:render` for `:custom`, and nothing, or `:for`, for `:variants-grid`. See [Workspace body](#workspace-body).
+- **Description**: Register a workspace — an arrangement of variants for side-by-side review. `metadata` carries `:layout` and the slot that layout needs: `:variants` (an ordered vector of variant ids) for `:grid` and `:tabs`, `:content` for `:prose`, `:render` for `:custom`, and nothing, `:for` or `:variants` for `:variants-grid`. See [Workspace body](#workspace-body).
 
 ### `reg-decorator`
 
@@ -308,7 +308,7 @@ A check accepts `:doc` and a required `:assertions` vector.
 |---|---|
 | `:doc` | A string. |
 | `:layout` | Required: `:grid`, `:variants-grid`, `:tabs`, `:prose` or `:custom`. |
-| `:variants` | Variant ids, in order. Required by `:grid` and `:tabs`. |
+| `:variants` | Variant ids, in order. Required by `:grid` and `:tabs`. A `:variants-grid` that lists them renders exactly those instead of enumerating a story; it takes `:variants` or `:for`, not both. |
 | `:for` | The story a `:variants-grid` enumerates. Without it, the workspace id names the story. |
 | `:columns` | A fixed column count for `:grid` and `:variants-grid`. |
 | `:content` | For `:prose`, required: `[{:type :prose :body "markdown"} {:type :variant :id variant-id} ...]`. |
@@ -339,7 +339,7 @@ Every decorator body also accepts `:doc`.
 
 ### Tag body
 
-`:doc` is a string. `:axis` groups the tag in the sidebar's tag filter. `:default-filter` is `:include` or `:exclude`.
+`:doc` is a string. `:axis` groups the tag in the sidebar's tag filter. `:default-filter` is `:include` (the default) or `:exclude`, which hides the tag's variants from the sidebar until you toggle the tag on in the filter.
 
 ## Unregister + reset
 

@@ -1752,6 +1752,20 @@
       (is (= :rf.error/unknown-variant
              (-> r :assertions first :assertion))))))
 
+(deftest error-results-keep-the-run-result-contract
+  (testing "a run that fails before its script — an unregistered variant,
+            a plan that cannot be built — still returns a result that
+            conforms to the frozen RunResult contract"
+    (rf.story/reg-variant :story.contract/missing-arg
+      {:script [[:dispatch [:test/set [:arg :nope]]]]})
+    (doseq [[label variant-id] [["unknown variant" :story.nope/x]
+                                ["plan-construction error" :story.contract/missing-arg]]]
+      (let [r (rf.story.async/deref-blocking (rf.story/run-variant variant-id) 5000)]
+        (is (= :error (:status r)) (str label ": precondition — the run errored"))
+        (is (= #{} (:consumed-selectors r)) (str label ": the agreement-floor slot is present"))
+        (is (rf.story/valid-run-result? r) (str label ": the result validates"))))
+    (rf.story/destroy-variant! :story.contract/missing-arg)))
+
 (deftest reset-variant-tears-down-then-runs-fresh
   (testing "reset-variant produces a fresh app-db"
     (rf/reg-event :test/inc

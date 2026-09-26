@@ -11,6 +11,8 @@
   - `partition-tag-filter-by-axis` — split the active filter set by axis.
   - `variant-tag-match?`        — faceted predicate (AND-across / OR-within).
   - `filter-variants`           — apply the predicate over a variant map.
+  - `drop-default-excluded`     — hide variants a `:default-filter
+                                  :exclude` tag hides until toggled on.
   - `group-variants-by-story`   — build the sidebar tree.
 
   The faceted-filter contract (Storybook SB9 parity): AND across axes,
@@ -137,6 +139,19 @@
    (into {}
          (filter (fn [[_ body]] (variant-tag-match? body tag-filter tag->axis)))
          id->body)))
+
+(defn drop-default-excluded
+  "Remove from `id->body` every variant carrying a tag in `excluded` (the
+  registered tags whose `:default-filter` is `:exclude`) that the active
+  `tag-filter` does not name. Such a variant stays hidden until its tag is
+  toggled on in the filter. Pure data → data; JVM-testable."
+  [id->body excluded tag-filter]
+  (let [hidden (set (remove (set tag-filter) excluded))]
+    (if (empty? hidden)
+      id->body
+      (into {}
+            (remove (fn [[_ body]] (some hidden (:tags body))))
+            id->body))))
 
 (defn group-variants-by-story
   "Build a sorted vector of `{:story-id ... :variants [...]}` entries

@@ -52,10 +52,10 @@
   ## MCP is a binding, not a tier
 
   MCP is NOT a runner. It is a transport/control surface over the same
-  `story/run` / `story/explain` (spec/017 §Runner kinds). A live agent run
-  differs only by FRAME BINDING (`:fresh` vs `:attached`) — modeled here
-  as the `:frame-binding` run-opt, NOT as a capability token or a runner
-  kind. `normalize-run-opts` carries it through untouched.
+  `story/run` / `story/explain` (spec/017 §Runner kinds), never a
+  capability token or a runner kind. A variant body's `:frame-binding`
+  slot (`:fresh` vs `:attached`) marks a live agent binding for the
+  sidebar's frame chip.
 
   ## Fail-closed, two sides
 
@@ -700,9 +700,7 @@
 ;; The P1 run/is opts (spec/017 §Public execution API):
 ;;
 ;;   {:runner :headless|:hiccup|:cljs-reactive|:dom|:browser|:auto
-;;    :escalate boolean                ; synonym for :runner :auto when true
-;;    :frame-binding :fresh | :attached ; MCP-as-binding, NOT a runner tier
-;;    :platform :client | :server}
+;;    :escalate boolean}               ; synonym for :runner :auto when true
 ;;
 ;; `normalize-run-opts` is the ONE place these collapse into the canonical
 ;; selection shape `select-runner` consumes, so the three-verb
@@ -715,31 +713,23 @@
   :headless)
 
 (def default-frame-binding
-  "The default frame binding — a `:fresh` frame per run. `:attached` is the
-  live-agent / MCP binding over the same `story/run` (spec/017 §Runner kinds
-  — MCP is a binding, not a tier)."
+  "The frame binding a variant body's `:frame-binding` slot defaults to,
+  which the sidebar's frame-binding chip shows. `:attached` marks a live
+  agent / MCP binding (MCP is a binding, not a runner tier)."
   :fresh)
 
-(def default-platform
-  "The default execution platform (spec/017 §Public execution API)."
-  :client)
-
 (def frame-bindings #{:fresh :attached})
-(def platforms      #{:client :server})
 
 (defn normalize-run-opts
   "Normalize raw `story/run` / `story/is` opts into the canonical selection
   shape (spec/017 §Public execution API). Pure data → data. Collapses the
-  `:runner :auto` / `:escalate true` synonyms into one `:mode`, defaults
-  the runner / frame-binding / platform, and carries the MCP-as-binding
-  `:frame-binding` through untouched (it is NOT a runner tier).
+  `:runner :auto` / `:escalate true` synonyms into one `:mode` and defaults
+  the runner.
 
   Returns:
 
       {:runner :headless|:hiccup|:cljs-reactive|:dom|:browser   ; the FIXED runner (when :mode :fixed)
-       :mode   :fixed | :auto                     ; :auto = escalate to cheapest
-       :frame-binding :fresh | :attached
-       :platform :client | :server}
+       :mode   :fixed | :auto}                    ; :auto = escalate to cheapest
 
   `:escalate true` OR `:runner :auto` → `{:mode :auto}` (the `:runner` slot
   is then advisory — `select-runner` chooses the cheapest qualifying
@@ -747,16 +737,11 @@
   unrecognised `:runner` falls back to the default `:headless` fixed
   policy (fail-safe; an unknown tier never silently escalates)."
   ([] (normalize-run-opts nil))
-  ([{:keys [runner escalate frame-binding platform] :as _opts}]
-   (let [auto? (or (true? escalate) (= :auto runner))
-         fb    (if (contains? frame-bindings frame-binding) frame-binding default-frame-binding)
-         plat  (if (contains? platforms platform) platform default-platform)]
-     (if auto?
-       {:mode :auto :frame-binding fb :platform plat}
-       (let [r (if (contains? runner-kinds runner)
-                 runner
-                 default-runner)]
-         {:mode :fixed :runner r :frame-binding fb :platform plat})))))
+  ([{:keys [runner escalate] :as _opts}]
+   (if (or (true? escalate) (= :auto runner))
+     {:mode :auto}
+     {:mode   :fixed
+      :runner (if (contains? runner-kinds runner) runner default-runner)})))
 
 ;; ===========================================================================
 ;; PLAN INTEGRATION  (the `:required-runner` slot helper)
