@@ -165,22 +165,9 @@ native top layer.
 | `overlay/modal` | [`modal`](../../api/re-frame.fresco.overlay.md#modal) | [Overlays and focus](13-overlays-and-focus.md#modals) |
 | `overlay/popover` | [`popover`](../../api/re-frame.fresco.overlay.md#popover) | [Overlays and focus](13-overlays-and-focus.md#anchored-popovers) |
 
-The two heads take these options:
-
-| Option | Which head | Meaning |
-| --- | --- | --- |
-| `:open?` | both | whether the overlay exists. False renders nothing |
-| `:on-dismiss` | both | the event dispatched when the browser dismisses the overlay (Escape, light dismiss). Without one, the overlay cannot be dismissed that way. An open overlay carrying it with no frame above raises `:rf.error/fresco-intent-outside-boundary` |
-| `:label` | both | the accessible name, as `aria-label` |
-| `:anchor` | popover | the DOM id of the trigger to position against. An `:anchor` naming no element raises `:rf.error/fresco-overlay-anchor-missing`; omitting it is fine |
-| `:placement` | popover | `:top`, `:bottom`, `:left` or `:right`, each bare or suffixed `-start` or `-end`, which becomes a CSS `position-area` against the anchor. Any other value is passed through as a literal `position-area` value |
-| `:light-dismiss?` | modal | whether a backdrop click dismisses. Default false |
-
-Every other key is an ordinary attribute, except the handlers the module owns:
-`:on-cancel` and `:on-key-down` on a modal and `:on-before-toggle` on a popover.
-A value you write there is replaced. The browser focuses the first
-focusable control when the overlay opens, so control initial focus by ordering
-the controls; an autofocus attribute has no effect here.
+The options the two heads take, the attributes the module writes itself and the
+ids they raise are listed under
+[The heads](../../api/re-frame.fresco.overlay.md#the-heads).
 
 ## `re-frame.fresco.motion`
 
