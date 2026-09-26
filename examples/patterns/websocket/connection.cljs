@@ -76,7 +76,8 @@
    what makes it a safe connection clock — THIS machine needs no `:exit`
    action to null the id out. (The host socket itself is another matter: a
    live `WebSocket` is not a value the runtime can drop, so the SPAWNED actor
-   carries an `:exit :close-socket` to close it — see `websocket.messages`.
+   carries an `:exit :close-socket` that returns the effect closing it — see
+   `websocket.messages`.
    The id auto-clears; the socket the id points at does not.)"
   (:require [re-frame.core :as rf]
             ;; `re-frame.machines` ships in day8/re-frame2-machines.
@@ -174,8 +175,8 @@
      ;; And note `:cred-ref`, not a token. Machine `:data` is
      ;; framework-inspectable — snapshots, traces, recorder fixtures — so a
      ;; raw bearer must never sit here (or ride a dispatch). We carry an
-     ;; OPAQUE reference; the socket actor exchanges it for the real bearer
-     ;; inside its own host closure at authentication time
+     ;; OPAQUE reference; the socket the actor opens exchanges it for the
+     ;; real bearer inside its own host closure at authentication time
      ;; (`websocket.messages/resolve-credential`) and discards it.
      :data    {:url            nil
                :cred-ref       nil
@@ -352,9 +353,9 @@
       ;; We've just entered `:authenticating`, so start the handshake:
       ;; route an `:auth` message into the live socket actor and wait for
       ;; the server to bless us. Note there's NO token in this payload —
-      ;; the actor resolved the bearer from `:cred-ref` when it opened the
-      ;; socket, holds it in its private host closure, and attaches it to
-      ;; the wire frame itself. The credential never rides a dispatch.
+      ;; the socket's private host closure resolves the bearer from
+      ;; `:cred-ref` at the auth write and attaches it to the wire frame
+      ;; itself. The credential never rides a dispatch.
       (fn action-send-auth [{data :data}]
         {:fx [[:dispatch [(socket-id data)
                           [:send {:type :auth}]]]]})
@@ -599,9 +600,9 @@
                 ;; our `:data` as it's born. Every fresh entry to :active
                 ;; re-reads whatever's current — so a credential rotated
                 ;; mid-reconnect just rides into the next socket, no extra
-                ;; plumbing. The reference is all that moves: the child
-                ;; resolves it to the real bearer inside its own host
-                ;; closure at socket-open.
+                ;; plumbing. The reference is all that moves: the child's
+                ;; socket resolves it to the real bearer inside its own host
+                ;; closure at the auth write.
                 :data       (fn [{snap :snapshot}]
                               {:url      (-> snap :data :url)
                                :cred-ref (-> snap :data :cred-ref)})}
