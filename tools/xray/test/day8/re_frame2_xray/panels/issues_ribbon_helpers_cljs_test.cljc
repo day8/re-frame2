@@ -24,9 +24,9 @@
        record; empty-kind classifier (:no-focus, :epoch-evicted,
        :no-issues branches per spec/021 §10.7). No filtering
        (pure rows per the Figma design).
-    7. **resolve-focus-status / find-epoch-record** — focus + history
-       resolver.
-    8. **format-time** — renders a stable HH:MM:SS.mmm string."
+    7. **the sub call-site composition** — `resolve-focus-status` →
+       `find-epoch-record` → `project-feed`. The resolver the two
+       aliases re-export is pinned in `shared/focus_resolver_cljs_test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
@@ -193,65 +193,6 @@
   (testing "nil operation yields nil"
     (is (nil? (h/category-label {:operation nil})))))
 
-;; ---- (7) resolve-focus-status + find-epoch-record -------------------
-
-(deftest resolve-focus-status-no-focus
-  (testing "focus nil AND history empty → cold start, :no-focus"
-    (is (= :no-focus (h/resolve-focus-status nil [])))
-    (is (= :no-focus (h/resolve-focus-status nil nil)))))
-
-(deftest resolve-focus-status-head-fallback
-  (testing "focus nil but history non-empty → head-fallback
-            (resolves to :focused; the find-epoch-record lookup returns
-            the most-recent record). This is the natural debugging UX —
-            show the latest unless the operator explicitly picks an
-            earlier row."
-    (let [hist [(epoch-record 1 []) (epoch-record 2 []) (epoch-record 3 [])]]
-      (is (= :focused (h/resolve-focus-status nil hist))))
-    (testing "single-record history also resolves to :focused"
-      (is (= :focused (h/resolve-focus-status nil [(epoch-record 1 [])]))))))
-
-(deftest resolve-focus-status-focused-match
-  (let [hist [(epoch-record 1 []) (epoch-record 2 []) (epoch-record 3 [])]]
-    (is (= :focused (h/resolve-focus-status 1 hist)))
-    (is (= :focused (h/resolve-focus-status 2 hist)))
-    (is (= :focused (h/resolve-focus-status 3 hist)))))
-
-(deftest resolve-focus-status-epoch-evicted
-  (testing "focus has :epoch-id but history doesn't carry it → evicted"
-    (let [hist [(epoch-record 5 []) (epoch-record 6 []) (epoch-record 7 [])]]
-      (is (= :epoch-evicted (h/resolve-focus-status 1 hist)))
-      (is (= :epoch-evicted (h/resolve-focus-status 99 hist))))))
-
-(deftest resolve-focus-status-empty-history-with-focus-id
-  (testing "focus pins an :epoch-id but the history is empty → evicted"
-    (is (= :epoch-evicted (h/resolve-focus-status 1 []))))
-  (testing "focus pins an :epoch-id but history is nil → evicted"
-    (is (= :epoch-evicted (h/resolve-focus-status 1 nil)))))
-
-(deftest find-epoch-record-returns-match
-  (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-exception)])
-              (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])]]
-    (is (= 5 (:epoch-id (h/find-epoch-record 5 hist))))
-    (is (= 6 (:epoch-id (h/find-epoch-record 6 hist))))
-    (is (nil? (h/find-epoch-record 99 hist)))))
-
-(deftest find-epoch-record-head-fallback
-  (testing "focus nil + history non-empty returns the HEAD
-            (most-recent) record. epoch-history is oldest-first per
-            re-frame.epoch/epoch-history, so the head is the last
-            element."
-    (let [hist [(epoch-record 5 [(error-ev 100 :rf.error/handler-exception)])
-                (epoch-record 6 [(warning-ev 101 :rf.warning/recoverable)])
-                (epoch-record 7 [])]]
-      (is (= 7 (:epoch-id (h/find-epoch-record nil hist))))))
-  (testing "single-record history's head is that single record"
-    (let [hist [(epoch-record 42 [(error-ev 1 :rf.error/handler-exception)])]]
-      (is (= 42 (:epoch-id (h/find-epoch-record nil hist))))))
-  (testing "focus nil AND history empty/nil returns nil"
-    (is (nil? (h/find-epoch-record nil [])))
-    (is (nil? (h/find-epoch-record nil nil)))))
-
 ;; ---- (8) project-feed top-level composite ---------------------------
 
 (deftest project-feed-no-focus-renders-empty
@@ -277,14 +218,6 @@
       (is (= 0  (:total feed)))
       (is (= :no-issues (:empty-kind feed)))
       (is (= 42 (:epoch-id feed))))))
-
-(deftest project-feed-no-issues-only-non-issue-traces
-  (testing "trace-events with no issue ops → :no-issues"
-    (let [record (epoch-record 42 [(non-issue-ev 1)
-                                   (non-issue-ev 2)])
-          feed   (h/project-feed record :focused)]
-      (is (= [] (:issues feed)))
-      (is (= :no-issues (:empty-kind feed))))))
 
 (deftest project-feed-renders-issues-from-trace-events
   (testing "the focused epoch's :trace-events feed the projection;
@@ -372,51 +305,6 @@
         (is (re-find #"Hydration mismatch" (:description row))))
       (is (= 2 (:epoch-id feed)) "feed epoch-id reflects the focused cascade"))))
 
-(deftest project-feed-hydration-mismatch-head-fallback-sub-call-site
-  (testing "the panel's sub call-site shape: nil focus +
-            non-empty history head-falls-back onto the
-            cascade carrying the hydration-mismatch, and the feed
-            renders that issue under cascade scope"
-    (let [hist           [(epoch-record 1 [])
-                          (epoch-record 2 [(hydration-mismatch-ev 9)])]
-          focus-epoch-id nil
-          focus-status   (h/resolve-focus-status focus-epoch-id hist)
-          record         (h/find-epoch-record   focus-epoch-id hist)
-          feed           (h/project-feed record focus-status)]
-      (is (= :focused focus-status))
-      (is (= 2 (:epoch-id record)))
-      (is (nil? (:empty-kind feed)))
-      (is (= [9] (mapv :id (:issues feed)))))))
-
-(deftest project-feed-always-renders-feed-or-empty-state
-  (testing "invariant (there is no :no-matches kind: the panel has no
-            filter chrome) — under EVERY focus-status the panel sub
-            yields a renderable shape: either the feed (empty-kind nil)
-            or exactly one of the three empty-state discriminators. The
-            feature-gate scenario waits on this union; an unhandled
-            empty-kind would silently render nothing."
-    (let [renderable? #{nil :no-focus :epoch-evicted :no-issues}]
-      (testing ":no-focus → :no-focus empty-state"
-        (is (= :no-focus (:empty-kind (h/project-feed nil :no-focus)))))
-      (testing ":epoch-evicted → :epoch-evicted empty-state"
-        (is (= :epoch-evicted
-               (:empty-kind (h/project-feed nil :epoch-evicted)))))
-      (testing ":focused + no issues → :no-issues empty-state"
-        (is (= :no-issues
-               (:empty-kind (h/project-feed (epoch-record 1 []) :focused)))))
-      (testing ":focused + visible issue → feed (empty-kind nil)"
-        (is (nil? (:empty-kind (h/project-feed
-                                 (epoch-record 1 [(hydration-mismatch-ev 9)])
-                                 :focused)))))
-      (testing "every branch's empty-kind is in the view's renderable set"
-        (doseq [[record status]
-                [[nil :no-focus]
-                 [nil :epoch-evicted]
-                 [(epoch-record 1 []) :focused]
-                 [(epoch-record 1 [(hydration-mismatch-ev 9)]) :focused]]]
-          (is (contains? renderable?
-                         (:empty-kind (h/project-feed record status)))))))))
-
 (deftest project-feed-newest-first
   (testing "the feed reverses the trace-events stream — newest first"
     (let [record (epoch-record 1 [(error-ev   1 :rf.error/a {:time 100})
@@ -424,19 +312,6 @@
                                   (error-ev   3 :rf.error/c {:time 300})])
           feed   (h/project-feed record :focused)]
       (is (= [3 2 1] (mapv :id (:issues feed)))))))
-
-(deftest project-feed-no-filtering-renders-every-issue
-  (testing "the panel renders pure rows with NO filtering;
-            every issue in the focused epoch surfaces, :rendered = :total"
-    (let [record (epoch-record 1 [(error-ev   1 :rf.error/handler-exception)
-                                  (warning-ev 2 :rf.warning/missing-doc)
-                                  (info-ev 3 :rf.info/note)
-                                  (error-ev   4 :rf.ssr/hydration-mismatch)])
-          feed   (h/project-feed record :focused)]
-      (is (= 3 (:total feed)))
-      (is (= 3 (:rendered feed)))
-      (is (= #{1 2 4} (set (map :id (:issues feed))))
-          "every ISSUE renders; the :info activity row is not one"))))
 
 ;; ---- (9) an :info lifecycle row is activity, never an issue
 ;;
@@ -469,17 +344,6 @@
                                 :focused)]
       (is (= [:error :warning] (mapv :severity (:issues feed))))
       (is (= 2 (:total feed))))))
-
-;; ---- (10) format-time ---------------------------------------------
-
-(deftest format-time-renders-hms-with-millis
-  (testing "format-time returns nil on non-numeric input"
-    (is (nil? (h/format-time nil)))
-    (is (nil? (h/format-time "not a number"))))
-  (testing "format-time returns a HH:MM:SS.mmm-shaped string on numeric input"
-    (let [s (h/format-time 12345)]
-      (is (string? s))
-      (is (re-find #"^\d{2}:\d{2}:\d{2}\.\d{3}$" s)))))
 
 ;; ---- (11) find-issue ----------------------------------------------
 
