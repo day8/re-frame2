@@ -131,7 +131,7 @@ Each reference leaf targets ≤16 KB per the family leaf-size discipline ([`skil
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" and lists the greenfield-trigger phrases the shipped frontmatter carries: *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"hello-world re-frame2 app"*, plus a build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring. It explicitly handles off-task routing: once the counter mounts, the author switches to `re-frame2` for code-writing or `re-frame2-pair` for live pair-programming. (It deliberately omits the ambiguous *"add re-frame2 to my repo"* — that phrasing also matches the non-trivial-existing-app case the skill routes away.)
+The `description` is "pushy": it says what the skill writes and runs, then lists the greenfield triggers — wanting to *start*, *scaffold*, *bootstrap* or *set up* a new re-frame2 app, a *hello-world* or *minimal* re-frame2 project, and a build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring — and closes by naming the sibling skill for each near-miss (`re-frame2`, `re-frame2-improver`, `re-frame-migration`, `re-frame2-pair`, `re-frame2-implementor`), because a model routing at trigger time cannot follow a link to `skills/README.md`. `check_skill_description_budget.py` ratchets the whole family's listing footprint, so the description may not grow. (It deliberately omits the ambiguous *"add re-frame2 to my repo"* — that phrasing also matches the non-trivial-existing-app case the skill routes away.)
 
 ## 7. Anti-patterns the skill explicitly resists
 
