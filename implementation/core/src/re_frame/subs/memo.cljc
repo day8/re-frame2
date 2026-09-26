@@ -200,10 +200,12 @@
   from the sub's own registration classification — the
   `:rf.sub/classification` carrier stamped below, else the registrar's
   declaration for the sub-id; there is no sub-output propagation (EP-0025).
-  The three route read-subs (`:rf/route`, `:rf.route/query`,
-  `:rf.route/params`) are the one narrow addition: their values are also
-  projected through the route's own egress classification, which lives in
-  the frame's elision registry in runtime-db.
+  The framework read subs whose value projects a subsystem-owned durable
+  fact are the narrow addition: `[:rf/machine <id>]` is also projected
+  through its machine's declared classification, and the three route
+  read-subs (`:rf/route`, `:rf.route/query`, `:rf.route/params`) through the
+  route's own egress classification. Both live in the frame's elision
+  registry in runtime-db.
 
   The projection runs synchronously INSIDE this reaction's compute fn, so
   none of its reads may record a reactive dependency. A capturing read of a
@@ -212,7 +214,7 @@
   layering (the sub would recompute on ANY change to that container, not
   just its own input's). The registration classification is the captured
   declaration and the process-scoped registrar, neither of them reactive;
-  the route projection reads the elision registry through
+  the machine and route projections read the elision registry through
   `re-frame.substrate.adapter/read-container-untracked`, a snapshot that
   records no dependency. A sub whose registration declares `:sensitive`
   output paths egresses those paths of `:prev-value` / `:value` as
@@ -280,9 +282,9 @@
         ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
         ;; the `re-frame.classification/project-sub-tags` chokepoint
         ;; (run by `rf.trace/emit!`) redacts them from the sub's
-        ;; registration classification and, for the route read-subs, the
-        ;; frame's elision registry, read untracked so this compute gains no
-        ;; input. See the `validate-and-trace` docstring §Privacy.
+        ;; registration classification and, for the machine and route
+        ;; read-subs, the frame's elision registry, read untracked so this
+        ;; compute gains no input. See the `validate-and-trace` docstring §Privacy.
         (if rf.interop/debug-enabled?
           ;; `cascade?` here = REACTIVE-GRAPH propagation: true iff this
           ;; sub has upstream SUB inputs (layer-2+).
