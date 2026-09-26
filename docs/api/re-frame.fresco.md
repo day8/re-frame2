@@ -87,6 +87,19 @@ ClojureScript.
       call order would depend on the data. Put hook-heavy behaviour in a React
       component mounted through `defhost`, which the guide calls an *island*; see
       [`re-frame.fresco.native`](re-frame.fresco.native.md).
+- **Errors**, raised while the view renders:
+    - [`:rf.error/no-frame-context`](../core/fresco/troubleshooting.md#no-frame-context)
+      when no `frame-root` or `frame-provider` is above the view.
+    - `:rf.error/ambient-frame-refused` when the body calls `rf/subscribe`, or
+      `rf/dispatch` with no `:frame`: a read there would not re-render the view.
+      Read with `h/sub`, and dispatch from an event prop, an `h/event` or a handle
+      from `(rf/capture-frame)`.
+    - [`:rf.error/fresco-deferred-read-at-boundary`](../core/fresco/troubleshooting.md#fresco-deferred-read-at-boundary)
+      when a child view's props carry an unforced `delay`. Pass a function instead,
+      or deref the delay in the body that wrote it.
+    - [`:rf.error/fresco-generation-fence-exhausted`](../core/fresco/troubleshooting.md#fresco-generation-fence-exhausted)
+      when the body sees a new commit on four runs in a row, which a body that
+      writes on every render causes. Move the write out of the render.
 - **Example**:
   ```clojure
   (h/defview todo-row [{:keys [id]}]
@@ -114,6 +127,12 @@ ClojureScript.
     - The docstring goes before `component`. Written after it, it is read as `opts`
       and the declaration is refused.
     - Declaration errors are raised when the namespace loads.
+    - Other props cross shallowly. Keys are camelCased (`:on-row-click` becomes
+      `onRowClick`, `:class` becomes `className`); a function crosses as itself; a
+      map or vector goes through `clj->js`; and a keyword or symbol crosses as
+      itself, except at `:class`, `:id`, `:role`, `data-*` and `aria-*`, where it
+      becomes its name. A component that expects the string `"primary"` must be
+      passed the string, not `:primary`.
 - **Options**:
     - `:callbacks`: `{prop :event|:render}`, overriding the contract a prop's name
       implies. A vendor's `on*`-named render prop needs
@@ -130,12 +149,17 @@ ClojureScript.
     - `:rf.error/fresco-host-no-component`: `component` is nil, usually a JS import
       that resolved nothing.
     - `:rf.error/fresco-bad-host-declaration`: `opts` is not a map, has a key outside
-      the four, names a contract other than `:event` or `:render`, or has a malformed
-      `:slots`; or a form follows `opts`. Nothing is silently dropped.
-    - `:rf.error/fresco-host-bad-ssr-policy`: a `:server` value outside the two, or a
-      `:fallback` beside `:server :render`.
+      the four, or names a contract other than `:event` or `:render`; `:slots` is not
+      a set of prop names, names `:key` or `:ref`, spells one prop twice, or names a
+      prop that `:callbacks` also names; or a form follows `opts`. Nothing is
+      silently dropped.
+    - `:rf.error/fresco-host-bad-ssr-policy`: a `:server` value outside the two, a
+      `:fallback` beside `:server :render`, or `:fallback nil`.
     - `:rf.error/fresco-host-fallback-boundary-head`: the `:fallback` contains a
       `defview` or `defhost` head. A fallback is plain markup.
+    - [`:rf.error/fresco-host-unclaimed-callback`](../core/fresco/troubleshooting.md#fresco-host-unclaimed-callback),
+      at render: an `h/event` at a prop named in `:slots`. A slot takes markup; write
+      hiccup there, or take the prop out of `:slots`.
 - **Example**:
   ```clojure
   ;; DatePicker and Modal are React components required from npm.
@@ -190,6 +214,9 @@ ClojureScript.
     - Outside a view render (in an event handler, a callback or a utility) it raises
       `:rf.error/fresco-sub-outside-render`, naming the query. For a one-off read
       there, use `rf/subscribe-once`.
+    - An unregistered query reads `nil` and emits `:rf.error/no-such-sub`, and a
+      subscription whose body throws reads `nil` and emits `:rf.error/sub-exception`.
+      Neither throws into the view.
 - **Example**:
   ```clojure
   (h/defview todo-footer [_]
@@ -371,7 +398,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
   (h/unmount! handle)
   ```
 - **Description**: Unmounts the React root `handle` holds and returns the handle to
-  inert, so a later `render!` through it mounts afresh.
+  inert, so a later `render!` through it mounts afresh. Returns nil.
     - Idempotent. Sibling roots' subscriptions and frames are untouched, and the
       container stays in the document; React empties it but does not remove it.
     - It destroys no frame, including this root's own: a frame outlives the root
@@ -402,6 +429,11 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
     - `:on-error` fires once per caught error: an event vector is dispatched with the
       error appended, in the frame the boundary is mounted under, and a function is
       called with the error.
+    - Without `:fallback`, a caught error renders nothing where the children were.
+    - It catches throws while rendering, and from lifecycles and effects, below it.
+      A throw from an event handler, a timer or another callback goes to the
+      browser's error channel, and a throw while rendering `:fallback` goes to the
+      next boundary up.
 - **Errors**:
     - `:rf.error/fresco-boundary-unknown-prop` on any other key, so a misspelt option
       cannot leave a boundary that silently reports nothing.
@@ -481,6 +513,10 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
       is combined with your own `:on-mouse-enter`, `:on-focus` or `:on-touch-start`.
       Drop `:prefetch` and dispatch the prefetch by hand from the positions you are
       not using.
+    - The address errors of [`route-url`](re-frame.routing.md#route-url), at render:
+      `:rf.error/no-such-route` for an unregistered `:to`,
+      `:rf.error/missing-route-param` for a missing path param, and the validation
+      errors listed there.
 - **Example**:
   ```clojure
   (h/defview byline [{:keys [author]}]
@@ -574,9 +610,12 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
     - Registering the same concern again replaces all three registrations, so the
       last `:default` wins.
 - **Errors**:
-    - `:rf.error/fresco-state-bad-argument` for an unqualified concern, options that
-      are not a map or carry a key other than `:default`, or a bad instance key at a
-      read, write or clear. The message names the fault.
+    - `:rf.error/fresco-state-bad-argument`, thrown by `reg-state`, for an
+      unqualified concern, or options that are not a map or carry a key other than
+      `:default`. The message names the fault.
+    - A bad instance key raises the same id inside the subscription or event, where
+      the runtime catches it: a read emits `:rf.error/sub-exception` and reads `nil`,
+      and a write or clear emits `:rf.error/handler-exception` and changes nothing.
 - **Example**:
   ```clojure
   (h/reg-state ::open? {:default false})
@@ -609,6 +648,39 @@ a page here:
 The `.server` SSR module, the test kits and the tool namespaces are documented in
 the [Fresco API reference](../core/fresco/api-reference.md).
 
+## Hiccup
+
+A view body returns hiccup. A vector's head is one of:
+
+| Head | What it renders |
+| --- | --- |
+| a tag keyword, symbol or string, such as `:span.label#total` | a DOM element. `.class` shorthand joins `:class`, and `#id` applies when there is no `:id` |
+| `:<>` | a React fragment, reading only `:key` and `:ref` from its props map |
+| a `defview` or `defhost` var, or a head from this namespace or an optional module | that view or component |
+| `:>`, written `[:> Component props? child …]` | an undeclared React component: `defhost` with no options, always client-only and with no fallback |
+
+A child is hiccup, a string or number, a seq (its members splice in place), a
+React element, or a keyword or symbol (rendered as its name). `nil` and `false`
+render nothing. At a native tag, prop keys are camelCased except `aria-*`,
+`data-*` and `--custom` properties; `:class` takes a string, keyword or collection
+of those; a map value such as `:style` gets camelCased keys; and `:ref` reaches
+React untouched.
+
+- **Errors**:
+    - [`:rf.error/fresco-empty-vector`](../core/fresco/troubleshooting.md#fresco-empty-vector):
+      `[]` where hiccup is expected.
+    - [`:rf.error/fresco-bad-head`](../core/fresco/troubleshooting.md#fresco-bad-head):
+      any other head, most often a plain function.
+    - [`:rf.error/fresco-true-child`](../core/fresco/troubleshooting.md#fresco-true-child):
+      `true` as a child, usually a predicate result.
+    - [`:rf.error/fresco-raw-not-a-component`](../core/fresco/troubleshooting.md#fresco-raw-not-a-component):
+      `[:>]` given `nil` or a `defview` or `defhost` var.
+- **Warnings**, on the console in development builds, once per site:
+    - [`:rf.warning/fresco-missing-key`](../core/fresco/troubleshooting.md#fresco-missing-key):
+      a seq of views with no `:key`, passed as a view's children.
+    - [`:rf.warning/fresco-entity-key`](../core/fresco/troubleshooting.md#fresco-entity-key):
+      a view child keyed by a map, vector or other object.
+
 ## Event props
 
 An event prop, named `:on-<event>` or React's `:on<Event>` (`:on-click` and
@@ -622,6 +694,17 @@ An event prop, named `:on-<event>` or React's `:on<Event>` (`:on-click` and
 | an `h/event` callback | called with the event; a returned vector is dispatched. |
 | a plain function | passed to React unchanged. |
 
+- **Errors**:
+    - [`:rf.error/fresco-intent-outside-boundary`](../core/fresco/troubleshooting.md#fresco-intent-outside-boundary):
+      an event vector or key map rendered with no frame in scope, or an `h/event`
+      at an `on*` prop that returns a vector with none. Render the markup under a
+      frame head.
+    - [`:rf.error/fresco-intent-needs-the-event`](../core/fresco/troubleshooting.md#fresco-intent-needs-the-event):
+      a vector carrying `::h/value`, `::h/checked` or `::h/prevent`, a vector at
+      `:on-submit`, or a key map, at a prop whose caller passes something other than
+      the DOM event first, such as `onChange(date)`. Write an `h/event`, which
+      receives every argument. A plain vector with no marker works at any prop.
+
 ## Marker keywords
 
 `::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and `::h/clear` are
@@ -633,7 +716,7 @@ them.
 | --- | --- | --- |
 | `::h/value` | inside an event vector | replaced at dispatch time by the event target's current value, or a vector of the selected values on a `<select multiple>`. On a file input it raises `:rf.error/fresco-file-input-value-marker`; read `.files` in an `h/event` instead |
 | `::h/checked` | inside an event vector | replaced by the target's checked flag |
-| `::h/prevent` | as an event vector's head, wrapping another vector | calls `preventDefault`, then dispatches the wrapped vector: `[::h/prevent [:filter/show-done]]` |
+| `::h/prevent` | as an event vector's head, wrapping another vector | calls `preventDefault`, then dispatches the wrapped vector: `[::h/prevent [:filter/show-done]]`. It wraps exactly one non-empty event vector and does not nest; anything else raises [`:rf.error/fresco-malformed-prevent`](../core/fresco/troubleshooting.md#fresco-malformed-prevent) |
 | `::h/revision` | a prop on a controlled `<input>` or `<textarea>` | a change resets the field to its `:value`, even when `:value` itself did not change. Anywhere else it raises `:rf.error/fresco-revision-not-controlled` |
 | `::h/clear` | as an event id | `[::h/clear concern instance-key]` removes a `reg-state` instance, back to its default |
 

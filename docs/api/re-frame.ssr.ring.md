@@ -57,17 +57,19 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - A non-empty vector of top-level `app-db` keys (keywords) is an allowlist, and the recommended form. Only the listed keys ship in `:rf/app-db`; every other key is dropped, including keys added later.
         - `:rf.ssr.payload/whole-app-db` ships all of `app-db`. Use it only when the whole `app-db` is safe to expose.
         - At construction, an absent value or an empty allowlist throws `:rf.error/ssr-missing-payload-policy`, an unrecognised keyword throws `:rf.error/ssr-unknown-payload-policy`, and an allowlist with non-keyword entries throws `:rf.error/ssr-malformed-payload-allowlist`.
+        - The payload is written as EDN and read back by the browser, so a number the browser would read back as a different value fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path and class: a `Long` or `BigInt` past 2^53, a `BigDecimal`, a `Ratio` or a `Float`, map keys and set members included. Narrow the value (an id to a string, money to integer cents) or leave its key off the allowlist. A symbol whose text contains `</` or `<!` fails with `:rf.error/ssr-edn-script-breakout`. Either failure is projected like a render throw, so the request answers the error page. Under `stream-handler` the final payload is built after the head commits, so the same failure truncates the stream (`:rf.error/ssr-streaming-writer-failed`, `:phase :final-payload`).
     - `:payload-include-sensitive` — a vector of `app-db` paths that the frame classifies `:sensitive` but whose raw value may ship anyway, e.g. `[[:session :csrf]]`. Only paths inside the `:payload` allowlist; without this option every classified value ships as `:rf/redacted`. A malformed value throws `:rf.error/ssr-malformed-payload-allowlist` at construction.
     - `:client-frame-id` — a stable frame id written as the payload's `:rf/frame-id`, for deployments where server and client agree on one ahead of time. Default `nil`, which omits `:rf/frame-id`. Never use a per-request gensym: the client rejects a present and different id with `:rf.error/hydration-frame-id-mismatch`.
     - `:error-view` and `:on-error` — the two failure handlers, described in the table below.
     - `:ssr` — the per-frame `:ssr` config map, e.g. `{:dev-error-detail? true :public-error-id :myapp/projector}`.
     - `:url-strategy` — the per-request frame's `:url-strategy`, passed to `make-frame`, so `route-link` hrefs in the server markup match what the hydrated client produces. A malformed value, an explicit `nil` included, fails the request with `:rf.error/invalid-url-strategy` through `:on-error`.
     - `:fx-overrides` — the per-frame `:fx-overrides` map, passed through as is (e.g. to stub `:rf.http/managed` in tests).
+    - The per-request frame takes no other `make-frame` keys. To ship its error and event records off-box, declare the process default with `(rf/configure! {:observability …})` ([`configure!`](re-frame.core.md#configure)).
     - `:ssr-blocking-timeout-ms` — how long the request waits for the route's blocking resources to settle before it renders; default `5000`. A resource still unsettled at the deadline settles as a first-load failure, so the request never hangs. The handler passes it to [`drain-blocking-resources!`](re-frame.ssr.md#drain-blocking-resources).
     - `:emit-hash?` — stamp the `data-rf-render-hash` marker on the root element and `data-rf-head-hash` on `<head>`; default `true`. It controls only those markers: the payload's `:rf/render-hash`, which the client checks, is written whenever the root is hashable (see `:root-view`).
     - `:version` — the hydration payload's `:rf/version`. It defaults to the SSR artefact's pattern-protocol version (`1`), the value the client's version check expects; set it only to force a mismatch.
     - `:schema-digest` — the hydration payload's `:rf/schema-digest`.
-    - `:html-shell` — `(body-html payload-edn opts) → string`; default [`default-html-shell`](#default-html-shell).
+    - `:html-shell` — `(body-html payload-edn opts) → string`; default [`default-html-shell`](#default-html-shell). `opts` is the handler's options with this request's values in place: `:head` is the resolved head fragment (or your `:head` string), `:html-attrs` and `:body-attrs` come from the head model, and `:head-hash` is set when `:emit-hash?` is on. Write `:head` inside `<head>`, the attribute bags on `<html>` and `<body>`, and the payload as `default-html-shell` does.
     - `:content-type` — replaces the response Content-Type when supplied. It has no default: omit it (the normal case) and the response keeps `text/html; charset=utf-8`, from the runtime's default or from the app's own `:rf.server/set-header "content-type"`. It applies to successful pages only; a projected error page keeps the accumulated Content-Type. See [`handler-defaults`](#handler-defaults).
     - `:head` and `:body-end` — raw HTML strings injected into the envelope verbatim, without escaping. A page normally gets its `<title>` from the active route's `:head`, declared with `reg-head`, and a page with none ships no `<title>`. A `:head` string replaces that resolved head, default viewport meta included, for a static app without routing.
     - `:script-src` (default `"/main.js"`) and `:app-element-id` (default `"app"`) — the bootstrap script's `src` and the app element's `id`, attribute-escaped. `:script-src false` emits no bootstrap `<script src>`, for an app that boots from `:body-end` (for example with a `type="module"` tag).
@@ -75,7 +77,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - A `nil` `:render-hash` omits both the `data-rf-render-hash` marker and the payload's `:rf/render-hash`.
         - A throw is projected like any render-time throw.
         - Omitted, the handler renders locally: resolve `:root-view`, hash, render.
-        - The one other renderer the reference ships is `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([Render on Node](../ssr/concepts.md#render-on-node)).
+        - The one other renderer the reference ships is `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](#renderer)).
         - `stream-handler` rejects this option at construction.
     - `:render-state` is not an `ssr-handler` option. It is a required option of `re-frame.ssr.ring.node/renderer`, and a copy at the handler's top level is ignored. It sets which state that renderer can see: a fail-closed per-partition allowlist of top-level keys, or a `(fn [frame-id] → partitions)` projector, in the same `{:rf/app-db {…} :rf/runtime-db {…}}` envelope as the payload but as a separate policy. [Render on Node](../ssr/concepts.md#render-on-node) explains why the two differ.
 
@@ -84,7 +86,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
     | Aspect | `:error-view` | `:on-error` |
     |---|---|---|
     | Which failure? | A projected 5xx the error projector catches: a drain-time handler / fx / subscription exception, a render-time view throw, or an unrenderable root or shell. | A transport / Ring-layer failure the projector cannot see: a throw while setting up the per-request frame, a throw while materialising headers or cookies, or a thrown initial event. |
-    | What does it produce? | The error-page body (hiccup). Either a registered-view keyword, resolved as `[(rf/view error-view) public-error]` (an unregistered keyword falls back to the default template), or a `(public-error) → hiccup` fn. It renders through the standard SSR emitter, with no app body or hydration payload beside it. | A raw Ring response map `{:status … :headers … :body …}`, returned to the server as is. |
+    | What does it produce? | The error-page body (hiccup). Either a registered-view keyword, resolved as `[(rf/view error-view) public-error]` (an unregistered keyword falls back to the default template), or a `(public-error) → hiccup` fn. It renders through the standard SSR emitter, with no app body or hydration payload beside it. Its HTML is the whole response body: it is not wrapped in `:html-shell`, gets no head from `reg-head`, and has no `<!DOCTYPE html>` added, so return a complete document, `[:html [:head …] [:body …]]`. | A raw Ring response map `{:status … :headers … :body …}`, returned to the server as is. |
     | What is its input? | Only the public-error map, sanitised by the projector and safe to render; never the request, the throwable or the frame. | The raw `(request throwable)`, including the unsanitised throwable. The default never reads it. |
     | Default when omitted? | A minimal default error template. Omitting it does not keep the root body. | A minimal fixed `500` ([`default-on-error`](#default-on-error)) that leaks no internal detail. |
 
@@ -166,6 +168,54 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         wrap-static-assets))
   ```
 
+## Rendering on a Node sidecar
+
+`re-frame.ssr.ring.node` ships the one other `:renderer`. It sends the settled request frame's state to the Node render sidecar and takes back the body markup; the head, payload, shell, status, headers and error projection stay on the JVM. [Render on Node](../ssr/concepts.md#render-on-node) walks through the bundle, the sidecar and deployment.
+
+```clojure
+(:require [re-frame.ssr.ring.node :as node])
+```
+
+### `renderer`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (renderer opts) → (fn [{:keys [frame-id request opts]}] {:body-html … :render-hash nil})
+  ```
+- **Description**: Returns a value for `ssr-handler`'s `:renderer`. It validates `opts` and builds one HTTP client at construction; per request it projects the frame's state under `:render-state`, POSTs it to `<endpoint>/render` and returns the sidecar's body verbatim.
+    - `:render-hash` is always `nil`, so the page carries no `data-rf-render-hash` and no payload `:rf/render-hash`.
+    - The projection applies the handler's `:payload-include-sensitive`, so the markup and the payload agree on a permitted value.
+    - The render module reads the state back with `re-frame.ssr.render-state/deserialize`.
+    - A request waits at most `:timeout-ms` + `:admission-ms` + 500 ms, body included.
+- **Options**:
+    - `:entry` (required) — the bundle entry to render; a non-empty string.
+    - `:build-id` (required) — a non-empty string equal to the server bundle's build id.
+    - `:render-state` (required) — what the render may see: `{:app-db [<keys>] :runtime-db [<keys>]}`, fail-closed allowlists of top-level keys with either slot optional, or `(fn [frame-id] → {:rf/app-db {…} :rf/runtime-db {…}})`. Every value must read back equal through EDN: no fn, record, `#inst`, `#uuid`, ratio, big or float number, or integer past 2^53.
+    - `:endpoint` — the sidecar's absolute `http` or `https` URL; default `"http://127.0.0.1:8148"`. A non-loopback URL is accepted; securing it is the operator's job.
+    - `:args` — root arguments sent as EDN, under the same value rule.
+    - `:timeout-ms` — the render deadline sent to the sidecar; a positive integer, default `1000`.
+    - `:admission-ms` — how long the sidecar may queue the request; a non-negative integer, default `250`. Match the sidecar's `--admission-ms`.
+- **Errors**:
+    - At construction: `:rf.error/ssr-node-renderer-opt-invalid` (ex-data `:opt`, `:got`) for a malformed option; `:rf.error/ssr-missing-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist`, with `:opt :render-state`, for a missing or malformed `:render-state`.
+    - Per request, thrown at the render call. The handler projects each as `:rf.error/ssr-render-failed`, with the id below in its `:exception`, so the request answers the 5xx error page and `:on-error` is not called:
+        - `:rf.error/ssr-node-unreachable` — no HTTP answer: connection refused, connect timeout, an I/O fault.
+        - `:rf.error/ssr-node-deadline` — the render missed its deadline; `:observed-by` is `:sidecar` (its `504`) or `:jvm`.
+        - `:rf.error/ssr-node-refused` — any other non-`200`; carries `:status` and the sidecar's `:refusal` code.
+        - `:rf.error/ssr-node-build-skew` — a `200` whose `x-rf-ssr-build` header is missing or is not `:build-id`.
+        - `:rf.error/ssr-render-state-invalid` — a projected value the EDN wire cannot carry, or a `:render-state` fn that returned a malformed envelope.
+- **Example**:
+  ```clojure
+  (ssr.ring/ssr-handler
+    {:initial-events [[:app/init]]
+     :payload        [:todos]
+     :renderer       (node/renderer
+                       {:entry        "my-app/root"
+                        :build-id     (System/getenv "MY_APP_BUILD_ID")
+                        :render-state {:app-db     [:todos :session]
+                                       :runtime-db [:rf.runtime/routing]}})})
+  ```
+
 ## Defaults and overrides
 
 ### `handler-defaults`
@@ -243,7 +293,7 @@ Not for application code — used by adapters, tools and the test harness.
   ```
 - **Description**: Returns the first streamed chunk: the document open, `<head>`, body open and the app element's open tag, matching `default-html-shell`. It uses the same `:html-attrs` / `:lang` fallback as the non-streaming shell, so the two envelopes cannot diverge.
     - `head-html` — the resolved head fragment.
-    - `opts` — honours `:html-attrs`, `:body-attrs`, `:lang` (default `"en"`), `:app-element-id` (default `"app"`) and `:render-hash`.
+    - `opts` — honours `:html-attrs`, `:body-attrs`, `:lang` (default `"en"`), `:app-element-id` (default `"app"`), `:head-hash` (stamped as `data-rf-head-hash` on `<head>`, omitted when `nil`) and `:render-hash`.
     - When `:render-hash` is supplied (the handler passes it when `:emit-hash?` is true), `data-rf-render-hash` is stamped on the `#app` element, the streamed document's first DOM root, as the non-streaming handler stamps its root element.
 - **Example**:
   ```clojure
@@ -278,7 +328,7 @@ Not for application code — used by adapters, tools and the test harness.
   (cookie->set-cookie-header cookie-map) → Set-Cookie header string
   ```
 - **Description**: Serialises one structured cookie map, the shape `:rf.server/set-cookie` takes, to a `Set-Cookie` header value, per RFC 6265 §4.1. Exposed so tests, other host adapters (Pedestal, http-kit) and one-off callers can serialise a cookie.
-    - `:name` is required. `:value` is URL-encoded, and serialises as the empty string when absent. Every other key (`:max-age`, `:domain`, `:path`, `:expires` as an epoch-millis long, `:secure`, `:http-only`, `:same-site`) becomes an attribute after a semicolon.
+    - `:name` is required. `:value` is URL-encoded, and serialises as the empty string when absent. Every other key (`:max-age`, `:domain`, `:path`, `:expires` as an epoch-millis long, `:secure`, `:http-only`, `:same-site` as `:strict`, `:lax` or `:none`, or a string written verbatim) becomes an attribute after a semicolon.
 - **Errors**:
     - `:rf.error/cookie-missing-name` — no `:name`.
     - `:rf.error/cookie-invalid-name` — a `:name` that is not a string, keyword or symbol, or does not match the RFC 6265 §4.1.1 token grammar.

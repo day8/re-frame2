@@ -48,6 +48,9 @@ written against either pair finds the same frame.
     - An update it observes is a blocking update, as React requires for an external
       store, so it is not transition-aware and is not a way to read a
       promise-driven resource.
+    - An unregistered query reads `nil` and emits `:rf.error/no-such-sub`, and a
+      subscription whose body throws reads `nil` and emits `:rf.error/sub-exception`,
+      as `h/sub` does.
 - **Example**:
   ```clojure
   (defui ticker [{:keys [sym]}]

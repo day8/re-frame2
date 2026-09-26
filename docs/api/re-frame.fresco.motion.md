@@ -49,6 +49,14 @@ the marker keywords and the phase table.
       driven by it alone can race the first paint. Animate entry with a CSS
       animation on insertion or `@starting-style` instead.
     - It dispatches no events of its own when a child enters or leaves.
+    - A phase map is merged over the child's own attributes or props and wins where
+      they overlap, so a `:class` in it replaces the child's `:class`. `:key` and
+      `:ref` in a phase map are ignored.
+    - `nil` and `false` children render nothing and need no key, so
+      `(when show? [:div.banner {:key :banner} …])` is a legal child.
+    - While the page is hydrating, a child already on screen starts in the present
+      phase, so its `::motion/mounting` map is not applied over server-rendered
+      markup.
 - **Errors**:
     - `:rf.error/fresco-presence-timeout-required` when `:timeout-ms` is missing or
       not a positive number.

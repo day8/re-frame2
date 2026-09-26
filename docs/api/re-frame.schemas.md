@@ -37,7 +37,9 @@ In a development build each schema is checked where its data is produced, and a 
 
 Each failure emits an `:rf.error/schema-validation-failure` trace. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it), `:reason` and `:recovery`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`.
 
-Xray shows each failure on the event that caused it. An `app-db` rejection is also reported on the always-on `:errors` stream, so it reaches the frame's `:observability :errors` sinks, or the browser console when no sink handles it. The other three appear only in the trace, so without Xray, tap the trace yourself:
+Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override yields `nil`). `:recovery` is `:skipped` for `:fx-args`, `:replaced-with-default` for `:sub-return` and `:sub-override`, and `:no-recovery` for `:app-db`, `:event` and `:flow-output`.
+
+Xray shows each failure on the event that caused it. An `app-db` rejection is also reported on the always-on `:errors` stream, so it reaches the frame's `:observability :errors` sinks, or the browser console when no sink handles it. The record carries `:error`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the failing value, the leaf path or the schema. The other three appear only in the trace, so without Xray, tap the trace yourself:
 
 ```clojure
 ;; Development only: log every schema failure.
@@ -46,6 +48,8 @@ Xray shows each failure on the event that caused it. An `app-db` rejection is al
     (when (= operation :rf.error/schema-validation-failure)
       (js/console.warn (:where tags) (:failing-id tags) (:reason tags)))))
 ```
+
+A schema form is not checked when it is registered. A malformed one, such as a childless `[:vector]` or an unknown operator, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
 
 When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers).
 
@@ -85,9 +89,11 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
     - Every registered path is checked on every commit, and a path nothing has written yet reads `nil`. So a schema registered before its slice is seeded rejects every commit until the seed lands. Seed all such slices in one `:db` write, or allow the empty state with `[:maybe …]`.
     - This is a development-build assertion. A production build still registers the schema, so `app-schemas` and `app-schema-meta` return it, but never checks it: a violating `app-db` installs with no rejection, rollback or trace. Keep invariants that must hold in production in the handler, and set [`:boundary? true`](#validation-in-production) on the event registration where untrusted input must be validated in production too.
     - The schema is the last positional argument, as in the rest of the `reg-*` family. The optional middle metadata map carries the frame under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys. Without `:frame`, the schema registers against the frame in scope, for example inside `rf/with-frame`.
+    - The frame need not exist yet. A schema registered against a frame id before `make-frame` creates that frame applies once it does, so schemas can be registered at boot ahead of their frames; a mistyped frame id is not detected. Destroying the frame removes its schemas.
     - The path is the registration id. App-db schemas are not a registrar kind: they live in the schemas artefact's per-frame table, and `(schemas/app-schema-meta {:frame f :path [:user]})` looks one up by the same path.
     - `path` is a sequential `get-in` path of concrete segments, normalised to a vector. `[]` registers a schema for the whole `app-db`. Returns the normalised path.
-    - In development builds, re-registering a schema at a path whose live `app-db` value fails the new schema emits an `:rf.schema/violation` warning trace. Registering an opaque compiled schema that the walkers cannot inspect warns once per process with `:rf.warning/schema-walker-opaque`.
+    - In development builds, re-registering a different schema at a path whose live `app-db` value fails it emits an `:rf.schema/violation` warning trace (`:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, `:frame`). `app-db` is left as it is, so every later event that returns `:db` is rejected until one writes a conforming value there or the schema changes again.
+    - A schema the walkers cannot inspect for `:sensitive?` / `:large?` flags warns once per process with `:rf.warning/schema-walker-opaque`: a compiled `m/schema` value, at the root or nested inside a vector form, a local `:registry`, or a `[:ref …]`. A failure against such a schema redacts every value-bearing trace slot, as if the whole schema were sensitive; register the plain vector form to keep per-slot redaction.
 - **Errors**:
     - `:rf.error/app-schema-bad-metadata` — the middle argument of the three-argument form is not a map.
     - `:rf.error/app-schema-bad-path` — the path is not sequential, or has a non-concrete segment.
@@ -120,6 +126,7 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
     - Returns the vector of paths registered, in map-iteration order. `{}` registers nothing.
     - Every path is checked before anything is stored, so a batch with one invalid path (`:rf.error/app-schema-bad-path` or `:rf.error/app-schema-runtime-path`) registers nothing.
     - A `nil` or non-map first argument raises `:rf.error/app-schemas-bad-batch`.
+    - A second argument that is not an opts map, a frame-id keyword or a frame value, or a `:frame` that does not resolve to a keyword frame id, raises `:rf.error/app-schemas-bad-arg`. With no frame named and none in scope the call raises `:rf.error/no-frame-context`. Either way nothing is registered.
 - **Example**:
   ```clojure
   (rf/reg-app-schemas
@@ -168,7 +175,7 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   ```
 - **Description**: Returns the registration metadata for one path in a frame, or `nil` when nothing is registered there.
     - The map contains `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:file`), and any other registration metadata. `(:schema …)` is the schema itself.
-    - Both `:frame` and `:path` are required.
+    - Both `:frame` and `:path` are required. A missing or malformed `:path` raises `:rf.error/bad-path`.
 - **Example**:
   ```clojure
   ;; schema plus the source coords a tool uses to jump to the registration
@@ -189,7 +196,7 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   ```
 - **Description**: Returns one hash over all the schemas registered in a frame, so you can tell whether the set changed without comparing schemas one by one.
     - The format is `"sha256:"` followed by the first 16 lowercase hex characters.
-    - The bytes are the same on every runtime, and a frame with no schemas has a stable digest.
+    - A frame with no schemas has a stable digest. Schemas made only of EDN data digest identically on every runtime. A function inside a schema (`[:map [:n pos-int?]]`) is hashed by the host's name for it, so its digest is stable across restarts of one runtime but differs between the JVM and ClojureScript and can differ between builds; a floating-point value other than a whole number in the safe-integer range carries no cross-runtime guarantee either. An SSR server on the JVM and a browser client therefore report `:rf.ssr/schema-digest-mismatch` for such a schema set; write those constraints as EDN data where the digests must match.
     - It is computed over the `{path → schema}` projection of `app-schemas`, so other registration metadata does not affect it.
     - SSR hydration uses it to check that server and client registered the same schemas.
 - **Example**:

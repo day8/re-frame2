@@ -36,6 +36,7 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
 - **Description**: Registers a flow against a frame and returns `flow-id`. Called as `rf/reg-flow`, which records the call site's source coordinates for tools. `re-frame.flows/reg-flow` is the same registration as a plain function, for code that must `apply` it; it records no source coordinates.
     - `:inputs` is the key `reg-sub` uses, but the entries differ: each is a path into `app-db` (or `runtime-db`), not a subscription query vector. `derive-fn` receives the value at each path as a separate positional argument, in order, not as one vector, and returns the output. It must be pure and deterministic; it runs whenever an input value changes.
     - Inputs are read after the event handler and its interceptors have run, from the state the event is about to commit. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db` (route or machine state), with the partition key stripped before the read. The output always goes to `app-db`.
+    - An effect that writes `app-db` or `runtime-db` while the event's `:fx` run, such as a machine transition or a resource write, lands after that pass. In a frame that has flows, re-frame then queues one `[:rf/settle-flows]` event at the head of the frame's queue, so the flows see the write before the dispatch returns and before any event the same handler dispatched.
     - A handler reads the output as it stood after the previous event. When the handler changes an input, the new output is written after the handler returns, in the same commit.
     - Leave `:output-path` to the flow and change the inputs instead. Nothing stops an event writing the output path directly, but the flow overwrites that value the next time an input changes.
     - A flow registered this way writes its first output during the frame's next event. To have the output in place when a dispatch returns, register with [`:rf.fx/reg-flow`](#rffxreg-flow).
@@ -47,8 +48,8 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
 
     | Key | Required | Notes |
     |---|---|---|
-    | `:inputs` | yes | A vector of paths into `app-db`, or into `runtime-db` when a path starts with `:rf.db/runtime`. The value at each path is passed to `derive-fn` in the same order. |
-    | `:output-path` | yes | Where the output is written in `app-db`. |
+    | `:inputs` | yes | A vector of paths into `app-db`, or into `runtime-db` when a path starts with `:rf.db/runtime`. Each path is a non-empty vector of concrete segments (keywords, strings, symbols, integers, booleans, UUIDs, instants or `nil`), so a flow cannot read the whole `app-db` through `[]`. The value at each path is passed to `derive-fn` in the same order. |
+    | `:output-path` | yes | Where the output is written in `app-db`: a non-empty vector of concrete segments, not starting with `:rf.db/runtime`. It may not overlap another flow's output path in the same frame, or this flow's own `:inputs`. |
     | `:doc` | no | One sentence on what the flow computes and why; shown in tooling. |
     | `:frame` | no | The frame to register against (a frame-id keyword or a frame value). Defaults to the surrounding `with-frame` scope. |
     | `:schema` | no | Malli schema for the output, validated on every recompute in development builds and removed from production builds. A failure emits `:rf.error/schema-validation-failure` with `:where :flow-output`, and the output is still written; the trace points at the bug. Validation goes through the registered validator, so without `re-frame.schemas` loaded the schema is not checked. |
@@ -59,12 +60,16 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
     Malformed `:sensitive`, `:large` or `:large?` values raise `:rf.error/flow-bad-marks`.
 - **Errors**:
     - `:rf.error/invalid-flow-metadata`: `metadata` is not a map, or a `:derive` key sits inside it (the derive function is the third argument).
-    - `:rf.error/flow-missing-id`, `:rf.error/flow-bad-id`, `:rf.error/flow-bad-inputs`, `:rf.error/flow-bad-output`, `:rf.error/flow-bad-path`, `:rf.error/flow-bad-marks`: a malformed id, `:inputs`, `derive-fn`, `:output-path` or classification key.
+    - `:rf.error/flow-missing-id` / `:rf.error/flow-bad-id`: `flow-id` is `nil` / not a keyword.
+    - `:rf.error/flow-bad-inputs`: `:inputs` is not a vector, or an entry is not a non-empty vector of concrete segments; the ex-data's `:bad-entries` lists them.
+    - `:rf.error/flow-bad-output`: `derive-fn` is not a function.
+    - `:rf.error/flow-bad-path`: `:output-path` is not a non-empty vector of concrete segments; `:bad-elements` lists any bad segments.
+    - `:rf.error/flow-bad-marks`: a malformed `:sensitive`, `:large` or `:large?`, or a `:sensitive?` or `:rf.egress/output-sensitivity` key; `:bad-key` names it.
     - `:rf.error/flow-reserved-output-path`: `:output-path` starts with `:rf.db/runtime`. That prefix is only valid in `:inputs`; outputs always write `app-db`.
     - `:rf.error/no-frame-context`: no `:frame` key and no surrounding scope.
     - `:rf.error/flow-frame-not-live`: the target frame is absent or destroyed.
-    - `:rf.error/flow-path-overlap`: `:output-path` is a prefix of, or prefixed by, another flow's output path in the same frame.
-    - `:rf.error/flow-cycle`: the registration would make the frame's flow dependencies cyclic.
+    - `:rf.error/flow-path-overlap`: `:output-path` equals, is a prefix of, or is prefixed by another flow's output path in the same frame. The ex-data's `:overlap` is `{:flow-ids [a b] :paths [path-a path-b]}`; give one of the two a disjoint path.
+    - `:rf.error/flow-cycle`: the registration would make the frame's flows depend on each other in a cycle. Flow B depends on flow A, and runs after it in each pass, when one of B's `:inputs` and A's `:output-path` is a prefix of the other. A flow whose own `:inputs` overlap its `:output-path` is a cycle of one, so `:inputs [[:cart]]` with `:output-path [:cart :subtotal]` is rejected; read the specific keys instead. The ex-data's `:cycle` names the chain with its first id repeated at the end: `[:a :b :a]`, or `[:cart/subtotal :cart/subtotal]` for a cycle of one.
 - **Example**:
   ```clojure
   ;; A runtime-db input (the current route) feeding an app-db output.
@@ -107,9 +112,11 @@ Two reserved fx-ids register and clear flows from an event handler. Both act on 
 - **Payload**: `[flow-id metadata derive-fn]`, the same three arguments `reg-flow` takes.
 - **Description**: Registers a flow in the dispatching frame, which is passed as the `:frame` metadata key. The flow's initial output is written by the time the dispatch returns, so there is no follow-up event to write. Use it to switch a derived value on from an event handler, for example when a feature or a wizard step starts.
     - The flow is evaluated at once, against the state the registering event committed, so `derive-fn` receives `nil` for any input that neither this event nor an earlier one has written.
-    - The `:fx` walk runs after the event's flows have been evaluated, so the walk enqueues one internal settling event on the same frame. Run-to-completion drains it before your dispatch returns.
+    - The `:fx` walk runs after the event's flows have been evaluated, so the walk enqueues one `[:rf/settle-flows]` event at the head of the same frame's queue. Run-to-completion drains it before your dispatch returns. It is an ordinary event in the trace and epoch history; the id is reserved, and `reg-event` refuses it with `:rf.error/reserved-event-id`.
     - The settle is a separate event with its own `app-db` install, so the registering event still installs `app-db` once.
     - If the new flow's `derive-fn` throws, the registering event's `:db` has already been committed and stays. The failure surfaces as `:rf.error/flow-eval-exception` with the usual `:phase` (see [When a flow throws](#when-a-flow-throws)).
+    - A `:frame` key in the payload's metadata is replaced by the dispatching frame.
+    - A registration that `reg-flow` would reject (malformed metadata, an overlap, a cycle) does not throw out of the dispatch. That effect is skipped and its error is reported under its own id, such as `:rf.error/flow-cycle`, on the `:errors` stream and in the trace; the other effects still run and the event's `:db` stands.
     - The settle is idempotent: over a frame that is already settled it recomputes and installs nothing, so dispatching an extra event to update the flows is harmless.
 - **Example**:
   ```clojure
@@ -149,6 +156,19 @@ The error record carries `:where :flow-eval`, `:flow-id`, and a top-level `:phas
 - `:output-write`: `derive-fn` returned, but re-frame could not write the value at `:output-path`, usually because the pending `app-db` holds a container there that cannot take the path's last segment. Fix the `:output-path` or the shape at its parent; the `derive-fn` is not at fault.
 
 The phase is decided by which step threw, never by reading the exception message. It sits at the top level of the record so it survives an egress profile that drops `:exception`. The thrown exception's ex-data carries `:rf.flow/failed-id`, `:rf.flow/failed-phase` and `:rf.flow/output-path`.
+
+## Tracing
+
+Development builds trace each flow's lifecycle. Every `:rf.flow/*` event carries `:flow-id` and `:frame` in its tags; input and output values are elided according to the frame's `:sensitive` / `:large` classification.
+
+| Operation | When | Other tags |
+|---|---|---|
+| `:rf.flow/registered` | A flow is registered in a frame for the first time. | `:inputs`, `:path` |
+| `:rf.registry/handler-replaced` | A registration replaces a flow with a different definition (`:kind :flow`, the flow id under `:id`). | `:frame`, `:different-fn?` |
+| `:rf.flow/computed` | `derive-fn` ran and its result was written. | `:input-values`, `:before`, `:result`, `:path`, `:elapsed-ms` |
+| `:rf.flow/skip` | The inputs were `=` to the last run, so `derive-fn` did not run. | `:reason :inputs-value-equal`, `:input-paths-unchanged` |
+| `:rf.flow/cleared` | A flow was cleared. | `:path` |
+| `:rf.flow/failed` | The flow threw; see [When a flow throws](#when-a-flow-throws). | `:phase`, `:path`, `:exception-message`, `:exception-data`, `:inputs` |
 
 ## Introspection and tooling
 
@@ -190,7 +210,7 @@ Read-only functions over the per-frame flow registry, for the REPL, for tools su
   (flow-meta {:frame f :id flow-id}) → flow-map or nil
   ```
 - **Description**: Returns the registration map of one flow in a frame, or `nil`.
-    - The map is the one `reg-flow` stored: source coordinates (`:ns`, `:line`, `:file`), `:inputs`, `:derive`, `:output-path`, and any classification keys.
+    - The map is the one `reg-flow` stored: `:id`, `:inputs`, `:output-path`, `:derive` (the derive function), every other metadata key except `:frame` (`:doc`, `:schema`, the classification keys), and, for an `rf/reg-flow` call in a development build, source coordinates (`:ns`, `:line`, `:file`).
     - Each frame has its own definition, so the same `flow-id` in two frames returns two different maps.
     - Both keys are required. There is no ambient frame and no positional frame argument (a live frame value is itself a map, so it could not be told apart from the opts). A call without `:frame`, or with a non-map argument, raises `:rf.error/no-frame-context`.
 - **Example**:

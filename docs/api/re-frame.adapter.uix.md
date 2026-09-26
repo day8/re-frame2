@@ -73,7 +73,9 @@ Components are plain `defui` functions that you mount by referring to their Var,
 - **Description**: Returns the current value of the subscription `query-v` and re-renders the component when that value changes. Where `subscribe` returns a subscription, this returns its value. [`re-frame.fresco.native`](re-frame.fresco.native.md#use-sub) publishes the same hook under the same name for React islands under Fresco.
     - The 1-arity reads the frame from React context only: the nearest `frame-provider` (SCOPE) / `frame-root` (ENSURE) above the component. With no boundary above it, it raises `:rf.error/no-frame-context`; there is no fallback to `:rf/default`.
     - A `with-frame` scope around a render does not reach a hook, even when the render is synchronous (under `act()`, `flushSync` or a server render). React may render the same tree later, outside that scope, and the tree must resolve the same frame however the render was driven. `re-frame.fresco.native`'s hooks follow the same rule.
-    - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
+    - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required: a missing or `nil` `:frame` raises `:rf.error/no-frame-context`. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
+    - A query id with no registered subscription emits `:rf.error/no-such-sub`, and a frame that does not exist or has been destroyed emits `:rf.error/frame-destroyed`. In both cases the hook returns `nil`.
+    - Read with `use-sub`, not `rf/subscribe`, in a `defui` body. Dereferencing a subscription in a UIx render does not re-render the component, and the cache reference each `subscribe` call takes is never released. The same holds for the `:subscribe` op in [`use-frame`](#use-frame)'s map.
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -182,9 +184,10 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
 - **Description**: Renders `element`, a React element built with `uix.core/$`, into the DOM element `mount-point` through `handle`: the first call creates the React root, and every later call updates it. Returns nil.
     - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time.
     - Because later calls update the same root, one call serves as both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
-    - `opts` takes `:hydrate?` and `:on-recoverable-error`. When hydrating, the adapter's hydration-mismatch reporter wraps your `:on-recoverable-error` and still calls it. There are no UIx-only keys.
+    - `opts` takes `:hydrate?` and `:on-recoverable-error`, read on the first call only. `:on-recoverable-error` is used only when hydrating, as the root's `onRecoverableError`. In development builds the adapter wraps it: each mismatch React recovers from during hydration first emits the `:rf.ssr/hydration-mismatch` warning trace (`:recovery :warned-and-replaced`, with React's message under `:error`), then calls your callback, or React's default report when you gave none. Recoverable errors after the hydration commit reach only your callback. There are no UIx-only keys.
     - Hiccup or other CLJS data in the element position (a vector, seq or map) raises `:rf.error/hiccup-on-element-render-slot`, on the first render and every later one. Hiccup mounts only on the Reagent adapters.
     - After `unmount!`, or after `rf/destroy-adapter!` has released the root, the next `render!` mounts afresh.
+    - Call `rf/init!` before the first `render!`. `render!` does not check for an adapter, but the first frame or subscription the tree creates raises `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` after `rf/destroy-adapter!`. Install an adapter again before rendering afresh.
 - **Example**:
   ```clojure
   (uix-adapter/render! app-root ($ app-view) el)                   ;; first call: create + render
@@ -233,7 +236,7 @@ The head behaves like the registered component itself:
 
 `rf/view` returns `nil` for an unregistered id.
 
-In development builds, a registered view's root element gets a `data-rf2-source-coord` attribute, which Xray and re-frame2-pair use for click-to-source. Production builds remove it, so it costs no shipped bytes. See [Observability](../core/observability.md).
+In development builds, a registered view's root element gets `data-rf2-source-coord` and `data-rf-view` attributes, which Xray and re-frame2-pair use for click-to-source and view lookup. A view whose root is not a DOM element (a Fragment or another component) gets neither, and logs a one-time `console.warn` naming the view. Production builds remove all of this, so it costs no shipped bytes. See [Observability](../core/observability.md).
 
 ## Controlled inputs and the caret
 
@@ -289,6 +292,7 @@ To use the port instead, set the var yourself after requiring the adapter and be
     - `f` takes the render tree and an opts map, and returns an HTML string.
     - Last call wins; pass `nil` to reset.
     - With no emitter installed, `render-to-string` raises `:rf.error/no-hiccup-emitter-bound`.
+    - `rf/destroy-adapter!` clears the installed emitter. The next `rf/init!` re-installs `re-frame.ssr`'s emitter when that namespace is loaded, and otherwise leaves the slot empty. An emitter you install before `rf/init!` is kept, so install a custom emitter again after re-initialising.
     - The Reagent adapter has the same function.
 - **Example**:
   ```clojure

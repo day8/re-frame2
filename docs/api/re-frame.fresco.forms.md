@@ -54,15 +54,21 @@ the recipes the module leaves to the application.
       revision change, later commits for it do nothing, so Enter followed by blur
       commits once and a blur after Escape commits nothing.
     - `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and `::h/revision`
-      belong to the field. Every other prop reaches the `<input>` unchanged, with
-      `:type` defaulting to `"text"`.
+      belong to the field. The field also writes `:on-input`, `:on-blur` and
+      `:on-key-down` itself, so a value you pass at one of those is replaced. Every
+      other prop reaches the `<input>` unchanged, with `:type` defaulting to `"text"`.
     - Every keystroke writes the draft to `app-db`, which keeps the edit visible to
       tests and Xray. For a dense grid where that is too much, use an uncontrolled
       input or a React component mounted through `h/defhost`.
-    - The protocol is three events in the module's own keyword namespace: `::edit`
-      on `:on-input`, `::commit` on Enter and on blur, and `::cancel` on Escape. They
-      are written into the field rather than exported as names; a test that drives
-      the field by hand spells them through `re-frame.fresco.test.forms`.
+    - The protocol is three events in the module's own keyword namespace:
+      `[::edit control revision text]` on `:on-input` writes the draft;
+      `[::commit control revision on-commit]` on Enter and on blur ends a live draft
+      and dispatches `on-commit` with the text appended; and
+      `[::cancel control revision on-cancel]` on Escape ends a live draft and
+      dispatches `on-cancel`. A commit or cancel carrying a revision other than the
+      draft's does nothing. They are written into the field rather than exported as
+      names; a test that drives the field by hand spells them through
+      `re-frame.fresco.test.forms`.
     - The module has no error ids of its own. A bad `:control` raises `reg-state`'s
       `:rf.error/fresco-state-bad-argument` at the field's first render, and
       `::h/revision` on a non-text field raises

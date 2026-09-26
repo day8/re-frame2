@@ -42,6 +42,7 @@ Both functions are pure data, with no frame, registry or router, and run the sam
         - `:subs` — a vector of the `:rf.sub` trace events (`:rf.sub/run`, `:rf.sub/skip`, `:rf.sub/create`, `:rf.sub/dispose`).
         - `:renders` — a vector of the `:rf.view/render` trace events.
         - `:other` — a vector of everything else: errors, warnings, machine transitions, frame lifecycle, flows. New kinds of trace event also land here, so existing consumers keep working.
+    - A slot with no matching trace event in the input stays `nil`, or `[]` for the vector slots. `:event` is `nil` on the `:ungrouped` bundle, and on a run whose `:rf.event/dispatched` event a ring buffer has already dropped.
 - **Example**:
   ```clojure
   ;; In a test: collect the raw stream while one event runs, then read its bundle.
