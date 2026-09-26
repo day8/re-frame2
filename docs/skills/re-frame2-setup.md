@@ -55,3 +55,4 @@ For build errors a fresh scaffold can hit — `Could not find artifact day8/re-f
 
 - Source: [`skills/re-frame2-setup/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup)
 - `SKILL.md`: [`skills/re-frame2-setup/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md) — its §Reference files section says which reference note each route reads.
+- Reference notes: [`skills/re-frame2-setup/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup/references)
