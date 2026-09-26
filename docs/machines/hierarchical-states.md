@@ -78,8 +78,10 @@ A hierarchical snapshot uses a vector path from the root to the active leaf:
 ;;     :tags  #{:auth/authed}}
 ```
 
-A flat root state is treated as a one-element path internally, but flat machines
-still present a single keyword. `:data` is one shared map, not per-state.
+The machine decides the shape, not the target that reached the state: a
+hierarchical machine at a root-level leaf reads a one-element path (`[:idle]`),
+whether a keyword or a vector target led there, and only a flat machine
+presents a single keyword. `:data` is one shared map, not per-state.
 `:tags` is the union of every active node along the path.
 
 Avoid matching long paths in views. Put `:tags` on states and ask semantic
