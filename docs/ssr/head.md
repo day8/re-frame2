@@ -1,114 +1,124 @@
 # Head metadata — title, meta, OpenGraph, JSON-LD
 
-You know [server render + hydrate](concepts.md). This page is one job: put
-**`<title>`, `<meta>`, OpenGraph, and JSON-LD** on the first byte as pure data from
-app-db — not an imperative DOM API. Crawlers don't run JS. A
-[route](../routing/concepts.md) names the head.
+Crawlers and link unfurlers read the `<title>`, `<meta>` tags and JSON-LD in the first
+response; most of them run no JavaScript. In re-frame2 you register a head function
+that derives that metadata from app-db, and a [route](../routing/concepts.md) names
+which head to use. The Ring handler resolves it for each request and writes it into
+the page's `<head>`.
 
-## Register a head, name it on the route
-
-`reg-head` is on the `rf/` facade. The route opts in via `:head` metadata (path is the
-**third** positional argument — never a metadata key):
+For the articles app, an article page gets its title, description and OpenGraph tags
+from the article it shows:
 
 ```clojure
 (:require [re-frame.core :as rf]
-          [re-frame.routing :as routing]   ;; route-url; also loads reg-route
-          [re-frame.ssr])                  ;; reg-head artefact
+          [re-frame.routing :as rf.routing]   ;; route-url; also loads reg-route
+          [re-frame.ssr :as ssr])              ;; loads reg-head
 
 (rf/reg-head :head/article
-  {:doc "Article-page head — derives title/meta/og from the article."}
+  {:doc "Article page head: title, description and OpenGraph from the article."}
   (fn [db {:keys [params] :as _route}]
-    (let [{:keys [title summary image]} (get-in db [:articles (:id params)])]
-      {:title   (str title " — Example")
-       :meta    [{:name "description" :content summary}
+    (let [{:keys [title summary image]}
+          (some #(when (= (:id params) (:id %)) %) (:articles db))]
+      {:title   (str title " — Articles")
+       :meta    [{:name "viewport" :content "width=device-width, initial-scale=1"}
+                 {:name "description" :content summary}
                  {:property "og:title" :content title}
                  {:property "og:image" :content image}]
-       :link    [{:rel "canonical" :href (routing/route-url {:to :route/article :params params})}]
+       :link    [{:rel "stylesheet" :href "/css/app.css"}
+                 {:rel "canonical" :href (rf.routing/route-url {:to     :articles/show
+                                                                :params params})}]
        :json-ld [{"@context" "https://schema.org"
                   "@type"    "Article"
                   "headline" title}]})))
 
-(rf/reg-route :route/article
+(rf/reg-route :articles/show
   {:params [:map [:id :string]]
-   :head   :head/article}            ;; which head model to use
-  "/articles/:id")                   ;; path is the third slot — not a metadata key
+   :head   :head/article}      ;; which head this route uses
+  "/articles/:id")             ;; the path is the third argument, not a metadata key
 ```
 
-The head fn has the shape of a [sub](../core/glossary.md#subscription) —
-`(db, route) → head-model`, pure, with any subs inside evaluating against static
-app-db.
+Once `:rf/server-init` hands the URL to routing, as in [Reading the
+request](concepts.md#reading-the-request), a request for `/articles/1` renders a
+`<head>` holding the title, the `<meta>` tags, the stylesheet and canonical `<link>`s,
+and a `<script type="application/ld+json">`. A `nil` attribute value, such as a missing
+`:summary`, omits that attribute.
 
-## Rules of thumb
+The head function has the shape of a [subscription](../core/glossary.md#subscription):
+it takes app-db and the matched route, and returns a head model. It must be pure. The
+server calls it once, after the drain has settled app-db, so it sees the same state
+the body renders from.
 
-- **Output order is canonical.** Emitter writes `<title>`, then `<meta>`, `<link>`,
-  `<script>`, JSON-LD; `:html-attrs` / `:body-attrs` populate `<html>` / `<body>`.
-- **One head per route, shared by id.** No parent/child composition in v1 — routes
+## How the head is built
+
+- **Every key is optional.** A head model can carry `:title`, `:meta`, `:link`,
+  `:script`, `:json-ld`, `:html-attrs` and `:body-attrs`. `:meta`, `:link`, `:script`
+  and `:json-ld` are vectors, one map per tag. `:html-attrs` and `:body-attrs` become
+  attributes on `<html>` and `<body>`. [re-frame.ssr.head](../api/re-frame.ssr.head.md)
+  has the full model.
+- **Output order is fixed**: `<title>`, then `<meta>`, `<link>`, `<script>`, and
+  JSON-LD last.
+- **Values are escaped for you.** Text and attribute values are HTML-escaped, and every
+  `<` in a JSON-LD string is re-encoded, so an attacker-supplied article title cannot
+  close the script tag.
+- **`:script` entries are attributes only**, such as `{:src "/js/widget.js"}`. A head
+  model cannot carry an inline script body.
+- **One head per route.** Heads do not compose from parent to child routes; routes
   that want the same metadata name the same head id.
-- **No `:head` is fine.** Default: `<title>` from the frame's `:doc` (none when it
-  has no `:doc`) plus the `viewport` meta. `ssr-handler`'s per-request frame has no
-  `:doc`, so under the handler the default head has no `<title>` — register a head
-  to get one. The page shell always writes
-  `<meta charset="utf-8">` itself, so never put a charset in a head model. A head you
-  register replaces the default, so include the `viewport` meta in it if you want one.
-- **`:script` entries are attributes only** (`{:src "/js/widget.js"}`).
-  A head model cannot carry an inline script body.
-- **Body and head hashes are separate channels.** The body render-tree hash rides
-  `:rf/render-hash` ([when the renders disagree](concepts.md#when-the-renders-disagree));
-  a reconstructible head emits a *separate*, optional `:rf/head-hash` (stamped
-  `data-rf-head-hash` on `<head>`), omitted when the head can't be recomputed — an
-  explicit `:head` string, or a degraded head. The bundled runtime compares only the
-  body hash; it ships **no** automatic head comparison. The head *model* is
-  reconstructible, so a host that wants the check recomputes
-  `(ssr/render-tree-hash (ssr/head-model frame-id))` from the hydrated app-db + route
-  slice and compares it to `:rf/head-hash` itself — that wiring is the host's, not
-  automatic.
-- **Keeping the document head current is the app's job.** There is no DOM-head
-  reconciler in v1. The first byte carries the server-rendered head; refreshing
-  `<title>` / `<meta>` on an SPA route change needs an app- or host-level head
-  manager.
+- **The page shell writes `<meta charset="utf-8">` itself**, so never put a charset in
+  a head model.
 
-!!! warning "JSON-LD escaping is handled for you"
+A route with no `:head` gets a default head: a `<title>` from the frame's `:doc`
+(none when it has no `:doc`) and the `viewport` meta. `ssr-handler`'s per-request frame
+has no `:doc`, so under the handler the default head has no `<title>`; register a head
+to get one. A head you register replaces the default entirely, which is why the example
+above includes the `viewport` meta itself.
 
-    String values inlined into `<script type="application/ld+json">` re-encode every
-    `<` so an attacker-supplied title cannot close the script tag. You write data; the
-    emitter applies the position-correct escape at every leaf.
+## After hydration
 
-## Stylesheets and custom shells
-
-A stylesheet is a `:link` entry like any other, so it belongs in the head model:
-
-```clojure
-:link [{:rel "stylesheet" :href "/css/app.css"}
-       {:rel "canonical"  :href canonical-url}]
-```
-
-Two handler options change where the head comes from, and both need care:
-
-- **`ssr-handler`'s `:head` string replaces the resolved head entirely** — route
-  head, default `<title>` and `viewport` meta alike — and is injected unescaped.
-  Use it only for a static app without routing, and never build it from untrusted
-  input. It also drops the `:rf/head-hash` channel, since there is no model to
-  recompute.
-- **A custom `:html-shell` receives the resolved head as HTML** in its `opts` map
-  under `:head`; put it inside your `<head>`. If you assemble the document yourself
-  outside the handler, `(ssr/head-model->html (ssr/head-model frame-id))` gives the
-  same fragment.
-
-[`ssr-handler`](../api/re-frame.ssr.ring.md#ssr-handler) lists the shell options, and
-[`re-frame.ssr.head`](../api/re-frame.ssr.head.md) the full head model.
+The server writes the head once, into the first response. There is no DOM-head
+reconciler: when the client navigates to another route, nothing updates `<title>` or
+`<meta>`. If your app needs the document head to follow client-side navigation, add an
+app- or host-level head manager that reads the same head model with
+[`ssr/head-model`](../api/re-frame.ssr.head.md#head-model).
 
 ## Troubleshooting
 
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
 | `reg-head` throws at first call | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` |
-| Page renders with an empty `<head>` (no title, no meta) but a normal status | `:rf.error/ssr-head-resolution-failed` — the head fn threw, or the route names an unregistered head; the handler degrades to an empty head rather than failing the page | Read the record's `:exception`; fix the head fn, or register the head the route names |
-| `ssr/head-model` throws when you call it directly | `:rf.error/no-such-head` — the `:head-id` or the route's `:head` names nothing registered | Register the head, or fix the id |
-| Path put in route metadata | `:rf.error/route-bad-metadata` — throws at registration, so the route never registers | Path is the **third** positional arg of `reg-route`, not a metadata key |
-| SPA route change leaves stale `<title>` | No automatic DOM-head reconciler in v1 | App- or host-level head manager after hydrate |
-| Expecting automatic head-hash compare | Runtime compares body `:rf/render-hash` only | Host compares `(ssr/render-tree-hash (ssr/head-model frame-id))` with `:rf/head-hash` if wanted |
+| Page renders with an empty `<head>` (no title, no meta) but a normal status | `:rf.error/ssr-head-resolution-failed`: the head fn threw, or the route names an unregistered head. The handler renders the page with an empty head rather than failing it | Read the record's `:exception`; fix the head fn, or register the head the route names |
+| `ssr/head-model` throws when you call it directly | `:rf.error/no-such-head`: the `:head-id` or the route's `:head` names nothing registered | Register the head, or fix the id |
+| The route never registers | `:rf.error/route-bad-metadata`, thrown at registration: the path was put in the metadata map | The path is the third positional argument of `reg-route` |
+| `<title>` goes stale after a client-side route change | No DOM-head reconciler | Add an app- or host-level head manager ([After hydration](#after-hydration)) |
+| A head mismatch between server and client is never reported | The runtime compares only the body's `:rf/render-hash` | Compare `:rf/head-hash` yourself ([The head hash](#the-head-hash)) |
 
-## See also
+## Advanced
 
-- [Routing concepts](../routing/concepts.md) — route metadata including `:head`
-- [API: reg-head](../api/re-frame.ssr.md) — `reg-head` is on `re-frame.core`; `head-model` and `head-model->html` are on `re-frame.ssr`
+### Custom shells
+
+Two `ssr-handler` options change where the head comes from:
+
+- **A `:head` string replaces the resolved head entirely**: route head, default
+  `<title>` and `viewport` meta alike. It is injected unescaped, so use it only for a
+  static app without routing and never build it from untrusted input. It also drops
+  the `:rf/head-hash` channel, since there is no model to recompute.
+- **A custom `:html-shell` receives the resolved head as HTML** in its `opts` map
+  under `:head`; put it inside your `<head>`. If you assemble the document yourself
+  outside the handler, `(ssr/head-model->html (ssr/head-model frame-id))` gives the
+  same fragment.
+
+[The page shell](concepts.md#the-page-shell) covers the other shell options, and
+[`ssr-handler`](../api/re-frame.ssr.ring.md#ssr-handler) lists them all.
+
+### The head hash
+
+The body and the head are hashed separately. The body's render-tree hash travels as
+`:rf/render-hash`, and the client compares it on hydration ([When the renders
+disagree](concepts.md#when-the-renders-disagree)). A head built from a model also
+emits an optional `:rf/head-hash`, stamped as `data-rf-head-hash` on `<head>`. It is
+omitted when the head cannot be recomputed: an explicit `:head` string, or a head that
+failed to resolve.
+
+The bundled runtime does not compare the head hash. A host that wants the check
+recomputes `(ssr/render-tree-hash (ssr/head-model frame-id))` from the hydrated app-db
+and route, and compares it with `:rf/head-hash` itself.
