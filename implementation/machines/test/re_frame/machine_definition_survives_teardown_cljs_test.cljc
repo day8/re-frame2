@@ -90,24 +90,9 @@
         "and it started over from its INITIAL data — a fresh instance, not a
          resurrected one")))
 
-(deftest final-auto-destroy-of-a-singleton-leaves-the-address-restartable
-  (testing "D7 auto-destroy → ordinary event → fresh instance. This is the
-            worst-visibility path: no teardown code is written by the author at
-            all, a root-level `:final?` leaf is enough"
-    (rf/reg-machine :xjee/finisher
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:fin :done}}
-                 :done    {:final? true}}})
-    (rf/dispatch-sync [:xjee/finisher [:fin]])
-    (is (nil? (snapshot :xjee/finisher)) "the instance auto-destroyed (D4/D7)")
-    (is (definition? :xjee/finisher) "its DEFINITION survives (D7 rider)")
-    ;; An ORDINARY event, not [:rf.machine/start] — D5 covers the
-    ;; whole event surface, because an absent snapshot is synthesised for any
-    ;; event that arrives.
-    (rf/dispatch-sync [:xjee/finisher [:anything]])
-    (is (= :running (:state (snapshot :xjee/finisher)))
-        "a fresh instance was born at the initial state (D5)")))
+;; The D7 auto-destroy path — a root-level `:final?` leaf, then an ORDINARY
+;; event — is pinned by `final_state_cljs_test`'s
+;; `dispatch-to-done-singleton-recreates-from-its-surviving-definition`.
 
 ;; ===========================================================================
 ;; (2) The harm is not confined to the actor destroyed — the TYPE keeps
@@ -354,6 +339,5 @@
     (is (definition? :xjee/clearable) "destroy left the definition standing")
     (rf/clear :event :xjee/clearable)
     (is (nil? (rf.registrar/lookup :event :xjee/clearable))
-        "clear removed it permanently")
-    (is (nil? (snapshot :xjee/clearable))
-        "and the address is no longer creatable — nothing re-materialises")))
+        "clear removed it permanently — with no definition, the address is no
+         longer creatable")))

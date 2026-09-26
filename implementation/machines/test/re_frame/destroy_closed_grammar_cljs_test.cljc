@@ -1,22 +1,24 @@
 (ns re-frame.destroy-closed-grammar-cljs-test
-  "The `:rf.machine/destroy` map-form grammar is a CLOSED
-  discriminated union. Presence of a discriminator key (`:rf/reap` /
-  `:rf/spawn-all`) SELECTS that shape; the shape then requires the value
-  exactly `true` plus the exact coordinate fields/types. Any malformed,
-  overlapping, or unknown map shape emits exactly one
-  `:rf.error/machine-destroy-bad-arg` and performs ZERO mutation — no slot,
+  "The `:rf.machine/destroy` argument grammar is CLOSED. It has exactly three
+  forms: a keyword actor id (the imperative form), the tracked single-`:spawn`
+  map `{:rf/parent-id p :rf/invoke-id i}`, and the `:spawn-all` map
+  `{:rf/spawn-all true :rf/parent-id p :rf/invoke-id i}`. Presence of the
+  `:rf/spawn-all` key SELECTS the `:spawn-all` shape, which then requires the
+  value exactly `true` and the exact coordinate fields. Any other argument — an
+  unknown key set, a false-valued or extra-keyed `:spawn-all` carrier, a
+  tracked form resolving a join slot, a non-keyword non-map — emits exactly
+  one `:rf.error/machine-destroy-bad-arg` and performs ZERO mutation: no slot,
   actor, child, trace, terminal-reply, or ownership change.
 
-  Why presence and not truthiness: a map-shape dispatch testing the
-  TRUTHINESS of `(:rf/reap args)` would let `{:rf/reap false :rf/parent-id p
-  :rf/invoke-id i :rf/child-id c}` fall through to the tracked
-  single-`:spawn` branch. With a `:spawn-all` join at the addressed slot,
-  that branch would read the WHOLE join-state map as the slot's actor id,
-  clear the join slot, leave the real children live and orphaned, and emit a
-  bogus `:rf.machine/destroyed` trace whose actor id is the join-state map —
-  and no bad-arg error. (`destroy-machine-fx`'s `:rf/spawn-all` routing has
-  the same exposure: a truthy test would send `{:rf/spawn-all false …}` to
-  the tracked branch too.)
+  Why presence and not truthiness: routing on the TRUTHINESS of
+  `(:rf/spawn-all args)` would send `{:rf/spawn-all false :rf/parent-id p
+  :rf/invoke-id i}` to the tracked single-`:spawn` branch. With a `:spawn-all`
+  join at the addressed slot, that branch would read the WHOLE join-state map
+  as the slot's actor id, clear the join slot, leave the real children live
+  and orphaned, and emit a bogus `:rf.machine/destroyed` trace whose actor id
+  is the join-state map — and no bad-arg error. A map carrying the join
+  coordinates beside a key no form declares carries the same hazard, so it
+  fails closed too.
 
   The file is named `*-cljs-test.cljc` so it's discovered by both
   cognitect-style JVM runs and shadow-cljs (`cljs-test$` ns-regexp)."
@@ -94,15 +96,16 @@
         (str "no :rf.machine/destroyed fired; saw "
              (mapv :tags (destroyed-traces))))))
 
-;; ---- the join-slot corruption shape: {:rf/reap false …} -------------------
+;; ---- an unknown key set beside live join coordinates ----------------------
 
-(deftest reap-false-carrier-fails-closed
-  (testing "{:rf/reap false + exact coordinates} is a MALFORMED
-            reap carrier: it must emit exactly one
-            :rf.error/machine-destroy-bad-arg and mutate NOTHING. Falling
-            through to the tracked branch would read the join-state map as
-            an actor id, clear the join slot, orphan both live children, and
-            emit a bogus destroyed trace with zero bad-arg errors."
+(deftest unknown-map-shape-fails-closed
+  (testing "a map carrying exact join coordinates beside a key no destroy form
+            declares ({:rf/reap false …}) is outside the closed grammar: it
+            must emit exactly one :rf.error/machine-destroy-bad-arg and mutate
+            NOTHING. Were it routed by its coordinates alone, the tracked
+            branch would read the join-state map as an actor id, clear the
+            join slot, orphan both live children, and emit a bogus destroyed
+            trace with zero bad-arg errors."
     (let [pre-join (reg-join-parent! :dcg/p1 :dcg/p1a :dcg/p1b)]
       (is (map? (:children pre-join)) "live two-child join seeded")
       (rf.machines.test-support/reset-captured!)
@@ -116,61 +119,12 @@
           "the bad-arg error carries stable typed :cause evidence")
       (assert-zero-mutation! :dcg/p1 pre-join))))
 
-;; ---- nil / wrong-typed :rf/reap values -------------------------------------
+;; ---- :spawn-all carriers outside the exact form ---------------------------
 
-(deftest reap-nil-value-fails-closed
-  (testing "{:rf/reap nil …}: presence of :rf/reap selects the
-            reap shape; a nil value is malformed (fail closed, zero mutation)"
-    (let [pre-join (reg-join-parent! :dcg/p2 :dcg/p2a :dcg/p2b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      nil
-                      :rf/parent-id :dcg/p2
-                      :rf/invoke-id [:racing]
-                      :rf/child-id  :a})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p2 pre-join))))
-
-(deftest reap-wrong-type-value-fails-closed
-  (testing "{:rf/reap \"true\" …}: only the exact value true is
-            the reap discriminator; truthy aliases are malformed"
-    (let [pre-join (reg-join-parent! :dcg/p3 :dcg/p3a :dcg/p3b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      "true"
-                      :rf/parent-id :dcg/p3
-                      :rf/invoke-id [:racing]
-                      :rf/child-id  :a})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p3 pre-join))))
-
-;; ---- missing / wrongly-typed coordinates -----------------------------------
-
-(deftest reap-missing-coordinate-fails-closed
-  (testing "a reap missing :rf/invoke-id is malformed"
-    (let [pre-join (reg-join-parent! :dcg/p4 :dcg/p4a :dcg/p4b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      true
-                      :rf/parent-id :dcg/p4
-                      :rf/child-id  :a})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p4 pre-join))))
-
-(deftest reap-wrongly-typed-coordinate-fails-closed
-  (testing "a reap whose :rf/invoke-id is not a path vector is
-            malformed (exact coordinate types, no permissive coercion)"
-    (let [pre-join (reg-join-parent! :dcg/p5 :dcg/p5a :dcg/p5b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      true
-                      :rf/parent-id :dcg/p5
-                      :rf/invoke-id :racing
-                      :rf/child-id  :a})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p5 pre-join))))
-
-;; ---- overlapping discriminators / unknown keys -----------------------------
-
-(deftest overlapping-discriminators-fail-closed
-  (testing "a carrier declaring BOTH :rf/reap and :rf/spawn-all
-            is an overlapping shape: fail closed, zero mutation"
+(deftest spawn-all-carrier-with-an-extra-key-fails-closed
+  (testing "a :rf/spawn-all carrier carrying keys its form does not declare
+            (:rf/reap, :rf/child-id) is outside the closed grammar: fail
+            closed, zero mutation"
     (let [pre-join (reg-join-parent! :dcg/p6 :dcg/p6a :dcg/p6b)]
       (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      true
@@ -193,19 +147,6 @@
                       :rf/invoke-id [:racing]})
       (is (= 1 (count (bad-arg-traces))))
       (assert-zero-mutation! :dcg/p7 pre-join))))
-
-(deftest unknown-extra-key-fails-closed
-  (testing "a well-discriminated reap carrying an EXTRA unknown
-            key is outside the closed grammar: fail closed"
-    (let [pre-join (reg-join-parent! :dcg/p8 :dcg/p8a :dcg/p8b)]
-      (rf.machines.test-support/reset-captured!)
-      (destroy-with! {:rf/reap      true
-                      :rf/parent-id :dcg/p8
-                      :rf/invoke-id [:racing]
-                      :rf/child-id  :a
-                      :rf/extra     1})
-      (is (= 1 (count (bad-arg-traces))))
-      (assert-zero-mutation! :dcg/p8 pre-join))))
 
 ;; ---- tracked form pointed at a spawn-all join slot -------------------------
 

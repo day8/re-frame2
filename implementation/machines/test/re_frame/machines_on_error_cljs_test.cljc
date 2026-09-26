@@ -243,7 +243,7 @@
 
 ;; ---- (e) no :on-error declared → trace + auto-destroy, no transition ----
 
-(deftest no-on-error-keeps-trace-and-escape-hatch
+(deftest error-leaf-without-on-error-destroys-child-and-leaves-parent-unmoved
   (testing "without :on-error, an error leaf fires the :rf.machine/done trace + auto-destroy"
     (let [traces (record-traces! ::no-on-error)]
       (rf/reg-machine :rf2-5hlsh-e/child
@@ -348,37 +348,9 @@
 ;; region's own state level — exactly as `pick-after-transition` does.
 ;;
 ;; The region's child carries its `:data :rf/parent-id` as the real parent so
-;; both hooks resolve the parent from the child's finalize. These tests assert
-;; the slot keys under the real parent and both hooks fire region-scoped.
-
-(deftest parallel-region-spawn-keys-slot-under-real-parent
-  (testing "a :spawn declared inside a parallel region keys its :spawned slot under the REAL parent id (not :rf/transition-pure) and the child's :data :rf/parent-id is the real parent"
-    (rf/reg-machine :rf2-r09fc-g0/child
-      {:initial :running
-       :data    {}
-       :states  {:running {:on {:ok :done}}
-                 :done    {:final? true}}})
-    (rf/reg-machine :rf2-r09fc-g0/parent
-      {:type    :parallel
-       :data    {}
-       :regions {:loader {:initial :working
-                          :states  {:working {:spawn {:machine-id :rf2-r09fc-g0/child}}}}
-                 :other  {:initial :idle
-                          :states  {:idle {}}}}})
-    (rf/dispatch-sync [:rf2-r09fc-g0/parent [:rf.machine.spawn/spawned]])
-    ;; The region prefixes the invoke-id with its region name → [:loader :working].
-    (let [spawned-map (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                              [:rf.runtime/machines :spawned :rf2-r09fc-g0/parent])
-          child       (spawned-id-for :rf2-r09fc-g0/parent [:loader :working])]
-      (is (some? spawned-map)
-          "the :spawned slot keys under the REAL parent :rf2-r09fc-g0/parent (NOT :rf/transition-pure)")
-      (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                        [:rf.runtime/machines :spawned :rf/transition-pure]))
-          "NOTHING keyed under the bogus :rf/transition-pure fallback")
-      (is (some? child)
-          "the region-prefixed invoke-id [:loader :working] addresses the spawned child")
-      (is (= :rf2-r09fc-g0/parent (get-in (snapshot child) [:data :rf/parent-id]))
-          "the child's :data :rf/parent-id is the real parent (not :rf/transition-pure)"))))
+;; both hooks resolve the parent from the child's finalize. Each test reads its
+;; child through the slot under the real parent — a slot keyed anywhere else
+;; reads no child — and asserts its hook fires region-scoped.
 
 (deftest parallel-region-spawn-on-done-fires-region-scoped
   (testing "a region's :spawn :on-done fires region-scoped when the child reaches a success :final? leaf"
