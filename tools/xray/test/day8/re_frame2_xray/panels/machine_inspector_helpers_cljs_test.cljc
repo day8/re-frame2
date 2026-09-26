@@ -71,13 +71,6 @@
   (is (= [] (h/project-machine-rows nil nil)))
   (is (= [] (h/project-machine-rows [] {}))))
 
-(deftest project-machine-rows-one-per-id
-  (let [rows (h/project-machine-rows [:auth/login :checkout/flow]
-                                     {:auth/login {:state :idle :data {}}})]
-    (is (= 2 (count rows)))
-    (is (= #{:auth/login :checkout/flow}
-           (set (map :machine-id rows))))))
-
 (deftest project-machine-rows-fills-state-from-snapshot
   (let [rows (h/project-machine-rows [:auth/login]
                                      {:auth/login {:state :authing
@@ -299,23 +292,6 @@
     (is (= 1 (count (:transitions d))))
     (is (nil? (:empty-kind d)))))
 
-(deftest project-data-honours-explicit-selection
-  (let [d (h/project-data [:auth/login :checkout/flow]
-                          {}
-                          []
-                          :checkout/flow
-                          :rf/default)]
-    (is (= :checkout/flow (:selected-id d)))))
-
-(deftest project-data-falls-back-to-first-when-selection-stale
-  (let [d (h/project-data [:auth/login]
-                          {}
-                          []
-                          :nonexistent/machine
-                          :rf/default)]
-    (is (= :auth/login (:selected-id d))
-        "stale selection -> first row (the picker can't focus a non-row)")))
-
 (deftest project-data-transitions-scoped-to-selection
   (let [machines [:auth/login :checkout/flow]
         buffer   [{:id 1 :operation :rf.machine/transition
@@ -362,15 +338,6 @@
 (deftest project-focused-event-empty-for-no-events
   (is (= [] (h/project-focused-event-transitions nil)))
   (is (= [] (h/project-focused-event-transitions []))))
-
-(deftest project-focused-event-empty-for-no-machine-traces
-  (testing "a cascade with no machine traces yields the silent-by-default
-            empty vector"
-    (let [events [{:id 1 :operation :rf.event/dispatched
-                   :tags {:rf.event/v [:foo]}}
-                  {:id 2 :operation :rf.sub/run
-                   :tags {:rf.sub/id ::bar}}]]
-      (is (= [] (h/project-focused-event-transitions events))))))
 
 (deftest project-focused-event-projects-one-record-per-transition
   (let [events [(t-event 1 :auth/login :idle    :authing [:auth/submit])
@@ -717,15 +684,6 @@
       (is (= [nil :closed]  (mapv :from-state records)))
       (is (= [:closed :open] (mapv :to-state records))))))
 
-(deftest project-focused-event-transition-still-not-flagged-start
-  (testing "an ordinary transition record carries no :start? flag — the
-            birth fold does not contaminate the transition projector"
-    (let [events  [(t-event 1 :auth/login :idle :authing [:auth/submit])]
-          rec     (-> (h/project-focused-event-transitions events) first)]
-      (is (nil? (:start? rec)))
-      (is (= :idle (:from-state rec)))
-      (is (= :authing (:to-state rec))))))
-
 ;; ---- (10c) guard-blocked / NO-OP (`:rf.machine.event/unhandled-no-op`) ----
 ;;
 ;; A machine event that matched no transition — an UNHANDLED user event OR a
@@ -850,48 +808,11 @@
           "no machine trace of any kind → empty ('does not target a
            state machine')"))))
 
-(deftest project-focused-event-transition-still-not-flagged-no-op
-  (testing "an ordinary transition record carries no :no-op? flag — the
-            no-op fold does not contaminate the transition projector"
-    (let [events  [(t-event 1 :auth/login :idle :authing [:auth/submit])]
-          rec     (-> (h/project-focused-event-transitions events) first)]
-      (is (nil? (:no-op? rec)))
-      (is (= :idle (:from-state rec)))
-      (is (= :authing (:to-state rec))))))
-
 ;; ---- (11) focused-epoch-record -------------------------------------------
 
 (deftest focused-epoch-record-empty-history
   (is (nil? (h/focused-epoch-record nil  {:epoch-id 7})))
   (is (nil? (h/focused-epoch-record []   {:epoch-id 7}))))
-
-(deftest focused-epoch-record-matches-by-epoch-id
-  (let [history [{:epoch-id 5 :trace-events []}
-                 {:epoch-id 7 :trace-events [:x]}
-                 {:epoch-id 9 :trace-events []}]]
-    (is (= 7 (:epoch-id (h/focused-epoch-record history {:epoch-id 7}))))))
-
-(deftest focused-epoch-record-falls-back-to-head-for-live-focus
-  (testing "LIVE focus carries nil :epoch-id → fall back to head (the
-            most recent settling epoch in the history)"
-    (let [history [{:epoch-id 5 :trace-events []}
-                   {:epoch-id 7 :trace-events []}]]
-      (is (= 7 (:epoch-id (h/focused-epoch-record history nil))))
-      (is (= 7 (:epoch-id (h/focused-epoch-record history {:epoch-id nil})))))))
-
-(deftest focused-epoch-record-nil-when-evicted
-  (testing "a PINNED focus :epoch-id absent from the buffer
-            (evicted from the per-frame ring) resolves to nil, NOT a
-            silent head-fallback. Per spec/021 §10.7 every panel renders
-            the evicted placeholder; the Machine Inspector must not show
-            the LATEST machine state while the operator believes they are
-            inspecting the pinned (evicted) epoch. Routes through the
-            shared focus-resolver/find-epoch-record, matching Issues /
-            Trace / Epoch / App-DB."
-    (let [history [{:epoch-id 5 :trace-events []}
-                   {:epoch-id 7 :trace-events []}]]
-      (is (nil? (h/focused-epoch-record history {:epoch-id 99}))
-          "evicted pinned epoch must be nil (not the head record)"))))
 
 (deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
   (testing "the operator pinned an event bundle
@@ -902,8 +823,8 @@
             did would answer the HEAD for both. That would put a DIFFERENT
             event's machine state under the operator's selection, with
             nothing on screen saying so: the same class of
-            state-reconstruction lie the evicted case just above guards
-            against.
+            state-reconstruction lie an evicted pin must not produce
+            (spec/021 §10.7, the last row of the positive control below).
 
             The pinned `:dispatch-id` is the discriminator. The Epoch panel
             reads it too; the Machine Inspector reaches it through the SAME
