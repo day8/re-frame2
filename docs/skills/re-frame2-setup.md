@@ -30,6 +30,8 @@ Use a different skill for:
 
 ## Kickoff
 
+You need **Java 21+ and the Clojure CLI**. The skill either writes the files directly or, if you ask for it, runs the deps-new generator; both routes need the CLI, because the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even when launched through npm. The skill checks `java -version` and `clojure -Sdescribe` before writing anything. The deps-new tool itself is needed only for the generator route.
+
 Ask in your own words — *"scaffold a re-frame2 app for me"* — or type `/re-frame2-setup`.
 
 An unqualified request needs no clarification round. You get project `acme/my-app` (namespace `acme.my-app`, build `:app`, dev port `8280`) on the Reagent adapter, at the versions the project template pins. Name the project, a version, "latest", UIx, or the deps-new generator in your request to override the matching default. A name with no `/` is doubled: `my-app` becomes `my-app/my-app`, namespace `my-app.my-app`.
@@ -40,9 +42,9 @@ The skill runs every command itself:
 2. Installs, then runs a terminating `npx shadow-cljs compile app`.
 3. Starts the watch and reports the URL it printed. If 8280 is taken, it moves the port and reports the one the watch actually used. The watch keeps running in the background; stop it when you are finished.
 
-You open the URL and click `+1` to confirm the count advances. Story, the component playground, comes wired at `#/stories`, and the scaffold carries one starter test, which `npm test` runs. Nothing else is set up on day one — schemas, Xray and the rest attach later, on request. Writing further tests, schemas or features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request. Fresco is not a scaffold option: a new project starts on an adapter and can move its views later with [reagent-migration](reagent-migration.md).
+You open the URL and click `+1` to confirm the count advances. Story, the component playground, comes wired at `#/stories`, and the scaffold carries one starter test, which `npm test` runs.
 
-Both routes — writing the files directly or running the deps-new generator — need **Java 21+ and the Clojure CLI**: the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even when launched through npm. The skill checks `java -version` and `clojure -Sdescribe` before writing anything. The deps-new tool is needed only for the generator route.
+Nothing else is set up on day one: schemas, Xray and the rest attach later, on request, and writing further tests, schemas or features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request. Fresco is not a scaffold option: a new project starts on an adapter and can move its views later with [reagent-migration](reagent-migration.md).
 
 ## When it stops
 

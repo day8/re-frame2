@@ -10,6 +10,8 @@ A few rules shape the code it writes. It reads and changes state through `dispat
 
 Its views are written for the Reagent, reagent-slim and UIx adapters. For Fresco, re-frame2's own view layer, it carries a short note on what changes and where Fresco's contract lives; everything upstream of the view is the same either way.
 
+For Story work it can also drive the optional `re-frame2-story-mcp` server's tools for listing, previewing and registering variants; running variants against a live app is a [re-frame2-pair](re-frame2-pair.md) job. The server and its setup are in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md); the skill's side is [`references/tooling/story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md).
+
 ## When to reach for it
 
 Use it for **writing or editing re-frame2 application source** — `.cljs` / `.cljc` files. You don't have to name re-frame2; any of these load it:
@@ -33,11 +35,9 @@ Use a different skill for:
 
 Ask for what you want in your own words, in a project that has the skill installed:
 
-> *Add a `:todo/toggle` event that flips a todo's `:done?` flag, a subscription for the count of open todos, and a test for both.*
+> *Add a `:cart/remove` event that removes an item by id, a subscription for the number of items in the cart, and a test for both.*
 
 The skill loads itself on requests like that. To load it explicitly, type `/re-frame2`.
-
-For Story work it can also drive the optional `re-frame2-story-mcp` server's tools for listing, previewing and registering variants; running variants against a live app is a [re-frame2-pair](re-frame2-pair.md) job. The server and its setup are in [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md); the skill's side is [`references/tooling/story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md).
 
 ## When it stops
 
