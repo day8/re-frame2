@@ -221,8 +221,9 @@ after `path`, it would see only the focused `:todos` map and find no `:todos` ke
 it.
 
 The `[id arg]` form works for any parameterized interceptor: the id names a
-registered factory and `arg` configures it. There is no `rf/path` function; every
-chain entry is a keyword or an `[id arg]` vector.
+registered factory and `arg` configures it. There is no `rf/path` function: calling
+it throws `:rf.error/path-removed`. Every chain entry is a keyword or an `[id arg]`
+vector.
 
 Two edge cases:
 
@@ -501,7 +502,9 @@ other chain errors also [fail loud](glossary.md#fail-loud-not-silent):
 | `:rf.error/unregistered-interceptor` | Referenced an id with no registration |
 | `:rf.error/invalid-interceptor-ref` | Wrote a chain entry that is neither a keyword nor an `[id arg]` vector |
 | `:rf.error/inline-interceptor-removed` | Put an interceptor map, value, or Var in a chain instead of an id |
-| `:rf.error/interceptor-factory-arity` | Used a bracket reference on a non-`:factory` interceptor, or the factory can't build for that argument |
+| `:rf.error/interceptor-factory-arity` | Used a bracket reference on a non-`:factory` interceptor, referenced a `:factory` interceptor as a bare keyword (`:rf.interceptor/path` with no argument), or the factory can't build for that argument |
+| `:rf.error/reg-event-bad-middle-slot` | Passed the chain positionally, `(rf/reg-event :id [:todo/persist] f)`, instead of as `{:interceptors [:todo/persist]}` |
+| `:rf.error/reg-event-bad-interceptors` | Gave `reg-event`'s `:interceptors` a value that isn't a vector, or an entry that isn't a reference |
 | `:rf.error/path-interceptor-bad-path` | Gave `[:rf.interceptor/path …]` a path that isn't a vector |
 | `:rf.error/interceptor-override-invalid` | Used an `:interceptor-overrides` key or replacement that isn't a valid reference |
 

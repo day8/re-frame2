@@ -23,6 +23,11 @@ or what happened (`:todo/added`), rather than how a view is built
 Timers, HTTP replies, route loaders, and button clicks all use this same shape, so
 tools can show everything that happened to the app as one list of events.
 
+Keep the payload plain data. A function, promise, DOM node, `js/Date` or `js/RegExp`
+in an event draws a `:rf.warning/non-serialisable-event-payload` development warning,
+because replay and the event history treat an event as a value. Pass an id or a plain
+value instead.
+
 ## Dispatch
 
 You send an event with `dispatch`. Inside a `reg-view`, `dispatch` (and
@@ -100,9 +105,13 @@ The handler rules:
 3. **The runtime commits.** Your function returns the next value; the pipeline
    writes it.
 
-A handler may return other effect keys (`:fx`, …) alongside or instead of `:db`.
-It may return no `:db` and leave state alone. The state rules live on
-[app-db](app-db.md); effects other than `:db` are covered in [Effects](effects.md).
+A handler returns `:db`, `:fx`, both or neither; with no `:db`, state is left alone.
+The top level of the effect map is closed. Returning app-db itself instead of
+`{:db …}` puts your own keys there, and a key the runtime does not know refuses the
+event with `:rf.error/effect-map-shape`, committing nothing. Returning `nil` does
+nothing, so a body wrapped in `when` is fine; any other non-map return reports
+`:rf.error/effect-handler-bad-return`. The state rules live on [app-db](app-db.md);
+effects other than `:db` are covered in [Effects](effects.md).
 
 ### Metadata when you need it
 
@@ -111,12 +120,21 @@ a `:doc` string, a payload `:schema`, required coeffects, interceptors. Until yo
 need that, the two-argument form is enough. [Coeffects](coeffects.md) shows the first
 metadata you are likely to use.
 
+Without a `:doc`, the development build emits `:rf.warning/missing-doc` once per
+handler, because tools show it. A plain key `reg-event` does not recognise, such as
+`:interceptor`, draws a
+`:rf.warning/unknown-registration-key` development warning and is ignored. Namespaced
+keys are not checked, so a misspelt `:rf.cofx/require` is silently ignored and its
+fact never arrives.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Button "does nothing" | You dispatched an id nobody registered | The runtime reports `:rf.error/no-such-handler` naming the id and skips the event. Register the handler or fix the typo |
 | Callback throws from a timer / fetch | Bare `dispatch` outside a frame | `:rf.error/no-frame-context`. Capture the frame ([Frames](frames.md)) |
+| Click does nothing and app-db is unchanged | The handler threw | `:rf.error/handler-exception`; nothing was committed. Fix the handler ([Errors](errors.md#a-handler-throws)) |
+| Handler gets no payload | The payload went in the options map: `(rf/dispatch [:todo/add] {:title "x"})` | The runtime warns `:rf.warning/unknown-dispatch-opt`. Put the payload in the event, `(rf/dispatch [:todo/add {:title "x"}])`; the second argument takes options such as `:frame` |
 | Handler can't be unit-tested | You called `js/fetch` / read the clock inside the body | Return the request as an effect ([Effects](effects.md)); declare the clock as a coeffect ([Coeffects](coeffects.md)) |
 
 An unregistered id is reported rather than thrown so that one missing handler, for

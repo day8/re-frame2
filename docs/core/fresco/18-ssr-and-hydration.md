@@ -379,6 +379,7 @@ adding SSR later needs no view changes.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A `:rf.ssr/hydration-mismatch` warning appears in development | Server and first client render differed, often because a body read a clock, random value, or browser global | Keep bodies deterministic; move platform work to client effects or host edges |
+| Hydration reports a mismatch and the server markup is replaced | The adopting tree uses `h/frame-root`, whose first render is empty | Make the frame with `rf/make-frame`, then adopt under `[h/frame-provider {:frame …}]` |
 | Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's adopting `h/render!` |
 | An adopting `h/render!` throws `:rf.error/frame-provider-frame-absent` | `rf/make-frame` was skipped, so `h/frame-provider` names a frame that does not exist | Create the frame, then install the payload, then adopt the DOM |
 | Client-only widget shows a skeleton, then swaps to the live widget | The Client-only policy is working | Use a same-size fallback, or select Render only when the component is truly server-safe |

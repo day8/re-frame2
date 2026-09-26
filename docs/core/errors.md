@@ -71,6 +71,12 @@ release bundle. Errors that must reach a monitor in production go through a sepa
 always-on channel with a smaller record, described at the end of
 [Test the structure, not the string](#test-the-structure-not-the-string).
 
+Xray shows every record. Without it, a development build in the browser prints an
+error that reaches no `:errors` sink or listener with `console.error`: `[re-frame2]`,
+the category and its reason, then the record. Warnings are never printed; read them
+in Xray or with a `:trace` listener ([Observability](observability.md)). On the JVM
+and Node nothing is printed.
+
 ## Categories
 
 There are dozens of categories, covering handlers, subscriptions, effects, coeffects,

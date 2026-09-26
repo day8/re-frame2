@@ -68,6 +68,13 @@ the value, handler, key, and revision slots remain owned by the field.
 
 Use an address that identifies the form instance and field. Two fields with
 the same address intentionally share a draft, which is usually a bug.
+`:control` is required: a missing or `nil` address is refused at the field's
+first render, reported as `:rf.error/sub-exception` whose cause is
+`:rf.error/fresco-state-bad-argument`.
+
+`buffered-field` always renders an `<input>`, with `:type` defaulting to
+`"text"`. For multi-line text, use a controlled `:textarea` with the
+draft-in-app-db pattern [below](#gate-validation-by-interaction).
 
 ## Accept, reject, or rewrite a candidate
 

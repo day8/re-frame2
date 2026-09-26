@@ -148,6 +148,11 @@ first step.
 including any events it dispatches, before the next starts, so setup is done by the
 time the frame is created.
 
+If a step fails (its handler throws, it has no handler, or a declared coeffect is
+missing), construction stops: the partial frame is destroyed and `make-frame` or
+`frame-root` throws `:rf.error/initial-events-step-failed`, naming the step's
+`:step-index` and `:event`.
+
 ## When you want more than one
 
 The cases where you need several frames, roughly in the order you'll meet them:
@@ -189,7 +194,8 @@ There are two frame-boundary components:
 - **`frame-root {:id …}`** creates the frame if it doesn't exist and reuses it if it
   does. Use it at the root of an app and for a view that brings its own frame, such
   as a Story canvas or an embedded widget. Given `:frame` instead of `:id`, it raises
-  `:rf.error/frame-root-given-frame`, naming `frame-provider`.
+  `:rf.error/frame-root-given-frame`, naming `frame-provider`. Without `:id`, or with
+  an id that isn't a keyword, it raises `:rf.error/frame-root-missing-id`.
 - **`frame-provider {:frame …}`** makes an existing frame current for a subtree. It
   creates and destroys nothing. Use it when the frame already exists, because an
   enclosing `frame-root` or a `make-frame` call ([below](#the-rest-of-the-frame-config))
@@ -412,8 +418,9 @@ Construction throws `:rf.error/bad-frame-classification` before any setup runs i
 config carries `:sensitive` or `:large` (those belong on handler effects; see
 [data classification](glossary.md#data-classification)) or a malformed
 `:observability` entry. A shape mistake such as `{:initial-events [:todo/initialise]}`,
-a bare event instead of a vector of steps, is rejected the same way, with a message
-naming the fix (`[[:todo/initialise]]`).
+a bare event instead of a vector of steps, is also rejected before any setup runs,
+with `:rf.error/initial-events-bare-event` and a message naming the fix
+(`[[:todo/initialise]]`).
 
 As an app author you call `init!` once and create frames.
 `re-frame.substrate.adapter/install-adapter!`, `rf/destroy-adapter!`, and the

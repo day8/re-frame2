@@ -106,7 +106,10 @@ another implementation doing an isolated operation faster.
 
 The narrow-update row needs both counters. A parent that rebuilds every row
 for a one-row change does that work inside one body, so counting view bodies
-alone reports a pass.
+alone reports a pass. Count bodies in a mounted test with
+`(hm/bodies-run #(hm/dispatch-and-settle! m [:todo/rename 7 "x"]))`, which
+returns how many view bodies ran. Settle inside the function, or the count is
+short.
 
 !!! note "Measure production behaviour"
     Use production builds, mid-tier hardware, and p95 across repeated runs.

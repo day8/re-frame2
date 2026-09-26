@@ -37,6 +37,9 @@ four guarantees:
    normalized value, and rejected input returns to the unchanged model value.
 3. **Caret and selection are preserved** when the model rejects or rewrites an
    edit, including edits in the middle of a string. The node is not remounted.
+   This applies to `text`, `search`, `url`, `tel` and `password` inputs and to
+   textareas. `email` and `number` inputs expose no selection to scripts, so a
+   handler that rejects or rewrites an edit there leaves the caret at the end.
 4. **IME composition is not interrupted.** Keyboard maps do not treat
    composition Enter or Escape as application commands, and a model correction
    waits until the composition closes.
@@ -81,6 +84,10 @@ platform value:
 | `:select` | `:value` on the select | `:on-change` with `::h/value` |
 | `:select` with `:multiple` | `:value` as a vector of the selected option values | `:on-change` with `::h/value`, which carries that same vector — `[]` when nothing is picked |
 | File input | no controlled value | `:on-change` with `h/event`, reading `.files` |
+
+A `nil` `:value` on a text-like input or a textarea shows an empty field, and
+the field stays controlled, so a draft subscription may return `nil` before the
+first edit.
 
 ```clojure
 [:select {:value     (h/sub [:todo.ui/priority])
@@ -199,7 +206,7 @@ commits on Enter or blur and cancels on Escape.
 | Symptom | Error or cause | Fix |
 | --- | --- | --- |
 | Fast typing drops characters | The controlled write was deferred through a timer, debounce, queued effect, or promise | Commit the field value synchronously. Debounce downstream consumers, not the write |
-| The caret moves to the end after each accepted/rejected edit | The normal controlled path failed to preserve selection | Treat this as a runtime bug and report it; do not remount or add a second writer |
+| The caret moves to the end after each accepted/rejected edit | On an `email` or `number` input, expected: those types expose no selection. Otherwise the normal controlled path failed to preserve selection | On other types, treat this as a runtime bug and report it; do not remount or add a second writer |
 | Enter commits unfinished composition text | A custom key handler bypassed Fresco's keyboard map | Use the data keyboard map so IME checks run centrally |
 | A rejected edit kills the active composition | Another writer changed the DOM value during composition | Find the ref, foreign script, or uncontrolled sibling writing the same field; a controlled field must have one writer |
 | IME text briefly lands stale and then corrects | The app-db write was deferred beyond the input turn | Keep the controlled write synchronous. The composition survives, but a deferred model update arrives late |

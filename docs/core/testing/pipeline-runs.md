@@ -65,12 +65,16 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
 ```clojure
 ;; test/my_app/sync_test.clj
 (ns my-app.sync-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.test-support :as http-test-support]   ;; test-only; never in production requires
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]
             [my-app.todos]    ;; :todo/add, :todo/toggle, :todo/set-showing, …
             [my-app.sync]))
+
+;; Installs the headless adapter every frame needs and resets the runtime per test.
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest fetch-happy-path
   (rf/with-new-frame [f (rf/make-frame {})]
@@ -95,7 +99,7 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
         (is (= :rf.http/http-5xx (:sync-error  (rf/app-db-value f))))))))
 ```
 
-Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler updates state.
+Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler updates state. The reset fixture is the one [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) explains; without its `:adapter`, `make-frame` throws `:rf.error/no-adapter-installed`.
 
 ### Supply the facts: `{:rf.cofx {...}}`
 
@@ -118,6 +122,8 @@ One table can hold several routes. A request is matched on its `:request :method
     ;; ... dispatch the events whose handlers fire those three requests ...
     ))
 ```
+
+The URL is matched as the request map spells it, before `:params` are appended, so key a request carrying `:params {:page 2}` by its base URL, `"/api/todos"`.
 
 A request that matches no route is answered with a `:rf.http/transport` failure tagged `"no stub matched"`, through the normal `:on-failure` path. The miss shows up in your failure handler's state, where the next assertion catches it, so the table must name every request the path under test fires.
 
@@ -172,9 +178,11 @@ An override value is either another registered fx id (a keyword) or a function `
 ;; the args map to change it.
 ```
 
+A keyword override must name a registered effect. `:rf.http/managed-canned-success` is registered by `re-frame.http.test-support`; without that require, the runtime emits `:rf.error/override-fallthrough` and runs the real `:rf.http/managed`, so the test fails with a transport error instead of the stubbed reply.
+
 !!! warning "Gotcha: frames isolate `app-db`, not registrations"
 
-    Handlers live in the process-global [registrar](../glossary.md#registrar). If your tests call `rf/reg-event` themselves rather than requiring app namespaces, add `(use-fixtures :each (ts/make-reset-runtime-fixture))` to the file so one test's registrations can't leak into the next. See [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations).
+    Handlers live in the process-global [registrar](../glossary.md#registrar). The reset fixture in the test namespace above restores it after each test, so keep it whenever your tests call `rf/reg-event` themselves; without it, one test's registrations leak into the next. See [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations).
 
 ### The `:test` preset
 
@@ -187,7 +195,7 @@ Most test frames want HTTP redirected to a stub and generated facts strict. `{:p
   (is (= :loaded (:sync-status (rf/app-db-value f)))))
 ```
 
-The preset expands to `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`, `:rf.cofx/mint-policy :strict` and `:drain-depth 100`, the framework default. The canned stub is registered by `re-frame.http.test-support`, which the test namespace above already requires. Your own keys win over the expansion. Use `with-request-stubs` when a test needs different replies per route.
+The preset expands to `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`, `:rf.cofx/mint-policy :strict` and `:drain-depth 100`, the framework default. The canned stub is registered by `re-frame.http.test-support`, which the test namespace above already requires. Your own keys win over the expansion, key by key rather than deep: a frame that passes its own `:fx-overrides` replaces the preset's, HTTP redirect included. To keep both, add the redirect to your map, `{:preset :test :fx-overrides {:todo.storage/save (fn [_ _] nil) :rf.http/managed :rf.http/managed-canned-success}}`. Use `with-request-stubs` when a test needs different replies per route.
 
 ## Asserting on what would dispatch
 
@@ -288,6 +296,8 @@ Every opt on this page changes something around the handler, never the handler f
 | `:rf.cofx/mint-policy` | whether an unsupplied generated fact is produced (`:explicit-live`) or raises an error (`:strict`) |
 | `:fx-overrides` | what performs the effects the handler returns |
 | `:interceptor-overrides` | which interceptors are removed or replaced for this dispatch |
+
+A key the runtime does not know is ignored. A dev build emits `:rf.warning/unknown-dispatch-opt` naming it, so a misspelt `:rf/cofx` shows up in the trace rather than as a test running on the live clock.
 
 Because the handler itself can't be replaced, a passing test says that the production handler, given those inputs, returns those effects. Replaying recorded events with their recorded inputs therefore computes the same state production computed.
 

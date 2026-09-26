@@ -48,6 +48,7 @@ You never construct these; the runtime emits them and you, or a tool, read them.
 | `:rf.cofx` | A [coeffect](glossary.md#coeffect) was injected. |
 | `:rf.frame` | A frame was created or destroyed. |
 | `:rf.registry` | A handler was registered. |
+| `:rf.epoch` | An epoch was recorded or restored, or frame state was replaced. |
 | `:error` / `:warning` / `:info` | Something failed, is suspect, or is worth noting. [Errors](errors.md) covers the error records. |
 
 `:operation` is the specific emit site within a family, such as
@@ -165,6 +166,10 @@ Set the depth with `configure!`:
 (rf/configure! {:trace-buffer {:events-retained 50}})   ;; the default
 ```
 
+`:events-retained` is the only key. Any other shape, such as `{:depth 50}` borrowed
+from `:epoch-history` below, leaves retention unchanged and emits
+`:rf.warning/trace-buffer-unrecognised-opts`.
+
 That sets the process default; a frame can set its own with
 `:rf.trace/events-retained` in its frame config. `{:events-retained 0}` turns
 retention off while listeners keep firing. `(rf/clear-trace-buffer! :app)` empties
@@ -252,7 +257,9 @@ after projection: `(-> record rf/project-egress my-scrub)`.
 The only other listener stream is `:epoch`. It delivers one epoch record per run,
 after the run settles. Use it when you think in runs rather than in individual trace
 events. It needs the `day8/re-frame2-epoch` artefact; without it,
-`register-listener!` returns `nil` for this stream.
+`register-listener!` returns `nil` for this stream. Any other stream name, such as
+`:errors`, throws `:rf.error/unknown-listener-stream`; production errors reach you
+through a sink ([below](#consuming-production-telemetry-declare-a-sink)).
 
 ```clojure
 (rf/register-listener! :epoch
@@ -334,6 +341,13 @@ A frame names its sinks in its `:observability` config (`:errors` for error reco
   (fn [record]                 ;; already projected through the frame's
     (sentry/capture record)))  ;; classification; no scrubbing needed
 ```
+
+A sink id with no registered function receives nothing; in a development build, an
+error record no sink handled is printed to the console instead. A sink that throws is
+dropped for that record, and the other sinks still receive it. A typo in the
+`:observability` map (an unknown stream key such as `:error`, an unknown entry key, or
+an unknown `:rf.egress/profile`) throws `:rf.error/bad-frame-classification` from
+`make-frame`, or from `configure!`, before anything is installed.
 
 Most apps declare the policy once for the process instead:
 

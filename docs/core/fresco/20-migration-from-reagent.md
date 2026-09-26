@@ -328,6 +328,15 @@ real behaviour rather than one happy click. Before trusting the comparator,
 break the candidate on purpose and confirm the run turns red at the expected
 checkpoint.
 
+A step is `{:click selector}` or `{:type [selector text]}` and nothing else.
+Another verb or option raises `:rf.error/fresco-test-bad-option` before
+anything mounts, and a step whose selector matches nothing, or matches only one
+side, is itself a red (`:kind :script`), so a typo cannot pass. Each step
+settles synchronously, so a route-link navigation, an HTTP reply or a
+`:dispatch-later` lands after the checkpoint that would have seen it. Seed the
+settled state instead, or check the async flow in a mounted test with
+`hm/settle-until!`.
+
 Omit `:script` during interactive development. The call returns a handle, both
 mounts stay live, and nothing is compared until you ask: drive both by hand,
 call `:checkpoint!` at each point you want compared, and `:stop!` when done.

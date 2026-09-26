@@ -61,8 +61,14 @@ The options:
   panel before first paint. It is an ordinary prop: change it while the panel
   is open (one shared menu reused for a newly selected row) and the panel
   re-anchors in the same commit without leaving the top layer.
-- **`:placement`** accepts positions such as `:bottom-start`, `:bottom-end`,
-  `:top-start`, and `:right`.
+- **`:placement`** is `:top`, `:bottom`, `:left` or `:right`, optionally
+  suffixed `-start` or `-end` (`:bottom-start`). Any other value goes through as
+  a raw CSS `position-area`, so a misspelt keyword opens the panel at the
+  browser's default position with no error.
+
+Every other key is an ordinary attribute on the panel, a `<div popover>` or a
+`<dialog>`: style it with `:class`, `:style` or `:id`. `:label` sets
+`aria-label` on either head.
 
 The panel stays in the same React tree and frame as its trigger and uses the
 same subscriptions. The top layer changes only paint order, so ancestor
@@ -339,6 +345,7 @@ to the next library. The top-layer primitives remove those failure classes.
 | --- | --- | --- |
 | Panel is clipped by `overflow: hidden` or appears under a sticky header | It is an ordinary positioned element, not a top-layer overlay | Render it through `overlay/popover` |
 | Outside click closes the popover, and the next click on the trigger does nothing | `:on-dismiss` ran but the handler left the app-db flag true. The element is still mounted and closed, `showPopover` runs only when it mounts, and setting a flag that is already true changes nothing | Set the open flag false in the dismiss handler |
+| Escape and outside clicks do nothing | The overlay has no `:on-dismiss`, so the browser is told not to dismiss it | Give it an `:on-dismiss` event that sets the open flag false |
 | Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
 | Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
 | `:rf.error/fresco-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries: a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |

@@ -79,7 +79,7 @@ The flag is read once, when `re-frame.interop` loads, so set it at process level
 
 ## 4. Where settings live
 
-Dev-side configuration lives in three places, sorted by the lifetime of what you configure. Each option has exactly one place, so there is never a question of where a setting comes from.
+Dev-side configuration lives in three places, sorted by the lifetime of what you configure. A setting that makes sense at two lifetimes has a place at each: `:observability` for the process and for one frame (the two combine per stream), and trace retention for the process (`:trace-buffer`) and for one frame (`:rf.trace/events-retained`).
 
 | Lifetime | Surface | What lives there |
 |---|---|---|
@@ -102,6 +102,8 @@ Dev-side configuration lives in three places, sorted by the lifetime of what you
 A missing top-level key leaves that subsystem untouched, so you can pass one setting, such as `(rf/configure! {:trace-buffer {:events-retained 200}})`, or all four at once.
 
 An unknown top-level key applies nothing. In dev builds, an unknown bare (or `rf`-namespaced) key such as `:epoch-histroy` also emits `:rf.warning/unknown-configure-key`, naming what you typed and the keys the runtime reads; the call still returns `nil`. A key under your own namespace (`:myapp/thing`) is silent, so a wrapper can pass its own keys through in the same map. The argument itself must be a map: a vector or `nil` throws `:rf.error/configure-bad-arg` in every build.
+
+Inside a key, only `:trace-buffer` checks what you pass: anything but a non-negative `:events-retained`, including `{:depth N}`, emits `:rf.warning/trace-buffer-unrecognised-opts` in dev and changes nothing. `:epoch-history` drops an invalid value or an unknown key without a warning, and `:elision` drops an unknown key the same way. Read back what took effect with `(rf/current-config)`, which returns the same nested shape.
 
 The four keys:
 
@@ -138,9 +140,9 @@ Most apps don't need this frame key: declare the policy once with `(rf/configure
 
 ??? info "Coming from React?"
 
-    There are no `.env` files or scattered `process.env` reads. Configuration is split by lifetime: process-wide data through `configure!`, swappable implementations through their setters, and per-frame overrides on the frame, so no key has two owners.
+    There are no `.env` files or scattered `process.env` reads. Configuration is split by lifetime: process-wide data through `configure!`, swappable implementations through their setters, and per-frame overrides on the frame.
 
-If the setting you want isn't listed here, it doesn't exist. The full catalogue is [`configure!` in the API reference](../../api/re-frame.core.md).
+The frame config accepts more keys than this page covers, such as `:preset` and `:rf.cofx/mint-policy`. The full catalogues are `configure!` and `make-frame` in the [API reference](../../api/re-frame.core.md).
 
 ## 5. The guardrails you can't turn off
 

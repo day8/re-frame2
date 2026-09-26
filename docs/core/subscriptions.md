@@ -280,7 +280,8 @@ with [Xray](glossary.md#xray) attached ([Debug with Xray](../xray/index.md)), cl
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| A sub reads `nil` and `:rf.error/no-such-sub` is reported | The id is not registered: a typo, or its namespace hasn't loaded | Fix the id or require the namespace; the next subscribe after registration builds normally |
+| A sub reads `nil` and `:rf.error/no-such-sub` is reported | The id is not registered: a typo, or its namespace hasn't loaded. An `:inputs` entry naming an unregistered sub reports it too; that input arrives as `nil` and the body still runs | Fix the id or require the namespace; the next subscribe after registration builds normally |
+| A sub reads `nil` and `:rf.error/sub-cycle` is reported (development builds) | Its `:inputs` chain leads back to itself; `:cycle` names the loop, e.g. `[:a :b :a]` | Break the cycle |
 | A sub reads `nil` and `:rf.error/sub-exception` is reported | The computation function threw | Fix the computation; the record's `:where` says which path threw (below) |
 | A sub reads `nil` and `:rf.error/schema-validation-failure` is reported with `:where :sub-return` | The computed value doesn't match the sub's `:schema` | Fix the computation or the schema |
 | `:rf.error/no-frame-context` from `subscribe` | The subscribe ran under no frame, e.g. in a plain `defn` or an async callback | Subscribe from a `reg-view`, or pass `{:frame id}` |
@@ -412,6 +413,11 @@ The keys you'll reach for:
    [Validate with schemas](how-to/validate-with-schemas.md).
 3. **`:tags`**: a set of keywords for your own grouping and tooling.
 
+A plain key `reg-sub` does not recognise is probably a typo, and the dev build emits
+`:rf.warning/unknown-registration-key` naming it and the valid keys. Watch for
+`:input`: the sub then has no declared inputs, so its function receives app-db. Keys
+of your own must be namespaced (`:todo/owner`).
+
 Two more keys come from the [data-classification](glossary.md#data-classification)
 model, because the observability pipeline captures sub outputs into traces.
 `:sensitive` marks paths in the output that hold secrets (`[[]]` marks the whole
@@ -484,6 +490,10 @@ through them exactly as you read your own:
 - The router publishes a family (**`:rf/route`**, **`:rf.route/id`**,
   **`:rf.route/params`**, **`:rf.route/query`**, **`:rf.route/transition`**,
   **`:rf.route/chain`**, and more), covered in [Routing](../routing/concepts.md).
+- Resources publish **`[:rf/resource …]`** and single-value subs such as
+  **`:rf.resource/data`**, **`:rf.resource/status`** and **`:rf.resource/loading?`**;
+  mutations publish **`[:rf/mutation …]`** and **`:rf.mutation/status`**. Both are
+  covered in [Resources](../resources/concepts.md).
 
 Ids under `:rf/…` or `:rf.<subsystem>/…` are reserved for the framework. Keep your
 own subs out of those namespaces.

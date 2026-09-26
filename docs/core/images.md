@@ -451,7 +451,8 @@ Each assembly failure has a named error id you can `catch` and assert on:
 | An `:include` glob that matches no loaded source namespace | `:rf.error/image-zero-match` |
 | Two images sharing an `:id` in one composition | `:rf.error/image-duplicate-image-id` |
 | An app registration colliding with a protected framework standard | `:rf.error/image-standard-replacement-forbidden` |
-| A retired or unknown key in an `rf/image` spec | `:rf.error/invalid-image` |
+| A selected event names an interceptor, or a resource names a `{:from-db …}` scope resolver, that the image doesn't select | `:rf.error/image-missing-reference` |
+| A malformed `rf/image` spec: a retired or unknown key, a bad `:select-ns`, a glob that isn't a string, or an unsupported or malformed inline entry | `:rf.error/invalid-image` |
 | `:images []`, or a non-vector `:images` | `:rf.error/make-frame-bad-images` |
 
 `:images []` is an error because an empty vector almost always means "I meant to put

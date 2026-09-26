@@ -22,6 +22,7 @@ Every event handler takes two arguments: the [**coeffects**](../glossary.md#coef
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.test-support :as ts]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [my-app.todos]))   ;; loading the ns registers the handlers
 
 (deftest toggle-flips-done
@@ -31,9 +32,11 @@ Every event handler takes two arguments: the [**coeffects**](../glossary.md#coef
                        [:db :todos 1 :done?])))))
 ```
 
-That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (`ts` is used by the fixtures later on this page. Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).)
+That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (`ts` and `plain-atom` are used by the reset fixture later on this page. Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).)
 
 `handler-meta` returns `nil` for an unregistered id. If you misspell the id or forget the require, `(:handler-fn nil)` is `nil` and the next line fails with "nil is not a function". When that happens, check the id and the require list.
+
+`:handler-fn` is the handler alone, without the interceptors its registration lists. A handler registered with [`[:rf.interceptor/path [:todos]]`](../interceptors.md#the-one-standard-interceptor-path) expects `:db` to be the `:todos` map, so pass that map in the literal, or test it through the runtime ([section 3](#3-when-you-want-the-runtime-a-fresh-frame-per-test)). Given the whole db, it writes to the wrong place and nothing fails.
 
 A handler that only performs side effects, say one that dispatches a follow-up, may return `nil` or an effect map with no `:db` (see [Effects](../effects.md)). Assert on `:fx` for those.
 
@@ -91,6 +94,8 @@ The handler did not write to storage. It returned a description of the write, an
 The pure call tests the handler's logic but skips the runtime: it never checks that dispatching `[:todo/add "Buy milk"]` finds that handler, or that the returned `:db` lands in app-db. That wiring is the framework's job, so you rarely need to test it. When you do, drive a real [dispatch](../glossary.md#dispatch) and read the committed state.
 
 That needs a [**frame**](../glossary.md#frame), an isolated runtime with its own app-db (see [Frames](../frames.md)). `with-new-frame` creates one, makes it current for the body, and destroys it on the way out, even if the body throws.
+
+A frame runs on a substrate [adapter](../glossary.md#adapter), even on the JVM, and nothing installs one for you. The reset fixture in [section 4](#4-the-trap-frames-dont-isolate-registrations) installs the headless one before each test. Without an adapter, `make-frame` throws `:rf.error/no-adapter-installed`.
 
 ```clojure
 (deftest add-through-the-runtime
@@ -159,10 +164,12 @@ If two test namespaces register different handlers under the same id, the later 
 If your tests, or helpers they load, register anything themselves, add the reset fixture:
 
 ```clojure
-(use-fixtures :each (ts/make-reset-runtime-fixture {}))
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
 `make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. It snapshots the registrar before each test and restores it afterwards, keeping the registrations your namespaces made at load. It also resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches, epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing, so use it as the default for any real suite.
+
+The reset removes whatever adapter is installed, so the fixture takes `:adapter`: `plain-atom/adapter` is the headless adapter for the JVM, and the fixture installs it and creates the `:rf/default` frame before each test. Without `:adapter`, the next `make-frame` throws `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` if your code called `rf/init!` itself.
 
 For a single ad-hoc block, call the primitives `ts/snapshot-registrar` and `ts/restore-registrar!` yourself:
 
@@ -199,7 +206,7 @@ Some coeffects are backed by a **generator**: an app-registered, recordable `reg
 
 Supply the fact in `:rf.cofx`, which is almost always what you want. When a fresh value per run is intended, pass `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
 
-`{:preset :test}` expands to three entries: it redirects `:rf.http/managed` to a canned-success stub (registered by `re-frame.http.test-support`, so require that namespace), sets `:rf.cofx/mint-policy :strict`, and sets `:drain-depth 100`, the framework default. Your own keys win over the expansion.
+`{:preset :test}` expands to three entries: it redirects `:rf.http/managed` to a canned-success stub (registered by `re-frame.http.test-support`, so require that namespace), sets `:rf.cofx/mint-policy :strict`, and sets `:drain-depth 100`, the framework default. Your own keys win over the expansion, key by key, so your own `:fx-overrides` replaces the HTTP redirect ([Test a pipeline run](pipeline-runs.md#the-test-preset) shows how to keep both).
 
 ### Why no mocks are needed
 

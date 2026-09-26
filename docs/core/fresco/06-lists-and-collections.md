@@ -88,6 +88,11 @@ Fresco's key warnings nor React's missing-key warning run. Use `into` when you
 assemble one children vector from several pieces, knowing the keys inside are
 no longer checked.
 
+Produce the sequence with `for` or `map`, not `mapv`. A vector of rows in child
+position reads as Hiccup whose head is a vector and raises
+`:rf.error/fresco-bad-head`, or `:rf.error/fresco-empty-vector` when the list is
+empty.
+
 ## Choose where rows read
 
 Four collection shapes cover most workloads:

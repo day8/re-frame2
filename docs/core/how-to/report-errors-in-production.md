@@ -8,6 +8,8 @@ This recipe sends production failures to an error monitor such as Sentry, with t
 
 The record reaches your monitor through a frame `:observability` sink. The frame declares which sink handles its errors and under which egress profile, and the runtime passes the sink an already-projected record: paths your app classified as sensitive arrive redacted and large values elided, so your integration scrubs nothing. The steps below register the sink, keep it out of dev builds, handle every record shape, and add event metrics.
 
+The error stream covers the event pipeline, subscriptions and flows, not client-side rendering. A view that throws while rendering is React's uncaught error, which the global handler `Sentry.init` installs picks up with no event or frame attached. In Fresco, an error boundary's `:on-error` can turn the failure into an event of your own ([Errors](../fresco/17-errors.md)).
+
 ??? info "Coming from plain JavaScript?"
 
     `Sentry.init` plus `window.onerror` gives you the exception and its stack, but not what the app was doing. The error record carries the event being handled alongside the throwable, so the issue shows the cause as well as the crash site.

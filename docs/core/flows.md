@@ -453,6 +453,7 @@ Shape errors name the offending argument in their `ex-data`:
 | `:rf.error/flow-bad-inputs` | `:inputs` isn't a vector of non-empty paths |
 | `:rf.error/flow-bad-output` | The derive fn isn't a function (despite the name, this checks the fn, not `:output-path`) |
 | `:rf.error/flow-bad-path` | `:output-path` isn't a non-empty vector of path segments |
+| `:rf.error/flow-reserved-output-path` | `:output-path` starts with `:rf.db/runtime`; a flow writes app-db only |
 
 Without the `day8/re-frame2-flows` artefact, or if nothing has required
 `re-frame.flows`, the first `reg-flow`, `rf/clear :flow`, `:rf.fx/reg-flow`, or

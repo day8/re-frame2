@@ -421,6 +421,8 @@ props. The row's own test proves what a row renders.
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
 | A plain test raises `:rf.error/fresco-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
 | `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body, or pass the realised value ([Views and reads](02-views-and-reads.md)) |
+| `hm/mount!` throws `:rf.error/initial-events-step-failed` | A seed event threw, or has no handler because the test does not require its namespace | Require the events namespace; the ex-data names the step |
+| `hm/settle-until!` rejects with `:rf.error/poll-until-timeout` | The predicate never held within `:timeout-ms` (default 2000) | Check what the predicate reads; pass `:label` to name the wait |
 | `hm/assert-clean!` fails | A subscription, listener, task, or foreign callback survived unmount | Fix the leak; retained host callbacks are a common cause ([Interop](09-interop.md)) |
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
 | An L1 equality on a helper's Hiccup sees an unexpected `nil` | A `when` in the helper returned `nil`; it renders nothing but is still in the authored data | Include that `nil` in the expected value, or filter it before comparing |

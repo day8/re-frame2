@@ -92,7 +92,7 @@ Call the view like a function and read the tree it returns:
         {:label "todo 1 done"})))
 ```
 
-`invoke-handler` throws `:rf.error/invoke-handler-missing` when the node has no function under that key, because a missing handler is usually the bug you are looking for.
+`invoke-handler` throws `:rf.error/invoke-handler-missing` when the node has no function under that key, because a missing handler is usually the bug you are looking for. It throws `:rf.error/invoke-handler-bad-node` when it is handed something other than a hiccup vector, which usually means `find-by-testid` returned `nil` for a testid the tree doesn't carry.
 
 The `:on-change` calls the view's `dispatch`, which queues the event instead of draining it, so the test polls until the condition holds or a deadline passes. A timeout throws `:rf.error/poll-until-timeout`. The same form covers any change that arrives later: an HTTP reply, a machine `:after` transition, a scheduled event. On the JVM `poll-until` is synchronous; on CLJS it returns a `js/Promise`, so compose it with `cljs.test/async`. After a `dispatch-sync`, walking the tree immediately is enough.
 

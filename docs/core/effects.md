@@ -96,8 +96,8 @@ handler ignores ([Advanced](#the-effect-handlers-two-arguments) covers it).
 
 `:platforms #{:client}` says where the effect may run. During server-side rendering
 the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform`
-trace event, so handlers never branch on platform. List more than one platform to
-run on each; omit the key and the effect runs everywhere.
+trace event, so handlers never branch on platform. The set holds `:client`,
+`:server` or both; omit the key and the effect runs on both.
 
 What you gain:
 
@@ -142,6 +142,11 @@ Because `:fx` is a vector, one handler can ask for several things:
 queues it. For a delayed dispatch, return
 `[:dispatch-later {:ms 3000 :event [:todo/hide-notice]}]` instead of calling
 `js/setTimeout`.
+
+A row may be `[fx-id]` when the effect takes no argument. A `nil` row is skipped, so
+`(when saving? [:todo.storage/save todos])` makes a row conditional. A row of any
+other shape, such as a bare `:dispatch` left in `:fx` without its inner vector, is
+dropped with `:rf.error/effect-map-shape` and the other rows still run.
 
 ### Ordering and atomicity — what you can rely on
 
@@ -319,7 +324,8 @@ and [RealWorld HTTP](../../examples/real-apps/realworld_http).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/effect-map-shape`; nothing applied, not even `:db` | A top-level key other than `:db` / `:fx` (often a typo like `:dn`) | Put every effect in an `:fx` row |
+| `:rf.error/effect-map-shape`; nothing applied, not even `:db` | A top-level key other than `:db` / `:fx` (often a typo like `:dn`, or app-db returned without `{:db …}`) | Put every effect in an `:fx` row |
+| `:rf.error/effect-map-shape` naming one `:fx` entry; the other rows run | That entry is not an `[fx-id arg]` vector | Wrap it: `[:dispatch [:saved]]`, not a bare `:dispatch` |
 | `:rf.error/no-such-fx`; that row fails, the others run | The `:fx` row names an unregistered id | Register it with `reg-fx`, or fix the typo |
 | `:rf.error/fx-handler-exception`; later rows still run | An effect handler threw; `:db` is already committed | Chain dependent steps through reply events |
 | Handler calls `dispatch` or does I/O directly | The handler is no longer pure, and the event record misses the work | Return an `:fx` row (`[:dispatch …]`, or your own `reg-fx` id) |

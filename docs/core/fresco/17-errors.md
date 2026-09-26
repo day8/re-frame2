@@ -200,6 +200,7 @@ the boundary at the level that preserves it.
 | --- | --- | --- |
 | One view throws and the whole page blanks | No boundary caught the render failure, so React unmounted the root | Wrap the independently recoverable region with `h/error-boundary` |
 | An event-handler exception does not show the fallback | Event handlers run in the re-frame2 pipeline, not descendant React render | Inspect the `:rf.error/handler-exception` record; do not expect a view fallback |
+| The console still shows the error although the fallback rendered | React logs every caught render error by default | Expected: the boundary caught it. Record it with `:on-error` |
 | Fallback appears and never clears | There is no `:reset-key`, or its value never changes | Drive a generation value from app-db and change it on Retry |
 | An intent in the fallback, or a vector `:on-error`, raises `:rf.error/fresco-intent-outside-boundary` | No frame is mounted above the boundary, so there is nowhere to dispatch the event. A vector `:on-error` is checked on the boundary's first paint, not when it catches | Mount the region under `h/frame-root` or `h/frame-provider`, or give `:on-error` a function, which needs no frame |
 | The boundary raises `:rf.error/fresco-boundary-unknown-prop` | A prop other than `:fallback`, `:reset-key` or `:on-error`, usually a misspelling such as `:on-errors` | Fix the key; the boundary accepts only those three |

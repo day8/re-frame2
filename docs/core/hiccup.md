@@ -86,6 +86,11 @@ Conditional markup is plain `when`, because a `nil` child renders as nothing:
 Change `true` to `false` and the emphasis disappears. There is no special syntax for
 conditional rendering, just an expression that is sometimes `nil`.
 
+Two special heads cover what a tag keyword can't. `[:<> child1 child2]` is a
+fragment: several siblings with no wrapper element, for a view that returns more
+than one element. `[:> Component props child …]` renders a React component written in
+JavaScript, such as a date picker from npm.
+
 ??? info "For JavaScript developers"
 
     Hiccup does the job of JSX. Both describe a tree of elements, but hiccup is
