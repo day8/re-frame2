@@ -96,44 +96,11 @@
     (is (empty? (rf.elision/sensitive-declarations :app/retired-large)))))
 
 ;; ---------------------------------------------------------------------------
-;; (b) :observability rides the frame config.
-;;     Durable app-db classification is asserted via the commit-plane effect
-;;     path (`rf.elision/apply-classification-effects`); HTTP carriers ride
-;;     the :rf.http/managed registration (covered in the http artefact).
-;; ---------------------------------------------------------------------------
-
-(deftest valid-observability-retained-on-config
-  (testing "well-formed :observability rides the frame config"
-    (rf/make-frame {:id :app/full :observability {:handled-events [{:sink :my-app.sinks/datadog
-                                                      :rf.egress/profile :rf.egress/off-box-observability}]
-                                    :errors         [{:sink :my-app.sinks/sentry}]}})
-    (let [meta (rf/frame-meta :app/full)]
-      (is (= :my-app.sinks/datadog
-             (get-in meta [:observability :handled-events 0 :sink]))
-          ":observability sink policy rides the frame config"))))
-
-(deftest commit-plane-effect-classifies-app-db-path
-  (testing "EP-0025: durable app-db classification rides the commit-plane
-            `:sensitive` / `:large` effects, written into the elision
-            registry under `:source :effect`"
-    (rf/make-frame {:id :app/effects})
-    ;; The same registry write a reg-event returning `:sensitive` / `:large`
-    ;; alongside `:db` performs.
-    (rf.frame/swap-runtime-db! :app/effects
-      (fn [rt] (rf.elision/apply-classification-effects rt
-                 {:sensitive [[:auth :token]]
-                  :large     [[:documents :csv-upload]]})))
-    (let [sens  (rf.elision/sensitive-declarations :app/effects)
-          large (rf.elision/declarations :app/effects)]
-      (is (contains? sens [:auth :token])
-          "the :sensitive effect classified [:auth :token]")
-      (is (= #{{:source :effect}} (get sens [:auth :token]))
-          "the effect owner is the sole claimant, tagged :source :effect")
-      (is (contains? large [:documents :csv-upload])
-          "the :large effect classified [:documents :csv-upload]"))))
-
-;; ---------------------------------------------------------------------------
-;; (c) fail-loud
+;; (b) + (c) :observability validates fail-loud, and a well-formed policy rides
+;;     the frame config — the profile and sink-entry cases below each end with
+;;     that accepted positive control. Durable app-db classification rides the
+;;     commit-plane effects (`classification-effects-cljs-test`); HTTP carriers
+;;     ride the :rf.http/managed registration (covered in the http artefact).
 ;; ---------------------------------------------------------------------------
 
 (deftest fail-loud-on-unknown-classification-key

@@ -32,7 +32,8 @@
       `trace/*handler-scope*` being bound, which the router holds across the
       DIRECT handler body, the `:fx` `:dispatch` re-entry, AND any queued nested
       dispatch — so construction is forbidden on ALL THREE mid-cascade routes
-      (this ns pins the `:fx` + nested-dispatch routes, not just the body).
+      (this ns pins the body and the `:fx` `:dispatch` re-entry, which queues a
+      nested dispatch).
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
   message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -153,16 +154,6 @@
       (is (= 2 (:n db)) "the two :test/inc steps ran in order after the seed")
       (is (= :done (:marker db)) "the trailing :test/add step ran last")
       (is (= [] (:log db)) "the seed step replaced app-db wholesale"))))
-
-(deftest make-frame-initial-events-runs-sync-before-return
-  (testing "top-level make-frame :initial-events settles synchronously — an
-            immediate app-db read sees the constructed state"
-    (reg-test-events!)
-    (rf.live-frame/make-frame {:id :mk/main
-                    :initial-events [[:test/set-db {:n 5}]
-                                     [:test/inc]]})
-    (is (= 6 (:n (rf/app-db-value :mk/main)))
-        "make-frame's :initial-events ran before the constructor returned")))
 
 (deftest initial-events-map-step-opts-honoured
   (testing "a map step {:event … :opts {:rf.cofx {:rf/time-ms …}}} passes the
@@ -324,32 +315,14 @@
 ;;    composition, re-supplying the SAME config the caller holds)
 ;; ===========================================================================
 
-(deftest reset-frame-replays-recorded-initial-events
-  (testing "destroy-frame! + re-make-frame with the SAME config re-dispatches the
-            recorded :initial-events through the CURRENT handlers (best-effort;
-            durable config replayed)"
-    (reg-test-events!)
-    (let [config {:initial-events [[:test/set-db {:n 0}]
-                                   [:test/inc]]}]
-      (rf/make-frame (assoc config :id :reset/main))
-      (is (= 1 (:n (rf/app-db-value :reset/main))) "construction settled to n=1")
-      ;; Mutate away from the constructed state.
-      (rf/dispatch-sync [:test/inc] {:frame :reset/main})
-      (rf/dispatch-sync [:test/inc] {:frame :reset/main})
-      (is (= 3 (:n (rf/app-db-value :reset/main))) "runtime moved it to n=3")
-      ;; Reset re-runs the recorded setup: seed {:n 0} then one :test/inc ⇒ n=1.
-      (rf.frame/destroy-frame! :reset/main)
-      (rf/make-frame (assoc config :id :reset/main))
-      (is (= 1 (:n (rf/app-db-value :reset/main)))
-          "destroy + re-make-frame replayed the recorded :initial-events, back to n=1"))))
-
 (deftest reset-frame-repeated-reset-is-idempotent
-  (testing "destroy + re-make-frame is idempotent across repeated
-            resets — reset twice in a row equals one reset, and a reset → mutate
-            → reset returns to the recorded seed. reset is itself a destroy +
-            re-register that re-records its own :initial-events, so a change
-            that cleared or double-applied the recorded setup during reset would
-            pass the single-reset test but fail HERE."
+  (testing "destroy + re-make-frame with the SAME config re-dispatches the
+            recorded :initial-events through the CURRENT handlers, and is
+            idempotent across repeated resets — reset twice in a row equals one
+            reset, and a reset → mutate → reset returns to the recorded seed.
+            reset is itself a destroy + re-register that re-records its own
+            :initial-events, so a change that cleared or double-applied the
+            recorded setup during reset would diverge on the second reset."
     (reg-test-events!)
     (let [config {:initial-events [[:test/set-db {:n 0}]
                                    [:test/inc]]}
@@ -482,73 +455,45 @@
 ;;    construction.
 ;; ===========================================================================
 
-(deftest escaping-throw-setup-step-tears-down-partial-frame
-  (testing "a setup step that THROWS OUT of dispatch-sync (an unregistered-cofx
-            resolution throw escaping context assembly) tears down the partially-
-            created frame (no live half-frame) and the error names the
-            :step-index + :event — the ESCAPING-throw detection route"
+(deftest a-failing-setup-step-tears-down-the-partial-frame-on-every-detection-route
+  (testing "a setup step that fails tears down the partially-created frame (no
+            live half-frame is left) and the error names the :step-index +
+            :event — whether the failure THROWS OUT of dispatch-sync or is
+            captured IN-BAND by the interceptor chain"
     (reg-test-events!)
-    (let [data (err-data
-                 #(rf/make-frame {:id :teardown/main :initial-events [[:test/set-db {:n 0}]
-                                                   [:test/needs-missing-cofx]
-                                                   [:test/inc]]}))]
-      (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
-          "the throwing step raises :rf.error/initial-events-step-failed")
-      (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
-      (is (= [:test/needs-missing-cofx] (:event data)) "the error names the failing event")
-      (is (nil? (rf.frame/frame :teardown/main))
-          "the partially-created frame was torn down — no live half-frame is left"))))
-
-(deftest set-db-bad-arg-setup-step-tears-down-partial-frame
-  (testing "a [:rf/set-db :not-a-map]
-            bad-arg setup step tears down the partial frame. This is the EP-0027
-            §Failure canonical trigger: :rf/set-db raises :rf.error/set-db-bad-
-            value from INSIDE the handler via error/throw-error!, so the
-            interceptor chain CATCHES it -> in-band :rf.error/handler-exception ->
-            dispatch-sync returns nil NORMALLY (no escaping throw), so a runner
-            relying on try/catch alone would never fire and would leave the
-            partial frame ALIVE wrongly-seeded. The runner detects the captured
-            in-band error on the always-on error-emit axis, tears down, and
-            raises :rf.error/initial-events-step-failed. Were run-setup-events!
-            reduced to a try/catch-only form, (rf.frame/frame :set-db-bad/main)
-            would be NON-nil here — the frame surviving — and no
-            :rf.error/initial-events-step-failed would be raised."
-    (reg-test-events!)
-    ;; :rf/set-db is the FRAMEWORK-STANDARD seed event (re-seeded by the reset
-    ;; fixture). [:rf/set-db :not-a-map] is the canonical bad-arg: it must be a
-    ;; map. The seed BEFORE it succeeds, so a partial frame exists when the bad
-    ;; step runs — exactly the half-created-frame scenario teardown must clean up.
-    (let [data (err-data
-                 #(rf/make-frame {:id :set-db-bad/main :initial-events [[:rf/set-db {:n 0}]
-                                                   [:rf/set-db :not-a-map]
-                                                   [:test/inc]]}))]
-      (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
-          "the in-band-captured handler-exception raises :rf.error/initial-events-step-failed")
-      (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
-      (is (= [:rf/set-db :not-a-map] (:event data)) "the error names the failing event")
-      (is (nil? (rf.frame/frame :set-db-bad/main))
-          "the partially-created frame was TORN DOWN — not left ALIVE wrongly-seeded"))))
-
-(deftest handler-body-throw-setup-step-tears-down-partial-frame
-  (testing "a plain HANDLER-BODY throw (:test/boom) in a setup step
-            tears down the partial frame too — generalising the set-db-bad-arg
-            case to ANY handler-body throw the chain catches in-band. Strict
-            construction tears it down rather than tracing-and-recovering and
-            leaving the frame ALIVE."
-    (reg-test-events!)
-    ;; The :test/boom handler throws; dispatch-sync traces it as
-    ;; :rf.error/handler-exception and returns nil (no escaping throw). Strict
-    ;; construction detects the captured error and tears down.
-    (let [data (err-data
-                 #(rf/make-frame {:id :boom/main :initial-events [[:test/set-db {:n 0}]
-                                                   [:test/boom]
-                                                   [:test/inc]]}))]
-      (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
-          "the in-band handler-body throw raises :rf.error/initial-events-step-failed")
-      (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
-      (is (= [:test/boom] (:event data)) "the error names the failing event")
-      (is (nil? (rf.frame/frame :boom/main))
-          "the partially-created frame was TORN DOWN — no live half-frame is left"))))
+    (doseq [[route id steps failing-event]
+            [;; ESCAPING: an unregistered-cofx resolution throw escapes context
+             ;; assembly, i.e. out of dispatch-sync entirely.
+             ["escaping unregistered-cofx throw" :teardown/main
+              [[:test/set-db {:n 0}] [:test/needs-missing-cofx] [:test/inc]]
+              [:test/needs-missing-cofx]]
+             ;; IN-BAND, the EP-0027 §Failure canonical trigger: :rf/set-db
+             ;; raises :rf.error/set-db-bad-value from INSIDE the handler via
+             ;; error/throw-error!, so the chain CATCHES it -> in-band
+             ;; :rf.error/handler-exception -> dispatch-sync returns nil
+             ;; NORMALLY. A try/catch-only runner would never fire and would
+             ;; leave the partial frame ALIVE wrongly-seeded; the runner detects
+             ;; the captured error on the always-on error-emit axis instead. The
+             ;; framework-standard seed BEFORE it succeeds, so a partial frame
+             ;; exists when the bad step runs.
+             ["in-band [:rf/set-db :not-a-map]" :set-db-bad/main
+              [[:rf/set-db {:n 0}] [:rf/set-db :not-a-map] [:test/inc]]
+              [:rf/set-db :not-a-map]]
+             ;; IN-BAND, generalised to ANY handler-body throw the chain catches:
+             ;; strict construction tears it down rather than tracing-and-
+             ;; recovering and leaving the frame ALIVE.
+             ["in-band handler-body throw" :boom/main
+              [[:test/set-db {:n 0}] [:test/boom] [:test/inc]]
+              [:test/boom]]]]
+      (let [data (err-data #(rf/make-frame {:id id :initial-events steps}))]
+        (is (= :rf.error/initial-events-step-failed (:rf.error/id data))
+            (str route ": the failing step raises :rf.error/initial-events-step-failed"))
+        (is (= 1 (:step-index data))
+            (str route ": the error names the failing step's 0-based index"))
+        (is (= failing-event (:event data))
+            (str route ": the error names the failing event"))
+        (is (nil? (rf.frame/frame id))
+            (str route ": the partially-created frame was TORN DOWN — no live half-frame is left"))))))
 
 (deftest runner-unavailable-fails-loud-not-silent-drop
   (testing "when there ARE :initial-events steps to run but the setup
@@ -681,34 +626,4 @@
            across :fx-driven nested dispatch (the body-only test would not
            catch a break here)")
       (is (nil? (rf.frame/frame :child/via-fx))
-          "no half-registered child frame is left behind"))))
-
-(deftest frame-construction-in-nested-dispatch-fails-loud
-  (testing "a frame constructed inside a NESTED dispatch (a handler
-            that dispatches another event which constructs) must fail loud
-            :rf.error/frame-construction-in-handler. Distinct from the :fx
-            route above: here the parent handler itself emits a [:dispatch …]
-            effect that queues the constructing event for mid-cascade re-entry.
-            Both routes share the same *handler-scope*-keyed guard; pinning
-            both documents that ANY mid-cascade construction (body, :fx, queued
-            nested dispatch) is rejected, so a change that unbinds the scope
-            marker around queued re-entry turns this RED."
-    (reg-test-events!)
-    (let [caught (atom ::not-run)]
-      ;; The nested event constructs a frame. It runs from the parent handler's
-      ;; queued :dispatch, mid-cascade.
-      (rf/reg-event :nested/makes-frame
-        (fn [{:keys [db]} _]
-          (reset! caught
-                  (err-id #(rf/make-frame {:id :child/via-nested :initial-events [[:test/set-db {:n 0}]]})))
-          {:db db}))
-      ;; The parent handler queues the nested dispatch via the :dispatch effect.
-      (rf/reg-event :nested/parent
-        (fn [{:keys [db]} _]
-          {:db db :fx [[:dispatch [:nested/makes-frame]]]}))
-      (rf/make-frame {:id :parent/nested :initial-events [[:test/set-db {}]]})
-      (rf/dispatch-sync [:nested/parent] {:frame :parent/nested})
-      (is (= :rf.error/frame-construction-in-handler @caught)
-          "a make-frame inside a nested mid-cascade dispatch fails loud")
-      (is (nil? (rf.frame/frame :child/via-nested))
           "no half-registered child frame is left behind"))))
