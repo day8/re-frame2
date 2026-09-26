@@ -16,7 +16,7 @@ Same as the README's *Requirements*:
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
 - `day8/re-frame2-schemas` on the app's dev classpath, at the same revision as core (from this clone, `{:local/root "<repo>/implementation/schemas"}`). The preload requires `re-frame.schemas` directly; core and the MCP server do not supply it to the app. For epoch reads and rollback, also include `day8/re-frame2-epoch` and require `re-frame.epoch` at app boot.
-- The **`re-frame2-pair.runtime` preload** on the app's build classpath. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point the app's classpath at the absolute `skills/re-frame2-pair/preload/` path, which means `deps.edn` for a `:deps` app and `shadow-cljs.edn` `:source-paths` for a standalone one (shadow ignores its own `:source-paths` under `:deps` / `:lein` — see `SKILL.md` §Setup). For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
+- The **`re-frame2-pair.runtime` preload** on the app's build classpath. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point the app's classpath at the absolute `skills/re-frame2-pair/preload/` path, which means `deps.edn` for a `:deps` app and `shadow-cljs.edn` `:source-paths` for a standalone one (shadow ignores its own `:source-paths` under `:deps` / `:lein` — see [`references/setup.md`](../references/setup.md)). For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-loaded-but-preload-missing` without it (the normal missing-preload verdict; `:runtime-not-preloaded` is the degradation fallback the ladder returns only if it errors mid-diagnosis, and the reason the per-op marker check reports).
 
 ## MCP server from a clone
 
@@ -193,13 +193,13 @@ If neither, `dom/source-at` returns `:reason :source-coord-annotation-disabled` 
 
 shadow-cljs hot-reloads namespaces on the build classpath on save. If your edits aren't landing:
 
-1. Confirm `preload/` is on the build classpath — `deps.edn` for a `:deps` app, `shadow-cljs.edn` `:source-paths` for a standalone one (see `SKILL.md` §Setup).
+1. Confirm `preload/` is on the build classpath — `deps.edn` for a `:deps` app, `shadow-cljs.edn` `:source-paths` for a standalone one (see [`references/setup.md`](../references/setup.md)).
 2. Check the shadow-cljs console for a compile error on the namespace.
 3. Edits to `defonce`'d state (the trace/epoch listeners, the global marker) don't re-run — reload the page once.
 
 ### `:runtime-loaded-but-preload-missing` (and per-op `:runtime-not-preloaded`)
 
-The skill's runtime namespace isn't loaded into your app. `discover-app`'s normal verdict for this is `:runtime-loaded-but-preload-missing` (a runtime is live but the marker is absent); the per-op marker check reports the runtime-side `:runtime-not-preloaded`. Either way: add the two-line preload setup in `SKILL.md` §Setup and reload the page (or wait for the next shadow-cljs rebuild). (`:runtime-not-preloaded` is also the degradation fallback `discover-app` returns when the ladder itself errors mid-diagnosis — suspect a flaky nREPL connection there.)
+The skill's runtime namespace isn't loaded into your app. `discover-app`'s normal verdict for this is `:runtime-loaded-but-preload-missing` (a runtime is live but the marker is absent); the per-op marker check reports the runtime-side `:runtime-not-preloaded`. Either way: add the preload setup in [`references/setup.md`](../references/setup.md) and reload the page (or wait for the next shadow-cljs rebuild). (`:runtime-not-preloaded` is also the degradation fallback `discover-app` returns when the ladder itself errors mid-diagnosis — suspect a flaky nREPL connection there.)
 
 ## Uninstall / reset
 

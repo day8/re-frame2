@@ -74,7 +74,7 @@ Two steps, both on your side, before the first session:
    `day8/re-frame2-epoch`, with `re-frame.epoch` required at boot, which the
    epoch and time-travel tools need. Dev builds only, no package install. **The
    preload is required; there is no per-session fallback.** The snippets for
-   each build tool are in [`SKILL.md` §Setup](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md#setup--preload-re-frame2-pairruntime).
+   each build tool are in [`references/setup.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/setup.md).
 
 ## Server options
 
