@@ -12,7 +12,7 @@ preloads `re-frame2-pair.runtime` and renders a counter. See
 ## 1. Runtime unit tests — two halves
 
 The runtime preload's testable logic is split so that BEHAVIOUR is tested
-against the **exact shipped code** rather than a copied mirror (rf2-etsj8p):
+against the **exact shipped code** rather than a copied mirror:
 
 - The genuinely-pure decision logic lives in a shipped preload namespace,
   `preload/re_frame2_pair/pure.cljc` (`re-frame2-pair.pure`) — the cascade /
@@ -45,17 +45,17 @@ npm install          # one-time (shadow-cljs)
 npm run test:pure    # shadow-cljs compile pure-test && node target/pure-test.js
 ```
 
-> **CI note (rf2-etsj8p):** this build now has its own required job,
-> `re-frame2-pair-fixture-pure`, gated on the same `skills_structural`
-> changed-surface flag as the Babashka loop. The earlier note here — that
-> wiring it up still needed a hot-zone edit — is superseded.
+> **CI:** this build has its own required job, `re-frame2-pair-fixture-pure`,
+> gated on the same `skills_structural` changed-surface flag as the Babashka
+> loop.
 
 The `:pure-test` build is where `event-byte-size`'s **UTF-8 byte** discipline
-is pinned (rf2-2rtt6.135): `event-byte-size-counts-utf8-bytes-not-code-units`
+is pinned: `event-byte-size-counts-utf8-bytes-not-code-units`
 and `byte-budget-evicts-sooner-on-multi-byte-payload` use fixtures that share
-one `pr-str` code-unit length across three different byte lengths, so the
-`(count (pr-str ev))` that used to sit under the `max-buffered-bytes` gate
-answers the same number for all three and reds only on the non-ASCII rows.
+one `pr-str` code-unit length across three different byte lengths, so an
+implementation counting `(count (pr-str ev))` under the `max-buffered-bytes`
+gate answers the same number for all three, and the tests red on its
+non-ASCII rows.
 Note this file is `.cljc` and the `:clj` arm is genuinely loadable — but only
 the `:cljs` arm has a CI lane, since the fixture's sole harness is the
 node-test build.
