@@ -1,391 +1,522 @@
 # Frames: isolated worlds
 
-Every page so far ran its example under one `frame-root`. A
-[frame](glossary.md#frame) is one complete, running copy of your app — its own
-app-db, event queue, and subscription cache — isolated from every other copy. Most
-apps create exactly one at boot and never name it again.
+Every example so far ran under one `frame-root`. A [frame](glossary.md#frame) is one
+running copy of your app, with its own app-db, event queue, and subscription cache,
+isolated from every other copy. Most apps create one at boot and never name it again.
 
-You need to know more when you want two copies of your app (a split pane, a
-[Story](glossary.md#story) canvas with three states, one per SSR request), or when a
+You need to know more when you want two copies of your app on one page, or when a
 `setTimeout` callback raises `:rf.error/no-frame-context`. This page covers both.
-The full boot recipe — `init!`, hot reload, packaging an entry namespace — is in
+The full boot recipe, including `init!`, hot reload, and the entry namespace, is in
 [Boot and mount an app](how-to/boot-and-mount-an-app.md).
 
-## The counter, twice
+## Two todo lists
 
-One set of registrations — the same events, sub, and view — mounted into **two** frames:
+One set of registrations, mounted in two frames:
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
-(rf/reg-event :initialise
-  (fn [_cofx [_ start]] {:db {:value start}}))
-(rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :value inc)}))
-(rf/reg-sub :value (fn [db _] (:value db)))
+(rf/reg-event :todo/initialise
+  (fn [_ [_ first-title]]
+    {:db {:todos   {1 {:id 1 :title first-title :done? false}}
+          :showing :all}}))
 
-(rf/reg-view counter []
+(rf/reg-event :todo/add
+  (fn [{:keys [db]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
+
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
+
+(rf/reg-sub :todo/all
+  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
+
+(rf/reg-view todo-list []
   [:div
-   [:span @(subscribe [:value]) " "]
-   [:button {:on-click #(dispatch [:inc])} "+"]])
+   [:button {:on-click #(dispatch [:todo/add "Another one"])} "Add"]
+   [:ul
+    (for [{:keys [id title done?]} @(subscribe [:todo/all])]
+      ^{:key id}
+      [:li {:on-click #(dispatch [:todo/toggle id])
+            :style    {:text-decoration (when done? "line-through")}}
+       title])]])
 
-;; the SAME code, two isolated worlds —
-;; each frame-root ENSURES its frame (creates it at first mount, runs
-;; :initial-events) and scopes it for the subtree
+;; the new idea: the SAME code in two isolated frames
 [:div {:style {:display "flex" :gap "2em"}}
- [rf/frame-root {:id :left  :initial-events [[:initialise 0]]}   [counter]]
- [rf/frame-root {:id :right :initial-events [[:initialise 100]]} [counter]]]
+ [rf/frame-root {:id :todos/work :initial-events [[:todo/initialise "Write report"]]}
+  [todo-list]]
+ [rf/frame-root {:id :todos/home :initial-events [[:todo/initialise "Buy milk"]]}
+  [todo-list]]]
 ```
 
-Click one. The other doesn't move. Nothing in `counter` names a frame: its injected `dispatch` and `subscribe` resolve against whichever frame it renders inside, so the same view runs against two independent app-dbs.
+Add or toggle a todo in one list. The other doesn't change. Nothing in `todo-list`
+names a frame: its injected `dispatch` and `subscribe` use whichever frame it renders
+inside, so the same view runs against two independent app-dbs.
+
+Each `frame-root` creates its frame the first time it mounts, runs its
+`:initial-events`, and makes that frame current for everything inside it.
 
 ## What a frame is
 
-A frame is one running instance of your app. It owns that instance's runtime state:
+A frame is one running instance of your app. It holds that instance's state:
 
-- its **[app-db](glossary.md#app-db)** — the single map this instance's events read and write,
-- its **event queue** — the [dispatches](glossary.md#dispatch) waiting to run against this instance,
-- its **[subscription](glossary.md#subscription) cache** — the memoised graph of derived values over this instance's state.
+- its **[app-db](glossary.md#app-db)**, the map this instance's events read and
+  write;
+- its **event queue**, the [dispatches](glossary.md#dispatch) waiting to run;
+- its **[subscription](glossary.md#subscription) cache**, the derived values over
+  this instance's app-db.
 
-A frame does *not* own the functions you register with `reg-event` / `reg-sub` / `reg-view`. By default every `reg-*` writes into one common table, the [**registrar**](glossary.md#registrar), that all frames draw from, so two frames both handling `[:inc]` run the same handler function against different app-dbs. A frame isolates state, not behaviour, which is why showing two copies side by side never forces a rewrite.
-
-(The set of registrations a frame resolves against is called its [**image**](glossary.md#image). It matters only when two frames should run *different* handlers; see the end of this page.)
+A frame does *not* hold the functions you register with `reg-event`, `reg-sub`, and
+`reg-view`. By default every `reg-*` writes to one shared table, the
+[registrar](glossary.md#registrar), that all frames use. Both lists above run the
+same `:todo/add` handler against different app-dbs. Frames isolate state, not
+behaviour, so showing two copies of an app never requires rewriting it.
 
 ??? info "Coming from Redux?"
 
-    A frame is a store instance and `frame-root` is `<Provider store={...}>`. Creating a second store gives you a second state tree but the same reducers; frames work the same way. The difference: there is no default store. A dispatch that can't tell which frame it belongs to fails loud instead of landing somewhere conventional (more below).
+    A frame is a store instance and `frame-root` is `<Provider store={...}>`. A
+    second store gives you a second state tree with the same reducers, and frames
+    work the same way. The difference: there is no default store. A dispatch that
+    can't tell which frame it belongs to throws instead of landing somewhere by
+    convention ([below](#the-one-rule-frame-identity-is-carried-not-found)).
 
 ## The normal case: one app, one frame
 
-Almost every app has one frame. You establish it at the root of your view tree and never name it again. Inside a `reg-view`, the injected `dispatch` and `subscribe` target whichever frame the view renders under.
+Almost every app has one frame, established at the root of the view tree:
 
 ```clojure
-(ns my-app.core
+(ns todo.core
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]))
-
-(rf/reg-event :app/initialise
-  (fn [_cofx _event]
-    {:db {:screen :home}}))
-
-(rf/reg-sub :screen (fn [db _] (:screen db)))
-
-(rf/reg-view main-view []
-  [:h1 "Screen: " (name @(subscribe [:screen]))])
+            [re-frame.adapter.reagent :as reagent-adapter]
+            [todo.views :refer [todo-list]]))
 
 (defonce app-root (reagent-adapter/client-root))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)        ;; install the adapter (creates no frame)
   (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app :initial-events [[:app/initialise]]}
-     [main-view]]
+    [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+     [todo-list]]
     (js/document.getElementById "app")))
 ```
 
-Two forms do the work. `init!` installs the [substrate](glossary.md#substrate) [adapter](glossary.md#adapter) — the one-time hookup between re-frame2 and your rendering library (Reagent here) — and creates no frame. Then `frame-root {:id :app …}` **ensures** the `:app` frame: it creates the frame the first time it mounts (running its `:initial-events`) and scopes it for everything underneath, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without naming it. That is also what lets you go multi-frame later without touching app code.
+`init!` installs the [adapter](glossary.md#adapter), the one-time connection between
+re-frame2 and your rendering library (Reagent here). It creates no frame. Then
+`frame-root {:id :app …}` creates the `:app` frame on first mount, runs its
+`:initial-events`, and makes it current for the whole subtree, so every `dispatch`
+and `subscribe` below resolves to `:app` without naming it. That is also why you can
+add frames later without touching app code.
 
 ??? info "For JavaScript developers"
 
-    This is `ReactDOM.render(<Provider store={store}><App/></Provider>)`: establish the store at the root, and every component below reads it through context. The difference is that `init!` creates no store; the root boundary creates the frame, and you name it there.
+    This is `ReactDOM.render(<Provider store={store}><App/></Provider>)`: set up the
+    store at the root and every component below reads it through context. The
+    difference is that `init!` creates no store; the root boundary creates the frame,
+    and you name it there.
 
 ??? info "From re-frame v1"
 
-    v1's single implicit app-db becomes one explicit frame your root boundary ensures — one wrapper at the root, and nothing else changes. `:rf/default` is a perfectly legal frame id you may *choose*, but it carries no privilege: the runtime never falls back to it.
+    v1's single implicit app-db becomes one explicit frame created at the root. That
+    one wrapper is the only change. `:rf/default` is a legal frame id you may choose,
+    but it has no special status: the runtime never falls back to it.
 
 ### Seeding initial state
 
-!!! note "A frame's app-db always starts as `{}` — there is no `:db` config key"
+A frame's app-db always starts as `{}`. There is no `:db` config key. State arrives
+the way all state arrives, through an [event pipeline](glossary.md#event-pipeline),
+so seed it with a named event:
 
-    State arrives the way all state arrives: through an
-    [event pipeline](glossary.md#event-pipeline). Prefer a **named seed event**,
-    the same pattern the earlier pages used:
+```clojure
+(rf/reg-event :todo/initialise
+  (fn [_ _] {:db {:todos {} :showing :all}}))
 
-    ```clojure
-    (rf/reg-event :cart/initialise
-      (fn [_ _] {:db {:items []}}))
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-list]]
+```
 
-    [rf/frame-root {:id :cart :initial-events [[:cart/initialise]]}
-     [cart-view]]
-    ```
+For a raw dump with no domain event, the built-in `[:rf/set-db {…}]` works as the
+first step.
 
-    For a raw dump with no domain event, the built-in `[:rf/set-db {…}]` is fine as
-    the first step. Either way, initialisation goes through the same pipeline as
-    every later change.
-
-`:initial-events` is an ordered vector of setup steps. Each step is a bare event vector (`[:cart/restore-session]`) or, when it needs dispatch opts, a map (`{:event [:cart/add "milk"] :opts {…}}`). Each step is dispatched synchronously and run to completion, including any events it dispatches, before the next one starts. By the time construction returns, setup is done.
+`:initial-events` is an ordered vector of steps. Each step is an event vector
+(`[:todo/initialise]`) or, when it needs dispatch options, a map
+(`{:event [:todo/add "Buy milk"] :opts {…}}`). Each step runs to completion,
+including any events it dispatches, before the next starts, so setup is done by the
+time the frame is created.
 
 ## When you want more than one
 
-The genuine multi-frame cases, roughly in the order you'll meet them:
+The cases where you need several frames, roughly in the order you'll meet them:
 
-- **The same widget twice on one page.** A split pane comparing today against last week. Two panes, two frames, zero shared state.
-- **Story canvases.** "Show this view empty, loading, and loaded, side by side" is one set of handlers and three frames, each seeded differently. The Story runner allocates them; you mostly don't see it.
-- **A fresh frame per test.** Each test gets its own frame, torn down after, so no test can leak state into the next — see [Test a pipeline run](testing/pipeline-runs.md).
-- **A frame per server request.** [Server-side rendering](../ssr/concepts.md) creates a frame per HTTP request, runs the app in it, serialises, destroys it. A hundred concurrent requests are a hundred isolated app-dbs.
+- **The same app twice on one page**, like the work and home lists above.
+- **Story canvases.** "Show this view empty, loading, and loaded, side by side" is one
+  set of handlers and three frames, each seeded differently. The
+  [Story](glossary.md#story) runner creates them for you.
+- **A fresh frame per test**, torn down afterwards, so no test leaks state into the
+  next. See [Test a pipeline run](testing/pipeline-runs.md).
+- **A frame per server request.** [Server-side rendering](../ssr/concepts.md)
+  creates a frame per HTTP request, renders, and destroys it. A hundred concurrent
+  requests are a hundred isolated app-dbs.
 
-In each case it is one app mounted N times, each mount fully isolated. Here's the split pane, end to end:
+Frame boundaries nest. Inside the root `:app` frame, each nested `frame-root`
+replaces the current frame for its own subtree:
 
 ```clojure
-;; Adapted from testbeds/multi_frame/core.cljs
-(rf/reg-event ::init (fn [_cofx _ev] {:db {:n 0}}))
-(rf/reg-event ::inc  (fn [{:keys [db]} _ev] {:db (update db :n inc)}))
-(rf/reg-sub :n (fn [db _] (:n db)))
-
-;; Registered once. The injected `dispatch` / `subscribe` resolve against
-;; whichever frame this view renders under.
-(rf/reg-view counter-panel [label]
-  [:div
-   [:h3 label]
-   [:p "n = " @(subscribe [:n])]
-   [:button {:on-click #(dispatch [::inc])} "+"]])
-
-(rf/reg-view split-screen []
-  [:div.split
-   [rf/frame-root {:id :pane/left  :initial-events [[::init]]} [counter-panel "Left"]]
-   [rf/frame-root {:id :pane/right :initial-events [[::init]]} [counter-panel "Right"]]])
-
-;; At boot — after (rf/init! ...) — the root boundary ensures the app frame.
-(reagent-adapter/render! app-root
-  [rf/frame-root {:id :app}
-   [split-screen]]
-  (js/document.getElementById "app"))
+[rf/frame-root {:id :app}
+ [:div.split
+  [rf/frame-root {:id :todos/work :initial-events [[:todo/initialise "Write report"]]}
+   [todo-list]]
+  [rf/frame-root {:id :todos/home :initial-events [[:todo/initialise "Buy milk"]]}
+   [todo-list]]]]
 ```
 
-No pane id is threaded through the view, and no handler takes a "which counter am I" argument. Boundaries nest: each pane's `frame-root` overrides the root scope for its own subtree.
+In [Xray](glossary.md#xray), pick one frame and you see only its events and app-db.
 
-Click `+` on the left and only the left number moves. In [Xray](glossary.md#xray), pick the left frame and you see only that frame's events and app-db.
-
-For a borderline case, ask: *would these two things ever share a piece of state?* If yes, they are two views over slices of one frame's [app-db](app-db.md). If no — they are genuinely two separate runs of the app — they are two frames.
+To decide a borderline case, ask whether the two things would ever share state. If
+yes, they are two views over one frame's [app-db](app-db.md). If no, they are two
+frames.
 
 ### frame-provider and frame-root
 
-There are two frame-boundary components: `frame-root` **ensures** a frame, `frame-provider` **scopes** one that already exists. The split pane used **`frame-root {:id …}`** three times. It creates the frame the first time it mounts (running `:initial-events`); on every later mount under the same id it reuses the live frame without re-seeding. It does **not** destroy the frame on unmount. You give it the frame's config inline:
+There are two frame-boundary components:
+
+- **`frame-root {:id …}`** creates the frame if it doesn't exist and reuses it if it
+  does. Use it at the root of an app and for a view that brings its own frame, such
+  as a Story canvas or an embedded widget. Given `:frame` instead of `:id`, it raises
+  `:rf.error/frame-root-given-frame`, naming `frame-provider`.
+- **`frame-provider {:frame …}`** makes an existing frame current for a subtree. It
+  creates and destroys nothing. Use it when the frame already exists, because an
+  enclosing `frame-root` or a `make-frame` call ([below](#the-rest-of-the-frame-config))
+  created it. It takes a frame id or a frame value. Given `:id`, it raises
+  `:rf.error/frame-provider-given-id`, naming `frame-root`. Pointed at a frame that
+  was never created or has been destroyed, it raises
+  `:rf.error/frame-provider-frame-absent`.
+
+A view can bring its own frame:
 
 ```clojure
-;; A view that ensures its frame. The first mount creates the frame
-;; (and runs :initial-events); a remount under the same :id reuses it
-;; without re-seeding. No boot-time constructor call needed — frame-root
-;; ensures it.
-(rf/reg-view counter-widget [label]
-  [rf/frame-root {:id             :counter/widget
-                  :initial-events [[:rf/set-db {:n 0}]]}
-   [counter-panel label]])
+(rf/reg-view todo-widget []
+  [rf/frame-root {:id             :todos/widget
+                  :initial-events [[:todo/initialise "Try the widget"]]}
+   [todo-list]])
 ```
 
-**`frame-provider {:frame …}`** scopes an already-created frame into a React subtree; it creates and destroys nothing. Use it when the frame already exists (an enclosing `frame-root` ensured it, or code created it with `make-frame`, [below](#the-rest-of-the-frame-config)). Pass it a frame id or frame value. Scoping a frame that was never created, or has been destroyed, fails loud with `:rf.error/frame-provider-frame-absent`.
+`frame-root` creates the frame in a client `useLayoutEffect`, at commit, not during
+render, and renders its children once the frame is live. A render React discards
+before commit, such as a Suspense abort, creates nothing.
 
-So the choice is whether the boundary should create the frame or you already have it:
+Remounting `frame-root` doesn't reset anything. After a hot reload or a Story
+re-evaluation, the existing frame keeps its app-db and `:initial-events` do not run
+again, which is why hot reload doesn't lose your place. Changing a mounted
+`frame-root`'s `:id` or options raises `:rf.error/frame-root-reconfigured`. To switch
+to a different frame, give the `frame-root` a React `key` that changes with it. To
+change the same frame's config, call `rf/make-frame` with the same `:id`, which
+updates the config without resetting state.
 
-- **`frame-root {:id …}` (ensure)** — creates the frame if absent and reuses it if present, keyed by `:id`. Use it at the root of an app and for a view that brings its own frame: a Story canvas, an embedded widget, a comparison pane. Given a `:frame` it raises `:rf.error/frame-root-given-frame`, naming `frame-provider`.
-- **`frame-provider {:frame …}` (scope)** — the frame exists already. Given an `:id` it raises `:rf.error/frame-provider-given-id`, naming `frame-root`.
-
-`frame-root` creates the frame in a client `useLayoutEffect` (at commit), not during render; its children render only once the frame is live. A render React discards before commit (a Suspense abort, say) therefore creates nothing.
+Neither component destroys the frame on unmount. When a component should own a
+frame's whole lifetime, such as a modal with a throwaway frame, call `rf/make-frame`
+and `rf/destroy-frame!` ([below](#ending-and-resetting-a-frame)) from its mount and
+unmount lifecycle: a `useEffect` and its cleanup in UIx or React, `create-class` in
+Reagent.
 
 ??? info "For JavaScript developers"
 
-    `frame-provider {:frame …}` is a context `Provider` wrapping a store someone else created. `frame-root {:id …}` is closer to a `useRef` that lazily initialises a resource and keeps it stable across re-renders, except that it initialises in a commit-phase effect and the frame survives unmount; tearing it down is an explicit `destroy-frame!`.
-
-??? note "True ownership is explicit"
-
-    Neither component destroys the frame on unmount. When a component should own a frame's whole lifetime (a modal that wants a throwaway frame torn down on close), call `rf/make-frame` and `rf/destroy-frame!` ([below](#ending-and-resetting-a-frame)) from the component's mount and unmount lifecycle (a `useEffect` and its cleanup in a UIx or React component, `create-class` in Reagent).
-
-Re-mounting `frame-root` is idempotent. If the view re-mounts — a hot reload, a Story re-evaluation — the existing frame keeps its state: `app-db` is not reset and `:initial-events` do not run again, which is why hot reload doesn't lose your place. Changing a *mounted* `frame-root`'s `:id` or opts raises `:rf.error/frame-root-reconfigured`. To switch to a different frame, give the `frame-root` a React `key` that changes with it; to change the same frame's config, call `rf/make-frame` with the same `:id`, which updates the config without resetting state. For a genuinely fresh start, destroy and re-create the frame ([below](#ending-and-resetting-a-frame)).
+    `frame-provider {:frame …}` is a context `Provider` around a store someone else
+    created. `frame-root {:id …}` is closer to a `useRef` that lazily creates a
+    resource and keeps it across re-renders, except that it creates it in a
+    commit-phase effect and the frame outlives unmount.
 
 ## The one rule: frame identity is carried, not found
 
-[Frame identity is a value that travels with the work](glossary.md#frame-identity-is-carried-not-found). A dispatch, a subscription, or a callback gets its frame from the context it was given: the boundary above it, the handler it runs in, or a frame it captured. The runtime never guesses a frame, and there is no default one.
+A dispatch, a subscription, or a callback gets its frame from its context: the
+boundary above it, the handler it runs in, or a frame it captured. The runtime never
+guesses a frame, and there is no default one
+([frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found)).
 
-So a bare `(rf/dispatch [:inc])` works only when something established a frame around it: a `frame-root` above it while a view renders, the event or effect handler it runs in, or a `with-frame` block in a test or at the REPL ([below](#scoping-a-frame-in-a-test-or-at-the-repl)). With no scope and no carried frame, it fails loud:
+So a bare `(rf/dispatch [:todo/add "Buy milk"])` works only when something has
+established a frame: a `frame-root` above it while a view renders, the event or
+effect handler it runs in, or a `with-frame` block in a test or at the REPL
+([below](#scoping-a-frame-in-a-test-or-at-the-repl)). Otherwise it throws:
 
 ```clojure
 {:rf.error/id :rf.error/no-frame-context
  :operation   :dispatch
- :event-id    :ws/message-received
+ :event-id    :todo/add
  :recovery    :supply-frame}
 ```
 
-Why not fall back to a default frame? Because the app would work until a second frame appeared (a Story canvas, an inspection tool, an SSR pass), and then the dispatch would land in the wrong frame with no error. Failing at the call site that lost its frame is easier to fix.
-
-??? info "Coming from Redux?"
-
-    Redux gives you "the store" through context, and a frameless `store.dispatch` always works. re-frame2 treats an operation that has lost track of its frame as a bug and reports it at the call site.
+A fallback to a default frame would work until a second frame appeared, such as a
+Story canvas or an SSR pass, and then send the dispatch to the wrong frame with no
+error. Failing where the frame was lost is easier to fix.
 
 ### Naming a frame explicitly
 
-From outside any scope — a test, a tool, the REPL — name the frame with a `{:frame …}` opts map as the second argument to `dispatch` / `subscribe`. An explicit target always wins:
+Outside any frame scope, as in a test, a tool, or the REPL, pass a `{:frame …}`
+options map as the second argument to `dispatch` or `subscribe`. An explicit frame
+always wins:
 
 ```clojure
-(rf/dispatch   [::inc] {:frame :pane/left})    ;; explicit target
-@(rf/subscribe [:n]    {:frame :pane/left})    ;; same, for a read
+(rf/dispatch   [:todo/add "Buy milk"] {:frame :todos/home})
+@(rf/subscribe [:todo/all]            {:frame :todos/home})
 ```
 
-Server-side rendering, headless JVM tests, and tools all address frames this way.
-
-`:rf.error/no-frame-context` means **no frame at all**. A frame you *named* that doesn't exist (`{:frame :ghost}` — a typo, or a frame already destroyed) is a different failure: `dispatch` does nothing, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record goes to the always-on [error stream](glossary.md#error-record). That is the same recovery as a [destroyed frame](#ending-and-resetting-a-frame), because the runtime can't tell a typo from a teardown race.
+`:rf.error/no-frame-context` means no frame at all. Naming a frame that doesn't exist
+(`{:frame :ghost}`, a typo or an already destroyed frame) fails differently:
+`dispatch` does nothing, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed`
+record goes to the always-on [error stream](glossary.md#error-record). The runtime
+can't tell a typo from a teardown race, so it treats both like a
+[destroyed frame](#ending-and-resetting-a-frame).
 
 ## The async boundary: capture the frame
 
-A frame gets lost in one situation: a callback created while a frame was in scope runs later, after the scope is gone — a `setTimeout` tick, a promise continuation, a WebSocket `onmessage`, a `window` listener, a third-party SDK calling back. A `frame-root`'s scope lasts only while the view renders, and a handler's scope ends when the handler returns, so a bare `rf/dispatch` in that callback raises `:rf.error/no-frame-context`. (Click handlers in a `reg-view` are safe because the injected `dispatch` is already captured; see [Views](views.md).)
+A frame gets lost when a callback created inside a frame scope runs later, after the
+scope has ended: a `setTimeout` tick, a promise continuation, a WebSocket
+`onmessage`, a `window` listener, a third-party SDK callback. A `frame-root`'s scope
+lasts only while the view renders, and a handler's scope ends when it returns, so a
+bare `rf/dispatch` in that callback raises `:rf.error/no-frame-context`. Click
+handlers in a `reg-view` are safe, because the injected `dispatch` is already bound
+to its frame ([Views](views.md)).
 
-The fix: **capture the frame as a value while it's still in scope, and close over it**, with [`capture-frame`](glossary.md#capture-frame):
+The fix is to capture the frame while it is in scope, with
+[`capture-frame`](glossary.md#capture-frame), and close over it:
 
 ```clojure
-;; Adapted from examples/patterns/websocket/messages.cljs
+;; cf. examples/patterns/websocket/messages.cljs
 (defn open-socket!
-  "Call from inside an effect handler — opening a socket is an effect,
-   not a view's job, and the runtime establishes the frame scope around
-   every running handler and its effects. The socket's callbacks fire
-   much later, on frameless stacks."
+  "Call from an effect handler: the runtime makes the event's frame current
+   while its effects run. The socket's callbacks fire later, with no frame."
   [url]
   (let [{:keys [dispatch]} (rf/capture-frame)   ;; capture NOW
         socket             (js/WebSocket. url)]
     (set! (.-onmessage socket)
-          (fn [e] (dispatch [:ws/message-received (.-data e)])))
+          (fn [e] (dispatch [:todo/remote-changed (.-data e)])))
     socket))
 ```
 
-`(rf/capture-frame)` reads the frame in scope when it is called and returns a **frame api**, a map of operations locked to that frame: `{:frame … :dispatch … :dispatch-sync … :subscribe …}`. The captured `dispatch` routes to its frame whenever the socket fires: open the socket from the left pane and its messages land in the left frame. Called outside any scope, `(rf/capture-frame)` itself raises `:rf.error/no-frame-context`; `(rf/capture-frame :pane/left)` locks a frame api to a named frame instead.
+`(rf/capture-frame)` returns a **frame api**: a map of operations bound to the
+current frame, `{:frame … :dispatch … :dispatch-sync … :subscribe …}`. Open the
+socket from the `:todos/work` frame and its messages always land there. Called with
+no frame in scope, `(rf/capture-frame)` itself raises `:rf.error/no-frame-context`;
+`(rf/capture-frame :todos/work)` binds to a named frame instead.
+
+You don't need this to schedule a dispatch from an event handler. Return
+[effect](effects.md) rows, and they carry the frame for you:
+
+```clojure
+(rf/reg-event :todo/show-notice
+  (fn [{:keys [db]} [_ message]]
+    {:db (assoc db :notice message)
+     :fx [[:dispatch-later {:ms 3000 :event [:todo/hide-notice]}]]}))
+```
+
+`capture-frame` is for callbacks the effect system doesn't schedule, like the
+socket's `onmessage`, even when the code that registers them runs in an effect
+handler.
 
 ??? info "For JavaScript developers"
 
-    This is the familiar "capture the closure variable" problem. In JS, a stale closure over the wrong store often works silently against the wrong data; here a callback that didn't capture its frame throws.
+    This is the familiar stale-closure problem. In JavaScript, a closure over the
+    wrong store often works silently against the wrong data. Here a callback that
+    didn't capture its frame throws.
 
-You don't need any of this to schedule a dispatch from an event handler. Return [effect](effects.md) data and the effects carry the frame for you:
+## Subscriptions never read across frames
 
-```clojure
-(rf/reg-event :toast/show
-  (fn [{:keys [db]} [_ message]]
-    {:db (assoc db :toast message)
-     :fx [[:dispatch-later {:ms 3000 :event [:toast/clear]}]]}))
-```
+A [subscription](glossary.md#subscription) belongs to one frame. It computes from
+that frame's app-db and that frame's other subscriptions. There is no API for reading
+frame B from a subscription in frame A, and you must not build one by reading another
+frame's app-db inside a subscription.
 
-`:dispatch` and `:dispatch-later` rows are stamped with the running frame before any timer fires. If the deferred work is just a dispatch, use them.
-
-`capture-frame` is still needed for callbacks the effect system doesn't schedule — the socket's `onmessage` above, SDK callbacks, `window` listeners — even when the code that registers them runs inside an effect handler.
-
-## The hard rule: subscriptions never reach across frames
-
-A [subscription](glossary.md#subscription) belongs to one frame. It computes from that frame's app-db and from other subscriptions in that frame. There is no API for reading frame B from a sub in frame A, and you must not build one by reading another frame's app-db inside a sub's computation function.
-
-A cross-frame read breaks the per-frame guarantees: Story variants stay reproducible, concurrent SSR requests stay independent, and test frames stay hermetic only because nothing outside a frame influences it. Per-frame tools — the [epoch](glossary.md#epoch) record, [time-travel](glossary.md#time-travel), replay — would also misreport frame A once its values depend on frame B. If two things need to share derived state, they belong in one frame.
+Story variants stay reproducible, concurrent SSR requests stay independent, and test
+frames stay isolated only because nothing outside a frame affects it. The
+[epoch](glossary.md#epoch) record, [time-travel](glossary.md#time-travel), and replay
+would also misreport frame A once its values depended on frame B. If two things need
+shared derived state, they belong in one frame.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/no-frame-context` from a timer, promise, or socket callback | The callback runs after the scope that knew the frame has gone | Capture with `rf/capture-frame` while in scope, or return `:dispatch-later` / `:dispatch` from a handler |
+| `:rf.error/no-frame-context` from a timer, promise, or socket callback | The callback runs after the frame scope ended | Capture with `rf/capture-frame` while in scope, or return `:dispatch` / `:dispatch-later` from a handler |
 | `:rf.error/no-frame-context` at the REPL or in a test | No frame is in scope | Wrap in `rf/with-frame`, or pass `{:frame id}` |
-| `:rf.error/frame-provider-frame-absent` | `frame-provider` names a frame that was never created, or was destroyed | Use `frame-root` to create it, or `make-frame` first |
-| `:rf.error/frame-root-reconfigured` | A mounted `frame-root`'s `:id` or opts changed | To scope a different frame, give the `frame-root` a React `key` that changes with the id; to reconfigure the same frame, call `rf/make-frame` with the same `:id` |
-| Dispatch does nothing; `:rf.error/frame-destroyed` on the error stream | `{:frame …}` names a mistyped or destroyed frame | Fix the id, or stop dispatching to a frame after destroying it |
+| `:rf.error/frame-provider-frame-absent` | `frame-provider` names a frame that was never created, or was destroyed | Use `frame-root`, or call `make-frame` first |
+| `:rf.error/frame-root-reconfigured` | A mounted `frame-root`'s `:id` or options changed | Give it a React `key` that changes with the id, or call `rf/make-frame` with the same `:id` to reconfigure |
+| Dispatch does nothing; `:rf.error/frame-destroyed` on the error stream | `{:frame …}` names a mistyped or destroyed frame | Fix the id, or stop dispatching after destroying the frame |
 | `:rf.error/frame-construction-in-handler` | `make-frame` called from an event handler | Write app-db from the handler and let a view's `frame-root` create the frame |
 
 ## What frames are not
 
-- **Not component-local state.** A frame carries a full app-db, queue, and sub cache. A dropdown's open flag or a form's draft text goes in the current frame's app-db — see [Where should this value live?](where-state-lives.md).
-- **Not routing.** Navigating changes *which slice of app-db matters*, not which frame is running. One frame, many routes.
-- **Not micro-frontends.** Frames are N instances of *one* app, each running the same shared handlers. Two surfaces with genuinely *different* handler sets can share a page (that's the [Images](images.md) story), but two genuinely different *apps* on one page want iframes.
+- **Component-local state.** A frame carries a full app-db, queue, and subscription
+  cache. A dropdown's open flag or an input's draft text goes in the current frame's
+  app-db; see [Where should this value live?](where-state-lives.md).
+- **Routing.** Navigating changes which part of app-db matters, not which frame is
+  running. One frame, many routes.
+- **Micro-frontends.** Frames are copies of one app sharing the same handlers. Two
+  surfaces with different handler sets can share a page (see [Images](images.md)),
+  but two different apps on one page want iframes.
 
-??? note "Going deeper — when two frames resolve the same id differently"
+??? note "Going deeper: when two frames resolve the same id differently"
 
-    Everything on this page assumed the default: all frames draw their handlers from one shared registrar. The set of registrations a frame resolves against is its [**image**](glossary.md#image). Occasionally you want two frames to resolve `[:inc]` to *different* handlers — two examples on one page, or an inspection tool beside the app it inspects. Then you give those frames different images; see [Images](images.md).
+    This page assumed all frames use one shared registrar. The set of registrations
+    a frame uses is its [image](glossary.md#image). Occasionally two frames should
+    resolve `[:todo/add]` to different handlers, as with two examples on one page or
+    an inspection tool beside the app it inspects. Then you give those frames
+    different images; see [Images](images.md).
 
 ## Advanced
 
-## The rest of the frame config
+### The rest of the frame config
 
-Day to day, `:initial-events` is the key you use. The frame config — the same map whether you hand it to `frame-root` inline or to the programmatic constructor `make-frame` — accepts a few more:
+The frame config is the same map whether you pass it to `frame-root` or to
+`make-frame`, the function that creates a frame directly. Besides `:initial-events`
+it accepts:
 
 ```clojure
 (rf/make-frame
-  {:id             :cart
-   :doc            "The shopping-cart frame."
-   :initial-events [[:rf/set-db {:items []}]       ;; ordered setup steps, dispatched synchronously
-                    [:cart/restore-session]]
-   :on-destroy     [:cart/cleanup]                 ;; event dispatched once while the frame is torn down
-   :fx-overrides   {:my-app/http http-stub-fn}     ;; per-frame fx replacements (test doubles)
-   :interceptors   [:my-app/recorder]              ;; interceptor REFS prepended to every event in this frame
-   :drain-depth    100                             ;; run-to-completion drain depth limit
-   :preset         :test})                         ;; capability bundle — :default / :test / :story
+  {:id             :todos/work
+   :doc            "The work todo list."
+   :initial-events [[:todo/initialise "Write report"]]   ;; ordered setup steps
+   :on-destroy     [:todo/cleanup]              ;; dispatched once during teardown
+   :fx-overrides   {:todo.storage/save stub-fn} ;; per-frame effect replacements
+   :interceptors   [:my-app/logger]             ;; interceptor ids prepended to every event
+   :drain-depth    100                          ;; run-to-completion depth limit
+   :preset         :test})                      ;; :default, :test or :story
 ```
 
 Notes:
 
-1. **`:on-destroy`** is an event dispatched once during `destroy-frame!`, after ordinary queued work has been discarded. Events it dispatches into the same frame run too, before the frame is removed.
-2. **`:fx-overrides`** swaps registered [effect handlers](glossary.md#effect-handler) by id — the test-double mechanism (stub `:my-app/http` so a frame never hits the network).
-3. **`:interceptors`** prepends [interceptor](glossary.md#interceptor) references (registered ids) to every event in the frame. [Interceptors](interceptors.md) has the details.
-4. **`:drain-depth`** caps the run-to-completion drain.
-5. **`:preset`** expands into a named bundle of frame-config defaults: `:test` stubs `:rf.http/managed`, sets `:drain-depth` 100, and makes coeffect minting strict; `:story` stubs HTTP and sets `:drain-depth` 16. Your own keys win on conflict, and `(rf/frame-meta :cart)` shows the result.
+1. **`:on-destroy`** is dispatched once during `destroy-frame!`, after queued work is
+   discarded. Events it dispatches into the same frame also run before the frame is
+   removed.
+2. **`:fx-overrides`** replaces [effect handlers](glossary.md#effect-handler) by id,
+   usually with test doubles, so the frame never touches storage or the network.
+3. **`:interceptors`** prepends [interceptor](glossary.md#interceptor) ids to every
+   event in the frame; see [Interceptors](interceptors.md).
+4. **`:drain-depth`** caps the [run-to-completion](run-to-completion.md) drain.
+5. **`:preset`** expands into a bundle of defaults. `:test` stubs `:rf.http/managed`,
+   sets `:drain-depth` to 100, and makes coeffect minting strict; `:story` stubs HTTP
+   and sets `:drain-depth` to 16. Your own keys win, and `(rf/frame-meta :todos/work)`
+   shows the result.
 
-The `:observability` sink policy — the production-telemetry key not shown above — is covered in [Observability](observability.md#consuming-production-telemetry-declare-a-sink); the full frame-config grammar is in the [API reference](../api/re-frame.core.md).
+The `:observability` key is covered in
+[Observability](observability.md#consuming-production-telemetry-declare-a-sink), and
+the full grammar in the [API reference](../api/re-frame.core.md).
 
-Hand the frame config a `:sensitive` or `:large` key (those belong on handler effects, not frame config — see [data classification](glossary.md#data-classification)) or a malformed `:observability` entry, and construction throws `:rf.error/bad-frame-classification` before any setup event runs. A shape mistake such as `{:initial-events [:cart/init]}` — a bare event instead of a vector of steps — is rejected the same way, with a message naming the fix (`[[:cart/init]]`).
+Construction throws `:rf.error/bad-frame-classification` before any setup runs if the
+config carries `:sensitive` or `:large` (those belong on handler effects; see
+[data classification](glossary.md#data-classification)) or a malformed
+`:observability` entry. A shape mistake such as `{:initial-events [:todo/initialise]}`,
+a bare event instead of a vector of steps, is rejected the same way, with a message
+naming the fix (`[[:todo/initialise]]`).
 
-As an app author you call `init!` once and create frames; `re-frame.substrate.adapter/install-adapter!`, `rf/destroy-adapter!`, and the adapter-spec map are for people writing a substrate adapter.
+As an app author you call `init!` once and create frames.
+`re-frame.substrate.adapter/install-adapter!`, `rf/destroy-adapter!`, and the
+adapter-spec map are for people writing an adapter.
 
-## Ending and resetting a frame
+### Ending and resetting a frame
 
-Most frames live for the whole program. Tests, tools, and SSR harnesses tear theirs down explicitly:
+Most frames live for the whole program. Tests, tools, and SSR harnesses tear theirs
+down explicitly:
 
 ```clojure
-(rf/destroy-frame! :pane/left)   ;; remove it from the registry; run teardown
+(rf/destroy-frame! :todos/work)   ;; run teardown and remove the frame
 
-;; Reset to "just created" — re-runs :initial-events. Not a dedicated verb:
-;; destroy, then re-create with the SAME config you built the frame with.
-(rf/destroy-frame! :pane/left)
-(rf/make-frame config)           ;; the SAME config (it carries :id :pane/left)
+;; Reset to "just created": destroy, then create again with the same config.
+(rf/destroy-frame! :todos/work)
+(rf/make-frame config)            ;; the same config, carrying :id :todos/work
 ```
 
-**`destroy-frame!`** takes a frame id or frame value. It immediately discards the frame's queued events; an event already running may finish its own code, but nothing it produced is committed, no effects run, and nothing renders. Then your `:on-destroy` event (if any) runs, and finally the sub-cache is disposed, feature resources are released, and the frame is removed from the registry.
+`destroy-frame!` takes a frame id or frame value. It discards the frame's queued
+events immediately. An event already running may finish its own code, but nothing it
+produced is committed, no effects run, and nothing renders. Then the `:on-destroy`
+event runs, if there is one, and finally the subscription cache is disposed, feature
+resources are released, and the frame is removed.
 
-After destruction, a `dispatch` or `subscribe` still aimed at the frame does not throw: `dispatch` does nothing, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record goes to the always-on [error stream](glossary.md#error-record). The runtime can't tell a harmless teardown or hot-reload race from a real use-after-destroy bug, so it recovers and reports.
+After that, a `dispatch` or `subscribe` aimed at the frame does not throw: `dispatch`
+does nothing, `subscribe` returns `nil`, and a `:rf.error/frame-destroyed` record goes
+to the always-on [error stream](glossary.md#error-record). The runtime can't tell a
+harmless teardown race from a real use-after-destroy bug, so it recovers and reports.
 
-**A full reset** is `destroy-frame!` followed by `make-frame` with the same config: `app-db` resets to `{}`, the sub-cache and queue clear, and `:initial-events` run again. Tests and Story "reset" buttons use it. For an image-loaded frame, pass the same `:images` again. The two calls are not atomic together, so run them outside any handler. (For an `app-db`-only reset that keeps the rest of the frame's runtime state, use `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.)
+A full reset, `destroy-frame!` then `make-frame` with the same config, clears app-db
+to `{}`, clears the subscription cache and queue, and runs `:initial-events` again.
+Tests and Story "reset" buttons use it. For a frame built from images, pass the same
+`:images` again. The two calls are not atomic, so run them outside any handler. To
+reset only app-db, use `(rf/replace-frame-state! frame-id {:rf.db/app {}})`.
 
-Constructing a frame inside an event handler raises `:rf.error/frame-construction-in-handler`. Handlers change app-db; views, boot code, and SSR request code create frames. A handler that wants a child frame writes app-db to say so, and the view tree creates the frame with `frame-root`.
+Creating a frame inside an event handler raises
+`:rf.error/frame-construction-in-handler`. Handlers change app-db; views, boot code,
+and SSR request code create frames. A handler that wants a new frame writes app-db to
+say so, and a view's `frame-root` creates it.
 
 ### Scoping a frame in a test or at the REPL
 
-A test or REPL session runs outside any view, so no frame is in scope, and threading `{:frame …}` onto every line is tedious. Two macros scope a frame for a block:
+Tests and the REPL run outside any view, so no frame is in scope, and adding
+`{:frame …}` to every call is tedious. Two macros make a frame current for a block:
 
 ```clojure
-;; Using the counter from the top of the page.
-;; Pin to an EXISTING frame for the block (creates / destroys nothing):
-(rf/with-frame :left
-  (rf/dispatch-sync [:inc])
-  @(rf/subscribe [:value]))
+;; Make an EXISTING frame current for the block (creates and destroys nothing):
+(rf/with-frame :todos/work
+  (rf/dispatch-sync [:todo/add "Buy milk"])
+  @(rf/subscribe [:todo/all]))
 
-;; CREATE a frame, use it, and destroy it on exit (success or throw):
-(rf/with-new-frame [f (rf/make-frame {:initial-events [[:initialise 0]]})]
-  (rf/dispatch-sync [:inc])
-  (is (= 1 (:value (rf/app-db-value f)))))
+;; CREATE a frame, use it, and destroy it on exit, even if the body throws:
+(rf/with-new-frame [f (rf/make-frame {:initial-events [[:todo/initialise "Buy milk"]]})]
+  (rf/dispatch-sync [:todo/add "Walk the dog"])
+  (is (= 2 (count (:todos (rf/app-db-value f))))))
 ```
 
-`with-frame` scopes an existing frame, like `frame-provider`; `with-new-frame` owns the frame's lifetime and destroys it when the block exits. Inside either, plain `dispatch` / `subscribe` resolve to the bound frame. `make-frame` is the one frame constructor (`frame-root` uses it too). It returns a live frame value, and every API that takes a frame accepts either that value or its id, so `(rf/app-db-value f)` works directly.
+`with-frame` is the block-scoped version of `frame-provider`. `with-new-frame` owns
+the frame's lifetime and destroys it when the block exits. Inside either, a plain
+`dispatch` or `subscribe` uses the bound frame. `make-frame` returns a live frame
+value, and every API that takes a frame accepts that value or its id.
 
-The examples use `dispatch-sync`, which runs the event to completion before returning — what a test wants to assert against ([Run to completion](run-to-completion.md#dispatch-sync)). [Test a pipeline run](testing/pipeline-runs.md) covers the full test-fixture idiom.
+These examples use `dispatch-sync`, which returns only after the event has run to
+completion, so the next line can assert on the result
+([Run to completion](run-to-completion.md#dispatch-sync)).
+[Test a pipeline run](testing/pipeline-runs.md) covers the full test setup.
 
-`with-frame` binds a dynamic var, so its scope ends when control leaves the block. An async callback created inside the body that fires after the body returns has no frame, and `with-new-frame` has already destroyed its frame by then. Capture a frame api with `capture-frame` (or pass `{:frame …}`) before the async boundary, as with the WebSocket above.
+`with-frame` binds a dynamic var, so its scope ends when control leaves the block.
+An async callback created inside the block that fires later has no frame, and
+`with-new-frame` has destroyed its frame by then. Capture a frame api with
+`capture-frame`, or pass `{:frame …}`, before the async boundary.
 
-### Hold first, scope second, override last
+### Hold, scope, override
 
-Code learns its frame in one of three ways. Prefer them in this order:
+Code gets its frame in one of three ways. Prefer them in this order:
 
-1. **Hold** — carry the frame as a value. This survives every boundary: an async callback, a component that dispatches, a function handed to an outside library. The primitive is `capture-frame`, and each context has its own spelling of it:
-    - In a Reagent `reg-view`, the injected `dispatch` / `subscribe` are already captured.
-    - In UIx, `(use-frame)` returns the same frame api as a hook (see [Use UIx or reagent-slim](how-to/use-uix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api)).
-    - Anywhere else — an async setup fn, a tool, a test, a callback registered with the outside world — call `rf/capture-frame` directly.
+1. **Hold**: carry the frame as a value. This survives every boundary, including
+   async callbacks and functions handed to outside libraries. The primitive is
+   `capture-frame`, and each context has its own form of it:
+    - In a Reagent `reg-view`, the injected `dispatch` and `subscribe` are already
+      bound.
+    - In UIx, the `(use-frame)` hook returns the same frame api (see
+      [Use UIx or reagent-slim](how-to/use-uix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api)).
+    - Anywhere else, call `rf/capture-frame` directly.
+2. **Scope**: make a frame current for a region. `frame-root` and `frame-provider` do
+   it for a React subtree through context; `with-frame` does it for a synchronous
+   block through a dynamic var. Scope lasts only while control stays in the region,
+   which is why async callbacks need to hold.
+3. **Override**: pass `{:frame f}` explicitly, for a tool, a test, or an SSR pass
+   working on a frame from outside. Needing it in app code usually means the code
+   lost its frame and should hold instead.
 
-2. **Scope** — establish a frame for a region so code inside doesn't name one. `frame-root` / `frame-provider` scope a React subtree through context; `with-frame` scopes a synchronous block through a dynamic var. Scope lasts only while control stays in the region, which is why an async callback needs hold.
+### Run to completion is per frame
 
-3. **Override** — pass `{:frame f}` explicitly, for a tool, a test, or an SSR pass addressing a frame from outside any scope. Needing it inside app code usually means the code lost its frame and should hold instead.
-
-### Run-to-completion is per-frame
-
-[Run to completion](effects.md#run-to-completion) is scoped to one frame. Each frame has its own queue and its own drain; frame A's drain settles A's queue, frame B's settles B's, and the two never merge. A depth-limit halt or a `destroy-frame!` ends only that frame's drain. So each frame's [epochs](glossary.md#epoch) and [time-travel](glossary.md#time-travel) history are independent of every other frame.
+Each frame has its own queue and its own [drain](effects.md#run-to-completion).
+Frame A's drain settles A's queue and B's settles B's; they never merge. A depth-limit
+halt or a `destroy-frame!` ends only that frame's drain, and each frame's
+[epochs](glossary.md#epoch) and [time-travel](glossary.md#time-travel) history are
+independent.
 
 ### Cross-frame `dispatch-sync` during a drain
 
-Calling `dispatch-sync` against the current frame from inside that frame's running handler raises `:rf.error/dispatch-sync-in-handler`. A `dispatch-sync` aimed at a **different** frame is allowed: the target frame's drain runs to completion, then the caller's frame continues.
+Calling `dispatch-sync` for the current frame from inside that frame's running
+handler raises `:rf.error/dispatch-sync-in-handler`. A `dispatch-sync` aimed at a
+**different** frame is allowed: the target frame's drain runs to completion, then the
+caller's frame continues.
 
-It is rarely what you meant, so the runtime emits `:rf.warning/cross-frame-dispatch-sync-during-drain` and proceeds. To send an event to another frame, prefer `(rf/dispatch event {:frame other})`, which queues it on the target and runs it after your own drain settles. Keep the synchronous form for test and tooling setups that need the other frame settled before the next line runs.
+That is rarely what you meant, so the runtime emits
+`:rf.warning/cross-frame-dispatch-sync-during-drain` and proceeds. To send an event
+to another frame, prefer `(rf/dispatch event {:frame other})`, which queues it on the
+target to run after your drain settles. Keep the synchronous form for tests and tools
+that need the other frame settled before the next line.
