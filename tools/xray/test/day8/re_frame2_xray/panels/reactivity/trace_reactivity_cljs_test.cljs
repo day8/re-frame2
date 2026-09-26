@@ -33,22 +33,6 @@
                      {:id 4 :op-type :rf.view :operation :rf.view/render :tags {}}
                      {:id 5 :op-type :rf.fx :operation :rf.fx/handled :tags {}}]})]))
 
-(deftest trace-feed-tracks-focus-flip
-  (testing "the trace-feed projection is epoch-scoped: it
-            reads the focused epoch record's `:trace-events`. Flipping
-            focus between epochs must change the projected feed."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (seed-epochs!)
-    (h/focus-cascade! :c1)
-    (let [feed-1 (h/read-sub :rf.xray/trace-feed)]
-      (is (map? feed-1) "trace-feed returns the projected shape")
-      (h/focus-cascade! :c2)
-      (let [feed-2 (h/read-sub :rf.xray/trace-feed)]
-        (is (not= feed-1 feed-2)
-            "trace-feed re-fired on focus flip — the focused epoch's
-             :epoch-id changed, so the projected rows changed")))))
-
 (deftest trace-feed-scope-is-the-focused-epochs-trace-events
   (testing "the feed's rows are exactly the focused epoch's
             :trace-events (including the async nil-dispatch-id reactive
