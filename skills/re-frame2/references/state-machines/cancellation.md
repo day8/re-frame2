@@ -81,7 +81,7 @@ If the child machine itself owns the resource, the child's leaf-state `:exit` (o
   :on    {:disconnect :idle}}}
 ```
 
-When the parent destroys the child, the child's exit cascade fires `:ws/close` before the snapshot is dissoc'd. The destroy fx (`re-frame.machines.lifecycle-fx.destroy`) runs the standard exit cascade on the actor's current configuration before unregistering the handler.
+When the parent destroys the child, the child's exit cascade fires `:ws/close` before the snapshot is dissoc'd. The destroy fx (`re-frame.machines.lifecycle-fx.destroy`) runs the standard exit cascade on the actor's current configuration before removing the actor's snapshot. Destroy ends the instance, never the definition: a spawned actor has no per-instance handler to clear, a singleton's `reg-machine` registration survives its teardown, and only `rf/clear` removes a registration for good.
 
 ### Parent-side `:exit` on the `:spawn`-bearing state
 
