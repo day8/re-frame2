@@ -292,9 +292,10 @@
         ;; Per Conventions §Event payloads SHOULD be
         ;; serialisable data: a dev-only advisory walk of the dispatched
         ;; event's payload for a host handle (fn / Promise / AbortController
-        ;; / DOM node / Date / RegExp) — the same closed set the reply-map /
-        ;; reply-target data-only invariant polices. WARNING, not a throw:
-        ;; this is a SHOULD, not the `:rf.cofx` structural-EDN MUST. Dev-only
+        ;; / DOM node / RegExp) — the set the reply-map / reply-target
+        ;; data-only invariant polices, minus instants, which are EDN.
+        ;; WARNING, not a throw: this is a SHOULD, not the `:rf.cofx`
+        ;; structural-EDN MUST. Dev-only
         ;; — `rf.interop/debug-enabled?` gates BOTH the walk and the emit, so
         ;; production DCEs the whole surface.
          _                  (when (and (rf.trace/continuation-live?)

@@ -1093,17 +1093,17 @@
     :rf.error/mutation-non-serializable-instance-id
     where
     (str "a mutation instance id must be serializable EDN "
-         "(a scalar — keyword / string / number — or an "
-         "EDN collection recursively built from such); got "
+         "(a scalar — keyword / string / safe-range integer / UUID / "
+         "instant — or an EDN collection recursively built from such); got "
          (pr-str instance-id) ". The instance id is stored "
          "in runtime-db, the work-ledger work id, and the "
          "reply payloads — all durable + trace-visible + "
          "epoch / restore-safe — so it follows the same "
          "serializable-identity discipline as resource "
          "params and scopes. Host / opaque values "
-         "(functions, promises, dates, DOM nodes, "
-         "AbortControllers, JS objects, atoms) are "
-         "rejected. Per EP-0003 §Mutations / Spec 016 "
+         "(functions, promises, DOM nodes, "
+         "AbortControllers, JS objects, atoms) and "
+         "floats are rejected. Per EP-0003 §Mutations / Spec 016 "
          "§Resource identity.")
     {:recovery :fix-instance-id
      :extra    {:instance-id (pr-str instance-id)}}))
