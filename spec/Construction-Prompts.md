@@ -1009,9 +1009,10 @@ Routing has ONE URL-change event. `:rf.route/handle-url-change` is dispatched by
 **Server-side `:rf/server-init` handler:**
 
 ```clojure
+;; Server-only because only the server dispatches it (from `:initial-events`);
+;; `:platforms` gates effects and coeffects, not events.
 (rf/reg-event :rf/server-init
-  {:doc       "Server-side per-request init. Runs setup events from the request context."
-   :platforms #{:server}}
+  {:doc "Server-side per-request init. Runs setup events from the request context."}
   (fn handler-rf-server-init [{:keys [db]} [_ request]]
     {:db (assoc db
                 :session (:session request)
