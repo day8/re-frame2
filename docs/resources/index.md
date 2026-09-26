@@ -69,3 +69,11 @@ The model page ends with a [complete register + route + view skeleton](concepts.
 Reach for resources when **cached server reads start multiplying** — not for a
 local counter. [Where should this value live?](../core/where-state-lives.md) has the full
 decision table.
+
+## Where next
+
+- **Build it**: the [RealWorld tutorial](tutorial/index.md), five parts.
+- **Understand it**: [the model](concepts.md) — causes, statuses, scope, owners, invalidation.
+- **Look it up**: the [API reference](../api/re-frame.resources.md).
+- **Coming from elsewhere**: [TanStack Query](coming-from-tanstack-query.md) or
+  [re-frame-query](../../migration/from-re-frame-v1/re-frame-query-to-resources.md).
