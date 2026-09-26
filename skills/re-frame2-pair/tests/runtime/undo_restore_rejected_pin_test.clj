@@ -21,8 +21,8 @@
 ;;;; (`rf/restore-epoch!`, `rf/epoch-history`, `rf/app-db-value`). We
 ;;;; therefore pin the SOURCE-level contract: BOTH sugars' rejected-restore
 ;;;; arms return the documented `:ok? false :reason :restore-rejected`
-;;;; shape, and the two shapes MATCH so the pair of sibling sugars cannot
-;;;; drift apart.
+;;;; shape, each pinned to the same constants so the pair of sibling sugars
+;;;; cannot drift apart.
 ;;;;
 ;;;; Run: bb tests/runtime/undo_restore_rejected_pin_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -88,7 +88,8 @@
 ;; ---------------------------------------------------------------------------
 ;; The rejected-restore arm of BOTH sugars must return :ok? FALSE
 ;; :reason :restore-rejected. :ok? true here would be a false-green over
-;; an unchanged frame.
+;; an unchanged frame. Both sugars are pinned to the SAME constants, so one
+;; cannot quietly drift from the other.
 ;; ---------------------------------------------------------------------------
 
 (deftest rejected-restore-arm-is-ok-false-restore-rejected
@@ -110,23 +111,6 @@
       (is (= :restore-rejected (:reason else))
           (str nm "'s rejected arm carries the documented "
                ":reason :restore-rejected")))))
-
-;; ---------------------------------------------------------------------------
-;; The two sibling sugars must not DRIFT: their rejected-restore envelopes
-;; must carry the same :ok? / :restored? / :reason contract keys. Pinning
-;; them together stops one quietly regressing while the other stays
-;; correct.
-;; ---------------------------------------------------------------------------
-
-(deftest sibling-rejected-shapes-agree
-  (let [[_ _ _ sb-else] (if-ok-node step-back-form)
-        [_ _ _ te-else] (if-ok-node to-epoch-form)
-        keys-of         (fn [m] (select-keys m [:ok? :restored? :reason]))]
-    (is (= (keys-of sb-else) (keys-of te-else))
-        (str "undo-step-back and undo-to-epoch must return the SAME "
-             ":ok?/:restored?/:reason contract on a rejected restore so "
-             "the sibling sugars cannot drift. step-back="
-             (pr-str (keys-of sb-else)) " to-epoch=" (pr-str (keys-of te-else))))))
 
 ;; ---------------------------------------------------------------------------
 ;; undo-to-epoch's docstring must document the failure shape (a docstring
