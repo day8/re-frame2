@@ -17,25 +17,21 @@
       read.
 
   Coverage:
-    (a) a region guard reading `(:tags ctx)` sees a SIBLING region's
-        state-tag and fires / blocks accordingly — the core cross-region
-        coordination case.
-    (b) the §State-tags-as-stateIn worked example from spec/005 actually
-        works from a region guard.
-    (c) FROZEN selection — a sibling's SAME-EVENT transition is NOT visible
-        to a later region's guard during selection; the guard reads the
-        frozen pre-event sibling config (aligns to XState v5 / SCXML). The
-        dedicated frozen-selection / declaration-order-independence /
-        next-microstep convergence fixtures live in
-        `frozen_region_select_test.clj`.
+    (b) the §State-tags-as-stateIn worked example from spec/005 works from
+        a region guard: the guard reads a SIBLING region's state-tag and
+        blocks, then fires once the sibling advertises it.
     (d) region guards see their OWN state correctly.
     (e) non-parallel (flat / compound) guard ctx carries neither `:tags`
         nor `:all-state`.
-    (f) action ctx gets the same `:tags` + `:all-state` threading."
+    `:all-state` stays a ctx-only key, never committed onto the snapshot.
+
+  A guard reading a sibling through `:all-state`, FROZEN selection (a
+  sibling's same-event transition is not visible to a later region's
+  guard), and the same `:tags` / `:all-state` threading into ACTION ctx are
+  pinned in `frozen_region_select_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
-            [re-frame.machines.parallel :as rf.machines.parallel]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -45,60 +41,6 @@
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
 (def ^:private snapshot rf.machines.test-support/snapshot)
-
-;; ---- (a) region guard reads a sibling region's tag ------------------------
-
-(deftest region-guard-reads-sibling-tag
-  (testing "a :gate region guard reading (:tags ctx) sees the :form region's
-            tag and fires / blocks accordingly"
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:form-valid? (fn [{:keys [tags]}]
-                                      (contains? tags :form/valid))}
-             :regions
-             {:form {:initial :invalid
-                     :states  {:invalid {:tags #{:form/invalid} :on {:validate :valid}}
-                               :valid   {:tags #{:form/valid}}}}
-              :gate {:initial :closed
-                     :states  {:closed {:on {:try {:target :open :guard :form-valid?}}}
-                               :open   {}}}}}]
-      (rf/reg-machine :xreg/tag-gate m)
-      ;; Form still :invalid → :gate's :try guard reads NO :form/valid → blocked.
-      (rf/dispatch-sync [:xreg/tag-gate [:try]])
-      (is (= {:form :invalid :gate :closed} (:state (snapshot :xreg/tag-gate)))
-          ":gate stays :closed — sibling :form has not advertised :form/valid")
-      ;; Flip the form valid; now its tag is in the machine-wide union.
-      (rf/dispatch-sync [:xreg/tag-gate [:validate]])
-      (is (= :valid (get-in (snapshot :xreg/tag-gate) [:state :form])))
-      ;; :try again — :gate's guard now reads :form/valid in (:tags ctx) → fires.
-      (rf/dispatch-sync [:xreg/tag-gate [:try]])
-      (is (= :open (get-in (snapshot :xreg/tag-gate) [:state :gate]))
-          ":gate opens — sibling :form now advertises :form/valid in the tag union"))))
-
-;; ---- (a') region guard reads a sibling's precise :all-state value ----------
-
-(deftest region-guard-reads-sibling-all-state
-  (testing "a region guard reading (:all-state ctx) sees the sibling region's
-            discrete state value (the precise stateIn equivalent)"
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:form-is-valid? (fn [{:keys [all-state]}]
-                                         (= :valid (:form all-state)))}
-             :regions
-             {:form {:initial :invalid
-                     :states  {:invalid {:on {:validate :valid}}
-                               :valid   {}}}
-              :gate {:initial :closed
-                     :states  {:closed {:on {:try {:target :open :guard :form-is-valid?}}}
-                               :open   {}}}}}]
-      (rf/reg-machine :xreg/state-gate m)
-      (rf/dispatch-sync [:xreg/state-gate [:try]])
-      (is (= :closed (get-in (snapshot :xreg/state-gate) [:state :gate]))
-          ":gate blocked — sibling :form is not :valid")
-      (rf/dispatch-sync [:xreg/state-gate [:validate]])
-      (rf/dispatch-sync [:xreg/state-gate [:try]])
-      (is (= :open (get-in (snapshot :xreg/state-gate) [:state :gate]))
-          ":gate opens — (:all-state ctx) :form read as :valid"))))
 
 ;; ---- (b) the spec/005 worked example actually works from a region guard ----
 
@@ -135,59 +77,6 @@
           ":submit fires once the :form region advertises :form/valid")
       (is (contains? (:tags (snapshot :xreg/checkout)) :checkout/submitting)
           "the committed tag union reflects :checkout's new state too"))))
-
-;; ---- (c) FROZEN selection — a sibling's same-event move is NOT visible ------
-
-(deftest tag-union-frozen-during-selection
-  (testing "a sibling region's SAME-EVENT transition is NOT visible to a later
-            region's guard during selection — the guard reads the FROZEN
-            pre-broadcast tag union (aligns to XState v5 / SCXML)"
-    ;; Declaration order: :form before :gate. A single :go event makes :form
-    ;; transition :invalid → :valid (advertising :form/valid). Under the FROZEN
-    ;; model, :gate's :go guard is evaluated against the pre-event snapshot, in
-    ;; which :form is still :invalid → :form/valid is NOT in the frozen union →
-    ;; :gate stays :closed. :form still advances (it selected on its OWN :on).
-    ;; This is the xstate@5.32.0 result (a=done, b=idle), declaration-order-
-    ;; independent.
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:form-valid? (fn [{:keys [tags]}]
-                                      (contains? tags :form/valid))}
-             :regions
-             {:form {:initial :invalid
-                     :states  {:invalid {:tags #{:form/invalid} :on {:go :valid}}
-                               :valid   {:tags #{:form/valid}}}}
-              :gate {:initial :closed
-                     :states  {:closed {:on {:go {:target :open :guard :form-valid?}}}
-                               :open   {}}}}}]
-      (rf/reg-machine :xreg/frozen m)
-      (rf/dispatch-sync [:xreg/frozen [:go]])
-      (is (= {:form :valid :gate :closed} (:state (snapshot :xreg/frozen)))
-          ":gate stayed :closed — it saw :form's FROZEN pre-event :invalid, not
-           the same-macrostep transition to :valid"))))
-
-(deftest tag-union-frozen-pure-fn
-  (testing "pure machine-transition: the cross-region union a guard reads is the
-            FROZEN pre-event snapshot, not the region's evolving position"
-    (let [m {:type    :parallel
-             :data    {}
-             :guards  {:form-valid? (fn [{:keys [tags]}]
-                                      (contains? tags :form/valid))}
-             :regions
-             {:form {:initial :invalid
-                     :states  {:invalid {:tags #{:form/invalid} :on {:go :valid}}
-                               :valid   {:tags #{:form/valid}}}}
-              :gate {:initial :closed
-                     :states  {:closed {:on {:go {:target :open :guard :form-valid?}}}
-                               :open   {}}}}}
-          initial {:state {:form :invalid :gate :closed}
-                   :data  {} :tags #{:form/invalid}}
-          {snap :snapshot} (rf.machines.parallel/machine-transition m initial [:go])]
-      (is (= {:form :valid :gate :closed} (:state snap))
-          "pure transition: :gate's guard read the FROZEN :form/invalid → blocked")
-      (is (= #{:form/valid} (:tags snap))
-          "committed union reflects both regions' SETTLED states (:gate stayed
-           :closed, contributing no tag)"))))
 
 ;; ---- (d) a region guard sees its OWN state correctly ----------------------
 
@@ -266,32 +155,6 @@
       (is (not (contains? @captured :tags))
           "compound guard ctx has no :tags (parallel-region key absent)")
       (is (not (contains? @captured :all-state))))))
-
-;; ---- (f) action ctx gets the same :tags + :all-state threading ------------
-
-(deftest region-action-receives-cross-region-ctx
-  (testing "a region ACTION receives the machine-wide :tags union and the
-            :all-state region map, same as a guard"
-    (let [captured (atom nil)
-          m {:type    :parallel
-             :data    {}
-             :actions {:capture (fn [{:keys [tags all-state] :as ctx}]
-                                  (reset! captured (select-keys ctx [:tags :all-state]))
-                                  {:data {:saw-tags      tags
-                                          :saw-all-state all-state}})}
-             :regions
-             {:form {:initial :valid
-                     :states  {:valid {:tags #{:form/valid}}}}
-              :gate {:initial :closed
-                     :states  {:closed {:on {:snap {:target :closed
-                                                    :action :capture}}}}}}}]
-      (rf/reg-machine :xreg/action-ctx m)
-      (rf/dispatch-sync [:xreg/action-ctx [:snap]])
-      (is (some? @captured) "the action ran")
-      (is (= #{:form/valid} (:tags @captured))
-          "action ctx carries the machine-wide tag union (sibling :form's tag)")
-      (is (= {:form :valid :gate :closed} (:all-state @captured))
-          "action ctx carries the full :all-state region map"))))
 
 ;; ---- bonus: cross-region keys do NOT leak into the committed snapshot ------
 
