@@ -97,7 +97,7 @@ Every tool answers a failure with `{:ok? false :reason …}` rather than guessin
 
 | Reason | What it means | Fix |
 |---|---|---|
-| `:nrepl-port-not-found` | No shadow-cljs nREPL is reachable. | Start `shadow-cljs watch <build>`; if it is running and still not found, pass `--port-file` or set `SHADOW_CLJS_NREPL_PORT`. |
+| `:rf.error/pair-mcp-nrepl-port-not-found` | No shadow-cljs nREPL is reachable. | Start `shadow-cljs watch <build>`; if it is running and still not found, pass `--port-file` or set `SHADOW_CLJS_NREPL_PORT`. |
 | `:build-not-running` | shadow is up but not running the named build. | Re-target one of the `:running-builds` the reply lists. |
 | `:no-runtime-connected` | The build runs but no browser tab is attached. | Open or reload the app's tab. |
 | `:runtime-loaded-but-preload-missing` | The app runs without the preload — or has no re-frame2 dependency at all. | Step 2 above, then reload the page. |

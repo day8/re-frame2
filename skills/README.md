@@ -99,8 +99,8 @@ the situation they cover:
   through the judgment calls, and declines the cases Fresco doesn't yet
   handle ("stay on Reagent, or wait"). Staying on Reagent views is a
   first-class, fully-supported choice — this skill's trigger is narrow:
-  already on re-frame2 AND specifically wanting to trial Fresco, which is
-  pre-publication with no released Maven coordinate.
+  already on re-frame2 AND specifically wanting to trial Fresco, which
+  ships in the same release set as the adapters and resolves the same way.
 
 - [`re-frame2-improver/`](re-frame2-improver) — critique-mode for
   existing re-frame2 ClojureScript code. Reviews a body of source
