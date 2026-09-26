@@ -1071,7 +1071,7 @@ Semantics:
 5. **Malformed percent-encoding.** A URL carrying malformed `%`-sequences (`%`, `%a`, `%XX`, …) produces a route-miss, **never an exception**. Malformed encoding anywhere in the URL — captured path segments, query keys, query values, or the `#fragment` portion — fails the whole match closed: `match-url` returns nil and the URL-change handler (`:rf.route/handle-url-change`) writes `:rf.route/not-found` with `{:url url :reason :malformed-url}` in the slice's `:params`. A `:rf.warning/malformed-url` trace fires alongside the standard `:rf.error/no-such-handler`. The `:reason` discriminator distinguishes the malformed-URL case from a bare miss (`{:url url}`) and from a validation failure (`{:url url :reason :validation}`) Hostile URLs, partner integrations with broken escaping, and back-button to a malformed link must never crash a request handler on SSR.
 6. **Reserved id.** `:rf.route/not-found` is the **single locked id** for this purpose. Implementations and tools depend on it; users do not redefine the meaning of the keyword. Hosts that want a different visual treatment per error kind branch inside the `:rf.route/not-found` view (e.g., on `:reason`).
 
-Tooling enumerates `(rf/handler-meta {:source :store :kind :route :id :rf.route/not-found})` to confirm the route is registered; the registrar emits the warning trace event at the first unmatched URL if it isn't.
+Tooling enumerates `(rf/handler-meta {:source :store :kind :route :id :rf.route/not-found})` to confirm the route is registered; while it isn't, the navigation emits the warning trace event on every unmatched URL.
 
 ## Per-route error handling
 
