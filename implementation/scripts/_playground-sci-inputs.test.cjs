@@ -241,6 +241,8 @@ async function main() {
     ['machines deps', 'implementation/machines/deps.edn'],
     ['flows source', 'implementation/flows/src/re_frame/newly_added.cljc'],
     ['flows deps', 'implementation/flows/deps.edn'],
+    ['schemas source', 'implementation/schemas/src/re_frame/newly_added.cljc'],
+    ['schemas deps', 'implementation/schemas/deps.edn'],
     ['sci bundle source', 'docs/tools/playground/sci/src/rf2_playground/newly_added.cljs'],
     ['sci shadow config', 'docs/tools/playground/sci/shadow-cljs.edn'],
     ['sci deps', 'docs/tools/playground/sci/deps.edn'],

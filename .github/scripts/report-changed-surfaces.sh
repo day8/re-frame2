@@ -1213,17 +1213,19 @@ else
         # compiles it.
         # (epoch has its own case above.)
         # The docs/cljs live-cell SCI bundle BAKES IN
-        # the machines and flows artefacts (`re-frame.machines` +
-        # `re-frame.flows` are :require'd at bundle init, and the bundle carries
+        # the machines, flows and schemas artefacts (`re-frame.machines`,
+        # `re-frame.flows` and `re-frame.schemas` are :require'd at bundle
+        # init, and the bundle carries
         # the reserved :rf.machine/* lifecycle keywords). The bundle is not
         # committed — it is generated in CI and on docs deploy — so this arm
         # guards composition rather than a snapshot: a reserved-keyword rename
         # or a late-bind hook change here can make the bundle fail to build,
         # or build and then throw at render, and tools-playground is the
         # PR-time proof that it builds + renders live under headless Chromium.
-        # Both are in the require graph and in the digest roster, so both fire.
+        # All three are in the require graph and in the digest roster, so all
+        # three fire.
         case "$file" in
-          implementation/machines/*|implementation/flows/*) playground=true ;;
+          implementation/machines/*|implementation/flows/*|implementation/schemas/*) playground=true ;;
         esac
         # The engine half of the
         # machines-viz parity ratchet. tools/machines-viz/deps.edn declares a
