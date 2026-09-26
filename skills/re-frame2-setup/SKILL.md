@@ -1,20 +1,20 @@
 ---
 name: re-frame2-setup
 description: >
-  Greenfield-only bootstrap for re-frame2 ClojureScript projects. Scope:
-  brand-new apps from nothing, or empty CLJS projects (shadow-cljs / Clojure
-  already present but zero re-frame2 wiring). Writes the canonical thirteen-file
-  counter SPA the generator template emits — core + the Reagent adapter,
-  `shadow-cljs.edn`, the entry namespace with `rf/init!`, events / subs /
-  views — then installs, compiles, serves it and reports the URL, exiting once
-  the counter mounts. **Do not use** for writing app code on an
-  already-bootstrapped project (use `re-frame2`), v1→v2 migration
-  (`re-frame-migration`), live-app inspection (`re-frame2-pair`), or porting
-  re-frame2 itself (`re-frame2-implementor`); the full disqualifier list is
-  `skills/README.md` §Skill routing. Trigger on "start a re-frame2 project",
-  "scaffold re-frame2", "hello-world re-frame2 app", or a build failure on a
-  freshly-scaffolded project that traces to missing `re-frame.core` /
-  `re-frame.adapter.reagent` wiring.
+  Greenfield bootstrap for re-frame2 ClojureScript apps: a brand-new project
+  from nothing, or an empty CLJS project (shadow-cljs / Clojure present, zero
+  re-frame2 wiring). Writes the generator template's counter SPA — deps.edn
+  with core + the Reagent adapter (UIx on request), shadow-cljs.edn, the entry
+  namespace with `rf/init!`, events / subs / views, a first story — then runs
+  npm install, the compile and the dev server itself and reports the URL. Use
+  whenever someone wants to start, scaffold, bootstrap or set up a new
+  re-frame2 app, asks for a hello-world or minimal re-frame2 project, or a
+  freshly scaffolded project fails to build on missing `re-frame.core` /
+  `re-frame.adapter.reagent` wiring. Not for: code on a working app or adding
+  re-frame2 to a non-trivial existing one (`re-frame2`), reviews
+  (`re-frame2-improver`), re-frame v1 migration (`re-frame-migration`),
+  live-app inspection (`re-frame2-pair`), or porting re-frame2
+  (`re-frame2-implementor`).
 allowed-tools:
   - Bash(clojure -Sdescribe)
   - Bash(clojure -Stree)
@@ -90,7 +90,7 @@ Not for: adding re-frame2 to an existing non-trivial app (authoring), writing ap
 3. **`npm install`.** The npm deps are already pinned in `package.json`; nothing to confirm.
 4. **`npx shadow-cljs compile app`** — the terminating check; it must exit 0 (no missing-namespace or classpath errors). Never hand this command to the author: run it.
 5. **`npx shadow-cljs watch app`** — start the dev server. **The watch never exits, so run it detached** — the harness's background-run option, or `npx shadow-cljs watch app > watch.log 2>&1 &` — because a foreground run blocks until the tool timeout kills it, and then nothing serves the URL you report; leave it running at hand-off. **Read the URL off the dev-http line in the watch's captured output, never out of `shadow-cljs.edn`.** The scaffold asks for `http://localhost:8280/`, but `:dev-http` binds a fixed port and a second `watch` in another project is the ordinary way for it to be taken: shadow then reports the bind failure and that address serves whoever got there first, so a URL read from config sends the author to someone else's app rather than to an error. If 8280 is bound, change the port, restart the watch, and report the one it actually printed.
-6. **Report and hand off.** The skill runs both commands itself. Compile success proves the build, **not the mount**: hand off with *"compiled and serving at `<the URL the watch printed>` — open it and click `+1`; the counter should advance 0 → 1, and `#/stories` opens Story"* rather than claiming the browser mounted. **Done.**
+6. **Report and hand off.** The skill runs both commands itself. Compile success proves the build, **not the mount**: hand off with *"compiled and serving at `<the URL the watch printed>` — open it and click `+1`; the counter should advance 0 → 1, and `#/stories` opens Story"* rather than claiming the browser mounted, and say the watch is still running in the background (stop it when finished). **Done.**
 
 ## Done checklist
 
