@@ -229,7 +229,8 @@
   slice is `re-frame.story.fingerprint/run-hash-input-keys` — the
   behavioural surface (`:status`, final `:app-db`, `:epoch-tape`,
   `:assertions` / `:checks`, projected `:effects` / `:schema-violations` /
-  `:warnings`, `:sub-overrides` / `:fidelity`) — NOT the whole result: the
+  `:warnings`; the `:sub-overrides` / `:fidelity` keys it also names are
+  slots a run result does not carry) — NOT the whole result: the
   result also carries pure provenance (`:frame` replay id, `:run-artifact`
   back-link, `:replay-steps`) that legitimately differs per replay and is
   excluded from `run-hash` for exactly this reason. The hash is the cheap

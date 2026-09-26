@@ -37,9 +37,10 @@
   The slice frozen into a golden is `rf.story.fingerprint/run-hash-input-keys` — the
   behavioural surface (`:status`, final `:app-db`, the `:epoch-tape`, the
   `:assertions` / `:checks` verdicts, the projected `:effects` /
-  `:schema-violations` / `:warnings`, and the resolved `:sub-overrides` /
-  `:fidelity`). This is the SAME slice `run-hash` hashes and the
-  determinism gate (`re-frame.story.determinism/compare-runs`) and the
+  `:schema-violations` / `:warnings`, and the `:sub-overrides` / `:fidelity`
+  keys a run result does not carry). This is the SAME slice `run-hash`
+  hashes and the determinism gate
+  (`re-frame.story.determinism/compare-runs`) and the
   semantic diff (`re-frame.story.diff/diff-runs`'s `:same?` judgement)
   compare — so a golden match, a determinism `:deterministic`, and a diff
   `{:same? true}` are the one judgement under three names. The pure

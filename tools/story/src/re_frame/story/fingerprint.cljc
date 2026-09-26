@@ -1029,10 +1029,13 @@
   retained slots.
 
   `:status` plus the final `:app-db`, the `:epoch-tape`, the
-  `:assertions` / `:checks` verdicts, the projected `:effects` /
-  `:schema-violations` / `:warnings`, and the resolved `:sub-overrides` /
-  `:fidelity` are the behavioural surface: change any one and the run-hash
-  changes."
+  `:assertions` / `:checks` verdicts and the projected `:effects` /
+  `:schema-violations` / `:warnings` are the behavioural surface: change
+  any one and the run-hash changes. The slice also names `:sub-overrides` /
+  `:fidelity`, but a run result carries neither slot: the resolved
+  overrides and the fidelity set live on the plan, at
+  `[:world :render :sub-overrides]` and `[:world :fidelity]`, and reach a
+  run's identity through `:plan-hash`."
   [:status :app-db :epoch-tape :assertions :checks
    :effects :schema-violations :warnings :sub-overrides :fidelity])
 
