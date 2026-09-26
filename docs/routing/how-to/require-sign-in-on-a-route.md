@@ -20,6 +20,8 @@ Full auth system (form, token, logout): [Add authentication](../../core/how-to/a
   {:can-enter [:auth/signed-in?]}
   "/settings")
 
+(rf/reg-sub :auth/user (fn [db _] (get-in db [:auth :user])))
+
 (rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
   (fn [[user] _] (some? user)))        ;; true → OK to enter
 ```
@@ -119,6 +121,69 @@ routing deliberately does not add a middleware chain to avoid one:
 
 Because the guard sub receives the target, one sub can serve them all and still
 answer differently per route.
+
+## 5. Deep links while a saved session is still loading
+
+If the app restores a session at boot by fetching the user with a saved token, the
+first URL resolution runs before that reply lands. A signed-in reader who reloads
+`/settings` is judged with no user, the guard refuses, and the step 3 handler sends
+them to login.
+
+The guard should still say `false` — nothing protected may run while identity is
+unknown. The denial handler is where "not signed in" and "not known yet" differ:
+stash the destination either way, but only bounce to login when no restore is in
+flight. When the restore settles, one event resolves the stash:
+
+```clojure
+;; cf. examples/real-apps/realworld_http/routing.cljs and auth.cljs
+(defn restoring-session?
+  "A saved token is present but the user it stands for has not arrived yet."
+  [db]
+  (and (nil? (get-in db [:auth :user]))
+       (some? (get-in db [:auth :token]))))
+
+(rf/reg-event :rf.route/entry-denied
+  (fn [{:keys [db]} [_ {:keys [destination]}]]
+    (cond-> {:db (assoc-in db [:auth :return-to] destination)}
+      (not (restoring-session? db))
+      (assoc :fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]))))
+
+;; Dispatch this once the restore has settled, whether it succeeded or failed.
+(rf/reg-event :auth/settle-deferred-entry
+  (fn [{:keys [db]} _]
+    (let [return-to (get-in db [:auth :return-to])]
+      (cond
+        (nil? return-to)                    {}   ;; no protected deep link was waiting
+        (some? (get-in db [:auth :user]))   {:db (update db :auth dissoc :return-to)
+                                             :fx [[:dispatch [:rf.route/navigate
+                                                              (assoc return-to :replace? true)]]]}
+        :else                               {:fx [[:dispatch [:rf.route/navigate
+                                                              {:to :app/login :replace? true}]]]}))))
+```
+
+`restoring-session?` can only see the token if it is already in app-db when the URL
+is first resolved, so load it from the url-bound frame's `:initial-events`, which run
+before that first resolution.
+
+On success the stashed destination becomes an ordinary fresh navigation, and the
+guard now allows it. On failure the reader lands on login and the stash survives,
+so `:auth/signed-in` from step 3 still returns them to the exact address.
+
+While the restore is in flight nothing has committed, so `@(subscribe
+[:rf.route/id])` is `nil`. A root view that `case`s over the route id should render a
+"restoring your session" state for that window rather than falling through to a
+not-found page.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A logged-out click on a protected link does nothing | No `:rf.route/entry-denied` handler, so the no-op default runs | Expected with steps 1–2 alone; add the step 3 handler to redirect |
+| Entry is refused even for a signed-in user; `:rf.error/can-enter-non-boolean` is raised | The guard sub returned the user map, `nil`, or another non-boolean | Return `(some? user)` or `(boolean …)` |
+| Back from `/login` lands on the refused page and bounces to login again | The redirect to login pushed a history entry | Navigate to login with `:replace? true` |
+| After signing in, the reader lands on home instead of where they were headed | `:return-to` was not stashed, or was cleared before the sign-in event read it | Stash `:destination` in the denial handler; read and clear it in one step on sign-in |
+| Navigation loops between the denial handler and `/login` | The login route itself carries the `:can-enter` guard | Leave the login route unguarded |
+| Reloading a protected page while signed in lands on `/login` | The session is restored asynchronously and was not back yet when the URL was judged | Defer the bounce as in step 5 |
 
 ## Appendix — when the policy is not about routes
 
