@@ -19,7 +19,10 @@ in the browser; only genuinely one-sided code is fenced with `:platforms`.
 ```
 
 SSR plugs into [events](../core/introduction.md), app-db, views, and frames.
-It does not replace them.
+It does not replace them. This section covers rendering on the JVM (or on a Node
+sidecar), shipping state to the client and hydrating it, catching hydration
+mismatches, shaping the HTTP response and `<head>`, streaming, and testing. The
+`day8/re-frame2-ssr-ring` artefact serves the pages from any Ring server.
 
 ## When *not* to use SSR
 

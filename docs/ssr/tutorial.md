@@ -1,8 +1,9 @@
 # Tutorial: render on the server
 
 Build one small articles app end to end on the JVM — pure render → frame per request →
-payload → client hydrate → deliberate mismatch → platform gates → Ring adapter. By
-the end you have the **complete server/client shape** the production adapter packages.
+payload → client hydrate → deliberate mismatch → platform gates → Ring adapter →
+response effects. By the end you have the **complete server/client shape** the
+production adapter packages.
 
 Adapted from [`examples/capabilities/ssr/ssr/`](../../examples/capabilities/ssr/ssr)
 (one `.cljc` on both sides). Vocabulary after this walk-through: [The model](concepts.md).
@@ -18,8 +19,43 @@ Adapted from [`examples/capabilities/ssr/ssr/`](../../examples/capabilities/ssr/
 ## Step 0 — turn SSR on
 
 SSR ships in its own artefact, `day8/re-frame2-ssr`, so an app that never renders
-server-side carries none of it. (Step 7 adds `day8/re-frame2-ssr-ring`, the Ring host
-adapter.) Add the dep and require the namespace:
+server-side carries none of it. The whole tutorial needs four re-frame2 artefacts and
+Jetty. During alpha none is published, so they resolve with `:local/root` from one
+re-frame2 checkout cloned beside your project:
+
+```clojure
+;; deps.edn
+{:paths ["src" "resources"]
+ :deps
+ {day8/re-frame2          {:local/root "../re-frame2/implementation/core"}
+  day8/re-frame2-ssr      {:local/root "../re-frame2/implementation/ssr"}
+  day8/re-frame2-ssr-ring {:local/root "../re-frame2/implementation/ssr-ring"}          ;; Step 7
+  day8/re-frame2-reagent  {:local/root "../re-frame2/implementation/adapters/reagent"}  ;; Step 4, client
+  ring/ring-jetty-adapter {:mvn/version "1.12.1"}}                                     ;; Step 7
+ :aliases
+ {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}}}              ;; Step 4, client build
+```
+
+The browser half (Step 4) also needs React and a shadow-cljs build. The build writes
+`resources/public/main.js`, the file Step 7's server hands out as `/main.js`:
+
+```json
+{"dependencies":    {"react": "19.3.0", "react-dom": "19.3.0"},
+ "devDependencies": {"shadow-cljs": "3.4.10"}}
+```
+
+```clojure
+;; shadow-cljs.edn
+{:deps   {:aliases [:shadow]}
+ :builds {:app {:target     :browser
+                :output-dir "resources/public"
+                :asset-path "/"
+                :modules    {:main {:init-fn app.core/run}}}}}
+```
+
+The app is one file, `src/app/core.cljc`, compiled twice: by Clojure on the JVM for the
+server and by shadow-cljs for the browser. Reader conditionals (`#?(:clj …)`,
+`#?(:cljs …)`) mark the few lines that belong to one side. Start it with:
 
 ```clojure
 (ns app.core
@@ -27,8 +63,8 @@ adapter.) Add the dep and require the namespace:
             [re-frame.ssr  :as ssr]))   ;; render-to-string, hydrate!, the :rf.server/* fx
 ```
 
-Forget the require and the first `render-to-string` / `reg-head` / related call
-throws `:rf.error/ssr-artefact-missing`.
+Forget the `re-frame.ssr` require and the first `rf/reg-head` or
+`rf/reg-error-projector` call throws `:rf.error/ssr-artefact-missing`.
 
 ## Step 1 — render a view to a string, no server anywhere
 
@@ -192,6 +228,10 @@ The browser now has painted HTML and a payload sitting in the page. The client's
 ;; cf. examples/capabilities/ssr/ssr/core.cljc — the client entry point
 ;; client-side requires, alongside rf and ssr:
 ;;   #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
+(rf/reg-event :app/client-bootstrap              ;; seeds a page nobody server-rendered
+  (fn [{:keys [db]} _]
+    {:db (assoc db :articles [])}))
+
 #?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
 #?(:cljs
@@ -214,7 +254,8 @@ The browser now has painted HTML and a payload sitting in the page. The client's
 
 Those three steps are all **state**: `hydrate!` never touches the DOM mount. Adopting the server's painted markup is a *separate* call — `reagent-adapter/render!` with `{:hydrate? true}` (React's `hydrateRoot` underneath), which reconciles against the existing DOM. Without that option the same call discards that markup and mounts fresh, so it's right only for the client-only branch. That's the whole point of `{:hydrate? (some? payload)}` above: a server-rendered page hydrates the DOM it was handed; a cold client load builds a fresh root.
 
-**What you see:** the page was already painted before your JS loaded. When `run` finishes, nothing flashes — the client's first render matches the HTML, the articles are in app-db without any re-fetch, and clicking things dispatches events like any other re-frame2 app. (To see it live without wiring a build: the worked example ships a hand-authored `index.html` — a frozen snapshot of what its `handle-request` serves — and its `run` hydrates it exactly this way.)
+**What you see:** the page was already painted before your JS loaded. When `run` finishes, nothing flashes — the client's first render matches the HTML, the articles are in app-db without any re-fetch, and clicking things dispatches events like any other re-frame2 app. (To see it live without wiring a build: the worked example ships a hand-authored `index.html` — a frozen snapshot of what its `handle-request` serves — and its `run` hydrates it exactly this way.) Compile the client with
+`npx shadow-cljs watch app`; Step 7 serves the page and `main.js` together.
 
 **Notice three choices in that snippet:**
 
@@ -252,6 +293,19 @@ You wired the detector already: the server's `:rf/render-hash` in Step 3, and th
 
 What the detector guarantees is that the bug is **never silent**. For CI, escalate it: a frame registered with `:ssr {:on-mismatch :hard-error}` throws a structured exception instead of warning, so a mismatch fails the build rather than shipping. Then fix the view the right way — put the timestamp in app-db at init, where it rides the payload and both sides render the same value.
 
+### Which substrates hash
+
+The hash needs a render tree made of data, so how a mismatch is caught depends on the
+view substrate:
+
+| Substrate | Mismatch detection | On the client |
+|---|---|---|
+| Reagent, reagent-slim | Render-tree hash: the server stamps it, `hydrate!` compares | Pass `:render-tree-fn`, calling the root view |
+| Native UIx, Fresco | React's own hydration (adoption); no hash on either side | Omit `:render-tree-fn` |
+
+Adoption catches structural and text mismatches but not attribute-only ones, which
+hydrate silently. The next section explains why.
+
 ### Native UIx — adopt through the shared render path
 
 Everything above is the **hiccup tier**: Reagent views return a data render-tree, so the server and client each hash it and compare. A native **UIx** app — views that compile straight to React elements — has no such tree, so it verifies a different way: **React-native adoption**.
@@ -282,8 +336,17 @@ When a server-side drain meets a `#{:client}` effect it skips it and emits a `:r
 You've now built every step of the lifecycle by hand: stash the request, create the frame, drain, render, build the payload, respond, tear down. In production you don't hand-roll that — `day8/re-frame2-ssr-ring` packages it as one handler constructor, and because you built it yourself in Steps 2–3, every option below reads as the same sequence, not a new API to learn:
 
 ```clojure
-(require '[ring.adapter.jetty :as jetty]
-         '[re-frame.ssr.ring  :as ssr-ring])
+;; a JVM-only server namespace; app.core's registrations load with it
+(ns app.server
+  (:require [app.core]
+            [re-frame.core                :as rf]
+            [re-frame.ssr                 :as ssr]
+            [re-frame.ssr.ring            :as ssr-ring]
+            [ring.adapter.jetty           :as jetty]
+            [ring.middleware.params       :refer [wrap-params]]
+            [ring.middleware.resource     :refer [wrap-resource]]))
+
+(rf/init! ssr/adapter)                       ;; once per JVM, as in Step 1
 
 (def handler
   (ssr-ring/ssr-handler
@@ -291,8 +354,18 @@ You've now built every step of the lifecycle by hand: stash the request, create 
      :root-view      [(rf/view :app/root)]             ;; Step 2's render target
      :payload        [:articles]}))          ;; Step 3's payload — now an allowlist
 
-(jetty/run-jetty handler {:port 3000 :join? false})
+(def app
+  (-> handler
+      (wrap-resource "public")               ;; /main.js from resources/public (Step 0's build)
+      wrap-params))                          ;; fills :query-params, which Step 2 reads
+
+(jetty/run-jetty app {:port 3000 :join? false})
 ```
+
+The handler renders pages and reads the request as Ring hands it over, so ordinary
+Ring middleware supplies the rest: `wrap-resource` answers `/main.js`, which the
+handler's page shell loads by default, and `wrap-params` parses `?limit=1` into the
+`:query-params` that `:rf/server-init` reads.
 
 One thing is new, and it's the important one: **`:payload` is required, and it's an
 allowlist.** Name the top-level app-db keys that may ship; everything else stays on
@@ -305,13 +378,41 @@ on the first request. (Shipping everything is still possible, but you say it out
 `__rf_payload` script, the hash on the root element — and the client from Step 4
 hydrates it unchanged.
 
+The handler renders once the boot events' synchronous work settles. It does not wait
+for an `:rf.http/managed` fetch those events start, so a page that loads its data over
+HTTP declares it as a route resource with `:blocking? true`, which the handler does
+wait for ([The model](concepts.md) covers it).
+
+## Step 8 — shape the response
+
+The Ring handler builds the status, headers and cookies from effects your server-side
+handlers return. Add a cache header to the boot event from Step 2 (the new line is
+the last `:fx` entry):
+
+```clojure
+(rf/reg-event :rf/server-init
+  {:platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
+  (fn [{:keys [db rf.server/request]} _]
+    (let [limit (or (some-> (get-in request [:query-params "limit"]) parse-long) 10)]
+      {:db (assoc db :articles/limit limit)
+       :fx [[:dispatch [:articles/seed (vec (take limit sample-articles))]]
+            [:rf.server/set-header {:name "Cache-Control" :value "public, max-age=60"}]]})))
+```
+
+**What you see:** `curl -i localhost:3000` now shows `Cache-Control: public, max-age=60`
+beside the page. `:rf.server/set-status`, cookies and redirects work the same way;
+every `:rf.server/*` effect is server-only.
+[Controlling the response](response.md) lists them all. The hand-rolled handler from
+Step 3 ignores these effects, because it writes its own response map.
+
 ## The complete shape
 
 Everything above, as the two halves you ship:
 
 | Half | Surface | You supply |
 |---|---|---|
-| Server | `ssr-ring/ssr-handler` | `:initial-events`, `:root-view`, **`:payload` allowlist** |
+| Server | `ssr-ring/ssr-handler` | `:initial-events`, `:root-view`, **`:payload` allowlist**; `:rf.server/*` effects for status, headers and cookies |
 | Client | `ssr/hydrate!` then `reagent-adapter/render!` with `{:hydrate? (some? payload)}` | Same `:frame` as `frame-provider`; `:render-tree-fn` that *calls* the root view |
 
 Hand-rolled lifecycle (Steps 2–3) is still the right mental model when something

@@ -16,16 +16,22 @@ So read this page as a translation table, not a feature comparison. The capabili
 | `getServerSideProps` / a route loader | Your ordinary events firing in the per-request frame's `:initial-events`. The "loader" is just dispatch + [drain](../core/glossary.md#drain--run-to-completion). |
 | `Promise.all` of N fetches in a loader | [The SSR loader pattern](concepts.md#two-patterns-in-brief) — a [machine](../machines/glossary.md#machine) fans fetches out with `:spawn-all`, joins on complete. Same site drives client-nav fetch. |
 | A route's `loader` (App Router) | A re-frame2 route [loader](../routing/glossary.md#loader), which compiles to those `:initial-events` server-side. |
+| `await`ing data in a Server Component before it renders | A route resource declared `:blocking? true` — the Ring handler waits for it (up to a fixed 5-second budget) before rendering. A fetch your `:initial-events` start themselves is *not* waited for. See [blocking resource](glossary.md#blocking-resource). |
 | Server Action (form `action={fn}`) | [The form-action pattern](concepts.md#two-patterns-in-brief) — a real `method="POST"` form routes to the *same* [event](../core/glossary.md#event) the client's `:on-submit` dispatches. |
 | `hydrateRoot` (React 18) | [`ssr/hydrate!`](glossary.md#hydration) — but the server's *state* rides along explicitly in the payload, installed by `:rf/hydrate` before the first render. |
+| Several `hydrateRoot` calls on one page (islands) | [`ssr/hydrate-page!`](glossary.md#several-roots-on-one-page) — each root hydrates and mounts inside its own failure boundary, usually into one shared frame. |
 | Reading `cookies()` / `headers()` | A declared [coeffect](../core/glossary.md#coeffect): `:rf.cofx/requires [:rf.server/request]`, value flat in the handler's coeffects. |
 | `redirect()` / `notFound()` | The data effects `:rf.server/redirect` / a routing miss your [error projector](concepts.md#when-the-server-throws) maps to `404`. |
+| `error.js` / `global-error.js` | The [error projector](glossary.md#error-projector) maps the failure to a sanitised public error, and a 5xx renders `ssr-handler`'s [`:error-view`](glossary.md#error-view) from that alone. |
 | `cookies().set(...)` | The `:rf.server/set-cookie` effect — a structured map; [response control](response.md). |
 | The `Metadata` API / `generateMetadata` | [`reg-head`](head.md) — a head model *derived from app-db*, shaped exactly like a sub. |
+| The root `layout.js` / `_document.js` document | The [page shell](glossary.md#page-shell) — `default-html-shell`, adjusted with `:head`, `:body-end`, `:script-src` and `:app-element-id`, or replaced with `:html-shell`. |
 | `<Suspense fallback>` + `loading.js` (streaming) | [`ssr/boundary`](streaming.md) — one component with a `:fallback`, streams its subtree in as a chunk. |
 | Hydration mismatch (console warning, content flash) | A [hydration mismatch](glossary.md#hydration-mismatch) caught by a structural hash comparison — a structured trace you can alert on, plus a strict mode that fails CI. |
 | `unstable_cache` / `fetch` cache | A [resource](../resources/glossary.md#resource) — preloaded server-side, ridden across in the payload, renders without a duplicate fetch. |
-| `next/server` runtime, route handlers, middleware | The Ring host adapter (`day8/re-frame2-ssr-ring`). One handler constructor; the lifecycle is yours to read, not a framework you configure. |
+| `next/server` runtime, route handlers, middleware | The Ring host adapter (`day8/re-frame2-ssr-ring`). One handler constructor; the lifecycle is yours to read, not a framework you configure. `ssr-middleware` mounts it inside an existing Ring app — see [Ring handler](glossary.md#ring-handler). |
+| Rendering in Node | The JVM renders by default. A native view layer such as Fresco renders its body on a Node sidecar through the [Node renderer](glossary.md#node-renderer), while the JVM keeps the request, the payload and the response. |
+| `next build` / `NODE_ENV=production` | A production build: an `:advanced` client bundle, and the server JVM started with [`-Dre-frame.debug=false`](../core/how-to/configure-dev-and-prod.md#3-shipping-a-jvmssr-tier-one-system-property). |
 
 The shape is reassuring: nearly everything you do in Next.js has a direct counterpart. But a one-to-one table hides the interesting bit — *why* some of these look different. That's next.
 

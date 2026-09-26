@@ -74,12 +74,16 @@ Wire the Ring adapter once. It owns the whole lifecycle above — frame create, 
 
 ```clojure
 (require '[ring.adapter.jetty :as jetty]
+         '[re-frame.core      :as rf]
+         '[re-frame.ssr       :as ssr]
          '[re-frame.ssr.ring  :as ssr-ring])
+
+(rf/init! ssr/adapter)                             ;; once, at boot: the server-side render adapter
 
 (def handler
   (ssr-ring/ssr-handler
     {:initial-events [[:rf/server-init]]
-     :root-view      [(rf/view :app/root)]
+     :root-view      (fn [] ((rf/view :app/root)))
      :payload        [:articles :session-user]}))   ;; allowlist of app-db keys to ship
 
 (jetty/run-jetty handler {:port 3000 :join? false})
@@ -88,14 +92,56 @@ Wire the Ring adapter once. It owns the whole lifecycle above — frame create, 
 Three opts do the work:
 
 - **`:initial-events`** — the per-request setup vector, lowered verbatim into the per-request frame's `:initial-events` (step 2 of the lifecycle). It accepts a vector of events, or a `(fn [request] → initial-events-vector)` when the setup must be derived from the Ring request.
-- **`:root-view`** — the render tree the adapter renders once the frame settles (step 4). Its head is a **callable** view reference — the Var `rf/reg-view` defs, or `(rf/view :id)`. A bare keyword head is an HTML element, never a view.
+- **`:root-view`** — the render tree the adapter renders once the frame settles (step 4). Its head is a **callable** view reference — the Var `rf/reg-view` defs, or `(rf/view :id)`. A bare keyword head is an HTML element, never a view. Prefer the fn form shown: it calls the view, so the handler can hash what it rendered and the client can [check its first render](#when-the-renders-disagree) against it. The vector form `[(rf/view :app/root)]` renders the same HTML but carries no hash.
 - **`:payload`** — the allowlist of top-level app-db keys to serialise for the client (step 5). It's a security boundary with its [own section below](#payload--the-fail-closed-allowlist).
 
-That's a working SSR server. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter's options don't yet read as a sequence you already know.)
+That's a working SSR server. The other options have defaults you rarely change:
+
+| Option | Use it to |
+|---|---|
+| `:client-frame-id` | Stamp a stable frame id into the payload when server and client agree on one ahead of time ([below](#the-client-side-hydrate-then-verify)). |
+| `:url-strategy` | Give the per-request frame the client's URL strategy, so `route-link` hrefs in the server markup match the hydrated client's. |
+| `:ssr` | Set the per-request frame's `:ssr` config — the [error projector](#when-the-server-throws) and dev error detail. |
+| `:emit-hash?` | Turn off the `data-rf-render-hash` / `data-rf-head-hash` markers (default `true`). |
+| `:schema-digest` | Stamp the schema digest the client's [deploy-drift check](#deploy-drift-checks-come-along-for-free) compares. |
+| `:fx-overrides` | Replace fx for the per-request frame — usually to stub `:rf.http/managed` in tests. |
+| `:error-view`, `:on-error` | Render a 5xx page and answer a transport failure — [When the server throws](#when-the-server-throws). |
+| `:script-src`, `:app-element-id`, `:lang`, `:head`, `:body-end`, `:html-shell`, `:content-type` | Shape the HTML document around your app — [The page shell](#the-page-shell). |
+
+Every option, with its errors, is on the [`ssr-handler`](../api/re-frame.ssr.ring.md#ssr-handler) reference entry. Everything below refines one step of the lifecycle. (The [tutorial](tutorial.md) builds this same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — which is the better order if the adapter's options don't yet read as a sequence you already know.)
 
 ??? info "From re-frame v1"
 
     v1 had no first-class SSR story — you reached for community libraries and hand-rolled the server/client split. Here it's one handler constructor over the *same* events and views the client runs. Also note: the old frame keys `:on-create` / `:initial-db` are retired; per-request setup is `:initial-events`, and supplying `:on-create` [fails loud](../core/glossary.md#fail-loud-not-silent) (`:rf.error/on-create-retired`).
+
+### Mounting in a Ring app
+
+A real server also serves static files, an API and form posts. `ssr-middleware` takes the same options plus a `:match?` predicate, sends the requests it matches to the SSR handler and everything else to the handler it wraps:
+
+```clojure
+(require '[clojure.string :as str]
+         '[ring.middleware.params   :refer [wrap-params]]
+         '[ring.middleware.cookies  :refer [wrap-cookies]]
+         '[ring.middleware.session  :refer [wrap-session]]
+         '[ring.middleware.resource :refer [wrap-resource]])
+
+(def app
+  (-> api-handler                                  ;; your own Ring handler for /api/…
+      ((ssr-ring/ssr-middleware
+         {:initial-events [[:rf/server-init]]
+          :root-view      (fn [] ((rf/view :app/root)))
+          :payload        [:articles :session-user]
+          :match?         (fn [req] (and (#{:get :post} (:request-method req))
+                                         (not (str/starts-with? (:uri req) "/api/"))))}))
+      (wrap-resource "public")                     ;; /main.js and CSS never reach the renderer
+      wrap-session
+      wrap-cookies
+      wrap-params))
+```
+
+`:match?` defaults to every GET request. Widen it, as here, when the SSR handler must also take a form POST ([the form action](#two-patterns-in-brief)).
+
+The SSR handler passes the Ring request through as it receives it and parses nothing itself. So `:query-params` and `:form-params` exist only if `wrap-params` ran first, `:cookies` only after `wrap-cookies`, and `:session` only after `wrap-session`. Put that middleware outside the SSR handler, as above.
 
 ### Reading the request
 
@@ -114,7 +160,7 @@ Handlers read the request the way they read any outside fact — through a decla
                              :on-success [:articles/loaded]}]]}))
 ```
 
-Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arrives flat under `:rf.server/request` — `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params`, `:session`, `:cookies`. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) machinery the client uses, so the route resolves through the code you already trust.
+Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arrives flat under `:rf.server/request` — `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params`, `:session`, `:cookies`, as far as [your middleware](#mounting-in-a-ring-app) added them. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) machinery the client uses, so the route resolves through the code you already trust.
 
 !!! note "`:rf/server-init` is a reserved name you fill in"
 
@@ -167,7 +213,11 @@ Forget to set `:payload` at all and you get a loud error at boot (`:rf.error/ssr
 
     A **set** is rejected on purpose; the allowlist is an *ordered* key selection, not a set. The selector is collection-vs-keyword — a sequential can never be confused with the whole-app-db keyword — so there's nothing to arbitrate.
 
-The same constructor accepts the rest of the lifecycle opts: the two error opts (`:error-view`, `:on-error`, [covered below](#when-the-server-throws)) and the caller-trusted shell hooks for bespoke head/body fragments (`:head`, `:body-end`, `:script-src`, `:app-element-id`).
+#### Numbers that change on the way
+
+The payload is printed as EDN on the JVM and read back by the browser, where every number is a double. Some JVM numbers would read back as a *different* value — an order id landing on its neighbour, money becoming a float — so the handler refuses them rather than ship them: a Long or BigInt past 2^53, a BigDecimal, a Ratio or a Float anywhere in the payload, map keys included, fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path. The check runs in every build, because the failure depends on the data.
+
+Narrow those values before they reach an allowlisted key: send ids as strings and money as integer cents. Or keep the key off `:payload` if the client doesn't need it.
 
 #### Classified values inside the allowlist
 
@@ -185,7 +235,38 @@ Usually that's right. Sometimes, though, the user's own browser is entitled to a
 
 The raw value is taken from the allowlisted slice, so a permit off the allowlist does nothing. A permit never reaches through a classified ancestor: if all of `:session` is sensitive, permit `[:session]` or classify at the leaves. Permitting a whole map releases everything under it, so prefer leaves, and never permit a long-lived bearer token. The same permit reaches the streaming payload, a Fresco render and a Node renderer's render state, so the HTML and the payload agree. Written unwrapped — `[:session :csrf]` for `[[:session :csrf]]` — it fails at boot with `:rf.error/ssr-malformed-payload-allowlist`.
 
-A value the *browser* originated — a password the user is typing — is the other case. It isn't permitted; it's re-seeded on the client after hydration. On the hiccup tier, call `hydrate!` without `:render-tree-fn`, re-seed, then call `verify-hydration!` yourself, so the check sees the re-seeded state.
+A value the *browser* originated — a password the user is typing — is the other case. It isn't permitted; it's re-seeded on the client after hydration. On the hiccup tier, call `hydrate!` without `:render-tree-fn`, re-seed, then call `verify-hydration!` yourself, so the check sees the re-seeded state:
+
+```clojure
+;; Client boot. read-saved-draft is your own fn — sessionStorage, say.
+(ssr/hydrate! {:frame :app})                                 ;; install only; no verify yet
+(rf/dispatch-sync [:comment/restore-draft (read-saved-draft)] {:frame :app})
+(ssr/verify-hydration! :app (rf/with-frame :app ((rf/view :app/root))))
+```
+
+### The page shell
+
+The handler wraps your rendered body in a small HTML document, `default-html-shell`: a doctype, `<html lang="en">`, the `<head>` resolved from the active route's [head metadata](head.md), a `<div id="app">` holding the body, the payload `<script id="__rf_payload">`, and `<script src="/main.js">`. Most apps change two or three things, all with handler options:
+
+```clojure
+(ssr-ring/ssr-handler
+  {:initial-events [[:rf/server-init]]
+   :root-view      (fn [] ((rf/view :app/root)))
+   :payload        [:articles :session-user]
+   :script-src     "/js/main.js"       ;; where your client bundle is served
+   :app-element-id "root"              ;; must match the element your client mounts into
+   :lang           "en-AU"})           ;; <html lang>; a route head's :html-attrs wins
+```
+
+- `:script-src false` emits no bootstrap `<script src>` — for an app that loads its bundle from `:body-end`, say as a `type="module"` tag. The payload script still ships.
+- Attributes on `<html>` and `<body>` come from the route's head (`:html-attrs`, `:body-attrs` — see [Head metadata](head.md)), not from handler options.
+- `:content-type` replaces the response Content-Type. Omit it and you get `text/html; charset=utf-8`, or whatever the app set with `:rf.server/set-header`.
+- `:head` is a raw HTML string that *replaces* the resolved head, default viewport meta included — for a static app with no routes. `:body-end` is raw HTML appended before `</body>`.
+- `:html-shell` replaces the whole document with your `(fn [body-html payload-edn opts] → string)`. Reach for it only when the options above can't produce the page. A custom shell must still emit the payload script under the id `__rf_payload`, with the same escaping — the [`default-html-shell`](../api/re-frame.ssr.ring.md#default-html-shell) entry has the details.
+
+!!! warning "`:head` and `:body-end` are injected unescaped"
+
+    Never build them from untrusted input — a CMS field, a tenant-admin form, a query parameter. That's a script-injection hole. Content from outside your trust boundary belongs in [`reg-head`](head.md) for the head and in ordinary views for the body, which are escaped.
 
 ## The client side: hydrate, then verify
 
@@ -229,6 +310,17 @@ container to the adapter's `render!` with `{:hydrate? true}` (React's `hydrateRo
 underneath). Without that option the same call mounts a fresh root, discarding the
 server markup — correct only for the no-payload, client-only branch.
 
+`hydrate!` takes a handful of options:
+
+| Option | What it's for |
+|---|---|
+| `:frame` | Required. The frame to hydrate — the same one the root `frame-provider` names. |
+| `:render-tree-fn` | A 0-arity fn returning the client's tree, called under `:frame` for the verify step. Pass it for Reagent and reagent-slim roots; omit it for UIx and Fresco roots, which report mismatches through React's own hydration. |
+| `:payload` | The payload map, when you already have it. Omit it in the browser and `hydrate!` reads `__rf_payload` from the DOM. |
+| `:element-id` | Read the payload from a script with a different id (default `"__rf_payload"`). |
+
+Calling it twice for one frame with the same payload is harmless: the second call finds the state installed, skips the seed and the verify, and returns the payload again. To ask "was this page server-rendered?" without booting anything, call `ssr/read-server-payload` — it returns the parsed payload or `nil`. The [`hydrate!`](../api/re-frame.ssr.md#hydrate) entry lists every option and error.
+
 Two rules to hold onto:
 
 - **The hydration target is carried, never guessed.** `:frame` is required, and the *same* frame goes to `hydrate!` and the root `frame-provider {:frame …}`. That's [frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found), applied at boot. An absent `:frame` raises `:rf.error/no-frame-context`; the runtime never invents a default.
@@ -240,7 +332,7 @@ Two rules to hold onto:
 
     **The payload is untrusted transport input.** A non-map payload, or a present-but-not-a-map app-db / runtime-db slice, is rejected wholesale (`:rf.error/malformed-hydration-payload`) and the client's existing state is left untouched. A *wholly absent* slice is not malformed — it's the documented client-only first-load fallback.
 
-    **`:rf/frame-id` is evidence, not a target.** The payload may carry the frame id the *server* rendered under. It's validation evidence: if present and it disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame. If absent — the common case, since the server renders under a per-request frame the client can't name ahead of time — your explicit `:frame` just stands.
+    **`:rf/frame-id` is evidence, not a target.** The payload may carry the frame id the *server* rendered under. It's validation evidence: if present and it disagrees with the `:frame` you passed, hydration fails closed with `:rf.error/hydration-frame-id-mismatch` rather than installing the server's slice into the wrong frame. If absent — the common case, since the server renders under a per-request frame the client can't name ahead of time — your explicit `:frame` just stands. The server writes it only when you give `ssr-handler` a `:client-frame-id`, for a deployment where both sides agree on one id ahead of time, such as `:app`. Never set it to a per-request gensym: the client would refuse every page.
 
 ??? info "Coming from React?"
 
@@ -248,11 +340,32 @@ Two rules to hold onto:
 
 Server state declared as a [resource](../resources/glossary.md#resource) makes the round trip too. The server preloads it, the payload carries the entries, and a fresh hydrated entry renders immediately without firing a duplicate fetch — see the [resources SSR example](../../examples/capabilities/ssr/resources_ssr).
 
-A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have. Non-blocking route resources don't hold up the render: whatever's settled at render time serialises, and anything still in flight refetches on the client.
+A resource a route declares **blocking** does more than ride the payload — it gives the server a *wait point before render*. The runtime drains the route's blocking resources until they settle, **then** renders, so the HTML never captures a half-loaded `:loading` skeleton for data the server was always going to have:
+
+```clojure
+;; cf. docs/resources/tutorial/02-server-data.md — needs the resources artefact
+(rf/reg-resource :articles/one
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global}
+  (fn [{:keys [slug]} _ctx]
+    {:request {:method :get :url (str "/api/articles/" slug)}
+     :decode  :json}))
+
+(rf/reg-route :articles/show
+  {:params    [:map [:slug :string]]
+   :resources [{:resource  :articles/one
+                :params    (fn [route] {:slug (get-in route [:params :slug])})
+                :blocking? true}]}                 ;; the server waits for this before rendering
+  "/articles/:slug")
+```
+
+Your `:rf/server-init` still hands the URL to routing; entering the route ensures the resource, and the handler waits for it. Non-blocking route resources don't hold up the render: whatever's settled at render time serialises, and anything still in flight refetches on the client.
+
+**Only blocking route resources are waited for.** The drain after `:initial-events` covers synchronous work, and a fetch those events start — an `:rf.http/managed` request, or one a route's `:on-match` events fire — is usually still in flight when the render begins, so the page renders without its data. If the first render needs the data, declare it as a blocking resource.
 
 ??? note "The render budget"
 
-    The wait has a deadline, because a server has one render moment. A blocking fetch that hangs past the render budget settles as a structured first-load failure — the resource enters `:error` with `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view renders a clean error state rather than a hung page — and the runtime records `:rf.error/resource-ssr-blocking-timeout`. A blocking resource that can't resolve in time fails closed instead of stalling the request.
+    The wait has a deadline of 5 seconds, because a server has one render moment. A blocking fetch that hangs past the render budget settles as a structured first-load failure — the resource enters `:error` with `{:kind :rf.http/timeout :reason :ssr-blocking-timeout}`, so the view renders a clean error state rather than a hung page — and the runtime records `:rf.error/resource-ssr-blocking-timeout`. A blocking resource that can't resolve in time fails closed instead of stalling the request.
 
 ### Deploy-drift checks come along for free
 
@@ -260,6 +373,19 @@ The payload also carries a couple of stamps that catch the classic "the server a
 
 - **`:rf.ssr/check-version`** compares the payload's pattern-protocol version (`:rf/version`, an integer) against the client's. A mismatch emits a `:rf.ssr/version-mismatch` trace — your "the server bundle is a deploy ahead of the client" alarm.
 - **`:rf.ssr/check-schema-digest`** (fired only when the payload carries a digest) hashes the client's registered `app-schema` set and compares it to the server's. A mismatch emits `:rf.ssr/schema-digest-mismatch` — the server is validating against a different schema set than the client's bundle.
+
+The version stamp is automatic. The schema digest is opt-in: compute it once at boot, after your schemas are registered, and hand it to the handler:
+
+```clojure
+;; requires [re-frame.schemas :as schemas]
+(ssr-ring/ssr-handler
+  {:initial-events [[:rf/server-init]]
+   :root-view      (fn [] ((rf/view :app/root)))
+   :payload        [:articles :session-user]
+   :schema-digest  (schemas/app-schemas-digest {:frame :app})})
+```
+
+The client hashes the schemas registered in the frame it hydrates (`:app` here), so compute the server's digest over the same registrations.
 
 The version check always has a client-side value to compare against — it reads the SSR artefact's compiled-in pattern-protocol constant, the same fact the server stamped, so it never skips. The schema-digest check is the one that can come up empty: when the client's `app-schema` digest isn't available (the schemas artefact isn't on the classpath), it emits `:rf.ssr/compatibility-check-skipped` and no-ops rather than crashing. Degraded-but-running is the deliberate posture: a version stamp should never be what stops a page from loading. These three categories ride the dev trace surface, so wire an [observability](../core/observability.md) listener on them if you want deploy-drift visibility in CI.
 
@@ -283,9 +409,9 @@ The default recovery is **warn and replace**: log it, render the client's view, 
 
 Be clear about what the hash buys you: it proves *that* the renders diverged — on which frame, and what the runtime did about it — not *which node*. Locating the node is a tree-diff, and that's deliberately left to tooling: the trace carries an optional `:first-diff-path` tag (a path into the render tree, e.g. `[:body 0 :children 0]`) that a host running its own diff supplies through [`verify-hydration!`](../api/re-frame.ssr.md)'s opts; the bundled runtime emits the hashes and leaves the slot empty. What the detector itself guarantees is cheap, always-on, and loud: a mismatch is never a warning you scroll past.
 
-!!! note "The mismatch trace is dev-only — instrument deliberately for production"
+!!! note "In production, the mismatch arrives as an error record"
 
-    That trace rides the dev trace surface, so it's [elided](../core/glossary.md#elide) from production client builds like the rest of the trace stream. The hash comparison itself still runs (disable it with `:ssr {:detect-mismatch? false}` to reclaim the first-render work). To watch for drift in production you instrument deliberately: the strict-mode exception carries both hashes, so the boot site can catch it around `hydrate!` and ship it through your [observability](../core/observability.md) sinks.
+    That trace rides the dev trace surface, so it's [elided](../core/glossary.md#elide) from production client builds like the rest of the trace stream. The hash comparison itself still runs (disable it with `:ssr {:detect-mismatch? false}` to reclaim the first-render work), and a mismatch also emits an always-on error record under the same id — the hashes, `:frame`, `:failing-id` and `:recovery`, no markup or state — which reaches the frame's `:observability :errors` sinks. Declare a sink and production drift reaches your monitoring ([Deploying](#deploying)).
 
 ??? note "The hash is structural, not textual"
 
@@ -326,16 +452,22 @@ A server-side exception must never reach the wire as a stack trace — crawlers 
 {:status 500 :code :internal-error :message "Something went wrong" :retryable? false}
 ```
 
-The framework ships a default projector that maps the obvious cases — an unroutable URL to `404 :not-found`, a *client-surface* schema-validation failure to `400 :bad-request`, anything else to `500 :internal-error`. Both of those specific arms fire on a release server as well as in dev; the one category that reaches the projector in dev alone is noted under **What reaches the projector in a release build** below. You register your own projector to add app conventions — mapping *thrown* auth failures to `401`/`403`, say:
+The framework ships a default projector that maps the obvious cases — an unroutable URL to `404 :not-found`, a client-supplied event payload that fails its schema, or a client-supplied coeffect rejected at dispatch (`:rf.error/cofx-value-invalid`), to `400 :bad-request`, anything else to `500 :internal-error`. The `404` and `400` arms are narrower than their categories: `:rf.error/no-such-handler` is a `404` only when its `:kind` tag is `:route` (an unregistered *event* id is a server defect, so `500`), and a schema failure is a `400` only when its `:where` tag is `:event`. They fire on a release server as well as in dev; the one category that reaches the projector in dev alone is noted under **What reaches the projector in a release build** below.
+
+You register your own projector to add app conventions — mapping *thrown* auth failures to `401`/`403`, say. Handle your cases and hand everything else to `default-error-projector-fn`, so you keep its tag checks:
 
 ```clojure
 (rf/reg-error-projector :myapp/public-error
   {:doc "Project internal error traces to public response shapes."}
   (fn [trace-event]
-    (case (:operation trace-event)
-      :auth/unauthorised {:status 401 :code :unauthorised :message "Sign in"  :retryable? false}
-      {:status 500 :code :internal-error :message "Something went wrong" :retryable? false})))
+    ;; Your handlers throw (ex-info "…" {:app/error :unauthorised}).
+    (case (some-> trace-event :tags :exception ex-data :app/error)
+      :unauthorised {:status 401 :code :unauthorised :message "Please sign in." :retryable? false}
+      :forbidden    {:status 403 :code :forbidden    :message "Not allowed."    :retryable? false}
+      (ssr/default-error-projector-fn trace-event))))
 ```
+
+A projector must return exactly those four keys, with `:status` in 400–599. If it throws or returns anything else, the runtime emits `:rf.error/sanitised-on-projection` and serves the generic `500` instead — a projector bug can't leak through.
 
 !!! note "Route-level refusal is not a projector concern"
 
@@ -351,7 +483,7 @@ The wiring facts, one at a time:
 - **4xx keeps your app; 5xx gets the error page.** Classification is by the *projected status*. A projected **4xx** (a routing miss, an auth `401`/`403`, a `400` your own handler produced) is the app *working correctly* — it renders your own not-found / bad-request UI and ships the hydration payload, so the client hydrates into a working SPA. A projected **5xx** means the app broke mid-drain and app-db is in a partial state — so the framework discards the half-drained body and hydration payload and renders your `:error-view` (or the default template) instead of presenting a half-populated page as if real. An app-set `500` with no error projected stays on your own page (status alone isn't a projected error).
 - **The error page cannot leak.** It's a registered view that receives the *public* shape only; the internal trace never reaches it, so there's nothing to leak. Only exactly the four public keys cross the boundary — a projector that returns an out-of-range status or any extra key (even its own `:details`) takes the locked generic-500 fallback.
 - **What reaches the projector in a release build.** Both of the specific arms above do. The `404` rides `:rf.error/no-such-handler` — an unroutable URL — and that category is always-on. The `400` rides `:rf.error/schema-validation-failure` from the boundary check a handler turns on with `:boundary? true`: an ordinary registration diagnostic is a development-build assertion ([Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds)), but a check the framework relies on to keep a promise of its own is ungated in every build — the boundary check is one of those, and the one whose failures reach the projector — and since the rejection also fans an always-on record the projector really is handed something to map. Note that the boundary check validates against the handler's *own* `:schema`, the same declaration that elides at step 1: what survives is the check the framework runs at the ingress it promised to guard, not a separate framework-authored schema. So a handler registered `{:schema … :boundary? true}` answers a malformed request body with `400` under `-Dre-frame.debug=false`, not a silent `200` — which is what [RFC 9110 §15.5.1](https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1) asks of a refused payload. Two categories do *not* reach the projector on a release server: `:rf.error/no-such-route` (handing `route-url` a route id nobody registered — caller misuse, not hostile input, so it stays on the dev-gated trace stream), and every *other* `:where` surface of `:rf.error/schema-validation-failure`, which are the elided development assertions. A validation rule that needs to shape the *response* — field-level errors, submitted values preserved — still belongs in the handler body with `[:rf.server/set-status 400]`; the projector's arm gives you the status, not the page. [Pattern-FormAction §Validation is the handler's job](../../spec/Pattern-FormAction.md#validation-is-the-handlers-job) has the worked shape.
-- **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent. This knob governs how much a projected error *says*; it is the bullet above, not this one, that governs whether an error gets projected at all.
+- **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent. This knob governs how much a projected error *says*; it is the bullet above, not this one, that governs whether an error gets projected at all. To see a render-time view exception raw while developing instead of as an error page, set `:ssr {:on-view-exception :throw}`.
 - **Monitoring keeps the rich trace.** Projection governs the HTTP boundary only — the full trace still flows unchanged to your sinks and the always-on [error records](../core/glossary.md#error-record) your listeners depend on.
 
 The full error story is on the [Errors](../core/errors.md) page.
@@ -360,6 +492,27 @@ The full error story is on the [Errors](../core/errors.md) page.
 
     The Ring handler exposes `:error-view` *and* `:on-error`, and a robust deployment wires both. `:error-view` is the **projected page** for a **5xx** server fault the projector caught (a drain-time exception, a render-time throw) — it takes the sanitised `:rf/public-error` map and renders hiccup (a projected 4xx keeps your own app body instead). `:on-error` is the **transport net** — it fires for a Ring-layer failure the projector can't see (per-request frame setup throw, a header-materialise throw), takes the raw `(request throwable)`, and returns a verbatim Ring response. Both are bug-contained, and `:error-view` is one-way: a buggy `:error-view` — whether it throws OR depends on a reactive sub that recovers to `nil` — falls back once to the default template without re-projecting; a buggy `:on-error` falls back to the locked topology-safe 500 — neither can bypass the error boundary.
 
+Wiring both looks like this:
+
+```clojure
+(ssr-ring/ssr-handler
+  {:initial-events [[:rf/server-init]]
+   :root-view      (fn [] ((rf/view :app/root)))
+   :payload        [:articles :session-user]
+   :ssr            {:public-error-id :myapp/public-error}
+   ;; A 5xx page, rendered from the public error alone. A registered view id
+   ;; works too: :error-view :app/error-page renders [(rf/view :app/error-page) public-error].
+   :error-view     (fn [{:keys [status message]}]
+                     [:main [:h1 "Error " status] [:p message]])
+   ;; A transport failure: return a fixed response and never read the throwable.
+   :on-error       (fn [_request _throwable]
+                     {:status  500
+                      :headers {"Content-Type" "text/html; charset=utf-8"}
+                      :body    "<h1>Something went wrong</h1>"})})
+```
+
+Omit `:on-error` and you get `ssr-ring/default-on-error`, a plain-text `500` that leaks nothing.
+
 ## Two patterns, in brief
 
 <a id="two-patterns-in-brief"></a>
@@ -367,15 +520,48 @@ The full error story is on the [Errors](../core/errors.md) page.
 Two compositions of these primitives are common enough to name. Conventions, not new
 machinery:
 
-- **The SSR loader** — N parallel data fetches before render. A
-  [machine](../machines/glossary.md#machine) from `:initial-events` fans out with
-  `:spawn-all`, joins, writes slices — wall-clock cost is the *max* of the fetches,
-  not the *sum*. The same machine drives client-nav fetch; only the spawn site moves.
-  A route [loader](../routing/glossary.md#loader) compiles to this server-side.
+- **The SSR loader** — the data a page needs before it renders. It's the route's
+  [loader](../routing/glossary.md#loader): list the reads under `:resources` with
+  `:blocking? true`, as in [the client side](#the-client-side-hydrate-then-verify)
+  above. The blocking entries load in parallel, so the wait is the slowest fetch,
+  not the sum, and the same declaration drives the fetch on client navigation. Don't
+  build it as a [machine](../machines/glossary.md#machine) fanning out HTTP requests:
+  the server waits only for blocking resources, so the render would catch the
+  machine still loading.
 - **The form action** — form POSTs that work before JS loads. Real `method="POST"` +
   `action`; the server routes that POST to the *same* event the client's
-  `:on-submit` dispatches. Success often answers with
-  `[:rf.server/redirect {:status 303 …}]` ([response control](response.md)).
+  `:on-submit` dispatches. Success usually answers with a `303` redirect
+  ([response control](response.md)).
+
+The form action needs `wrap-params` in front of the handler and a `:match?` that
+admits POST ([Mounting in a Ring app](#mounting-in-a-ring-app)). Then `:rf/server-init`
+turns the POST into the domain event:
+
+```clojure
+(rf/reg-event :rf/server-init
+  {:platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
+  (fn [{:keys [rf.server/request]} _]
+    (let [{:keys [uri request-method form-params]} request]
+      {:fx (cond-> [[:dispatch [:rf.route/handle-url-change uri]]]
+             ;; wrap-params keys form fields by string
+             (= :post request-method)
+             (conj [:dispatch [:comment/submit (get form-params "body")]]))})))
+
+;; The same event the client's :on-submit dispatches.
+(rf/reg-event :comment/submit
+  (fn [{:keys [db]} [_ body]]
+    (if (str/blank? body)
+      {:db (assoc-in db [:comment-form :error] "Write something first.")
+       :fx [[:rf.server/set-status 400]]}                ;; re-render the form with its error
+      {:fx [[:comments/save body]                        ;; your persistence fx
+            [:rf.server/redirect {:status 303 :location "/articles"}]]})))
+```
+
+`:rf.server/*` fx are server-only, so the client's dispatch of `:comment/submit` skips
+them. A real form also checks a CSRF token before acting: ship it to the page
+with [`:payload-include-sensitive`](#classified-values-inside-the-allowlist) and
+compare it in the handler.
 
 ## What you give up
 
@@ -386,8 +572,35 @@ SSR isn't free of rules:
 - **No render-time side effects.** The tree is a function of state.
 - **Browser-only work waits for hydration.** Focus traps, observers —
   `:platforms #{:client}` after the client takes over.
+- **Machine timers start in the browser.** A [machine](../machines/glossary.md#machine)'s
+  `:after` timers aren't armed on the server; the server renders the current state
+  and ships the snapshot. After hydration the client arms each active timer for its
+  **full** delay, counted from then, without re-running entry actions. And a machine
+  can't await network I/O during the render — that's what blocking resources are for.
 
 Enforced by the platform gate and caught by the hash.
+
+## Deploying
+
+A few things change between your REPL and a production server:
+
+- **Run the JVM as a release build.** Start it with `-Dre-frame.debug=false`. That
+  elides development-only work — the trace stream, most schema checks — and keeps what
+  the framework relies on, such as `:boundary? true` schema checks and error
+  projection. [Configure dev and prod](../core/how-to/configure-dev-and-prod.md) has
+  the switches.
+- **Declare an error sink.** With traces elided, the always-on error records are what
+  reach your monitoring: server-side handler and render failures, and in the browser the
+  hydration-mismatch record. Name a sink with
+  `(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})` —
+  [Report errors in production](../core/how-to/report-errors-in-production.md).
+- **Concurrency is the server's.** Each request gets its own frame, so requests can't
+  see each other's state. `ssr-handler` runs on the calling server thread; the
+  [streaming](streaming.md) handler also holds one thread per response in flight, so
+  size your server's worker and accept-queue limits for that.
+- **Ship the client and server bundles together.** The payload is only right for the
+  client built from the same code. The version and [schema-digest](#deploy-drift-checks-come-along-for-free)
+  checks tell you when they drift; they warn rather than stop the page.
 
 ## Troubleshooting
 
@@ -396,6 +609,9 @@ Enforced by the platform gate and caught by the hash.
 | First `render-to-string` / `reg-head` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
 | `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` (also empty `[]`) | Set `:payload` allowlist, or `:rf.ssr.payload/whole-app-db` |
 | Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords only; sequential, not a set |
+| Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back | Send ids as strings, money as integer cents, or drop the key from `:payload` |
+| Server HTML is missing data fetched at boot | Not an error — only blocking route resources are waited for | Declare the read as a route resource with `:blocking? true` |
+| `:form-params` / `:session` is `nil` on the server | The Ring middleware didn't run before the SSR handler | Wrap with `wrap-params` / `wrap-session` outside it |
 | `hydrate!` without `:frame` | `:rf.error/no-frame-context` | Pass the same `:frame` as `frame-provider` |
 | Bad payload shape | `:rf.error/malformed-hydration-payload` — client state left untouched | Fix the server payload; never ship a non-map |
 | Payload frame id disagrees | `:rf.error/hydration-frame-id-mismatch` | Treat `:rf/frame-id` as evidence, not a target |
@@ -702,6 +918,19 @@ Everything diagnostic goes to stderr. Run it behind a supervisor that restarts
 on exit and stops it with `SIGTERM`; the service is stateless between requests,
 so a restart loses nothing but warm isolates.
 
+The flags you are most likely to set:
+
+- `--isolates <n>` — worker threads, each rendering one request at a time (default 2).
+- `--admission-ms <n>` — how long a request waits for a free isolate before a `503`
+  (default 250).
+- `--timeout-ms <n>` / `--max-timeout-ms <n>` — the render deadline when a request
+  names none (default 1000), and the ceiling on the one it may ask for (default 5000).
+- `--port <n>` / `--host <name>` — the bind (default `127.0.0.1:8148`).
+
+`GET /health` answers with the loaded `buildId`, the published entries and isolate
+counts; a rising `replacements` count means the service is killing renders. The full
+flag list is in the sidecar's README, linked below.
+
 Set the sidecar's deadline below the JVM's own read timeout so it refuses
 before the caller gives up — the adapter already derives its HTTP timeout as
 `:timeout-ms` plus `:admission-ms` plus a wire margin, which is that rule
@@ -797,3 +1026,28 @@ Same model, more keys — open a page only when a need appears:
 | First-byte shell + slow regions | [Streaming](streaming.md) |
 | Prove renders and boot guards | [Testing](testing.md) |
 | Runnable trees in the repo | [Examples](examples.md) |
+
+### Several roots on one page
+
+A page can hydrate more than one root — a header and a cart mounted into separate
+containers, say — and they can share one frame. Boot them with `ssr/hydrate-page!`,
+which takes one `hydrate!` options map per root plus a `:mount-fn` that mounts it:
+
+```clojure
+;; mount-header! and mount-cart! are your 0-arity fns that call the adapter's
+;; render! with {:hydrate? true} into their own containers.
+(let [outcomes (ssr/hydrate-page!
+                 [{:frame :app :root-id :page/header :mount-fn mount-header!}
+                  {:frame :app :root-id :page/cart   :mount-fn mount-cart!}])]
+  (doseq [{:keys [root-id error]} outcomes
+          :when error]
+    (js/console.warn "root did not boot:" (pr-str root-id) error)))
+```
+
+Each root hydrates and mounts inside its own failure boundary: one that throws is
+reported with an always-on `:rf.error/root-boot-failed` record and the others carry
+on, so pass the mount as `:mount-fn` rather than mounting after the call. The first
+root installs the payload and the rest find it installed. Two roots trying to install
+*different* payloads into one frame fail with `:rf.error/frame-payload-conflict`
+before anything is installed. The [`hydrate-page!`](../api/re-frame.ssr.md#hydrate-page)
+entry covers the per-root `:container` and `:manifest` options.

@@ -15,9 +15,14 @@ Ring adapter materialises it. Response logic stays pure and testable like any
 | `:rf.server/set-header` | `{:name :value}` | set a header, **replacing** any prior value (case-insensitive name) |
 | `:rf.server/append-header` | `{:name :value}` | **append** another instance — for multi-value headers (`Set-Cookie`, `Vary`) |
 | `:rf.server/set-cookie` | a structured cookie map | the adapter does the wire encoding |
-| `:rf.server/delete-cookie` | `{:name :path}` | expire a cookie (sugar over `set-cookie` with `:max-age 0`) |
+| `:rf.server/delete-cookie` | `{:name :path :domain}` | expire a cookie (sugar over `set-cookie` with an empty `:value` and `:max-age 0`); `:path` and `:domain` are optional and must match the ones the cookie was set with |
 | `:rf.server/redirect` | `{:status :location}` | short-circuit the render with a redirect (`:status` defaults to `302`; use `303` for POST success) |
-| `:rf.server/safe-redirect` | `{:location :relative-only? :allow}` | a validated redirect for user-supplied locations — the open-redirect guard |
+| `:rf.server/safe-redirect` | `{:location :relative-only? :allow :status}` | a validated redirect for user-supplied locations — the open-redirect guard (`:status` defaults to `302`) |
+
+All seven run on the server only, and all seven check their arguments in every
+build, not only in a development build: a wrong type — a non-map args map, a
+`:status` outside `100`–`599`, a non-string header `:value` — throws
+`:rf.error/server-fx-args-invalid`, naming the offending key.
 
 ## Cookies are structured maps
 
@@ -34,6 +39,12 @@ RFC 6265 wire encoding (the place raw-string cookie APIs grow quoting bugs):
         :same-site :lax            ;; one of :strict :lax :none
         :path      "/"}]]}
 ```
+
+The other two attributes are `:domain` and `:expires`. `:expires` is a point in
+time as **epoch milliseconds** (a long, such as `1767225600000`); the
+Ring adapter writes the HTTP date and throws `:rf.error/cookie-invalid-expires` on
+anything that is not an integer. `:max-age`, in seconds, is usually simpler. With
+neither, the cookie lasts for the browser session.
 
 ## Redirects truncate the render
 
@@ -111,10 +122,14 @@ A `\r` or `\n` smuggled into a header value is a response-splitting attack. The
 framework does **not** quietly strip it:
 
 - `:rf.server/set-header` / `:append-header` throw `:rf.error/header-invalid-value`
+  on CR/LF/NUL in `:value`, and `:rf.error/header-invalid-name` on a `:name` outside
+  the RFC 7230 token grammar (empty, whitespace, separators such as `:` or `;`)
 - `:rf.server/redirect` throws `:rf.error/redirect-invalid-location` on CRLF/NUL in
   `:location`
-- `:rf.server/set-cookie` CRLF-checks *every* attribute (`:name`, `:value`, `:domain`,
-  `:path`, …) before serialisation
+- `:rf.server/set-cookie` and `:delete-cookie` hold `:name` to the RFC 6265 token
+  grammar (`:rf.error/cookie-invalid-name`) and check *every* other attribute
+  (`:value`, `:domain`, `:path`, …) for CR/LF/NUL before serialisation
+  (`:rf.error/cookie-invalid-attribute`, whose `:attribute` slot names the field)
 
 Fail-fast over strip-and-warn — silent normalisation masks the bug.
 
@@ -126,8 +141,13 @@ Fail-fast over strip-and-warn — silent normalisation masks the bug.
 | A protected page renders the shell under `403` and you didn't set it | The framework's [entry-denial floor](#a-status-the-framework-writes-for-you-the-entry-denial-403) | Intended. Emit `:rf.server/redirect` or an explicit `:rf.server/set-status` from `:rf.route/entry-denied` |
 | Multiple redirects | Last write wins; `:rf.warning/multiple-redirects` | One intentional redirect |
 | CR/LF in a header value | `:rf.error/header-invalid-value` | Sanitize before `:set-header` / `:append-header` |
+| Header name rejected | `:rf.error/header-invalid-name` | Use a plain token name such as `"X-Request-Id"` — no spaces, colons or keywords |
 | CR/LF/NUL in redirect location | `:rf.error/redirect-invalid-location` | Don't pass raw user input to `:redirect` |
-| Bad cookie attribute | CRLF check on every field before serialise | Structured cookie map only |
+| Redirect written with `:url` or `:to` | `:rf.error/redirect-retired-target-key` | The target key is `:location` |
+| Cookie name rejected | `:rf.error/cookie-invalid-name` | A string token name, e.g. `"session"` |
+| CR/LF/NUL in a cookie attribute | `:rf.error/cookie-invalid-attribute` (`:attribute` names the field) | Structured cookie map only; don't pass raw input into `:path` / `:domain` |
+| String or date `:expires` | `:rf.error/cookie-invalid-expires` when the Ring adapter writes the header | Epoch milliseconds as a long, or use `:max-age` |
+| Wrongly typed fx argument (string status, `nil` header value, non-map args) | `:rf.error/server-fx-args-invalid`, naming the `:key` — in every build | Fix the args at the dispatch site |
 | User-supplied `?next=` open redirect | `:rf.error/safe-redirect-invalid-url` / `-scheme-rejected` / `-host-disallowed` | Use `:rf.server/safe-redirect` with `:relative-only?` or `:allow` |
 
 ## Where this fits
