@@ -33,7 +33,7 @@ Add a `:test` alias with a runner to `deps.edn`:
          :main-opts   ["-m" "cognitect.test-runner"]}}}
 ```
 
-Then the test namespace. One fixture resets the whole runtime — registrar, frames, adapter — around every test, so nothing bleeds between them:
+Then the test namespace, with one fixture that resets the runtime around every test so nothing bleeds between them:
 
 ```clojure
 ;; test/conduit/auth_test.clj
@@ -52,6 +52,8 @@ Then the test namespace. One fixture resets the whole runtime — registrar, fra
     {:adapter       plain-atom/adapter
      :ambient-frame nil}))   ;; nil: our tests create their own frames
 ```
+
+`make-reset-runtime-fixture` snapshots the [registrar](../../core/glossary.md#registrar) and resets per-process state — frames, flows, schemas, machine timers, in-flight HTTP, [epoch](../../core/glossary.md#epoch) history, trace listeners — around each test. It's a factory, so you call it to get the fixture fn. Subsystems your suite doesn't touch cost nothing to reset. Later tests add a second layer with `with-new-frame`, which scopes one frame to one test.
 
 !!! warning "Gotcha — keep the stubs out of production"
 
@@ -143,7 +145,7 @@ Part 3's boot restore is a *flow*: `:auth/initialise` fires a [managed HTTP](../
 
 Four things do the work, each redirecting a value at a boundary:
 
-- **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` declares intent and bundles two deterministic defaults: it redirects the `:rf.http/managed` fx to its canned-success stub, so a request you forgot to stub can never escape to the wire; and it sets a **strict mint policy**, so a handler that declares a generated [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) but isn't *supplied* one fails loud with `:rf.error/missing-required-cofx` rather than quietly minting a value that won't match production. (`:rf/time-ms` is always stamped, so it never trips this — the strict failure is reserved for *declared-but-absent, generator-backed* facts. A test that genuinely wants a fresh value per run opts back in with `{:rf.cofx/mint-policy :explicit-live}`.)
+- **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` sets two test defaults. It answers `:rf.http/managed` with a canned success, so a request you forgot to stub never reaches the network. And it sets a **strict mint policy**: a handler that declares a supplier-backed [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) and isn't *supplied* one raises `:rf.error/missing-required-cofx`, instead of generating a value that won't match production. `:rf/time-ms` is always stamped, so it never trips this.
 - **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact, overriding the registered supplier for this one dispatch — no re-registering, no `localStorage`. Under `{:preset :test}`, forgetting the key raises `:rf.error/missing-required-cofx` rather than falling through to a live read.
 - **`with-request-stubs`** routes `:rf.http/managed` by method + URL for the thunk's extent and synthesizes a real reply envelope. The exact request data your handler produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
 - **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
@@ -242,7 +244,7 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
                                          (rf/frame-state-value f))))))))
 ```
 
-Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because `:preset :test` answers `:rf.http/managed` with a canned success. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :explicit-live`, because a mutation mints a fresh cache generation and the preset's strict policy won't invent one.
+Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because `:preset :test` answers `:rf.http/managed` with a canned success. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :explicit-live`, which opts back into generated values: a mutation mints a fresh cache generation, and the preset's strict policy won't invent one.
 
 ??? info "Coming from React Testing Library?"
 
@@ -256,18 +258,7 @@ Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` fin
 
     Walk the hiccup (above) when you care about structure or handlers. Use `ssr/render-to-string` when you care about the rendered markup — "is the `<button>` disabled?" — also on the JVM with no DOM. Only tests that need real DOM listeners or scrolling need a CLJS runtime.
 
-## 6. Reset between tests
-
-Every test above runs against a clean runtime, thanks to the fixture from step 1:
-
-```clojure
-(use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :ambient-frame nil}))
-```
-
-`make-reset-runtime-fixture` snapshots the [registrar](../../core/glossary.md#registrar) and resets per-process state — frames, flows, schemas, machine timers, in-flight HTTP, [epoch](../../core/glossary.md#epoch) history, trace listeners — around each test. It's a factory, so you call it to get the fixture fn. Subsystems your suite doesn't touch cost nothing to reset. `with-new-frame` adds a second layer, scoping one frame to one test.
-
-Run the suite:
+## 6. Run the suite
 
 ```bash
 clojure -M:test

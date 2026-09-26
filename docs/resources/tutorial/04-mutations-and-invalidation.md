@@ -37,7 +37,6 @@ Then register `:conduit/feed` like Part 2's list, but with `:scope {:from-db :co
   {:params-schema  [:map]
    :scope          {:from-db :conduit/session}
    :stale-after-ms 60000
-   :gc-after-ms    300000
    :tags           (fn [_params data]
                      (into #{[:feed]}
                            (map (fn [a] [:article (:slug a)]) (:articles data))))}
@@ -66,7 +65,7 @@ As with the viewer resolver, returning `nil` when logged out fails closed: the f
 
 ## Register the write
 
-A mutation is the write-side counterpart of a resource: it describes a write and what that write makes stale. Here is the favorite write — two consequence keys plus a request fn:
+A mutation is the write-side counterpart of a resource: it describes a write and what that write makes stale. Here is the favorite write — a request fn and one consequence key, `:invalidates`:
 
 ```clojure
 ;; src/conduit/mutations.cljc
@@ -74,18 +73,13 @@ A mutation is the write-side counterpart of a resource: it describes a write and
 (ns conduit.mutations
   (:require [re-frame.core :as rf]
             [re-frame.resources]      ;; reg-mutation + the :rf.mutation/* surface
-            [re-frame.http.managed]   ;; the transport mutations lower through
+            [re-frame.http.managed]   ;; the transport mutations use
             [conduit.api :as api]
             [conduit.scope]))         ;; the :conduit/viewer and :conduit/session resolvers
 
 (rf/reg-mutation :conduit/favorite
   {:doc           "Favorite an article. POST /articles/:slug/favorite."
    :params-schema [:map [:slug :string]]
-   ;; Seed the signed-in viewer's cached article detail from the write's own
-   ;; reply — the heart flips the moment the server confirms.
-   :populates     (fn [{:keys [slug]} result]
-                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
-                     result})
    ;; The reads this write breaks: the article + lists (viewer scope), and the
    ;; signed-in user's feed (session scope).
    :invalidates   (fn [{:keys [slug]} _result]
@@ -99,19 +93,29 @@ A mutation is the write-side counterpart of a resource: it describes a write and
      :decode  :json}))
 ```
 
-Three parts do the work:
-
 - **The request fn** (the third argument) describes the HTTP write the way a resource describes its read. As with resources, the runtime decides where the reply goes, so it must not supply `:on-success`, `:on-failure` or `:request-id`.
 - **`:invalidates`** declares which tags the write makes stale on success. Favoriting breaks reads in *two* scopes — the article and lists in the reader's viewer scope, the feed in their session scope — so it returns a vector of *descriptors*, one per scope, each naming a scope and the tags to stale there. Each scope is resolved when the write's reply arrives.
-- **`:populates`** writes the reply straight into an exact cache entry, before the invalidation runs. The favorite endpoint replies with the full updated article, so it seeds this reader's `:conduit/article` entry and skips a refetch. The value must be in the shape the resource stores — the whole `{:article …}` map the server sent (`result`), not the article inside it. A populated entry counts as freshly loaded, so this mutation's own invalidation doesn't refetch it.
-
-Register `:conduit/unfavorite` the same way, with `:method :delete`.
 
 !!! warning "Gotcha — name the scope each tag lives in"
 
     A bare tag set — `(fn [_ _] #{[:feed]})` — invalidates only in the mutation's own scope, which defaults to `:rf.scope/global`. The feed lives in the session scope, so the invalidation would silently match nothing and the feed would stay stale. Use one descriptor per scope, as above. Dev builds warn with `:rf.warning/mutation-scope-mismatch` when this happens ([The scope footgun](../how-to/invalidate-after-a-mutation.md#the-scope-footgun-and-how-to-disarm-it)).
 
 Retries are opt-in for every managed request, and for a write that matters: re-sending a POST because the reply was slow is the double-submit bug. The favorite declares no `:retry`, so a slow favorite waits and never fires twice.
+
+### Seed the cache from the reply
+
+Invalidation refetches the article detail you're looking at, but the favorite endpoint already replies with the full updated article. `:populates` writes that reply straight into an exact cache entry and skips the refetch. Add it to `:conduit/favorite`'s metadata:
+
+```clojure
+   ;; Seed the viewer's cached article detail from the write's own reply.
+   :populates     (fn [{:keys [slug]} result]
+                    {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
+                     result})
+```
+
+The map's key names one exact entry — resource, params and scope — and its value is what to store there. The value must be in the shape the resource stores: the whole `{:article …}` map the server sent (`result`), not the article inside it. `:populates` runs before the invalidation, and a populated entry counts as freshly loaded, so this mutation's own invalidation doesn't refetch it.
+
+Register `:conduit/unfavorite` the same way, with `:method :delete`.
 
 ??? info "Coming from RTK Query?"
 
@@ -162,7 +166,7 @@ The view watches its instance through the `[:rf/mutation {:instance …}]` subsc
  :pending? … :success? … :error? … :settled? … :optimistic?}
 ```
 
-That's where `:disabled (:pending? fav)` comes from — no `:saving?` flag in app-db. (`:optimistic?` belongs to the optimistic variant under [Advanced](#advanced).)
+That's where `:disabled (:pending? fav)` comes from — no `:saving?` flag in app-db. (`:optimistic?` belongs to the optimistic variant under [Advanced](#advanced).) There are narrower subs too, such as `[:rf.mutation/pending? {:instance …}]`, and `:rf.mutation/execute` takes a few more keys than the four used here; [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md#the-rfmutationexecute-payload-and-the-focused-rfmutation-subs) lists both.
 
 When a write fails, the instance settles `{:status :error, :error <failure-map>}`, and a view shows it by reading the same instance: `(when (:error? fav) [error-banner (:error fav)])`. The failure map has the same closed `:rf.http/*` shape as a resource's `:error` ([Part 2](02-server-data.md)). A heart can ignore a failure — the count just doesn't move — but a form shouldn't.
 
@@ -187,7 +191,11 @@ Sign in and click a heart. The count changes when the server replies — that's 
 
 ### Resetting an instance
 
-`:rf.mutation/execute` takes a few more keys than the three used here (`:scope`, `:reply-to`, `:optimistic?`), and there are narrower subs such as `[:rf.mutation/pending? {:instance …}]`; [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md#the-rfmutationexecute-payload-and-the-focused-rfmutation-subs) lists them. One more command matters for the editor below: **`:rf.mutation/clear`** — `[:rf.mutation/clear {:instance [:favorite slug]}]` — drops an instance back to `:idle` and best-effort aborts any in-flight work for it. That abort makes it a *cancellation*: a write still in flight loses its request (with no proof the server didn't perform it), and its late reply is suppressed, so its `:invalidates` never run. So clear an instance after its write has settled, and when a form needs a fresh start while an earlier write may still be out, give the new session its own instance id instead. (`:rf.mutation/clear` is an event; `(rf/clear :mutation id)` is a different thing — it removes the registration.)
+The editor below needs one more command: `[:rf.mutation/clear {:instance [:favorite slug]}]` drops an instance back to `:idle`.
+
+Clearing a write that is still in flight also cancels it: the runtime makes a best-effort abort of the request (the server may have performed the write anyway) and suppresses its late reply, so its `:invalidates` never run. So clear an instance after its write has settled. When a form needs a fresh start while an earlier write may still be out, give the new session its own instance id instead, as the editor does.
+
+(`:rf.mutation/clear` is an event. `(rf/clear :mutation id)` is a different thing: it removes the registration.)
 
 !!! warning "Gotcha — `:result` on the instance, `:value` in a reply"
 
@@ -225,7 +233,7 @@ First, the write. Create and edit share one mutation that switches between POST 
      :decode  :json}))
 ```
 
-The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) to tell whether anything changed. There's no `:status` field: the submission lifecycle Part 3 hand-rolled lives on the mutation instance instead.
+The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) to tell whether anything changed. There's no `:status` field: the submission lifecycle Part 3 hand-rolled lives on the mutation instance instead. The namespace starts with plain helpers — build a slice, turn an article into a draft and back, validate:
 
 ```clojure
 ;; src/conduit/editor.cljs
@@ -255,9 +263,11 @@ The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edi
 (defn parse-tag-list [s]
   (->> (str/split (or s "") #",")
        (map str/trim) (remove str/blank?) vec))
+```
 
-;; Each visit to the editor is its own form session, named by the
-;; navigation's token — so each session watches a fresh instance.
+The new idea is the instance id. A save can answer after the reader has left the editor, and it mustn't then act on a later visit's form. So each visit to the editor is its own form session, with its own instance, named by the navigation's token:
+
+```clojure
 (defn save-instance [nav-token] [:editor/save nav-token])
 
 ;; The editor route's :on-match (registered below): a fresh slice. There's
@@ -319,7 +329,7 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied nav-
       {}
 
       ;; The save replies with the saved article: re-seed the editor so the
-      ;; draft is CLEAN (the :can-leave guard below will let us go), clear
+      ;; draft is clean (the :can-leave guard below will let us go), clear
       ;; the instance, and navigate.
       :else
       (let [article (:article value)]
@@ -328,7 +338,7 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied nav-
               [:dispatch [:rf.route/navigate {:to :conduit.article/show :params {:slug (:slug article)}}]]]}))))
 ```
 
-`{:keys [status value instance]}` is the reply map's shape: `:status` says how the write settled, `:value` carries the decoded result on `:ok`, and `:instance` names the instance — the same [uniform reply](../../core/glossary.md#the-uniform-reply) every managed async operation produces. The token check comes first because a write runs to completion wherever the reader goes, and a save that answers after they've left the editor mustn't pull them back. Either way, retiring the instance is the last step.
+`{:keys [status value instance]}` is the reply map's shape: `:status` says how the write settled, `:value` carries the decoded result on `:ok`, and `:instance` names the instance — the same [uniform reply](../../core/glossary.md#the-uniform-reply) every managed async operation produces. The token check comes first: a write runs to completion wherever the reader goes, and a save that answers after they've left the editor mustn't pull them back. Either way, retiring the instance is the last step.
 
 Three rules make `:reply-to` dependable:
 
@@ -376,7 +386,7 @@ The two guards differ in what a refusal does. "Is this visitor signed in?" is a 
 ;; src/conduit/core.cljs — rendered once in the app shell.
 ;; cf. examples/real-apps/realworld_resources/core.cljs
 (reg-view pending-nav-dialog []
-  (when-let [pending @(rf/subscribe [:rf/pending-navigation])]
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.pending-nav-overlay
      [:div.pending-nav-dialog
       [:p "You have unsaved changes. Leave anyway?"]
@@ -420,8 +430,8 @@ Now re-read `:editor/replied`: on a successful save it re-seeds the editor from 
 (rf/reg-mutation :conduit/favorite
   {:doc           "Favorite an article (optimistic). POST /articles/:slug/favorite."
    :params-schema [:map [:slug :string]]
-   ;; FORWARD: flip the heart on every entry tagged [:article slug] — the
-   ;; detail and every list — and in the feed, before the request goes out.
+   ;; Before the request goes out, flip the heart on every entry tagged
+   ;; [:article slug] (the detail and every list) and in the feed.
    :optimistic-tags (fn [{:keys [slug]}]
                       [{:scope {:from-db :conduit/viewer}
                         :tags  #{[:article slug]}
@@ -429,7 +439,7 @@ Now re-read `:editor/replied`: on a successful save it re-seeds the editor from 
                        {:scope {:from-db :conduit/session}
                         :tags  #{[:feed]}
                         :patch (fn [data] (favorite-patch true slug data))}])
-   ;; COMMIT on :ok — the reply's authoritative article overwrites the guess.
+   ;; On :ok, the server's article overwrites the guess.
    :populates     (fn [{:keys [slug]} result]
                     {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
                      result})
