@@ -2,7 +2,7 @@
 
 Use this namespace to run a re-frame2 app on UIx, a hooks-first React substrate. It provides the `adapter` you pass to `rf/init!` at boot, the `use-sub` and `use-frame` hooks components read and dispatch through, the `frame-root` and `frame-provider` components, and the `client-root`, `render!` and `unmount!` functions your entry namespace mounts the app through.
 
-It ships in the `day8/re-frame2-uix` artefact.
+Pick it when your components are React function components written with `defui` and hooks, usually because the code around the app already is; for hiccup views, use [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) or [Fresco](re-frame.fresco.md). It ships in the `day8/re-frame2-uix` artefact, which brings in `com.pitch/uix.core`.
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -33,7 +33,7 @@ It ships in the `day8/re-frame2-uix` artefact.
 
 Everything else a UIx app calls is on [`re-frame.core`](re-frame.core.md), including the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. Nothing is injected into a UIx component: it reads with `use-sub` and takes `dispatch` from `use-frame`. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it.
 
-Register views by Var, the React idiom, or with `rf/reg-view*` when the call site holds only an id (see [Registry-keyed views](#registry-keyed-views)); the `reg-view` macro is Reagent-only. [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) covers choosing and switching substrate.
+Components are plain `defui` functions that you mount by referring to their Var, the React idiom; the `reg-view` macro is Reagent-only. Register one with `rf/reg-view*` only when the call site holds an id rather than the Var (see [Registry-keyed views](#registry-keyed-views)). [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) covers choosing and switching substrate.
 
 ## Adapter spec
 
@@ -72,13 +72,19 @@ Register views by Var, the React idiom, or with `rf/reg-view*` when the call sit
   ```
 - **Description**: Returns the current value of the subscription `query-v` and re-renders the component when that value changes. Where `subscribe` returns a subscription, this returns its value. [`re-frame.fresco.native`](re-frame.fresco.native.md#use-sub) publishes the same hook under the same name for React islands under Fresco.
     - The 1-arity reads the frame from React context only: the nearest `frame-provider` (SCOPE) / `frame-root` (ENSURE) above the component. With no boundary above it, it raises `:rf.error/no-frame-context`; there is no fallback to `:rf/default`.
-    - A `with-frame` or `bind-fn` scope around a synchronous render does not reach a hook, whether the render runs under `act()`, `flushSync` or a server render. A hook runs when React renders, after that scope has exited, and the same tree must resolve the same frame however the render was driven. `re-frame.fresco.native`'s hooks follow the same rule.
+    - A `with-frame` scope around a render does not reach a hook, even when the render is synchronous (under `act()`, `flushSync` or a server render). React may render the same tree later, outside that scope, and the tree must resolve the same frame however the render was driven. `re-frame.fresco.native`'s hooks follow the same rule.
     - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
 - **Example**:
   ```clojure
   (defui cart-total []
     (let [total (uix-adapter/use-sub [:cart/total])]
       ($ :span total)))
+
+  ;; The opts form: compare one query across two frames in one component.
+  (defui price-compare [{:keys [sym]}]
+    (let [a (uix-adapter/use-sub [:quote/price sym] {:frame :tenant-a})
+          b (uix-adapter/use-sub [:quote/price sym] {:frame :tenant-b})]
+      ($ :span a " / " b)))
   ```
 
 ### `use-frame`
@@ -95,15 +101,14 @@ Register views by Var, the React idiom, or with `rf/reg-view*` when the call sit
     - There is no hook that reads the frame context alone. `(:frame (use-frame))` gives the frame from React context; `(rf/current-frame-id)` checks a `with-frame` binding first, so inside a `with-frame` around a render the two can differ.
 - **Example**:
   ```clojure
-  (defui counter-buttons []
-    (let [count              (uix-adapter/use-sub [:counter/value])
-          {:keys [dispatch]} (uix-adapter/use-frame)]
+  (defui inc-button []
+    (let [{:keys [dispatch]} (uix-adapter/use-frame)]   ;; take dispatch during render
       ($ :button {:on-click #(dispatch [:counter/inc])} "+")))
   ```
 
 ## Components
 
-`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's heads, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse.
+`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse.
 
 ### `frame-provider`
 
@@ -136,7 +141,7 @@ Register views by Var, the React idiom, or with `rf/reg-view*` when the call sit
     - `:id` is required and must be a keyword; a missing, nil or non-keyword `:id` raises `:rf.error/frame-root-missing-id`.
     - The frame is created and seeded in a client `useLayoutEffect` at commit, not during render. The first render emits no children; they render once the frame is live. A render React discards before commit creates and seeds nothing.
     - Re-mounting under the same `:id` (hot reload, React StrictMode's double mount in development) keeps the frame's state and does not re-run `:initial-events`.
-    - Changing a mounted boundary's `:id` or opts raises `:rf.error/frame-root-reconfigured`; a `:frame` key raises `:rf.error/frame-root-given-frame`.
+    - Changing a mounted boundary's `:id` or opts raises `:rf.error/frame-root-reconfigured`; to switch frames, give the `frame-root` a React `:key` that changes. A `:frame` key (the SCOPE key) raises `:rf.error/frame-root-given-frame`, naming `frame-provider`.
     - Pass children after the props map.
 - **Example**:
   ```clojure
@@ -148,7 +153,7 @@ Register views by Var, the React idiom, or with `rf/reg-view*` when the call sit
 
 ## The client root
 
-A browser app needs one React root for the life of the page: created once, updated on every hot reload, released on teardown. `client-root`, `render!` and `unmount!` manage that root, so your entry namespace never creates one or builds a `uix.dom` root itself. Allocate the handle under a `defonce` and call `render!` from the `^:dev/after-load` hook, as in the example at the top of this page; [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) has the whole recipe.
+A browser app needs one React root for the life of the page: created once, updated on every hot reload, released on teardown. `client-root`, `render!` and `unmount!` manage that root, so your entry namespace never creates one or builds a `uix.dom` root itself. Allocate the handle under a `defonce` and call `render!` from the `^:dev/after-load` hook, as in the example at the top of this page, with `run` as the build's `:init-fn`. On a hot reload shadow-cljs calls `mount!` again: the `defonce` keeps the handle, `render!` updates the same root, and `frame-root` reuses the live frame without re-running `:initial-events`, so app-db survives the reload. [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) has the whole recipe.
 
 These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md#the-client-root), with the same behaviour, except that `render!` here takes a React element built with `uix.core/$` rather than hiccup. The root is created through `react-dom/client`, so the app needs no `com.pitch/uix.dom` dependency to mount. The raw React root is never exposed, and `rf/destroy-adapter!` also releases it, exactly once.
 
@@ -203,7 +208,7 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
 
 ## Registry-keyed views
 
-Registering by Var is the idiom, and most UIx code should do it. Use the registry when the call site cannot name the Var: a view chosen at runtime, a component used across a module boundary, or a library that ships ids rather than symbols.
+Mounting a component by its Var is the idiom, and most UIx code needs nothing else. Use the registry when the call site cannot name the Var: a view chosen at runtime, a component used across a module boundary, or a library that ships ids rather than symbols.
 
 `rf/reg-view*` takes an id and a component; `rf/view` returns a UIx component head, which you mount with `$` like any other:
 
@@ -224,11 +229,11 @@ The head behaves like the registered component itself:
 
 - Hand it to `$` as the component type. Do not call it inside a host component of your own: the hooks and the instance lifetime would then belong to your host rather than to the registered view.
 - Props and children arrive unchanged. The head is marked as a UIx component, so `$` passes the original ClojureScript map through UIx's `argv` channel: namespaced keywords stay keywords, nested maps stay maps, and trailing `$` children reach the component as `:children`.
-- Registration order does not matter. Register at namespace load, as [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) does, and call `rf/init!` afterwards: `rf/view` resolves the head against the adapter installed at lookup time, so a view registered before `init!` mounts like one registered after it. Repeat lookups return the same object, so React reconciles it as one component type instead of remounting.
+- It does not matter whether `rf/reg-view*` runs before or after `rf/init!`: `rf/view` resolves the head against the adapter installed when you look it up. The usual order is to register at namespace load and call `init!` afterwards, as [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) does. Repeat lookups return the same object, so React reconciles it as one component type instead of remounting.
 
 `rf/view` returns `nil` for an unregistered id.
 
-In debug builds, a registered view's root element gets a `data-rf2-source-coord` attribute, which Xray and re-frame2-pair use for click-to-source. Production `:advanced` builds remove it, so it costs no shipped bytes. See [Observability](../core/observability.md).
+In development builds, a registered view's root element gets a `data-rf2-source-coord` attribute, which Xray and re-frame2-pair use for click-to-source. Production builds remove it, so it costs no shipped bytes. See [Observability](../core/observability.md).
 
 ## Controlled inputs and the caret
 
@@ -236,7 +241,7 @@ A UIx `:input` with a `:value` and an `:on-change` is a plain React controlled i
 
 When your handler rejects or rewrites a keystroke, React restores the field inside the event: the rejected character is gone before `dispatchEvent` returns, with nothing re-rendered. Writing `value` moves the caret to the end of the field, though. Type `z` into `"12345"` with the caret at position 2, have the handler reject it, and you get `"12345"` with the caret at 5. This is React's own controlled-input caret jump, and it happens on every write React makes. A handler that accepts the keystroke unchanged never triggers a write and never moves the caret.
 
-The port makes the element uncontrolled and restores both value and caret itself, but one animation frame later, off Reagent's `requestAnimationFrame` queue, never inside the event. Neither implementation gives you both halves. The adapter pins React's path because inputs that behave differently depending on what else is in the bundle are the worse problem.
+The port makes the element uncontrolled and restores both value and caret itself, but one animation frame later, off Reagent's `requestAnimationFrame` queue, never inside the event. So React's implementation restores the value in time but moves the caret, and the port keeps the caret but restores a frame late. The adapter pins React's path because inputs that behave differently depending on what else is in the bundle are the worse problem.
 
 To use the port instead, set the var yourself after requiring the adapter and before you render:
 
@@ -267,8 +272,8 @@ To use the port instead, set the var yourself after requiring the adapter and be
     - The complete component test — mount, click, settle, assert, unmount — is in [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real).
 - **Example**:
   ```clojure
-  (uix-adapter/flush-views!)               ;; flush pending renders + effects
-  (uix-adapter/flush-views! (fn [] nil))   ;; run the thunk inside act()
+  (uix-adapter/flush-views!)                                    ;; flush pending renders + effects
+  (uix-adapter/flush-views! #(rf/dispatch-sync [:counter/inc]))  ;; dispatch, then commit the re-render
   ```
 
 ## Server-side rendering
@@ -280,8 +285,10 @@ To use the port instead, set the var yourself after requiring the adapter and be
   ```clojure
   (set-hiccup-emitter! f)
   ```
-- **Description**: Installs the function render-to-string uses to turn a render tree into HTML. Requiring [`re-frame.ssr`](re-frame.ssr.md) installs it for you, so you rarely call this directly.
-    - Pass `nil` to reset.
+- **Description**: Installs the function the adapter's `render-to-string` uses to turn a render tree into HTML. Requiring [`re-frame.ssr`](re-frame.ssr.md) installs it for you, so you rarely call this directly.
+    - `f` takes the render tree and an opts map, and returns an HTML string.
+    - Last call wins; pass `nil` to reset.
+    - With no emitter installed, `render-to-string` raises `:rf.error/no-hiccup-emitter-bound`.
     - The Reagent adapter has the same function.
 - **Example**:
   ```clojure

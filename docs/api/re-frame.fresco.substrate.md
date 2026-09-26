@@ -30,7 +30,10 @@ the container `app-db` lives in, and derived values that notify when it changes.
 
 Reagent, reagent-slim and UIx adapters also work under a Fresco tree: every React
 adapter writes the same frame context, so a Fresco subtree and a UIx subtree
-resolve the same frame. [Installation](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter)
+resolve the same frame. So use this adapter when Fresco is the app's only view
+layer. An app that already installs a Reagent or UIx adapter for its other views
+needs no second one: its Fresco views run on that adapter.
+[Installation](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter)
 teaches the boot line, and [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md)
 lists the other adapters and their coordinates.
 
