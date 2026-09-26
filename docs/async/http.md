@@ -185,7 +185,7 @@ The failure map always carries a `:kind` from a fixed, framework-reserved list. 
 
 The set is closed for v1; adding a category is a versioned framework change, so `:rf.http/timeout` means the same thing in every codebase and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — the same discipline you'd use on any framework [error record](../core/glossary.md#error-record).
 
-Every failure map also names the request it came from: `:request` (an echo of your `:method` and `:url`), `:request-id`, `:attempt`, `:max-attempts` when a `:retry` policy is set, and `:work/id`. An error report built from the reply can therefore say which call failed.
+Every failure map also names the request it came from: `:request` (an echo of your `:method`, and of the `:url` as it was sent, after any `:before` interceptor and with `:params` merged in), `:request-id`, `:attempt`, `:max-attempts` when your `:retry` policy sets it, and `:work/id`. An error report built from the reply can therefore say which call failed.
 
 Two classification rules catch newcomers:
 
@@ -310,18 +310,18 @@ The builder returns an args map, so it composes everywhere the args map is accep
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the `:status` / `:value` / `:error` shape a live request delivers, without the live reply's identity and timing fields (`:rf.reply/work-id`, `:completed-at`). `with-request-stubs` matches a request on its `:method` and its `:url` as written, after any `:before` interceptor and before `:params` is added; a request that matches no route receives a `:rf.http/transport` failure whose `:message` is `"no stub matched"`. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; the [API reference](../api/re-frame.http.md) documents every stub surface.
+Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the `:status` / `:value` / `:error` shape a live request delivers, without the live reply's identity and timing fields (`:rf.reply/work-id`, `:completed-at`). `with-request-stubs` matches a request on its `:method` and on its `:url` as the `:before` interceptors leave it, before `:params` is merged in; a request that matches no route receives a `:rf.http/transport` failure whose `:message` is `"no stub matched"`. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; the [API reference](../api/re-frame.http.md) documents every stub surface.
 
 ## Troubleshooting
 
 | You see | What happened |
 |---|---|
 | `:rf.error/no-such-fx` naming `:rf.http/managed`, or `:rf.error/http-artefact-missing` from `rf/reg-http-interceptor` | The artefact isn't loaded. Require `re-frame.http.managed` once at boot. |
-| `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying an `:rf.error/http-…` id or `:rf.error/schemas-artefact-missing` | The args map was refused and nothing was sent: no reply target, a reply target that isn't a vector, a bad `:url`, a bad `:retry :on`, or a `:decode` schema with slot marks while `re-frame.schemas` isn't loaded. The error names the key. |
+| `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying `:rf.error/http-no-reply-target`, `:rf.error/http-bad-reply-target`, `:rf.error/http-bad-request`, `:rf.error/http-bad-retry-on` or `:rf.error/schemas-artefact-missing` | The args map was refused and nothing was sent: no reply target, a misshaped or mixed reply target, a bad `:url`, a bad `:retry :on`, or a `:decode` schema with slot marks while `re-frame.schemas` isn't loaded. The error names the key. |
 | An `:error` trace row named for a failure kind: `:rf.http/timeout`, `:rf.http/http-5xx`, … | The request failed, and the same failure map reached your failure target. The row is the dev trace's record of the failure, not a sign it went unhandled. |
 | `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
 | `:rf.warning/failure-swallowed` | A failure had no reply target and was dropped. See [Silencing a reply](#silencing-a-reply). |
-| `:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return` or `:rf.error/http-reply-tail-failed` | An interceptor threw or returned a non-map, or delivering the reply threw after the response arrived. No reply is delivered. |
+| `:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return` or `:rf.error/http-reply-tail-failed` | An interceptor threw or returned a non-map, or delivering the reply threw after the response arrived. No reply is delivered. A `:before` failure also arrives as `:rf.error/fx-handler-exception` carrying the same id. |
 | `:rf.error/no-frame-context` from `rf/reg-http-interceptor` | The registration names no frame. Pass `:frame`, or register inside a frame scope ([Interceptors](http-going-further.md#interceptors-stamp-every-request-once)). |
 | `:rf.warning/http-malli-absent`, and a malformed body reached your handler | Malli isn't in the build, so the `:decode` schema was skipped. See [step 3 of the tutorial](tutorial.md#step-3--validate-the-body-with-a-schema). |
 | `:rf.warning/http-header-invalid` | A request header was rejected and the request went without it. See [Malformed headers](#malformed-headers). |
