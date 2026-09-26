@@ -91,8 +91,8 @@ The table is **complete by gate for tool names and argument names**: `scripts/ch
 | `get-re-frame2-pair-instructions` | `{}` — inline agent-onboarding text, no nREPL round-trip | SKILL.md §Connect first |
 | `list-handlers` | `{kind, frame?}` — every id under one registrar kind | [`ops.md` §Read](ops.md#read) |
 | `handler-meta` | `{kind, id, frame?}` — registration meta for one id (add `frame` for the per-frame arity) | [`ops.md` §Read](ops.md#read) |
-| `describe-image` | `{frame, include-ns?}` — the selected registration universe a frame runs | [`ops.md` §Frames](ops.md#frames) |
-| `snapshot` | `{frames, include, path}` — multi-slice read; `:app-db` defaults to `:summary` | [`ops.md` §Read](ops.md#read) · §slice modes below |
+| `describe-image` | `{frame?, include-ns?}` — the selected registration universe a frame runs | [`ops.md` §Frames](ops.md#frames) |
+| `snapshot` | `{frames?, include?, path?}` — multi-slice read; `:app-db` defaults to `:summary` | [`ops.md` §Read](ops.md#read) · §slice modes below |
 | `get-path` | `{path \| paths, frame?}` — targeted read; `{:exists?}` distinguishes nil from missing | [`ops.md` §Read](ops.md#read) |
 | `read-sub` | `{sub, frame?}` — validated, elided one-shot subscription read | [`ops.md` §Read](ops.md#read) |
 | `list-subscriptions` | `{frame?, include-values?}` — the live reactive sub-cache for a frame | [`ops.md` §Read](ops.md#read) |
@@ -107,7 +107,7 @@ The table is **complete by gate for tool names and argument names**: `scripts/ch
 | `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replay-epoch` | `{epoch-id, frame?}` — one-call strict replay of a retained epoch; `dispatch`'s authority, NOT `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
-| `trace-window` | `{ms, frame?, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
+| `trace-window` | `{ms?, frame?, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
 | `watch-epochs` | `{pred?, since-id?, frame?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch) |
 | `watch-until` | `{signals, pred, frame?, timeout-ms?}` — block until a signal predicate holds | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
 | `record` | `{signals, frame?, stop?, max-entries?}` — read-only signal recorder | [`ops.md` §Signal recording](ops.md#signal-recording--blocking-waits) |
