@@ -155,11 +155,11 @@ Import `login-flow` from the [first machine](tutorial.md#the-complete-machine) a
 The result is one plain map:
 
 ```clojure
-{:status :ok  :snapshot {:state … :data … :tags …} :fx [[:rf.http/managed …] …]}   ;; success
+{:status :ok  :snapshot {:state … :data … :tags …} :fx [[:rf.http/managed …] …] :handled? true}   ;; success
 {:status :error :error {:kind :rf.error/machine-action-exception :exception … …}} ;; a guard or action threw
 ```
 
-- `:snapshot` is the next snapshot; an event no transition matches returns `:status :ok` with the snapshot unchanged and `:fx []`.
+- `:snapshot` is the next snapshot; an event no transition takes returns `:status :ok` with the snapshot unchanged, `:fx []` and `:handled? false`. A transition that fires and changes nothing reports `:handled? true`, so a test can tell a declined event from an accepted no-op.
 - `:fx` is the effects vector in emission order.
 - `:error` carries the diagnostics when a guard, action or `:data` fn throws (`:kind :rf.error/machine-action-exception`, with the `:exception` and the throwing ref) or a runaway `:always` / `:raise` cycle hits its depth limit (`:kind :rf.error/machine-always-depth-exceeded` or `:rf.error/machine-raise-depth-exceeded`). A failure carries no snapshot — nothing was committed.
 - Mistakes in the call itself — a malformed `:state`, a guard or action keyword with no entry in the definition — throw an `:rf.error/*` `ex-info` rather than returning `:status :error`, exactly as `reg-machine` would.
@@ -186,10 +186,34 @@ Most tests should import the transition table value directly. Use registered met
 | Level | What it tests | When to use |
 |---|---|---|
 | `machine-transition` | table logic, guards, action effects | default |
-| unregistered handler | lowering and handler-level integration | rare |
+| unregistered handler (`make-machine-handler`) | lowering and handler-level integration | rare |
 | registered test frame | dispatch, tracing, spawn/destroy, actor messaging | actor-heavy integration |
 
 Keep most tests at the first level. It is fast, deterministic, and does not require a browser.
+
+The third level runs the real pipeline in a fresh frame, so it is the one that exercises spawned actors and replies. Stub the HTTP the table issues ([Test a pipeline run](../core/testing/pipeline-runs.md) has the recipe):
+
+```clojure
+(ns app.login-frame-test
+  (:require [clojure.test :refer [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.http.test-support :as http-test-support]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as ts]
+            [app.login]))                  ;; registers :auth.login/flow
+
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(deftest failed-login-shows-the-error
+  (http-test-support/with-request-stubs
+    {[:post "/api/login"] {:reply {:failure {:kind :rf.http/http-4xx :status 401}}}}
+    (fn []
+      (rf/dispatch-sync [:auth.login/flow [:auth.login/submit {:email "a@b.com"
+                                                               :password "x"}]])
+      (let [snap (rf/subscribe-once [:rf/machine :auth.login/flow])]
+        (is (= :error-shown (:state snap)))
+        (is (= 1 (get-in snap [:data :attempts])))))))
+```
 
 ## What failure means
 

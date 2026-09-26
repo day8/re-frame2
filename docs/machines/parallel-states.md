@@ -78,7 +78,11 @@ state names. Submit reads `:form/valid` off the tag union.
 The [Nine States example](../../examples/patterns/nine_states) is the same
 shape with a third `:mode` region.
 
-Each region body looks like a small machine: it has `:initial` and `:states`.
+Each region body is the root of a small machine: it has `:initial` and
+`:states`, and may add `:entry` and `:exit` (run at birth and teardown),
+`:tags`, an `:on` fallback for the region, and an `:on-done` that runs when the
+region reaches a `:final?` child. That `:on-done` targets a state inside the
+region.
 
 At the top level, a parallel machine does not also declare root `:initial` and
 root `:states`. Registration throws `:rf.error/machine-parallel-bad-shape` if
@@ -300,6 +304,7 @@ parallel root or split the feature into several machines.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Registration throws `:rf.error/machine-parallel-bad-shape` | Root also has `:initial` / `:states`, or a region lacks `:initial` | `:type :parallel` uses `:regions` only; every region declares `:initial` |
+| Registration throws `:rf.error/machine-root-slot-not-supported` naming `:regions` | The root has `:regions` but no `:type :parallel` | Add `:type :parallel`; the root then drops `:initial` and `:states` |
 | Registration throws `:rf.error/machine-parallel-root-on-bad-target` | Root `:on` used a bare keyword target | Region-qualify: `[:left :two]` or `[[:left :two] [:right :two]]` |
 | Registration throws `:rf.error/machine-parallel-nested-not-supported` | A region itself declares `:type :parallel` | Flatten the axes, or split into separate machines |
 | Shared `:data` incremented twice on one event | Two regions handled the same event and both wrote | Put the write in one region, or on a root `:on` |

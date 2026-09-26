@@ -380,4 +380,5 @@ commits. Production builds can elide the checks.
 |---|---|
 | An event the current state does not handle | Quiet no-op, matching modern XState. Trace: `:rf.machine.event/unhandled-no-op`. |
 | Broken definition — unresolved target, missing guard or action, invalid `:choice`, `"5s"` duration, … | Fail at registration. |
+| An XState spelling — `invoke`, `cond`, `entry: [a, b]` | Fail at registration (`:rf.error/machine-unknown-node-key`, `:rf.error/machine-bad-action-form`); the message says what to write instead. |
 
