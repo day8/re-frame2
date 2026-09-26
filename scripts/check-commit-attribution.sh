@@ -4,7 +4,8 @@
 # CI arm of the AI-ATTRIBUTION guard. Fails a pull request whose OWN
 # COMMITS carry AI attribution in their messages, or whose BODY carries it —
 # the `Co-Authored-By:` / `Claude-Session:` / generated-with / bare session-URL
-# shapes CLAUDE.md > Git Conventions forbids. See
+# shapes CLAUDE.md > Git Conventions forbids — and one whose own commits are
+# RECORDED as the assistant, author or committer `noreply@anthropic.com`. See
 # scripts/git-hooks/lib/check-commit-attribution.sh for the diagnosis and the
 # matched set; this script only chooses WHICH TEXT to grade. Every arm shares
 # one detector so the local hook and the CI gate can never drift apart.
@@ -22,7 +23,9 @@
 #   pull request in the repository, for ever, over commits nobody in that PR
 #   wrote. The branch delta grades exactly the commits its author can still
 #   fix, and the three sit BEHIND every merge base, so the trunk stays green
-#   with no allow-list, no baseline file and nothing to trim.
+#   with no allow-list, no baseline file and nothing to trim. So do the trunk
+#   commits already recorded as the assistant, which are accepted as history
+#   in the same way.
 #
 #   Pass the BASE BRANCH, not a precomputed branch point — the merge base is
 #   this script's job. The reasoning is the sibling guard's
@@ -142,27 +145,50 @@ fi
 # a variable would not survive it. Same technique, same reason, as the shared
 # library and its sibling lib/check-beads-boundary.sh.
 LISTING=$(mktemp "${TMPDIR:-/tmp}/rf2-attribution-ci-XXXXXX")
-trap 'rm -f "$LISTING"' EXIT INT TERM HUP
+IDENTS=$(mktemp "${TMPDIR:-/tmp}/rf2-attribution-ci-ident-XXXXXX")
+trap 'rm -f "$LISTING" "$IDENTS"' EXIT INT TERM HUP
 
 COMMITS=$(git rev-list "$BRANCH_POINT..HEAD")
 count=0
 for sha in $COMMITS; do
   count=$((count + 1))
+  header="$(git rev-parse --short=10 "$sha") $(git log -1 --format=%s "$sha")"
   hits=$(git log -1 --format=%B "$sha" | rf2_attribution_offending_lines)
   if [ -n "$hits" ]; then
-    printf '%s %s\n' "$(git rev-parse --short=10 "$sha")" \
-      "$(git log -1 --format=%s "$sha")" >> "$LISTING"
+    printf '%s\n' "$header" >> "$LISTING"
     printf '%s\n' "$hits" | while IFS= read -r l; do
       [ -n "$l" ] && printf '  %s\n' "$l" >> "$LISTING"
     done
   fi
+
+  # The identity the commit is recorded under, graded apart from its text.
+  # `%ae` / `%ce`, not the mailmapped `%aE` / `%cE`: the gate grades what the
+  # commit records, not what a mailmap would display.
+  author=$(git log -1 --format='%an <%ae>' "$sha")
+  committer=$(git log -1 --format='%cn <%ce>' "$sha")
+  ident_hits=""
+  if rf2_attribution_is_offending_ident "$author"; then
+    ident_hits="  author:    $author"
+  fi
+  if rf2_attribution_is_offending_ident "$committer"; then
+    ident_hits="${ident_hits:+$ident_hits
+}  committer: $committer"
+  fi
+  if [ -n "$ident_hits" ]; then
+    printf '%s\n%s\n' "$header" "$ident_hits" >> "$IDENTS"
+  fi
 done
 
-if [ ! -s "$LISTING" ]; then
-  printf 'No AI attribution in the %s commit(s) this branch introduces (from %s).\n' \
+if [ ! -s "$LISTING" ] && [ ! -s "$IDENTS" ]; then
+  printf 'No AI attribution in the messages, authors or committers of the %s commit(s) this branch introduces (from %s).\n' \
     "$count" "$(git rev-parse --short=10 "$BRANCH_POINT")"
   exit 0
 fi
 
-rf2_attribution_refusal ci < "$LISTING"
+if [ -s "$LISTING" ]; then
+  rf2_attribution_refusal ci < "$LISTING"
+fi
+if [ -s "$IDENTS" ]; then
+  rf2_attribution_ident_refusal ci < "$IDENTS"
+fi
 exit 1

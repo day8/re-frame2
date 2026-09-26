@@ -6,7 +6,9 @@
 #   commit attribution guard — refuses a commit message carrying AI
 #              ATTRIBUTION: a `Co-Authored-By:` whose address is the
 #              assistant's, a `Claude-Session:` trailer, a generated-with
-#              marker, or a bare session URL.
+#              marker, or a bare session URL. And refuses a commit whose
+#              AUTHOR or COMMITTER is the assistant's no-reply address,
+#              whatever its message says.
 #
 # WHY A HOOK AT ALL. CLAUDE.md > Git Conventions forbids these, but the agent
 # harness injects a session-level reminder telling agents to add exactly those
@@ -19,6 +21,15 @@
 # exists — it can see the staged paths and nothing else. `commit-msg` is git's
 # hook for the message itself and receives its file as `$1`, which is the only
 # place this rule can be enforced locally at all.
+#
+# THE IDENTITY RIDES IN THE SAME BLOCK, for two reasons. git resolves the
+# author before either hook runs and exports it to both, so `git var
+# GIT_AUTHOR_IDENT` reports what `--author`, an amend's inherited author or
+# `--reset-author` settled on in either one — the hooks tie on what they can
+# see. But `pre-commit` does not run for a merge commit (git runs
+# `pre-merge-commit` there) and `commit-msg` does, and this block is already
+# installed everywhere; a second block would mean a second installer entry to
+# keep in step.
 #
 # NOT WORKTREE-SCOPED. Unlike the two pre-commit boundary blocks, this one
 # activates EVERYWHERE — mayor checkout and worker worktrees alike. The rule is
@@ -57,13 +68,23 @@
     if [ -f "$_rf2c_lib" ]; then
       # shellcheck source=lib/check-commit-attribution.sh
       . "$_rf2c_lib"
-      if ! check_commit_attribution commit < "$_rf2c_msg"; then
-        unset _rf2c_msg _rf2c_top _rf2c_lib
+      _rf2c_rc=0
+      check_commit_attribution commit < "$_rf2c_msg" || _rf2c_rc=1
+      # Both are graded before refusing, so one attempt names every problem.
+      # The library is the CHECKOUT's own while this hook is shared by every
+      # worktree, so a checkout older than the identity detector lacks it:
+      # skip there rather than refuse every commit with "not found".
+      if command -v check_commit_identity >/dev/null 2>&1; then
+        check_commit_identity "$(git var GIT_AUTHOR_IDENT 2>/dev/null)" \
+          "$(git var GIT_COMMITTER_IDENT 2>/dev/null)" commit || _rf2c_rc=1
+      fi
+      if [ "$_rf2c_rc" -ne 0 ]; then
+        unset _rf2c_msg _rf2c_top _rf2c_lib _rf2c_rc
         exit 1
       fi
     fi
   fi
 
-  unset _rf2c_msg _rf2c_top _rf2c_lib
+  unset _rf2c_msg _rf2c_top _rf2c_lib _rf2c_rc
 } || true
 # --- END re-frame2 commit attribution guard (rf2-2e8f) ---
