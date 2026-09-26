@@ -16,6 +16,13 @@ navigation is an event, it is traceable, interceptable, and rewound by time-trav
 
 Related: [The model](concepts.md).
 
+### **route-link**
+
+The view that renders a link to a [route](#route): `[rf/route-link {:to :app/article
+:params {:id "intro"}} "Read intro"]`. It builds a real `<a href>` from the route id,
+turns a plain left-click into navigation, and leaves modifier clicks, `:target` and
+`:download` to the browser. A hand-written `[:a {:href …}]` does a full page load.
+
 ### **route**
 
 A URL pattern registered with `reg-route` under an id, paired with match behaviour —
@@ -28,6 +35,15 @@ The active URL as state: read `:rf.route/id`, `:rf.route/params`, and
 `:rf.route/query` through subscriptions. Path params and `?query=` values (coerced
 and defaulted) drive handlers and views; `?page=2` survives Back for free.
 
+### **route slice**
+
+The active route as the framework stores it, in
+[runtime-db](../core/glossary.md#runtime-db) at `[:rf.runtime/routing :current]`:
+route id, params, query, fragment, [transition](#transition), error, and
+[nav-token](#nav-token). Views read it through `:rf/route` and the `:rf.route/*`
+subscriptions; event handlers read it from the `:rf.db/runtime` coeffect. Only the
+router writes it.
+
 ### **loader**
 
 What a [route](#route) declares it needs on entry — `:resources` ensured loaded — so
@@ -35,6 +51,15 @@ a page's data requirement sits next to its URL. Loaders also run on the server; 
 separate SSR data-fetch to keep in sync. A route's `:on-match` events are its
 *activation work*, not its loader: the runtime fires and forgets them, and they never
 touch route readiness. See [Activation work and page data](concepts.md#loaders-declaring-a-pages-data).
+
+### **activation work**
+
+The events a [route](#route) lists under `:on-match`. The runtime dispatches them
+whenever the route becomes active, including when its params change but not when
+the same address is navigated to again, and then moves on: it never waits for them,
+and they never move [transition](#transition). A handler that throws reports on the
+ordinary event error channel. Data the page cannot render without belongs in the
+[loader](#loader) instead.
 
 ### **effective route plan**
 
@@ -101,6 +126,15 @@ every time, so nothing commits and nothing parks. Unsaved changes → leave guar
 ([recipe](how-to/require-sign-in-on-a-route.md)); multi-route policy → optional
 interceptor.
 
+### **pending navigation**
+
+A navigation parked by a `:can-leave` [guard](#route-guard) returning `false`, read
+with `@(subscribe [:rf/pending-navigation])` (`nil` when nothing is waiting). The
+value carries an `:id`, the replayable [destination](#destination), the resolved
+target, the cause, and the `:replace?` / `:scroll` policy you asked for.
+`[:rf.route/continue <id>]` replays it; `[:rf.route/cancel <id>]` drops it. A refused
+`:can-enter` never creates one.
+
 ### **terminal entry**
 
 What a refused `:can-enter` does: commit no route slice, URL, scroll, resource, or
@@ -108,6 +142,14 @@ What a refused `:can-enter` does: commit no route slice, URL, scroll, resource, 
 once with the replayable `:destination`. There is nothing to resume and no entry
 bypass — the return after signing in is a fresh navigation whose guard re-evaluates
 naturally. Under SSR the same refusal renders the shell under a `403`.
+
+### **destination**
+
+The address a navigation resolved to, in a form you can dispatch again: `{:to
+<route-id>}` plus any non-empty `:params`, `:query`, and `:fragment`, or `{:url …}`
+for a raw URL. It is a valid `:rf.route/navigate` request as it stands, which is why
+`:rf.route/entry-denied` and a [pending navigation](#pending-navigation) both carry
+one — dispatch it after sign-in, or let `:rf.route/continue` replay it.
 
 ### **not-found**
 
@@ -123,3 +165,12 @@ most one frame is url-bound (none is legal — URL pushes then no-op). Its navig
 write the URL; Back/Forward (popstate) dispatch to it. Other frames route in memory
 only — how a sidecar like [Xray](../core/glossary.md#xray) coexists without fighting
 over the URL.
+
+### **URL strategy**
+
+How the url-bound frame reads and writes the address bar, set with `:url-strategy`
+on that frame: `rf.routing/history-url-strategy` (the default, `/articles/intro`) or
+`rf.routing/hash-url-strategy` (`#/articles/intro`), optionally wrapped in
+`rf.routing/with-base-path` for an app served under a sub-path. Routes, `route-url`
+and `match-url` stay path-form whichever strategy is in use. See
+[URL strategies](concepts.md#url-strategies).

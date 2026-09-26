@@ -29,6 +29,12 @@ per-process routing state the fixture knows how to reset:
                                   :ambient-frame nil}))   ;; nil: each test makes its own frame
 ```
 
+The tests below assume `my-app.routes` registers the [tutorial](tutorial.md)'s
+routes and `:rf.route/not-found`, the `:app/search` route from
+[The model](concepts.md#move-1-a-route-is-a-registry-entry), the guarded editor from
+[Guard against unsaved changes](how-to/guard-unsaved-changes.md), and the guarded
+`:app/settings` from [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
+
 ## 1. The URL codec: two pure functions
 
 `route-url` and `match-url` are pure, JVM-runnable, and exact inverses — the URL
@@ -156,7 +162,7 @@ is a dispatch. Whole flow, four asserts:
   (rf/with-new-frame [f (rf/make-frame
                           {:initial-events
                            [[:rf.route/navigate {:to :app/article-editor :params {:id "intro"}}]
-                            [:editor/typed "draft text"]]})]
+                            [:editor/edit-field :title "draft text"]]})]
     ;; try to leave: navigation parks, slice doesn't move
     (rf/dispatch-sync [:rf.route/navigate {:to :app/home}])
     (is (some? @(rf/subscribe [:rf/pending-navigation])))
@@ -198,6 +204,16 @@ flipped — an ordinary fresh attempt, not a resume. Note the shape: the destina
 omits an empty `:params` / `:query` and a `nil` `:fragment`, so compare it against
 `{:to :app/settings}`, not a fully-spelled address map.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; params failing the route's schema raise `:rf.error/schema-validation-failure`), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial as in section 4 |
+| A spy for `:rf.route/entry-denied` is never called | It was registered inside `with-new-frame`, after the frame was made | Register it before `make-frame` |
+| A Back/Forward or link test sees the `:restore` scroll default | The `handle-url-change` dispatch carries no `:rf.route/cause` rider, so it resolves as `:initial` | Add the rider, as in [Say which door you meant](#say-which-door-you-meant) |
+| Handlers registered in one test are visible in the next | The reset fixture is missing | Add `ts/make-reset-runtime-fixture`; it rolls back registrations made during each test |
+| There is no browser URL to assert on | Test frames are not `:url-bound?`, so nothing writes the address bar | Assert on the route subs, or on `route-url` of the expected address |
+
 ## What lives elsewhere
 
 - **Route auth** is the `:can-enter` guard plus a `:rf.route/entry-denied` handler,
@@ -214,8 +230,10 @@ omits an empty `:params` / `:query` and a `nil` `:fragment`, so compare it again
   frame whose `:url-strategy` `:decode` reports the protected URL, the app's real
   `:initial-events`, and a managed-HTTP stub that **captures the request and answers
   nothing** until you choose to. A canned stub that replies synchronously, or a test
-  that navigates somewhere public first, cannot see the bug. The worked example is
-  `realworld-cold-boot-deep-link-race` in `realworld_cljs_test.cljs`.
+  that navigates somewhere public first, cannot see the bug. The fix is in
+  [Require sign-in on a route](how-to/require-sign-in-on-a-route.md#5-deep-links-while-a-saved-session-is-still-loading);
+  the worked test is `realworld-cold-boot-deep-link-race` in
+  `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`.
 - **Route-declared `:resources`** — [Testing resources](../resources/testing.md)
   covers ensuring, stubbing, and reading; the route is just the cause.
 - **Server side** needs no separate route tests: the same `handle-url-change` event

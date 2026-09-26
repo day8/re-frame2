@@ -11,11 +11,11 @@ testable like everything else.
           [re-frame.routing])   ;; day8/re-frame2-routing — forget this → :rf.error/routing-artefact-missing
 
 (rf/reg-route :app/article
-  {:params [:map [:id :string]]}
-  "/articles/:id")                    ;; path is the third slot, not a metadata key
+  {:params [:map [:slug :string]]}
+  "/articles/:slug")                  ;; path is the third slot, not a metadata key
 
-@(rf/subscribe [:rf.route/params])    ;; => {:id "hello"}
-(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "hello"}}])
+@(rf/subscribe [:rf.route/params])    ;; => {:slug "hello"}
+(rf/dispatch [:rf.route/navigate {:to :app/article :params {:slug "hello"}}])
 ```
 
 Route [loaders](glossary.md#loader) run on the server too — one data-fetch story
