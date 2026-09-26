@@ -47,7 +47,7 @@ A production build — `:advanced` with `goog.DEBUG` false, or `-Dre-frame.debug
 
 Read that as a claim about **ordinary registration diagnostics**, not about schema validation as such. Several checks are ungated and run in the release bundle exactly as they do in dev — the `:boundary? true` flag below is the one you reach for, and the [full survivor list](#what-survives-is-settled-by-what-the-check-is-for-not-by-who-declared-it) is a few paragraphs down. The practical test is the one the framework applies to itself: a check that exists to catch the programmer's own mistake may be elided, while a check the framework relies on to keep a promise of its own — refusing malformed input at an untrusted ingress, refusing a corrupt value into a durable record — runs unconditionally.
 
-That is deliberate and settled (Spec 010 §Production builds; ruled 2026-07-27) — production trusts the programmer, and the elision is what keeps the reason strings, keywords and validator derefs out of the shipped bundle. It is not a gap waiting to be closed, so don't reach for a workaround that turns it back on.
+That is deliberate and settled (Spec 010 §Production builds) — production trusts the programmer, and the elision is what keeps the reason strings, keywords and validator derefs out of the shipped bundle. It is not a gap waiting to be closed, so don't reach for a workaround that turns it back on.
 
 What it means for how you write code:
 

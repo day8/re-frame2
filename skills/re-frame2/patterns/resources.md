@@ -152,7 +152,7 @@ Writes — `reg-mutation`, `[:rf.mutation/execute …]`, call-site `:reply-to`, 
 
 ### Request decoration — auth headers, retry (the managed-HTTP seam)
 
-A resource/mutation request fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers, default retry — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register a frame-level HTTP interceptor and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
+A resource/mutation request fn describes **the domain request** — method, url, params, body. Cross-cutting transport concerns — auth/bearer headers, tracing headers, a common base URL, tenant headers — do **not** belong in every declaration. They live **once** in the managed-HTTP decoration seam, because resources and mutations lower through Spec 014 managed HTTP. Register a frame-level HTTP interceptor and it decorates *every* managed request the frame issues — resource reads, mutations, plain managed calls alike:
 
 ```clojure
 (rf/reg-http-interceptor :auth
@@ -174,7 +174,7 @@ A resource/mutation request fn describes **the domain request** — method, url,
     {:request {:method :get :url "/api/user"} :decode :app/user}))
 ```
 
-The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. **Default retry should be read-focused** — retrying writes can duplicate side effects, so mutation retry defaults stay conservative (a mutation arms `:retry` only when its third-slot request fn returns a managed-HTTP args map carrying a top-level `:retry`). Traces report *that* an auth interceptor applied, never the bearer value itself.
+The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. An interceptor's `:before` decorates the **`:request`** only — that is the one slot of its returned `ctx` the runtime carries forward, so an `:args`-level key such as `:retry` set there is silently dropped. **Retry is per request**: return a top-level `:retry` from the request fn, and keep it read-focused — retrying writes can duplicate side effects, so a mutation arms `:retry` only when its third-slot request fn returns a managed-HTTP args map carrying one. Traces report *that* an auth interceptor applied, never the bearer value itself.
 
 ### Route-driven loading (route `:resources`)
 
