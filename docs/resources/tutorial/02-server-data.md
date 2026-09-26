@@ -26,7 +26,7 @@ Resources ship as their own artefact, like routing. They sit on top of a second 
 
 Leave out `day8/re-frame2-http` and the `re-frame.http.managed` require below can't be found: the resources artefact reaches the transport late-bound, so it doesn't put it on your classpath for you.
 
-Now a tiny namespace that says where the API is. Make it `.cljc` rather than `.cljs` — it holds no browser code, and [Part 5](05-test-and-ship.md) loads it on the JVM:
+Now a tiny namespace that says where the API is. Make it `.cljc` rather than `.cljs` — it holds no browser code, and [Part 6](06-test-and-ship.md) loads it on the JVM:
 
 ```clojure
 ;; src/conduit/api.cljc
@@ -43,9 +43,9 @@ The Conduit API answers `GET /articles` with `{:articles [...] :articlesCount N}
 
 !!! note "Hosted or local?"
 
-    `https://api.realworld.show/api` is the API the RealWorld project hosts today, and it accepts browser requests from `localhost`, so your dev server can call it directly. To keep everything on your own machine instead, run the project's reference backend, [nitro-prisma-zod-realworld-example-app](https://github.com/realworld-apps/nitro-prisma-zod-realworld-example-app): install [Bun](https://bun.sh), clone it with `--recurse-submodules`, then run `make setup` and `JWT_SECRET=<any-string> bun run dev` in the checkout. It keeps its data in a local SQLite file and serves `http://localhost:3000/api` — swap the commented line in `conduit.api`. Either way, create two accounts before [Part 3](03-auth-and-forms.md) (a `POST /users` to the API does it), so you can watch one reader's data stay out of the other's cache.
+    `https://api.realworld.show/api` is the API the RealWorld project hosts today, and it accepts browser requests from `localhost`, so your dev server can call it directly. To keep everything on your own machine instead, run the project's reference backend, [nitro-prisma-zod-realworld-example-app](https://github.com/realworld-apps/nitro-prisma-zod-realworld-example-app): install [Bun](https://bun.sh), clone it with `--recurse-submodules`, then run `make setup` and `JWT_SECRET=<any-string> bun run dev` in the checkout. It keeps its data in a local SQLite file and serves `http://localhost:3000/api` — swap the commented line in `conduit.api`. Either way, create two accounts before [Part 3](03-auth-and-forms.md) (a `POST /users` to the API does it), so that in [Part 4](04-scopes-and-guards.md) you can watch one reader's data stay out of the other's cache.
 
-    The finished example in this repo runs with no network at all, but it gets there with an in-page backend that has a single demo user — every sign-in is the same person — so it can't show Part 3's viewer switch, and it isn't something your project can point at.
+    The finished example in this repo runs with no network at all, but it gets there with an in-page backend that has a single demo user — every sign-in is the same person — so it can't show Part 4's viewer switch, and it isn't something your project can point at.
 
 !!! warning "Gotcha — forgot to require `re-frame.resources`?"
 
@@ -66,7 +66,7 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
 
 (rf/reg-resource :conduit/articles
   {:params-schema  [:map]
-   :scope          :rf.scope/global          ; nobody can sign in yet — Part 3 changes this
+   :scope          :rf.scope/global          ; nobody can sign in yet — Part 4 changes this
    :stale-after-ms 60000
    :tags           (fn [_params data]
                      (into #{[:article-list]}
@@ -105,9 +105,9 @@ Put `:request` inside the metadata map instead and you get `:rf.error/resource-b
 Most of the config map is optional. Four keys carry the idea:
 
 - **`:params-schema`** is the read's *identity*. Everything that changes the server's answer belongs in params, because params are what the cache keys on: `:conduit/article` with `{:slug "hello"}` and with `{:slug "world"}` are two cache entries. The list takes no params, so its schema is an empty `[:map]`.
-- **`:scope`** says *who shares the answer*. `:rf.scope/global` means "the same for everyone", which is true while nobody can sign in. Once requests carry a token, Conduit's articles embed `favorited` and `following` flags relative to the reader, so [Part 3](03-auth-and-forms.md#whose-cache-is-it-scope-reads-by-viewer) moves both reads to a per-viewer [scope](../glossary.md#scope).
+- **`:scope`** says *who shares the answer*. `:rf.scope/global` means "the same for everyone", which is true while nobody can sign in. Once requests carry a token, Conduit's articles embed `favorited` and `following` flags relative to the reader, so [Part 4](04-scopes-and-guards.md#whose-cache-is-it-scope-reads-by-viewer) moves both reads to a per-viewer [scope](../glossary.md#scope).
 - **`:stale-after-ms`** is the freshness window: fresh for a minute, then the next ensure refetches in the background. Leave it out and the read is **never stale by the clock** — it stays fresh until a write invalidates it or you refetch it by hand. (TanStack Query's `staleTime` defaults to `0`, the opposite.)
-- **`:tags`** name the *facts* the data contains. They do nothing yet; in Part 4 a write uses them to invalidate exactly the reads it broke.
+- **`:tags`** name the *facts* the data contains. They do nothing yet; in Part 5 a write uses them to invalidate exactly the reads it broke.
 
 ??? info "Coming from TanStack Query?"
 
@@ -115,7 +115,7 @@ Most of the config map is optional. Four keys carry the idea:
 
 !!! note "Why is `:scope` required, with no default?"
 
-    A user-scoped read silently registered as global would serve one user's private data to another from a shared cache. So you state the intent once, at registration: a `reg-resource` with no `:scope` raises `:rf.error/resource-missing-scope-policy`. Part 3 introduces the other form, a `{:from-db <id>}` resolver that derives the scope from app-db.
+    A user-scoped read silently registered as global would serve one user's private data to another from a shared cache. So you state the intent once, at registration: a `reg-resource` with no `:scope` raises `:rf.error/resource-missing-scope-policy`. Part 4 introduces the other form, a `{:from-db <id>}` resolver that derives the scope from app-db.
 
 ??? note "The rest of the metadata keys"
 
@@ -279,7 +279,7 @@ A failed first load stays `:error` until something causes the read again; a requ
 
 On a `:blocking? true` route the failure reaches the route as well: `:rf.route/transition` turns `:error`, and `:rf.route/error` holds a `:rf.error/resource-route-blocking` map carrying the resource's failure under `:error`. A successful retry returns the route to `:idle` ([route readiness](../../routing/concepts.md#when-a-loader-fails)).
 
-A page has more render states than a cache entry does. One useful checklist names nine: *Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* The home page covers the first five — Nothing and Empty share the "No articles" line, and One and Some share the list — plus the error branch. The rest come later: Too Many is a pagination cap ([Paginate a feed](../how-to/paginate-a-feed.md)), Incorrect and Correct are form states (Part 3), and Done is the page after a successful write (Part 4). Deciding each one before you ship keeps blank screens out of production.
+A page has more render states than a cache entry does. One useful checklist names nine: *Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct, Done.* The home page covers the first five — Nothing and Empty share the "No articles" line, and One and Some share the list — plus the error branch. The rest come later: Too Many is a pagination cap ([Paginate a feed](../how-to/paginate-a-feed.md)), Incorrect and Correct are form states (Part 3), and Done is the page after a successful write (Part 5). Deciding each one before you ship keeps blank screens out of production.
 
 ### The article page
 

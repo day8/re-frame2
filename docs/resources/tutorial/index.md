@@ -7,7 +7,7 @@ scaffolds the project; budget five minutes from `npm install` to pixels.
 
 Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), so the same app already exists in React, Vue, Svelte, Solid, and Elm, and every pattern here has a counterpart in a stack you know. Each part follows the same rhythm: *do* a thing, *observe* what the app did in [Xray](../../core/glossary.md#xray) (the inspector you set up below), then *explain* why.
 
-## One app, five parts
+## One app, six parts
 
 Each part adds one slice of the app and the machinery that slice needs:
 
@@ -15,9 +15,10 @@ Each part adds one slice of the app and the machinery that slice needs:
 |---|---|---|
 | [Part 1](01-pages-and-state.md) | Pages, navigation, and the first feed | app-db, events, subs, views, routing |
 | [Part 2](02-server-data.md) | Real data from a Conduit API | resources, and handling every state a page's data can be in |
-| [Part 3](03-auth-and-forms.md) | Login, register, and the route guard | forms, the session, per-viewer caching, guarding navigation |
-| [Part 4](04-mutations-and-invalidation.md) | Favoriting, publishing, and an unsaved-draft guard | mutations, and invalidating the reads they make stale |
-| [Part 5](05-test-and-ship.md) | Tests and a production build | testing the pieces, shipping the app |
+| [Part 3](03-auth-and-forms.md) | Login, register, and a session that survives reload | forms, the session |
+| [Part 4](04-scopes-and-guards.md) | A cache per reader, and pages that need a signed-in user | scopes, guarding navigation |
+| [Part 5](05-mutations-and-invalidation.md) | Favoriting, publishing, and an unsaved-draft guard | mutations, and invalidating the reads they make stale |
+| [Part 6](06-test-and-ship.md) | Tests and a production build | testing the pieces, shipping the app |
 
 From Part 2 onward the app talks to a Conduit API — the hosted RealWorld API, or the upstream reference backend running on your own machine. Part 2 sets that up. The finished reference lives at [`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources) — the same app on resources and mutations — so you can peek when you're stuck. (A sibling, [`realworld_http/`](../../../examples/real-apps/realworld_http), builds the same app on the raw HTTP transport with no resource layer — useful later, as the before-picture.)
 

@@ -1,6 +1,6 @@
-# Part 4: writes — favoriting, posting, invalidation
+# Part 5: writes — favoriting, posting, invalidation
 
-Parts 2 and 3 read server state. Now the app writes it — and a write makes other reads wrong. Favorite an article and three cached reads go stale at once: the article detail, every list it appears in, and your personal feed.
+Parts 2 to 4 read server state. Now the app writes it — and a write makes other reads wrong. Favorite an article and three cached reads go stale at once: the article detail, every list it appears in, and your personal feed.
 
 Wiring each write to "now refetch these reads" at the call site works until one call site forgets. re-frame2's answer is a [**mutation**](../glossary.md#mutation): a write registered once, with the reads it breaks declared on the registration. This part adds three things:
 
@@ -16,9 +16,9 @@ Wiring each write to "now refetch these reads" at the call site works until one 
 
 Part 2 already labelled the reads. Each resource declares [`:tags`](../glossary.md#cache-tag) on its data: the article detail carries `[:article slug]`, and the lists carry `[:article-list]` plus one `[:article slug]` per article they contain. A write can then say "I made `[:article slug]` stale", and the runtime finds every read carrying that tag without the write naming any of them.
 
-One read is still missing: the **personal feed** (`GET /articles/feed`). Part 3 scoped the article reads by *viewer*; the feed goes further — it exists only for a signed-in user, and it's a different list for each. That's a **session** [scope](../glossary.md#scope): one per signed-in user, and none when nobody is.
+One read is still missing: the **personal feed** (`GET /articles/feed`). Part 4 scoped the article reads by *viewer*; the feed goes further — it exists only for a signed-in user, and it's a different list for each. That's a **session** [scope](../glossary.md#scope): one per signed-in user, and none when nobody is.
 
-Add a second scope resolver beside Part 3's `:conduit/viewer`:
+Add a second scope resolver beside Part 4's `:conduit/viewer`:
 
 ```clojure
 ;; add to src/conduit/scope.cljc
@@ -46,7 +46,7 @@ Then register `:conduit/feed` like Part 2's list, but with `:scope {:from-db :co
      :decode  :json}))
 ```
 
-Sign-out now has a second scope to clear, so extend Part 3's `:auth/logout` to resolve and clear both:
+Sign-out now has a second scope to clear, so extend Part 4's `:auth/logout` to resolve and clear both:
 
 ```clojure
 (rf/reg-event :auth/logout
@@ -354,7 +354,7 @@ Because `[:editor/replied nav-token]` is an event vector rather than a closure, 
 
 ## Guard the half-written draft
 
-Write half an article, click the site logo, and the draft vanishes. A [`:can-leave` guard](../../routing/glossary.md#route-guard) closes that gap: a subscription the router consults before navigating away. It mirrors Part 3's `:can-enter`:
+Write half an article, click the site logo, and the draft vanishes. A [`:can-leave` guard](../../routing/glossary.md#route-guard) closes that gap: a subscription the router consults before navigating away. It mirrors Part 4's `:can-enter`:
 
 ```clojure
 ;; src/conduit/editor.cljs

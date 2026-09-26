@@ -77,7 +77,7 @@ The token is a credential, so the init event in step 4 also returns a `:sensitiv
 
 !!! note "If your API hands out a token and nothing else"
 
-    Some APIs expect you to exchange a stored bearer token for the current user with a `GET /me` at boot. The identity then arrives asynchronously, after the first URL has been resolved, so the guard in step 4 has to cope with a window where the token is known and the user is not. That costs a branch in the denial handler and a "restoring…" state in your shell. Both RealWorld examples take this shape (`examples/real-apps/realworld_http/auth.cljs`, under *the cold-boot deep-link window*), and [Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md) walks through it. Use it only when the API leaves you no choice.
+    Some APIs expect you to exchange a stored bearer token for the current user with a `GET /me` at boot. The identity then arrives asynchronously, after the first URL has been resolved, so the guard in step 4 has to cope with a window where the token is known and the user is not. That costs a branch in the denial handler and a "restoring…" state in your shell. Both RealWorld examples take this shape (`examples/real-apps/realworld_http/auth.cljs`, under *the cold-boot deep-link window*), and [Part 4 of the tutorial](../../resources/tutorial/04-scopes-and-guards.md) walks through it. Use it only when the API leaves you no choice.
 
 ## 2. Wire the login form
 

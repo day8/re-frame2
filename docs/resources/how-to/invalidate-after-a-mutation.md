@@ -326,7 +326,7 @@ Use `:cross-scope?` only when the scopes genuinely can't be named. If you can na
 
 ## Advanced: optimistic writes
 
-Everything above updates the cache *after* the server confirms. An [optimistic update](../glossary.md#optimistic-update--rollback) flips the UI *before* it confirms, and the runtime reconciles when the reply lands. Use it when a write must feel instant — a favorite toggle, a like count, an item that should vanish on click — and a possible rollback is acceptable. [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md) has a worked example.
+Everything above updates the cache *after* the server confirms. An [optimistic update](../glossary.md#optimistic-update--rollback) flips the UI *before* it confirms, and the runtime reconciles when the reply lands. Use it when a write must feel instant — a favorite toggle, a like count, an item that should vanish on click — and a possible rollback is acceptable. [Part 5 of the tutorial](../tutorial/05-mutations-and-invalidation.md) has a worked example.
 
 An optimistic plan is a registration key, in two forms that mirror `:patches` and `:invalidates`:
 

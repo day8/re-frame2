@@ -348,9 +348,10 @@ nav:
       - resources/tutorial/index.md
       - "1. Pages and state": resources/tutorial/01-pages-and-state.md
       - "2. Real data": resources/tutorial/02-server-data.md
-      - "3. Auth and forms": resources/tutorial/03-auth-and-forms.md
-      - "4. Mutations and invalidation": resources/tutorial/04-mutations-and-invalidation.md
-      - "5. Test and ship": resources/tutorial/05-test-and-ship.md
+      - "3. Forms and the session": resources/tutorial/03-auth-and-forms.md
+      - "4. Scopes and guarding a route": resources/tutorial/04-scopes-and-guards.md
+      - "5. Mutations and invalidation": resources/tutorial/05-mutations-and-invalidation.md
+      - "6. Test and ship": resources/tutorial/06-test-and-ship.md
     - "The model": resources/concepts.md
     - "Recipes":
       - "Paginate a feed": resources/how-to/paginate-a-feed.md
