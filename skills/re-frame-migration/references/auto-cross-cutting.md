@@ -107,7 +107,7 @@ The public `re-frame.core/dispose-adapter!` Var is **removed** — stale call si
 
 `rf/unsubscribe` is **not** renamed: the registrar decrement that would be its natural target is the symmetric inverse of `reg-sub`, spelled `(rf/clear :sub id)`. The `un-` prefix is carved out as the singular form for the sub-cache ref-count decrement. See the [Conventions §Tear-down verb axis — Carve-out](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md#carve-out-unsubscribe).
 
-The rest of the tear-down surface splits two ways. The **runtime-state** verbs (`clear-sub-cache!` / `destroy-frame!` / `clear-trace-buffer!`) are already on the two-verb axis and need no rewrite. The **registrar inverses** are not names at all any more: the nine per-kind `clear-*` fns (`clear-event` / `clear-sub` / `clear-fx` / `clear-flow` / `clear-route` / `clear-http-interceptor` / `clear-resource` / `clear-mutation` / `clear-resource-scope`) were replaced by the one kind-keyed `(rf/clear kind id)`, so a v1 call site to any of them is a Type A rewrite — see **M-77**. (There is no facade `clear-listeners!` bulk-clear verb — dropping every listener on a stream is a fixture-layer test-isolation concern; see [§Listener-registration verb unification](#listener-registration-verb-unification-m-55).)
+The rest of the tear-down surface splits two ways. The **runtime-state** verbs (`clear-sub-cache!` / `destroy-frame!` / `clear-trace-buffer!`) are already on the two-verb axis and need no rewrite. The **registrar inverses** are not names at all any more: the ten per-kind `clear-*` fns (`clear-event` / `clear-sub` / `clear-fx` / `clear-cofx` / `clear-flow` / `clear-route` / `clear-http-interceptor` / `clear-resource` / `clear-mutation` / `clear-resource-scope`) were replaced by the one kind-keyed `(rf/clear kind id)`, so a v1 call site to any of them is a Type A rewrite — see **M-77**. (There is no facade `clear-listeners!` bulk-clear verb — dropping every listener on a stream is a fixture-layer test-isolation concern; see [§Listener-registration verb unification](#listener-registration-verb-unification-m-55).)
 
 ---
 
@@ -329,9 +329,12 @@ rf/trace-api-version → drop (no replacement)
 @(rf/dispatch-and-settle e) → (rf/dispatch-sync e) ; the deref is gone; settle is default
 (rf/spawn-machine spec) → wrap in a reg-event handler returning {:fx [[:rf.machine/spawn spec]]}
 (rf/destroy-machine id) → wrap in a reg-event handler returning {:fx [[:rf.machine/destroy id]]}
+{:deregister-event-handler id} → (rf/clear :event id) where the deregistration is decided
 ```
 
-**Type B → see [`guided-interceptors-subs.md`](guided-interceptors-subs.md) (M-26) and [`guided-handlers-state.md`](guided-handlers-state.md) (M-13)**: `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`.
+**Not migrated (M-26)**: `console` / `set-loggers!` called from app code (re-frame2 has no logging indirection; log through the host) and `enqueue` (interceptor-chain plumbing re-frame2 keeps internal; declare the chain up front). Flag each site in the report.
+
+**Type B → see [`guided-interceptors-subs.md`](guided-interceptors-subs.md) (M-26) and [`guided-handlers-state.md`](guided-handlers-state.md) (M-13)**: `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`, and the trace / epoch callbacks `register-trace-cb` / `register-epoch-cb`.
 
 ---
 
