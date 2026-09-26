@@ -26,6 +26,8 @@
    4. Composes with :after — wall-clock timeout cancels in-flight.
    5. The fx form coexists with the machine wrapper.
    6. A spawn loop leaves no anonymous issuance counters.
+   7. Reply addressing in the spawn `:data` is refused on entry, before any
+      request goes out, and the refusal reaches the parent's `:on-error`.
 
   Tests run on JVM through the plain-atom substrate; the CLJS path
   uses the same wrapper registration via Fetch."
@@ -374,3 +376,56 @@
                  (rf.http.registry/anonymous-issuance-counter-count)
                  " anonymous issuance counters behind"))
         (finally (stop-server! srv))))))
+
+;; ---- (7) reply addressing in :data is refused at spawn -------------------
+
+(deftest spawn-data-reply-addressing-is-refused-at-spawn
+  (testing "a :spawn whose :data carries :reply-to, :on-success or :on-failure
+            is refused on the wrapper's entry with :rf.error/http-bad-reply-target
+            (:reason :machine-owns-reply): no request goes out, and the parent's
+            :on-error moves it instead of leaving it waiting in the spawning state"
+    (let [hits (atom 0)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (swap! hits inc)
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))
+          traces (atom [])]
+      (try
+        (rf.trace.tooling/register-listener! ::reply-keys (fn [ev] (swap! traces conj ev)))
+        (doseq [k [:reply-to :on-success :on-failure]]
+          (let [parent (keyword "app" (str "reply-keys-" (name k)))]
+            (reset! traces [])
+            (rf/reg-machine parent
+              {:initial :idle
+               :states
+               {:idle    {:on {:go :loading}}
+                :loading {:spawn {:machine-id :rf.http/managed
+                                  :data       {:request {:url (str "http://127.0.0.1:" port "/me")}
+                                               :decode  :json
+                                               k        [:app/somewhere]}
+                                  :on-error   :load-failed}
+                          :on    {:succeeded :ready
+                                  :failed    :load-failed}}
+                :ready       {}
+                :load-failed {}}})
+            (rf/dispatch-sync [parent [:go]])
+            (await-condition! #(= :load-failed (:state (snapshot parent))))
+            (is (= :load-failed (:state (snapshot parent)))
+                (str k " in :data: the parent left :loading through :on-error"))
+            (let [refusal (->> @traces
+                               (filter #(= :rf.error/machine-action-exception (:operation %)))
+                               (map #(get-in % [:tags :exception-data]))
+                               (filter #(= :rf.error/http-bad-reply-target (:rf.error/id %)))
+                               first)]
+              (is (= {:reason :machine-owns-reply :keys [k]}
+                     (select-keys refusal [:reason :keys]))
+                  (str k " in :data: the named refusal names the key")))
+            (is (empty? (filter #(= :rf.error/fx-handler-exception (:operation %)) @traces))
+                (str k " in :data: the fx never ran, so it refused nothing itself"))
+            (is (empty? (rf.http.managed/actor-in-flight-snapshot))
+                (str k " in :data: no request is in flight"))))
+        (is (zero? @hits) "no request reached the server")
+        (finally
+          (rf.trace.tooling/unregister-listener! ::reply-keys)
+          (stop-server! srv))))))

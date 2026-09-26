@@ -21,6 +21,10 @@
        (`:rf/parent-id`, `:rf/self-id`). Under a `:spawn-all` parent the
        finality alone folds into the join (see `:dispatch-done`).
 
+  The wrapper owns the reply addressing of the request it issues, so a
+  `:data` carrying `:reply-to`, `:on-success` or `:on-failure` is refused on
+  entry, before any request goes out (`refuse-reply-addressing!`).
+
   The wrapper machine is registered via the `:machines/reg-machine`
   late-bind hook: neither optional artefact statically requires the other.
   When the machines artefact is absent the wrapper registration is
@@ -42,9 +46,31 @@
   registrations and the `with-request-stubs` helper that
   composes against them. This production-loaded namespace carries only the
   machine wrapper."
-  (:require [re-frame.late-bind :as rf.late-bind]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.http.encoding :as rf.http.encoding]
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---- machine-shape wrapper spec -------------------------------------------
+
+(defn- refuse-reply-addressing!
+  "Throw `:rf.error/http-bad-reply-target` (`:reason :machine-owns-reply`) when
+  the spawn `:data` carries any reply-addressing key.
+
+  The wrapper addresses its request's reply to itself, so a caller-supplied
+  target has nothing to mean: `:on-success` / `:on-failure` would be
+  overwritten, and `:reply-to` beside the wrapper's own pair is a mixture the
+  fx refuses after the spawn, leaving the parent waiting on a child that never
+  finishes. Refusing on entry, on key PRESENCE as the mixture rule does, makes
+  the misuse an action exception: the runtime reports it and routes it to the
+  parent's `:on-error`."
+  [data]
+  (let [supplied (filterv #(contains? data %) rf.http.encoding/reply-address-keys)]
+    (when (seq supplied)
+      (throw (rf.error/thrown-ex-info
+               :rf.error/http-bad-reply-target :rf.http/managed
+               "A `:spawn` of the `:rf.http/managed` machine addresses its own reply and reports to the parent as `[:succeeded value]` / `[:failed failure]`, so its `:data` must not carry `:reply-to`, `:on-success` or `:on-failure`. Drop the key, or issue the request with the `:rf.http/managed` fx when a named event should receive the reply. Per Spec 014 §Machine-shape wrapper §Args carrier"
+               {:extra {:keys   supplied
+                        :reason :machine-owns-reply}})))))
 
 (defn- parent-to-notify
   "The parent a terminal state's `:entry` should dispatch to, or nil.
@@ -77,10 +103,10 @@
    - The wrapper's `:data` carries the args map for the underlying
      `:rf.http/managed` fx PLUS the framework-reserved
      `:rf/parent-id` / `:rf/self-id` keys stamped by spawn-fx.
-   - `:fire-request` builds an args map for the underlying fx,
-     overriding `:on-success` / `:on-failure` so the reply lands back
-     at the wrapper actor as `[:rf.http/succeeded reply]` /
-     `[:rf.http/failed reply]`.
+   - `:fire-request` refuses a `:data` carrying reply addressing, then
+     builds an args map for the underlying fx whose `:on-success` /
+     `:on-failure` land the reply back at the wrapper actor as
+     `[:rf.http/succeeded reply]` / `[:rf.http/failed reply]`.
    - `:record-value` / `:record-failure` store the ONE value a parent sees —
      `(:value reply)` / `(:error reply)` — under `:rf/result`.
    - `:succeeded` / `:failed` are `:final?` leaves with `:output-key
@@ -130,7 +156,9 @@
       ;; user passed through the parent's :spawn :data. Strip the
       ;; framework-reserved `:rf/*` keys; pass through every other
       ;; documented arg (Spec 014 §The args map) so the wrapper is a
-      ;; transparent envelope around the fx surface.
+      ;; transparent envelope around the fx surface. Reply addressing is
+      ;; the one exception: the wrapper owns it.
+      (refuse-reply-addressing! data)
       (let [self-id   (:rf/self-id data)
             fx-args   (-> data
                           (dissoc :rf/self-id :rf/parent-id :rf/invoke-id :rf/join-child)

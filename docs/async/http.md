@@ -185,7 +185,7 @@ The failure map always carries a `:kind` from a fixed, framework-reserved list. 
 
 The set is closed for v1; adding a category is a versioned framework change, so `:rf.http/timeout` means the same thing in every codebase and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — the same discipline you'd use on any framework [error record](../core/glossary.md#error-record).
 
-Every failure map also names the request it came from: `:request` (an echo of your `:method`, and of the `:url` as it was sent, after any `:before` interceptor and with `:params` merged in), `:request-id`, `:attempt`, `:max-attempts` when your `:retry` policy sets it, and `:work/id`. An error report built from the reply can therefore say which call failed.
+Every failure map also names the request it came from: `:request` (an echo of the `:method`, `:get` when you left it out, and of the `:url` as it was sent, after any `:before` interceptor and with `:params` merged in), `:request-id`, `:attempt`, `:max-attempts` when your `:retry` policy sets it, and `:work/id`. An error report built from the reply can therefore say which call failed.
 
 Two classification rules catch newcomers:
 
@@ -231,7 +231,7 @@ Retry reads, never writes ([tutorial step 4](tutorial.md#step-4--retry-reads-not
 
 **Supersession — reuse a `:request-id`.** Give a request a stable `:request-id` — any `=`-comparable value: a keyword, a string, or a structural vector like `[:articles :load slug]` — and issuing a *new* request with the same id automatically supersedes the old one. Ids belong to the frame that issued them, so the same id in code mounted in two frames never collides, and no frame can supersede or abort another's request. The old reply is suppressed before delivery: your handler never sees it, only a trace row records it (`:reason :request-id-superseded`). This is the cure for the search-box race; the [tutorial demonstrates it](tutorial.md).
 
-**Frame teardown.** A request issued from an ordinary event handler belongs to the frame that issued it. Destroying that frame, or restoring an earlier epoch in it, aborts every request it still has in flight, with or without a `:request-id`, and suppresses their replies; each leaves a `:rf.http/stale-suppressed` trace row. While the frame lives, `:request-id` is your app-level cancel handle.
+**Frame teardown.** A request issued from an ordinary event handler belongs to the frame that issued it. Destroying that frame, or restoring an earlier epoch in it, aborts every request it still has in flight, with or without a `:request-id`, and suppresses their replies; each leaves a `:rf.http/stale-suppressed` trace row whose `:recovery` (`:suppressed-on-frame-destroy` or `:suppressed-on-epoch-restore`) says which boundary it was. While the frame lives, `:request-id` is your app-level cancel handle.
 
 **Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a reply — a `:status :cancelled` reply carrying `{:kind :rf.http/aborted :reason :user}` under `:error` — so a deliberate user-cancel can clear the spinner. An id with nothing in flight (its reply has already landed, say) makes the abort a no-op. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
 
@@ -259,7 +259,7 @@ When the machines artefact is loaded, `:rf.http/managed` is also a machine. A st
          :failed    :load-failed}}
 ```
 
-The child reports back as `[:succeeded value]` or `[:failed failure]`, and leaving `:loading` by any transition aborts the request. The child routes the reply itself, so leave the reply keys out of `:data`: an `:on-success` or `:on-failure` there is ignored, and a `:reply-to` fails the request at dispatch with `:rf.error/http-bad-reply-target`, leaving the state waiting. For several requests at once, spawn one child each under `:spawn-all` and join them. Each child's `:on-done` folds its value into the parent's `:data`:
+The child reports back as `[:succeeded value]` or `[:failed failure]`, and leaving `:loading` by any transition aborts the request. The child routes the reply itself, so leave `:reply-to`, `:on-success` and `:on-failure` out of `:data`: the child refuses any of them when it starts, before the request goes out, with `:rf.error/http-bad-reply-target`, and the refusal reaches the state's `:spawn :on-error`. For several requests at once, spawn one child each under `:spawn-all` and join them. Each child's `:on-done` folds its value into the parent's `:data`:
 
 ```clojure
 :hydrating
@@ -318,6 +318,7 @@ Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / 
 |---|---|
 | `:rf.error/no-such-fx` naming `:rf.http/managed`, or `:rf.error/http-artefact-missing` from `rf/reg-http-interceptor` | The artefact isn't loaded. Require `re-frame.http.managed` once at boot. |
 | `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying `:rf.error/http-no-reply-target`, `:rf.error/http-bad-reply-target`, `:rf.error/http-bad-request`, `:rf.error/http-bad-retry-on` or `:rf.error/schemas-artefact-missing` | The args map was refused and nothing was sent: no reply target, a misshaped or mixed reply target, a bad `:url`, a bad `:retry :on`, or a `:decode` schema with slot marks while `re-frame.schemas` isn't loaded. The error names the key. |
+| `:rf.error/machine-action-exception` from a spawned `:rf.http/managed` child, its `:exception-data` carrying `:rf.error/http-bad-reply-target` | The spawn's `:data` carried `:reply-to`, `:on-success` or `:on-failure`, and nothing was sent. Drop the key: the child reports back as `[:succeeded value]` / `[:failed failure]`. See [From a state machine](#from-a-state-machine). |
 | An `:error` trace row named for a failure kind: `:rf.http/timeout`, `:rf.http/http-5xx`, … | The request failed, and the same failure map reached your failure target. The row is the dev trace's record of the failure, not a sign it went unhandled. |
 | `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
 | `:rf.warning/failure-swallowed` | A failure had no reply target and was dropped. See [Silencing a reply](#silencing-a-reply). |

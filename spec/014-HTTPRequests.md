@@ -496,7 +496,7 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 
 | Field | Meaning |
 |---|---|
-| `:request` | `{:method <verb> :url <url>}` — an echo of the caller's own wire envelope. |
+| `:request` | `{:method <verb> :url <url>}` — an echo of the caller's own wire envelope. `:method` is the effective verb, so a request that set none echoes `:get`. |
 | `:request-id` | The caller's `:request-id` when supplied (uniform across all categories, not just `:rf.http/aborted`). |
 | `:attempt` / `:max-attempts` | The retry accounting — which attempt this was and the configured ceiling. `:max-attempts` is present only when a `:retry` policy was configured. |
 | `:work/id` | `[:rf.work/http logical-id issuance attempt]` — the correlation join to the trace stream (the same `:work/id` the canonical reply envelope carries). |
@@ -811,7 +811,7 @@ Frame destroy is **reply-suppressing** — the owning frame is already marked de
 
 1. each matching request's `:abort-fn` fires with **`:reason :frame-destroyed`** (a member of `re-frame.http.transport`'s `reply-suppressing-abort-reasons` set), cancelling the live fetch/future or sleeping backoff timer, detaching any external `:abort-signal`, and clearing both registry indexes;
 2. **nothing** is delivered to the original `:rf/reply-to` target — no `:on-success` / `:on-failure`, no `:rf.error/frame-destroyed` dispatch into the dead frame;
-3. the suppressed attempt is recorded the uniform reply-envelope way — a `:rf.http/stale-suppressed` trace carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` and **`:recovery :suppressed-on-frame-destroy`** (distinct from epoch restore's `:suppressed-on-epoch-restore`, so tooling never mislabels a destroy as a restore — see [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue));
+3. the suppressed attempt is recorded the uniform reply-envelope way — a `:rf.http/stale-suppressed` trace carrying `:rf.reply/status :stale` / `:rf.reply/work-status :suppressed` and **`:recovery :suppressed-on-frame-destroy`** (distinct from epoch restore's `:suppressed-on-epoch-restore`, so tooling never mislabels a destroy as a restore — see [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). Both frame-lifecycle rows carry the generic stale reason, `:rf.reply/stale-reason :rf.http/request-id-superseded`, the one HTTP stale suppression names; there is no destroy- or restore-specific reason, so `:recovery` is the discriminator;
 4. the `:rf.http/aborted` trace fires alongside (the abort is observable) with `:reason :frame-destroyed`.
 
 The sweep is idempotent and a no-op for a frame with no in-flight managed HTTP — an app that issues none pays nothing.
@@ -851,6 +851,7 @@ Each `:before` receives a context map with these keys:
 | `:args` | map | The full `:rf.http/managed` args map (`:request` plus `:decode` / `:accept` / `:retry` / `:on-success` / ...). Read-only by convention; the only field the runtime threads onto the transport is `:request`. |
 | `:frame` | keyword | The resolved frame id. |
 | `:event` | vector | The originating event vector (or `[:rf.http/managed]` when not threaded). |
+| `:sensitive?` | boolean | The request's sensitivity as resolved from the args before the chain ran — `true` when the args carry `:sensitive? true` at the top level or under `:request` ([§3](#3-per-request--per-call-sensitive)). Read-only by convention; a `:before` marks the request sensitive by setting `[:request :sensitive?] true`, from which the runtime recomputes the effective flag after the chain. |
 
 The fn returns the (possibly-modified) ctx. The runtime threads its `:request` onto the next interceptor (or onto the transport when the chain is exhausted).
 
@@ -860,7 +861,7 @@ Each `:after` receives `(fn [ctx response] response')`:
 
 | Slot | Type | Notes |
 |---|---|---|
-| `ctx` | map | The SAME ctx the `:before` chain produced for THIS request — `{:request :args :frame :event}` plus any keys `:before`s added. Carrying the request ctx forward is what makes request-correlated handling expressible: a `:before` that stamps `::started-at (System/nanoTime)` lets the same interceptor's `:after` read the start mark and compute a wall-clock delta without app-level state. Likewise per-request header parsing, correlation-id matching, and auth-refresh keyed off the originating event become single-interceptor concerns. |
+| `ctx` | map | The SAME ctx the `:before` chain produced for THIS request — `{:request :args :frame :event :sensitive?}` plus any keys `:before`s added. Carrying the request ctx forward is what makes request-correlated handling expressible: a `:before` that stamps `::started-at (System/nanoTime)` lets the same interceptor's `:after` read the start mark and compute a wall-clock delta without app-level state. Likewise per-request header parsing, correlation-id matching, and auth-refresh keyed off the originating event become single-interceptor concerns. |
 | `response` | map | The canonical reply envelope — `{:status :ok :value <decoded> :meta {…} …}`, `{:status :error :error <failure-map> …}`, or `{:status :cancelled :error <aborted-map> …}`. The shape matches the reply-payload `build-reply-event` appends to the user's `:on-success` / `:on-failure` event vector. On a successful live-transport completion `:meta` carries the actual response status / status text / normalized headers ([§Successful-response metadata](#successful-response-metadata--meta)), so a response-side transform reads real wire facts, not just the decoded `:value`. |
 
 Returns the (possibly-transformed) response map. The runtime threads each `:after`'s return value through the next `:after`, then substitutes the final response into the reply-payload before `:on-success` / `:on-failure` fire.
@@ -1161,7 +1162,7 @@ Internally the wrapper machine has:
 
 ### Args carrier
 
-Every key the [§The args map](#the-args-map) surface accepts may be passed through the parent's `:spawn :data`:
+Every key the [§The args map](#the-args-map) surface accepts, except the three reply-addressing keys (below), may be passed through the parent's `:spawn :data`:
 
 ```clojure
 {:spawn {:machine-id :rf.http/managed
@@ -1180,7 +1181,7 @@ Every key the [§The args map](#the-args-map) surface accepts may be passed thro
 
 The framework-reserved `:rf/*` keys the wrapper itself uses (`:rf/self-id`, `:rf/parent-id`, `:rf/invoke-id`, `:rf/join-child`, `:rf/result`) are stripped before the underlying fx call, so they never leak into the request envelope.
 
-`:on-success` / `:on-failure` are **not** passed through — the wrapper overrides them to route the reply back to itself. Apps that want explicit reply addressing should keep using the fx form directly; the machine wrapper is for the `:spawn`-orchestrated case.
+The wrapper owns the reply addressing of the request it issues: it sets `:on-success` / `:on-failure` to route the reply back to itself. A `:data` carrying **any** of `:reply-to`, `:on-success` or `:on-failure` — tested on key presence, as [§Reply addressing](#reply-addressing) tests a mixture — is therefore refused at spawn: the wrapper's `:requesting` entry throws [`:rf.error/http-bad-reply-target`](009-Instrumentation.md#error-event-catalogue) tagged `:reason :machine-owns-reply` and `:keys` naming the keys supplied, before any request is issued. The throw is an action exception, so the runtime reports it as `:rf.error/machine-action-exception` (whose `:exception-data` carries the named error) and routes it to the parent's `:spawn :on-error` ([Spec 005 §`:on-error`](005-StateMachines.md#on-error--child-failure-control-flow)); the parent is never left waiting in silence on a child that cannot finish. Apps that want explicit reply addressing keep using the fx form directly; the machine wrapper is for the `:spawn`-orchestrated case.
 
 ### Cancellation cascade
 
@@ -1504,6 +1505,8 @@ A plain `:rf.http/managed` request does **not** carry a dispatching-event epoch 
 2. **Actor-destroy** — a request issued from inside a spawned state-machine actor is aborted when the actor is destroyed; it dispatches a `:rf.http/aborted` reply with `:reason :actor-destroyed` (and, when the reply target is the destroyed actor itself, a `:rf.http/stale-suppressed` obsolete-target row). Per [§Abort on actor destroy](#abort-on-actor-destroy).
 3. **Epoch-restore** — an epoch restore unwinds the frame's timeline; per [Managed-Effects](Managed-Effects.md) ("epoch restore MUST NOT revive host work") a pre-restore completion is reply-suppressed (`:reason :epoch-restored`, `:recovery :suppressed-on-epoch-restore`). Per [§Abort on frame destroy](#abort-on-frame-destroy).
 4. **Frame-destroy** — the request's owning frame is destroyed; the late completion is reply-suppressed (`:reason :frame-destroyed`, `:recovery :suppressed-on-frame-destroy`). Per [§Abort on frame destroy](#abort-on-frame-destroy).
+
+Triggers 3 and 4 carry the generic `:rf.reply/stale-reason :rf.http/request-id-superseded`; their `:recovery` tells them apart from trigger 1 and from each other.
 
 Route / navigation staleness for a **plain** request is not one of these — it is owned by resources / nav-tokens ([Spec 012 §Navigation tokens](012-Routing.md#navigation-tokens--stale-result-suppression) / [Spec 016](016-Resources.md)). The carried-epoch idiom itself — used by `:after` timers (per [Spec 005 §Epoch-based stale detection](005-StateMachines.md#epoch-based-stale-detection)) and route nav-tokens — is documented in [Pattern-StaleDetection](Pattern-StaleDetection.md).
 

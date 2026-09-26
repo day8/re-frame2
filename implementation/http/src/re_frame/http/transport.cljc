@@ -386,13 +386,14 @@
 
   Delegates the field construction to `http-reply/self-identify-failure`;
   this fn projects the transport `ctx` onto the identity map that helper
-  consumes (`:method` off the `:request` envelope, `:max-attempts` off the
-  `:retry` policy, plus `:url` / `:request-id` / `:origin-event` / `:issuance`
-  / `:attempt`). Applies uniformly to ALL eight failure categories."
+  consumes (the effective `:method` off the `:request` envelope, `:get` when
+  the request set none, `:max-attempts` off the `:retry` policy, plus `:url` /
+  `:request-id` / `:origin-event` / `:issuance` / `:attempt`). Applies
+  uniformly to ALL eight failure categories."
   [failure ctx]
   (rf.http.reply/self-identify-failure
     failure
-    {:method       (:method (:request ctx))
+    {:method       (or (:method (:request ctx)) :get)
      :url          (:url ctx)
      :request-id   (:request-id ctx)
      :origin-event (:origin-event ctx)

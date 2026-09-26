@@ -434,6 +434,21 @@
       (is (= :sid/xport (:request-id err)))
       (is (= [:rf.work/http :sid/xport 1 1] (:work/id err))))))
 
+(deftest failure-reply-echoes-the-defaulted-method
+  (testing "a request that leaves :method out echoes the effective :get"
+    ;; Port 1 is reliably closed — connection refused → :rf.http/transport.
+    (let [url "http://127.0.0.1:1/x"]
+      (rf/reg-event :sid/call-default-method
+        (fn [_ _]
+          {:fx [[:rf.http/managed {:request    {:url url}
+                                   :on-failure [:sid/failed]}]]}))
+      (rf/reg-event :sid/failed (fn [{:keys [db]} [_ reply]] {:db (assoc db :reply reply)}))
+      (rf/dispatch-sync [:sid/call-default-method])
+      (let [err (get-in (await-reply! #(some? (:reply %))) [:reply :error])]
+        (is (= :rf.http/transport (:kind err)))
+        (is (= {:method :get :url url} (:request err))
+            "the :request echo carries the method that was sent, including the default")))))
+
 (deftest failure-reply-is-self-identifying-5xx-with-retry
   (testing "an :rf.http/http-5xx failure after exhausted retries carries :attempt/:max-attempts"
     (let [srv (start-server! (fn [^HttpExchange ex] (write-response! ex 503 "text/plain" "down")))]

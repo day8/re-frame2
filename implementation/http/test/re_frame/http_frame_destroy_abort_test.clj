@@ -214,6 +214,8 @@
                 "the suppressed attempt's reply status is :stale")
             (is (= :suppressed (:rf.reply/work-status tags))
                 "its work-ledger status is :suppressed")
+            (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags))
+                "the row carries the generic stale reason; :recovery names the boundary")
             (is (= :frame/req (:frame tags))
                 "the trace names the destroyed frame")))
         (finally
