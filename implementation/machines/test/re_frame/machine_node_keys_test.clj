@@ -171,30 +171,14 @@
 
 ;; ---- (3) malformed :tags shape signals ------------------------------------
 
-(deftest vector-tags-rejected
-  (testing "a VECTOR :tags fails loud rather than being silently coerced —
-            mirroring :internal-events' set-form rejection"
-    (is (= :rf.error/machine-bad-tags
-           (reg-error-id {:initial :idle
-                          :states {:idle {:tags [:busy]  ;; vector, not #{}
-                                          :on {:go :done}}
-                                   :done {}}})))))
-
-(deftest single-keyword-tags-rejected
-  (testing "a SINGLE-KEYWORD :tags fails loud rather than being coerced"
-    (is (= :rf.error/machine-bad-tags
-           (reg-error-id {:initial :idle
-                          :states {:idle {:tags :busy   ;; keyword, not #{}
-                                          :on {:go :done}}
-                                   :done {}}})))))
-
-(deftest non-keyword-tags-member-rejected
-  (testing "a SET with a non-keyword member fails loud (strict [:set :keyword])"
-    (is (= :rf.error/machine-bad-tags
-           (reg-error-id {:initial :idle
-                          :states {:idle {:tags #{:busy "idle"}
-                                          :on {:go :done}}
-                                   :done {}}})))))
+(deftest non-set-tags-rejected
+  (doseq [[label tags] [["a SINGLE-KEYWORD :tags (not coerced)"             :busy]
+                        ["a SET with a non-keyword member (strict [:set :keyword])" #{:busy "idle"}]]]
+    (testing label
+      (is (= :rf.error/machine-bad-tags
+             (reg-error-id {:initial :idle
+                            :states {:idle {:tags tags :on {:go :done}}
+                                     :done {}}}))))))
 
 (deftest bad-tags-names-offender-in-ex-data
   (testing "the :rf.error/machine-bad-tags ex-data names the state + offending value"

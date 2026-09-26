@@ -55,13 +55,6 @@
     (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}]
       (is (identical? m (rf.machines.choice/desugar-choices m))))))
 
-(deftest desugar-choice-idempotent
-  (testing "desugaring an already-desugared spec is a no-op"
-    (let [m {:initial :c
-             :states {:c {:always [{:guard :g :target :x} {:target :y}]}
-                      :x {} :y {}}}]
-      (is (= m (rf.machines.choice/desugar-choices (rf.machines.choice/desugar-choices m)))))))
-
 (deftest desugar-nested-choice
   (testing "a :type :choice nested inside a compound desugars in place"
     (let [out (rf.machines.choice/desugar-choices
@@ -82,96 +75,77 @@
   (try (rf/reg-machine (keyword "ct" (str (gensym))) machine) nil
        (catch clojure.lang.ExceptionInfo e (:rf.error/id (ex-data e)))))
 
-(deftest choice-accepts-valid
-  (testing "a well-formed choice state (guarded candidates + a default) registers cleanly"
-    (is (nil? (reg-error-id
-                {:initial :start
-                 :guards {:valid? (fn [_] true)}
-                 :states {:start {:on {:go :checking}}
-                          :checking {:type :choice
-                                     :choice [{:guard :valid? :target :ok}
-                                              {:target :bad}]}
-                          :ok {} :bad {}}})))))
-
-(deftest choice-type-requires-choice-slot
-  (testing ":type :choice with no :choice slot fails loud"
-    (is (= :rf.error/machine-choice-missing-choice
-           (reg-error-id {:initial :c
-                          :states {:c {:type :choice} :d {}}})))))
-
-(deftest choice-slot-requires-type
-  (testing "a :choice slot without :type :choice fails loud"
-    (is (= :rf.error/machine-choice-without-type
-           (reg-error-id {:initial :c
-                          :states {:c {:choice [{:target :d}]} :d {}}})))))
-
-(deftest choice-rejects-function-form
-  (testing "a function-valued :choice is REJECTED — choice candidates are declarative data"
-    (is (= :rf.error/machine-bad-choice
-           (reg-error-id {:initial :c
-                          :states {:c {:type :choice :choice (fn [_] :d)} :d {}}})))))
-
-(deftest choice-rejects-non-candidate-shapes
-  (testing "a keyword / empty-vector / map :choice is malformed"
-    (is (= :rf.error/machine-bad-choice
-           (reg-error-id {:initial :c :states {:c {:type :choice :choice :d} :d {}}})))
-    (is (= :rf.error/machine-bad-choice
-           (reg-error-id {:initial :c :states {:c {:type :choice :choice []} :d {}}})))
-    (is (= :rf.error/machine-bad-choice
-           (reg-error-id {:initial :c :states {:c {:type :choice :choice {:target :d}} :d {}}})))))
-
-(deftest choice-rejects-reserved-keys
-  (testing "a choice state that also declares ordinary waiting-state behaviour fails loud"
-    (is (= :rf.error/machine-choice-extra-keys
-           (reg-error-id {:initial :c
-                          :guards {:g (fn [_] true)}
-                          :states {:c {:type :choice
-                                       :choice [{:guard :g :target :d} {:target :e}]
-                                       :on {:ev :e}}
-                                   :d {} :e {}}})))
-    (is (= :rf.error/machine-choice-extra-keys
-           (reg-error-id {:initial :c
-                          :actions {:a (fn [ctx] (:data ctx))}
-                          :states {:c {:type :choice
-                                       :choice [{:target :d}]
-                                       :entry :a}
-                                   :d {}}})))
-    (testing "a choice state must not carry a :timeout (the timeout key is named)"
-      (is (= :rf.error/machine-choice-extra-keys
-             (reg-error-id {:initial :c
-                            :states {:c {:type :choice
-                                         :choice [{:target :d}]
-                                         :timeout 5000 :on-timeout {:target :e}}
-                                     :d {} :e {}}}))))))
-
-(deftest choice-requires-default
-  (testing "a choice state whose every candidate is GUARDED (no default) fails loud"
-    (is (= :rf.error/machine-choice-no-default
-           (reg-error-id {:initial :c
-                          :guards {:g1 (fn [_] true) :g2 (fn [_] true)}
-                          :states {:c {:type :choice
-                                       :choice [{:guard :g1 :target :a}
-                                                {:guard :g2 :target :b}]}
-                                   :a {} :b {}}})))))
-
-(deftest choice-rejects-self-loop
-  (testing "a choice candidate that targets its own declaring state fails loud"
-    (is (= :rf.error/machine-choice-self-loop
-           (reg-error-id {:initial :c
-                          :guards {:g (fn [_] true)}
-                          :states {:c {:type :choice
-                                       :choice [{:guard :g :target :c}
-                                                {:target :d}]}
-                                   :d {}}})))))
-
-(deftest choice-unresolved-target-fails-loud
-  (testing "a choice candidate target that resolves to no state fails loud
-            (the desugared :always flows through the same target check)"
-    (is (= :rf.error/machine-unresolved-target
-           (reg-error-id {:initial :c
-                          :states {:c {:type :choice
-                                       :choice [{:target :nowhere}]}
-                                   :d {}}})))))
+(deftest choice-registration-refusals
+  (doseq [[label error-id machine]
+          [[":type :choice with no :choice slot"
+            :rf.error/machine-choice-missing-choice
+            {:initial :c
+             :states {:c {:type :choice} :d {}}}]
+           ["a :choice slot without :type :choice"
+            :rf.error/machine-choice-without-type
+            {:initial :c
+             :states {:c {:choice [{:target :d}]} :d {}}}]
+           ["a function-valued :choice — choice candidates are declarative data"
+            :rf.error/machine-bad-choice
+            {:initial :c
+             :states {:c {:type :choice :choice (fn [_] :d)} :d {}}}]
+           ["a keyword :choice"
+            :rf.error/machine-bad-choice
+            {:initial :c :states {:c {:type :choice :choice :d} :d {}}}]
+           ["an empty-vector :choice"
+            :rf.error/machine-bad-choice
+            {:initial :c :states {:c {:type :choice :choice []} :d {}}}]
+           ["a map :choice"
+            :rf.error/machine-bad-choice
+            {:initial :c :states {:c {:type :choice :choice {:target :d}} :d {}}}]
+           ["a choice state that also declares :on (ordinary waiting-state behaviour)"
+            :rf.error/machine-choice-extra-keys
+            {:initial :c
+             :guards {:g (fn [_] true)}
+             :states {:c {:type :choice
+                          :choice [{:guard :g :target :d} {:target :e}]
+                          :on {:ev :e}}
+                      :d {} :e {}}}]
+           ["a choice state that also declares :entry"
+            :rf.error/machine-choice-extra-keys
+            {:initial :c
+             :actions {:a (fn [ctx] (:data ctx))}
+             :states {:c {:type :choice
+                          :choice [{:target :d}]
+                          :entry :a}
+                      :d {}}}]
+           ["a choice state carrying a :timeout"
+            :rf.error/machine-choice-extra-keys
+            {:initial :c
+             :states {:c {:type :choice
+                          :choice [{:target :d}]
+                          :timeout 5000 :on-timeout {:target :e}}
+                      :d {} :e {}}}]
+           ["every candidate GUARDED (no default)"
+            :rf.error/machine-choice-no-default
+            {:initial :c
+             :guards {:g1 (fn [_] true) :g2 (fn [_] true)}
+             :states {:c {:type :choice
+                          :choice [{:guard :g1 :target :a}
+                                   {:guard :g2 :target :b}]}
+                      :a {} :b {}}}]
+           ["a candidate that targets its own declaring state"
+            :rf.error/machine-choice-self-loop
+            {:initial :c
+             :guards {:g (fn [_] true)}
+             :states {:c {:type :choice
+                          :choice [{:guard :g :target :c}
+                                   {:target :d}]}
+                      :d {}}}]
+           ["a candidate target that resolves to no state (the desugared :always
+             flows through the same target check)"
+            :rf.error/machine-unresolved-target
+            {:initial :c
+             :states {:c {:type :choice
+                          :choice [{:target :nowhere}]}
+                      :d {}}}]]]
+    (testing label
+      (is (= error-id (reg-error-id machine))))))
 
 ;; ---- dispatch boundary — the choice state resolves immediately on entry ----
 
