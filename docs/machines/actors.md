@@ -116,7 +116,7 @@ The socket is spawned on the `:active` *parent*, so one actor spans
 `:connecting` → `:authenticating` → `:connected`.
 
 A state carries at most one `:spawn`. For several children, use a compound
-state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all).
+state with one actor per substate, or [`:spawn-all`](fan-out-and-join.md).
 One state cannot declare both (`:rf.error/machine-spawn-all-with-spawn`).
 Events are not forwarded to children; dispatch to the child id yourself. To
 read a child's snapshot:
@@ -396,118 +396,8 @@ makes `reg-machine` throw `:rf.error/spawn-timeout-ms-removed`.
 
 ## Fan-out and join with `:spawn-all`
 
-Use `:spawn-all` when one state starts **N children in parallel** and
-resumes on a join. The `:children` vector is part of the definition, so N is
-fixed there; a fn in its place is refused (`:rf.error/machine-spawn-all-bad-shape`).
-For a list known only at run time, emit one `[:rf.machine/spawn …]`
-per item from an action ([Imperative spawn and destroy](#imperative-spawn-and-destroy));
-those children have no parent, so pass each an address to report to in its
-`:data`.
-
-```clojure
-;; cf. examples/patterns/long_running_work
-:working
-{:spawn-all
- {:children
-  [{:id :s1 :machine-id :work/processor :data {:shard :s1 :total 100}
-    :on-done (fn [{:keys [data result]}] (assoc-in data [:results :s1] result))}
-   {:id :s2 :machine-id :work/processor :data {:shard :s2 :total 100}}
-   {:id :s3 :machine-id :work/processor :data {:shard :s3 :total 100}}]
-
-  :join            :all
-  :on-all-complete [:work/all-done]
-  :on-any-failed   [:work/any-failed]}
-
- :on
- {:progress        {:action :record-progress}   ;; no :target — don't respawn
-  :work/all-done   {:target :complete}
-  :work/any-failed {:target :failed}
-  :cancel          {:target :cancelled}}}
-```
-
-Each child is an ordinary machine, and it **completes without any parent
-vocabulary**, exactly the way it would under a single `:spawn` — by
-entering a root-level `:final?` leaf, naming its result slot with
-`:output-key`:
-
-```clojure
-:done   {:final? true :output-key :shard-result}                ;; success
-:failed {:final? true :error? true :output-key :reason}         ;; failure
-```
-
-So one child machine composes unchanged under `:spawn` and under
-`:spawn-all`. `:meta {:terminal? true}` on such a leaf is redundant with
-`:final?`.
-
-The runtime owns the join bookkeeping. When the join resolves it fires the
-parent event **and** destroys any siblings still in flight. The event carries
-the decisive child and its result:
-`[<parent-id> [<resolution-event…> <child-id> <result>]]`. `<child-id>` is the
-`:id` the block gave that child, not its allocated actor id, and `<result>` is
-one value, the child's `:output-key` slot (its error payload on
-`:on-any-failed`).
-
-Rules:
-
-- **Each child needs a unique `:id`** (the join key) on top of the usual
-  spawn keys. Duplicates are `:rf.error/machine-spawn-all-duplicate-id`.
-- **There are no child-vocabulary keys.** The block declares only how results
-  combine: `:children`, `:join`, `:on-all-complete`, `:on-some-complete`,
-  `:on-any-failed`. Any other bare key is
-  `:rf.error/machine-spawn-all-bad-shape`.
-- **A child spec may declare `:on-done`** — a `:data` fold on the parent at
-  that child's finality, run before the join fold. It must be a fn:
-  registration refuses any other value (`:rf.error/machine-bad-on-done-clause`),
-  because the join's events own control flow. It may **not** declare
-  `:on-error` (`:rf.error/machine-unknown-spawn-key`): failure control flow
-  under a join is the block's `:on-any-failed`, which decides for the whole
-  fan-out.
-- **`:join` is only `:all` or `:any`.** There is no `{:n n}` and no
-  predicate. Quorum ("N of M") is the idiom below, not a `:join` mode.
-- **`:on-all-complete` is required for `:all`.** **`:on-some-complete` is
-  required for `:any`.** Missing either is
-  `:rf.error/machine-spawn-all-bad-shape`.
-- **`:on-any-failed` is optional, but without it a failure can leave the join
-  waiting for ever.** Under `:all`, one failed child means the join can never
-  complete; under `:any`, the join waits once every child has failed. The
-  parent stays in the state, and the runtime warns
-  `:rf.warning/spawn-all-join-unsatisfiable`. Declare `:on-any-failed`, or
-  give the state an `:after` deadline.
-- **An unregistered child type fails the whole invoke**, atomically —
-  nothing is spawned, so an `:all` join cannot hang on a child that never
-  runs (`:rf.error/machine-spawn-unregistered-type`).
-- A wall-clock bound on the join is the same as single `:spawn`: `:after`
-  or `:timeout` / `:on-timeout` on the spawn-all-bearing state.
-
-Quorum counts successes in the parent's `:data` and decides at a deadline.
-Each child's `:on-done` bumps the count, and the state's `:after` is a guarded
-candidate vector that reads it:
-
-```clojure
-(defn count-done [{:keys [data]}]
-  (update data :done-count (fnil inc 0)))
-
-:guards {:quorum? (fn [{:keys [data]}] (>= (:done-count data 0) 2))}
-
-:working
-{:entry     (fn [_] {:data {:done-count 0}})
- :spawn-all {:children        [{:id :a :machine-id :work/fetch :on-done count-done}
-                               {:id :b :machine-id :work/fetch :on-done count-done}
-                               {:id :c :machine-id :work/fetch :on-done count-done}]
-             :join            :all
-             :on-all-complete [:work/all-done]}
- :after     {5000 [{:guard :quorum? :target :degraded}   ;; 2 of 3 by the deadline
-                   {:target :failed}]}
- :on        {:work/all-done :complete}}
-```
-
-An `:always` guard cannot make this decision: a join child's completion folds
-into the join without a parent macrostep, so `:always` is not re-checked as
-each child finishes. The count lives in `:data`, which outlives the state, so
-`:entry` resets it. Leaving the state destroys any child still running.
-
-Independently valuable children — fire-and-forget, no cancel-the-rest — are
-N separate `:spawn`s, not a non-cancelling join.
+When one state starts several children at once and moves on when they
+finish, use `:spawn-all`. [Fan-out and join](fan-out-and-join.md) teaches it.
 
 ## Troubleshooting
 
@@ -516,14 +406,8 @@ N separate `:spawn`s, not a non-cancelling join.
 | Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Choose an explicit `:fixed-actor-id`, store it in `:data`, or use a declarative `:spawn` |
 | No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
 | Spawn refused with `:rf.error/machine-spawn-all-duplicate-id` | Two parent machines spawn one type, so both mint `<type>#1` | Give each parent's spawn its own `:id-prefix` |
-| Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. For quorum, count in each child's `:on-done` and decide in a guarded `:after` |
-| Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | the `:spawn-all` block names an event for its children to dispatch | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
-| Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
-| `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
-| `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
 | Socket / interval / Worker still open after destroy | not a framework-managed resource | Close it in the child's `:exit` |
 | A self-addressed `:on-failure` never fires when the actor is destroyed | the reply target names the actor being torn down, so it is obsolete | Expect no reply — it is suppressed as `:status :stale`. Clean up in the child's `:exit`, or address the reply to an event outside the actor |
-| Children torn down (or respawned) on a progress event | the parent's `:on` had a `:target` | Omit `:target` so the transition is targetless |
 
 `:rf.error/spawn-timeout-ms-removed` is covered in
 [Automatic transitions → Troubleshooting](automatic-transitions.md#troubleshooting).

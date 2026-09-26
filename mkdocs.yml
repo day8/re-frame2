@@ -336,7 +336,8 @@ nav:
     - "6. Parallel regions": machines/parallel-states.md
     - "7. History": machines/history.md
     - "8. Actors": machines/actors.md
-    - "9. Inspecting and testing": machines/inspecting-machines.md
+    - "9. Fan-out and join": machines/fan-out-and-join.md
+    - "10. Inspecting and testing": machines/inspecting-machines.md
     - Persist and restore: machines/persist-and-restore.md
     - Examples: machines/examples.md
     - Coming from XState: machines/coming-from-xstate.md

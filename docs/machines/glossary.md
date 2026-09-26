@@ -309,7 +309,7 @@ See [Actors](actors.md).
 A state-node key that starts several children and joins on their completion.
 `:join` is `:all` or `:any`.
 
-See [Fan-out and join](actors.md#fan-out-and-join-with-spawn-all).
+See [Fan-out and join](fan-out-and-join.md).
 
 ### **fixed-actor-id**
 
