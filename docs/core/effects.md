@@ -63,8 +63,9 @@ Instead, the handler describes the write, and one registered
       {:db (assoc db :todos todos)
        :fx [[:todo.storage/save todos]]})))
 
-(rf/reg-sub :todo/all
-  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
 
 (rf/reg-view todo-list []
   [:div
@@ -210,8 +211,9 @@ events: four pipeline runs, one render. Click into the cell, press **`Ctrl-Enter
           [:dispatch [:todo/add "Walk the dog"]]
           [:dispatch [:todo/add "Call mum"]]]}))
 
-(rf/reg-sub :todo/all
-  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
 
 (rf/reg-view sample-list []
   [:div

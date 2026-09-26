@@ -65,9 +65,11 @@ Here it is running:
 
 (rf/dispatch-sync [:todo/initialise] {:frame :app})
 
-;; both subs are plain app-db reads
-(rf/reg-sub :todo/all
-  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
+
+;; the count is now a plain app-db read
 (rf/reg-sub :todo/remaining-count
   (fn [db _] (:remaining-count db)))
 

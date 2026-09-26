@@ -299,7 +299,7 @@ no longer being read. The adapter does not re-wrap `:on-*` callbacks to restore 
 What works is capturing the frame *at render time*, which is what `reg-view`'s
 injected `dispatch` and `subscribe` do: each is a
 [`capture-frame`](glossary.md#capture-frame) operation bound to the render frame. So
-use the injected `dispatch` rather than the fully qualified `rf/dispatch`:
+use the injected `dispatch` rather than the fully qualified `rf/dispatch`.
 
 A todo row that fades out and then deletes itself shows the difference:
 
