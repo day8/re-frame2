@@ -74,51 +74,12 @@ what each one means is `spec/009-Instrumentation.md` §Fresco.
 
 ## Brackets mount, parens inline — the ownership change that reads like spelling
 
-`h/defview` mints a **real React function component** and binds the var:
-
-```clojure
-[card {:title t}]     ; a BOUNDARY: its own subscription edges, its own memoisation
-(card-bits t)         ; a plain defn helper: runs inside whoever called it, owns nothing
-```
-
-Two ways a Reagent codebase trips on this:
-
-- **A helper that should have stayed a helper.** Reagent authors reach for
-  `[thing …]` reflexively. If the extracted piece exists only to shorten a body,
-  leave it a `defn` and call it with parens — you keep one boundary rather than
-  minting an occurrence per call.
-- **A plain function in head position is a loud error**, not a silent embedding.
-  That is what keeps a head's identity stable by construction, and it is the
-  rule that replaces all of Reagent's Form-1/2/3 folklore.
-
-## `^{:key …}` metadata is not read — at all
-
-**Fresco performs no metadata read anywhere in the codec.** A surviving
-`^{:key (:id t)}` is not a spelling variant to be tidied later; it is a key that
-is simply **absent**, and React falls back to reconciling the list by position.
-
-In a static list you will never notice. In a reorderable, filterable or
-paginated one it is silent state corruption — the wrong row keeps the wrong
-row's input text, the wrong item animates, the wrong subtree survives a
-re-sort. MIG-07 is therefore mandatory rather than cosmetic.
-
-The warning's owner depends on the crossing. React warns for missing keys in
-a list lowered under a native tag. Fresco's dev-only
-`:rf.warning/fresco-missing-key` covers a sequence of **boundary-headed**
-children passed into another boundary, where React receives Clojure props
-data and cannot key-check it. The separate `:rf.warning/fresco-entity-key`
-warns about a boundary-headed sequence member whose key is not a
-string/number/keyword/uuid/symbol. None replaces moving the metadata key.
-
-Spell it as the exact literal keyword `:key` — the one spelling every head
-reads as the key.
-
-## The exactly-one-props-map law
-
-An `h/defview` takes **one** parameter and it is the props map, so the header is
-`[_]` or a destructure — never a positional argument. A call site passes the map
-only when there are props: `[status-pill]` is legal and mounts with `{}`
-supplied for it, which is how the door's own examples mount.
+`[card {:title t}]` mounts a **boundary** with its own subscription edges and
+memoisation; `(card-bits t)` is a plain `defn` helper that runs inside whoever
+called it. Reagent authors reach for `[thing …]` reflexively — if the piece only
+shortens a body, keep it a `defn` called with parens. And a plain function in
+head position is a loud error (`:rf.error/fresco-bad-head`), not a silent
+embedding ([`mental-model.md`](mental-model.md) §Anchor).
 
 ## The bare-symbol trap
 
@@ -138,112 +99,40 @@ an *event vector*, and `[:total]` inside `(h/sub …)` is a *query vector*.
 Neither is an element to be head-respelled or forwarded. The distinction is
 positional.
 
-## Markers do not nest, and only two exist
+## The `::h/…` keywords — two markers, one head, and the rest are not markers
 
-`::h/value` and `::h/checked` substitute in **one pass over the intent vector's
-own elements**. A marker written below the top level:
-
-```clojure
-{:on-input [:form/set {:title ::h/value}]}    ; WRONG — arrives as a literal keyword
-```
-
-arrives at the handler as `:re-frame.fresco/value`, silently, with no
-diagnostic. Restructure the event's payload instead:
-`[:form/set :title ::h/value]`.
-
-The reserved **head** an author writes is one — `::h/prevent` — and it sits at
-index 0; its payload cannot itself be a reserved head. Fresco keeps a second,
-internal navigate head, but `h/route-link` mints it and it is not `::h/…` —
-never write it. Navigation is `h/route-link` or an ordinary routing event.
-
+`::h/value` and `::h/checked` substitute only at the intent vector's top level
+(MIG-05); nested, they arrive as the literal keyword with no diagnostic. The one
+reserved **head** an author writes is `::h/prevent` (MIG-06). Fresco keeps a
+second, internal navigate head that `h/route-link` mints — it is not `::h/…`, so
+never write it; navigation is `h/route-link` or an ordinary routing event.
 Everything else spelled `::h/…` is not a dispatch marker: `::h/revision` is a
-controlled-input attribute, `::h/clear` is a registered event id. The presence
-overrides are the motion module's own keywords — `::motion/mounting` /
-`::motion/unmounting`, i.e. `:re-frame.fresco.motion/…` — not `::h/…` at all.
+controlled-input attribute and `::h/clear` is `h/reg-state`'s clear event id.
+The presence overrides are the motion module's own keywords
+(`::motion/mounting` / `::motion/unmounting`), not `::h/…` at all.
 
-## Prop-dialect edges that fail silently
+## The other silent traps, each stated once in its rule
 
-The canonical-slot rule accepts kebab and camel alike, so most of a Reagent
-codebase needs no respelling (MIG-11). Three edges do not follow that:
-
-- **A string key is verbatim.** `{"on-input" f}` emits the slot `on-input`,
-  which React ignores — a dead handler with no error. (This is a deliberate
-  escape hatch for custom elements.)
-- **A symbol key camelCases but is not an event position.** `{'on-click [:go]}`
-  emits `onClick` and the intent vector crosses as an inert JavaScript array.
-- **A map at `:class` is not truthiness-filtered.** `{:class {:active true}}`
-  renders `"active true"`, because a map is a collection like any other. Rewrite
-  conditional-class maps to a vector with `when`.
-
-## `:on-submit` prevents by default; a key map belongs at a keyboard event
-
-`:on-submit` is the **one** position that calls `.preventDefault` for you, and
-only for an intent vector. An `h/event` or a plain fn at `:on-submit` is never
-auto-prevented — whoever holds the event owns it.
-
-A **key map** reads the event's `.key` before it looks anything up, so it works
-only where the event carries one — `:on-key-down`, `:on-key-up`. Written at
-`:on-submit` or `:on-click` it raises `:rf.error/fresco-intent-needs-the-event`
-when it fires. And a branch whose value is neither a vector nor a function
-becomes `nil` and never fires — no error, no warning.
-
-## A callback ref must be a stable top-level fn
-
-React's contract is identity-based: hand it a fresh `(fn [n] …)` each render and
-it detaches and reattaches on **every** commit, running your mount work and your
-cleanup over and over.
-
-```clojure
-;; RIGHT
-(defn- focus-on-mount [node] (when node (.focus node)))
-(h/defview composer [_] [:textarea {:ref focus-on-mount}])
-
-;; WRONG — new identity every render
-(h/defview composer [_] [:textarea {:ref (fn [n] (when n (.focus n)))}])
-```
-
-Two more: a **vector** at `:ref` is not a ref — it crosses to React as data and
-the ref never fires, so the callback function is the only spelling — and
-`:ref` on a **`defview` head** is not a ref at all — the boundary path lifts
-only `:key`, so it stays in the props map as ordinary data with nothing to
-report it.
-
-## `h/frame-root` ensures the frame; `h/render!` carries root options only
-
-`(h/render! handle hiccup container opts)` takes an opts map of **root
-options** — `:hydrate?` and `:identifier-prefix`, and nothing else — and
-refuses `:frame` or `:initial-events` by name. The frame is the tree's:
-`[h/frame-root {:id ::frame :initial-events [[:boot]]} [app {}]]` creates the
-frame if it is absent and seeds it before the first paint, or reuses an
-already-live one without replaying the seed. So the Reagent pair
-`(rdom/render [app] el)` + `(rf/dispatch-sync [:boot])` maps onto one
-`h/render!` with one boundary — with `rf/init!` before it, because frame
-construction raises
-`:rf.error/no-adapter-installed` until a reactive adapter is installed.
-
-`h/frame-root` takes the WHOLE `rf/make-frame` option map, so a frame needing
-`:images` or `:fx-overrides` needs no separate `rf/make-frame` call. Several
-roots sharing one frame scope the later ones with
-`[h/frame-provider {:frame …}]`, which creates nothing and fails loud on a frame
-that is not live. It is the same `frame-root` / `frame-provider` pair the
-Reagent tree already spells, so that wrapper is a rename.
-
-The app's existing `rf/init!` stays — do not delete it as Reagent scaffolding.
-re-frame2 installs no adapter for you and has no default-adapter registry, so
-the install is the app's own explicit line whatever the views are written in,
-and a Reagent adapter under a Fresco tree resolves the *same* frame as the
-Fresco subtree. Full rule: MIG-15 — plus [`end-state.md`](end-state.md) for the
-one case where the choice reopens, an app with no Reagent view left at all.
-
-Hot reload is the SAME `h/render!` through the SAME handle: the first call
-creates the root, every later one updates it. Allocate the handle with
-`defonce` — a reload that hands back a fresh one `createRoot`s again and
-replaces the whole tree.
+- **A surviving `^{:key …}`** is an absent key — Fresco reads no metadata — and
+  a reorderable list then reconciles by position (MIG-07).
+- **A string or symbol prop key** is a dead handler; a map at `:class` is not
+  truthiness-filtered (MIG-11).
+- **A key map away from a keyboard event** raises
+  `:rf.error/fresco-intent-needs-the-event` when it fires, and a key-map branch
+  that is neither a vector nor a function never fires (MIG-33).
+- **An inline `(fn [n] …)` at `:ref`** re-runs mount work and cleanup on every
+  commit; a vector at `:ref`, or `:ref` on a `defview` head, is not a ref at
+  all (MIG-17).
+- **Deleting `rf/init!`** as Reagent scaffolding leaves `rf/make-frame` raising
+  `:rf.error/no-adapter-installed`; and a `h/render!` given `:frame` or
+  `:initial-events`, a reload that drops or trims the `h/frame-root` head, or a
+  handle not held in a `defonce` each break the root (MIG-15).
+- **`{:__html html}` in Reagent source was inert under stock Reagent and is live
+  under Fresco** (MIG-34).
 
 ## The guide is not the API — read the door
 
 The guide (`docs/core/fresco/`) is written for people and drifts; design notes
 describe forms that never shipped, such as an `h/fn` callback (the form is
-`h/event`) or a four-keyword reserved vocabulary (two markers and one head —
-§Markers above). **Read the door** (`re_frame/fresco.cljc`), not any page —
+`h/event`). **Read the door** (`re_frame/fresco.cljc`), not any page —
 cardinal rule 6.

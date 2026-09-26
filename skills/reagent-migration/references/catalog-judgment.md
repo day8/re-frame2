@@ -6,6 +6,12 @@
 > **held whole** — decide it with the author, then convert the whole view, or
 > leave the whole view on Reagent (cardinal rule 2).
 
+**Contents:** MIG-16 view-local state · MIG-17 lifecycle (refs, mount and
+unmount work, error boundary) · MIG-18 non-conforming handlers · MIG-19
+derived state · MIG-20 ratom-as-store · MIG-09/10/22 foreign React · MIG-26
+ambient reads in plain fns · MIG-23 SSR (recipe in
+[`ssr-hydrate.md`](ssr-hydrate.md)) · table: MIG-08, 13, 27, 28, 31.
+
 ## MIG-16 — Form-2 / `with-let` view-local state
 
 ```clojure
@@ -335,39 +341,20 @@ owns the read wherever the call lexically sits. What fails is a read or a
 dispatch with **no active render**: a timer, a callback the browser invokes
 later, a foreign listener.
 
-**The decision is therefore about *when*, not *where*.** Three different
-leftovers fail at three different times under three different ids, and telling
-them apart is most of the debugging:
+**The decision is therefore about *when*, not *where*.** A surviving ambient
+`rf/subscribe` / `rf/dispatch` in a body **or a helper it inlines** refuses at
+render; an ambient `rf/dispatch` in a callback fails at click; an `h/sub` moved
+into a callback fails when it fires — three ids, tabled with the complaint
+shape in [`gotchas.md`](gotchas.md) §Three leftovers, three ids. Route each
+site in this order:
 
-- **A leftover ambient `rf/subscribe` or `rf/dispatch` fails at RENDER**, and
-  this is the one the helper case makes easy to miss. A boundary body runs
-  inside an extent that *refuses* ambient frame resolution, so the first render
-  raises `:rf.error/ambient-frame-refused` — and the extent reaches **the helper
-  too**, because a parens-called `defn` runs inside whoever called it. So
-  MIG-02's deref-drop applies to the helper as well: an `h/sub` there is legal,
-  a surviving `@(rf/subscribe …)` there is not. The refusal is deliberately
-  **not** `:rf.error/no-frame-context` — a refused ambient read and a genuinely
-  frameless one are different mistakes — so it says in as many words that a
-  frame IS in scope and that another boundary will not fix it. Its `:reason`
-  names both recoveries: the collector for a read, an intent at a handler
-  position for a dispatch.
-- **An ambient `rf/dispatch` from a callback fails at CLICK**, raising
-  `:rf.error/no-frame-context` — **core's id, not a `fresco-*` one**. Nothing
-  refuses it at render, which is what makes it the nastiest one in the
-  migration.
-- **An `h/sub` hoisted too far fails at FIRE.** Moved *out* of the render and
-  into the callback it was meant to serve, it raises
-  `:rf.error/fresco-sub-outside-render`: hoist the READ to render time and
-  close over the VALUE, not the read. `rf/subscribe-once` is the sanctioned
-  snapshot for handler and utility code.
-- Preference order: (1) if it runs during render, leave it in the helper —
-  deref-dropped, that is the supported shape; (2) if it runs later, **hoist the
-  read to render time and pass the value into the callback**; (3) if the
-  callback genuinely needs to act, it returns an intent vector from an
-  `h/event`, which is the frame-carrying spelling.
-
-Grep these out rather than discovering them by clicking — `gotchas.md`
-§Three leftovers, three ids carries the table and how to read the complaint.
+1. **It runs during render** → leave it in the helper, deref-dropped to
+   `h/sub`; that is the supported shape.
+2. **It runs later** → hoist the read to render time and pass the value into
+   the callback. `rf/subscribe-once` is the sanctioned snapshot for handler and
+   utility code that genuinely needs current state.
+3. **The callback must act** → return an intent vector from an `h/event`, the
+   frame-carrying spelling.
 
 ## MIG-23 — SSR-then-hydrate
 

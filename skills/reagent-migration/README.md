@@ -26,7 +26,7 @@ When to reach for it (narrow): you are already on re-frame2, you know you don't 
   - D-tier ("how to DECIDE") — Form-2/`with-let` state (app-db via `h/reg-state`, the forms module, or a React island), Form-3 lifecycle (callback refs, events, `h/error-boundary`), the `:on-*` handler split, foreign React and its callback contracts (`h/defhost` / `[:>]` / `h/as-element` / `h/as-component`), derived state, the ratom-as-store restructure, computed props via a plain `merge` with the owned keys last, and SSR-then-hydrate (the pipeline ships; the decision is whether to run a Node renderer).
   - R-tier ("don't migrate — stay on Reagent") — the honesty backbone, and it is short: the prev-props update protocol, a frame-pinned reactive read, Reagent introspection and schedulers.
 - An incremental procedure — report, then a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests. Includes the shipped test kit (`re-frame.fresco.test*` — `.test`, `.test.mounted`, `.test.forms`, `.test.runtime`, `.test.server`) and `hm/shadow!`, which runs the Reagent original and the Fresco candidate side by side against isolated copies of one seeded frame and compares DOM and intents.
-- The gotchas — led by the one that costs most, and it is really three: a half-converted view fails at three different times under three different ids (a leftover ambient read or dispatch refuses at render, a surviving `#(dispatch …)` closure fails at click, an `h/sub` hoisted into a callback fails at fire), plus how to read the complaint that says which. Then metadata keys never being read, the string/symbol prop-key edges, markers not nesting, and the places a guide page overstates the shipped surface.
+- The gotchas — led by the one that costs most, and it is really three: a half-converted view fails at three different times under three different ids (a leftover ambient read or dispatch refuses at render, a surviving `#(dispatch …)` closure fails at click, an `h/sub` hoisted into a callback fails at fire), plus how to read the complaint that says which. Then the bare-symbol trap, brackets versus parens, the `::h/…` keyword roster, and a one-line index of the silent traps each catalogue rule carries.
 
 ## What it deliberately does not cover
 
@@ -71,7 +71,7 @@ skills/reagent-migration/
 │   ├── procedure.md           # report first, then incremental closed-subtree passes
 │   ├── ssr-hydrate.md         # MIG-23's SSR-then-hydrate recipe (client-only work skips it)
 │   ├── end-state.md           # MIG-24's whole-app adapter question (only the final pass reads it)
-│   └── gotchas.md             # the three leftover ids, metadata keys, dialect edges
+│   └── gotchas.md             # the three leftover ids, reading a complaint, the silent-trap index
 ├── evals/
 │   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers
 ├── tests/

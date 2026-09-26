@@ -5,6 +5,11 @@
 > of migration is the **whole view** (cardinal rule 2), and the unit of a
 > *pass* is a **closed subtree**.
 
+**Contents:** Pre-flight · Step 0 run and read the reporter · Step 1 scope a
+closed subtree · Step 2 gate each view · Step 3 M-tier rewrites · Step 4
+requires and root · Step 5 compile, test, render (and the test kit's
+`hm/shadow!`) · Step 6 apply the codemod · provisional files · resuming.
+
 ## Pre-flight — is this migration even in scope?
 
 Confirm all three, or stop:
@@ -31,37 +36,16 @@ Confirm all three, or stop:
 
 ## Step 0 — Run the reporter, and read both halves
 
-```bash
-clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
-                  {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
-                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
-  -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
-```
-
-This is the inventory the whole plan is built on, and it is cheap: a bare JVM,
-no re-frame2 loaded, no files touched.
-
-Expect one stderr line, `Use of :paths external to the project has been
-deprecated` — the tool puts one shared `.cljc` slot file on its own classpath
-deliberately, and the codemod's `deps.edn` records that a `:local/root` is not
-the fix. It is not a failure; read the report.
-
-Run it from the consumer's project. It needs no re-frame2 checkout and creates
-none — the published Fresco artefact does not carry the reporter, so this
-coordinate is the tool's delivery rather than a pre-publication detour. Pin a
-newer `:git/sha` from
-`git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you
-want one.
+Run the command in [`../SKILL.md`](../SKILL.md) §Start with the reporter from
+the consumer's project. This is the inventory the whole plan is built on, and
+it is cheap: a bare JVM, no re-frame2 loaded, no files touched.
 
 - **The census (`:census`)** tells you how big the job is — every `r/atom`,
   `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`,
   `r/reactify-component`, `render-to-string` and root mount, plus re-frame2's
-  own substrate adapters under `re-frame.adapter.`, classified
-  `:human-decision` or `:runtime-blocker`. Two rosters, because a re-frame2
-  application on the Reagent adapter calls no Reagent API of its own and a
-  Reagent-only census scored it at zero. Each class routes to a rule, so the
+  own substrate adapters under `re-frame.adapter.` (an app on the Reagent
+  adapter may call no Reagent API of its own), each classified
+  `:human-decision` or `:runtime-blocker`. Each class routes to a rule, so the
   census is the D/R gating for the whole codebase before you open a file:
 
   | Census `:class` | Route |
@@ -153,7 +137,7 @@ tier:
   [`ssr-hydrate.md`](ssr-hydrate.md), which a client-only migration never opens.
 
 Do not rewrite the clean parts of a held view — whole-view coherence,
-[`gotchas.md`](gotchas.md).
+cardinal rule 2.
 
 Two things are **not** view gates here. The **mechanical** rules are applied
 directly in Step 3, never held. And an **effectful sub body (MIG-25)** is a
@@ -310,17 +294,10 @@ that must not change.
 
 ## Step 6 — Apply the mechanical codemod, and re-prove
 
-```bash
-clojure -Srepro \
-  -Sdeps '{:deps {day8/re-frame2-fresco-codemod
-                  {:git/url   "https://github.com/day8/re-frame2.git"
-                   :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
-                   :deps/root "migration/reagent-to-fresco/codemod"}}}' \
-  -M -m re-frame.migration.fresco.codemod --rewrite src/
-```
-
-The same coordinate as step 0, with `--rewrite` added. As written it is a dry
-run — what would change; add `--write` after `--rewrite` to apply it.
+Re-run Step 0's command with `--rewrite` added: a dry run that prints what
+would change. Then add `--write` after `--rewrite` to apply it — this
+**rewrites the consumer's source files in place**, so run it on a clean
+working tree the author can diff and revert.
 
 Last, not first. It touches only the six decidable `[:> …]` families (W1–W6),
 preserves formatting, comments and line endings, and every output is outside its

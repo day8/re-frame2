@@ -1,9 +1,9 @@
 # M-tier — "do this" (mechanical rewrites)
 
 > Unambiguous, safe view-tier rewrites. Apply them
-> directly — but always **gate the whole view first**
-> ([`gotchas.md`](gotchas.md)): if the view also trips a D/R rule, leave the
-> entire view on Reagent. A mechanical rewrite is only "safe" inside a view that
+> directly — but always **gate the whole view first** (cardinal rule 2 in
+> [`../SKILL.md`](../SKILL.md)): if the view also trips a D/R rule, decide or
+> hold the entire view. A mechanical rewrite is only "safe" inside a view that
 > fully converts.
 >
 > Every rule cites a `MIG-NN` id so the author can audit the change. The id
@@ -15,6 +15,12 @@
 > MIG-33) move the dispatch out of the router queue and into the callback's own
 > turn. That is stated once in [`mental-model.md`](mental-model.md) §3 and
 > checked once, per view, in MIG-04 / 05 below.
+
+**Contents:** MIG-01 header and call sites · MIG-02 deref-drop · MIG-04/05
+dispatch-lifting and the markers (and the one timing check) · MIG-06
+`::h/prevent` · MIG-07 keys · MIG-11 prop dialect · MIG-12 `doall` · MIG-14
+pass-through · MIG-15 root and boot · MIG-24 requires · MIG-33 key maps ·
+MIG-34 `dangerouslySetInnerHTML`.
 
 ## MIG-01 — Form-1 view → `h/defview`, positional params → one prop map
 
@@ -40,7 +46,7 @@ Three parts are load-bearing:
 - **A fn-call used as a component** (`(filter-link :all "All")` in child
   position) becomes a mounted site: `[filter-link {:showing :all :txt "All"}]` —
   brackets, because it is a boundary. Leave it in parens only if it genuinely is
-  a body-extracting helper ([`gotchas.md`](gotchas.md) §brackets vs parens).
+  a body-extracting helper ([`gotchas.md`](gotchas.md) §Brackets mount, parens inline).
 - **The expansion is anonymous**, so a helper named after the view does not get
   shadowed: `(defn row-body [p] …)` beside `(h/defview row [p] (row-body p))` is
   the supported spelling.
