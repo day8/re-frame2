@@ -24,7 +24,7 @@ that keeps each user's cached data separate. Views only read — they never fetc
     {:request {:method :get :url (str "/api/articles/" slug)}
      :decode  :json}))
 
-;; a view only reads — a subscription NEVER fetches
+;; a view only reads — a subscription never fetches
 @(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
 ;; => {:status :idle …}  — registered, but nothing has caused a load yet
 

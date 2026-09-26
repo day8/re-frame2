@@ -50,7 +50,7 @@ A structured label like `[:article slug]` a [resource](#resource) attaches to it
 
 ### **resource status**
 
-The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately, so a hiccup never blanks the page.
+The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idle` → `:loading` → `:loaded` | `:error`, plus `:fetching` for a background refresh that keeps the old value on screen. `:error` is reserved for a *first*-load failure; a failed refresh stays `:loaded` and records the error separately (`:refresh-error`), so the page keeps showing its data.
 
 ### **owner & cause**
 
