@@ -292,17 +292,17 @@ and the live graph reports the realized edges per concrete query vector:
 
 ### Named-resolver enrichment (EP-0014 issue-3 disposition)
 
-A **named resolver** turns part of a parametric declaration into a *static fact*. When a resource scope is an [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) `{:from-db <resolver-id>}` reference rather than an inline function, the static graph reports the **resolver id and its declared inputs** even while the params stay `:parametric`:
+A **named resolver** turns part of a parametric declaration into a *static fact*. When a resource scope is an [EP-0016](../docs/EP/EP-0016-resource-mutation-completion.md) `{:from-db <resolver-id>}` reference rather than an inline function, the static graph reports the **resolver id and its declared inputs** even while the params stay generic:
 
 ```clojure
 {:id :article/by-slug
  :kind :process                                          ;; the closed superkind
  :refinement :resource-process                           ;; the informative refinement
- :inputs [[:param :slug]
+ :inputs [[:param :rf.params]                            ;; the params — generic until a call
           [:scope {:from-db :session/current-tenant}]]   ;; named resolver — static!
  :scope-resolver {:id :session/current-tenant
-                  :inputs [[:db [:session :tenant-id]]]}  ;; declared inputs are static facts
- :params :parametric}
+                  :inputs [[:db [:session :tenant-id]]]  ;; declared inputs are static facts
+                  :whole-db? false}}
 ```
 
 The resolver's declared inputs ([016 §Named resource-scope resolvers](016-Resources.md#named-resource-scope-resolvers-reg-resource-scope)) appear in the static graph because they are declared, not executed — this is exactly the static visibility the don't-execute rule otherwise costs an inline function.
@@ -341,22 +341,23 @@ A representative graph view:
    :lifecycle :frame
    :output [:db [:cart :total]]}
 
-  [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]
+  [:resource [:rf.scope/global :article/by-slug {:slug "welcome"}]]
   {:kind :process
    :storage :runtime-db
    :authority {:kind :remote :system :server :transport :rf.http/managed}
    :evaluation #{:on-route :on-reply :scheduled :manual}
-   :lifecycle :scoped-resource-key
+   :lifecycle {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
    :output [:runtime [:rf.runtime/resources :entries
-                      [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]]}}
+                      [:rf.scope/global :article/by-slug {:slug "welcome"}]]]}}
 
  :edges
- [{:from [:sub [:cart/items]]                                   :to [:sub [:cart/total]] :role :input}
-  {:from [:runtime [:rf.runtime/routing :current :params :slug]] :to [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]] :role :param}
-  {:from [:machine :upload/main]                                 :to [:sub [:upload/progress]] :role :selector}]}
+ [{:from [:sub [:cart/items]] :to [:sub [:cart/total]] :role :input}
+  {:from :rf/route            :to [:resource [:rf.scope/global :article/by-slug {:slug "welcome"}]]
+   :role :param               :owner [:route :route/article 17]}
+  {:from [:machine :upload/main] :to [:sub [:upload/progress]] :role :selector}]}
 ```
 
-An Xray panel renders this as **one** graph even though the underlying runtime mechanisms are route state, resource cache, and subscription cache.
+An Xray panel renders this as **one** graph even though the underlying runtime mechanisms are route state, resource cache, and subscription cache. The `:param` edge is the live form of a [route-owned resource activation edge](#route-owned-resource-activation-edges): it runs from the live route node `:rf/route` to the concrete scoped key whose owners include the route's realized owner `[:route route-id nav-token]`, and carries that owner. The static graph's form of the same edge runs from `[:rf/route <route-id>]` to `[:resource <resource-id>]` with `:target :parametric`.
 
 ### One accessor, two projections (EP-0014 issue-1 disposition)
 
@@ -575,7 +576,7 @@ The subscription's exact policy twin — same whole-value function, materialized
  :kind        :process                       ;; the closed superkind
  :refinement  :resource-process              ;; the informative refinement
  :source-form {:kind :reg-resource :id :article/by-slug}
- :inputs      [[:param :slug]
+ :inputs      [[:param :rf.params]
                [:scope {:from-db :app/session}]]
  :output      [:runtime [:rf.runtime/resources :entries]]
  :storage     :runtime-db                     ;; the LOCAL cache home
@@ -590,13 +591,13 @@ The subscription's exact policy twin — same whole-value function, materialized
 
 ```clojure
 ;; LIVE ALGEBRA VIEW for one scoped key
-{:id     [:resource [[:rf.scope/session {:tenant-id "acme"}] :article/by-slug {:slug "welcome"}]]
+{:id     [[:rf.scope/session {:tenant-id "acme"}] :article/by-slug {:slug "welcome"}]  ;; the scoped key
  :kind   :process
  :inputs [[:scope [:rf.scope/session {:tenant-id "acme"}]] [:param {:slug "welcome"}]]
  :output [:runtime [:rf.runtime/resources :entries
                     [[:rf.scope/session {:tenant-id "acme"}] :article/by-slug {:slug "welcome"}]]]
  :storage :runtime-db
- :authority {:kind :remote :system :server}
+ :authority {:kind :remote :system :server :transport :rf.http/managed}
  :status  :loaded
  :lifecycle {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
  :host-transient [[:rf.http/in-flight :work/id-123]]}

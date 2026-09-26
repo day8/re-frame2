@@ -241,7 +241,7 @@
   hard error in production too) —
   each value is walked by `validate-supplied-cofx-values!` to confirm it is
   recordable EDN data (EP-0017:386): a host handle (DOM node, Promise, function,
-  atom, Date, JS / Java object) supplied as a recordable coeffect throws
+  atom, JS / Java object) supplied as a recordable coeffect throws
   `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`) in dev AND
   production. A narrower per-supplier `:schema` gate (cofx.cljc satisfaction
   step, the complementary always-on production contract) is the deeper check

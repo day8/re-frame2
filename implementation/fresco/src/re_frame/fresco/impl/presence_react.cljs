@@ -182,7 +182,7 @@
       (fn [] (rf.fresco.impl.codec/as-element (into [:<>] (rf.fresco.impl.presence/render next)))))))
 
 (def presence
-  "`h/presence` — a boundary that retains exiting keyed children for
+  "`motion/presence` — a boundary that retains exiting keyed children for
   `:timeout-ms`, and merges each child's own `::motion/mounting` /
   `::motion/unmounting` override map into it — an element's attributes
   or a view's props — while it is in that phase (HD-030).

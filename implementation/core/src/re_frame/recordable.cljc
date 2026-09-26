@@ -8,11 +8,13 @@
   exported, and re-read by Xray / pair tooling. So it MUST be ordinary EDN
   data — a value that round-trips through `pr-str` / `read-string` (or its
   host-portable equivalent) unchanged in meaning. A host handle accepted as
-  recordable (a DOM node, a `Promise`, a function, an atom, a `Date`, any
-  JS / Java object) breaks that contract SILENTLY: the failure surfaces far
+  recordable (a DOM node, a `Promise`, a function, an atom, any other JS /
+  Java object) breaks that contract SILENTLY: the failure surfaces far
   away, at replay / Xray / SSR / epoch-export time, not at the bad coeffect.
-  This namespace is the cheap, dev-time guard that catches the author error
-  at the source (EP-0017:386 — recordable values must be EDN).
+  A `Date` is NOT such a handle: it prints and reads back as `#inst`, so it
+  is recordable data. This namespace is the cheap guard that catches the
+  author error at the source (EP-0017:386 — recordable values must be EDN);
+  its callers run it always-on, in production as well as dev.
 
   ## NOT the canonical-identity tool
 
