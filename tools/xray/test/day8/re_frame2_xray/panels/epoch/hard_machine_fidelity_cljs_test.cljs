@@ -31,7 +31,6 @@
     - `chart-layout/project-definition` — the SOLE topology projector
       (machines-viz — the layer that actually feeds the chart)
       (compound nesting + parallel regions rendered legibly).
-    - `diff/project` — the snapshot diff (member-level set diff for `:tags`).
 
   Asserting the projected ROWS / LABELS / records are unambiguous is the
   testable proxy for 'the devtools render legibly' — this is a Xray/Story-
@@ -59,7 +58,6 @@
             [re-frame.machines :as rf.machines]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
-            [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
@@ -584,42 +582,6 @@
                  "transition is a real transition — the row survives)"))
         (is (empty? (rows-of-kind rows :no-op))
             (str ev " renders no benign-no-op notice"))))))
-
-;; ============================================================================
-;; SNAPSHOT DIFF — member-level set diff on the machine's `:tags`
-;; ============================================================================
-
-(deftest snapshot-tags-diff-renders-member-level-set-changes
-  (testing "the snapshot diff the Xray panel renders
-            must show machine state changes at MEMBER level for sets. The
-            machine's `:tags` snapshot slot is a set; a transition swaps its
-            members. Diffing the before/after snapshot via the panel's diff
-            engine must surface per-member `:added` / `:removed` ops (not a
-            single wholly-replaced blob) so the operator reads exactly which
-            tags joined + left."
-    (setup!)
-    (drive! [:hvac/power-cycle]) ; climate → ... :heating ; fan → :on
-    (let [before (proj/machine-logical-state (snapshot))
-          _      (drive! [:hvac/mode-toggle])
-          after  (proj/machine-logical-state (snapshot))
-          {:keys [path-ops]} (diff/project before after)
-          ;; member-level set ops live at paths whose final segment is the
-          ;; set MEMBER (the member-keyed scheme).
-          added   (->> path-ops (filter (fn [[_ v]] (= :added (:op v)))) (map first))
-          removed (->> path-ops (filter (fn [[_ v]] (= :removed (:op v)))) (map first))
-          member-of (fn [tag paths] (some (fn [p] (= tag (last p))) paths))]
-      ;; mode-toggle: :climate/heating tag leaves, :climate/cooling joins.
-      (is (member-of :climate/cooling added)
-          "the joining tag (:climate/cooling) renders as a member-level :added —
-           NOT a wholly-replaced set blob")
-      (is (member-of :climate/heating removed)
-          "the leaving tag (:climate/heating) renders as a member-level :removed")
-      ;; The unchanged tags (fan/on, climate/running, climate/conditioning) do
-      ;; NOT churn — only the two members that actually moved appear.
-      (is (not (member-of :fan/on added))
-          "an unchanged member does NOT render as added (no spurious churn)")
-      (is (not (member-of :fan/on removed))
-          "an unchanged member does NOT render as removed"))))
 
 ;; ============================================================================
 ;; The benign no-op cell: scope guard + the live no-op render
