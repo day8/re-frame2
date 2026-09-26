@@ -50,7 +50,7 @@ events, subscriptions, effects and frames are the same as everywhere else.
 Each var has an entry headed by its name:
 
 - **Kind**: function, macro, var, component or React hook; for keyword-addressed
-  surfaces, effect, event or subscription.
+  surfaces, effect, event, subscription or interceptor reference.
 - **Signature**: every public arity, with its return value.
 - **Description**: what the var does, then its rules and edge cases. Longer
   option lists and error lists appear as their own sub-lists.

@@ -27,6 +27,10 @@ Machines ship in the optional `day8/re-frame2-machines` artefact. Require `re-fr
        "Sign in"])))
 ```
 
+A `:status` keyword in `app-db`, checked by ordinary event handlers, is enough while there are two or three states and each check is one line. A machine pays off when those checks spread: several events are legal only in some states, a state needs a timeout or must cancel work when it is left, or you want to test `(state, event) → next state + effects` as a pure function with [`machine-transition`](#re-framemachinesmachine-transition). For fetching and caching server data, use [resources](../resources/concepts.md) instead. [When not to use a machine](../machines/index.md#when-not-to-use-a-machine) has the fuller table.
+
+A registered machine runs as one instance per frame, addressed by its machine id. To run several copies of one machine at once (one per upload, one per open socket), or a child machine that lives only while its parent is in one state, spawn actors: each actor has its own id and snapshot, and you dispatch to its id the same way. See [`:rf.machine/spawn`](#rfmachinespawn-spawn-spec).
+
 `reg-machine` and `defmachine` are called on the `re-frame.core` facade. Everything else is called on this namespace as `rf.machines/…`, or addressed by keyword. Use the `rf.machines` alias and keep the bare `machines` alias for your application's own namespaces.
 
 The machines guide teaches the model, starting from [The table](../machines/concepts.md).
@@ -97,7 +101,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 - **Description**: Defines `name` as a machine-spec value and captures its per-element source, so a later `reg-machine` of that value keeps it. Use it in place of `def` for a named spec. Called as `rf/defmachine`.
     - It walks the literal spec the same way `reg-machine` does and stores the source on the value. `(rf/handler-meta {:source :store :kind :machine-guard :id [machine-id guard-id]})` and Xray's machine source view then work for the registered value as they do for an inline spec.
     - With `(def m {…})` and `(reg-machine :id m)`, `reg-machine` sees only the symbol and captures nothing. In development the registration warns `:rf.warning/machine-source-unstamped`, once per machine id.
-    - The development-only `:source-*` slots are removed under `:advanced` with `goog.DEBUG=false`.
+    - Production builds remove the development-only `:source-*` slots.
 - **Example**:
   ```clojure
   (rf/defmachine door-machine
@@ -120,10 +124,14 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Kind**: subscription
 - **Payload**: `machine-id`, a registered machine id or a spawned actor's id.
 - **Description**: Returns the machine's snapshot `{:state :data}`, plus the framework-managed `:tags`. Returns `nil` for an unknown machine, and for a registered machine that has not yet handled its first event. To give views narrower values, register subscriptions that take this one as an input, as shown in [The table](../machines/concepts.md#register-and-drive).
+    - A view that renders before the first event must handle `nil`. To create the snapshot at startup instead, dispatch the reserved trigger `[machine-id [:rf.machine/start]]`: it runs the initial state's `:entry` actions and arms its `:after` timers, and matches no `:on` transition.
 - **Example**:
   ```clojure
   (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
-    [:div "State: " (name state)])
+    [:div "State: " (if state (name state) "not started")])
+
+  ;; Or start the machine at boot, so the snapshot exists before any view reads it.
+  (rf/dispatch [:auth.login/flow [:rf.machine/start]])
   ```
 
 ### `[:rf.machine/has-tag? machine-id tag]`
@@ -141,12 +149,15 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Kind**: effect (reserved fx-id)
 - **Payload**: a `spawn-spec` map with exactly one of `:machine-id` (a registered machine to instantiate) or `:definition` (an inline spec map), plus the optional keys below.
 - **Description**: Starts a new instance of a machine, called an actor. Emit it from any event handler's `:fx`, including a machine action's. A declarative `:spawn` state node emits it for you.
-    - `:data` replaces the machine's initial `:data`.
+    - Choose by lifetime. When a child should live exactly as long as one state of a parent machine, put `:spawn` on that state: leaving the state, or destroying the parent, destroys the child. Emit this effect yourself when the actor's lifetime is not one state, such as a logger started with the session. Nothing tracks an actor you spawn this way; it lives until a [`:rf.machine/destroy`](#rfmachinedestroy-actor-id) names it.
+    - `:data` replaces the machine's initial `:data`. The runtime adds the actor's own id to it as `:rf/self-id`.
     - `:id-prefix` sets the prefix of the actor's id, which is the deterministic `<prefix>#<n>` from a per-type counter. The prefix defaults to `:machine-id`.
-    - `:fixed-actor-id` gives the actor an explicit id instead. Use it when the spawner needs to hold the child's address: choose a fresh keyword, store it in ordinary `:data`, and pass it here.
-    - `:start` is an event vector dispatched to the new actor as `[<spawned-id> <start>]`. Without it, the runtime dispatches `[<spawned-id> [:rf.machine.spawn/spawned]]`.
+    - `:fixed-actor-id` gives the actor an explicit id instead. Use it when the spawner needs to hold the child's address: choose a fresh keyword, store it in ordinary `:data`, and pass it here. Spawning at a `:fixed-actor-id` that a live actor already holds destroys that actor first (its `:exit` actions run) and then installs the new one.
+    - `:start` is an event vector dispatched to the new actor as `[<spawned-id> <start>]`. Without it, the runtime dispatches `[<spawned-id> [:rf.machine.spawn/spawned]]`. Either way the actor's initial `:entry` actions run first.
     - A declarative `:spawn` state node accepts the same keys plus `:on-done`, `:on-error`, `:timeout` and `:on-timeout`, and stores the child's id in the parent's `:data` at `[:rf/spawned <invoke-id>]`. See [Actors](../machines/actors.md#spawn-spec-keys).
-    - A `:machine-id` that names no registered machine, with no `:definition`, emits `:rf.error/machine-spawn-unregistered-type` and spawns nothing.
+- **Errors**:
+    - `:rf.error/machine-spawn-unregistered-type`: `:machine-id` names no registered machine and there is no `:definition`. Nothing is spawned.
+    - `:rf.error/machine-spawn-bad-shape`: an inline `:definition` names neither `:id-prefix` nor `:fixed-actor-id`, so the actor would have no id. The effect handler throws, the effect runner reports it as `:rf.error/fx-handler-exception`, and nothing is spawned.
 - **Example**:
   ```clojure
   (rf/reg-event :session/start-logger
@@ -168,9 +179,10 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Kind**: effect (reserved fx-id)
 - **Payload**: `actor-id`.
 - **Description**: Stops an actor. It runs the `:exit` actions of the actor's active states, cancels its pending `:after` timers and removes its snapshot from `[:rf.runtime/machines :snapshots actor-id]` in `runtime-db`.
+    - It also aborts the actor's in-flight `:rf.http/managed` requests and releases any resources the actor owns. Close anything else the actor opened, such as a websocket or an interval, in an `:exit` action, which runs on every destroy path.
     - If the actor has its own event-handler registration, that is removed too. A spawned actor has none: it exists for as long as its snapshot does.
     - Destroying an actor that is already gone does nothing.
-    - A child that enters a `:final?` state is destroyed for you; see [Final states](#final-states-and-on-done).
+    - A declarative child rarely needs it: the runtime destroys it when its parent leaves the spawning state or is destroyed, and when it enters a root-level `:final?` state (see [Final states](#final-states-and-on-done)). An actor you started with `:rf.machine/spawn` has no parent state to end it, so emit this effect when you are done with it, unless it finishes by entering a root-level `:final?` state.
 - **Example**:
   ```clojure
   (rf/reg-event :session/stop-logger
@@ -181,20 +193,28 @@ These are the subscriptions and effects the machines artefact registers. They ar
 ### `[:rf.machine/update-snapshot patch]`
 
 - **Kind**: effect (reserved fx-id)
-- **Payload**: `{:rf/machine-id <id> :rf/patch {:data {...}}}`
-- **Description**: Patches a machine's snapshot from outside its transition table. Emit it from any event handler's `:fx` to change the machine's `:state`, `:meta` or `:data` in one atomic write.
+- **Payload**: `{:rf/machine-id <id> :rf/patch {:state … :meta … :data {…}}}`, each `:rf/patch` key optional.
+- **Description**: Writes a machine's snapshot directly, without taking a transition. A machine action can return only `:data` and `:fx`; emit this from the action's `:fx`, or from any event handler, when you must also set `:state` or `:meta` in the same atomic write. Prefer a transition where one will do: this effect does not check that a patched `:state` exists in the machine's definition.
+    - `:state` and `:meta` replace the snapshot's values. `:data` is merged into the existing `:data`, as an action's `:data` return is, so the runtime's own `:rf/*` keys in it survive.
+    - Other `:rf/patch` keys are ignored. A `:db` key emits `:rf.error/machine-action-wrote-db` and is dropped; the rest of the patch is still written.
+    - Does nothing when the machine has no snapshot (not started, or destroyed).
     - The `:data` patch is validated against the machine's `[:schemas :data]` schema before it is written, by [`validate-update-snapshot-data!`](#re-framemachinesvalidate-update-snapshot-data). A patch that fails is not written, so this effect is subject to the `:where :machine-data` boundary like a transition.
 - **Example**:
   ```clojure
+  ;; Move :session to :anonymous and reset a counter in one write.
   {:fx [[:rf.machine/update-snapshot {:rf/machine-id :session
-                                      :rf/patch      {:data {:retries 0}}}]]}
+                                      :rf/patch      {:state :anonymous
+                                                      :data  {:retries 0}}}]]}
   ```
 
 ### `[:raise event-vec]`
 
 - **Kind**: effect (reserved fx-id, machine actions only)
 - **Payload**: `event-vec`, an event for the same machine.
-- **Description**: Sends `event-vec` back into the same machine within the current macrostep, before the snapshot commits. Only a machine action's `:fx` can use it; there is no `:raise` effect handler outside machines. See [Raise and internal events](../machines/concepts.md#raise-and-internal-events).
+- **Description**: Sends `event-vec` back into the same machine within the current macrostep (the machine's handling of one dispatched event, including every raised event and `:always` step it leads to), before the snapshot commits. Only a machine action's `:fx` can use it; there is no `:raise` effect handler outside machines. See [Raise and internal events](../machines/concepts.md#raise-and-internal-events).
+    - Use it when an action decides the machine's next step. `[:dispatch [machine-id event]]` handles the event later, as a separate event, after this one's snapshot has committed. A raised event is handled within this macrostep, before anything else, and the snapshot commits once.
+    - An event listed in the machine's `:internal-events` can only be raised. Dispatching one from outside emits `:rf.error/machine-internal-event-external-dispatch` and changes nothing.
+    - Raises are depth-bounded: 16 by default, or the machine spec's `:raise-depth-limit`. Exceeding the bound aborts the whole macrostep with `:rf.error/machine-raise-depth-exceeded`.
 - **Example**:
   ```clojure
   {:actions {:kick (fn [_] {:fx [[:raise [:tick]]]})}}
@@ -202,15 +222,19 @@ These are the subscriptions and effects the machines artefact registers. They ar
 
 ## Final states and `:on-done`
 
-A child machine finishes by entering a `:final?` leaf state, whichever way it was spawned; it dispatches nothing to its parent. Entering that state destroys the child, so you do not emit `:rf.machine/destroy`. The completion event runs in the parent's ordinary macrostep: the parent receives the result through `:on-done`, and can also transition on it with a transition-shaped `:on-done`, an `:always`, or `:on {:rf.machine.spawn/done …}`. A child that fails arrives as `:rf.machine.spawn/error` instead.
+A machine finishes by entering a `:final?` leaf that is a direct child of its root. The runtime then destroys it, so you do not emit `:rf.machine/destroy`. A singleton's registration survives: only its snapshot is removed, and its next event starts it again from `:initial`. Use `:final?` for work that ends, such as a request actor. A resting state that views still read, such as `:authed`, stays a plain leaf.
+
+A child started by a `:spawn` or `:spawn-all` state reports to its parent by finishing; it dispatches nothing itself. (An actor started with a hand-emitted `:rf.machine/spawn` has no parent to report to.) The runtime sends the parent a `:rf.machine.spawn/done` event, handled in the parent's ordinary macrostep: the parent receives the result through `:on-done`, and can also transition on it with a transition-shaped `:on-done`, an `:always`, or `:on {:rf.machine.spawn/done …}`. A child that fails arrives as `:rf.machine.spawn/error` instead.
+
+A `:final?` leaf nested inside a compound state finishes only that compound. The machine keeps running, and the compound's own `:on-done` names the state to move to; see [nested final states](../machines/hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states). A `:type :parallel` machine finishes when every region's active state is `:final?`.
 
 | State-node key | What it does |
 |---|---|
-| `:final?` | Marks a leaf state as terminal. Entering it destroys the machine. |
-| `:error?` | Requires `:final?`. Marks the terminal state as a failure: the parent's `:spawn` `:on-error` transition fires instead of `:on-done`, and under a `:spawn-all` join the child counts as failed. |
-| `:output-key` | Requires `:final?`. Names the child's `:data` slot that is reported to the parent's `:on-done`. |
+| `:final?` | Marks a leaf state as terminal. Directly under the root, entering it finishes and destroys the machine; nested in a compound state, it finishes that compound. |
+| `:error?` | Requires `:final?`, or registration throws `:rf.error/machine-error-flag-without-final`. Marks the terminal state as a failure: the parent's `:spawn` `:on-error` transition fires instead of `:on-done`, and under a `:spawn-all` join the child counts as failed. |
+| `:output-key` | Requires `:final?`, or registration throws `:rf.error/machine-output-key-without-final`. Names the child's `:data` slot that is reported to the parent's `:on-done`. |
 
-`:on-done` is a key of the parent's `:spawn` map. It fires when the child enters a non-error `:final?` state, and is applied on the parent's next macrostep rather than inside the child's teardown. `result` is the child's `:data` slot named by the final state's `:output-key`, or `nil`. It takes one of two forms:
+On a parent's `:spawn` map, `:on-done` fires when the child enters a non-error `:final?` state, and is applied on the parent's next macrostep rather than inside the child's teardown. `result` is the child's `:data` slot named by the final state's `:output-key`, or `nil`. It takes one of two forms:
 
 - An `:on`-shaped transition that moves the parent: `{:target :loaded :action …}`, a keyword or path target, or guarded candidates (XState's `invoke onDone`). It resolves at the spawning state's level, like `:on-error`, and the result is at `(:result (nth ev 2))`.
 - A function `(fn [{:keys [data result]}] new-data)` that folds the result into the parent's `:data`. On a `:spawn-all` child spec, this is the only form accepted.
@@ -293,12 +317,13 @@ There is no `machines` or `machine-meta` function. A machine is an `:event` regi
   | {:status :error :error {:kind error-id …}}
   ```
 - **Description**: Runs one transition as a pure function: given a machine definition, a current snapshot and an event, it returns a plain map. Use it to unit-test a transition table. It runs on the JVM and needs no frame; `re-frame.machines` is the only namespace to require.
-    - `:status :ok` carries the new `:snapshot` and the ordered effects vector `:fx`. An event that no transition matches returns `:ok` with the snapshot unchanged and `:fx []`. `:handled?` is `true` when the event selected a transition, even a targetless one that changed nothing, and `false` when nothing took it, so a test can tell a declined event from an accepted no-op.
+    - `:status :ok` carries the new `:snapshot` and the ordered effects vector `:fx`. The effects are described, never run. `:fx` also holds the runtime's own effects, such as one `[:rf.machine/after-schedule …]` for each `:after` timer the new state arms, so assert on the entries you care about rather than on the whole vector. An event that no transition matches returns `:ok` with the snapshot unchanged and `:fx []`. `:handled?` is `true` when the event selected a transition, even a targetless one that changed nothing, and `false` when nothing took it, so a test can tell a declined event from an accepted no-op.
     - `:status :error` reports a failed macrostep. Either a guard, action or `:data` function threw (`:kind :rf.error/machine-action-exception`, with `:exception` and the throwing ref), or a depth limit tripped (`:kind :rf.error/machine-always-depth-exceeded` or `:rf.error/machine-raise-depth-exceeded`). A failure carries no snapshot, because the macrostep is atomic.
     - Mistakes in the input, such as a malformed `:state` or a guard or action ref with no entry, throw the same `:rf.error/*` `ex-info` the registration checks throw rather than returning a result.
 - **Example**: `login-flow` is the definition built in the guide's [first machine](../machines/tutorial.md#the-complete-machine).
   ```clojure
-  (require '[re-frame.machines :as rf.machines])
+  (require '[clojure.test :refer [is]]
+           '[re-frame.machines :as rf.machines])
 
   (let [{:keys [status snapshot fx]}
         (rf.machines/machine-transition login-flow
@@ -400,7 +425,7 @@ These are the handlers this namespace registers for the reserved `:rf.machine/*`
 
 ### Validators
 
-These run the registration-time checks and the `:data` schema checks. The three `:data` validators run only in development builds; with `goog.DEBUG=false` they skip validation and return `true`.
+These run the registration-time checks and the `:data` schema checks. The three `:data` validators run only in development builds; in production builds they skip validation and return `true`.
 
 #### `re-frame.machines/validate-machine!`
 

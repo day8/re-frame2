@@ -14,7 +14,8 @@ application that never requires it carries none of its code.
 
 The platform handles the rest of an overlay. `<dialog>` makes the page behind it
 inert, enforced by the engine rather than by a key handler. `popover` provides
-light dismiss and the auto stack. The top layer paints above everything, so no
+light dismiss (a click outside or Escape closes it) and keeps nested popovers in
+last-opened, first-closed order. The top layer paints above everything, so no
 ancestor's `overflow`, `transform` or `z-index` can clip or out-stack a panel. CSS
 anchor positioning places the panel. What none of them does is enter the top layer:
 an element does not get there by having an attribute, so the module calls
@@ -31,11 +32,14 @@ the focus rules.
 
 Both are legal hiccup heads but not Fresco views: they read no subscriptions. On
 both, `:open?` false renders nothing at all — no element, no listener, no anchor
-name — and every prop that is not the head's own reaches the element unchanged.
+name — so an overlay is open exactly when your `app-db` says so. `:label` is the
+accessible name, set as `aria-label`. Every prop that is not the head's own reaches
+the element unchanged. An `:on-dismiss` with no frame in scope raises
+`:rf.error/fresco-intent-outside-boundary`, since nothing could dispatch it.
 
 ### `popover`
 
-- **Kind**: var (view)
+- **Kind**: var (usable as a hiccup head)
 - **Signature**:
   ```clojure
   [overlay/popover {:open?      open?
@@ -49,13 +53,17 @@ name — and every prop that is not the head's own reaches the element unchanged
   top layer.
     - `:anchor` is the DOM id of the trigger. While the panel is open, the module
       gives that element a generated CSS anchor name, and restores whatever it found
-      when the panel closes. An `:anchor` naming no element raises
+      when the panel closes. Changing `:anchor` on an open panel moves it to the new
+      trigger without closing it. An `:anchor` naming no element raises
       `:rf.error/fresco-overlay-anchor-missing`; omitting `:anchor` is legal.
-    - `:placement` is a compass word that becomes a `position-area` against the
-      anchor. A value outside the known table is passed through as a literal
-      `position-area` value rather than rejected.
+    - `:placement` is one of `:top`, `:bottom`, `:left` or `:right`, alone or with
+      `-start` or `-end` (`:bottom-start` lines the panel's left edge up with the
+      trigger's). It becomes a CSS `position-area` against the anchor. Any other
+      value is passed through as a literal `position-area` string rather than
+      rejected, so a misspelt word is an invalid CSS value and the panel lands at
+      the browser's default position.
     - With `:on-dismiss`, the panel is `popover="auto"` and joins the platform's
-      LIFO stack. Without it, the panel is `popover="manual"` and nothing dismisses
+      stack of open popovers. Without it, the panel is `popover="manual"` and nothing dismisses
       it, because a dismissal nothing handles would leave the browser, instead of
       your `:open?` value, deciding whether the panel is open.
 - **Example**:
@@ -69,7 +77,7 @@ name — and every prop that is not the head's own reaches the element unchanged
 
 ### `modal`
 
-- **Kind**: var (view)
+- **Kind**: var (usable as a hiccup head)
 - **Signature**:
   ```clojure
   [overlay/modal {:open?          open?

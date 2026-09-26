@@ -24,6 +24,51 @@ Register `app-db` schemas through the `re-frame.core` facade, as `rf/reg-app-sch
 
 [Validate with schemas](../core/how-to/validate-with-schemas.md) teaches the model.
 
+## What is validated
+
+In a development build each schema is checked where its data is produced, and a value that fails goes no further:
+
+| Schema on | Declared with | Checked | On failure (`:where`) |
+|---|---|---|---|
+| An `app-db` path | `reg-app-schema` or `reg-app-schemas` | After an event handler returns `:db`, before the new `app-db` installs. Every schema in the frame is checked, including those at paths the handler did not write. | `:app-db`. The event's whole transition is rejected: `app-db` keeps its pre-handler value and the event's `:fx` do not run. |
+| An event | `:schema` on `reg-event`, matched against the whole event vector, id included | Before the handler runs. | `:event`. The handler does not run; the queue moves on to the next event. |
+| An effect | `:schema` on `reg-fx`, matched against the effect's argument | Before the effect handler runs. | `:fx-args`. That effect is skipped; the other effects in the same `:fx` vector still run. |
+| A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The subscription yields `nil`. |
+
+Each failure emits an `:rf.error/schema-validation-failure` trace. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it), `:reason` and `:recovery`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`.
+
+Xray shows each failure on the event that caused it. An `app-db` rejection is also reported on the always-on `:errors` stream, so it reaches the frame's `:observability :errors` sinks, or the browser console when no sink handles it. The other three appear only in the trace, so without Xray, tap the trace yourself:
+
+```clojure
+;; Development only: log every schema failure.
+(rf/register-listener! :trace :my-app/schema-failures
+  (fn [{:keys [operation tags]}]
+    (when (= operation :rf.error/schema-validation-failure)
+      (js/console.warn (:where tags) (:failing-id tags) (:reason tags)))))
+```
+
+When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers).
+
+Other registrations check their own schemas through the validator installed here: a route's `:params` and `:query` ([`reg-route`](re-frame.routing.md#reg-route)), a flow's output ([`reg-flow`](re-frame.flows.md#reg-flow)), a machine's `[:schemas :data]` ([`reg-machine`](re-frame.machines.md#reg-machine)) and a resource's `:params-schema` ([`reg-resource`](re-frame.resources.md#reg-resource)); each of those pages says when its check runs and what a failure does. A `{:recordable? true}` coeffect's `:schema` ([`reg-cofx`](re-frame.core.md#reg-cofx)) is checked in every build as the value is recorded, and a failure emits `:rf.error/cofx-value-invalid` and throws.
+
+### Validation in production
+
+A production build (`:advanced` with `goog.DEBUG` false) removes the four checks above. The schemas stay registered, so the introspection functions still return them, but nothing is checked. For an event whose payload comes from outside the app, such as an HTTP reply, a websocket message or a `postMessage`, set `:boundary? true` beside its `:schema`, and that event is checked in every build:
+
+```clojure
+(rf/reg-event :ws/message-received
+  {:schema    [:cat [:= :ws/message-received]
+                    [:map [:type :string] [:body :string]]]
+   :boundary? true}
+  (fn [{:keys [db]} [_ msg]]
+    {:db (update db :messages (fnil conj []) msg)}))
+```
+
+- A failure skips the handler, marks the dispatch `:outcome :rejected`, and sends an `:rf.error/schema-validation-failure` record with `:source :boundary` to the always-on `:errors` stream. The record's keys are fixed (`:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, `:time`), so it never carries the payload; a development build also emits the full trace.
+- The check runs through the validator installed here, so the production build must load `re-frame.schemas`. With no validator installed, including after `(set-schema-fns! {:validate nil})`, the check passes.
+- A validator that throws counts as a failure.
+- `:boundary? true` without a `:schema` key throws `:rf.error/at-boundary-missing-schema` at registration. See [`reg-event`](re-frame.core.md#reg-event).
+
 ## Registration
 
 `re-frame.schemas` also exports both registration names as plain functions, for programmatic registration. They behave like the macros but do not record call-site source coords.
@@ -36,8 +81,9 @@ Register `app-db` schemas through the `re-frame.core` facade, as `rf/reg-app-sch
   (reg-app-schema path schema)
   (reg-app-schema path metadata schema)
   ```
-- **Description**: Attaches a Malli schema to an `app-db` path. In development builds, after each event handler commits `:db`, the new `app-db` is validated against it, and a write that fails is rolled back to the pre-handler `app-db`.
-    - This is a development-build assertion. A production build still registers the schema, so `app-schemas` and `app-schema-meta` return it, but never checks it: a violating `app-db` installs with no rejection, rollback or trace. Keep invariants that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the event registration where untrusted input must be validated in production too.
+- **Description**: Attaches a Malli schema to an `app-db` path. In development builds, after each event handler commits `:db`, the new `app-db` is validated against it. A write that fails is rolled back to the pre-handler `app-db`, and the event's `:fx` do not run (see [What is validated](#what-is-validated)).
+    - Every registered path is checked on every commit, and a path nothing has written yet reads `nil`. So a schema registered before its slice is seeded rejects every commit until the seed lands. Seed all such slices in one `:db` write, or allow the empty state with `[:maybe …]`.
+    - This is a development-build assertion. A production build still registers the schema, so `app-schemas` and `app-schema-meta` return it, but never checks it: a violating `app-db` installs with no rejection, rollback or trace. Keep invariants that must hold in production in the handler, and set [`:boundary? true`](#validation-in-production) on the event registration where untrusted input must be validated in production too.
     - The schema is the last positional argument, as in the rest of the `reg-*` family. The optional middle metadata map carries the frame under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys. Without `:frame`, the schema registers against the frame in scope, for example inside `rf/with-frame`.
     - The path is the registration id. App-db schemas are not a registrar kind: they live in the schemas artefact's per-frame table, and `(schemas/app-schema-meta {:frame f :path [:user]})` looks one up by the same path.
     - `path` is a sequential `get-in` path of concrete segments, normalised to a vector. `[]` registers a schema for the whole `app-db`. Returns the normalised path.
@@ -163,7 +209,7 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
   (set-schema-fns! {:validate validate-fn :explain explain-fn :print print-fn})
   ```
 - **Description**: Installs any subset of the validator, explainer and printer from one map. It is the only way to change them.
-    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate` or `:explain` disables that function.
+    - Each key is optional. An absent key leaves that function in place, so a one-key map swaps a single function. An explicit `nil` is a write: `nil` `:validate` or `:explain` disables that function. With `:validate` `nil`, every check that uses the validator passes, including the production `:boundary? true` check and route `:params` / `:query` validation.
     - A `nil` `:print` falls back to the default EDN canonicaliser, so the digest always has a printer.
     - `validate-fn` is `(fn [schema value] truthy?)`, the `malli.core/validate` shape. `explain-fn` is `(fn [schema value] explanation)`, the `malli.core/explain` shape. `print-fn` is `(fn [schema-value] canonical-string)` and must be pure and give the same string on every runtime.
     - Last write wins per key; a call is not transactional.
@@ -181,7 +227,7 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
   ;; a non-Malli port registers its own canonical schema serialiser
   (schemas/set-schema-fns! {:print (fn [schema] (pr-str schema))})
 
-  ;; nil disables dev-time validation entirely
+  ;; nil turns validation off everywhere, :boundary? checks included
   (schemas/set-schema-fns! {:validate nil})
   ```
 
@@ -217,7 +263,7 @@ The default validator is Malli's `validate` / `explain` pair, plus an EDN printe
 - **Description**: The framework's own bundle: the map installed before an app installs anything, with exactly `:validate`, `:explain` and `:print`.
     - `(set-schema-fns! default-schema-fns)` restores the defaults.
     - It holds the same function objects the bundle started with, so after restoring it the check behind `:rf.warning/schema-validator-unavailable` (is the framework default still installed?) is true again. A bundle rebuilt by hand around the same behaviour would not pass that check.
-    - It is the framework default rather than a Malli bundle: `:print` is the EDN canonicaliser, which Malli does not supply, and `:validate` / `:explain` pass everything while the Malli adapter is not loaded.
+    - It is the framework default rather than a Malli bundle: `:print` is the EDN canonicaliser, which Malli does not supply, and `:validate` / `:explain` call Malli through the adapter that loading `re-frame.schemas` installs. If that adapter is absent they pass everything, and the first `reg-app-schema` emits `:rf.warning/schema-validator-unavailable`.
 - **Example**:
   ```clojure
   ;; restore the framework defaults after a test swapped them out
@@ -251,7 +297,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
     - Returns `true` when every schema conformed, and also when no validator or no schema is registered for the frame, or the build elided validation.
-    - Returns `false` when at least one schema failed. The router then rolls the `:db` effect back to the pre-handler value.
+    - Returns `false` when at least one schema failed. The router then rejects the transition: `app-db` keeps its pre-handler value and the event's `:fx` are skipped.
     - Does nothing for any schema when `set-schema-fns!` has installed a `nil` `:validate`.
 
 #### `validate-event!`
@@ -293,13 +339,13 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-sub! sub-id query-v value sub-meta frame continue?)
   ```
 - **Description**: Validates a subscription's value against the `:schema` in its registration metadata, after the subscription recomputes.
-    - On failure it emits `:rf.error/schema-validation-failure` with `:where :sub-return`, and the caller replaces the value with the default (recovery `:replaced-with-default`).
+    - On failure it emits `:rf.error/schema-validation-failure` with `:where :sub-return`, and the caller replaces the value with `nil` (recovery `:replaced-with-default`).
     - The optional `frame` argument stamps `:frame` on the trace for epoch capture.
     - Returns `true` or `false`.
 
 ### Boundary validation and redaction
 
-Other parts of the framework call these three functions in every build. `validate-with-registered-fn` and `explain-with-registered-fn` run the installed validator and explainer for the always-on check that `{:boundary? true}` enables on an event handler (see [`reg-event`](re-frame.core.md#reg-event)). Every validation-failure trace emitted outside this namespace is redacted by `redact-validation-tags`.
+Other parts of the framework call these three functions in every build. `validate-with-registered-fn` and `explain-with-registered-fn` run the installed validator and explainer for the checks outside the four entry points above, among them the [`{:boundary? true}`](#validation-in-production) event check and route `:params` / `:query` validation. Every validation-failure trace emitted outside this namespace is redacted by `redact-validation-tags`.
 
 #### `validate-with-registered-fn`
 
@@ -347,7 +393,7 @@ These props describe the shape of the value a schema checks. They are not a dura
 
 - Durable `app-db` classification comes from events: a `reg-event` handler returns `:sensitive` / `:large` alongside `:db`.
 - A machine's `:data` is classified by the projection-relative `:sensitive` / `:large` paths declared at the top level of its `reg-machine` spec. A `{:sensitive? true}` slot in the machine's `[:schemas :data]` schema redacts that slot in the schema's validation-failure trace only; it does not redact the snapshot in SSR hydration, an epoch record or the Xray Machine Inspector.
-- A resource's required `:params-schema` is read only by the validation-failure redactor. Its optional `:data-schema` has no runtime validation at all: it is reported as the resource's process-node `:schema` and in its `:rf/resource` registration projection, and a response's shape is validated by the request's `:decode` instead. A `:sensitive?` prop on a `:data-schema` slot therefore redacts nothing.
+- A resource's required `:params-schema` validates its params, and its `:sensitive?` / `:large?` props are read only by the validation-failure redactor. Its optional `:data-schema` has no runtime validation at all: it is reported as the resource's process-node `:schema` and in its `:rf/resource` registration projection, and a response's shape is validated by the request's `:decode` instead. A `:sensitive?` prop on a `:data-schema` slot therefore redacts nothing.
 
 A compiled `m/schema` value is opaque to the walkers, so register the vector form when per-slot flags need to be visible.
 

@@ -1,6 +1,8 @@
 # re-frame.epoch
 
-In development builds, re-frame records an epoch for every event a frame handles: the frame-state before and after, the event that ran, and the trace it produced. That history lets you see what each event did, rewind a frame to an earlier epoch, or run a recorded event again; Xray, re-frame2-pair and Story read it for time-travel and post-mortem. Production builds (`:advanced` + `goog.DEBUG=false`) elide all of it: nothing is allocated, stored or run.
+In development builds, re-frame records an epoch for every event a frame handles: the frame-state (the frame's `app-db` and `runtime-db`) before and after, the event that ran, and the trace it produced. That history lets you see what each event did, rewind a frame to an earlier epoch, or run a recorded event again. Production builds (`:advanced` + `goog.DEBUG=false`) elide all of it: nothing is allocated, stored or run.
+
+Most of the time you use epochs through a tool: Xray's time-travel view, re-frame2-pair and Story read the history and call these functions for you. At a REPL the usual loop is the one below: find the event that went wrong, rewind to just before it, fix and reload its handler, and replay it.
 
 Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re-frame.epoch` to load it. Without it, `rf/epoch-history` returns `[]`, `rf/restore-epoch!` and `rf/replay-epoch!` return `false`, and `rf/replace-frame-state!` throws `:rf.error/epoch-artefact-missing`.
 
@@ -10,12 +12,19 @@ Epoch history ships in the optional `day8/re-frame2-epoch` artefact; require `re
 ```
 
 ```clojure
-;; The most recent epoch recorded for a frame (history is oldest-first).
-(def latest (peek (rf/epoch-history :app/main)))
-(select-keys latest [:trigger-event :db-before :db-after])
+;; What did the recent events do? History is oldest-first.
+(def history (rf/epoch-history :app/main))
+(map :event-id history)                  ;; => (:cart/add :cart/add :cart/checkout)
+(select-keys (peek history) [:trigger-event :db-before :db-after])
 
-;; Rewind the frame to the epoch before it.
-(rf/restore-epoch! :app/main (:epoch-id (peek (pop (rf/epoch-history :app/main)))))
+;; :cart/checkout went wrong. Rewind to the state just before it,
+;; which is the previous epoch's after-state.
+(rf/restore-epoch! :app/main (:epoch-id (nth history 1)))   ;; => true
+
+;; Fix and reload the :cart/checkout handler, then run the recorded event
+;; again. Its effects, such as an HTTP request, run again too.
+(rf/replay-epoch! :app/main (:epoch-id (nth history 2)))
+;; => {:ok? true :frame :app/main :event-id :cart/checkout …}
 ```
 
 You call everything on this page through `rf/`, including listeners (`rf/register-listener! :epoch`) and configuration (`rf/configure!`, `rf/current-config`). The same-named `re-frame.epoch` vars are the implementations behind the facade; a test calls only the teardown functions `clear-history!` and `clear-epoch-listeners!` on `epoch/`. The [Observability guide](../core/observability.md#the-epoch-history-what-the-app-was) shows how epochs fit the trace model.
@@ -51,6 +60,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
   ```
 - **Description**: Rewinds the frame to the named epoch's `:frame-state-after` in one atomic write. Both partitions rewind: `app-db` and `runtime-db` alike, so machine snapshots and the route slice go back too.
     - Returns `true` on success and emits `:rf.epoch/restored`.
+    - The history is kept: epochs recorded after the target stay in the ring, so you can still restore or replay them.
     - Returns `false` on any failure, leaves the frame-state unchanged, and emits one of these error traces:
         - `:rf.error/no-such-handler` (kind `:frame`): the frame is not registered, or was destroyed.
         - `:rf.epoch/restore-during-drain`: called while a drain is in flight.
@@ -73,7 +83,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
   (replay-epoch! frame-id epoch-id)      → envelope map (false when elided)
   (replay-epoch! frame-id epoch-id opts) → envelope map (false when elided)
   ```
-- **Description**: Runs a retained epoch's recorded event through the frame's own handlers again, as a strict replay.
+- **Description**: Runs a retained epoch's recorded event through the frame's own handlers again, as a strict replay. Use it after changing a handler, usually after a `restore-epoch!` to the epoch before, to see what the new code does with the same input. It differs from dispatching the recorded event vector yourself: the handler receives the coeffects recorded the first time, such as the time, instead of fresh ones.
     - The record is read in-process and its replay material goes into the dispatch: the raw `:trigger-event` with its arguments, the recorded `:rf.cofx` under `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` and `:interceptor-overrides`. Because nothing is copied out by hand, an off-box tool can replay even though a projected record shows event arguments only as `:rf/redacted`.
     - Replay runs in the same frame, against its current state and code. It does not restore first (call `restore-epoch!` beforehand when the start state matters), any effect the handler emits fires again, and the replay records a new ordinary epoch whose `:committed-at` equals the original's.
     - `opts` carries only `:origin`, `:source` and `:trace-id`. A value under `:frame`, `:rf.cofx`, `:rf.cofx/mint-policy`, `:fx-overrides` or `:interceptor-overrides` is discarded.
@@ -85,7 +95,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
         - `:rf.epoch/replay-non-replayable-record` (with `:cause`: `:halted`, `:synthetic`, `:missing-trigger-event`, `:missing-replay-token` or `:incomplete-inputs`).
         - `:rf.epoch/replay-unreplayable-fx-override` (with `:fx-ids`): a recorded `:fx-overrides` entry is the `:rf/fn-override` sentinel.
     - `:incomplete-inputs` means capture lost data. A `:sensitive` or `:large` declaration on a `reg-event` or `reg-cofx` is applied at trace capture, so the declared value reaches the record already replaced by `:rf/redacted` or a `:rf.size/large-elided` marker. Replay refuses rather than run with the substitute; `:lost` lists each `{:slot :path :loss}`.
-    - A declared recordable fact missing from the recorded token is not a refusal: the dispatch fails with `:rf.error/missing-required-cofx`, as any `:strict` dispatch does, and nothing is minted.
+    - A declared recordable coeffect missing from the recorded token is not a refusal: the dispatch runs and throws `:rf.error/missing-required-cofx` out of `replay-epoch!`, as any `:strict` dispatch does. No fresh value is generated in its place.
 - **Example**:
   ```clojure
   ;; Replay the most recent epoch through the app's own handlers, strictly.
@@ -103,7 +113,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
   ```clojure
   (replace-frame-state! frame-id new-frame-state) → boolean
   ```
-- **Description**: Writes a frame's partitions directly, without dispatching an event. Pair tools use it to inject state. Dev-only; production builds elide it.
+- **Description**: Writes a frame's partitions directly, without dispatching an event. Use it from a REPL or a tool to put a frame into a particular state without writing an event for it; pair tools inject state this way. Dev-only; production builds elide it.
     - `new-frame-state` is a partial frame-state map: any subset of `{:rf.db/app … :rf.db/runtime …}`. A key that is present replaces that partition; a key that is absent leaves its partition unchanged. Writing one partition never touches the other.
     - This is the only frame-state write function. There is no `replace-app-db!`, `reset-app-db!` or `replace-runtime-db!`; write the one partition you mean.
     - Each successful write records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past it, and emits `:rf.epoch/db-replaced`. Returns `true`.
@@ -130,7 +140,7 @@ You call everything on this page through `rf/`, including listeners (`rf/registe
 
 ## Epoch listeners
 
-Apps and tools receive epoch records on the `:epoch` stream: `(rf/register-listener! :epoch id callback-fn)` and `(rf/unregister-listener! :epoch id)`, documented under [`register-listener!`](re-frame.core.md#register-listener). What the callback receives is described here:
+Apps and tools receive epoch records on the `:epoch` stream: `(rf/register-listener! :epoch id callback-fn)` and `(rf/unregister-listener! :epoch id)`, documented under [`register-listener!`](re-frame.core.md#register-listener). Use a listener when you build something that must see each record as it is published, such as a recorder, a forwarder or a custom dev panel; to inspect history at a REPL, `epoch-history` is enough. What the callback receives is described here:
 
 - `callback-fn` is called with the fully assembled, unprojected `:rf/epoch-record` each time a record is published, which is not always once per event:
     - An ordinary event publishes one record when it settles. The same record, with the same `:epoch-id`, is published again when a later render, sub-run or unmount fills in more of that settled epoch.
@@ -139,6 +149,7 @@ Apps and tools receive epoch records on the `:epoch` stream: `(rf/register-liste
     - A dequeued event rejected before it runs (it has no handler) publishes nothing.
 - Listeners are process-global, but `:epoch-id` is unique only within one frame's history. Key records on `[(:frame record) (:epoch-id record)]` and replace the entry when a record is published again, so a filled-in record corrects your copy rather than counting twice.
 - `:outcome` (`:ok`, `:halted-depth` or `:halted-destroy`) is state read off the record, not part of its identity. Listeners receive every record, whatever its `:outcome`.
+- Listeners receive records even when `:depth` is 0 and the ring keeps nothing.
 - `id` may be any comparable value; registering the same `id` again replaces the callback.
 - A listener exception is caught and isolated, emitting `:rf.epoch.cb/listener-exception`, so one broken listener cannot block the others.
 - When a frame a callback has observed is destroyed, the framework emits a one-shot `:rf.epoch.cb/silenced-on-frame-destroy` trace for that callback. Call `(rf/epoch-silence-current? tags)` with the trace's tags to decide whether it still describes the current callback.
@@ -163,12 +174,12 @@ The ring and the `:epoch` listeners always hold the raw record, so on-box tools 
 - **Signature**: `(rf/project-egress record)` / `(rf/project-egress record opts)`.
 - It projects the payload slots (`:frame-state-before`, `:frame-state-after`, `:db-before`, `:db-after`, `:trace-events`) under a `:rf.egress/profile`. Sensitive paths redact to `:rf/redacted` and large paths elide to `:rf.size/large-elided` markers. By default the `:rf.db/runtime` partition, the `:args` of `:effects` entries, and the arguments of `:trigger-event` and trace events are redacted. The 1-arity is the safe, fully redacted off-box form; the 2-arity takes trusted-local `opts`.
 - An input without a `:kind` stamp (`nil`, a non-map, or an unstamped map) is projected as a plain value, by the [value path](re-frame.core.md#project-egress)'s usual rules. So `(mapv rf/project-egress ring)` over a ring with holes never throws, but a hole is not guaranteed to project as `nil`.
-- The `:rf.egress/profile` value names which boundary the record is crossing:
+- The `:rf.egress/profile` value names which boundary the record is crossing. These two are the usual ones for epoch records; `rf/project-egress` lists the rest:
     - `:rf.egress/off-box-observability` (the default for epoch records): hosted monitoring, log shippers, Story and pair recorders. Redacts sensitive paths, elides large ones, and omits structural digests.
     - `:rf.egress/off-box-tool`: the MCP, AI and tool wire. The same redaction and elision, and no digests. A tool reads an elided slot's shape from the marker's `:path`, `:bytes`, `:type` and `:handle`.
-    - An unknown profile is rejected.
-- Five per-call overrides compose over the profile, all defaulting to `false`: `:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-runtime-db?`, `:rf.egress/include-fx-args?` and `:rf.egress/include-event-args?`. The last three apply only to epoch records; on any other kind they are accepted and have no effect.
-- `opts` is a closed map of eleven keys. Any other key, including the unqualified `include-sensitive?` / `include-large?`, throws `:rf.error/bad-egress-opts` naming it.
+    - An unknown profile throws `:rf.error/unknown-egress-profile`.
+- Per-call overrides compose over the profile. `:rf.egress/include-sensitive?`, `:rf.egress/include-large?` and `:rf.egress/include-digests?` override what the profile decides. Three more apply only to epoch records and default to `false`: `:rf.egress/include-runtime-db?`, `:rf.egress/include-fx-args?` and `:rf.egress/include-event-args?`; on any other kind they are accepted and have no effect.
+- `opts` is closed; [`rf/project-egress`](re-frame.core.md#project-egress) lists its keys. Any other key, including the unqualified `include-sensitive?` / `include-large?`, throws `:rf.error/bad-egress-opts` naming it.
 - Without the `day8/re-frame2-epoch` artefact, an epoch record passed to `rf/project-egress` throws `:rf.error/epoch-artefact-missing` naming the kind, rather than being walked as a plain value.
 - There is no post-projection scrub hook. A forwarder that needs one composes it: `(-> record (rf/project-egress opts) scrub)`.
 

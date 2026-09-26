@@ -2,6 +2,8 @@
 
 Describe an HTTP request as data in an event's `:fx`, and the runtime issues it, applies your timeout and retry policy, decodes and validates the body, classifies any failure into a closed set of kinds, and dispatches the reply to an event you name. Aborting and superseding a request by id are built in.
 
+Use `:rf.http/managed` directly for a request whose reply one event handles, such as a login or a one-off load you keep in your own `app-db`. When the same server data is read from more than one place, or needs caching, deduplication, staleness or a refetch after a write, register a [resource](re-frame.resources.md) instead. Resources and mutations issue their requests through this same fx: their request fns return the args map described below, and the runtime supplies the reply addressing.
+
 Managed HTTP ships in the optional artefact `day8/re-frame2-http`. Require `re-frame.http.managed` once at boot: loading it registers the `:rf.http/managed` fx. A facade call such as `rf/reg-http-interceptor` made without the artefact raises `:rf.error/http-artefact-missing`.
 
 ```clojure
@@ -41,15 +43,15 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 - **Payload**: the args map below. [The request is a map](../async/http.md#the-request-is-a-map) covers the `:request` envelope.
 - **Description**: Issues one HTTP request and dispatches its reply to the target the args map names. In the browser it uses Fetch; on the JVM, `java.net.http.HttpClient`.
 - **Options**:
-    - `:request` — the request envelope. `:url` is required.
-    - `:decode` — the decode policy: a Malli schema, a keyword mode (`:json`, `:text`, …) or a decoder fn. See also [Response-body classification](#response-body-classification).
-    - `:accept` — a fn that checks the decoded value; returning `{:failure user-map}` fails the request as `:rf.http/accept-failure`.
-    - `:retry` — `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`.
+    - `:request` — the request envelope: `:url` (required), `:method` (default `:get`), `:headers`, `:params` (a query-param map, encoded onto the URL), `:body` and `:request-content-type` (`:json`, `:form`, `:text` or a MIME string, which serialises `:body` and sets `Content-Type`; a Clojure collection `:body` without it is sent as JSON).
+    - `:decode` — how to read a 2xx body. Absent or `:auto` picks from the response `Content-Type`; `:json`, `:text`, `:blob`, `:array-buffer` and `:form-data` force one; a Malli schema parses JSON and validates it; a fn `(fn [body-text headers] → value)` does it all. See also [Response-body classification](#response-body-classification).
+    - `:accept` — `(fn [decoded] → {:ok value} | {:failure user-map})`, a domain check after decoding. `{:ok value}` makes `value` the success `:value`; `{:failure user-map}` fails the request as `:rf.http/accept-failure`.
+    - `:retry` — `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
     - `:timeout-ms` — per-attempt timeout, default 30000. An explicit `nil` or `0` turns it off.
     - `:rf.http/max-decoded-keys` — the most unique JSON object keys the decoder will intern for this request, default 10000. Exceeding it fails the request as `:rf.http/decode-failure` with `:reason :too-many-keys`.
     - `:reply-to` — the event vector that receives both the success and the failure reply; see [Reply addressing](#reply-addressing).
     - `:on-success` / `:on-failure` — separate success and failure event vectors (or `nil`), used instead of `:reply-to`.
-    - `:request-id` — an id used to abort the request or supersede it with a newer one.
+    - `:request-id` — any `=`-comparable value naming the request, for [`:rf.http/managed-abort`](#rfhttpmanaged-abort-request-id) or supersession: issuing a new request with the same id while one is in flight supersedes it, and the old reply is never delivered. Ids are per frame, so two frames running the same code do not cancel each other.
     - `:abort-signal` — an external abort signal (CLJS only).
     - `:sensitive?` — redacts this request in traces; see [Privacy and classification](#privacy-and-classification).
 - **Errors** (all raised at dispatch, before the request is sent):
@@ -75,7 +77,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 
 - **Kind**: effect (reserved fx-id)
 - **Payload**: the `:request-id` of an in-flight request.
-- **Description**: Aborts the in-flight request with that `:request-id`. Its reply target (`:reply-to` or `:on-failure`) receives the cancelled envelope `{:status :cancelled :cancelled? true :rf.reply/cancel-reason :user :error {:kind :rf.http/aborted ...}}`, as described under [Reply addressing](#reply-addressing).
+- **Description**: Aborts the in-flight request with that `:request-id`, issued from the same frame; an id with nothing in flight is a no-op. Its reply target (`:reply-to` or `:on-failure`) receives the cancelled reply `{:status :cancelled :cancelled? true :rf.reply/cancel-reason :user :error {:kind :rf.http/aborted ...}}`, as described under [Reply addressing](#reply-addressing).
 - **Example**:
   ```clojure
   (rf/reg-event :request/abort
@@ -88,8 +90,9 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
 Every reply is one map keyed on `:status`, which is `:ok`, `:error` or `:cancelled`:
 
 ```clojure
-;; Success
-{:status :ok :value decoded-body …}
+;; Success — :meta carries the response's :status, :status-text and :headers
+;; (header names lower-cased)
+{:status :ok :value decoded-body :meta {:status 200 :status-text "OK" :headers {…}} …}
 
 ;; Failure — per-kind tags (:status / :status-text / :message / ...) sit
 ;; flat on the failure map beside :kind
@@ -100,6 +103,8 @@ Every reply is one map keyed on `:status`, which is `:ok`, `:error` or `:cancell
 {:status :cancelled :cancelled? true :rf.reply/cancel-reason :user
  :error  {:kind :rf.http/aborted …}}
 ```
+
+A timeout is a failure: `:status :error` with `:kind :rf.http/timeout`. The reply also carries `:attempt` and, when the request had a `:request-id`, `:correlation {:request-id …}`.
 
 Every request must name where its reply goes. The runtime appends the reply map as the last argument of the event vector you name:
 
@@ -122,8 +127,13 @@ A failure's `:kind` is one of eight values, all reserved under `:rf.http/*`. The
 | `:rf.http/http-4xx` | A 4xx response. |
 | `:rf.http/http-5xx` | A 5xx response. |
 | `:rf.http/decode-failure` | A 2xx response whose body the decoder rejected. |
-| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. |
+| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`, threw, or returned neither shape. |
 | `:rf.http/aborted` | Aborted via `:request-id` or `:abort-signal`. |
+
+- The status is classified before the body is read, so a 4xx or 5xx response is never decoded: its raw body is on the failure map's `:body`. An empty 2xx JSON body decodes to `nil` rather than failing.
+- The first five kinds are the ones `:retry :on` accepts. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
+- Every failure map also names the request it came from: `:request {:method :url}`, `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
+- Resources and mutations store this same map as their `:error` (and a resource's `:refresh-error`), so one `case` on `:kind` serves both.
 
 [Failures are a closed set](../async/http.md#failures-are-a-closed-set) lists the tags each kind carries.
 
@@ -151,8 +161,11 @@ Register an interceptor to change every request a frame issues: add an auth head
   (rf/reg-http-interceptor :auth/inject
     {:frame  :app/main
      :before (fn [ctx]
-               (assoc-in ctx [:request :headers "Authorization"]
-                         (str "Bearer " (token-from-app-db))))})
+               ;; read the token fresh on each request, so a rotated token is picked up
+               (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
+                 (cond-> ctx
+                   token (assoc-in [:request :headers "Authorization"]
+                                   (str "Bearer " token)))))})
 
   ;; Or with both sides — :before stamps a start mark, :after reads it.
   (rf/reg-http-interceptor :telemetry
@@ -178,7 +191,7 @@ Register an interceptor to change every request a frame issues: add an auth head
     - These two forms are the whole public surface; there is no frame-first `(clear-http-interceptor frame id)` form.
 - **Example**:
   ```clojure
-  (rf/clear :http-interceptor :auth-header)
+  (rf/clear :http-interceptor :auth/inject {:frame :app/main})
   ```
 
 ## Privacy and classification
@@ -204,7 +217,9 @@ HTTP carries secrets: passwords in request bodies, auth tokens in request header
   (fn [_ [_ creds]]
     {:fx [[:rf.http/managed
            {:request    {:method :post :url "/auth/login" :body creds}
-            :sensitive? true}]]}))
+            :sensitive? true
+            :on-success [:api/logged-in]
+            :on-failure [:api/login-failed]}]]}))
 ```
 
 ### `re-frame.http.managed/managed-handler`
@@ -229,12 +244,13 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
             :decode  [:map
                       [:token {:sensitive? true} :string]
                       [:user-id :int]]
-            :on-success [:auth/logged-in]}]]}))
+            :on-success [:auth/logged-in]
+            :on-failure [:auth/login-failed]}]]}))
 ```
 
 - A `:sensitive?` slot is redacted to `:rf/redacted` and a `:large?` slot is replaced with the size marker; a slot carrying both is treated as sensitive. Unmarked siblings are traced verbatim. A prop on the root classifies the whole body, for example `[:string {:sensitive? true}]` for a response that is an opaque token.
 - Only a Malli schema in the raw EDN vector form `[op props? …]` has per-slot marks the walker can read. Any other `:decode` (a keyword mode such as `:json` or `:text`, a custom decoder fn, a registry-keyword ref, a compiled `m/schema` object) leaves the body's shape unknown, so the body is omitted from off-box records entirely rather than shipped raw.
-- Error bodies are always omitted from off-box records, whatever `:sensitive?` says. A 4xx/5xx `:body` and a decode-failure `:body-text` are never decoded, because the status is classified first, and error bodies often echo request context or tokens.
+- Error bodies are always omitted from off-box records, whatever `:sensitive?` says: a 4xx/5xx `:body` and a decode-failure `:body-text` are raw text that no schema has classified, and error bodies often echo request context or tokens.
 
 !!! warning "Classification does not propagate — declare each surface a secret crosses"
 
@@ -259,13 +275,14 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
     - The frame's `:before` and `:after` interceptor chains run around the reply, as on the real path. Reply addressing (`:reply-to` / `:on-success`) works as for `:rf.http/managed`; a stub reply with no target is dropped silently.
 - **Example**:
   ```clojure
-  (rf/reg-event :counter/retry-recover
+  ;; cf. examples/core/managed_http_counter/core.cljs
+  (rf/reg-event :counter/load
     (fn [_ _]
       {:fx [[:rf.http/managed-canned-success
              {:request  {:method :get :url "api/flaky"}
               :decode   :json
               :value    {:delta 5}
-              :reply-to [:counter/retry-recover]}]]}))
+              :reply-to [:counter/loaded]}]]}))   ;; receives {:status :ok :value {:delta 5} …}
   ```
 
 ### `[:rf.http/managed-canned-failure {:kind <:rf.http/*> :tags {...}}]`
@@ -362,6 +379,7 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
 
 ## See also
 
+- [re-frame.resources](re-frame.resources.md) — cached reads and mutations that issue their requests through `:rf.http/managed`.
 - [re-frame.core](re-frame.core.md) — `:rf.http/managed` in the standard fx table, the `:sensitive` commit-plane effect, and the instrumentation and egress functions (`project-egress`, the observability-sink registration).
 - [re-frame.schemas](re-frame.schemas.md) — the `:schema` registration key and per-slot `:sensitive?` / `:large?` schema props.
 - [re-frame.test-support](re-frame.test-support.md) — combining HTTP stubs with `dispatch-sync` and `poll-until`.
