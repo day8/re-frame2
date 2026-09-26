@@ -673,11 +673,11 @@ All tracing is **dev-only** (elided in production). See [009 §Tracing](009-Inst
 
 ### Trace-emission opt-out (per-handler metadata)
 
-Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. When set, the runtime suppresses **every** trace emission and event-emit record within the handler's scope — the handler runs invisibly to the trace surface, the event-emit substrate, and (transitively) the epoch buffer. Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) the `:rf.trace/*` namespace is framework-owned.
+Event-handler registration accepts a `:rf.trace/no-emit? true` metadata flag. When set, the runtime suppresses **every** trace emission and event-emit record within the handler's scope — the handler runs invisibly to the trace surface, the event-emit substrate, the frame-owned `:handled-events` observability sink, and (transitively) the epoch buffer. Used by framework-internal bookkeeping handlers (Xray, Story, re-frame2-pair-mcp, story-mcp) that would otherwise saturate the trace stream. Per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned) the `:rf.trace/*` namespace is framework-owned.
 
 | Metadata key | Where | Value | Default | Effect |
 |---|---|---|---|---|
-| `:rf.trace/no-emit?` | `reg-event` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope. Per [009 §Trace-emission opt-out](009-Instrumentation.md#trace-emission-opt-out-rftraceno-emit-event-meta). |
+| `:rf.trace/no-emit?` | `reg-event` metadata map | boolean | `false` | When `true`, suppresses all trace + event-emit emissions inside the handler's scope, and the `:handled-events` sink route drops the handler's record. Per [009 §Trace-emission opt-out](009-Instrumentation.md#trace-emission-opt-out-rftraceno-emit-event-meta). |
 | `:rf.trace/frame-no-emit?` | frame config map (`make-frame` / `frame-root`) | boolean | `false` | When `true`, marks the frame a tool / inspector frame: the runtime suppresses every trace emission tagged with that frame, so the inspector's own reactivity does not flood the shared ring it inspects. The frame-scoped sibling of `:rf.trace/no-emit?`. Per [009 §Frame-level trace-emission opt-out](009-Instrumentation.md#frame-level-trace-emission-opt-out-rftraceframe-no-emit-frame-config). |
 
 ### Epoch history (per Tool-Pair)
