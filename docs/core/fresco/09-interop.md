@@ -40,17 +40,17 @@ Declare a host at namespace top level, never during rendering.
 | Value at the crossing | Behaviour |
 | --- | --- |
 | Top-level prop names | converted to canonical React slots: `:on-change` → `onChange`, `:class` → `className`; `data-*` and `aria-*` remain hyphenated |
-| Prop values | pass by identity; nested maps and collections are not deeply converted |
+| Prop values | functions, keywords and JS objects pass by identity; a CLJS map, vector or set is converted with `clj->js`, keeping nested keys as written |
 | HTML-like attribute slots | class/id/role/data/ARIA values use native-attribute coercion; Fresco class collections are joined |
 | Children | Hiccup is converted where it was authored |
 | Callbacks | contract inferred from the prop's spelling, as on a native tag — see below |
 | Declared slots | Hiccup becomes React elements under the captured frame |
 | Server | Client-only unless the declaration says `:server :render` |
 
-When a library expects a JavaScript options object, camelCase nested keys, or a
-string instead of a keyword, provide that value explicitly with `#js`,
-`clj->js`, a string, or `(name value)`. Fresco does not guess a library's
-data model.
+Only top-level prop names are camelCased. When a library expects camelCase keys
+inside an options object, or a string where you hold a keyword, build that
+value yourself with `#js`, a string, or `(name value)`. Fresco does not guess a
+library's data model.
 
 The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`. A
 declaration outside that shape — an unknown option, a `:callbacks` value outside
@@ -152,12 +152,29 @@ Declare props whose values are markup positions:
 
 Hiccup in a declared slot becomes a React element under the frame captured by
 the declaring view. Event vectors inside it use that frame. Strings and
-already-built React elements pass through unchanged.
+already-built React elements pass through unchanged. A slot is a markup
+position, so an `h/event` passed there raises
+`:rf.error/fresco-host-unclaimed-callback`.
 
 At an undeclared prop, a Hiccup vector remains data and may silently reach the
 library as an array. Declare the slot, or use `h/as-element` for a one-off
 conversion. React wrappers such as Suspense use the same model; declare
 `:fallback` as a slot.
+
+## Server policy
+
+A host has one of two policies:
+
+- **Render** — `{:server :render}` asserts deterministic output across server
+  render, hydration, and fresh client mount.
+- **Client-only** — `{:server :client-only}`, the default. The server omits
+  the crossing. Optional
+  `:fallback` Hiccup appears at the crossing until the client adopts it.
+
+A fallback must be inert markup. A `defview` or `defhost` head inside it raises
+`:rf.error/fresco-host-fallback-boundary-head`. Combining `:fallback` with
+`:server :render`, or supplying another policy value, raises
+`:rf.error/fresco-host-bad-ssr-policy` at declaration.
 
 ## Providers and compound components
 
@@ -181,22 +198,8 @@ React context flows normally through hosted elements.
     A provider left at the default can therefore remove an entire subtree from
     the response without creating a hydration mismatch report. Mark a
     deterministic transparent wrapper `{:server :render}`. Browser-derived
-    provider values require the SSR pattern described in the hydration
-    chapter.
-
-## Server policy
-
-A host has one of two policies:
-
-- **Render** — `{:server :render}` asserts deterministic output across server
-  render, hydration, and fresh client mount.
-- **Client-only** — the default. The server omits the crossing. Optional
-  `:fallback` Hiccup appears at the crossing until the client adopts it.
-
-A fallback must be inert markup. A `defview` or `defhost` head inside it raises
-`:rf.error/fresco-host-fallback-boundary-head`. Combining `:fallback` with
-`:server :render`, or supplying another policy value, raises
-`:rf.error/fresco-host-bad-ssr-policy` at declaration.
+    provider values need the pattern in
+    [SSR and hydration](18-ssr-and-hydration.md).
 
 ## Portals
 
@@ -220,8 +223,8 @@ Portal behaviour:
 - Portals are Client-only because the server has no DOM target. An explicit
   fallback may emit placeholder markup at the portal's source-tree position.
 
-Use the overlays module for product modals and popovers; it adds anchoring,
-dismissal, and focus policy. A portal is the lower-level container mechanism.
+Use the [overlays module](13-overlays-and-focus.md) for product modals and
+popovers; it adds anchoring, dismissal, and focus policy. A portal is the lower-level container mechanism.
 
 ## Raw `[:>]` escape
 
@@ -254,9 +257,8 @@ Declare a component once it appears more than once. The raw escape loses:
 Callbacks are inferred from the spelling on a raw escape exactly as on a
 declared host: an intent vector or `h/event` at an `on*` prop dispatches into
 the writing view's frame, and `h/event` at any other prop is a frame-carrying
-render callback. What the escape cannot express is the override for an
-on*-named render prop and a ReactNode slot, where `h/event` is refused with
-`:rf.error/fresco-host-unclaimed-callback`; both need `h/defhost`.
+render callback. The escape cannot express a `:callbacks` override or a
+ReactNode slot; both need `h/defhost`.
 
 A plain function still crosses by identity but carries no frame. Ambient
 `rf/dispatch` from that function later raises `:rf.error/no-frame-context`.
@@ -299,23 +301,20 @@ Reagent, UIx, raw React, JavaScript, or TypeScript parents:
 React props return to the Fresco view as a normal props map with canonical
 names (`articleId` becomes `:article-id`) and identity-preserved values. The
 view retains its memoization, subscription reads, key identity, teardown, and
-frame from React context. Rendering it outside every frame raises
-`:rf.error/no-frame-context` — every frame, not every Fresco root. `h/frame-root`,
-`h/frame-provider` and their `rf/`-prefixed twins all write the same frame context, so a
-bridged view inside a Reagent or UIx tree resolves that tree's frame and needs
-no root of its own.
+frame from React context. It needs a frame above it, not a Fresco root:
+`h/frame-root`, `h/frame-provider` and their `rf/`-prefixed twins all write the
+same frame context, so a bridged view inside a Reagent or UIx tree resolves
+that tree's frame. Rendering it outside every frame raises
+`:rf.error/no-frame-context`.
 
-**A Reagent parent converts the props before that decode.** Identity is
-preserved across the decode, which is the second half of the crossing; the
-first half belongs to the parent. Props on this route travel through React, so
-a Reagent parent converts them exactly as it does for any other `[:>]`
-crossing: a keyword becomes its name, a map becomes a camel-cased JavaScript
-object, any other collection is deeply `clj->js`'d, and strings, numbers,
-booleans, `nil` and functions cross unchanged. Prop *names* survive the round
-trip — `:article-id` is camel-cased on the way out and read back as
-`:article-id` — but values do not. Cross an id and read the rest with `h/sub`
-and the conversion never arises: [Views shared across the
-boundary](20-migration-from-reagent.md#views-shared-across-the-boundary).
+A Reagent parent converts the props before Fresco decodes them, exactly as it
+does for any other `[:>]` crossing: a keyword becomes its name, a map becomes a
+camel-cased JavaScript object, any other collection is deeply `clj->js`'d, and
+strings, numbers, booleans, `nil` and functions cross unchanged. Prop names
+survive the round trip (`:article-id` is camel-cased on the way out and read
+back as `:article-id`); values do not. Pass an id and read the rest with
+`h/sub`, and the conversion never arises ([Views shared across the
+boundary](20-migration-from-reagent.md#views-shared-across-the-boundary)).
 
 Use `h/as-element` for one subtree returned through a callback. Use
 `h/as-component` when a native parent will mount, key, and re-render the view
@@ -325,7 +324,7 @@ as a component.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A library ignores a keyword, CLJS map, or nested kebab key | Values pass by identity and nested values are not deeply converted | Supply the exact documented JS/string shape with `#js`, `clj->js`, or explicit strings |
+| A library ignores a keyword value or a nested kebab-case key | Keyword values pass by identity, and `clj->js` keeps nested keys as written | Supply the documented JS or string shape with `#js`, camelCase keys, or `(name value)` |
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
 | React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
 | A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |

@@ -54,12 +54,12 @@ Store the open flag in app-db
       [:ul {:role "menu"}
        [:li
         [:button {:role "menuitem"
-                  :on-click [:filter/applied id :unread]}
-         "Unread"]]
+                  :on-click [:filter/applied id :active]}
+         "Active"]]
        [:li
         [:button {:role "menuitem"
-                  :on-click [:filter/applied id :flagged]}
-         "Flagged"]]]]]))
+                  :on-click [:filter/applied id :completed]}
+         "Completed"]]]]]))
 ```
 
 The options have direct responsibilities:
@@ -69,8 +69,8 @@ The options have direct responsibilities:
 - **`:on-dismiss`** is dispatched for native light-dismiss, including outside
   click and Escape. The handler must write the open flag false. App-db remains
   the source of truth. It is an intent, so an open overlay carrying it needs a
-  frame above it; with none, it refuses at render rather than rendering a panel
-  the platform may close behind app-db's back.
+  frame above it; with none, rendering raises
+  `:rf.error/fresco-intent-outside-boundary`.
 - **`:anchor`** is the unique DOM id of the trigger. The module positions the
   panel before first paint, and it is an ordinary prop: change it while the
   panel is open — one shared menu reused for a newly selected row — and the
@@ -93,31 +93,31 @@ write.
 `overlay/modal` uses a native `<dialog>` and calls `showModal`:
 
 ```clojure
-(rf/reg-sub :invoice/confirm-delete?
+(rf/reg-sub :todo/confirm-delete?
   (fn [db [_ id]]
-    (get-in db [:ui :invoice/confirm-delete id] false)))
+    (get-in db [:ui :todo/confirm-delete id] false)))
 
-(rf/reg-event :invoice/delete-cancelled
+(rf/reg-event :todo/delete-cancelled
   (fn [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:ui :invoice/confirm-delete id] false)}))
+    {:db (assoc-in db [:ui :todo/confirm-delete id] false)}))
 
-(rf/reg-event :invoice/delete-confirmed
+(rf/reg-event :todo/delete-confirmed
   (fn [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:ui :invoice/confirm-delete id] false)
-     :fx [[:dispatch [:invoice/delete id]]]}))
+    {:db (assoc-in db [:ui :todo/confirm-delete id] false)
+     :fx [[:dispatch [:todo/delete id]]]}))
 
-(h/defview confirm-delete [{:keys [invoice-id]}]
+(h/defview confirm-delete [{:keys [todo-id]}]
   [overlay/modal
-   {:open?      (h/sub [:invoice/confirm-delete? invoice-id])
-    :on-dismiss [:invoice/delete-cancelled invoice-id]
+   {:open?      (h/sub [:todo/confirm-delete? todo-id])
+    :on-dismiss [:todo/delete-cancelled todo-id]
     :label      "Confirm deletion"}
-   [:h2 "Delete this invoice?"]
+   [:h2 "Delete this todo?"]
    [:p "This cannot be undone."]
    [:footer
-    [:button {:on-click [:invoice/delete-cancelled invoice-id]}
+    [:button {:on-click [:todo/delete-cancelled todo-id]}
      "Keep it"]
     [:button.danger
-     {:on-click [:invoice/delete-confirmed invoice-id]}
+     {:on-click [:todo/delete-confirmed todo-id]}
      "Delete"]]])
 ```
 
@@ -144,7 +144,7 @@ platform's own dialog-focusing steps — and with nothing pointing them
 elsewhere they take the first focusable control in tree order. So order the
 controls to put the one that should receive focus first. In the confirmation
 dialog above that is *Keep it*, which is the right default for a destructive
-action and worth arranging deliberately rather than inheriting.
+action.
 
 There is no attribute to reach for. `:auto-focus true` camelCases to React's
 own `autoFocus`, which React honours by calling `.focus()` during the commit —
@@ -280,8 +280,7 @@ Escape is not listed in the key map because the native popover owns Escape and
 dispatches `:on-dismiss`. Focus stays on the trigger. There is no document
 listener or portal.
 
-Four details make the active-descendant model announceable, and each one is
-load-bearing:
+Four details make the active-descendant model work for screen readers:
 
 - `:role "combobox"` on the trigger. `:aria-activedescendant` is defined
   against a fixed set of roles, and a plain button is not among them.
@@ -296,11 +295,8 @@ load-bearing:
   follow focus here, so those are two different options for as long as the user
   is arrowing around, and collapsing them announces a choice nobody has made.
 
-None of the four is visible on screen or reachable by a click-driven test. The
-witness that decides them —
-[`combobox_keyboard_dom_cljs_test.cljs`](../../../implementation/fresco/test/re_frame/fresco/combobox_keyboard_dom_cljs_test.cljs)
-— audits this markup against the same view with the repair removed, so each
-claim is shown failing as well as passing.
+None of the four is visible on screen or caught by a click-driven test, so
+check them with an accessibility-tree assertion or a screen reader.
 
 The same event-and-address model works for a toggletip, command menu, or other
 popover-shaped control.
@@ -315,7 +311,7 @@ open flag.
 - **Presentational hint:** native popover attributes:
 
   ```clojure
-  [:button {:popovertarget "help-tip"} "?"]
+  [:button {:popover-target "help-tip"} "?"]
   [:div {:id "help-tip" :popover "auto"} "Helpful text"]
   ```
 
@@ -351,8 +347,8 @@ to the next library. The top-layer primitives remove those failure classes.
 | Outside click closes the popover, and the next click on the trigger does nothing | `:on-dismiss` ran but the handler left the app-db flag true. The element is still mounted and closed, `showPopover` runs only when it mounts, and setting a flag that is already true changes nothing | Set the open flag false in the dismiss handler |
 | Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
 | Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
-| `:rf.error/fresco-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries — a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is not | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |
-| An open overlay raises `:rf.error/fresco-intent-outside-boundary` naming its `:on-dismiss` intent | It has `:on-dismiss` but no frame above it — rendered outside `h/frame-root`, `h/frame-provider` or Story — so the dismissal could never be routed, and the module refuses rather than let the platform close a panel app-db still holds open | Mount it under a frame, or drop `:on-dismiss` if it must not be dismissable |
+| `:rf.error/fresco-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries: a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |
+| An open overlay raises `:rf.error/fresco-intent-outside-boundary` naming its `:on-dismiss` intent | It has `:on-dismiss` but no frame above it (it rendered outside `h/frame-root`, `h/frame-provider` or Story), so the dismissal could never be routed | Mount it under a frame, or drop `:on-dismiss` if it must not be dismissable |
 | Panel opens beside the wrong trigger, and nothing is raised | Several instances reuse one id. The id resolves, so there is nothing to refuse — it resolves to the first element in the document carrying it | Include the row id in the trigger id, the same way you do for the open flag |
 | Dialog is visible but the background still scrolls and receives clicks | A hand-written `<dialog open>` uses the non-modal path | Use `overlay/modal`, which calls `showModal` |
 | Popover flashes in the wrong place for one frame | Positioning happens after mount | Supply `:anchor` and `:placement`; the module positions before paint |
@@ -385,8 +381,7 @@ Entry animation can be pure CSS because the panel mounts when it opens:
 
 ### Exit animation
 
-Exit needs a clock because app-db is already closed while the old pixels are
-still fading. Pass `:exit-ms` to retain the layer for that duration. During the
-exit the module makes it inert and `aria-hidden`. The node leaves when the
-clock ends even if CSS did not run. Reopening cancels the exit; unmounting
-cancels the timer.
+The overlay module has no exit clock. When `:open?` becomes false the panel is
+removed in that commit, so a CSS exit transition on the panel never runs.
+Retaining a node after its data has gone is the job of
+[`motion/presence`](12-motion-and-presence.md).

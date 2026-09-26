@@ -29,6 +29,7 @@ Require the module where its views are used:
 (ns app.todos
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.resources]      ;; mutations, for the submit section
             [re-frame.fresco :as h]
             [re-frame.fresco.forms :as forms]))
 ```
@@ -169,7 +170,7 @@ A controlled field marks itself touched on blur, and displays the derived error
 as something a screen reader can find:
 
 ```clojure
-(h/defview editor-title-field []
+(h/defview editor-title-field [_]
   (let [error (h/sub [:todo.editor/field-error :title])]
     [:fieldset.form-group
      [:input.form-control
@@ -185,12 +186,11 @@ as something a screen reader can find:
        [:div.error-messages {:id "todo-title-error" :role "alert"} error])]))
 ```
 
-Three attributes carry the whole story. `:aria-invalid` says *this value is
-wrong*; `:aria-describedby` names the node that says why; `role="alert"` makes
-that node announce itself the moment it appears, which is what turns a rejected
-submission into something a user hears rather than something they have to go
-looking for. The error node is **absent** rather than empty while the gate is
-shut, so `:aria-describedby` never points at an id that is not in the document.
+`:aria-invalid` marks the value as wrong, `:aria-describedby` names the node
+that explains why, and `role="alert"` makes a screen reader announce that node
+when it appears. The error node is absent rather than empty while the error is
+hidden, so `:aria-describedby` never points at an id missing from the
+document.
 
 Because the error is derived from the current draft, it clears as soon as a
 touched field becomes valid. For a buffered field, mark the field touched in
@@ -232,52 +232,30 @@ drift:
 
 (rf/reg-event :todo.editor/submit
   (fn [{:keys [db]} _]
-    (if-not (get-in db [:todo.editor :can-submit?])
-      {:db (assoc-in db
-                     [:todo.editor :submit-attempted?]
-                     true)}
-      {:db (assoc-in db
-                     [:todo.editor :submit-attempted?]
-                     true)
-       :fx [[:dispatch
-             [:rf.mutation/execute
-              {:mutation :todo/save
-               :params   (get-in db [:todo.editor :draft])
-               :instance save-instance
-               :reply-to [:todo.editor/replied]}]]]})))
+    (cond-> {:db (assoc-in db [:todo.editor :submit-attempted?] true)}
+      (get-in db [:todo.editor :can-submit?])
+      (assoc :fx [[:dispatch
+                   [:rf.mutation/execute
+                    {:mutation :todo/save
+                     :params   (get-in db [:todo.editor :draft])
+                     :instance save-instance
+                     :reply-to [:todo.editor/replied]}]]]))))
 ```
 
-A rejected submit still sets `:submit-attempted?`, which exposes all remaining
-field errors at once — every one of them announced, and each tied to the
-control it belongs to. That reveal is the whole reason the attempt is allowed
-to happen.
+A rejected submit still sets `:submit-attempted?`, which reveals every
+remaining field error at once, each announced and tied to its control.
 
-**So an invalid form keeps a genuinely operable submit button.** A `:disabled`
+So keep the submit button enabled while the form is invalid. A `:disabled`
 button drops out of the tab order and announces nothing, so a keyboard or
-screen reader user is told only that the control has gone, never which field is
-wrong. It also makes `:submit-attempted?` unreachable — the attempt that would
-set it is the one the disabled button prevents — and the whole submit-attempt
-half of the display gate becomes dead code.
+screen-reader user is never told which field is wrong, and `:submit-attempted?`
+can never be set. Disable the button only while the write is in flight, when a
+second submission really would be wrong.
 
-So there are two kinds of unavailable, and only one of them is a state the
-button may claim. **In flight** is `:disabled`: the write is really running, a
-second one would be wrong, and the handler genuinely suppresses it. **Invalid
-is not an unavailable state at all.** The button is enabled and carries no
-unavailability marking of any kind, because activating it is the action that
-reveals the errors.
-
-In particular, do not reach for `:aria-disabled` here. WAI-ARIA defines
+Do not use `:aria-disabled` for the invalid state either. WAI-ARIA defines
 [`aria-disabled="true"`](https://www.w3.org/TR/wai-aria/#aria-disabled) as
-perceivable but disabled — the element "is not editable or otherwise operable".
-It is the accessible spelling of the same claim `:disabled` makes, minus the
-tab-order loss, and it is a claim this form would be making falsely. A page
-that requires the user to press Save to find out what is wrong, and then tells
-assistive technology that Save is inoperable, has contradicted itself: the one
-instruction a screen reader user is given is the one the markup says will not
-work. Reserve `:aria-disabled` for an action the handler really does refuse to
-perform — a pager arrow already at the end of the list, a control that is
-inert on this screen. Submit-while-invalid is not one of those, because it
-does something: it sets `:submit-attempted?` and every hidden error appears.
+"not editable or otherwise operable", which is false here: pressing Save is
+exactly what reveals the errors. Reserve `:aria-disabled` for an action the
+handler really refuses, such as a pager arrow already at the last page.
 
 ## Read submit status by instance
 
@@ -285,7 +263,7 @@ Run the write as a mutation under a stable form instance. The form reads that
 instance's status as data:
 
 ```clojure
-(h/defview editor-form []
+(h/defview editor-form [_]
   (let [save (h/sub [:rf/mutation {:instance save-instance}])]
     [:form {:on-submit [:todo.editor/submit]}
      (when (:error? save)
@@ -293,9 +271,8 @@ instance's status as data:
         [:li "Save failed — check the fields and try again."]])
      [editor-title-field]
      [:button.btn.btn-primary
-      ;; The only unavailability this button ever claims is the write it
-      ;; is really waiting on. Validity is not on this control at all —
-      ;; it is on the fields that are wrong.
+      ;; Disabled only while the save is in flight; validity is shown
+      ;; on the fields, not here.
       {:type     :submit
        :disabled (:pending? save)}
       "Save todo"]]))
@@ -315,9 +292,10 @@ event:
              [:rf.mutation/clear {:instance save-instance}]]]})))
 ```
 
-The async-resources chapter owns mutation registration, request encoding,
-cache invalidation, cancellation, and supersession. A form only executes the
-mutation and reads its instance.
+Registering the `:todo/save` mutation, request encoding, cache invalidation,
+cancellation, and supersession are covered in [Async
+resources](08-async-resources.md). A form only executes the mutation and reads
+its instance.
 
 ## Troubleshooting
 
@@ -337,7 +315,7 @@ runtime errors. Underlying controlled elements still use errors such as
 | An external value update does not replace the active edit | Value changed under an equal revision | Advance the revision only when the application intends to replace the draft |
 | A late async acceptance overwrites newer work | The settle event wrote without a revision/supersession fence | Settle value and revision together; apply the mutation's supersession policy |
 | An old draft reappears after later navigation | Draft state is durable and no causal owner cleared it | Clear it on route entry, successful save, explicit cancel, or another domain end event |
-| Submit remains disabled after a failed request | The mutation instance still records failure | Clear or retry the instance with `[:rf.mutation/clear {:instance …}]` at the intended lifecycle point |
+| The save-failed message stays after the user has moved on | The mutation instance keeps its settled error until replaced | Re-execute, or dismiss it with `[:rf.mutation/clear {:instance …}]` at the intended point |
 | The form submits and the browser reloads | `:on-submit` holds an `h/event` or a plain function — a callback owns its own event and is never auto-prevented | Call `.preventDefault` in the callback, or use the data spelling `[:todo.editor/submit]`, which auto-prevents |
 
 ## When not to use the forms module
@@ -353,14 +331,19 @@ lifecycle. Each buffered field adds an address and commit protocol to app-db.
 
 ### Draft lifetime
 
-A draft deliberately survives re-render, remount, virtualization, and
-navigation. Every durable draft therefore needs a causal owner and an end
-event. Common owners are route entry, explicit cancel, and the successful
-save reply.
+A draft survives re-render, remount, virtualization, and navigation, so every
+durable draft needs an owner that ends it: route entry, explicit cancel, or the
+successful save reply. Drafts live under the `forms/drafts` state concern,
+keyed by `:control`; end one by clearing that address:
+
+```clojure
+{:fx [[:dispatch [::h/clear forms/drafts [:todo id :title]]]]}
+```
 
 A form that may block navigation should derive `dirty?` from the same draft and
-baseline and feed that value to the routing guard. Do not create a second dirty
-flag that can drift from the form state.
+baseline and feed that value to the route's `:can-leave` guard (see [Guard
+unsaved changes](07-routing-and-navigation.md#guard-unsaved-changes)). Do not
+create a second dirty flag that can drift from the form state.
 
 ### Keystroke cost
 

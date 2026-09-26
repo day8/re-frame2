@@ -48,27 +48,23 @@ can skip their bodies.
     Strings, numbers, keywords, UUIDs, and symbols are valid keys.
     Collections, JS objects, dates, booleans, and functions are not.
 
-Missing keys produce React's own warning in development; Fresco adds nothing
-to it.
+A missing key normally produces React's own development warning. Fresco adds
+two development-only warnings of its own, each printed once per site and
+removed from production builds:
 
-Fresco's own entity-key warning is narrower than the rule above, and it is
-worth knowing what it does and does not cover.
-`:rf.warning/fresco-entity-key` fires for a member of a **sequence** whose head
-is a **view boundary** — an `h/defview` head, as in `[order-row {:key …}]` —
-and whose key is none of string, number, keyword, UUID, or symbol. It names the
-child head, the shape it found at `:key`, and the first offending index; the key
-value itself never reaches the console, so a cyclic or throwing value cannot
-break the diagnostic. It fires once per site rather than relying on React's
-page-lifetime deduplication, and it disappears from production.
+- `:rf.warning/fresco-entity-key` fires for a member of a sequence whose head
+  is an `h/defview`, as in `[order-row {:key …}]`, and whose key is not a
+  string, number, keyword, UUID, or symbol. It names the child view, the shape
+  it found at `:key`, and the first offending index, without printing the key
+  value itself.
+- `:rf.warning/fresco-missing-key` fires when a sequence of `h/defview`
+  children with no `:key` is passed as children to another Fresco view. Fresco
+  flattens those children before React sees them, so React's own check cannot
+  run there.
 
-It does not fire for a native tag. `[:li {:key {:id id}} …]` inside a `for` is
-the same mistake and passes in silence, because Fresco reads `:key` off a
-native tag without classifying it. Treat the rule above as the standard, not the
-warning as complete cover.
-
-The warning does, however, run where React never looks: a sequence passed as a
-Fresco view's children is flattened before reaching React, and the flattened
-elements already appear validated to it.
+Neither covers native tags. `[:li {:key {:id id}} …]` inside a `for` is the
+same mistake and passes in silence, so treat the rule above as the standard
+rather than relying on the warnings.
 
 ??? info "For readers coming from Reagent"
     Fresco does not read `^{:key id}` metadata. Use
@@ -91,17 +87,12 @@ elements on the page:
         [order-row {:key id :id id}]))
 ```
 
-Prefer the first. A sequence in child position is spliced by Fresco itself, and
-that splice is the only place the entity-key check runs: Fresco walks the
-sequence's members and classifies each `:key` on the way past. `into` produces
-an ordinary vector of children before Fresco is involved, so no sequence
-survives for it to walk and the check cannot run. The same applies to React's
-missing-key warning, because spliced children arrive as direct arguments, which
-React treats as already validated.
-
-So the two spellings render alike and diagnose differently. Reach for `into`
-when you are genuinely assembling one children vector out of several pieces —
-just know that the keyed members inside it are no longer inspected by anything.
+Prefer the first. Fresco checks keys only while it walks a sequence in child
+position. `into` turns the sequence into ordinary vector children before Fresco
+sees it, so neither Fresco's key warnings nor React's missing-key warning can
+run: React treats direct children as already validated. Use `into` when you are
+assembling one children vector from several pieces, knowing that the keys
+inside it are no longer checked.
 
 ## Choose where rows read
 
@@ -245,7 +236,8 @@ window:
 ;; Keep npm requires in a .cljs host namespace.
 (ns app.orders.virtual
   (:require ["react-virtuoso" :refer [Virtuoso]]
-            [re-frame.fresco :as h]))
+            [re-frame.fresco :as h]
+            [app.orders :refer [order-row]]))
 
 (h/defhost virtual-list Virtuoso)
 
@@ -265,8 +257,8 @@ Important parts of this crossing:
 
 - `order-row` keeps the fine-read shape and reads its own entity. Only the
   visible rows exist, so only their reads are retained.
-- `:item-content` is declared as a render callback. It runs during the
-  virtualizer's render, must stay pure, and returns a React element through
+- `:item-content` is a render callback: the virtualizer calls it during its own
+  render, so it must stay pure, and it returns a React element through
   `h/as-element`.
 - The outer view reads `ids`; the callback closes over that value. Calling
   `h/sub` inside the callback would be a deferred read and is rejected.
@@ -274,20 +266,19 @@ Important parts of this crossing:
   keys would use.
 - Scroll position remains host mechanics rather than app-db state.
 
-The host defaults to Client-only on the server. Virtualization also changes
-find-in-page, select-all, print, and assistive technology behaviour. The
-sections below are what a windowed collection has to get right that an ordinary
-list never has to think about, and each needs verifying in a real browser.
+By default a `defhost` renders only its `:fallback` (or nothing) on the server. Virtualization also
+changes find-in-page, select-all, print, and assistive-technology behaviour.
+The next three sections cover what a windowed collection has to get right that
+an ordinary list does not; verify each in a real browser.
 
 ## Keep the focused row mounted
 
-**A row that does not exist cannot hold focus.** When the window moves past the
-row the user is typing in, React unmounts its node, focus falls to
-`document.body`, and the next keystroke goes nowhere. Nothing on screen says so.
+When the window moves past the row the user is typing in, React unmounts its
+node, focus falls to `document.body`, and the next keystroke goes nowhere.
+Nothing on screen says so.
 
-The application does not fix this by managing focus. It records which row has
-focus and asks the virtualizer to keep rendering that row wherever the window
-has got to:
+The fix is not to manage focus. Record which row has focus and ask the
+virtualizer to keep rendering that row wherever the window has moved:
 
 - an `:on-focus` intent writes the row's model index into app-db;
 - the view reads it back and hands it to the virtualizer as the index to keep
@@ -295,41 +286,37 @@ has got to:
 - the pin is released by the next focus, and by nothing else.
 
 Nothing calls `.focus()` and nothing reads `document.activeElement`. The
-platform goes on owning focus; the pin only stops React from deleting the node
-that focus is already in. That is the difference between a recipe and a focus
-manager, and it is why this stays a few lines rather than a subsystem.
+browser keeps owning focus; the pin only stops React from deleting the node
+that focus is already in.
 
 Do not release the pin on blur. A `:on-blur` companion unmounts the row while
 the platform is still moving focus through it, and buys back one row of DOM.
 
-**Not every virtualizer can do this**, so it is worth checking before choosing
-one. Reaching a row far outside the visible window needs an API that decides
+Not every virtualizer can do this, so check before choosing one. Reaching a row far outside the visible window needs an API that decides
 which indices render — TanStack Virtual's `rangeExtractor` is one such — and a
 library whose only lever is an overscan count cannot reach a row hundreds of
 places away.
 
 ## Announce the model's count, not the DOM's
 
-Once a collection is windowed **the document has stopped being the model**, and
-only a value the author writes can carry the model into the accessibility tree.
-Two attributes are the whole of it:
+Once a collection is windowed, the DOM no longer contains the whole model, so
+the author has to tell the accessibility tree its real size with two
+attributes:
 
 - `:aria-rowcount` on the grid is the model's total, not the number of rows
   currently rendered;
 - `:aria-rowindex` on each row is that row's model index plus one, not its
   position in the window.
 
-Without them a screen reader announces the size of the window, confidently and
-wrongly: two dozen rows for a collection of ten thousand. They are also the pair
-a window-relative implementation gets wrong while looking right, announcing
-"row 1 of 10,000" for whatever record happens to be at the top of the window —
-so assert both on a row and again after a scroll.
+Without them a screen reader announces the size of the window: two dozen rows
+for a collection of ten thousand. A window-relative implementation gets them
+wrong while looking right, announcing "row 1 of 10,000" for whatever record is
+at the top of the window, so assert both on a row and again after a scroll.
 
 ## Screen a virtualizer before adopting it
 
-Three properties decide whether a foreign virtualizer can be reached through one
-`h/defhost` declaration. They are ordinary library features rather than anything
-Fresco asks for, and a package either has them or does not:
+Three ordinary library features decide whether a foreign virtualizer works
+through one `h/defhost` declaration:
 
 | Property | Why it matters | What its absence breaks |
 | --- | --- | --- |

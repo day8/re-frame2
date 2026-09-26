@@ -1,8 +1,8 @@
 # Getting started
 
 re-frame2 already defines how events update app-db and how subscriptions derive
-values. A view adapter decides how those values become React UI. Fresco is the
-adapter for applications that want the view tree to remain ordinary
+values. A view layer decides how those values become React UI. Fresco is the
+view layer for applications that want the view tree to remain ordinary
 ClojureScript data.
 
 ## What Fresco is
@@ -24,9 +24,6 @@ it calls [`h/sub`](glossary.md#hsub).
 Nothing outside the view layer changes. App-db, event handlers, subscriptions,
 effects, and frames use the normal re-frame2 APIs.
 
-Fresco is not the only supported adapter. Reagent and UIx remain valid choices
-that applications can keep using.
-
 ## What changes in a Fresco view
 
 ### Markup and common handlers remain data
@@ -44,7 +41,7 @@ handler needs imperative work or direct access to callback arguments;
 
 `h/sub` is an ordinary function call inside a Fresco view. It can appear in a
 `let`, conditional, loop, or plain helper. You do not have to subscribe in a
-parent simply to pass the value down.
+parent just to pass the value down.
 
 A view created with [`h/defview`](glossary.md#defview) tracks the subscriptions
 read during its body. When one changes, that view re-renders. Plain `defn`
@@ -60,34 +57,35 @@ Most controlled text inputs use `:value` and `:on-input`:
          :on-input [:todo.ui/edit id ::h/value]}]
 ```
 
+`::h/value` is replaced with the input's current value when the event fires.
 The runtime handles the same-turn update, caret preservation, and IME
-composition rules for that path. You should not add a second local atom merely
-to keep a controlled field usable. The complete contract, including resets and
+composition rules for that path. You do not need a local atom to keep a controlled
+field usable. The complete contract, including resets and
 failure cases, is in [Controlled inputs](04-controlled-inputs.md).
 
 ### Optimise measured hot regions explicitly
 
-Normal screens use interpreted Hiccup. If profiling identifies a genuinely hot
-part of the tree, that region can move to native React or UIx while staying on
-the same frame and app-db. There is no `:fast` interpretation mode and no
-second meaning for `[...]`.
-
-[Performance](19-performance.md) defines the measurement method and
-[Islands](10-native-tier.md) defines the crossing.
+Normal screens use interpreted Hiccup. If profiling identifies a hot part of
+the tree, that region can move to native React or UIx while staying on the same
+frame and app-db. [Performance](19-performance.md) describes how to measure,
+and [Islands](10-native-tier.md) how to move a region.
 
 ## Fresco, Reagent, and UIx
 
-**Reagent** remains a sensible choice for an existing application whose view
-layer already works. Fresco will look familiar because both use Hiccup, but
-the state and component models differ: Fresco does not use reaction-local
-state or Form-2 components. The migration guide explains the mechanical and
-behavioural differences.
+Reagent and UIx remain supported view layers.
+
+**Reagent** is a sensible choice for an existing, healthy application whose
+view layer already works and where migration cost dominates. Fresco will look
+familiar because both use Hiccup, but the state and component models differ:
+Fresco has no ratoms, reactions or Form-2 components.
+[Migrating from Reagent](20-migration-from-reagent.md) covers the
+differences.
 
 **UIx** is usually the better choice when React itself organises the view
 layer: hooks are common, a React design system dominates the tree, and the
-team thinks in React component lifecycles. Fresco can still host foreign React
-through [`h/defhost`](09-interop.md), and a measured region can use the native
-tier, but it does not try to replace a React-first authoring model.
+team thinks in React component lifecycles. Fresco can host foreign React
+components through [`h/defhost`](09-interop.md), but it does not try to replace
+a React-first authoring model.
 
 Choose Fresco when the application is primarily a re-frame2 application and
 you want markup, reads, and ordinary interactions to retain the same
@@ -110,20 +108,8 @@ state are covered in [Ephemeral state](11-ephemeral-state.md).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Calling a `defview` as `(todo-row {:id 7})` refuses and names the view | A Fresco view is a React/Hiccup head, not an inline function | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
+| Calling a `defview` as `(todo-row {:id 7})` throws | A Fresco view is a React component used as a Hiccup head, not an inline function | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
 | A plain helper written as `[row-icon props]` raises `:rf.error/fresco-bad-head` | A plain function appeared in Hiccup head position | Call it as `(row-icon props)`, or define it with `h/defview` when it needs its own re-render boundary |
 | `h/sub` raises `:rf.error/fresco-sub-outside-render` | The read ran outside the direct synchronous execution of a Fresco view | Read inside the view body and pass or close over the realised value |
-| An event vector raises `:rf.error/fresco-intent-outside-boundary` | The intent was lowered without a view/frame boundary | Keep it in Hiccup produced by a view, or use `h/event` at an explicit foreign callback edge |
+| An event vector raises `:rf.error/fresco-intent-outside-boundary` | The event vector was turned into a callback outside any view's render, for example inside a function a foreign component calls later | Keep event vectors in Hiccup a view returns; inside a foreign callback, use `h/event` |
 | A controlled field drops characters or moves the caret | The write path became asynchronous, or the field left Fresco's controlled path | Dispatch the edit synchronously and follow [Controlled inputs](04-controlled-inputs.md) |
-
-## When not to use Fresco
-
-Stay with **Reagent** when migration cost is the dominant fact and the existing
-application is healthy.
-
-Choose **UIx** when hooks and React component libraries are the product's
-normal language rather than isolated integrations.
-
-Use Fresco when data-first views are the normal case and foreign React is a
-boundary you can name. It is not intended to be the best pure-React
-ClojureScript library.

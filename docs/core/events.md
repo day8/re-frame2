@@ -1,10 +1,7 @@
 # Events
 
-The [introduction](introduction.md) walked the [event pipeline](glossary.md#event-pipeline)
-once. This page is the **language** of that pipeline: what events look like, how you
-announce them, and what handlers are allowed to do.
-
-> **Nothing moves without an event. Design the event set and you design the app.**
+Every state change in a re-frame2 app starts with an event. This page covers what an
+event looks like, how you dispatch one, and what its handler may do.
 
 ## Event shape
 
@@ -22,52 +19,62 @@ Ids are the vocabulary of the application. Prefer names that say what *happened*
 (`:cart/item-added`) or what was *intended* (`:cart/add`), not how a view is
 implemented.
 
-There is no second channel. Timers, HTTP replies, route loaders, and button clicks
-all speak this shape. One shape, one timeline — tools can show the whole app without
-guessing which bus you meant.
+Timers, HTTP replies, route loaders, and button clicks all use this same shape, so
+tools can show everything that happened to the app as one list of events.
 
 ## Dispatch
 
-You announce an event with `dispatch`:
-
-```clojure
-(dispatch [:inc])
-(dispatch [:cart/add {:sku "A" :qty 1}])
-```
-
-Inside a `reg-view`, `dispatch` is injected for you (same for `subscribe`):
+You send an event with `dispatch`. Inside a `reg-view`, `dispatch` (and
+`subscribe`) are provided for you:
 
 ```clojure
 [:button {:on-click #(dispatch [:inc])} "+"]
 ```
 
-**Dispatch does not run the handler.** It enqueues the event on the frame's FIFO
-queue and returns immediately. The runtime dequeues later and runs the full pipeline
-for that event. That split keeps UI handlers thin and keeps the write path
-single-threaded.
+Outside a view, for example at the REPL, call `rf/dispatch` and name the frame:
+
+```clojure
+(rf/dispatch [:inc] {:frame :app})
+```
+
+Dispatch does not run the handler. It enqueues the event on the frame's FIFO
+queue and returns immediately. The runtime dequeues it shortly after and runs the
+[event pipeline](glossary.md#event-pipeline) for it. Because only the runtime runs
+handlers, UI callbacks stay thin and state is written one event at a time.
 
 ```text
 happens → enqueue → dequeue → event pipeline
 ```
 
-Need the pipeline to finish before your next line of code? Reach for
-`dispatch-sync` only when you must (boot, some interop). Prefer ordinary `dispatch`
-in views. (The full drain story lives with
-[Effects](effects.md#run-to-completion).)
+If the pipeline must finish before your next line of code runs, use `dispatch-sync`.
+It belongs at boot, in tests, and at the REPL; calling it from inside a running
+handler raises `:rf.error/dispatch-sync-in-handler`. Use ordinary `dispatch` in
+views. Queue draining is covered in
+[Effects](effects.md#run-to-completion).
 
 !!! warning "No ambient frame"
 
     `dispatch` must know which [frame](glossary.md#frame) owns the queue. Inside a
-    view under `frame-root` / `frame-provider`, that is automatic. From a bare
-    `setTimeout` or a foreign callback with no frame in scope, bare `dispatch`
-    raises `:rf.error/no-frame-context`. Carry a frame (or a `capture-frame`
-    bundle) out of the tree — [Frames](frames.md) covers the pattern.
+    view under `frame-root` / `frame-provider`, that is automatic: the `dispatch` a
+    `reg-view` provides has already captured its frame, so it still works when
+    called later from a timeout. A bare `rf/dispatch` from a `setTimeout`, a
+    promise or another callback with no frame in scope raises
+    `:rf.error/no-frame-context`.
+
+    ```clojure
+    ;; Inside a reg-view: the provided dispatch carries the frame
+    [:button {:on-click #(js/setTimeout (fn [] (dispatch [:inc])) 1000)} "+ later"]
+
+    ;; Outside any view: name the frame
+    (js/setTimeout #(rf/dispatch [:inc] {:frame :app}) 1000)
+    ```
+
+    [Frames](frames.md) covers carrying a frame with `rf/capture-frame`.
 
 ## Handlers return descriptions
 
-Register a handler with `reg-event`. The handler receives the **world** (coeffects
-map — at minimum `{:db current-app-db}`) and the event vector, and returns an
-**effect map**:
+Register a handler with `reg-event`. The handler receives the **world** map (at
+minimum `{:db current-app-db}`) and the event vector, and returns an **effect map**:
 
 ```clojure
 (rf/reg-event :inc
@@ -75,48 +82,53 @@ map — at minimum `{:db current-app-db}`) and the event vector, and returns an
     {:db (update db :value inc)}))
 ```
 
-Rules that matter:
+The second argument is the whole event vector, so a handler that needs the payload
+destructures it:
+
+```clojure
+(rf/reg-event :inc-by
+  (fn [{:keys [db]} [_ {:keys [n]}]]
+    {:db (update db :value + n)}))
+
+;; dispatched as [:inc-by {:n 5}]
+```
+
+The handler rules:
 
 1. **Pure.** Same inputs, same returned map. No `js/fetch`, no `swap!`, no reading
    the clock. Impurity is *described* and performed later ([Effects](effects.md);
    recorded inputs are [Coeffects](coeffects.md)).
 2. **`:db` is the next app-db value**, not a patch instruction. Use `assoc`,
    `update`, `update-in` — functions that return a *new* map.
-3. **The runtime commits.** Your function proposes; the pipeline applies.
+3. **The runtime commits.** Your function returns the next value; the pipeline
+   writes it.
 
 A handler may return other effect keys (`:fx`, …) alongside or instead of `:db`.
 It may return no `:db` and leave state alone. The state rules live on
-[app-db](app-db.md); the to-do list beyond `:db` lives on [Effects](effects.md).
+[app-db](app-db.md); effects other than `:db` are covered in [Effects](effects.md).
 
 ### Metadata when you need it
 
 `reg-event` accepts an optional metadata map between the id and the function —
-schemas, required coeffects, interceptors. Until you need that, the two-argument
-form is enough. The first useful metadata form is on
-[Coeffects](coeffects.md).
-
-You can design an event set, dispatch from a view, and write pure handlers that
-return `{:db …}`. Everything else on this page is recovery vocabulary — keep it
-nearby, don't memorise it.
+a `:doc` string, a payload `:schema`, required coeffects, interceptors. Until you
+need that, the two-argument form is enough. [Coeffects](coeffects.md) shows the first
+metadata you are likely to use.
 
 ## Troubleshooting
 
-Three failures you will meet early — each is **loud**, named, and recoverable:
-
-| Symptom | What happened | Error / recovery |
+| Symptom | Cause | Fix |
 |---|---|---|
-| Button "does nothing" | You dispatched an id nobody registered | `:rf.error/no-such-handler` — traced no-op; the id is in the dossier |
-| Callback throws from a timer / fetch | Bare `dispatch` outside a frame | `:rf.error/no-frame-context` — carry the frame ([Frames](frames.md)) |
-| Handler can't be unit-tested | You called `js/fetch` / read the clock inside the body | Wrong place for impurity — describe it ([Effects](effects.md), [Coeffects](coeffects.md)) |
+| Button "does nothing" | You dispatched an id nobody registered | The runtime reports `:rf.error/no-such-handler` naming the id and skips the event. Register the handler or fix the typo |
+| Callback throws from a timer / fetch | Bare `dispatch` outside a frame | `:rf.error/no-frame-context`. Capture the frame ([Frames](frames.md)) |
+| Handler can't be unit-tested | You called `js/fetch` / read the clock inside the body | Return the request as an effect ([Effects](effects.md)); declare the clock as a coeffect ([Coeffects](coeffects.md)) |
 
-Unregistered-id is intentional degrade: a botched feature load must not crash the
-whole app. The fix is still to register the handler (or fix the typo); the trace
-names the exact id so you never guess.
+An unregistered id is reported rather than thrown so that one missing handler, for
+example after a failed feature load, does not crash the whole app.
 
 ## What events are not
 
 | Not this | Why |
 |---|---|
 | A place to put view logic | Views stay pure; they dispatch and subscribe |
-| A free-form message bus between components | Components don't address each other — they write app-db through events |
+| A message bus between components | Components don't address each other; they change app-db through events |
 | Something you `await` | Async replies arrive as **later** events ([Effects](effects.md), [Async](../async/index.md)) |

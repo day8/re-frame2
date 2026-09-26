@@ -9,9 +9,8 @@ Start from whichever one you have.
 
 ## Start from a symptom
 
-Every chapter ends with a troubleshooting table for the surface it teaches, and
-that is where a symptom is worth looking first, because the table sits beside
-the mechanism that explains it. Go to the chapter that owns the surface you were
+Every chapter ends with a troubleshooting table for the surface it teaches, next
+to the mechanism that explains it. Go to the chapter for the surface you were
 working on:
 
 | Working on | Table |
@@ -50,7 +49,7 @@ in brackets, and the id is in `ex-data`:
       (js/console.error id where reason))))
 ```
 
-Four slots ride every complaint, and they answer four different questions:
+Every complaint Fresco raises itself carries four slots:
 
 | Slot | Question it answers |
 | --- | --- |
@@ -72,22 +71,19 @@ what an error monitor's grouping rule and your own tests should key on.
 
 ## The complaint index
 
-Every complaint the shipped package raises today, grouped by the surface that
-raises it. The normative meaning and payload of each id is
-`spec/009-Instrumentation.md`, and this page is the reader's route into it.
+Every complaint the shipped package raises, grouped by the surface that raises
+it. A few ids that core, routing or the SSR module define are listed where
+Fresco surfaces raise them; they are marked as corpus ids.
 
 An id you cannot find here is either not Fresco's or not from this version.
 Check the namespace first — core, routing and the resources model raise their
 own — and then check that your application and test-kit versions match. A few
-further spellings are claimed without being raised — reserved for surfaces not
-built yet, or dead forever — and they are listed under [Ids that are claimed but
-not raised](#ids-that-are-claimed-but-not-raised) at the foot of this page.
+further spellings are reserved but not raised; they are listed under [Ids that
+are claimed but not raised](#ids-that-are-claimed-but-not-raised).
 
 ### Hiccup, heads and children
 
-The interpreter refuses a value it would otherwise have to guess at. Where it
-can repair what you wrote it repairs it silently and there is no complaint here;
-these are the cases where repairing would mean overruling you.
+Fresco refuses a Hiccup value it would otherwise have to guess at.
 
 Taught in [Views and reads](02-views-and-reads.md).
 
@@ -101,7 +97,10 @@ A hiccup vector must have a head.
 <a id="fresco-bad-head"></a>
 #### `:rf.error/fresco-bad-head`
 
-You put something outside the closed head set in hiccup head position.
+You put something in hiccup head position that is not a tag keyword, `:<>`,
+`:>`, a `defview` view or a `defhost` host — most often a plain function, or a
+raw React component that needs `defhost` or `[:> Component …]`. To use a plain
+function, call it; to make it a head, make it a `defview`.
 
 Named in [Views and reads](02-views-and-reads.md), [Lists and
 collections](06-lists-and-collections.md), [Diagnostics](16-diagnostics.md).
@@ -117,17 +116,37 @@ Named in [Views and reads](02-views-and-reads.md).
 #### `:rf.error/ui-tree-malformed`
 
 You let a value outside the structural-tree grammar reach an L2 tree or a
-projection. This is a corpus id rather than a Fresco one: the wider framework
-defines the spelling and Fresco reuses it.
+projection. A corpus id.
 
 Fix the template or the runtime value, which the message names.
 
+### Key warnings
+
+These two are development-build console warnings rather than thrown
+complaints. Each fires once per site. Taught in [Lists and
+collections](06-lists-and-collections.md).
+
+<a id="fresco-missing-key"></a>
+#### `:rf.warning/fresco-missing-key`
+
+A seq of view children crossed into a boundary with no `:key`. React's own
+missing-key check does not run on that path, so the list reconciles by index and
+row state follows the wrong row when the order changes. Key each child on a
+stable domain id: `[child {:key (:id entity) …}]`.
+
+<a id="fresco-entity-key"></a>
+#### `:rf.warning/fresco-entity-key`
+
+A view child's `:key` is a map, vector or foreign object rather than a stable
+identifier. React turns it into a string, so the child remounts whenever the
+entity changes, and every foreign object collapses to `[object Object]`. Key on
+the entity's id instead.
+
 ### Reads and the render extent
 
-A subscription read is only meaningful while a boundary body is running, because
-that is the extent whose read set the runtime is recording. Every complaint here
-says the read left that extent, or that the body did something a body may not
-do.
+`h/sub` works only while a view body is running, because that is when Fresco
+records what the view reads. These complaints mean a read happened outside that
+window, or the body did something a body may not do.
 
 Taught in [Views and reads](02-views-and-reads.md).
 
@@ -142,10 +161,12 @@ Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 <a id="fresco-deferred-read-at-boundary"></a>
 #### `:rf.error/fresco-deferred-read-at-boundary`
 
-You let an unforced `delay` reach a boundary's props.
+You let an unforced `delay` reach a boundary's props. The child would force it
+during its own render, the delay would cache the value, and the read would be
+lost on the next render.
 
-A function is called on every child render, so its reads are the child's edges
-and are kept.
+Pass a function instead: the child calls it on every render, so its reads stay
+tracked.
 
 Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 [Diagnostics](16-diagnostics.md).
@@ -153,27 +174,76 @@ Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 <a id="fresco-generation-fence-exhausted"></a>
 #### `:rf.error/fresco-generation-fence-exhausted`
 
-You wrote to app-db from a body, on four consecutive runs.
+A boundary body saw a new commit land during each of four consecutive runs —
+usually because the body writes to app-db, directly or through a synchronous
+dispatch, every time it renders.
 
-A body that writes on every render cannot be fenced.
+Move the write out of the render, into an event.
+
+### Roots
+
+`h/render!` takes root options only. Frame configuration is written in the tree.
+
+Taught in [Installation](00-installation.md).
+
+<a id="fresco-frame-config-misplaced"></a>
+#### `:rf.error/fresco-frame-config-misplaced`
+
+You passed `:frame` or `:initial-events` in `h/render!`'s options. Put them on
+the head that takes them: `[h/frame-root {:id … :initial-events […]} …]` to
+create the frame, or `[h/frame-provider {:frame …} …]` to scope one that
+already exists.
+
+<a id="fresco-unknown-root-option"></a>
+#### `:rf.error/fresco-unknown-root-option`
+
+You passed `h/render!` options that are not a map, or a key other than
+`:hydrate?` and `:identifier-prefix`.
 
 ### Frames
 
-A frame is carried, never inferred. When one of these fires, some value crossed
-a boundary that does not carry the frame with it.
+A frame is carried, never looked up. These fire when something rendered or
+dispatched with no frame in scope, or a frame head was given the wrong key.
 
 Taught in [Events as data](03-events-as-data.md).
+
+<a id="frame-root-given-frame"></a>
+#### `:rf.error/frame-root-given-frame`
+
+You gave `h/frame-root` a `:frame` key. `frame-root` creates a frame and takes
+`:id`; to scope an existing frame, use `h/frame-provider`. A corpus id.
+
+<a id="frame-provider-given-id"></a>
+#### `:rf.error/frame-provider-given-id`
+
+You gave `h/frame-provider` an `:id` key. `frame-provider` scopes an existing
+frame named by `:frame`; to create one, use `h/frame-root`. A corpus id.
+
+<a id="frame-provider-frame-absent"></a>
+#### `:rf.error/frame-provider-frame-absent`
+
+You scoped a frame that does not exist. Make it first — `rf/make-frame`, or an
+`h/frame-root` above — or, when hydrating, make it before `ssr/hydrate!`. A
+corpus id.
+
+<a id="frame-root-reconfigured"></a>
+#### `:rf.error/frame-root-reconfigured`
+
+You re-rendered a mounted `h/frame-root` with a different `:id` or options —
+most often a reload that dropped `:initial-events`. Pass the same options every
+render; to switch frames, change the React `:key` so the boundary remounts. A
+corpus id.
 
 <a id="no-frame-context"></a>
 #### `:rf.error/no-frame-context`
 
-You rendered a Fresco boundary whose React context carries no frame. This is a
-corpus id rather than a Fresco one: the wider framework defines the spelling
-and Fresco reuses it.
+You rendered a Fresco boundary or island hook whose React context carries no
+frame, or dispatched from a timeout or promise with no frame in scope. A corpus
+id.
 
-The op fails fast and is NOT routed to a synthesised default; the fix is to
-carry the frame explicitly (capture it as a value at render time and thread it
-into the callback, or pass `{:frame …}`).
+Nothing falls back to a default frame. Render inside an `h/frame-root` or
+`h/frame-provider`, or capture the frame with `(rf/capture-frame)` while
+rendering and use the captured `:dispatch` in the callback.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
 [Islands](10-native-tier.md), [SSR and hydration](18-ssr-and-hydration.md),
@@ -181,9 +251,8 @@ Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
 
 ### Intents and callback positions
 
-An intent is a vector that means *dispatch this*. It only means that where
-something is prepared to lower it, and these complaints mark the positions where
-nothing is.
+An intent is an event vector at a handler position. These fire where the
+position cannot turn it into a dispatch.
 
 Taught in [Events as data](03-events-as-data.md).
 
@@ -213,9 +282,8 @@ Named in [Events as data](03-events-as-data.md).
 
 ### Controlled inputs
 
-A controlled field has one owner and one reset trigger. These complaints fire
-where a second owner was implied, or where the trigger was written at a position
-that cannot receive it.
+A controlled field has one owner, app-db, and one reset trigger,
+`::h/revision`.
 
 Taught in [Controlled inputs](04-controlled-inputs.md).
 
@@ -236,7 +304,7 @@ fiction and the first file's name — not the files.
 ### Error boundaries
 
 An error boundary that reports nothing looks exactly like one that never caught
-anything, so its props are a closed roster rather than a suggestion.
+anything, so its props are checked.
 
 Taught in [Errors](17-errors.md).
 
@@ -246,18 +314,21 @@ Taught in [Errors](17-errors.md).
 You wrote a key outside `h/error-boundary`'s closed roster — a misspelled
 `:on-error` is an error boundary that reports nothing.
 
+Named in [Errors](17-errors.md#troubleshooting).
+
 <a id="fresco-boundary-bad-on-error"></a>
 #### `:rf.error/fresco-boundary-bad-on-error`
 
 You gave `h/error-boundary` an `:on-error` that is neither an intent vector nor
 a function, so nothing could fire it.
 
+Named in [Errors](17-errors.md#troubleshooting).
+
 ### Hosts and the raw escape
 
-A `defhost` declaration is validated once, at the declaration, rather than at
-every crossing. Most of this group therefore fires at load time and names the
-declaration; the raw `[:>]` escape has no declaration to validate, so its one
-fires at the crossing instead.
+A `defhost` declaration is checked once, when the namespace loads, so most of
+this group names the declaration. The raw `[:>]` escape has no declaration, so
+its complaint fires where it renders.
 
 Taught in [Interop](09-interop.md).
 
@@ -323,8 +394,7 @@ Named in [Interop](09-interop.md).
 
 ### Routing
 
-A route link is an ordinary anchor that the router owns. These fire where it was
-asked to be something else.
+A route link is an ordinary anchor whose `:href` and click come from routing.
 
 Taught in [Routing and navigation](07-routing-and-navigation.md).
 
@@ -336,42 +406,78 @@ You rendered a route link with no ambient frame.
 <a id="fresco-route-link-bad-on-click"></a>
 #### `:rf.error/fresco-route-link-bad-on-click`
 
-You gave a route link an `:on-click` outside the route-click roster.
+You gave a route link an `:on-click` that is not `nil`, a
+`[::h/prevent [:some/event …]]` veto, an `h/event`, or a plain function. A bare
+intent vector is refused because the click already dispatches the navigation.
+
+<a id="fresco-route-link-claimed-intent-position"></a>
+#### `:rf.error/fresco-route-link-claimed-intent-position`
+
+You gave a route link `:prefetch :intent` and also your own value at
+`:on-mouse-enter`, `:on-focus` or `:on-touch-start` — the three positions
+`:prefetch` fills.
+
+<a id="route-link-bad-prefetch"></a>
+#### `:rf.error/route-link-bad-prefetch`
+
+You gave a route link a `:prefetch` value other than `:intent`. To make the
+link passive, omit `:prefetch`. A corpus id, raised by routing for both
+`h/route-link` and `rf/route-link`.
 
 <a id="routing-artefact-missing"></a>
 #### `:rf.error/routing-artefact-missing`
 
-You rendered a route link with routing absent. This is a corpus id rather than a
-Fresco one: the wider framework defines the spelling and Fresco reuses it.
+You rendered a route link with routing absent. A corpus id.
 
 Add `day8/re-frame2-routing` to your dependencies and require `re-frame.routing`
 at boot, before frames are constructed.
 
 Named in [Routing and navigation](07-routing-and-navigation.md).
 
+### Server rendering
+
+A server render either returns the page the application meant to render, or
+fails.
+
+Taught in [SSR and hydration](18-ssr-and-hydration.md).
+
+<a id="ssr-missing-payload-policy"></a>
+#### `:rf.error/ssr-missing-payload-policy`
+
+You called `server/render` without `:payload`. Pass an allowlist vector of
+top-level app-db keys, or `:rf.ssr.payload/whole-app-db` to send everything. A
+corpus id.
+
+<a id="ssr-render-failed"></a>
+#### `:rf.error/ssr-render-failed`
+
+`server/render` or `server/render-body` completed, but the runtime recorded an
+error it recovered from during the pass — a subscription that threw, say — so
+the markup is not trustworthy. Fix the surface the error record names. A corpus
+id.
+
 ### Motion and presence
 
-A presence tray animates a child out after that child has stopped being
-rendered, which it can only do if it can still identify the child and knows when
-to give up.
+`motion/presence` keeps a child on screen after it stops being rendered, so it
+needs to identify each child and to know when to let it go.
 
 Taught in [Motion and presence](12-motion-and-presence.md).
 
 <a id="fresco-presence-child-unkeyed"></a>
 #### `:rf.error/fresco-presence-child-unkeyed`
 
-You gave a presence boundary a child with no `:key` — a child that is not a
-hiccup vector included.
+You gave `motion/presence` a child with no `:key`, or a child that is not a
+hiccup vector.
 
 <a id="fresco-presence-timeout-required"></a>
 #### `:rf.error/fresco-presence-timeout-required`
 
-You left a presence boundary's timeout absent or not positive.
+You gave `motion/presence` no `:timeout-ms`, or one that is not a positive
+number.
 
 ### Overlays and focus
 
-An overlay positions itself against a trigger you name by DOM id, so the one
-thing it cannot do is resolve a name to nothing and say nothing.
+A popover positions itself against a trigger you name by DOM id.
 
 Taught in [Overlays and focus](13-overlays-and-focus.md).
 
@@ -388,23 +494,23 @@ trigger in the same tree as the overlay so the two arrive in one commit.
 
 ### Ephemeral state
 
-A concern is registered once and keyed by something the domain owns. Both halves
-are checked at registration and at use.
+`h/reg-state` checks the concern when it is registered and the instance key
+at every read and write.
 
 Taught in [Ephemeral state](11-ephemeral-state.md).
 
 <a id="fresco-state-bad-argument"></a>
 #### `:rf.error/fresco-state-bad-argument`
 
-You gave `reg-state` a concern that is not namespace-qualified, or options
+You gave `h/reg-state` a concern that is not namespace-qualified, or options
 outside `{:default …}`; or you used an instance key outside the accepted set
 (`nil` included) at a read or a write. The reason names which.
 
 ### The test kit
 
-L2 renders one body as a semantic tree with no React running. It refuses rather
-than guesses whenever the thing being asserted is not visible at that level, and
-the recovery is usually the next level up rather than a different assertion.
+L2 runs one body as a semantic tree with no React running. It refuses whenever
+the thing being asserted is not visible at that level; the fix is usually to
+test at the next level up rather than to change the assertion.
 
 Taught in [Testing](15-testing.md).
 
@@ -428,7 +534,7 @@ Named in [Diagnostics](16-diagnostics.md).
 <a id="fresco-test-boundary-body-not-retained"></a>
 #### `:rf.error/fresco-test-boundary-body-not-retained`
 
-You gave an L2 `tree` a minted head in a build that erased its body.
+You gave an L2 `tree` a `defview` head in a build that erased its body.
 
 <a id="fresco-test-bad-option"></a>
 #### `:rf.error/fresco-test-bad-option`
@@ -491,37 +597,32 @@ You fired at a position that lowers to something other than a function.
 
 You invoked a handler lowered by a pure L1 projection.
 
+<a id="initial-events-step-failed"></a>
+#### `:rf.error/initial-events-step-failed`
+
+An `:initial-events` step handed to `hm/mount!` or `hm/hydrate!` threw. Nothing
+was mounted, so there is no handle to tear down. A corpus id.
+
+<a id="poll-until-timeout"></a>
+#### `:rf.error/poll-until-timeout`
+
+The predicate given to `hm/settle-until!` never held before its `:timeout-ms`
+(default 2000). The ex-data carries `:elapsed-ms` and your `:label`. A corpus
+id.
+
 ## Ids that are claimed but not raised
 
-The index above is what the shipped package raises. A few further spellings are
-claimed without being raised, and knowing which is which saves a fruitless
-search: none of them can appear in an error you caught, and none of them is a
-spelling to mint for yourself.
+These spellings are reserved or retired. None of them can appear in an error
+you caught, and none is a spelling to use for your own errors.
 
-Three rules govern the whole set, and they are the reason an id is worth
-asserting on in the first place.
-
-1. **An id never changes meaning.** If the refusal it names becomes a different
-   refusal, that is a new id and the old one retires.
-2. **An id never changes spelling.** A rename is a retirement plus a mint, and
-   both are recorded.
-3. **A retired id is tombstoned and never reused.** A consumer's stored errors,
-   an error monitor's grouping rule and a page of prose all outlive the code, so
-   a reused spelling makes every one of them silently wrong about which failure
-   it saw.
+An id never changes meaning or spelling, and a retired id is never reused,
+because stored errors, an error monitor's grouping rules and written prose all
+outlive the code.
 
 ### Reserved
 
-Each of these names a refusal this guide already teaches by mechanism, on a
-surface that is not built yet. The reservation is not bookkeeping: a refusal
-with no id is invisible to a round trip — nothing raises it and no index carries
-it, so the raise-set and the index agree while the coverage is entirely missing.
-Claiming the spelling makes that gap countable, stops two builders minting two
-names for one refusal, and lets a chapter cite an id today.
-
-A reserved id carries no payload yet; that is settled by
-the work that writes the emitter, which moves the row up into the index above in
-the same change. So a reservation is promoted, never drifted into.
+Each names a refusal on a surface that is not built yet. When the surface ships,
+the id moves into the index above.
 
 | Reserved | What it will refuse |
 | --- | --- |
@@ -529,18 +630,10 @@ the same change. So a reservation is promoted, never drifted into.
 | `:rf.error/fresco-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
 | `:rf.error/fresco-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
 | `:rf.error/fresco-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
-| `:rf.error/route-link-bad-prefetch` | a route link's `:prefetch` carrying a value no link surface accepts — routing raises it, on both hosts, for `h/route-link` and `rf/route-link` alike |
-| `:rf.error/fresco-route-link-claimed-intent-position` | a route link supplying `:prefetch :intent` *and* a value of its own at `:on-mouse-enter`, `:on-focus` or `:on-touch-start` — the three positions `:prefetch` claims |
 
-### Dead
+### Retired
 
-`:rf.error/fresco-test-residue-after-quiescence` is tombstoned. It was reserved
-for a raising clean-state assertion on the mounted test kit, and the kit landed
-choosing to report instead: `hm/assert-clean!` files residue through the test
-runner rather than throwing, because residue is a test failure and not a refusal
-of the instrument. A throw would make the tool that detects a leak
-indistinguishable from the tool breaking, and would abort at the first finding
-instead of reporting all of them. So the reservation named a refusal its own
-surface decided not to have. It was never minted and never raised, so no stored
-error and no monitor rule anywhere carries it — and by rule 3 above it stays
-dead rather than being recycled for the next refusal on that surface.
+`:rf.error/fresco-test-residue-after-quiescence` is retired and will not be
+reused. `hm/assert-clean!` reports residue through the test runner instead of
+throwing, so every leak is reported and a leak is never confused with the
+instrument failing.

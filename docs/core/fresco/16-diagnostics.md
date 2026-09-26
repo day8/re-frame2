@@ -16,14 +16,11 @@ is removed from production builds.
    Mounted, Reads, Intents, Why, Advisor, or Causal.
 4. Read the cause, fan-out, and attribution it reports.
 
-Steps 3 and 4 — and the read topology, advisor, and explain-render sections
-below — all happen in one place: Xray's **Fresco** tab, in Dynamic mode. Those
-six views are the tab's only control: its rows are not selectable, and the one
-selection Xray keeps — the dispatch the event spine is focused on — is what the
-Causal view walks. [11. The Fresco tab](../../xray/11-fresco-tab.md) is its
-reference chapter: what each of its views asks, how to read an empty one, and
-why the advisor refuses to recommend a native route. This chapter covers the
-same ground from the application side — which cause you are looking at, which
+Everything below happens in Xray's **Fresco** tab, in Dynamic mode. Its rows
+are not selectable; the Causal view walks whichever dispatch the event spine is
+focused on. [The Fresco tab](../../xray/11-fresco-tab.md) is the reference for
+what each view asks and how to read an empty one. This chapter covers the same
+ground from the application side: which cause you are looking at, which
 pressure owns it, and what to change.
 
 An **epoch** is one event pipeline run, from dispatch through its state commit.
@@ -87,8 +84,8 @@ what it proved apart from what it can only offer as a lead:
 | The rest is React's | `:host-opaque` — whether the body then ran, retried, was abandoned, was bailed out by its memo comparator, committed, and painted | React DevTools Profiler for the run and the commit; browser performance tools for the paint |
 
 Props, context, a parent host, and a retried or discarded attempt are not causes
-this evidence can name. Fresco keeps no such fact, and a table offering them
-would be presenting React's answers as its own.
+this evidence can name, because Fresco does not record them. Use the React
+DevTools Profiler for those.
 
 When several views run for one event, fan-out distinguishes a topology problem
 from independent useful work. One changed subscription reaching hundreds of
@@ -156,30 +153,23 @@ and fan-out. It first identifies where the time is going:
 | React | Reconciliation, hooks, or vendor internals | Use a React island, raw or UIx ([Islands](10-native-tier.md)) |
 | Layout and paint | Browser style, layout, and rendering | Reduce DOM, virtualise, or fix CSS; use browser tooling |
 
-Only the first two rows of that table are instrumented. The advisor measures
-computation from the retained subscription ring's elapsed times and derives
-topology from the cell table's fan-out, the entry cache's read orders, and the
-ring's recompute counts. Hiccup lowering, React, and layout and paint it
-**names but cannot measure**, and it says so rather than ranking on a clock it
-does not have. That absence is
-a decision rather than a gap: Chrome clamps its timer to a 0.1 ms grain while a
-boundary body costs single-digit microseconds, so a ranking built on boundary
-self time would order noise; and commit, paint, and attempt outcome belong to
-React, which reports them as opaque every time.
+Only the first two rows are measured. The advisor takes computation from the
+retained subscription timings, and topology from fan-out, read orders and
+recompute counts. It names the other three pressures but does not rank them:
+Chrome's timer has a 0.1 ms grain while a view body costs a few microseconds,
+so boundary self time would rank noise, and commit, paint and render outcome
+belong to React.
 
-One consequence is worth stating plainly, because it is the opposite of what a
-ranked list of durations suggests: **the advisor never recommends a native
-escape.** Not for the hottest boundary on the page. Every native rung addresses
-lowering, hooks, or reconciliation, and this evidence cannot say whether any of
-them owns the pressure — so recommending one would be an expensive,
-semantics-changing change made on evidence that cannot support it.
+As a result, the advisor never recommends a native escape, even for the hottest
+view on the page. Every native option addresses lowering, hooks or
+reconciliation, and the advisor's evidence cannot show that any of those owns
+the cost.
 
-Treat the last three rows as your own checklist instead, each with its own
-instrument: Fresco's User-Timing `:render` measures for lowering — a separate,
-off-by-default channel — the React DevTools Profiler for React, and browser
-performance tools for layout and paint. Xray recommends; it does not rewrite or
-promote code automatically, and any native escape must still pass the benefit
-thresholds in [Performance](19-performance.md).
+Check the last three rows yourself, each with its own instrument: Fresco's
+User-Timing `:render` measures for lowering (a separate channel, off by
+default), the React DevTools Profiler for React, and browser performance tools
+for layout and paint. Xray does not change code for you, and any native escape
+must still pass the benefit thresholds in [Performance](19-performance.md).
 
 ## Incomplete evidence is reported explicitly
 
@@ -189,8 +179,8 @@ evidence is an empty result:
 | Label | Meaning | Response |
 | --- | --- | --- |
 | `:unknown` | No instrument covers the requested relationship | Ask a question the instruments can answer, or encode the claim in a test |
-| `:opaque` | The substrate keeps no record of this fact, deliberately and permanently | Ask a question the instruments do hold; retaining it would cost every application memory for a panel's benefit |
-| `:host-opaque` | React owns this and does not publish it — commit and paint for *any* boundary, never a mark that a foreign subtree was crossed | React DevTools and the browser performance tools are the authority; a timing coincidence here would be a guess wearing a number |
+| `:opaque` | The runtime does not record this fact, by design | Ask a question the instruments do hold |
+| `:host-opaque` | React owns this and does not publish it: commit and paint for *any* view, not only a foreign subtree | Use React DevTools and the browser performance tools |
 | `:cap` | The bounded history has dropped older evidence | Reproduce and capture a fresh epoch |
 | `:uncorrelated` | The fact is real but joins to nothing — no id links the two sides | Structural, so a rerun does not fix it: read the leads it offers and confirm the link yourself |
 
@@ -210,13 +200,13 @@ Examples from the guide:
 | ID | Meaning | Recovery |
 | --- | --- | --- |
 | `:rf.error/fresco-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
-| `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` carrying a read tried to leave a view | Force it in the body or pass the realised value |
+| `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body or pass the realised value |
 | `:rf.error/fresco-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
 | `:rf.error/fresco-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
 | `:rf.error/fresco-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
 | `:rf.error/fresco-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
 | `:rf.warning/fresco-entity-key` | A boundary-headed sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
-| `:rf.warning/fresco-missing-key` | A boundary-headed sequence child carries no `:key` at all. The crossing flattens the seq into separate arguments, which React marks validated, so React's own missing-key check never runs and the list reconciles by index in silence | Key on a stable identifier |
+| `:rf.warning/fresco-missing-key` | A boundary-headed sequence child carries no `:key`. React's own missing-key warning does not fire for these children, so without this warning the list would reconcile by index silently | Key on a stable identifier |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
 
 Follow the named recovery before changing unrelated code.
@@ -224,6 +214,10 @@ Follow the named recovery before changing unrelated code.
 When testing a refusal, assert the stable id rather than the message:
 
 ```clojure
+(ns todo.refusal-test
+  (:require [cljs.test :refer [deftest is]]
+            [re-frame.fresco.test :as ht]))
+
 (defn badge [_]
   [:span.badge "hi"])
 
@@ -282,8 +276,8 @@ from application code.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A view you expected is absent from the epoch | Its props and reads allowed it to skip; a body that did not run emits no occurrence | Treat absence as work avoided. Inspect the parent occurrence when you expected different props |
-| Explain-render returns `:uncorrelated` | Fresco's commit seam records no cascade id, so nothing in the retained window joins to the re-run | Structural, not circumstantial: a bigger ring and a fresh reproduction both leave it. Work from the leads it offers |
-| Every boundary reports `:host-opaque` past bodies-run | React owns commit and paint, so this projection states it for all of them | Expected, and not a mark on any particular subtree. Use React DevTools for the run and the commit, browser tools for the paint |
+| Explain-render returns `:uncorrelated` | Fresco's commit records no cascade id, so nothing in the retained window joins to the re-run | Expected every time; a bigger history does not change it. Work from the `:candidates` leads |
+| Every view reports `:host-opaque` after its body ran | React owns commit and paint for all views | Expected. Use React DevTools for the run and the commit, browser tools for the paint |
 | History ends with `:cap` | The bounded retention window discarded old epochs | Reproduce the issue and capture it again |
 | The advisor will not recommend a native island | Either the measured owner is not a cost native code fixes, or nothing it measures owns the boundary at all | Apply the smaller remedy where it names one; where it refuses, reach for the instrument it names first |
 | Repeated runs have different timings | Xray timing is diagnostic attribution, not a controlled benchmark | Use the cost classification; benchmark under [Performance](19-performance.md) |

@@ -229,7 +229,7 @@ A few of the args-map slots are doing real work here, and a couple more are wort
 |---|---|---|
 | `:request` | The wire envelope — `:method`, `:url`, `:body`, `:request-content-type`. | `:request-content-type :json` serialises the clj `:body` and sets `Content-Type: application/json` for you; `:form` URL-encodes instead. `:url` is the only required key. |
 | `:decode` | `:json` parses a 2xx body. | Defaults to `:auto` (sniffs the response `Content-Type`). Decode runs **only on 2xx** — a 4xx/5xx body arrives raw, undecoded. Pass a Malli [schema](../../core/glossary.md#schema) instead of `:json` to validate the reply shape. |
-| `:on-success` / `:on-failure` | Name the reply targets. | Omit both and the reply routes back to *this* event under `:rf/reply` (the co-located form) — fine for trivial flows, but two named handlers keep each one single-purpose. |
+| `:on-success` / `:on-failure` | Name the reply targets. | `:reply-to` names one target for both outcomes instead. Omitting every reply target raises `:rf.error/http-no-reply-target`; two named handlers keep each one single-purpose. |
 
 !!! note "Why no `:retry` here"
 

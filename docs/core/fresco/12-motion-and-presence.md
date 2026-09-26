@@ -2,9 +2,9 @@
 
 Fresco does not ship an animation system. CSS owns transitions and keyframes.
 The compositor interpolates them. A native host owns high-rate mechanics such as
-drag positions and spring integrators. Exactly one gap remains: **React removes
-a node as soon as its data leaves app-db**, and a node that is gone cannot
-finish an exit animation.
+drag positions and spring integrators. What none of them handles is exit: React
+removes a node as soon as its data leaves app-db, and a node that is gone
+cannot finish an exit animation.
 
 `re-frame.fresco.motion` closes that gap. It is an optional module. An
 application that never requires it carries none of its code.
@@ -37,7 +37,7 @@ same turn as the event:
 Presence keeps the exiting node for a stated timeout while app-db already
 records the dismissal.
 
-## The taught spelling
+## Retain the exiting node
 
 ```clojure
 (h/defview toast-tray [_]
@@ -66,7 +66,7 @@ What happens:
 App-db never stores “still animating.” The retention is a paint concern owned
 by Presence.
 
-## Module posture
+## What Presence covers
 
 Presence owns **retention and phase**, nothing else:
 
@@ -91,8 +91,12 @@ A Hiccup head. Props:
 | --- | --- | --- |
 | `:timeout-ms` | **yes** | How long an exiting child is retained. Also the hard stop for removal. |
 
-Children must be keyed. Presence freezes order at first appearance so an
-exiting sibling does not jump while it leaves.
+A missing or non-positive `:timeout-ms` raises
+`:rf.error/fresco-presence-timeout-required`.
+
+Children must be keyed Hiccup vectors; a child without a `:key` raises
+`:rf.error/fresco-presence-child-unkeyed`. Presence freezes order at first
+appearance so an exiting sibling does not jump while it leaves.
 
 Presence inserts **no wrapper DOM node** and stamps no `data-*`. Each child is
 the author's node with the author's attributes merged for the active phase.
@@ -114,9 +118,9 @@ On a native element child, write overrides with the motion markers:
 | `::motion/mounting` | While the child is entering (first paint of a new key) |
 | `::motion/unmounting` | While the child is retained after its key left the live set |
 
-These markers live in the `re-frame.fresco.motion` keyword namespace
-(`::motion/...` when you alias the module as `motion`): the module owns its
-vocabulary, and the door's `::h/...` markers are a separate roster.
+These markers are keywords in the `re-frame.fresco.motion` namespace, so
+write them as `::motion/...` with the module aliased as `motion`. They are
+not `::h/...` keywords.
 
 Prefer CSS insertion animations or `@starting-style` for simple entrances.
 Use `::motion/mounting` when the node must carry attributes such as `:inert`
@@ -156,8 +160,8 @@ reserved key to know about.
 
 - **`:timeout-ms` is mandatory.** It is both retention length and the hard
   terminal bound.
-- **Re-entry cancels exit.** A key that returns while unmounting becomes
-  `:present` on the same node — no remount, no second deadline.
+- **Re-entry cancels exit.** A key that returns while unmounting goes back to
+  the present phase on the same node, with no remount and no second deadline.
 - **Unmount clears timers.** Leaving the page mid-transition does not leave
   dangling timers.
 - **Per-frame work is zero.** Presence arms timers at phase changes; it does
@@ -184,8 +188,10 @@ reserved key to know about.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Dismissed item vanishes immediately | Children are not under Presence, or keys are missing | Wrap the keyed sequence in `motion/presence` and give every child a stable `:key` |
-| Node stays forever after dismiss | `:timeout-ms` omitted or far longer than the CSS | Set `:timeout-ms` to at least the CSS duration; it is required |
+| Dismissed item vanishes immediately | The children are not under Presence | Wrap the keyed sequence in `motion/presence` |
+| `:rf.error/fresco-presence-child-unkeyed` | A child has no `:key` | Give every child a stable domain `:key` |
+| `:rf.error/fresco-presence-timeout-required` | `:timeout-ms` is missing or not a positive number | Set it to at least the CSS exit duration |
+| Exiting node lingers after its animation ends | `:timeout-ms` is much longer than the CSS transition | Match `:timeout-ms` to the CSS duration |
 | Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
 | Override on a view head has no visible effect | The map was merged into the view's props, and the view's body does not read the prop it names | Destructure the prop in the view and branch on it |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
@@ -202,13 +208,6 @@ reserved key to know about.
 
 ### Optional module reachability
 
-`re-frame.fresco` does not import `re-frame.fresco.motion`. That keeps the
-retention machine out of applications that never ask for it. A check in the
-Fresco package fails if the public door re-acquires a hard dependency on the
-module.
-
-### Phase vocabulary
-
-The override markers are `::motion/mounting` and `::motion/unmounting` — the
-naming ledger's ruled spellings (row 31), shipped by the engine and used by
-every example here. The prototype's `::h/...` spellings are retired.
+`re-frame.fresco` does not import `re-frame.fresco.motion`, so an application
+that never requires the module compiles none of its code. A check in the Fresco
+package fails if `re-frame.fresco` starts requiring it.

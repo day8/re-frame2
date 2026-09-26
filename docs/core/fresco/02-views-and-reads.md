@@ -25,8 +25,9 @@ unit that re-renders when the value changes.
 body runs. When one of those subscription values changes, that view
 re-renders.
 
-`h/sub` is the only read form in a Fresco body. A bare `rf/subscribe` is not an
-untracked alternative; it throws rather than resolving. Event vectors and the
+`h/sub` is the only read form in a Fresco body. A bare `rf/subscribe` there
+throws `:rf.error/ambient-frame-refused`, because a read the view does not
+track would never re-render it. Event vectors and the
 `::h/value` marker in the example are covered in
 [Events as data](03-events-as-data.md).
 
@@ -76,9 +77,10 @@ Do not interchange the two forms:
 [todo-row {:id 7}]
 ```
 
-The first mistake raises `:rf.error/fresco-bad-head`. A direct `defview` call
-throws at the call site and names the view. A `defview` never turns into an
-inline helper because it was called with function syntax.
+The first mistake raises `:rf.error/fresco-bad-head`. The second throws at the
+call site: a `defview` is a React component, which only React may call, so it
+never turns into an inline helper because it was called with function
+syntax.
 
 ## Keys go in the props map
 
@@ -91,8 +93,8 @@ inline helper because it was called with function syntax.
 
 Every member of a sequence of children needs a key. Put `:key` in that child's
 props map. Fresco does not read Reagent-style `^{:key id}` metadata, and `for`
-does not invent a key. Missing keys produce React's own development warning; a
-map or other entity value at the `:key` of a view-boundary child produces
+does not invent a key. A missing key normally produces React's own development
+warning. A map or other entity value at the `:key` of a view child produces
 `:rf.warning/fresco-entity-key`, naming the child.
 
 This page owns the spelling. [Lists and collections](06-lists-and-collections.md)
@@ -107,7 +109,7 @@ The supported head shapes have different props and children contracts:
 | --- | --- | --- | --- | --- |
 | Native tag — `[:div …]` | attribute map | trailing forms | in the attribute map | callback ref, legal |
 | Fresco view — `[todo-row …]` | one props map | trailing forms arrive as `(:children props)` | in the props map; removed before the body sees props | not a view surface; use ids |
-| Fragment — `[:<> …]` | none, except a key-bearing fragment props map | trailing forms | in the fragment props map | none |
+| Fragment — `[:<> …]` | none, except an optional map for `:key` and `:ref` | trailing forms | in the fragment props map | passed to React's fragment |
 | Foreign host — [`h/defhost`](glossary.md#defhost) or `[:>]` | converted according to the host declaration | Hiccup children become React elements | in props | callback ref, legal |
 
 Nested and lazy child sequences are realized once and flattened one level.
@@ -139,9 +141,10 @@ Return a fragment when the view needs several roots:
    [cancel-button {}]])
 ```
 
-View bodies must be pure and safe to run again. React StrictMode invokes them
-twice in development. Mutation of a captured atom, starting a fetch, or using
-the body as a render counter therefore belongs elsewhere.
+View bodies must be pure and safe to run again: React may call a body more than
+once for one commit, and under `StrictMode` it does so deliberately in
+development. Mutating a captured atom, starting a fetch, or counting renders
+belongs in events and effects.
 
 ## Equal props skip the body
 
@@ -271,7 +274,7 @@ an explicit state dependency instead of a deferred view read.
     ```
 
     The runtime does not trace subscription ownership through mutable
-    references. Treat this as undefined conduct and pass a value or explicit
+    references. Treat this as undefined behaviour and pass a value or explicit
     function input instead.
 
 ## How read tracking behaves
@@ -301,7 +304,7 @@ Four facts explain the observable behaviour:
 | The first render reports an unknown subscription | `:rf.error/no-such-sub` | Require the namespace that registers the subscription before mounting |
 | A child runs although its props look the same | A prop uses reference identity or one of the child's own reads changed | Hoist a function/JS object, pass persistent data, or inspect the child's own subscriptions |
 | One state change re-renders many unrelated views | The subscription read is higher in the tree than necessary | Move the read into the view that displays the value |
-| A body effect happens twice in development | React StrictMode invoked the body twice | Keep the body pure and move effects to the event/effect layer |
+| A body effect happens twice in development | React called the body twice, as `StrictMode` does in development | Keep the body pure and move effects to the event/effect layer |
 | Subscription instances are constantly recreated | Query arguments are not stable under `=` | Use value-stable persistent arguments; fresh-but-equal persistent values are fine |
 
 ## When not to create another view
@@ -319,8 +322,7 @@ to React ([Islands](10-native-tier.md)).
 
 ### The collector
 
-Each Fresco view has one runtime hook that opens a collection window while the
-body runs. The body may probe subscription reads, but only a committed render
+Each Fresco view opens a collection window while its body runs. The body may probe subscription reads, but only a committed render
 installs them. A render that React retries or abandons therefore leaves no
 subscriptions behind.
 

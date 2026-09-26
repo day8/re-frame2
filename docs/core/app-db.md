@@ -1,29 +1,20 @@
 # app-db: one map, one write path
 
-The [introduction](introduction.md) walked the [event pipeline](glossary.md#event-pipeline);
-[events](events.md) named the vocabulary. This page follows **application data**:
-where it lives, and how it changes.
-
-**[app-db](glossary.md#app-db)** is the application state for one
-[frame](glossary.md#frame): one immutable Clojure map. Handlers return a
-*description* of the next map; the [event pipeline](glossary.md#event-pipeline) is
-what actually writes.
+Your application's state has to live somewhere, and something has to change it.
+In re-frame2 it lives in **[app-db](glossary.md#app-db)**: one immutable Clojure map
+per [frame](glossary.md#frame). Event handlers return the next map; the
+[event pipeline](glossary.md#event-pipeline) writes it.
 
 ```text
 event + world → handler → {:db next-db} → atomic commit
 ```
 
-> **One map. One write path. Events in, new map out.**
-
-Almost everything else in re-frame2 stays simple *because* of that.
-
 ## A complete live counter
 
-The intro counter seeded `:value` through its `:initialise` event; the
-`(:value db 0)` in its subscription was a defensive display fallback, not the
-initializer. Here we reuse that pattern and add a second fact — `:step-size` — so
-both begin explicit in one store. Click the buttons (edit the cell and press
-**`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
+The counter from the [Introduction](introduction.md) gains a second fact,
+`:step-size`, and a decrement button. Both facts are seeded by `:initialise`. Click
+the buttons (edit the cell and press **`Ctrl-Enter`** / **`Cmd-Enter`** if you change
+the code):
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -52,7 +43,7 @@ both begin explicit in one store. Click the buttons (edit the cell and press
    [:button {:on-click #(dispatch [:dec])} "−"]
    [:span " " @(subscribe [:value]) " "]
    [:button {:on-click #(dispatch [:inc])} "+"]
-   [:span {:style {:margin-left "1.5em"}} "step:"]
+   [:span {:style {:margin-left "1.5em"}} "step " @(subscribe [:step-size]) ":"]
    [:button {:on-click #(dispatch [:step-size/set {:step-size 1}])} "1"]
    [:button {:on-click #(dispatch [:step-size/set {:step-size 10}])} "10"]])
 
@@ -65,7 +56,7 @@ Handler parameters use [destructuring](../cljs/index.md#destructuring).
 `{:keys [db]}` takes app-db from the world map. `[_ {:keys [step-size]}]` ignores
 the event id and takes `:step-size` from the payload map.
 
-No second store. The events produce a sequence of complete map values:
+The events produce a sequence of complete map values:
 
 ```clojure
 [:initialise]
@@ -78,12 +69,11 @@ No second store. The events produce a sequence of complete map values:
 ;; => {:value 10 :step-size 10}
 ```
 
-Both facts begin in the initial map; later events return replacements for that whole
-value. That is a **complete live counter**: [registrations](glossary.md#register), a
-[frame-root](glossary.md#frame-root), and a view. (A real app still needs boot
-wiring — [counter example](../../examples/core/counter) or
-[Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide
-grows this same counter one concept at a time.
+Each event returns a replacement for the whole value. (Outside this in-browser
+environment a real app also needs boot wiring: see the
+[counter example](../../examples/core/counter) or
+[Boot and mount an app](how-to/boot-and-mount-an-app.md).) The rest of the guide grows
+this same counter one concept at a time.
 
 ## One map, one write path
 
@@ -96,10 +86,10 @@ data, with no framework-imposed shape:
  :ui   {:active-panel :cart :modal nil}}
 ```
 
-Exactly one normal **write path**: dispatch an [event](glossary.md#event); the
+There is one normal way to change it: dispatch an [event](glossary.md#event); the
 [handler](glossary.md#event-handler) returns an [effect map](glossary.md#effect-map)
 that may include `:db`; the runtime [commits](glossary.md#commit) that new map
-atomically. Handlers compute a proposed next value — they do not mutate the old one.
+atomically. Handlers compute the next value; they do not mutate the old one.
 
 ```clojure
 (rf/reg-event :cart/add
@@ -120,7 +110,7 @@ That gives you three useful properties:
 A handler may return no `:db` key (only `:fx`, say) and leave app-db alone, or return
 the *same* `db` object it was handed so the runtime skips a no-op write.
 
-!!! warning "Gotcha — `{:db nil}`"
+!!! warning "`{:db nil}`"
 
     app-db is always a map. An accidental `{:db nil}` is coerced to `{}` with a dev
     warning (`:rf.warning/db-nil-coerced`). To clear state on purpose, write
@@ -131,20 +121,20 @@ the *same* `db` object it was handed so the runtime skips a no-op write.
     app-db is the single store; a handler is a pure function that returns the next
     state as data (`{:db …}`), and the runtime commits it. No combined reducers, no
     prescribed slice shape — one ordinary Clojure map. Immutability is by
-    construction (`update-in` cannot mutate), not a spread-operator discipline.
+    construction: `update-in` cannot mutate, so no spread-operator discipline is needed.
 
 ??? info "From re-frame v1"
 
-    One app-db, handlers return a new value — same spirit. What changed: app-db is
-    *only* your application data. Framework bookkeeping lives next door in
-    [runtime-db](#yours-and-the-frameworks-next-door), not under a `:rf/runtime`
-    root inside your map.
+    One app-db, and handlers return a new value, as in v1. app-db holds *only* your
+    application data; framework bookkeeping lives next door in
+    [runtime-db](#yours-and-the-frameworks-next-door). v1's `reg-event-db` and
+    `reg-event-fx` are one `reg-event` that always returns an effect map.
 
 ## Initial state is an event
 
-A frame's event fold starts with `app-db = {}`. There is no `:db` config slot to seed
-it. Seeding is itself an event — the same pipeline as every later change — listed as
-`:initial-events` on the frame (or `frame-root`).
+Every frame starts with `app-db = {}`. There is no config option to seed it; seeding
+is itself an event, run through the same pipeline as every later change and listed
+under `:initial-events` on the frame (or `frame-root`).
 
 The counter already did this with `:initialise`. A larger app is the same idea:
 
@@ -164,14 +154,18 @@ Each initial event's pipeline runs synchronously, in order, through its immediat
 commit before the next begins. If a handler starts asynchronous work, its reply
 arrives later through another event; setup does not wait for the host operation. By
 the time setup finishes, app-db includes the immediate `:db` commits from the initial
-events — no seeding side channel. Prefer a named map payload when an initialise
-event carries options: `[:initialise {:user-id 42}]` with `[_ {:keys [user-id]}]`.
-[Frames](frames.md) covers the rest of the registration grammar.
+events. Prefer a named map payload when an initialise event carries options:
+`[:initialise {:user-id 42}]` with `[_ {:keys [user-id]}]`.
 
-??? info "From re-frame v1"
+When all you need is a literal starting map, the framework's own `:rf/set-db` event
+does it without a handler of yours:
 
-    `:initial-db` and `:on-create` are gone. Seed with `:initial-events` and your own
-    initialise event (or several), not a config map.
+```clojure
+[rf/frame-root {:id :app :initial-events [[:rf/set-db {:value 0 :step-size 1}]]}
+ [stepping-counter]]
+```
+
+[Frames](frames.md) covers the other frame options.
 
 ## Shape the map around the domain
 
@@ -200,19 +194,19 @@ Poor:
         :empty? false}}
 ```
 
-`total` and `empty?` are conclusions. Store them next to the items and they will
-drift — two copies of one truth is two chances to disagree. Derive them so there is
-only one truth to update. That is the next page's job.
+`total` and `empty?` are conclusions. Stored next to the items, they have to be
+updated by every handler that touches the items, and one that forgets leaves them
+wrong. Derive them instead, with a subscription.
 
 ## Yours, and the framework's next door
 
-For state your application owns between events, app-db is the write target. A running
-frame also holds [**runtime-db**](glossary.md#runtime-db) — framework bookkeeping
-(machine snapshots, route, resource cache, …) under reserved `:rf.runtime/*` keys.
-[Two partitions](glossary.md#the-two-partitions): app-db is yours; runtime-db is the
-framework's (read it via its subscriptions; influence it by dispatching its events —
-never forge it by hand in app-db). An ordinary `:db` effect cannot wipe a machine
-snapshot. [Frames](frames.md) goes deeper.
+A running frame also holds [**runtime-db**](glossary.md#runtime-db): framework
+bookkeeping (machine snapshots, the current route, the resource cache, …) under
+reserved `:rf.runtime/*` keys. The [two partitions](glossary.md#the-two-partitions)
+are separate: app-db is yours, and runtime-db is the framework's. Read runtime-db
+through the framework's subscriptions and change it by dispatching the framework's
+events; don't recreate its keys in app-db. An ordinary `:db` effect cannot wipe a
+machine snapshot. [Frames](frames.md) goes deeper.
 
 ## Troubleshooting
 
@@ -220,9 +214,25 @@ snapshot. [Frames](frames.md) goes deeper.
 |---|---|---|
 | State "vanished" after a handler | Accidental `{:db nil}` | Write `{:db {}}` to clear; watch for `:rf.warning/db-nil-coerced` |
 | Two facts disagree | A conclusion was stored next to its facts | Derive in a [subscription](subscriptions.md) (or a [flow](flows.md) if handlers must read it) |
-| Initial UI shows empty before first paint | No seed event | List an initialise event in `:initial-events` |
-| Framework snapshot gone after your `:db` | You tried to own runtime keys in app-db | Leave runtime-db alone; dispatch the subsystem's events |
+| Initial UI shows empty values | No seed event | List an initialise event (or `[:rf/set-db {…}]`) in `:initial-events` |
+| Frame creation throws `:rf.error/initial-db-retired` or `:rf.error/on-create-retired` | The frame options carry `:initial-db` or `:on-create` | Seed through `:initial-events` |
+| Machine or route state doesn't reflect what you wrote into app-db | Framework state lives in runtime-db, not app-db | Dispatch the subsystem's events instead |
 
-With this page you can seed a frame, keep facts in one map, write only through
-events, and leave conclusions out of app-db. The left nav continues into how those
-conclusions are named and cached.
+## Advanced
+
+### Keeping secrets out of traces
+
+Tools and traces see a copy of app-db. To redact a path in that copy, return a
+classification effect beside `:db`. `:sensitive` redacts the value and `:large`
+replaces it with a size marker; `:clear-sensitive` and `:clear-large` undo them:
+
+```clojure
+(rf/reg-event :auth/init
+  (fn [{:keys [db]} _]
+    {:db        (assoc db :auth {})
+     :sensitive [[:auth :token] [:auth :refresh-token]]}))
+```
+
+Your handlers and subscriptions still read the real value. Classifying a path before
+anything is stored there is fine, so a seed event is the natural place.
+[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers the details.

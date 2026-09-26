@@ -3,30 +3,16 @@
 Fresco is re-frame2's native view layer. Views are Hiccup data, subscription
 reads are ordinary function calls, and event handlers can remain event vectors.
 The runtime turns that data into React elements; app-db, events, subscriptions,
-frames, and the event pipeline remain ordinary re-frame2.
+effects, frames, and the event pipeline are ordinary re-frame2, as the Core
+guide teaches them. This guide covers what changes at the view layer.
 
-This guide explains the Fresco view model, controlled inputs, forms, routing,
-resources, React interop, native components, local UI state, motion/presence,
-overlays, SSR, testing, diagnostics, performance, migration, code splitting,
-and accessibility. Numbered pages run from
-[`00-installation`](00-installation.md) through
-[`22-accessibility`](22-accessibility.md), and the sidebar carries that order —
-each chapter leans only on what came before it.
-
-Five lookup surfaces follow the chapters. The [API
-reference](api-reference.md) carries every public name with the signature it
-ships with; the [Cookbook](cookbook.md) carries whole recipes you can copy;
-[Troubleshooting](troubleshooting.md) starts from a symptom or a complaint id;
-[The escape ladder](escape-ladder.md) gives the criteria for going outside the
-interpreted model and what each rung costs; and the [Glossary](glossary.md)
-defines the Fresco-specific terms the chapters use.
-
-## Prerequisites
-
-You should already understand the re-frame2 basics: events, app-db,
-subscriptions, effects, and frames. The Core guide owns those concepts. This
-corpus explains what changes at the view layer and how that layer behaves at
-its boundaries.
+Alongside the chapters are five lookup pages. The [API
+reference](api-reference.md) lists every public name with its signature; the
+[Cookbook](cookbook.md) has whole recipes you can copy;
+[Troubleshooting](troubleshooting.md) starts from a symptom or an error id;
+[The escape ladder](escape-ladder.md) says when to leave the interpreted model
+and what each step costs; and the [Glossary](glossary.md) defines the
+Fresco-specific terms the chapters use.
 
 ## When Fresco fits
 
@@ -54,8 +40,6 @@ view model is useful.
 !!! info "Pre-alpha"
 
     Fresco is pre-alpha, and this guide is written against what ships. Every
-    namespace and verb it names is exported today, and a gate reads each
-    verb in every fenced sample against the source that defines it, so a
-    sample here cannot name a spelling the door does not carry. [SSR and
-    hydration](18-ssr-and-hydration.md) describes shipped behaviour rather
-    than an intended contract.
+    namespace and function it names is exported today, and a CI gate checks
+    every Fresco function a code sample names against the source that
+    defines it.

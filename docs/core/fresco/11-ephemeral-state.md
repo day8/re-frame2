@@ -49,19 +49,22 @@ nothing else:
 
 (h/reg-state ::expanded? {:default false})
 
-(h/defview panel [{:keys [id title]}]
+(h/defview panel [{:keys [id title children]}]
   (let [expanded? (h/sub [::expanded? id])]
     [:section
      [:h3 {:on-click [::expanded? id (not expanded?)]} title]
      (when expanded?
-       [panel-body {:id id}])]))
+       (into [:div.panel-body] children))]))
 ```
 
 `(h/sub [::expanded? id])` reads, `[::expanded? id value]` writes, and
 `[::h/clear ::expanded? id]` removes the entry so that instance reads its
-default again. The concern must be a namespace-qualified keyword — it is a sub
-id, an event id and an app-db key at once — and registering it again replaces
-the registration: a namespace reload re-runs the same call, and the last
+default again. The concern must be a namespace-qualified keyword, because it is
+a sub id, an event id and an app-db key at once. The instance key must be a
+keyword, string, number or vector of those; `nil` or anything else raises
+`:rf.error/fresco-state-bad-argument`, as do an unqualified concern and an
+option other than `:default`. Registering the concern again replaces the
+registration, so a namespace reload re-runs the same call and the last
 `:default` written wins. A hundred panels reuse the one pair, and the address
 gives you replay, frame isolation, Xray visibility, and direct test setup.
 
@@ -102,7 +105,7 @@ enough:
 [:search/cleared]
 ```
 
-The important part is that the draft has one address and no local duplicate.
+Either way, the draft has one app-db address and no local copy.
 
 ## 3. Host-private mechanics: native state
 
@@ -118,7 +121,8 @@ This state may update every pointer move or animation frame, and nothing
 outside the widget needs it. Keep it inside a React island or a declared host
 ([Islands](10-native-tier.md), [Interop](09-interop.md)).
 
-The rule at the edge is: **motion stays inside; meaning leaves as one event.**
+Keep the motion inside the island and dispatch one event when it produces a
+result:
 
 ```clojure
 (ns app.board.drag
@@ -154,8 +158,9 @@ The rule at the edge is: **motion stays inside; meaning leaves as one event.**
 ```
 
 Pointer movement remains local React state. The completed drop is an
-application event, so it enters app-db once: the host declares `:on-drop` as an
-event callback, and the island calls it with the column it computed.
+application event, so it enters app-db once: `:on-drop` is an `on*` prop, so
+`h/event` there is an event callback, and the island calls it with the column
+it computed.
 
 Hooks belong in the island. A `defview` body may
 branch and loop dynamically, so putting hooks there makes hook order depend on
@@ -174,17 +179,16 @@ commit on blur. The tradeoff is explicit: app-db, tests, and tools cannot see
 mid-edit text ([Controlled inputs](04-controlled-inputs.md)).
 
 **Platform controls** may own a presentational toggle, such as a native
-popover triggered by `:popovertarget` ([Overlays and focus](13-overlays-and-focus.md)).
+popover triggered by `:popover-target` ([Overlays and focus](13-overlays-and-focus.md)).
 
-DOM ownership is a local design choice, not a hidden replacement for
-application state. When validation, another view, routing, or testing needs the
-fact, move it to app-db.
+When validation, another view, routing, or a test needs the fact, move it to
+app-db.
 
 ## 5. Exit retention: pixels that outlive data
 
 App-db records what is true. A dismissed toast should leave app-db immediately,
-but its DOM node may need a short exit animation. That gap is **not**
-ephemeral application state — it is paint retention.
+but its DOM node may need a short exit animation. Keeping that node painted is
+a rendering concern, and app-db does not record it.
 
 Use the optional [`re-frame.fresco.motion`](12-motion-and-presence.md) module
 and `motion/presence`. That chapter owns the API, the phase markers
@@ -210,7 +214,7 @@ Application-visible and form state need an instance key. Fresco does not
 invent one. React's `useId` is unsuitable because it is tied to render order
 and does not provide a durable app-db address.
 
-Use authored data: a keyword, string, number, or flat vector of those values.
+Use authored data: a keyword, string, number, or a vector of those values.
 
 1. **Start with a domain id.** Qualify ids when different entity types can
    collide: `[:order/id 42]` and `[:invoice/id 42]`.
@@ -248,12 +252,12 @@ Everything else is application state and should have one app-db address.
 ```clojure
 ;; Don't: this atom is recreated whenever the body runs, and Fresco does not
 ;; track it as reactive state.
-(h/defview broken-panel [{:keys [id title]}]
+(h/defview broken-panel [{:keys [title children]}]
   (let [expanded? (atom false)]
     [:section
      [:h3 {:on-click (fn [_] (swap! expanded? not))} title]
      (when @expanded?
-       [panel-body {:id id}])]))
+       (into [:div.panel-body] children))]))
 
 ;; Don't: one event, subscription pass, and paint for every pointer move.
 :on-pointer-move
@@ -268,6 +272,7 @@ Everything else is application state and should have one app-db address.
 | A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Fresco does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into a native component |
 | You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Fresco has no generic lifecycle hook | Identify the job and use the owner in the table above |
 | Every panel opens at once | All instances share one address | Include a stable instance key in the address |
+| `:rf.error/fresco-state-bad-argument` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option | Pass a stable id such as the entity id; the error's reason names which argument is wrong |
 | Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep pointer mechanics inside the host and dispatch only the semantic result |
 | A dismissed item vanishes before its CSS exit finishes | Exit retention was treated as app-db state, or Presence was not used | See [Motion and presence](12-motion-and-presence.md) |
 | app-db accumulates many `:ui` entries | Application-visible UI state is correctly stored there | Namespace the slice and exclude it from persistence when appropriate |

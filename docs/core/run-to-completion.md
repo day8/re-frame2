@@ -1,88 +1,86 @@
 # Run to completion
 
-The idea — and the live demo — live on
-[Effects: run to completion](effects.md#run-to-completion). Read that first: it is
-where follow-up events make the drain visible.
-
-This page is **operational detail**: what happens when a drain runs away, how
-`dispatch-sync` differs from `dispatch`, and how destroy cuts the queue off.
-
-> **Update and commit run per event; nothing renders until the queue settles — and
-> then it renders once.**
+The runtime processes dispatched events until the queue is empty, and only then
+renders, once. [Effects](effects.md#run-to-completion) introduces the idea with a
+live demo. This page covers the operational details: what happens when a drain runs
+away, how `dispatch-sync` differs from `dispatch`, and what `destroy-frame!` does to
+a running drain.
 
 ## When the drain won't stop
 
-What if a handler dispatches an event whose handler dispatches the first one again?
-A cycle that never finishes. The runtime won't let it. Each frame carries a
-**`:drain-depth`** — the maximum number of events one drain may process (default
-`100`). When a drain reaches it, the runtime stops with a loud, machine-readable
-[error record](glossary.md#error-record):
+If a handler dispatches an event whose handler dispatches the first one again, the
+drain would never finish. Each frame has a **`:drain-depth`**, the maximum number of
+events one drain may process (default `100`). When a drain reaches it, the runtime
+stops and emits an always-on [error record](glossary.md#error-record):
 
 ```clojure
-{:operation :rf.error/drain-depth-exceeded
- :frame     :main
- :tags      {:depth      100                    ; events already settled this drain
-             :queue-size 7                      ; events dropped, unrun
-             :last-event [:the-last-event-that-ran]}}
+{:error             :rf.error/drain-depth-exceeded
+ :frame             :app
+ :depth             100                        ; events already settled this drain
+ :queue-size        7                          ; events dropped, unrun
+ :last-event-id     :todo/sync                 ; id of the last event that ran
+ :tail-event-ids    [:todo/sync :todo/save …]  ; recent ids; the repeating run names the cycle
+ :dropped-event-ids [:todo/save …]
+ :rollback?         false
+ …}
 ```
 
-Atomicity in re-frame2 is per [**event**](glossary.md#commit), not per drain — every
-event the drain already settled *keeps* its app-db write and its history row. The
-runtime discards the remaining queued events, traces
-`:rf.error/drain-depth-exceeded`, and leaves the frame at the last settled state. In
-Xray you'll see the settled rows followed by a single `:halted-depth` marker.
+The record carries event ids only, never event arguments. In dev builds the trace
+stream also gets a `:rf.error/drain-depth-exceeded` trace with the full last event and
+a readable `:reason`.
+
+The [commit](glossary.md#commit) is per event, not per drain: every event the drain
+already settled keeps its app-db write and its history row. The runtime discards the
+remaining queued events and leaves the frame at the last settled state. In Xray you'll
+see the settled rows followed by a single `:halted-depth` marker.
 
 !!! note "The bound is per-frame and tunable"
 
-    Each frame can set its own. Story pins live-demo frames to `16` (fail fast); the
-    `:test` frame preset pins the default `100` explicitly. Raise it only when a
-    frame legitimately fans out wide — a drain that needs hundreds of synchronous
-    events is usually a cycle in disguise.
+    Set `:drain-depth` in the frame config. The `:story` frame preset uses `16`, so
+    a runaway demo fails fast; the `:test` preset sets the default `100` explicitly.
+    Raise it only when a frame legitimately fans out wide — a drain that needs
+    hundreds of synchronous events is usually a cycle.
 
-## Destroy is a terminal cutoff
+## Destroy ends the drain
 
-A successful `destroy-frame!` claim does not forcibly interrupt an authored callback
-already on the stack: that callback may return and already-entered interceptor
-`:after` callbacks may unwind. Its returned context is inert, however — no
-framework-owned commit, flow, effect, child dispatch, ordinary diagnostic, normal
-epoch settlement, or render follows. The claim atomically discards pending ordinary
-work. No read/render phase is inserted at the cutoff.
+`destroy-frame!` discards the frame's queued events immediately. It does not
+interrupt code already running: a handler on the stack may return, and interceptor
+`:after` functions already entered still run. But nothing that code produced takes
+effect — no commit, no flows, no effects, no child dispatches, no render. The frame's
+`:on-destroy` event, if it has one, then runs ([Frames](frames.md#ending-and-resetting-a-frame)).
 
 ## `dispatch-sync`
 
-Inside a handler, you never call `dispatch` directly — you return
-`:fx [[:dispatch …]]` and let the runtime queue it. Outside any handler there is
-nothing to return effects to, so you call directly — every `:on-click` does that
-fire-and-forget. Sometimes the caller needs the drain settled before its next line
-runs (app startup, a test fixture, the REPL). That's
-[**`dispatch-sync`**](glossary.md#dispatch-sync):
+Inside a handler you never call `dispatch`; you return `:fx [[:dispatch …]]`.
+Outside a handler you call `dispatch` directly, as every `:on-click` does, and it
+returns at once. When the caller needs the drain settled before its next line runs
+(a test, the REPL), use [**`dispatch-sync`**](glossary.md#dispatch-sync):
 
 ```clojure
-(rf/dispatch-sync [:app/initialise])
+(rf/dispatch-sync [:inc] {:frame :app})   ;; at the REPL, name the frame
 ;; By the time this line returns, the whole drain has settled.
 ```
 
-`dispatch-sync` runs the same run-to-completion drain as `dispatch`, but blocks until
-the drain settles.
+`dispatch-sync` runs the same drain as `dispatch`, but returns only after it
+settles.
 
-Call it from inside a handler and you'll get
-`:rf.error/dispatch-sync-in-handler` — under run-to-completion the drain is already
-running synchronously. The in-handler shape for a follow-up is always
-`:fx [[:dispatch event]]`.
+Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`, because
+a drain is already running. Return `:fx [[:dispatch event]]` instead. (A
+`dispatch-sync` aimed at a *different* frame is allowed, with a warning; see
+[Frames](frames.md#cross-frame-dispatch-sync-during-a-drain).)
 
 !!! warning "Gotcha — a dispatch needs a frame in scope"
 
-    Both `dispatch` and `dispatch-sync` resolve which [frame](glossary.md#frame) to
-    target from scope — a provider, a running handler, or a
-    [capture-frame](glossary.md#capture-frame). A rootless async callback raises
-    `:rf.error/no-frame-context`. Fix: grab a `capture-frame` while the frame is in
-    scope, or pass `{:frame <id>}` in the dispatch opts. Full story:
-    [Frames](frames.md).
+    Both `dispatch` and `dispatch-sync` take their [frame](glossary.md#frame) from
+    scope — a `frame-root` during render, a running handler, `with-frame`, or a
+    [`capture-frame`](glossary.md#capture-frame) frame api. From an async callback
+    with none of these they raise `:rf.error/no-frame-context`. Capture the frame
+    while it is in scope, or pass `{:frame <id>}` in the dispatch opts. See
+    [Frames](frames.md#the-async-boundary-capture-the-frame).
 
 ??? info "From re-frame v1"
 
-    There is no `^:flush-dom` and no queue-pause-for-render — the drain never stops
-    mid-run to let a paint through. The v1 use case — "show this, *then* run the
-    heavy block" — is served by a `dispatch-later` with `{:ms 0}`, which lets one
-    paint land before the next event runs. See
-    [From re-frame v1](25-from-re-frame-v1.md).
+    There is no `^:flush-dom`: the drain never pauses mid-run to let a paint
+    through. For "show this, *then* run the heavy work", return a
+    `[:dispatch-later {:ms 0 :event [...]}]` row, which lets one paint land before
+    the next event runs. See [From re-frame v1](25-from-re-frame-v1.md).

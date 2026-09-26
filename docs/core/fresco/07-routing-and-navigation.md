@@ -24,8 +24,8 @@ Register routes once during boot:
 (rf/reg-route :app/inbox    {} "/inbox")
 ```
 
-`h/route-link` ships on the door, so a view that renders links requires nothing
-beyond it:
+`h/route-link` is part of `re-frame.fresco`, so a view namespace that renders
+links requires nothing more:
 
 ```clojure
 (ns app.views.articles
@@ -34,9 +34,8 @@ beyond it:
 
 ## Boot a routed application
 
-Routing costs a dependency and a frame option. The dependency is a coordinate;
-the frame option rides `h/frame-root` with every other `rf/make-frame` option,
-and there is no routing key on the root door at all.
+Routing needs a dependency and a frame option. The frame option goes on
+`h/frame-root` with every other `rf/make-frame` option:
 
 ```clojure
 ;; deps.edn — beside the Fresco coordinate
@@ -62,27 +61,25 @@ and there is no routing key on the root door at all.
               {:id             :app/main
                :url-bound?     true              ;; this frame owns the browser URL
                :initial-events [[:app/initialise]]}
-              [views/app-root]]
+              [views/app-shell]]
              (js/document.getElementById "app"))
   nil)
 ```
 
-Three things in that shape are load-bearing:
+Three things in that boot matter:
 
-- **`re-frame.routing` is a separate coordinate, and Fresco does not bring it
-  in.** Require it before anything renders a route link, or `h/route-link` raises
+- **`re-frame.routing` is a separate dependency that Fresco does not bring in.**
+  Require it before anything renders a route link, or `h/route-link` raises
   `:rf.error/routing-artefact-missing`.
-- **A frame owns the browser URL only by carrying `:url-bound? true`.** There is
-  no default and nothing infers it; the declaration *is* the wiring, and creating
-  the frame installs the URL listener and syncs the current URL into the route
-  slice in one step. Without it `route-link` still renders and navigation still
-  updates that frame's own route state — the address bar simply never moves, and
-  a refresh loses the page.
-- **`:url-bound?` rides the frame boundary, not the root door.** `h/render!`'s
-  opts carry `:hydrate?` and `:identifier-prefix` and REFUSE every other key —
-  `:url-bound?` is a frame option, so it goes on `h/frame-root` with the rest of
-  the `rf/make-frame` map, beside the seed. One place names the frame and one
-  place configures it: see [A frame that needs more than a
+- **A frame owns the browser URL only if it carries `:url-bound? true`.**
+  Nothing infers it. Creating that frame installs the URL listener and syncs the
+  current URL into the route state. Without it `route-link` still renders and
+  navigation still updates the frame's route state, but the address bar never
+  moves and a refresh loses the page.
+- **`:url-bound?` goes on `h/frame-root`, not in `h/render!`'s options.**
+  `h/render!` accepts only `:hydrate?` and `:identifier-prefix`; frame options
+  belong on the frame-root with the rest of the `rf/make-frame` map, as in [A
+  frame that needs more than a
   seed](00-installation.md#a-frame-that-needs-more-than-a-seed).
 
 Exactly one frame may carry `:url-bound? true`. A second raises
@@ -117,14 +114,14 @@ copy-link, middle-click, and browser link menus continue to work. The helper
 inlines into its caller; it does not create another Fresco view or
 subscription.
 
-The generated Hiccup carries the click decision as data at `:on-click` — a
-vector headed by a keyword the implementation owns, wrapping a map:
+The generated Hiccup carries the click decision as data at `:on-click`, a
+vector headed by an internal keyword and wrapping a map:
 
 ```clojure
 [:a {:href     "/profile/jane"
      :class    "author"
      :on-click [navigate-head                       ; route-link's own head
-                {:frame   :rf/default
+                {:frame   :app/main
                  :payload [:rf.route/url-requested
                            {:url    "/profile/jane"
                             :to     :app/profile
@@ -134,9 +131,9 @@ vector headed by a keyword the implementation owns, wrapping a map:
  "jane"]
 ```
 
-This form remains comparable with `=` and visible to structural tests, which
-read it through `re-frame.fresco.impl.intent/navigate-head?`. It is not an
-authoring spelling: `route-link` owns its shape, and there is nothing to write.
+Two renders of the same link compare equal with `=`, and structural tests can
+inspect the click decision. You never write this form yourself; `route-link`
+creates it.
 
 Click conduct is browser-compatible:
 
@@ -146,9 +143,7 @@ Click conduct is browser-compatible:
   new tab
 - anchors with `:target` or `:download` navigate natively
 
-The generated map carries `:frame`, `:payload`, `:native?`, and `:veto`;
-`route-link` creates it, and application code does not author it.
-If the core routing artefact was not loaded, rendering raises
+If the routing artefact was not loaded, rendering raises
 `:rf.error/routing-artefact-missing` and names the requested route instead of
 producing a dead anchor. Ordinary classes, data attributes, and ARIA props pass
 through.
@@ -159,7 +154,7 @@ through.
 where the navigation renders and pass the result into an inline helper:
 
 ```clojure
-(h/defview site-nav []
+(h/defview site-nav [_]
   (let [current (h/sub [:rf.route/id])
         nav     (fn [to label]
                   (h/route-link
@@ -266,13 +261,14 @@ Scroll behaviour belongs to route or navigation data:
 | `:restore` | restore the saved position | Back/Forward |
 | `:preserve` | leave the viewport unchanged | in-place query or filter changes |
 
-For example, pagination that should keep the current viewport can dispatch:
+For example, a pagination button that should keep the current viewport can
+dispatch the navigation as an intent:
 
 ```clojure
-(rf/dispatch
- [:rf.route/navigate
-  {:query-merge {:page 2}
-   :scroll      :preserve}])
+[:button
+ {:on-click [:rf.route/navigate {:query-merge {:page 2}
+                                 :scroll      :preserve}]}
+ "Next page"]
 ```
 
 Restoration requires the destination page to have its real height. If
@@ -291,7 +287,7 @@ focusable, and focus it after commit:
   (when node
     (.focus node #js {:preventScroll true})))
 
-(h/defview app-root []
+(h/defview app-shell [_]
   (let [route (h/sub [:rf.route/id])]
     [:div.app
      [site-nav]
@@ -310,22 +306,18 @@ The key remounts `<main>` when page identity changes, causing the ref to run.
 `:tab-index -1` allows programmatic focus without adding the region to normal
 tab order. `preventScroll` lets the router's scroll policy remain authoritative.
 
-The boundary sits inside `<main>` on purpose. Every Fresco refusal is a throw,
-and React unmounts a root whose tree throws with nothing above it to catch, so a
-single refused head anywhere in a page takes the whole application to a blank
-screen with the error only in the console. Catching at the page keeps the
-navigation usable, which is the region rule
-[Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) states and the
-reason not to wrap the root instead — that would turn every failure into a
-whole-page fallback and remove `site-nav` along with the broken content. It needs
-no `:reset-key`: the `:key` above already remounts `<main>` on a route change, so
-navigating away is the retry.
+The error boundary sits inside `<main>` so that a page that throws shows the
+fallback while `site-nav` stays usable; wrapping the root instead would replace
+the whole application, navigation included
+([Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) explains
+where boundaries belong). It needs no `:reset-key`: the `:key` above already
+remounts `<main>` on a route change, so navigating away is the retry.
 
 Query-only or fragment-only changes keep the same route id and therefore do
 not move focus. If article 7 and article 9 count as separate pages, include the
 route params in the key.
 
-Modal and popover focus is owned by the overlays module, not this recipe.
+Modal and popover focus is handled by the overlays module ([Overlays and focus](13-overlays-and-focus.md)).
 
 ## Guard unsaved changes
 
@@ -344,11 +336,12 @@ strict boolean and attach it to the route:
   "/articles/:id/edit")
 ```
 
-When the guard returns `false`, the route and URL remain unchanged. The
-attempt is stored in `[:rf/pending-navigation]`, which a view can render:
+When the guard returns `false`, the route and URL remain unchanged, and the
+blocked attempt is readable through the `:rf/pending-navigation` subscription,
+which a view can render:
 
 ```clojure
-(h/defview leave-guard-dialog []
+(h/defview leave-guard-dialog [_]
   (when-let [pending (h/sub [:rf/pending-navigation])]
     [:div.modal {:role "alertdialog"
                  :aria-modal true}
@@ -441,7 +434,7 @@ and activation pipeline as route links:
 | An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
 | Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
 | The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |
-| `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
+| `route-link` raises `:rf.error/fresco-route-link-bad-on-click` for a bare `:on-click` vector | The click would produce two application events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
 | A link carrying `:prefetch :intent` raises `:rf.error/fresco-route-link-claimed-intent-position` | The link also supplies `:on-mouse-enter`, `:on-focus` or `:on-touch-start`, and `:prefetch` claims all three | Drop `:prefetch` and dispatch `[:rf.route/prefetch address]` by hand from the positions you are not otherwise using |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
