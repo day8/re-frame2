@@ -621,11 +621,12 @@ The top-level `:xray-panel` slot names the default RHS-embed panel:
 ```
 
 The variant body's `:xray-panel` wins over the parent story's; the
-resolver lives in `re-frame.story.ui.xray-embed/resolve-panel`. The
-`:xray` preset's own `:panel` slot (§Xray preset slot) is a distinct
-auto-config step — it dispatches `:rf.xray/select-tab` on mount,
-alongside `:open?` / `:filters` — not a second spelling of
-the embed default.
+resolver lives in `re-frame.story.ui.xray-embed/resolve-panel`. A body
+that names no `:xray-panel` takes its `:xray` preset's `:panel`
+(§Xray preset slot) as the embed default, so a preset that selects a
+panel selects it in the RHS embed as well as in the full shell. The
+order is: variant `:xray-panel`, variant preset `:panel`, story
+`:xray-panel`, story preset `:panel`, then `:epoch`.
 
 Story's local `Variant` schema
 (`tools/story/src/re_frame/story/schemas.cljc`) is closed and explicitly
@@ -647,7 +648,7 @@ level.
 | Slot | Shape | Effect on mount |
 |---|---|---|
 | `:open?` | boolean | Auto-open the whole Xray shell (popout / escape-hatch path; the RHS embed owns its own mount). |
-| `:panel` | panel keyword | Dispatches `:rf.xray/select-tab`. Distinct from the `:xray-panel` embed default above. |
+| `:panel` | panel keyword | Dispatches `:rf.xray/select-tab`, and picks the RHS embed panel when the body names no `:xray-panel` (above). |
 | `:filters` | `{:in [<event-id> ...] :out [<event-id> ...]}` | Pre-populates Xray's ribbon filter pills. |
 
 The preset map is closed, like the story and variant bodies that carry

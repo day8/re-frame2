@@ -250,7 +250,7 @@ Every body is a closed map. An unknown or misspelt key throws `:rf.error/<kind>-
 | `:viewport` | A viewport preset id (`:full`, `:mobile-portrait`, `:mobile-landscape`, `:tablet`, `:desktop`, `:desktop-wide`) or `{:width w :height h}`. |
 | `:background` | A background preset id (`:light`, `:dark`, `:paper`, `:midnight`, `:transparent`) or a CSS colour string. |
 | `:xray-panel` | The Xray panel the right rail opens on: `:epoch` (default), `:app-db`, `:views`, `:trace`, `:machines` or `:routing`. |
-| `:xray` | A preset for the full Xray shell: `{:open? bool :panel panel-id :filters {:out [event-id ...] :in [event-id ...]}}`. |
+| `:xray` | A preset for the full Xray shell: `{:open? bool :panel panel-id :filters {:out [event-id ...] :in [event-id ...]}}`. Its `:panel` also picks the right rail's panel when the body names no `:xray-panel`. |
 | `:dispatch-console?` | `true` opens the Dispatch console by default. |
 | `:images` | `rf/image` values the variants' frames resolve behaviour through. |
 | `:variants` | A map of variant name to variant body, each registered as `:<story-id>/<name>` (the combined form above). |

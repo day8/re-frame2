@@ -109,6 +109,13 @@
   focus command."
   #{:epoch :app-db :views :trace :machines :routes})
 
+(defn embed-panel-for
+  "The RHS embed chip id that shows focus `panel`: the same id, except that
+  the chip-row names the routes lens `:routing` where the focus vocabulary
+  names it `:routes`. Pure data → data."
+  [panel]
+  (get {:routes :routing} panel panel))
+
 ;; ===========================================================================
 ;; EVIDENCE STRENGTH  (spec/020 §3 — direct vs attributed)
 ;; ===========================================================================
@@ -527,6 +534,10 @@
      from Xray's perspective — each Story variant is make-frame'd under its
      id, see `re-frame.story.frames`).
 
+     The RHS embed follows the focus: the shell's `:xray-panel` override
+     moves to the focused panel (`embed-panel-for`), exactly as clicking
+     that chip would, so the rail shows the lens the link named.
+
      No-op when Story is disabled, and no-op in a published static export
      (`focus-available?`), where there is no mounted Xray to
      receive the command. Returns the focus result map (or nil) so a
@@ -537,8 +548,11 @@
              source  (focus-source :story/evidence-beat variant-id
                                     {:beat-idx (:beat-idx beat)
                                      :span-idx (:span-idx beat)})
-             command (build-focus-command panel coords source)]
-         (xray-core/focus! variant-id command)))))
+             command (build-focus-command panel coords source)
+             result  (xray-core/focus! variant-id command)]
+         (rf.story.ui.state/swap-state! assoc :xray-panel
+                                        (embed-panel-for (:panel command)))
+         result))))
 
 ;; ---- styling -------------------------------------------------------------
 

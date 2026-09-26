@@ -29,6 +29,8 @@
   `-dom-cljs-test` suffix too, and there every row reports a STATED
   skip through `skip!` rather than passing with zero assertions."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.recorder.dom-capture :as rf.story.recorder.dom-capture]
@@ -429,3 +431,76 @@
         (.dispatchEvent pw (js/Event. "change" #js {:bubbles true}))
         (is (pos? (rf.story.config/suppressed-count :story.login/flow))
             "redaction bumped the per-variant suppressed counter")))))
+
+;; ---- the DOM step or its dispatch, never both ----------------------------
+
+(def ^:private rec-frame :story.dc/login)
+
+(defn- with-recording-frame
+  "Run `f` with a live `rec-frame`, the recorder's trace listener installed,
+  and a recording in flight against it; tear all three down afterwards."
+  [f]
+  (try (rf/init! rf.substrate.plain-atom/adapter) (catch :default _ nil))
+  (rf/reg-event :dc/submit (fn [{:keys [db]} _] {:db (assoc db :submitted true)}))
+  (rf/reg-event :dc/set-pw (fn [{:keys [db]} [_ pw]] {:db (assoc db :pw pw)}))
+  (rf/make-frame {:id rec-frame})
+  (rf.story.recorder/install-trace-listener!)
+  (try
+    (rf.story.recorder/start-recording! rec-frame)
+    (f)
+    (finally
+      (rf.story.recorder/remove-trace-listener!)
+      (rf/destroy-frame! rec-frame))))
+
+(defn- dispatch-on! [el dom-event event-fn]
+  (.addEventListener el dom-event
+                     (fn [_] (rf/dispatch-sync (event-fn el) {:frame rec-frame}))))
+
+(deftest a-click-that-dispatches-records-only-the-click
+  (if-not (dom-available?)
+    (skip!)
+    (testing "replaying the [:click …] step fires the handler's dispatch again,
+              so the dispatch is not recorded as a step of its own"
+      (with-recording-frame
+        (fn []
+          (let [btn (.createElement js/document "button")]
+            (.setAttribute btn "data-test" "login")
+            (dispatch-on! btn "click" (fn [_] [:dc/submit]))
+            (.appendChild @test-root btn)
+            (.dispatchEvent btn (js/MouseEvent. "click" #js {:bubbles true}))
+            (is (true? (:submitted (rf/app-db-value rec-frame)))
+                "control: the click's handler dispatched")
+            (is (= [:dom/click] (mapv :kind (rf.story.recorder/recorded-entries))))))))))
+
+(deftest a-typed-password-records-only-the-redacted-type-step
+  (if-not (dom-available?)
+    (skip!)
+    (testing "with DOM capture on, the input handler's dispatch is not recorded,
+              so its raw password never reaches the recording"
+      (with-recording-frame
+        (fn []
+          (let [pw (mk-input! {:type "password" :id "pw"})]
+            (dispatch-on! pw "input" (fn [el] [:dc/set-pw (.-value el)]))
+            (set! (.-value pw) "hunter2-secret")
+            (.dispatchEvent pw (js/Event. "input" #js {:bubbles true}))
+            (rf.story.recorder.dom-capture/flush-type-buffer!)
+            (let [entries (rf.story.recorder/recorded-entries)]
+              (is (= [:dom/type] (mapv :kind entries)))
+              (is (not (re-find #"hunter2-secret" (pr-str entries)))))))))))
+
+(deftest a-recorded-dispatch-redacts-a-typed-password
+  (if-not (dom-available?)
+    (skip!)
+    (testing "with DOM capture off the dispatch is the recorded step, and the
+              password in its payload is redacted as the :type step's text is"
+      (rf.story.recorder.dom-capture/set-enabled! false)
+      (with-recording-frame
+        (fn []
+          (let [pw (mk-input! {:type "password" :id "pw"})]
+            (dispatch-on! pw "input" (fn [el] [:dc/set-pw (.-value el)]))
+            (set! (.-value pw) "hunter2-secret")
+            (.dispatchEvent pw (js/Event. "input" #js {:bubbles true}))
+            (is (= "hunter2-secret" (:pw (rf/app-db-value rec-frame)))
+                "control: the app received the real value")
+            (is (= [[:dc/set-pw rf.story.recorder.dom-capture/redacted-type-text]]
+                   (rf.story.recorder/recorded-events)))))))))

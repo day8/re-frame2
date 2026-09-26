@@ -61,8 +61,9 @@ variant. **Pop out** opens the full Xray shell in a second window, with room
 for every panel at once.
 
 A body can also carry an `:xray` map that configures that full shell when the
-variant is selected: `:open? true` opens it, `:panel` selects its panel, and
-`:filters` pre-loads its event filters, as in `{:out [:my-app/tick]}` to hide a
+variant is selected: `:open? true` opens it, `:panel` selects its panel (and
+the rail's, when the body names no `:xray-panel`), and `:filters` pre-loads
+its event filters, as in `{:out [:my-app/tick]}` to hide a
 noisy event. Neither slot has any effect in a published static build, which
 carries no Xray.
 
@@ -89,9 +90,9 @@ Take a variant that expects the wrong state:
    that dispatches nothing, such as an `[:assert …]` checkpoint, is marked
    "non-dispatch step — committed no epoch".
 5. Each beat carries **Xray: Epoch**, **Xray: App-db** and **Xray: Trace**.
-   Pressing one focuses the Xray panel on that beat's epoch, so you can walk
-   back from the failed assertion to the setup event that put the machine in
-   `:error`.
+   Pressing one switches the rail to that panel and focuses it on that beat's
+   epoch, so you can walk back from the failed assertion to the setup event
+   that put the machine in `:error`.
 
 Each beat is labelled with how Story knows it. "direct epoch evidence" was
 recorded as the event ran: the app-db before and after, the effects, the trace.

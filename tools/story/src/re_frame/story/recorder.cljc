@@ -37,6 +37,11 @@
     carries `:rf.trace/parent-dispatch-id`, e.g. an `:fx [[:dispatch …]]`
     child) is skipped: replaying its root re-dispatches it, so recording
     it too would run it twice on every replay.
+  - A dispatch fired while the DOM-capture rail is handling a click /
+    input / change / submit it records as a step is skipped for the same
+    reason: replaying that DOM step runs the handler that dispatched it.
+    A recording carries the DOM step OR the dispatch, never both; with
+    DOM capture off, the dispatch is recorded.
   - A `:dispatch-later` child is not a step either: replaying its root
     re-arms the timer. In the browser its timer fires outside any handler
     scope, so it carries no parent id, and the listener recognises it by
@@ -79,6 +84,16 @@
   `(story/configure! {:rf.story/egress-profile :rf.egress/local-raw})`;
   with that profile active the listener captures the verbatim event
   vector.
+
+  ## Typed secrets in a dispatch payload
+
+  A value the user types into a sensitive field (a password, email or
+  tel input, or a credential / payment `autocomplete` field) reaches the
+  app through the dispatch its handler fires, so a recorded dispatch
+  could carry what the DOM rail's `:type` step redacts. Every string in a
+  recorded dispatch payload equal to such a value is replaced with the DOM
+  rail's `\"[:rf/redacted]\"` placeholder (`redact-typed-secrets`), under
+  the same egress profile that decides the `:type` step.
 
   ## EP-0015 egress profile
 
@@ -1003,6 +1018,22 @@
   [tags]
   (number? (get-in tags [:rf.event/source-detail :ms])))
 
+(defn- inside-dom-step?
+  "True while the DOM-capture rail is handling an interaction it records as
+  a step (the `:recorder/inside-dom-step?` hook). False without that rail."
+  []
+  (boolean (when-let [f (rf.story.late-bind/get-fn :recorder/inside-dom-step?)]
+             (f))))
+
+(defn- redact-typed-secrets
+  "`event` with every string typed into a sensitive field this recording
+  replaced by the DOM rail's placeholder (the
+  `:recorder/redact-typed-secrets` hook). Identity without that rail."
+  [event]
+  (if-let [f (rf.story.late-bind/get-fn :recorder/redact-typed-secrets)]
+    (f event)
+    event))
+
 (defn- trace-listener
   "Trace-bus callback. Routes a single trace event through the
   recorder's filter chain:
@@ -1014,8 +1045,16 @@
     4. Must be a ROOT dispatch — no `:rf.trace/parent-dispatch-id` tag.
        A child its root's handler dispatched is reproduced by replaying
        the root.
-    5. A `:dispatch-later` child (`timer-child?`) records only a timing
+    5. Must not be fired from inside a DOM interaction the DOM rail
+       records as a step (`inside-dom-step?`). Replaying that `:click` /
+       `:type` step runs the same handler, which dispatches again, so a
+       recording carries the DOM step OR the dispatch, never both.
+    6. A `:dispatch-later` child (`timer-child?`) records only a timing
        marker, never a step: replaying its root re-arms the timer.
+
+  A recorded dispatch's payload passes through `redact-typed-secrets`,
+  so a password the user typed into a sensitive field reads as the same
+  placeholder the DOM rail's `:type` step records.
 
   Sensitive events (`:sensitive? true`) are RECORDED-BUT-REDACTED: the
   placeholder `redacted-event` vector replaces the event payload so the
@@ -1061,6 +1100,7 @@
                  (= (:frame tags) (recording-variant))
                  (vector? (:rf.event/v tags))
                  (nil? (:rf.trace/parent-dispatch-id tags))
+                 (not (inside-dom-step?))
                  (recordable-event? (:rf.event/v tags)))
         (cond
           (timer-child? tags)
@@ -1085,7 +1125,7 @@
           ;; provided recordable facts — see router.cljc §:rf.event/dispatched
           ;; emit, dev-gated) onto the recording so replay re-presents the
           ;; recorded recordable coeffects instead of restamping.
-          (record-event! (:rf.event/v tags) (:rf.cofx tags)))))))
+          (record-event! (redact-typed-secrets (:rf.event/v tags)) (:rf.cofx tags)))))))
 
 (defn install-trace-listener!
   "Install the recorder's trace-bus listener. Idempotent — re-installing

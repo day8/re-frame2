@@ -29,6 +29,7 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
             [re-frame.story.async :as rf.story.async]
+            [re-frame.story.late-bind :as rf.story.late-bind]
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]))
 
@@ -624,6 +625,47 @@
       (is (not (str/includes? tape "123456"))
           "the recorded tape carries no one-time-code literal"))
     (rf.story/destroy-variant! :story.recorder/sens-end-to-end)
+    (rf.story.recorder/remove-trace-listener!)))
+
+(defn- with-dom-rail-hooks
+  "Call `f` with stand-in `:recorder/inside-dom-step?` and
+  `:recorder/redact-typed-secrets` hooks — the seams the CLJS DOM-capture
+  rail publishes — removing them afterwards."
+  [inside-dom-step? redact f]
+  (try
+    (rf.story.late-bind/set-fn! :recorder/inside-dom-step? inside-dom-step?)
+    (rf.story.late-bind/set-fn! :recorder/redact-typed-secrets redact)
+    (f)
+    (finally
+      (swap! rf.story.late-bind/hooks dissoc
+             :recorder/inside-dom-step? :recorder/redact-typed-secrets))))
+
+(deftest trace-listener-records-the-dom-step-or-its-dispatch-never-both
+  (testing "a dispatch fired while the DOM rail handles an interaction it
+            records as a step is skipped (replaying the step fires it again);
+            one fired outside is recorded, with typed secrets redacted"
+    (reset-rf-state!)
+    (rf/reg-event :login/set-password (fn [{:keys [db]} [_ pw]] {:db (assoc db :pw pw)}))
+    (rf/reg-event :login/submit (fn [{:keys [db]} _] {:db db}))
+    (rf.story/reg-variant :story.recorder/login {})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.recorder/login) 5000)
+    (rf.story.recorder/install-trace-listener!)
+    (let [inside? (atom false)]
+      (with-dom-rail-hooks
+        (fn [] @inside?)
+        (fn [ev] (mapv #(if (= "hunter2" %) "[:rf/redacted]" %) ev))
+        (fn []
+          (rf.story.recorder/start-recording! :story.recorder/login)
+          (reset! inside? true)
+          (rf/dispatch-sync [:login/submit] {:frame :story.recorder/login})
+          (reset! inside? false)
+          (rf/dispatch-sync [:login/set-password "hunter2"] {:frame :story.recorder/login})
+          (rf.story.recorder/stop-recording!)
+          (is (= [[:login/set-password "[:rf/redacted]"]]
+                 (rf.story.recorder/recorded-events))
+              "the in-step submit is skipped; the outside dispatch is
+               recorded with the typed password redacted"))))
+    (rf.story/destroy-variant! :story.recorder/login)
     (rf.story.recorder/remove-trace-listener!)))
 
 (deftest end-to-end-recording-to-snippet

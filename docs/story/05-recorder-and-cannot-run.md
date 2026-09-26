@@ -34,18 +34,18 @@ pressing Sign in records:
    :script  {:auto-run? true
              :script    [[:type "[data-test=\"login-email\"]" "[:rf/redacted]"]
                          [:type "[data-test=\"login-password\"]" "[:rf/redacted]"]
-                         [:click "[data-test=\"login-submit\"]"]
-                         [:dispatch [:login/flow [:login/submit {:email    "ada@example.com"
-                                                                 :password "correct-horse"}]]
-                          {:rf.cofx {:rf/time-ms 1790412881152}}]]}})
+                         [:click "[data-test=\"login-submit\"]"]]}})
 ```
 
 The new variant extends the one you recorded on, so it starts from the same
 setup. Each DOM gesture becomes a `:click` or `:type` step addressed by a
-selector, and each event the frame saw becomes a `:dispatch` step. The third
-element of a `:dispatch` step carries the coeffects to replay, here the clock
-reading the event was stamped with. A pause of 50 ms or more between two
-steps becomes a `[:wait ms]` step. Typed values are redacted in inputs of type
+selector. The events a gesture dispatches are not recorded as steps of their
+own, because replaying the gesture dispatches them again: here Sign in's
+`:login/submit` rides the `:click`. Any other event the frame saw, or every
+event when **DOM off** is set, becomes a `:dispatch` step, whose third element
+carries the coeffects to replay, such as the clock reading the event was
+stamped with. A pause of 50 ms or more between two steps becomes a
+`[:wait ms]` step. Typed values are redacted in inputs of type
 password, email or tel, and in inputs whose `autocomplete` names a credential
 or payment field.
 
@@ -255,14 +255,14 @@ names a credential or payment field, records the text as the string
 `"[:rf/redacted]"`. The step stays, so the reproduction keeps its shape, but
 the value is gone.
 
-A dispatched event is redacted only when your app has classified it as
-sensitive (see [Keep secrets and large things out of
-traces](../core/how-to/keep-secrets-out-of-traces.md)). It is recorded as
-`[:rf/redacted]` and dropped from the generated script. An event nobody
-classified is recorded as it was dispatched, payload and all: in the login
-recording above, the typed password is redacted, and the `:login/submit`
-dispatch that followed still carries it. Read a recording before you commit
-it.
+A dispatched event your app has classified as sensitive (see [Keep secrets
+and large things out of traces](../core/how-to/keep-secrets-out-of-traces.md))
+is recorded as `[:rf/redacted]` and dropped from the generated script. A value
+typed into one of the inputs above is redacted from any dispatch the recorder
+keeps, too: every string in its payload equal to a typed value becomes
+`"[:rf/redacted]"`, the same text the `:type` step records. Anything else in
+an event nobody classified is recorded as it was dispatched, so read a
+recording before you commit it.
 
 Where the typed value is redacted, the step remains in order and only the value
 is removed. That preserves the shape of the reproduction without handing your

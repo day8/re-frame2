@@ -138,8 +138,9 @@
 ;; ---- pure: panel resolution ----------------------------------------------
 
 (defn resolve-panel
-  "Read the resolved `:xray-panel` for `variant-id` from the
-  registrar. Variant body wins over story body wins over `default-panel`.
+  "Read the resolved panel for `variant-id` from the registrar: the
+  body's `:xray-panel` slot, else its `:xray` preset's `:panel`. Variant
+  body wins over story body wins over `default-panel`.
 
   Pure-ish (reads the registrar). Returns one of `panel-ids`; an
   unknown keyword in the slot falls back to `default-panel` so a
@@ -151,10 +152,12 @@
                        (rf.story.registrar/handler-meta :story story-id))
         ;; The `:xray-panel` slot lives directly on the
         ;; body for ergonomics (parallel to `:tags`, `:viewport`,
-        ;; `:background`). Variant slot wins, then story slot, then
-        ;; default.
+        ;; `:background`); the `:xray` preset's `:panel` names the same
+        ;; panel. Variant body wins, then story body, then default.
         slot         (or (:xray-panel variant-body)
+                         (get-in variant-body [:xray :panel])
                          (:xray-panel story-body)
+                         (get-in story-body [:xray :panel])
                          default-panel)]
     (if (contains? panel-ids slot)
       slot
