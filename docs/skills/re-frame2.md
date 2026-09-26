@@ -14,15 +14,15 @@ Its views are written for the Reagent, reagent-slim and UIx adapters. For Fresco
 
 Use it for **writing or editing re-frame2 application source** — `.cljs` / `.cljc` files. You don't have to name re-frame2; any of these load it:
 
-- References to `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`.
-- Mentions of `dispatch`, `subscribe`, `app-db`, frames, regions, tags, the nine UI states.
-- Pattern names: RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction.
+- References to `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-resource`, `reg-mutation`.
+- Mentions of `dispatch`, `subscribe`, `app-db`, the nine UI states, managed HTTP, or TanStack-Query-style caching.
+- Pattern names: RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect.
 - "Write a test for a re-frame2 handler / sub / machine."
 
 Use a different skill for:
 
 - Greenfield project setup → [re-frame2-setup](re-frame2-setup.md). When the counter mounts, switch back here.
-- Migrating a v1 codebase → [re-frame-migration](re-frame-migration.md). A **v1 name in the prompt routes there**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub-raw`, `reg-global-interceptor`, `re-frame.db`, `^:flush-dom` and the rest were removed in re-frame2, and a stale call raises a hard error.
+- Migrating a v1 codebase → [re-frame-migration](re-frame-migration.md). A **v1 name in the prompt routes there**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub-raw`, `reg-global-interceptor`, `re-frame.db`, `^:flush-dom` and the rest were removed in re-frame2. A stale `reg-event-db`, `reg-event-fx` or `reg-event-ctx` call raises `:rf.error/reg-event-db-removed` (or its `-fx-` / `-ctx-` twin) naming `reg-event`; the other names no longer exist, and `^:flush-dom` metadata is ignored.
 - Inspecting a *running* app → [re-frame2-pair](re-frame2-pair.md).
 - Reviewing existing code for anti-patterns → [re-frame2-improver](re-frame2-improver.md).
 - Finding your way around the Xray panel → [re-frame2-xray](re-frame2-xray.md).

@@ -6,7 +6,7 @@
 
 The skill takes a v1 project to re-frame2 with the smallest correct diff — no stylistic refactoring, no renames you didn't ask for.
 
-It plans before it edits anything. It inventories your v1 add-on libraries and app features, then checks that your component libraries can run on React 19 and Reagent 2, and surfaces a library that can't as an explicit go/no-go rather than a mid-compile surprise. Then it bumps the dependency on its own and compiles, because most codebases need nothing more. After that it applies the rules that still apply, verifies the app boots, and writes a short report. The phases are listed in full in [`SKILL.md` §The migration workflow](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md).
+It plans before it edits anything. It inventories your v1 add-on libraries and app features, then checks that your component libraries can run on React 19 and Reagent 2, and surfaces a library that can't as an explicit go/no-go rather than a mid-compile surprise. Then it swaps the dependency and compiles; a large part of a codebase runs after that alone. It applies the planned sweep whether or not the compile passed, because the failures re-frame2 moves to run time never show up in a compile, then verifies the app boots and writes a short report. The phases are listed in full in [`SKILL.md` §The migration workflow](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md#the-migration-workflow).
 
 The rules come from the breaking-change list in [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md); the skill never duplicates or invents one. **Type A** rewrites (mechanical, unambiguous, observably identical) are applied without asking. **Type B** rewrites (timing-sensitive, dynamic call sites, behaviour that changes at the edges) are flagged with the rule cited, and nothing is rewritten until you decide. JVM-side tests are migrated too; re-frame2 keeps `re-frame.interop` and still runs tests on the JVM.
 
@@ -20,7 +20,7 @@ Use it when **any** of these are true:
 
 - You have an existing re-frame v1.x project and want to move to re-frame2.
 - You mention migrating, upgrading, porting, or v1→v2 in a re-frame context.
-- The build fails after a dependency bump and the cause looks v1-shaped — missing private namespaces, removed interceptors, `dispatch-with`, `re-frame.alpha`, the old effect-map keys.
+- The code shows a v1-only surface, or the build fails on one after a dependency bump — `re-frame.db`, `dispatch-with`, `reg-event-db` / `reg-event-fx`, `reg-global-interceptor`, `reg-sub-raw`, `:<-` subscriptions, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, top-level `:dispatch` / `:dispatch-n`, `http-fx`, `async-flow-fx`, re-frame-10x.
 - You ask *"what breaks?"*, *"what changes?"* or *"is my v1 code compatible?"*.
 
 Use a different skill for:

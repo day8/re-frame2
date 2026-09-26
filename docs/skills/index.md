@@ -42,6 +42,6 @@ A few skills need more than the install:
 
 ## Run
 
-Claude Code reads its skills at session start, so start a new session after installing. From then on you usually don't invoke a skill at all: ask in your own words and the matching skill loads itself. To load one explicitly, type its name as a slash command (`/re-frame2-pair`) or name it in the prompt (*"Using re-frame2-pair, trace `[:cart/add 42]`"*).
+Claude Code watches its skill directories, so a running session usually picks up newly linked skills. If they do not appear — for example because `~/.claude/skills/` did not exist when the session started — run `/reload-skills` or start a new session. From then on you usually don't invoke a skill at all: ask in your own words and the matching skill loads itself. To load one explicitly, type its name as a slash command (`/re-frame2-pair`) or name it in the prompt (*"Using re-frame2-pair, trace `[:cart/add 42]`"*).
 
 Each skill's own `SKILL.md`, under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo, is the authority on what it does; the pages in this section are short entry points to it.

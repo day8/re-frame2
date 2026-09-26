@@ -10,7 +10,7 @@ It covers only the re-frame2-specific wiring: which artefacts to add, the canoni
 
 In a project that already has build tooling, it merges into your `deps.edn`, `package.json` and `shadow-cljs.edn` rather than overwriting them, and keeps your other builds, mount point and dev port. A shadow-cljs project with no `deps.edn` gets one, because until re-frame2 is on Clojars it resolves only through `deps.edn` coordinates; your existing dependencies and source paths move into it.
 
-Every `day8/re-frame2*` framework artefact ships at one version, and the skill keeps them in lockstep; mixing versions is unsupported. Xray and Story are tools and ship on their own `xray-v*` / `story-v*` tags.
+Every `day8/re-frame2*` framework artefact ships at one version, and the skill keeps them in lockstep; mixing versions is unsupported. Story and Xray, the tools, carry that same version but release on their own `story-v*` / `xray-v*` tags, so a tool release can lag the framework's.
 
 ## When to reach for it
 

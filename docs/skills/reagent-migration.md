@@ -54,7 +54,7 @@ Ask in your own words with the code in scope — *"migrate the views under `src/
 
 Then it runs a reporter, [`migration/reagent-to-fresco/codemod`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod): a JVM tool that reads your source text, loads no re-frame2 and changes no file. It writes an EDN report with two halves:
 
-- a **census** of every Reagent API call site (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounts), which sizes the job;
+- a **census** of every view-layer API call site — Reagent's (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounts) and those into re-frame2's own adapter namespaces — which sizes the job;
 - a **fixer** for the `[:> …]` prop dialect at React crossings, six of whose rewrite families can be decided from source text alone.
 
 No tool converts the views themselves; that is judgment. The skill runs the reporter from your project as an ordinary Clojure CLI invocation that pulls the codemod as a git dependency — no re-frame2 checkout is needed and none is created. Expect one line on stderr, `Use of :paths external to the project has been deprecated`; it is not a failure. The exact command is in [`SKILL.md` §Start with the reporter](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md#start-with-the-reporter--it-is-a-real-tool-and-it-runs-first). The reporter's `--rewrite --write` mode, which applies only the six decidable prop-dialect families, is the last step of a migration, never the first.
