@@ -73,7 +73,7 @@ A [mutation](../glossary.md#mutation) is a managed server-state *write* — the 
 
 That's it — one key, naming the same `[:article slug]` and `[:article-list]` tags the reads carry. On success, the engine finds every cached entry whose tags intersect and marks it stale.
 
-The write lowers through the same [managed HTTP](../glossary.md#managed-http) transport your resources use, so the runtime owns the request's whole lifecycle — encode, send, decode, classify the failure, abort. One deliberate difference from a read: **a write does not retry by default.** Reads are safe to re-issue; re-sending a write can double a side-effect (charge the card twice, post the comment twice), so a mutation retries only when *its own* `:request` opts in by declaring `:retry`. Leave it off unless the endpoint is genuinely idempotent. (Cross-cutting request decoration — auth headers, base URLs, tracing — belongs in a `reg-http-interceptor` that decorates *every* managed request, not copied into each mutation's `:request`.)
+The write lowers through the same [managed HTTP](../glossary.md#managed-http) transport your resources use, so the runtime owns the request's whole lifecycle — encode, send, decode, classify the failure, abort. **A write does not retry by default** — no managed request does, reads included — and for a write that default matters: re-sending it can double a side-effect (charge the card twice, post the comment twice), so a mutation retries only when *its own* `:request` opts in by declaring `:retry`. Leave it off unless the endpoint is genuinely idempotent. (Cross-cutting request decoration — auth headers, base URLs, tracing — belongs in a `reg-http-interceptor` that decorates *every* managed request, not copied into each mutation's `:request`.)
 
 What happens next depends on whether anything is still *using* that entry. A read is **owned** while something on screen depends on it — a mounted route showing the article, a running [machine](../../machines/glossary.md#machine) that asked for it. (That's the [owner](../glossary.md#owner--cause) — a hold that keeps the entry alive and decides whether an invalidation refetches *now* or merely marks the entry stale.) An **unowned** entry is one whose last reader has gone away, but whose value is still sitting in the cache. Owned entries refetch immediately, because something is waiting to display the fresh value; unowned ones just get marked stale and wait until the next time someone asks for them (their next *ensure* — the read path's "make sure this is loaded" call). So you don't get a refetch storm for data nothing is watching, which is exactly the behavior you want.
 
@@ -118,7 +118,7 @@ The execute event takes a map payload with these keys:
 |---|---|---|
 | `:mutation` | yes | The registered mutation id. |
 | `:params` | yes | The params for this attempt — validated and canonicalized against `:params-schema`. |
-| `:instance` | yes | The instance id. Caller-supplied (or generated). Two concurrent submissions under *different* instance ids never clobber each other's `:pending` / `:success` / `:error`; re-executing under the *same* instance supersedes the earlier attempt and stale-suppresses its reply. |
+| `:instance` | no | The instance id. Caller-supplied, or generated when omitted — supply one when a view watches the write. Two concurrent submissions under *different* instance ids never clobber each other's `:pending` / `:success` / `:error`; re-executing under the *same* instance supersedes the earlier attempt and stale-suppresses its reply. |
 | `:scope` | no | The execution scope the invalidation runs in (see [The scope footgun](#the-scope-footgun-and-how-to-disarm-it)). Optional — a mutation defaults to `:rf.scope/global`. |
 | `:cause` | no | Trace/diagnostic data explaining why the write fired. Pure metadata; never changes behavior. |
 | `:reply-to` | no | A call-site continuation event target (see [§6](#6-optional-do-more-than-refresh-the-cache)). |
@@ -146,7 +146,7 @@ A failed write settles `:error?` and parks the structured error under `:error` (
 [:rf.mutation/clear {:instance [:article-save slug]}]
 ```
 
-`:rf.mutation/clear` clears the runtime instance (and best-effort aborts any in-flight work for it). It is the *causal* reset — the form-level "start over" — and is distinct from `clear-mutation`, the registration-lifecycle function that *unregisters* the mutation entirely. You will reach for `:rf.mutation/clear` constantly; you will reach for `clear-mutation` almost never.
+`:rf.mutation/clear` clears the runtime instance (and best-effort aborts any in-flight work for it). It is the *causal* reset — the form-level "start over" — and is distinct from `(rf/clear :mutation mutation-id)`, the registration-lifecycle call that *unregisters* the mutation entirely. You will reach for `:rf.mutation/clear` constantly; you will reach for `(rf/clear :mutation …)` almost never.
 
 That's the complete simple path: tag the reads, declare what the write breaks, fire it and watch the instance. Everything below is optional — reach for it when a particular write needs more than "mark it stale and refetch."
 
@@ -161,7 +161,7 @@ That's the complete simple path: tag the reads, declare what the write breaks, f
 | `:patches` | `(fn [params result] -> {target (fn [old result] new)})` | Transforms an **existing** exact entry in place. Patch targets an exact key only — never tags. |
 | `:removes` | `(fn [params result] -> [target …])` | Drops exact entries — the cache half of a delete write (the key is dissociated, its in-flight attempt best-effort aborted). |
 
-All four arms run at *settle* — the moment the write finishes and its outcome (success or failure) is final. The ordering among them at settle time is fixed and worth knowing: the direct cache writes — **patches, populates, removes — land first, then `:invalidates` runs last.** So an entry you patch or populate is already at its new value *before* the invalidation pass decides what to refetch — which is exactly why a populated key is exempt from the same mutation's refetch ([§5](#5-optional-seed-the-cache-from-the-reply)). A `:removes` arm is the one you reach for on a delete:
+All four arms run at *settle* — the moment the write finishes and its outcome is final. `:patches`, `:populates` and `:removes` run only on success; `:invalidates` runs on success by default (see `:invalidate-timing` below). The ordering among them at settle time is fixed and worth knowing: the direct cache writes — **patches, populates, removes — land first, then `:invalidates` runs last.** So an entry you patch or populate is already at its new value *before* the invalidation pass decides what to refetch — which is exactly why a populated key is exempt from the same mutation's refetch ([§5](#5-optional-seed-the-cache-from-the-reply)). A `:removes` arm is the one you reach for on a delete:
 
 ```clojure
 (rf/reg-mutation :article/delete
@@ -238,16 +238,17 @@ A populated key counts as an **authoritative load** — it becomes `:loaded`, th
 
 !!! warning "Gotcha"
 
-    These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the *optimistic* pre-write arms in [Advanced: optimistic writes](#advanced-optimistic-writes): those run *before* the request is sent, so they reject *every* bad target, recoverable or not — there's no committed write to stay consistent with yet.)
+    These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the exact-target *optimistic* pre-write arm, `:optimistic`, in [Advanced: optimistic writes](#advanced-optimistic-writes): it runs *before* the request is sent, so it rejects *every* bad target, recoverable or not — there's no committed write to stay consistent with yet. A malformed `:optimistic-tags` descriptor is warn-and-skipped instead; see the gotcha there.)
 
 !!! note "Partial replies — `:refetch-populated? true`"
 
     If the write's reply is only *partial* relative to a full resource GET, you don't want to keep the half-populated value. Opt a single invalidation descriptor into `:refetch-populated? true` and that key gets refetched after all:
 
     ```clojure
-    :invalidates [{:scope :rf.scope/global
-                   :tags  #{[:article slug]}
-                   :refetch-populated? true}]
+    :invalidates (fn [{:keys [slug]} _result]
+                   [{:scope :rf.scope/global
+                     :tags  #{[:article slug]}
+                     :refetch-populated? true}])
     ```
 
     This flips *exactly* one thing: whether a key this mutation populated may be immediately refetched by this same mutation's invalidation pass. The default is no.
@@ -263,7 +264,7 @@ Sometimes the write needs to cause something the cache plan can't express — sh
 ```clojure
 [:rf.mutation/execute
  {:mutation :article/save
-  :params   {:slug slug :draft draft}
+  :params   (assoc draft :slug slug)   ;; {:slug :title :body}, per :article/save's :params-schema
   :instance [:editor/save slug]
   :reply-to [:editor/save-replied]}]
 ```
@@ -327,15 +328,14 @@ A descriptor can only name scopes you already know. Occasionally you need the op
 ```clojure
 :invalidates (fn [{:keys [article-id]} _result]
                [{:tags         #{[:article article-id]}
-                 :cross-scope? true
-                 :cause        [:admin/article-purged article-id]}])
+                 :cross-scope? true}])
 ```
 
-Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, spell it out — the runtime treats it as a privacy-relevant operation:
+Because it can stale or refetch data across *every* user, tenant, story frame, and SSR request, the runtime treats it as a privacy-relevant operation:
 
-- it **must** carry `:cause` evidence — a cross-scope invalidation with no `:cause` is a loud `:rf.error/resource-cross-scope-cause-required`, never a silent unaudited sweep (the mutation engine stamps `:cause` for you when you supply one on the descriptor);
+- it **must** carry `:cause` evidence. A mutation's sweep always does — the runtime stamps `[:mutation <id> <instance>]` on it — while a direct `[:rf.resource/invalidate-tags {:cross-scope? true …}]` with no `:cause` is a loud `:rf.error/resource-cross-scope-cause-required`, never a silent unaudited sweep;
 - it shows up as a privacy-relevant [trace event](../../core/glossary.md#trace-event), recording that a mutation reached outside its own scope;
-- [Xray](../../core/glossary.md#xray) warns you when a precise descriptor would have done the job, so you don't reach for the sledgehammer by reflex.
+- [Xray](../../core/glossary.md#xray) marks the invalidation as cross-scope, so a sledgehammer sweep never reads like a precise one.
 
 Reach for `:cross-scope?` only when the scopes are genuinely unenumerable at the call site. If you can name them, name them with descriptors.
 

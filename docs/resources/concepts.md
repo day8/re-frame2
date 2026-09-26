@@ -67,7 +67,7 @@ request fn in the metadata map is `:rf.error/resource-bad-spec`.
 | `:scope` | **Required.** EXACTLY `:rf.scope/global` or `{:from-db resolver-id}` |
 | `:tags` | `(fn [params data] #{…})` — facts this data is about (for invalidation) |
 | `:stale-after-ms` | Freshness window; next ensure refetches after this |
-| `:gc-after-ms` | Lifetime after last owner leaves (default 5 min; `:never` to pin) |
+| `:gc-after-ms` | GC check interval for an owner-free entry, armed when the entry settles (default 5 min; `:never` to pin) |
 | `:poll-interval-ms` | Clocked re-read while owned and tab visible |
 | `:infinite` | `true` → load-more feed kind ([paginate how-to](how-to/paginate-a-feed.md)) |
 
@@ -95,8 +95,8 @@ this server state":
 ```
 
 On entry the runtime **ensures** the resource with the route as **owner**; on leave it
-releases. `:blocking? true` holds the transition until the read settles (also an SSR
-wait point).
+releases. `:blocking? true` keeps `:rf.route/transition` at `:loading` until the first
+load settles (also an SSR wait point); the route itself commits at once.
 
 Other causes use the same entry with a different **cause** recorded for the trace:
 

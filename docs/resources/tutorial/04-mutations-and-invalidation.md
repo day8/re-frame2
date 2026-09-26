@@ -121,7 +121,7 @@ Register `:conduit/unfavorite` the same way — same shape, `:method :delete`. T
 
 !!! warning "Gotcha — writes never retry by default"
 
-    There's one asymmetry from reads worth flagging up front. Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries *only* if its request map explicitly opts in. The favorite write doesn't, so a slow favorite simply waits — it never silently fires twice.
+    Retries are opt-in for every managed request, reads included, and for a write that default matters most. Re-sending a POST because the reply was slow is the classic double-submit bug, so a mutation retries *only* if its request map explicitly declares `:retry`. The favorite write doesn't, so a slow favorite simply waits — it never silently fires twice.
 
 ??? info "Coming from RTK Query?"
 
@@ -223,7 +223,7 @@ And the sub family is wider than the one you've used. `:rf/mutation` returns the
 [:rf.mutation/error    {:instance [:favorite slug]}]   ;; the structured error envelope on failure
 ```
 
-One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:rf.mutation/clear`** is the instance's causal reset — `[:rf.mutation/clear {:instance [:favorite slug]}]` drops the runtime instance back to `:idle` and best-effort aborts any in-flight work for it. That abort makes it a *cancellation*, not a forget: a write still in flight loses its request — no proof the server didn't perform it — and its late reply is suppressed, so its `:invalidates` never run and your lists keep serving the pre-write rows. So clear an instance whose write has settled — the editor below does it from its save's own continuation — and when a form needs a fresh start while an earlier write may still be out, don't clear on entry: give each session its own instance id, as that editor does. (It's a dispatched *event*, not the `clear-mutation` registration-lifecycle function — same `clear` word, two registers, exactly as `:rf.resource/clear-scope` and `clear-resource` divide on the read side.)
+One more command rounds out the surface, alongside `:rf.mutation/execute`. **`:rf.mutation/clear`** is the instance's causal reset — `[:rf.mutation/clear {:instance [:favorite slug]}]` drops the runtime instance back to `:idle` and best-effort aborts any in-flight work for it. That abort makes it a *cancellation*, not a forget: a write still in flight loses its request — no proof the server didn't perform it — and its late reply is suppressed, so its `:invalidates` never run and your lists keep serving the pre-write rows. So clear an instance whose write has settled — the editor below does it from its save's own continuation — and when a form needs a fresh start while an earlier write may still be out, don't clear on entry: give each session its own instance id, as that editor does. (It's a dispatched *event*, not `(rf/clear :mutation id)`, which removes the registration — same `clear` word, two registers, exactly as `:rf.resource/clear-scope` and `(rf/clear :resource id)` divide on the read side.)
 
 !!! warning "Gotcha — `:result` on the instance, `:value` in a reply"
 
@@ -240,13 +240,13 @@ need; the favorite above already works without any of it.
 
 `:populates` and `:invalidates` are the two you'll reach for most, but a mutation registration has *four* success-phase data plans, and the other two earn their keep on specific writes. All four share **one signature** — `(fn [params result] …)`, where `result` is the decoded reply value — and all run *before* the success-time invalidation.
 
-**`:patches`** is `:populates`'s surgical sibling. Where `:populates` *replaces* an entry with a value (the full envelope from the reply), `:patches` *transforms* an existing entry through a function. It targets an exact key and updates only what changed — ideal when the reply tells you a delta rather than the whole record. It updates an **existing** key only (a patch over an absent key no-ops); it never targets tags.
+**`:patches`** is `:populates`'s surgical sibling. Where `:populates` *replaces* an entry with a value (the full envelope from the reply), `:patches` *transforms* an existing entry through a function of `(old-data result)`. It targets an exact key and updates only what changed — ideal when the reply tells you a delta rather than the whole record. It updates an **existing** key only (a patch over an absent key no-ops); it never targets tags.
 
 ```clojure
 ;; bump a comment count on the article detail without refetching it
 :patches (fn [{:keys [slug]} _result]
            {{:resource :conduit/article :params {:slug slug} :scope {:from-db :conduit/viewer}}
-            (fn [old] (update-in old [:article :commentsCount] inc))})
+            (fn [old _result] (update-in old [:article :commentsCount] inc))})
 ```
 
 **`:removes`** is for delete writes. It drops exact cache entries — the resolved key is dissociated and any in-flight attempt for it best-effort aborted — so a `DELETE /articles/:slug` mutation evicts the now-gone article's detail entry rather than leaving a stale skeleton behind. It returns a vector of the same target maps `:populates` and `:patches` use:
@@ -290,7 +290,7 @@ The order is fixed and worth internalising: **patch/populate/remove first, then 
     - A **cache-identity-corruption** target — a misspelled reserved scope keyword (a bare `:rf.scope/*` outside the closed set), or a non-EDN scope/params — **still throws the arm**. Nothing is allowed to silently write the cache under a *wrong identity*.
     - A `{:from-db …}` target whose scope resolves `nil` is **fail-closed-dropped** — never written under a global fallback — and recorded as `:target-unresolved`.
 
-    The takeaway: get your target maps right, but a stray typo degrades gracefully (warn-and-skip) rather than throwing away a server write you can't take back. The **optimistic** plan — which runs *before* the request — is stricter, because there's no committed write to be inconsistent with yet: a bad target there rejects the whole apply.
+    The takeaway: get your target maps right, but a stray typo degrades gracefully (warn-and-skip) rather than throwing away a server write you can't take back. The exact-target **`:optimistic`** plan — which runs *before* the request — is stricter, because there's no committed write to be inconsistent with yet: a bad target there rejects the whole apply. (A malformed `:optimistic-tags` descriptor is the exception: it is skipped with a dev-only `:rf.warning/optimistic-tags-descriptor-skipped`, so it can't stop the write itself from being sent.)
 
 ### The scope footgun — and the safe pattern
 
@@ -327,12 +327,12 @@ The same rule covers route- and tenant-scoped reads: **a write's invalidation sc
     We've called it "the audited escape" twice now, so let's be concrete. A per-scope descriptor can only name scopes you *already know* — global, the session you resolved, a tenant id you hold. But some operations need to stale a tag *wherever it lives*, across scopes the call site **cannot enumerate**: an admin force-publishing across every tenant, a cache-poisoning response, a data migration. That's the one job `:cross-scope?` does — "invalidate this tag in every scope currently holding it":
 
     ```clojure
-    ;; only the call site that CANNOT name its scopes — and must :cause-justify the sweep
+    ;; only the call site that CANNOT name its scopes
     :invalidates (fn [_ _result]
-                   [{:tags #{[:article-list]} :cross-scope? true :cause [:admin/force-republish]}])
+                   [{:tags #{[:article-list]} :cross-scope? true}])
     ```
 
-    It is genuinely different from a descriptor, and genuinely dangerous: it can stale or refetch data for other users, tenants, story frames, and SSR requests. So it's **audited** — it *must* carry `:cause` evidence (a cross-scope sweep with no cause is a loud error, `:rf.error/resource-cross-scope-cause-required`), it's recorded as a privacy-relevant trace event, and Xray warns when a precise descriptor would have done the job. Three rungs, and the floor is fail-closed: a bare invalidate with **no scope at all** is a loud error (`:rf.error/resource-invalidate-scope-required`), never a silent global blast. Reach for descriptors; reach for `:cross-scope?` only when you truly cannot name the scopes by hand.
+    It is genuinely different from a descriptor, and genuinely dangerous: it can stale or refetch data for other users, tenants, story frames, and SSR requests. So it's **audited** — every cross-scope sweep carries `:cause` evidence (a mutation's sweep carries `[:mutation <id> <instance>]`, stamped by the runtime; a direct `[:rf.resource/invalidate-tags {:cross-scope? true …}]` with no `:cause` is a loud error, `:rf.error/resource-cross-scope-cause-required`), it's recorded as a privacy-relevant trace event, and Xray marks the invalidation as cross-scope. Three rungs, and the floor is fail-closed: a bare invalidate with **no scope at all** is a loud error (`:rf.error/resource-invalidate-scope-required`), never a silent global blast. Reach for descriptors; reach for `:cross-scope?` only when you truly cannot name the scopes by hand.
 
 ### Controlling *when* invalidation runs: `:invalidate-timing`
 
