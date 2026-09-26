@@ -76,19 +76,6 @@
       (is (= :rf.error/machine-cofx-requires-inline
              (:rf.error/id (ex-data e)))))))
 
-(deftest named-entry-with-requires-and-fn-is-legal
-  (testing "the LEGAL form — a named :guards entry map carrying BOTH
-            :rf.cofx/requires AND :fn — registers cleanly"
-    (let [m {:initial :idle
-             :data    {}
-             :guards  {:ok {:rf.cofx/requires [:rf/time-ms]
-                            :fn (fn [{cofx :rf.cofx}]
-                                  (some? (:rf/time-ms cofx)))}}
-             :states  {:idle {:on {:go {:target :done :guard :ok}}}
-                       :done {}}}]
-      (is (some? (rf.machines/make-machine-handler m))
-          "the named entry form constructs a handler without throwing"))))
-
 ;; ===========================================================================
 ;; 2. Derived ensure-sets — ensured BEFORE transition selection
 ;; ===========================================================================

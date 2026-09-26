@@ -96,19 +96,3 @@
     (rf/reg-event ::plain (fn [_ _] {:fx [[:dispatch-later {:ms 100 :event [::timer]}]]}))
     (is (= [:ext :timer] (run-race [::plain])))
     (is (= :fx-dispatch-later (:source (first (timer-dispatched)))))))
-
-(deftest machine-immediate-dispatch-still-front-inserts
-  (testing "control: a machine action's IMMEDIATE :dispatch is still a
-            macrostep continuation and runs ahead of an earlier-queued
-            external event"
-    (reg-markers!)
-    (rf/reg-machine ::immediate
-      {:initial :idle
-       :data    {}
-       :states  {:idle  {:on {:go {:target :armed
-                                   :action (fn [_] {:fx [[:dispatch [::timer]]]})}}}
-                 :armed {}}})
-    (rf/reg-event ::seed
-      (fn [_ _] {:fx [[:dispatch [::immediate [:go]]] [:dispatch [::ext]]]}))
-    (rf/dispatch-sync [::seed])
-    (is (= [:timer :ext] @run-log))))

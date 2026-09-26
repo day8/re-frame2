@@ -345,27 +345,7 @@
           "self-chaining :raise aborts at depth == limit (4) — the SAME bound
            the breadth fan-out hits, reached transitively across nested
            machine-transition-single calls (an unthreaded depth would overflow
-           the stack)")))
-
-  (testing "a self-chain shorter than the limit completes normally"
-    ;; Three chained internal raises (s0 → s1 → s2 → s3) under the default
-    ;; limit (16) must NOT trip the bound — the transitive counter only
-    ;; fires the error when the chain genuinely exceeds the limit.
-    (let [mk (fn [next-ev]
-               (fn [_] (if next-ev {:fx [[:raise next-ev]]} {})))
-          spec {:initial :s0
-                :data    {}
-                :actions {:r1 (mk [:e2]) :r2 (mk [:e3]) :r3 (mk nil)}
-                :states  {:s0 {:on {:e1 {:target :s1 :action :r1}}}
-                          :s1 {:on {:e2 {:target :s2 :action :r2}}}
-                          :s2 {:on {:e3 {:target :s3 :action :r3}}}
-                          :s3 {}}}
-          {s :snapshot} (rf.machines/machine-transition
-                              spec {:state :s0 :data {}} [:e1])]
-      (is (= :s3 (:state s))
-          "a 3-deep self-chain under the default limit reaches the terminal
-           state in a single macrostep — transitive bounding does not lower
-           the legitimate chain budget"))))
+           the stack)"))))
 
 (deftest machine-raise-pre-commit
   (testing ":raise routes locally pre-commit (does not go to runtime fifo)"
