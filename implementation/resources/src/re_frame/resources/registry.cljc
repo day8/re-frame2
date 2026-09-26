@@ -666,8 +666,9 @@
 (defn resource-meta
   "Return the registered resource's spec map (`:params-schema`,
   `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
-  `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`, source coords) for
-  `resource-id`, or nil if no resource is registered under that id.
+  `:gc-after-ms`, `:poll-interval-ms`, `:tags`, `:doc`) for `resource-id`,
+  or nil if no resource is registered under that id. Source coords are not
+  in this projection; they sit on the outer registrar entry.
 
   Artefact-internal — the `:rf/resource` inner-key projection off the
   generic registrar lookup, which is the public spelling. Per Spec

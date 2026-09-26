@@ -219,8 +219,8 @@
 ;; A resource / mutation state read is a subscription VECTOR —
 ;; `(subscribe [:rf/resource
 ;; <query>])` / `(subscribe [:rf/mutation {:instance <instance>}])` —
-;; one read grammar; `subscribe`'s own frame-first arity carries the
-;; `{:frame …}` target for an explicit frame.
+;; one read grammar; `subscribe`'s opts arity, `(subscribe query-v {:frame
+;; …})`, carries the target for an explicit frame.
 
 ;; ---- event / sub / hook registrations -------------------------------------
 ;; Keeping the registrations in this façade means a `(require
