@@ -97,7 +97,7 @@ A **singleton** machine (registered top-level, no parent `:spawn`) that reaches 
 (rf/reg-machine :ephemeral
   {:initial :running
    :states  {:running {:on {:end :stopped}}
-             :stopped {:final? true}}})    ;; <- machine handler unregisters on :end
+             :stopped {:final? true}}})    ;; <- snapshot removed on :end; the registration survives
 ```
 
 ### `:final?` constraints
