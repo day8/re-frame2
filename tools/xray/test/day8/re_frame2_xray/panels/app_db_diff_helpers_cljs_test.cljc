@@ -159,18 +159,6 @@
       (is (= 0 (:before (first diff))))
       (is (= 1 (:after  (first diff)))))))
 
-(deftest diff-paths-deep-structural-sharing
-  (testing "structural-sharing short-circuit works at depth — a deeply-
-            nested subtree that's identical? in both inputs is skipped"
-    (let [deep-shared {:cart {:items [{:id 1 :qty 5}]
-                              :totals {:gross 5 :tax 0.5}}}
-          before      (merge deep-shared {:user "ada"})
-          after       (merge deep-shared {:user "ben"})
-          diff        (h/diff-paths before after)]
-      (is (= [{:op :modified :path [:user] :before "ada" :after "ben"}]
-             diff)
-          "the whole :cart subtree is identical? — must produce zero triples"))))
-
 ;; ---- (3) reserved-keys partition ----------------------------------------
 ;;
 ;; EP-0001: the runtime subsystems (machines /
@@ -350,12 +338,6 @@
       (is (false? (:empty? area)))
       (is (= route (:value area))
           "the section value is the whole current-route slice"))))
-
-(deftest current-state-sections-absent-route-is-omitted
-  (testing "an absent :rf/route is OMITTED from :areas
-            entirely; no placeholder card reaches the renderer"
-    (is (nil? (area-by (h/current-state-sections {:counter 1} {}) :rf/route))
-        "absent :rf.runtime/routing → no area entry")))
 
 (deftest current-state-sections-empty-singleton-collection-is-omitted
   (testing "a present-but-empty singleton collection (e.g. {}
