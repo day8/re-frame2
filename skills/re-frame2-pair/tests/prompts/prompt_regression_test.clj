@@ -374,19 +374,13 @@
 ;; These guards assert the current surface IS named and the shim-/v1-as-primary
 ;; phrasings do NOT appear. They are scoped to the user-facing prose docs
 ;; (README / capabilities / LOCAL_DEV / TESTING) — the legitimate harness
-;; appendix in references/ops.md is out of scope here. The count is the live
-;; catalogue cardinality: the descriptor manifest
-;; tools/re-frame2-pair-mcp/tool-descriptors.edn carries :meta :tool-count.
-;; This assertion reads that live `@tool-count` rather than a hardcoded literal
-;; so the README pin stays in lockstep with the catalogue; the
-;; `catalogue-count-matches-live-manifest` guard below is the fuller cross-doc
-;; sweep.
+;; appendix in references/ops.md is out of scope here. README's LIVE tool count
+;; (the descriptor manifest tools/re-frame2-pair-mcp/tool-descriptors.edn
+;; carries :meta :tool-count) is pinned by `catalogue-count-matches-live-manifest`
+;; below, with every other count-stating doc.
 
-(deftest readme-names-mcp-primary-tool-surface
-  (testing "README names the live-cardinality MCP-primary surface, not 'fourteen ops'"
-    (is (str/includes? @readme-md (str @tool-count))
-        (str "README must state the MCP server catalogues " @tool-count
-             " tools (the live :tool-count)."))
+(deftest readme-carries-no-stale-surface-claims
+  (testing "README does not carry the retired 'fourteen ops' count"
     (is (not (str/includes? @readme-md "fourteen ops"))
         (str "README carries the stale 'fourteen ops' count — the MCP surface "
              "is " @tool-count " tools.")))
@@ -658,8 +652,7 @@
   (testing "the skill does not frame the raw eval write forms as the DEFAULT-reachable path"
     (doseq [[label md] [["SKILL.md" @skill-md]
                         ["ops.md" @ops-md]
-                        ["recipes.md" @recipes-md]
-                        ["mcp-transport.md (via recipes/ops links)" @ops-md]]]
+                        ["recipes.md" @recipes-md]]]
       (is (not (re-find #"(?i)default-reachable\s+write\s+path" md))
           (str label " calls the raw eval form the 'default-reachable "
                "write path' — the dedicated `restore-epoch` / `replace-app-db` "
@@ -706,24 +699,15 @@
 ;; LOOKS like a controlled experiment, which is what makes it expensive.
 ;;
 ;; That shape passes the table row above (it names `restore-epoch`), so the
-;; row alone cannot hold this. These assertions are the discriminating half:
-;; they pin the two ids as DISTINCT roles, pin the ORDER (anchor captured
-;; before the baseline dispatch), pin the honest refusal when no anchor exists,
-;; and pin the worked control's numbers.
+;; row alone cannot hold this. The row pins that both ids are NAMED; these
+;; assertions are the discriminating half: they pin which id the restore
+;; passes, pin the ORDER (anchor captured before the baseline dispatch), pin
+;; the honest refusal when no anchor exists, and pin the worked control's
+;; numbers.
 
 (deftest experiment-loop-rewinds-to-the-pre-dispatch-anchor
   (let [section (recipe-section @recipes-md "Experiment loop")]
     (is (seq section) "recipes.md missing the 'Experiment loop' heading.")
-
-    (testing "the anchor and the baseline result are named as SEPARATE roles"
-      (is (str/includes? section "pre-dispatch-epoch-id")
-          (str "the Experiment loop does not name a `pre-dispatch-epoch-id` — "
-               "without a separately-named anchor the recipe cannot say which "
-               "epoch to rewind to."))
-      (is (str/includes? section "baseline-epoch-id")
-          (str "the Experiment loop does not name the baseline's RESULT epoch "
-               "separately — the two roles collapse into one "
-               "'the captured epoch'.")))
 
     (testing "the restore step passes the ANCHOR, not the baseline result"
       (is (str/includes?
@@ -912,37 +896,16 @@
 ;; puts two different frames under one keyword.
 ;;
 ;; `scripts/check_skill_mcp_drift.py`'s single-host axis pins the FRONTMATTER.
-;; These guards pin the PROSE, which no gate reads: the one Story leaf
-;; must teach the browser route, and no doc may name the other server's tool
+;; These guards pin the PROSE, which no gate reads. That the one Story leaf
+;; teaches the browser route (eval-cljs over `re-frame.story/run-variant`,
+;; awaited, then a Pair frame op) is the canonical-prompts row
+;; `:story-in-the-open-app`; here, no doc may name the other server's tool
 ;; prefix. `story-mcp` in prose is fine and expected — the leaf routes headless
 ;; work out to it by name. The banned thing is a callable `mcp__...__` entry.
 
 (def ^:private story-mcp-tool-prefix "mcp__re-frame2-story-mcp__")
 
 (deftest story-work-stays-on-the-attached-runtime
-  (testing "the Story leaf teaches the browser route: eval-cljs + await + a Pair frame read"
-    (let [md @stories-md]
-      (is (str/includes? md "mcp__re-frame2-pair__eval-cljs")
-          (str "references/stories.md does not name "
-               "`mcp__re-frame2-pair__eval-cljs` — the attached browser heap "
-               "is reached through eval-cljs, and it is the only Story door "
-               "this skill has."))
-      (is (str/includes? md "re-frame.story/run-variant")
-          (str "references/stories.md does not name "
-               "`re-frame.story/run-variant` — running a variant in the open "
-               "app is a call into the app's OWN Story registry."))
-      (is (str/includes? md "await")
-          (str "references/stories.md does not tell the caller to `await` "
-               "the run — `run-variant` returns a JS Promise in the browser, "
-               "so a plain eval hands back an unresolved "
-               "thenable."))
-      (is (or (str/includes? md "set-operating-frame")
-              (str/includes? md "mcp__re-frame2-pair__read-sub"))
-          (str "references/stories.md does not follow the run with an "
-               "ordinary Pair frame op against the SAME runtime — the "
-               "variant-id-is-frame-id identity is what makes the browser "
-               "route complete."))))
-
   (testing "no live-session doc grants or calls a second MCP server"
     (doseq [[label md] [["SKILL.md"                skill-md]
                         ["references/stories.md"   stories-md]
