@@ -114,7 +114,7 @@
   literal: returns the value. For an ISO-8601 duration string (\"PT5S\"):
   its milliseconds, read by the parser the `:timeout` duration uses. For
   subscription vector: subscribes via the late-bound subscribe-once hook and
-  uses the resolved value. For fn: invokes (f snapshot) once.
+  uses the resolved value. For fn: invokes (f {:snapshot snapshot}) once.
 
   Returns [resolved-ms reaction-or-nil]. The reaction is non-nil only for
   subscription-vector delays; the caller installs an add-watch on it to

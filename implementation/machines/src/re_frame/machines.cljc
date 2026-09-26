@@ -34,10 +34,6 @@
       map over `re-frame.machines.parallel`'s engine seam (flat /
       compound delegates to `re-frame.machines.transition`'s
       `machine-transition-single`)
-    - `machines` — owned directly on this façade (Spec 005
-      §Querying machines; a single machine's spec is read through the
-      generic `rf/handler-meta` + `:rf/machine` projection, not a
-      per-kind alias)
     - `spawn-fx`, `spawn-all-init-fx` —
       `re-frame.machines.lifecycle-fx.spawn`
     - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
@@ -84,7 +80,7 @@
 (def make-machine-handler rf.machines.lifecycle-fx.registration/make-machine-handler)
 ;; Boundary-validation surface for the `[:schemas :data]` schema on `reg-machine`
 ;; (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). The
-;; post-commit walker validates every snapshot's `:data` against its
+;; pre-commit walker validates every candidate snapshot's `:data` against its
 ;; registered machine's `[:schemas :data]` schema; the spawn-time sibling
 ;; validates a spawned actor's initial `:data` before install.
 (def validate-machine-data! rf.machines.data-validation/validate-machine-data!)
@@ -249,7 +245,7 @@
 ;; elision bundle.
 
 (rf.fx/reg-fx :rf.machine/spawn
-  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id` and optional `:data`."}
+  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id` or an inline `:definition`, and optional `:id-prefix`, `:fixed-actor-id`, `:data` and `:start` (Spec 005 §Spawn-spec keys)."}
   spawn-fx)
 
 (rf.fx/reg-fx :rf.machine/destroy
@@ -257,7 +253,7 @@
   destroy-machine-fx)
 
 (rf.fx/reg-fx :rf.machine/spawn-all-init
-  {:doc "Machine-internal: fire `:initial-entry` cascades for every machine spawned at app boot. Per Spec 005 §Initial entry. Not for direct application use."}
+  {:doc "Machine-internal: seed the `:spawn-all` join state for a `:spawn-all`-bearing state on entry, ahead of the per-child `:rf.machine/spawn` fxs. Per Spec 005 §Spawn-and-join via `:spawn-all`. Not for direct application use."}
   spawn-all-init-fx)
 
 (rf.fx/reg-fx :rf.machine/after-schedule
@@ -504,7 +500,7 @@
 ;; accepting an incompatible older snapshot (the snapshot key is an instance id,
 ;; not a registered handler, so the singleton registrar probe never matches it).
 (rf.late-bind/set-fn! :machines/spec-from-snapshot     rf.machines.lifecycle-fx.resolver/spec-from-snapshot)
-;; The post-commit walker the router AND-conjoins with
+;; The pre-commit walker the router AND-conjoins with
 ;; `validate-app-schema!` to gate the `:db` commit on the
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec
 ;; 010 §Per-step recovery row 7).
