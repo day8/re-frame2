@@ -1,7 +1,8 @@
 # The re-frame2 API
 
-These pages record the exact public API of re-frame2's ClojureScript
-implementation: every public function, macro and var an application uses, one
+These pages record the exact public API of re-frame2's implementation
+(ClojureScript, with `re-frame.ssr.ring` on the JVM): every public function,
+macro and var an application uses, one
 page per namespace, with its signatures, options, return values and errors. They answer "what
 exactly can I call?". To learn how to build with re-frame2, start with the
 [Core guide](../core/introduction.md) instead.

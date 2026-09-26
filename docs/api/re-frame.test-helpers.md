@@ -62,7 +62,7 @@ Everything here, the [connected view test](#a-connected-view-test) included, run
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (extract-handler node event-key) → fn
+  (extract-handler node event-key) → value or nil
   ```
 - **Description**: Returns the value under `event-key` in `node`'s attrs map, or `nil`. Equivalent to `(get (attrs node) event-key)`.
 - **Example**:

@@ -69,10 +69,12 @@ the recipes the module leaves to the application.
       draft's does nothing. They are written into the field rather than exported as
       names; a test that drives the field by hand spells them through
       `re-frame.fresco.test.forms`.
-    - The module has no error ids of its own. A bad `:control` raises `reg-state`'s
-      `:rf.error/fresco-state-bad-argument` at the field's first render, and
-      `::h/revision` on a non-text field raises
-      `:rf.error/fresco-revision-not-controlled`.
+    - The module has no error ids of its own. A `nil` or otherwise invalid `:control`
+      fails the draft read: every render emits `:rf.error/sub-exception`, whose
+      exception carries `reg-state`'s `:rf.error/fresco-state-bad-argument`, and the
+      field shows `:value`, never a draft. A `:type` whose value is not its text,
+      such as `"checkbox"`, raises `:rf.error/fresco-revision-not-controlled` while
+      `:value` is `nil`.
 - **Example**:
   ```clojure
   [forms/buffered-field

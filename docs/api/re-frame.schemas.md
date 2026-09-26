@@ -35,7 +35,7 @@ In a development build each schema is checked where its data is produced, and a 
 | An effect | `:schema` on `reg-fx`, matched against the effect's argument | Before the effect handler runs. | `:fx-args`. That effect is skipped; the other effects in the same `:fx` vector still run. |
 | A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The subscription yields `nil`. |
 
-Each failure emits an `:rf.error/schema-validation-failure` trace. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it), `:reason` and `:recovery`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`.
+Each failure emits an `:rf.error/schema-validation-failure` trace. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it) and `:reason`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
 
 Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override yields `nil`). `:recovery` is `:skipped` for `:fx-args`, `:replaced-with-default` for `:sub-return` and `:sub-override`, and `:no-recovery` for `:app-db`, `:event` and `:flow-output`.
 
@@ -140,7 +140,7 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
 
 `re-frame.core` does not re-export these reads. Each takes one opts map whose `:frame` is required: a frame-id keyword or a frame value (normalised to its id), the same targets `rf/registrations` accepts. There is no default frame and no positional frame argument, because a frame value is itself a map and could not be told apart from an opts map.
 
-- A missing or non-map argument raises `:rf.error/no-frame-context`, with a message naming the `{:frame f}` form. A `:frame` that does not resolve to a keyword raises `:rf.error/app-schemas-bad-arg`.
+- A map without `:frame`, or a non-map argument, raises `:rf.error/no-frame-context`, with a message naming the `{:frame f}` form. A `:frame` that does not resolve to a keyword raises `:rf.error/app-schemas-bad-arg`.
 - A frame with no schemas returns `{}`, `nil` or the empty-set digest rather than raising, and the frame need not be live.
 
 ### `app-schemas`
@@ -152,14 +152,14 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   ```
 - **Description**: Returns every schema registered in a frame as a `{path → registration-metadata}` map, or `{}`.
     - This is the same `{id → meta}` shape [`rf/registrations`](re-frame.core.md#registrations) returns for registrar kinds.
-    - Each value is the metadata recorded by `reg-app-schema`: `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:file`), and any other registration metadata.
+    - Each value is the metadata recorded by `reg-app-schema`: `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:column` / `:file`), and any other registration metadata.
     - Map `:schema` over the values when you want only the schemas.
 - **Example**:
   ```clojure
   ;; every registration in the default frame
   (schemas/app-schemas {:frame :rf/default})
   ;; => {[:user] {:path [:user] :schema [:map [:id :uuid]]
-  ;;              :frame :rf/default :ns "my.app.schema" :line 12 :file "..."}}
+  ;;              :frame :rf/default :ns my.app.schema :line 12 :column 3 :file "..."}}
 
   ;; just the schema values
   (update-vals (schemas/app-schemas {:frame :rf/default}) :schema)
@@ -174,14 +174,14 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   (app-schema-meta {:frame f :path p}) → registration-metadata or nil
   ```
 - **Description**: Returns the registration metadata for one path in a frame, or `nil` when nothing is registered there.
-    - The map contains `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:file`), and any other registration metadata. `(:schema …)` is the schema itself.
+    - The map contains `:path`, `:schema`, `:frame`, source coords (`:ns` / `:line` / `:column` / `:file`), and any other registration metadata. `(:schema …)` is the schema itself.
     - Both `:frame` and `:path` are required. A missing or malformed `:path` raises `:rf.error/bad-path`.
 - **Example**:
   ```clojure
   ;; schema plus the source coords a tool uses to jump to the registration
   (schemas/app-schema-meta {:frame :rf/default :path [:user]})
   ;; => {:path [:user] :schema [:map [:id :uuid]]
-  ;;     :frame :rf/default :ns "my.app.schema" :line 12 :file "..."}
+  ;;     :frame :rf/default :ns my.app.schema :line 12 :column 3 :file "..."}
 
   ;; the schema alone
   (:schema (schemas/app-schema-meta {:frame :tenant/a :path [:articles]}))
@@ -300,7 +300,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db event-id frame-id continue?)
   ```
 - **Description**: Validates `app-db` after a handler commits `:db`, against every schema registered for the frame. Schemas registered in other frames are ignored.
-    - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. Value-bearing slots are redacted when the failing slot is `:sensitive?`.
+    - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. `:value` (the failing leaf) is redacted when that leaf, an ancestor or a descendant is `:sensitive?`; `:explain` and `:explain-humanized` carry the whole registered value, so they are redacted when any slot in the schema is `:sensitive?`.
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.
     - Returns `true` when every schema conformed, and also when no validator or no schema is registered for the frame, or the build elided validation.
@@ -388,7 +388,7 @@ Other parts of the framework call these three functions in every build. `validat
 - **Description**: Redacts a validation-failure trace's `tags` map according to the `schema` the failing value was checked against.
     - Its callers are the always-on boundary check, machine `:data` validation, the `:sub-override` path, flow output validation, and the recordable-coeffect `:rf.error/cofx-value-invalid` emit.
     - For a `:sensitive?` schema, the value-bearing slots (`:value`, `:received`, `:explain`, `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are replaced with `:rf/redacted`, and `:sensitive? true` is added. An opaque compiled schema that the walker cannot inspect is treated as sensitive.
-    - For a `:large?` schema that is not sensitive, the same slots are replaced with the `:rf.size/large-elided` marker.
+    - For a `:large?` schema that is not sensitive, the same slots except `:rf.sub/query-v` are replaced with the `:rf.size/large-elided` marker, and `:large? true` is added.
     - Otherwise the tags are returned unchanged.
     - Idempotent. Callers outside the artefact reach it through the `:schemas/redact-validation-tags` late-bind hook; when the schemas artefact is absent, the tags pass through unchanged.
 
