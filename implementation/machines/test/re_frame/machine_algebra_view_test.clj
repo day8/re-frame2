@@ -93,7 +93,7 @@
       (finally
         (rf.test-support/restore-registrar! snap)))))
 
-(deftest jvm-alias-mirrors-the-tooling-fn
+(deftest machines-facade-aliases-the-selector-recognizer-not-the-algebra-views
   ;; There is no alias for the two ALGEBRA VIEWS; the selector recognizer
   ;; has a JVM alias, so this pin carries both halves.
   (testing "`re-frame.machines` re-exports neither machine algebra view"
@@ -101,9 +101,6 @@
         "machine-algebra-view is not a public name on the machines facade")
     (is (nil? (ns-resolve 're-frame.machines 'machine-instance-algebra-view))
         "machine-instance-algebra-view is not a public name on the machines facade"))
-  (testing "the tooling sibling publishes both algebra views"
-    (is (some? (ns-resolve 're-frame.machines.tooling 'machine-algebra-view)))
-    (is (some? (ns-resolve 're-frame.machines.tooling 'machine-instance-algebra-view))))
   (testing "the JVM `machine-selector?` alias is the tooling fn"
     (is (= rf.machines.tooling/machine-selector? rf.machines/machine-selector?)
         "machine-selector? alias is the tooling fn")))

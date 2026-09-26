@@ -175,7 +175,7 @@
 ;;       survives, descendants re-resolve.
 ;; ===========================================================================
 
-(defn- ancestor-target-machine [log]
+(defn- compound-self-target-machine [log]
   {:initial :process
    :data    {}
    :actions {:act           (tag log :act)
@@ -198,25 +198,25 @@
                        :on    {:next :step3}}
                :step3 {:entry :enter-step3 :exit :exit-step3}}}}})
 
-(deftest ancestor-target-without-reenter-re-resolves-descendants-only
+(deftest compound-self-target-without-reenter-re-resolves-descendants-only
   (testing "at [:process :step3], :target :process declared on :process exits
             :step3 and re-descends :process's :initial (:step1) — :process
             itself is NEITHER exited NOR entered. NOT a no-op (the targetless
             control would have preserved :step3)"
     (let [log (atom [])]
       (is (= [:exit-step3 :act :enter-step1]
-             (drive! log :geo/ancestor (ancestor-target-machine log)
+             (drive! log :geo/ancestor (compound-self-target-machine log)
                      [[:next]] [:restart]))
           "descendants re-resolve; the target node survives")
       (is (= [:process :step1] (rf.machines.test-support/machine-state :geo/ancestor))
           "the active descendant really was reset to :initial"))))
 
-(deftest ancestor-target-with-reenter-restarts-the-target
-  (testing ":reenter? on a self/ancestor target restarts the TARGET: it exits
+(deftest compound-self-target-with-reenter-restarts-the-target
+  (testing ":reenter? on a compound self target restarts the TARGET: it exits
             and re-enters, then re-descends its own :initial"
     (let [log (atom [])]
       (is (= [:exit-step3 :exit-process :act :enter-process :enter-step1]
-             (drive! log :geo/ancestor-reenter (ancestor-target-machine log)
+             (drive! log :geo/ancestor-reenter (compound-self-target-machine log)
                      [[:next]] [:restart-reenter]))
           ":process exits + re-enters, then re-descends :initial"))))
 

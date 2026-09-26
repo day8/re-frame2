@@ -22,7 +22,8 @@
     - DANGLING recorded path after hot-reload falls back, never enters the
       dead path, no `:rf.error/*`.
     - PER-REGION parallel history at STRUCTURALLY-IDENTICAL region paths —
-      region-qualified keys never collide; restoring one region is isolated.
+      region-qualified keys never collide; each region restores its own
+      recording.
     - SNAPSHOT REVERT (Goal 2) — the `:rf/history` slot is part of the
       revertible snapshot VALUE (not a side-table): re-running the engine from
       an earlier captured snapshot value restores THAT snapshot's history, and
@@ -284,7 +285,8 @@
 ;;
 ;; Two regions whose compounds sit at structurally-identical within-region
 ;; paths ([:group]) record under REGION-QUALIFIED keys ([:left :group] /
-;; [:right :group]) that never collide. Restoring one region is isolated.
+;; [:right :group]) that never collide, and each region restores its own
+;; recording.
 ;; Spec 005 §Composition with parallel regions — per-region history.
 ;; ===========================================================================
 
@@ -318,15 +320,12 @@
           ":right recorded under [:right :group :on] — no collision despite identical structure")
       (is (= 2 (count (:rf/history off))) "two distinct region-qualified entries"))))
 
-(deftest parallel-restore-one-region-leaves-sibling-untouched
-  (testing "restoring history in one region is isolated from siblings"
+(deftest parallel-restore-resolves-each-regions-own-recording
+  (testing "a broadcast restore returns each region to ITS OWN recorded leaf"
     (let [snap0 {:state {:left [:group :on :bright] :right [:group :on :dim]} :data {}}
           off   (step parallel-history snap0 [:turn-off])
-          ;; turn-on is on the :off leaf of BOTH regions — but each region only
-          ;; restores its OWN recorded config; the broadcast restores both.
-          ;; To isolate, drive a turn-on that only :left handles we cannot
-          ;; (same key) — so assert per-region independence via the recorded
-          ;; keys: re-entering restores each region to ITS OWN recorded leaf.
+          ;; :turn-on is handled by both regions' :off leaf, so this restores
+          ;; both; machine_history_smoke_test restores one region alone.
           back  (step parallel-history off [:turn-on])]
       (is (= [:group :on :bright] (get-in back [:state :left]))
           ":left restored ITS recorded deep leaf (:bright)")

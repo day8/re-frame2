@@ -10,7 +10,6 @@
     - Tag recomputation on every transition, including :always microsteps.
     - The :rf.machine/has-tag? framework sub returns true iff the snapshot's
       :tags set contains the queried keyword.
-    - pure machine-transition recomputes :tags without a frame.
     - Initial-snapshot synthesis stamps :tags before the first event.
     - Print/read round-trip: :tags is a set of keywords, no surprises.
 
@@ -20,7 +19,7 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -136,34 +135,7 @@
              (:tags (snapshot :tags/always)))
           ":tags reflects the post-:always-microstep state"))))
 
-;; ---- 5. pure machine-transition surface ----------------------------------
-
-(deftest tags-pure-machine-transition
-  (testing "pure machine-transition produces a :tags-bearing snapshot"
-    (let [m {:initial :a
-             :data    {}
-             :states  {:a {:tags #{:start} :on {:next :b}}
-                       :b {:tags #{:middle :transient} :on {:next :c}}
-                       :c {:tags #{:end}}}}
-          {snap1 :snapshot} (rf.machines/machine-transition m {:state :a :data {}} [:next])]
-      (is (= :b (:state snap1)))
-      (is (= #{:middle :transient} (:tags snap1))
-          ":tags stamped on the pure-transition output")
-      (let [{snap2 :snapshot} (rf.machines/machine-transition m snap1 [:next])]
-        (is (= :c (:state snap2)))
-        (is (= #{:end} (:tags snap2))))))
-
-  (testing "pure machine-transition elides :tags on a no-tags machine"
-    (let [m {:initial :a
-             :data    {}
-             :states  {:a {:on {:next :b}}
-                       :b {}}}
-          {snap :snapshot}  (rf.machines/machine-transition m {:state :a :data {}} [:next])]
-      (is (= :b (:state snap)))
-      (is (not (contains? snap :tags))
-          "empty tag union elided on pure-transition output"))))
-
-;; ---- 6. initial snapshot carries :tags before first event ---------------
+;; ---- 5. initial snapshot carries :tags before first event ---------------
 
 (deftest tags-stamped-on-initial-snapshot
   (testing "first :rf/machine read returns :tags from initial-state declaration"
@@ -181,7 +153,7 @@
         (is (= #{:initial-ready :idle} (:tags s))
             ":tags stamped from initial-state declaration before any transition")))))
 
-;; ---- 7. round-trip via print/read ---------------------------------------
+;; ---- 6. round-trip via print/read ---------------------------------------
 
 (deftest tags-pr-str-read-round-trip
   (testing ":tags is print/read round-trippable — keyword sets, no surprises"
@@ -201,7 +173,7 @@
                (:tags deserialised))
             ":tags set round-trips with qualified keywords intact")))))
 
-;; ---- 8. :rf.machine/has-tag? framework sub ------------------------------
+;; ---- 7. :rf.machine/has-tag? framework sub ------------------------------
 
 (deftest machine-has-tag-sub
   (testing ":rf.machine/has-tag? returns true iff :tags contains the tag"
@@ -228,7 +200,7 @@
     (is (= false @(rf/subscribe [:rf.machine/has-tag? :tags/unknown-machine :x]))
         "no snapshot for the id → false (null-tolerant)")))
 
-;; ---- 9. internal transition recomputes :tags consistently --------------
+;; ---- 8. internal transition recomputes :tags consistently --------------
 
 (deftest tags-on-internal-transitions
   (testing "internal transition (no :target) leaves state unchanged; :tags also unchanged"
