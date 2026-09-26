@@ -351,4 +351,4 @@ The interceptor must handle every navigation entry event itself, or a missed one
 | `:rf.route/url-requested` | A `route-link` click |
 | `:rf.route/handle-url-change` | URL bar, reload, Back/Forward (popstate) |
 
-The full recipe (the three-event normaliser, the `match-url` and in-place resolution each branch needs, and the redirect) is in [Require sign-in on a route → Appendix](../../routing/how-to/require-sign-in-on-a-route.md#appendix--when-the-policy-is-not-about-routes).
+The full recipe (the three-event normaliser, the `match-url` and in-place resolution each branch needs, and the redirect) is in [Require sign-in on a route → A policy that is not about routes](../../routing/how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
