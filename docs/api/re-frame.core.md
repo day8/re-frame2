@@ -379,7 +379,7 @@ A `:frame` that names no live frame (a typo, or a destroyed frame) does not thro
 
 ### Standard events (keyword surface)
 
-The framework registers a few `:rf/*` events that you dispatch like any other. The `:rf/*` namespace belongs to the framework: registering `:rf/set-db` with `reg-event` throws `:rf.error/reserved-event-id`.
+The framework registers a few `:rf/*` events that you dispatch like any other. The `:rf/*` namespace belongs to the framework: registering `:rf/set-db` or `:rf/install-frame-state` with `reg-event` throws `:rf.error/reserved-event-id`.
 
 #### `:rf/set-db`
 
