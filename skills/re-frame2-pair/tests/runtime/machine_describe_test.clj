@@ -49,21 +49,14 @@
 ;; shipped over nREPL. A `defn-` is spelled identically and is unreachable.
 ;; ---------------------------------------------------------------------------
 
-(deftest machine-door-fns-are-present
-  (is (some? machine-describe-form)
-      (str "preload/re_frame2_pair/runtime.cljs must define `machine-describe` "
-           "— the runtime surface the MCP `handler-meta {kind \"machine\"}` tool "
-           "calls."))
-  (is (some? machines-list-form)
-      (str "preload/re_frame2_pair/runtime.cljs must define `machines-list` "
-           "— the runtime surface the MCP `list-handlers {kind \"machine\"}` tool "
-           "calls.")))
-
 (deftest machine-door-fns-are-public
+  ;; A missing fn reads as not-a-public-defn too: `(first nil)` is nil.
   (is (= 'defn (first machine-describe-form))
-      "machine-describe must be a PUBLIC defn — an eval form cannot reach a defn-")
+      (str "machine-describe must be a PUBLIC defn — the MCP `handler-meta "
+           "{kind \"machine\"}` tool calls it, and an eval form cannot reach a defn-"))
   (is (= 'defn (first machines-list-form))
-      "machines-list must be a PUBLIC defn — an eval form cannot reach a defn-"))
+      (str "machines-list must be a PUBLIC defn — the MCP `list-handlers "
+           "{kind \"machine\"}` tool calls it, and an eval form cannot reach a defn-")))
 
 ;; ---------------------------------------------------------------------------
 ;; machine-describe strips fns.

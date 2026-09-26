@@ -39,11 +39,6 @@
  form))
  all-forms))
 
-(deftest registrar-describe-defn-present
- (is (some? registrar-describe-form)
- (str "preload/re_frame2_pair/runtime.cljs must define `registrar-describe` "
- "(the runtime surface the MCP `handler-meta` tool calls).")))
-
 (deftest registrar-describe-dissocs-handler-fn
  (is (form-contains? (fn [node]
  (and (seq? node)
@@ -77,28 +72,9 @@
  "path — hiding the inspectable structure (a resolver's `:inputs` map "
  "+ `:whole-db?` cost, the EP-0016 disposition-2 promise).")))
 
-(def ^:private strip-fns-form
- ;; `strip-fns` is a private `defn-`, so match both `defn` and `defn-`.
- (some (fn [form]
- (when (and (seq? form)
- (contains? #{'defn 'defn-} (first form))
- (= 'strip-fns (second form)))
- form))
- all-forms))
-
-(deftest strip-fns-defn-present
- (is (some? strip-fns-form)
- (str "preload/re_frame2_pair/runtime.cljs must define `strip-fns` — the "
- "recursive fn→`:rf/fn` sentinel walker registrar-describe uses to keep "
- "nested handler fns off the EDN wire.")))
-
-(deftest strip-fns-handles-fn-and-recurses
- (is (and (form-contains? (fn [node] (= 'fn? node)) strip-fns-form)
- (form-contains? (fn [node] (= 'map? node)) strip-fns-form))
- (str "strip-fns must test `fn?` (replace a Function with the sentinel) AND "
- "recurse through `map?` collections (the nested spec slots live under "
- "`:rf/resource-scope` etc.). A flat top-level-only strip would leave the "
- "nested `:resolve` / `:request` fns on the wire.")))
+;; What `strip-fns` itself does — replace nested fns with the `:rf/fn`
+;; sentinel and leave a spec that round-trips as EDN — is asserted by RUNNING
+;; the shipped walker in machine_describe_test.clj.
 
 (let [{:keys [fail error]} (run-tests 'registrar-describe-test)]
  (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
