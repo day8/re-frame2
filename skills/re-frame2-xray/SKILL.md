@@ -1,21 +1,20 @@
 ---
 name: re-frame2-xray
 description: >
-  Question-first tour of **Xray**, the re-frame2 devtools panel: how to
-  *launch* it (inline in-app panel; the `open-overlay!` fallback for hosts
-  with no `[data-rf-xray-host]` layout column; pop-out window; programmatic
-  mount; the wired hotkeys), which of its two modes (Dynamic event-spine /
-  Static registry browse) applies, and what each tab is for. **Do not use**
-  when the user asks the AGENT to inspect or change their running app,
-  read-only included (read a sub, snapshot state, walk traces, dispatch) —
-  that is `re-frame2-pair`, the agent-facing runtime companion. Nor for
-  authoring the host app (`re-frame2`), bootstrapping a project
-  (`re-frame2-setup`), or implementing Xray itself (no implementor skill
-  exists — the spec is the answer). Trigger phrases: "open Xray", "which Xray
-  panel shows…", "Xray Static mode", "browse registered
-  machines/routes/schemas", "Xray overlay", "Xray machine inspector", "Xray
-  Graph / Resources / Frames / Fresco tab", "why did this boundary
-  re-render".
+  Tour of Xray, the human-facing re-frame2 devtools panel. Use it
+  whenever the user asks where to look in Xray or how to get Xray on
+  screen: launching it (preload plus a [data-rf-xray-host] column, the
+  open-overlay! fallback, pop-out, init!/focus! from code, hotkeys), why
+  the panel never appeared (status() reasons), which Dynamic tab or Static
+  catalogue shows X (Epoch, app-db, Views, Trace, Machine, Routes,
+  Resources, Graph, Frames, Fresco; registered machines/routes/schemas),
+  and the chrome around the tabs (frame picker, Reset rewind, filters,
+  palette, Settings). Trigger on "open Xray", "which Xray tab shows…",
+  "Xray Static mode", "why did this re-render in Xray". Do not use when
+  the user wants the agent itself to read or drive the running app, even
+  read-only (read a sub, snapshot state, walk traces, dispatch) — that is
+  re-frame2-pair. Not for writing app code (re-frame2), bootstrapping a
+  project (re-frame2-setup), or implementing Xray (read tools/xray/spec).
 allowed-tools:
  - Read
  - Grep
@@ -29,11 +28,16 @@ question to the one visible Xray mode/tab to open first, says why it is
 the first stop, and names the first interaction. Xray is the human-facing
 in-app devtools panel for re-frame2 — preloaded into dev builds via
 shadow-cljs `:preloads`, auto-opening into the host's
-`[data-rf-xray-host]` column. **The preload is the only thing that keeps
-Xray out of a production build** — the programmatic `init!` path carries no
-`goog.DEBUG` gate of its own, so a host that installs Xray from app code
-owns its exclusion. See
-[`references/launch-lifecycle.md` §Production posture](references/launch-lifecycle.md#production-posture).
+`[data-rf-xray-host]` column. Mention production posture whenever you
+hand out install code: the dev-only preload is what keeps Xray out of a
+release build, and the programmatic `init!` path has no `goog.DEBUG` gate
+of its own, so a host installing from app code owns that exclusion
+([`references/launch-lifecycle.md` §Production posture](references/launch-lifecycle.md#production-posture)).
+
+The skill is read-only: it answers from this file and its references and
+never touches the user's running app. Routine routing needs only this
+file; for depth, load one leaf from
+[§Which reference leaf to load](#which-reference-leaf-to-load).
 
 ## First fork — who is looking?
 
@@ -111,9 +115,9 @@ full-inventory request, not for routine routing.
  frames. Picking an epoch does not filter that history.
 - **Graph, Frames and Fresco do not follow the event.** Graph reads the
  process-global registrar (Declared) or the observed frame (Realized) —
- its Declared ↔ Realized projection toggle is a Graph-local control, NOT
- the L1 Dynamic/Static mode pill (the shipped UI labels the toggle
- static/live; Graph is always a Dynamic tab). Frames enumerates the
+ its Declared ↔ Realized projection toggle is a Graph-local control, not
+ the L1 Dynamic/Static mode pill — easy to confuse, because the shipped
+ toggle is labelled static/live, but Graph is always a Dynamic tab. Frames enumerates the
  process-global live-frame registry (the `image → frame` model). Fresco
  re-takes its live evidence on each trace tick. "Select an epoch and
  they update" is false — only the six lenses above rebind.
@@ -190,11 +194,11 @@ the control-by-control inventory.
 - **LIVE vs RETRO spine** — the L2 spine live-tails at the head until you
  pick a historical event or pause; `Space` pauses/resumes, `l` snaps back.
 - **Time-travel: passive inspect vs explicit rewind** — picking an epoch
- is *passive inspection*: panels rebase, the live frame does NOT move.
+ is *passive inspection*: panels rebase and the live frame stays put.
  Live rewind is the separate, explicit **`Reset` button** on the L3
- ribbon — `restore-epoch!` reinstalls the focused epoch's WHOLE
- frame-state, both app-db AND runtime-db, not the `:db-after` projection
- alone.
+ ribbon — `restore-epoch!` reinstalls the focused epoch's whole
+ frame-state (app-db and runtime-db, so machines and the route slice
+ revive too), not just the `:db-after` projection.
 - **Filter pills** — IN / OUT pills + an `N events filtered out` count;
  remove each pill via its trailing `×` (the bulk `Clear Filters` button
  is retired — there is none). Muted event ids are a separate state: the
