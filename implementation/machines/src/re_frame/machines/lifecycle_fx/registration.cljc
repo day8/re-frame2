@@ -1274,10 +1274,16 @@
 ;; a `defmachine` value (definition-site walk) both arrive source-bearing and
 ;; do not warn; a bare-def symbol and a genuinely runtime-built spec
 ;; (`reg-machine*` / computed / fixture-synthesised) both arrive source-blind
-;; and warn. A runtime-built spec structurally CANNOT carry author coords, so
-;; this is a WARNING (advisory, recoverable), never an error — the message
-;; tells a runtime-built author they may ignore it. Dev-only (DCE'd in
-;; production via the call-site `rf.interop/debug-enabled?` gate), once per id.
+;; and warn. It warns only where the literal walk could have stamped something:
+;; the CLJS reader positions every map literal, so every spec qualifies there,
+;; while the JVM reader positions only list forms, so on the JVM only a spec
+;; carrying a fn qualifies — a fn-free spec arrives source-blind from every
+;; spelling, `defmachine` and an inline literal included, and the advisory's
+;; fix could not change that. A runtime-built spec structurally CANNOT carry
+;; author coords, so this is a WARNING (advisory, recoverable), never an error
+;; — the message tells a runtime-built author they may ignore it. Dev-only
+;; (DCE'd in production via the call-site `rf.interop/debug-enabled?` gate),
+;; once per id.
 
 (defonce ^:private source-unstamped-warned
   ;; The set of machine-ids already advised (once-per-id). Reset by
@@ -1305,14 +1311,28 @@
                      (contains? x :source-code))))
           (tree-seq coll? seq spec))))
 
+#?(:clj
+   (defn- spec-carries-fn?
+     "True iff `spec` carries a fn anywhere. On the JVM the literal walk can
+     stamp only fns — `:guards` / `:actions` entries and inline `:entry` /
+     `:exit` / `:guard` / `:action` fns — because the JVM reader positions
+     only list forms, never a map literal. So a fn-free spec arrives
+     source-blind from every spelling, and only a fn-bearing one has lost a
+     stamp it could have carried."
+     [spec]
+     (boolean (some fn? (tree-seq coll? seq spec)))))
+
 (defn- maybe-warn-source-unstamped!
   "Emit `:rf.warning/machine-source-unstamped` once per `machine-id` when the
   spec arriving at the registration home carries no per-element source
-  metadata. Callers MUST wrap the invocation in `(when rf.interop/debug-enabled?
-  …)` so the production bundle DCEs the consult + emit branch (Spec 009
-  §Production builds), mirroring the schema-walker-opaque advisory."
+  metadata although the literal walk could have stamped some — any spec on
+  CLJS, a fn-bearing one on the JVM (see `spec-carries-fn?`). Callers MUST wrap
+  the invocation in `(when rf.interop/debug-enabled? …)` so the production
+  bundle DCEs the consult + emit branch (Spec 009 §Production builds),
+  mirroring the schema-walker-opaque advisory."
   [machine-id machine]
   (when (and (not (spec-carries-source-metadata? machine))
+             #?(:clj (spec-carries-fn? machine))
              (not (contains? @source-unstamped-warned machine-id)))
     (swap! source-unstamped-warned conj machine-id)
     (rf.trace/emit! :warning :rf.warning/machine-source-unstamped
