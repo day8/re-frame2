@@ -35,15 +35,16 @@ So the migration profile is two lines, in two places:
 | `data`, `error`, `status`, `isPending`, `isFetching` | `:rf/resource` view-model: `:data` `:error` `:status` `:loading?` `:fetching?` `:has-data?` | Five statuses: `:idle` `:loading` `:fetching` `:loaded` `:error`. `:error` is *first-load only*. |
 | `staleTime` | `:stale-after-ms` | Same semantics: fresh window, then refetch on the next ensure. **Default diverges**: TanStack's `staleTime` defaults to `0` (stale-immediately); re-frame2's `:stale-after-ms` defaults to *never* time-stale (freshness is explicit-invalidation-driven, not wall-clock). |
 | `gcTime` (was `cacheTime`) | `:gc-after-ms` | The interval of the GC check that reclaims an *owner-free*, idle entry. **The default value matches** — `gcTime` is 5 minutes, `:gc-after-ms` is `300000`, and `:gc-after-ms :never` is the explicit opt-out (TanStack's `Infinity`) — **but the retention guarantee doesn't**: the check's clock is armed when the entry settles, not when its last owner leaves. See the [scorecard row](#the-full-parity-scorecard). |
-| an *observer* (a mounted `useQuery`) keeps data alive | an **[owner](glossary.md#owner--cause)** (a route, machine, or app-event owner) | Owner = liveness hold. Decoupled from any component mounting. |
+| an *observer* (a mounted `useQuery`) keeps data alive | an **[owner](glossary.md#owner--cause)** (a route, machine, or app-event owner) | Owner = liveness hold. Decoupled from any component mounting. A route's owner is released on leave; one your app attaches on an ensure is released with `[:rf.resource/release-owner …]`, and forgetting it leaves an orphaned owner, which [Xray](../core/glossary.md#xray) flags. |
 | `enabled: false` / conditional queries | route `:resources` `:when` predicate (or simply: don't fire the cause) | A read with no cause sits at `:idle` — that's the "disabled" state, for free. |
 | `select: (data) => …` | a plain [subscription](../core/glossary.md#subscription) over `[:rf.resource/data …]` | No `:select` key. You already have a memoised [derivation graph](../core/glossary.md#the-derivation-graph). |
 | `placeholderData: keepPreviousData` | route `:keep-previous?` (+ `:previous-data` in the view-model) | Same anti-flash behaviour for pagination. |
 | `refetchOnWindowFocus` / `refetchOnReconnect` | the frame's `:revalidate-on #{:focus :reconnect}` config key | Opt-in per [frame](../core/glossary.md#frame), declared on the frame rather than called; refetches only stale *and* owned entries. |
+| `refetch()` from a query result | `[:rf.resource/refetch …]` | Always sends a new request, whatever the freshness. It carries a `:cause` and usually no `:owner`: a manual refresh keeps nothing alive. |
 | `refetchInterval` | `:poll-interval-ms` | Owner-driven, auto-pauses on hidden tab. No `setInterval`. |
 | `queryClient.invalidateQueries({ queryKey })` | a [mutation](glossary.md#mutation)'s declared `:invalidates` (by [tag](glossary.md#cache-tag)) | Declared on the write, not called imperatively in `onSuccess`. |
 | `queryClient.setQueryData(key, data)` | a mutation's `:populates` / `:patches` | `:populates` seeds a key; `:patches` transforms one. |
-| `queryClient.removeQueries(key)` | a mutation's `:removes`, or `[:rf.resource/remove …]` | Evict an exact key. |
+| `queryClient.removeQueries(key)` | a mutation's `:removes`, or `[:rf.resource/remove …]` | Evict one exact key (scope + resource + params) at once, whatever the GC policy. |
 | `queryClient.clear()` | `[:rf.resource/clear-scope …]` | You clear *one scope* — the departing user's — not the whole cache. |
 | `useMutation({ mutationFn })` | `reg-mutation` (register) + `[:rf.mutation/execute …]` (run) + `[:rf/mutation …]` (read) | Same three-way split as queries. Keyed by an **instance**. |
 | `onMutate` + rollback `context` / `onError` | `:optimistic` / `:optimistic-tags` (forward) — runtime records the inverse | You declare the forward change only; rollback is automatic. |
@@ -57,6 +58,8 @@ So the migration profile is two lines, in two places:
 A note for the **SWR** crowd: `useSWR(key, fetcher)` is the `useQuery` row; `mutate(key)` is `invalidateQueries`; bound `mutate` with `optimisticData` + `rollbackOnError` is the `:optimistic` / rollback row; `keepPreviousData` is `:keep-previous?`. SWR's `revalidateOnFocus` is the `:revalidate-on` row. The mental model is identical; SWR just gives you a smaller surface.
 
 And for **RTK Query**: you're closest to home, because RTK Query also declares the cache graph up front (`createApi` with endpoints, `providesTags` / `invalidatesTags`). re-frame2's [tag](glossary.md#cache-tag) invalidation is the same idea; [§3](#3-invalidation-is-a-declared-consequence-not-a-remembered-call) notes what it adds. RTK Query's `keepUnusedDataFor` is `:gc-after-ms`, an endpoint is roughly a resource registration, and the generated hooks have no analogue — you write the read and the cause yourself.
+
+The exact form of every symbol in the right-hand column — its payload keys, return shape and errors — is in the [API reference](../api/re-frame.resources.md).
 
 ## Where it diverges
 
@@ -233,21 +236,3 @@ routing side.
 **The gaps.** The bottom two rows are not covered. A **normalized / GraphQL cache**
 (Apollo, Relay, normalizr) is not a resources concern: resources cache HTTP reads by
 key. **Offline persistence and cross-tab broadcast** are not built.
-
-## The public API, at a glance
-
-Every symbol sits in one of three lanes, and the lane tells you what it does (the same split [the model](concepts.md#three-lanes--registering-causing-projecting) teaches):
-
-| Lane | What it is | Symbols | Who calls it |
-|---|---|---|---|
-| **Registration** (functions, at boot) | Declare a handler once — it does not fetch or read | `rf/reg-resource`, `rf/reg-mutation`, `rf/reg-resource-scope`; each is undone by the kind-keyed `(rf/clear :resource id)`, `(rf/clear :mutation id)`, `(rf/clear :resource-scope id)` | app code, once, at startup |
-| **Commands** (causal event vectors, dispatched) | *Cause* work — they are not reads | `[:rf.resource/ensure …]`, `[:rf.resource/refetch …]`, `[:rf.resource/invalidate-tags …]`, `[:rf.resource/release-owner …]`, `[:rf.resource/clear-scope …]`, `[:rf.resource/remove …]`, `[:rf.resource/load-more …]`, `[:rf.mutation/execute …]`, `[:rf.mutation/clear …]` | routes, events, machines |
-| **Reads** (passive subscription vectors) | Project runtime state — the only lane a view touches | `[:rf/resource …]`, `[:rf.resource/data …]`, `[:rf.resource/items …]`, `[:rf.resource/infinite-state …]`, `[:rf/mutation …]`, and the narrower single-fact subs | views, via `subscribe` |
-
-All of it comes from the optional `day8/re-frame2-resources` artefact, and is absent from an app that never requires it. A view reads through the subscriptions only. `rf/resource-state` and the `:rf/resource` entry of `rf/handler-meta` are for tools and tests: they return a one-shot snapshot and never re-render.
-
-Three commands need a sentence each, because a query-library user reaches for them and the mapping isn't obvious:
-
-- **`:rf.resource/refetch`** is the imperative bypass — TanStack's `refetch()` / SWR's `mutate(key)` with no data. It forces a fetch regardless of freshness, carrying a `:cause` but usually *no* `:owner` (a manual refresh keeps no owner).
-- **`:rf.resource/remove`** evicts one exact entry (scope + resource + params), eagerly, regardless of GC policy — the surgical counterpart to letting GC reclaim it.
-- **`:rf.resource/release-owner`** drops an owner your app attached on an `ensure`. Forgetting it leaves an orphaned owner, which [Xray](../core/glossary.md#xray) flags.
