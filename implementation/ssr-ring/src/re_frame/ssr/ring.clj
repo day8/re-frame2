@@ -154,6 +154,13 @@
     :ssr            — per-frame `:ssr` config map (e.g.
                       `{:dev-error-detail? true
                         :public-error-id   :myapp/projector}`).
+    :ssr-blocking-timeout-ms
+                    — how long, in ms, the request waits for the route's
+                      blocking resources to settle before it renders;
+                      default 5000. A resource still unsettled at the
+                      deadline settles as a first-load failure, so the
+                      request never hangs. Passed to
+                      `re-frame.ssr/drain-blocking-resources!`.
     :url-strategy   — per-request frame `:url-strategy` (Spec 012 §URL
                       strategies), e.g.
                       `(with-base-path history-url-strategy \"/realworld\")`,
