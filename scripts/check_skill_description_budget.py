@@ -192,7 +192,7 @@ ENTRY_OVERHEAD_CHARS = 4
 #: Ratchet ceiling for the family's listing footprint (see C2 above).  LOWER
 #: this when descriptions shrink; RAISING it is a deliberate act that says the
 #: family costs the listing more, and wants a reason in the commit message.
-FAMILY_FOOTPRINT_CEILING = 8_864
+FAMILY_FOOTPRINT_CEILING = 7_899
 
 
 def listing_budget(context_window: int = DEFAULT_CONTEXT_WINDOW) -> int:

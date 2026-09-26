@@ -4,17 +4,15 @@ description: >
   Critiques existing re-frame2 ClojureScript against an anti-pattern
   catalogue: one severity-ordered review with file:line evidence, the smallest
   safe fix, and the canonical idiom. Catches hand-rolled HTTP retries, manual
-  loading flags, boolean discriminator subs, schemaless boundary handlers, JS
-  interop or impure reads in event handlers, and r/atom or hook state that
-  belongs in app-db. Read-only unless asked to fix. Use only on an explicit
-  ask — review, audit or critique my re-frame2 code, "any improvements?", "a
-  better re-frame2 pattern here?" — and only with code in scope: read, edited,
-  pasted, or a readable .cljs/.cljc path; vocabulary alone is not enough. Not
-  for: new code (re-frame2), new projects (re-frame2-setup), v1 migration
-  (re-frame-migration), porting Reagent views to Fresco (reagent-migration), a
-  running app (re-frame2-pair), pair-session retros (re-frame2-pair-retro),
-  the Xray panel (re-frame2-xray), or porting re-frame2 itself
-  (re-frame2-implementor).
+  loading flags, impure event handlers, and view state that belongs in app-db.
+  Read-only unless asked to fix. Use only on an explicit ask — review, audit
+  or critique my re-frame2 code, "any improvements?", "a better re-frame2
+  pattern here?" — and only with code in scope: read, edited, pasted, or a
+  readable .cljs/.cljc path; vocabulary alone is not enough. Not for: new code
+  (re-frame2), new projects (re-frame2-setup), v1 migration
+  (re-frame-migration), Reagent-to-Fresco ports (reagent-migration), a running
+  app (re-frame2-pair), pair retros (re-frame2-pair-retro), the Xray panel
+  (re-frame2-xray), or porting re-frame2 (re-frame2-implementor).
 allowed-tools:
   - Read
   - Edit

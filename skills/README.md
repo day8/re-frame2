@@ -306,33 +306,33 @@ Single source of truth for the per-leaf size ceiling — per-skill
 Recorded here, so the next author cites the record rather than re-deriving
 it, are the leaves where a split or de-duplication was weighed and refused
 on that test. It is a record of decisions, not a census of every leaf over
-the figures. Line counts and LF-normalised bytes as measured on 2026-09-13:
+the figures. Line counts and LF-normalised bytes as measured on 2026-09-26:
 
-- catalogue-shaped — `re-frame2-pair/references/ops.md` 220 L / 46,966 B;
-  `re-frame2-pair/references/recipes.md` 444 L / 50,343 B;
-  `re-frame2-pair-retro/references/known-frictions.md` 250 L / 17,260 B;
-  `reagent-migration/references/catalog-mechanical.md` 439 L / 20,625 B and
-  `reagent-migration/references/catalog-judgment.md` 376 L / 21,266 B (any
+- catalogue-shaped — `re-frame2-pair/references/ops.md` 221 L / 47,392 B;
+  `re-frame2-pair/references/recipes.md` 339 L / 43,070 B;
+  `re-frame2-pair-retro/references/known-frictions.md` 254 L / 20,618 B;
+  `reagent-migration/references/catalog-mechanical.md` 475 L / 22,654 B and
+  `reagent-migration/references/catalog-judgment.md` 380 L / 21,727 B (any
   row can apply to any view, so each is scanned whole for every view
   converted)
 - dense teaching — `re-frame2/references/state-machines/reg-machine.md`
-  208 L / 20,982 B; `re-frame2/references/state-machines/spawn.md`
-  222 L / 20,787 B; `re-frame-migration/references/guided-views-m11.md`
+  208 L / 20,966 B; `re-frame2/references/state-machines/spawn.md`
+  222 L / 22,227 B; `re-frame-migration/references/guided-views-m11.md`
   261 L / 39,793 B; `re-frame2-implementor/references/phase-2-impl-order.md`
-  99 L / 20,343 B (the EP loop and its index, loaded whole by every EP
+  102 L / 22,834 B (the EP loop and its index, loaded whole by every EP
   slice; its largest section, the cross-cutting obligations, binds every
   port whatever its claim, so a split saves tokens only in a session that
   stops before any obligation applies, and costs a `SKILL.md` routing row
   because routing is one level deep)
 - migration phase leaves, where the test holds only in part —
-  `re-frame-migration/references/inventory-and-plan.md` 133 L / 37,685 B
+  `re-frame-migration/references/inventory-and-plan.md` 134 L / 38,451 B
   (Phase 0a's five steps, one arc read whole); `auto-call-site-rewrites.md`
-  570 L / 51,615 B and `auto-cross-cutting.md` 433 L / 39,617 B (the Type A
+  618 L / 58,154 B and `auto-cross-cutting.md` 450 L / 41,533 B (the Type A
   catalogues a Phase-3 sweep walks in full); `guided-interceptors-subs.md`
-  363 L / 26,618 B (loaded whole when the Phase-0a plan names any of its
+  362 L / 27,065 B (loaded whole when the Phase-0a plan names any of its
   rules). Two of them have a seam where a split would save tokens for one
   session shape: `auto-call-site-rewrites.md`'s test-layer block (M-25
-  through M-50, about 14 KB), which a migration with no re-frame test layer
+  through M-50, about 13 KB), which a migration with no re-frame test layer
   never needs, and `guided-interceptors-subs.md`'s M-71 section (about
   11 KB), for a plan that does not name M-71. Nothing measured shows which
   shape is common, so they are recorded rather than split; if one shape
@@ -383,8 +383,10 @@ Two consequences for authoring, and the first is the one that matters:
   `re-frame2-xray` was once over even the 1,536 slice (1,713 characters,
   so 177 were being cut — and what they cut was exactly its
   `re-frame2-pair` disqualifier, mid-word). Every description in the
-  family now leads with its disqualifier and trails its trigger phrases,
-  and every one is under 1,024.
+  family is now under 1,024, well inside the slice, so no tail is cut
+  today. Most still carry their disqualifiers after their trigger
+  phrases — only `re-frame2` leads with them — which is safe only while
+  they stay that far inside it.
 - **A second, blunter mechanism can drop a description whole.** The
   listing also has a total budget — the context window times four bytes
   per token times `skillListingBudgetFraction`, which defaults to `0.01`,
@@ -393,15 +395,18 @@ Two consequences for authoring, and the first is the one that matters:
   descriptions, lowest-priority first, rendering those skills as a bare
   `- <name>` with nothing to route on. **Skills bundled with Claude Code
   are exempt from that pass; skills installed by a consumer — every skill
-  in this directory — are not.** Bringing every description under 1,024
-  took this family from ~10.7K to ~8.9K characters of listing across nine
-  skills — a real improvement that still does not clear an ~8,000
-  budget, so a consumer who installs several of them alongside their own
-  remains in the regime where the budget, not the per-skill cap, decides
-  what survives. Nine skills each carrying a routing contract cannot fit
-  in 8,000 however they are written; that is a product decision (ship
-  fewer skills, or accept that the lowest-priority ones render bare), not
-  something more trimming can reach.
+  in this directory — are not.** So the family is authored to fit inside
+  that budget: a skill dropped from the listing fails to trigger with no
+  signal, which is worse than a shorter description. Measured on
+  2026-09-26 the nine descriptions come to 7,899 characters of listing,
+  98.7% of the 8,000 budget, and the gate's `FAMILY_FOOTPRINT_CEILING`
+  pins exactly that figure, so a description that grows fails the gate
+  until another is trimmed to pay for it. Trim the lowest-value clauses
+  first — restated examples, mechanism detail, a second spelling of a
+  term already present — and keep every trigger word. A consumer's own
+  skills share the same budget, so fitting the family inside it is the
+  floor rather than a guarantee that every entry survives a crowded
+  install.
 
 So: 1,024 is the number to author against and the number the gate
 enforces; 1,536 and the listing budget are why the *tail* is the part

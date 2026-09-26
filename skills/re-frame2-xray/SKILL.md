@@ -1,20 +1,19 @@
 ---
 name: re-frame2-xray
 description: >
-  Tour of Xray, the human-facing re-frame2 devtools panel. Use it
-  whenever the user asks where to look in Xray or how to get Xray on
-  screen: launching it (preload plus a [data-rf-xray-host] column, the
-  open-overlay! fallback, pop-out, init!/focus! from code, hotkeys), why
-  the panel never appeared (status() reasons), which Dynamic tab or Static
-  catalogue shows X (Epoch, app-db, Views, Trace, Machine, Routes,
-  Resources, Graph, Frames, Fresco; registered machines/routes/schemas),
-  and the chrome around the tabs (frame picker, Reset rewind, filters,
-  palette, Settings). Trigger on "open Xray", "which Xray tab shows…",
-  "Xray Static mode", "why did this re-render in Xray". Do not use when
-  the user wants the agent itself to read or drive the running app, even
-  read-only (read a sub, snapshot state, walk traces, dispatch) — that is
-  re-frame2-pair. Not for writing app code (re-frame2), bootstrapping a
-  project (re-frame2-setup), or implementing Xray (read tools/xray/spec).
+  Tour of Xray, the human-facing re-frame2 devtools panel. Use whenever the
+  user asks where to look in Xray or how to get Xray on screen: launching it
+  (preload plus a [data-rf-xray-host] column, open-overlay!, pop-out,
+  init!/focus!, hotkeys), why the panel never appeared (status() reasons),
+  which Dynamic tab or Static catalogue shows X (Epoch, app-db, Views, Trace,
+  Machine, Routes, Resources, Graph, Frames, Fresco; registered
+  machines/routes/schemas), and the tab chrome (frame picker, Reset rewind,
+  filters, palette, Settings). Trigger on "open Xray", "which Xray tab
+  shows…", "Xray Static mode", "why did this re-render in Xray". Not when the
+  agent itself should read or drive the running app, even read-only (read a
+  sub, walk traces, dispatch) — that is re-frame2-pair. Not for writing app
+  code (re-frame2), new projects (re-frame2-setup), or implementing Xray (read
+  tools/xray/spec).
 allowed-tools:
  - Read
  - Grep
