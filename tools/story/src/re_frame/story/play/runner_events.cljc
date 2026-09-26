@@ -792,8 +792,8 @@
   `frame-id`. Carries `:frame-id` (so the a11y evaluator can read the live
   axe-violations atom) and the rendered `:hiccup` tree from the
   `:render-hiccup` seam (so the structural-a11y evaluator can walk it). The
-  visual evaluator computes its own snapshot identity; nothing more is
-  threaded here."
+  visual evaluator needs captured pixels, which no runner supplies, so
+  nothing more is threaded here."
   [frame-id hiccup]
   {:frame-id frame-id
    :hiccup   hiccup})
@@ -854,6 +854,7 @@
                :source-coord (:source (rf.story.registrar/handler-meta :variant frame-id))}
         (contains? result :status)   (assoc :status   (:status result))
         (:cannot-run? result)        (assoc :cannot-run? true)
+        (:missing-evidence result)   (assoc :missing-evidence (:missing-evidence result))
         (contains? result :expected) (assoc :expected (:expected result))
         (contains? result :actual)   (assoc :actual   (:actual result))
         (:reason result)             (assoc :reason   (:reason result))))

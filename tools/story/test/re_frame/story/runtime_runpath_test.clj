@@ -29,7 +29,8 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story     :as rf.story]
-            [re-frame.story.late-bind  :as rf.story.late-bind]))
+            [re-frame.story.late-bind  :as rf.story.late-bind]
+            [re-frame.story.play.browser :as rf.story.play.browser]))
 
 (defn- reset-rf! [test-fn]
   (rf.story/clear-all!)
@@ -186,6 +187,33 @@
                                (:assertions result)))]
         (is (some? rec) "the visual-snapshot record landed (never dropped)")
         (is (= :cannot-run (:status rec)))))))
+
+(defn- browser-record [result assertion-id]
+  (first (filter #(= assertion-id (:assertion %)) (:assertions result))))
+
+(deftest browser-rows-without-their-evidence-cannot-run-in-a-browser
+  (testing "with a browser available, an a11y checkpoint on a frame axe never
+            scanned and a visual-snapshot checkpoint with no captured pixels
+            each record :cannot-run naming the missing evidence — never a
+            :pass on an empty scan or on a hash of the inputs"
+    (let [saved @rf.story.play.browser/a11y-reader]
+      (try
+        ;; The a11y panel's reader is registered, and axe never scanned the
+        ;; frame, so it answers nil for it.
+        (reset! rf.story.play.browser/a11y-reader (fn [_frame-id] nil))
+        (with-redefs [rf.story.play.browser/browser-available? (constantly true)]
+          (let [result (run-target {:script [[:dispatch [:rp/set-status :ready]]
+                                             [:assert [:rf.assert/a11y]]
+                                             [:assert [:rf.assert/visual-snapshot]]]}
+                                   {:runner :browser})
+                a11y   (browser-record result :rf.assert/a11y)
+                visual (browser-record result :rf.assert/visual-snapshot)]
+            (is (= :cannot-run (:status a11y)) "no axe scan: the a11y row cannot run")
+            (is (= #{:a11y} (:missing-evidence a11y)) "the a11y row names the missing :a11y evidence")
+            (is (= :cannot-run (:status visual)) "no captured pixels: the visual row cannot run")
+            (is (= #{:pixels} (:missing-evidence visual)) "the visual row names the missing :pixels evidence")
+            (is (= :cannot-run (:status result)))))
+        (finally (reset! rf.story.play.browser/a11y-reader saved))))))
 
 ;; ===========================================================================
 ;; Run opts (:cell-overrides / :active-modes) thread into PLAN

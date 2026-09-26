@@ -75,11 +75,11 @@ These ids are evaluated by the runner or against the epoch tape rather than disp
 | `:rf.assert/dom-visible`, `:rf.assert/dom-hidden`, `:rf.assert/dom-text` | The element is present, absent, or has the text. `[:assert-dom sel :text "0"]` is shorthand for `[:assert [:rf.assert/dom-text sel "0"]]`. | `:dom` |
 | `:rf.assert/a11y-structural` | Structural accessibility over the rendered hiccup. | `:hiccup-structure` |
 | `:rf.assert/a11y` | An axe-style accessibility scan. | `:a11y-engine` |
-| `:rf.assert/visual-snapshot` | The variant's snapshot identity against a baseline, not its pixels. | `:pixels` |
+| `:rf.assert/visual-snapshot` | Captured pixels against a baseline. The snapshot identity is not pixels and never passes it. | `:pixels` |
 | `:rf.assert/caused` | `[:rf.assert/caused {:event id :sub sub-id :min n :max n}]`: the event caused at least `:min` (default 1) recomputes of the sub, or renders of a `:view`. | `:reactive-counts` |
 | `:rf.assert/no-cascade-rerender` | The same spec, with `:max` defaulting to 0: the event caused no further recompute or render. | `:reactive-counts` |
 
-Every Story runner today reports `:rf.assert/a11y` and `:rf.assert/visual-snapshot` as `:cannot-run`: no runner produces the `:a11y-engine` or `:pixels` evidence they need, so neither can pass a run.
+Every Story runner today reports `:rf.assert/a11y` and `:rf.assert/visual-snapshot` as `:cannot-run`: no runner produces the `:a11y-engine` or `:pixels` evidence they need, so neither can pass a run. Each one's own row reads `:cannot-run` too, naming the evidence it never received (`:missing-evidence #{:a11y}` or `#{:pixels}`): an a11y row passes only on an axe scan of the variant's frame, and a visual row has no captured pixels to pass on.
 
 ## Terminal vs checkpoint
 
