@@ -436,12 +436,14 @@
             ;; reason as canvas.cljs) so the a11y panel can scope
             ;; axe-core to ONLY the variant's rendered tree. It is also
             ;; the subject boundary for inherited text styles:
-            ;; the `:cell` colour and font stay on the cell title above.
+            ;; the `:cell` colour and font stay on the cell title above,
+            ;; and the boundary paints the variant's background over the
+            ;; dark cell (`cell-subject-style`).
             ;; The view renders inside the variant's view-state override
             ;; scope, exactly as on the canvas (a no-op wrapper when the
             ;; variant pins none).
             [rf/frame-provider {:frame variant-id}
-             [:div {:style rf.story.ui.multi-substrate/subject-root-style
+             [:div {:style (rf.story.ui.multi-substrate/cell-subject-style variant-id)
                     :data-rf-story-variant-root (pr-str variant-id)}
               [rf.story.ui.canvas/sub-overrides-scope sub-ovr
                (rf.story.ui.canvas/safe-decorated-view

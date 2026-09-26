@@ -117,8 +117,10 @@
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.story.args :as rf.story.args]
+            [re-frame.story.backgrounds :as rf.story.backgrounds]
             [re-frame.story.decorators :as rf.story.decorators]
             [re-frame.story.plan      :as rf.story.plan]
+            [re-frame.story.ui.backgrounds-switcher :as rf.story.ui.backgrounds-switcher]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.theme.typography :as rf.story.theme.typography :refer [mono-stack]]
             [re-frame.story.theme.colors :as rf.story.theme.colors]))
@@ -388,6 +390,22 @@
    :font-family "initial"
    :font-size   "initial"})
 
+(defn cell-subject-style
+  "The subject boundary style inside a chrome cell (a workspace cell, a
+  side-by-side grid cell): `subject-root-style`, plus `variant-id`'s
+  effective background, because the cell around the subject paints Story's
+  dark chrome and a subject in browser-default text would read black on
+  it. The canvas frame paints the background itself, so the canvas root
+  takes `subject-root-style` alone.
+
+  A subject wider than its cell scrolls inside the cell (`:overflow-x`)
+  instead of painting over the next one."
+  [variant-id]
+  (merge subject-root-style
+         (rf.story.backgrounds/wrap-style
+           (rf.story.ui.backgrounds-switcher/effective-background variant-id))
+         {:overflow-x "auto"}))
+
 (defn- cell-subject
   "Call the substrate's render fn from a CHILD of the cell boundary. A
   boundary catches what its descendants throw and never what its own render
@@ -425,7 +443,7 @@
           [:div {:style (:error-body styles)} error]]
          [:div {:style (:cell styles)}
           [:div {:style (:cell-head styles)} (name substrate)]
-          [:div {:style (merge (:cell-body styles) subject-root-style)}
+          [:div {:style (merge (:cell-body styles) (cell-subject-style variant-id))}
            [cell-subject render-fn variant-id view-id eff-args]]]))}))
 
 (defn- safe-render-cell

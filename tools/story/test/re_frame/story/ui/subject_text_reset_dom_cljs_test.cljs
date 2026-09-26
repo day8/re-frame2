@@ -26,6 +26,11 @@
   `rf.story.ui.multi-substrate/subject-root-style`, the heading reads
   `:text-primary` and the colour assertions go red.
 
+  In a workspace cell the boundary also paints the variant's effective
+  background over the dark cell, and a subject wider than the cell scrolls
+  inside it (`rf.story.ui.multi-substrate/cell-subject-style`); two tests
+  below read both.
+
   The grain backdrop's half (the overlay may not sit in the subject's
   grading path) is witnessed by the last test, which needs no DOM.
 
@@ -258,6 +263,74 @@
                       "the cell title keeps its :warning token")
                   (is (not= (computed control "font-family") (computed title "font-family"))
                       "the cell title keeps the chrome font")))
+              (unmount! mounted control)
+              (done))))))))
+
+(deftest workspace-cell-subject-paints-the-toolbar-background
+  (testing "a workspace cell's subject sits on the variant's effective
+            background, not on the dark cell, so a subject in browser-default
+            (black) text stays readable"
+    (if-not (browser?)
+      (is true ":node-test — no DOM; :browser-test runs the real assertion")
+      (async done
+        (rf.story.ui.state/swap-state! assoc :background :paper)
+        (let [control (browser-default-control!)
+              mounted (mount! [variant-cell variant-id])
+              node    (:node mounted)]
+          (poll-until
+            #(.querySelector node "[data-rf-story-variant-root]")
+            10000
+            (fn [subject]
+              (is (some? subject)
+                  (str "precondition: the subject boundary rendered in the cell; the mount node reads "
+                       (rendered-text node)))
+              (when subject
+                (is (= "rgb(249, 249, 249)" (computed subject "background-color"))
+                    "the subject paints the toolbar's Paper preset"))
+              (unmount! mounted control)
+              (done))))))))
+
+(defn- clipping-box
+  "The nearest element above `el`, up to and including `stop`, whose
+  computed `overflow-x` clips what it contains, or nil."
+  [^js el ^js stop]
+  (loop [^js n (.-parentElement el)]
+    (cond
+      (nil? n)                                 nil
+      (not= "visible" (computed n "overflow-x")) n
+      (identical? n stop)                      nil
+      :else                                    (recur (.-parentElement n)))))
+
+(deftest workspace-cell-keeps-a-wider-subject-inside-it
+  (testing "a subject wider than its workspace cell scrolls inside the cell
+            instead of painting over the next one"
+    (if-not (browser?)
+      (is true ":node-test — no DOM; :browser-test runs the real assertion")
+      (async done
+        (let [control (browser-default-control!)
+              ;; The narrowest track a workspace grid gives a cell. The
+              ;; login card's own minimum width is wider than that.
+              mounted (mount! [:div {:style {:width "280px"}}
+                               [variant-cell variant-id]])
+              node    (:node mounted)]
+          (poll-until
+            #(.querySelector node "[data-test=\"login-card\"]")
+            10000
+            (fn [card]
+              (is (some? card)
+                  (str "precondition: the login card rendered in the cell; the mount node reads "
+                       (rendered-text node)))
+              (when card
+                (let [cell  (.querySelector node "[data-test-variant]")
+                      right #(.-right (.getBoundingClientRect ^js %))
+                      box   (clipping-box card cell)]
+                  (is (> (right card) (right cell))
+                      "precondition: the card is wider than the cell")
+                  (is (some? box)
+                      "an element inside the cell clips the card")
+                  (when box
+                    (is (<= (right box) (right cell))
+                        "the clipping element ends inside the cell"))))
               (unmount! mounted control)
               (done))))))))
 

@@ -94,12 +94,14 @@
                  :background))))
 
 (defn effective-background
-  "Resolve the effective background preset for the currently-focused
-  variant. Returns the preset map `{:label :color}`."
-  []
-  (let [shell @rf.story.ui.state/shell-state-atom]
-    (rf.story.backgrounds/resolve (override (:selected-variant shell))
-                                  (:background shell))))
+  "Resolve the effective background preset for `variant-id` — by default
+  the currently-focused variant — from its `:background` override and the
+  toolbar selection. Returns the preset map `{:label :color}`."
+  ([]
+   (effective-background (:selected-variant @rf.story.ui.state/shell-state-atom)))
+  ([variant-id]
+   (rf.story.backgrounds/resolve (override variant-id)
+                                 (:background @rf.story.ui.state/shell-state-atom))))
 
 (defn effective-id
   "Resolved id (preset keyword or `:custom`) for the focused variant."
