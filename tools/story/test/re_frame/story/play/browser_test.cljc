@@ -9,10 +9,11 @@
   whole suite runs under `clojure -M:test` with no host. The acceptance
   bullets:
 
-  - a visual assertion runs when the browser runner is selected/requested
-    (modeled here: with `browser-available?` true it evaluates the snapshot
-    identity; on the JVM it is `:cannot-run`);
-  - an axe-style a11y assertion runs under the browser runner (likewise);
+  - a visual assertion is `:cannot-run` on every runner: with
+    `browser-available?` true (redefined here) it still has no captured
+    pixels, and a snapshot identity is a hash of the inputs, not pixels;
+  - an axe-style a11y assertion evaluates a scan under the browser runner,
+    and is `:cannot-run` where axe never scanned the frame;
   - a structural a11y assertion runs at `:hiccup` (a pure hiccup-tree walk,
     JVM-testable here);
   - a HEADLESS run returns `:cannot-run` for the browser-tier (`:pixels` /
@@ -47,6 +48,52 @@
       (is (= :cannot-run (:status rec)) "headless axe a11y is :cannot-run, never a silent pass")
       (is (true? (:cannot-run? rec)))
       (is (false? (:passed? rec))))))
+
+;; ===========================================================================
+;; IN A BROWSER — a row whose evidence was never produced cannot run
+;; ===========================================================================
+;;
+;; `browser-available?` is false on the JVM, so these redefine it: the
+;; question is what the evaluator answers once a browser IS there.
+
+(deftest in-a-browser-a11y-with-no-scan-cannot-run
+  (let [saved @rf.story.play.browser/a11y-reader]
+    (try
+      (with-redefs [rf.story.play.browser/browser-available? (constantly true)]
+        (testing "the a11y panel's reader is registered and axe never scanned the
+                  frame: the row cannot run, naming the missing evidence"
+          (reset! rf.story.play.browser/a11y-reader (fn [_frame-id] nil))
+          (let [rec (rf.story.play.browser/eval-a11y [] {:frame-id :story.a11y/never-scanned})]
+            (is (= :cannot-run (:status rec)) "an absent scan is not a clean one")
+            (is (false? (:passed? rec)))
+            (is (= #{:a11y} (:missing-evidence rec)))
+            (is (re-find #"no axe-core scan" (:reason rec)))))
+        (testing "no reader registered at all: the row cannot run"
+          (reset! rf.story.play.browser/a11y-reader nil)
+          (is (= :cannot-run (:status (rf.story.play.browser/eval-a11y [] {:frame-id :story.a11y/x})))))
+        (testing "CONTROL — a scan that ran and found nothing passes; one that
+                  found a violation fails"
+          (is (= :pass (:status (rf.story.play.browser/eval-a11y [] {:violations []}))))
+          (reset! rf.story.play.browser/a11y-reader (fn [_frame-id] []))
+          (is (= :pass (:status (rf.story.play.browser/eval-a11y [] {:frame-id :story.a11y/clean})))
+              "a clean scan read through the panel's reader passes")
+          (is (= :fail (:status (rf.story.play.browser/eval-a11y
+                                  [] {:violations [{:id "image-alt" :impact "critical"}]}))))))
+      (finally (reset! rf.story.play.browser/a11y-reader saved)))))
+
+(deftest in-a-browser-visual-snapshot-without-pixels-cannot-run
+  (with-redefs [rf.story.play.browser/browser-available? (constantly true)]
+    (testing "a snapshot identity is a hash of the variant's inputs, not
+              captured pixels: with no baseline, with a matching baseline, and
+              with nothing at all, the row cannot run"
+      (doseq [ctx [{:snapshot-identity {:content-hash "abc"}}
+                   {:snapshot-identity {:content-hash "abc"}
+                    :baseline          {:content-hash "abc"}}
+                   {:frame-id :story.visual/v}]]
+        (let [rec (rf.story.play.browser/eval-visual-snapshot [] ctx)]
+          (is (= :cannot-run (:status rec)) (str "no captured pixels: " (pr-str ctx)))
+          (is (false? (:passed? rec)))
+          (is (= #{:pixels} (:missing-evidence rec))))))))
 
 (deftest cannot-run-finding-rides-the-assertion-record-shape
   (testing ":cannot-run findings carry the ONE assertion-record shape"

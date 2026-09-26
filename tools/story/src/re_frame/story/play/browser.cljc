@@ -21,18 +21,21 @@
 
   - VISUAL — `re-frame.story.identity` `snapshot-identity` /
     `content-hash` is the canonical visual-regression KEY (stable across
-    hosts; the MCP `snapshot-identity` tool surfaces it). The
-    `:rf.assert/visual-snapshot` finding records that key as the snapshot
-    IDENTITY. A real-browser pixel diff requires `:pixels` (a screenshot +
-    differ, which only a browser runner can supply); the headless/JVM contract
-    here is the fail-closed `:cannot-run` refusal.
+    hosts; the MCP `snapshot-identity` tool surfaces it) that an external
+    pixel runner files its captures under. It hashes the variant's declared
+    inputs, not its rendered output, so it is not visual evidence. The proof
+    `:rf.assert/visual-snapshot` needs is `:pixels` (a real-browser
+    screenshot + differ), and no Story runner captures one, so the finding
+    is the fail-closed `:cannot-run` refusal on every runner.
   - A11Y (axe-style) — `re-frame.story.ui.a11y` runs axe-core in-browser
     and stores violations in `violations-by-frame` (the same atom the MCP
     `read-a11y-violations` tool reads). The `:rf.assert/a11y` finding projects those
     violations. axe-core is CLJS/browser-only (`:a11y-engine`); the
-    headless/JVM contract is `:cannot-run`. This ns does NOT `:require` the
-    CLJS-only UI ns into this `.cljc` (which would break the JVM classpath
-    and the production-bundle isolation). Instead the a11y panel REGISTERS
+    headless/JVM contract is `:cannot-run`, and so is a frame axe never
+    scanned, whose missing scan is not a clean one. This ns does NOT
+    `:require` the CLJS-only UI ns into this `.cljc` (which would break the
+    JVM classpath and the production-bundle isolation). Instead the a11y
+    panel REGISTERS
     its violations-reader into the shared late-bound seam
     (`register-a11y-reader!`) at load time, and the evaluator reads through
     it (`live-a11y-violations`) — a one-way, opt-in facade, the same
@@ -65,10 +68,10 @@
 
   ## Pure / JVM-testable
 
-  Every evaluator is data → data: the visual evaluator takes the snapshot
-  identity (or computes it from variant inputs); the a11y evaluator takes
-  the violations vector (read from the live atom by the late-bound facade,
-  or supplied directly); the structural evaluator takes the hiccup tree.
+  Every evaluator is data → data: the visual evaluator refuses; the a11y
+  evaluator takes the violations vector (read from the live atom by the
+  late-bound facade, or supplied directly); the structural evaluator takes
+  the hiccup tree.
   The only impurity is `browser-available?` (a host probe) and
   `live-a11y-violations` (a late-bound atom read), both isolated so the
   evaluators stay testable on the JVM with no host."
@@ -149,14 +152,17 @@
   fail-closed guard. Rides the ONE assertion-record shape (`:assertion` /
   `:passed?` / `:status` / `:reason`) so it accumulates with every other
   assertion; the `:status :cannot-run` makes it the distinct THIRD status
-  (spec/017 §`:cannot-run`), never a silent pass."
-  [assertion-id payload reason]
-  {:assertion   assertion-id
-   :payload     (vec payload)
-   :passed?     false
-   :cannot-run? true
-   :status      :cannot-run
-   :reason      reason})
+  (spec/017 §`:cannot-run`), never a silent pass. `:missing-evidence` names
+  the run-evidence slot(s) the proof needed and never received, in the
+  vocabulary `re-frame.story.requirements/token->evidence-slots` uses."
+  [assertion-id payload reason missing-evidence]
+  {:assertion        assertion-id
+   :payload          (vec payload)
+   :passed?          false
+   :cannot-run?      true
+   :status           :cannot-run
+   :reason           reason
+   :missing-evidence missing-evidence})
 
 ;; ===========================================================================
 ;; VISUAL SNAPSHOT  (`:rf.assert/visual-snapshot`, requires :pixels)
@@ -165,44 +171,33 @@
 (defn eval-visual-snapshot
   "Evaluate a `:rf.assert/visual-snapshot` assertion (spec/017 §Visual,
   a11y, and browser checks — requires `:browser` / `:pixels`). Returns the
-  ONE assertion-record shape.
+  ONE assertion-record shape, and today that record is always `:cannot-run`
+  naming the missing `:pixels` evidence.
 
-  `payload` is the assertion atom's args (`[]` or `[opts]`). `ctx` carries:
+  `payload` is the assertion atom's args (`[]` or `[opts]`). `ctx` may carry
+  `:frame-id`, which the refusal names.
 
-  - `:snapshot-identity` — the reused visual-regression key
-    (`re-frame.story.identity/snapshot-identity`, the
-    `{:variant-id :content-hash …}` record). This is the snapshot IDENTITY
-    the finding records (reuse, not a second differ).
-  - `:baseline` — an optional baseline snapshot record to diff against; when
-    present the finding `:passed?` iff the content-hash matches.
-
-  In a headless / JVM / node environment (`browser-available?` false) this
-  returns `:cannot-run` — the testable contract: a headless run returns
-  `:cannot-run` for browser-tier assertions. In a browser the content-hash
-  identity is the regression key and a `:baseline` mismatch is the failure."
-  [payload {:keys [snapshot-identity baseline] :as _ctx}]
-  (if-not (browser-available?)
-    (cannot-run-finding rf.story.assertions/id-visual-snapshot payload
+  The proof this assertion needs is captured pixels — a real-browser
+  screenshot, diffed against a baseline — and no Story runner captures one.
+  A hash of the variant's inputs is NOT that evidence: the
+  `re-frame.story.identity` snapshot identity hashes declarations (bodies,
+  args, tags, modes, substrate), not rendered output, so it cannot say
+  whether the pixels changed. It is the KEY an external pixel runner files
+  its captures under, never a verdict. So the finding refuses rather than
+  pass on it: headless (`browser-available?` false) because no browser can
+  capture, and in a browser because nothing did."
+  [payload {:keys [frame-id] :as _ctx}]
+  (cannot-run-finding rf.story.assertions/id-visual-snapshot payload
+                      (if-not (browser-available?)
                         (str "visual snapshot requires a real browser "
                              "(:pixels); the headless runner cannot capture "
-                             "or diff a screenshot"))
-    (let [hash      (:content-hash snapshot-identity)
-          base-hash (:content-hash baseline)
-          passed?   (or (nil? baseline) (= hash base-hash))]
-      {:assertion rf.story.assertions/id-visual-snapshot
-       :payload   (vec payload)
-       :passed?   passed?
-       :status    (if passed? :pass :fail)
-       :expected  (if baseline base-hash :rf.story/any-snapshot)
-       :actual    hash
-       :reason    (cond
-                    (nil? baseline)
-                    (str "captured visual snapshot identity " (pr-str hash))
-                    passed?
-                    (str "visual snapshot matches baseline " (pr-str base-hash))
-                    :else
-                    (str "visual snapshot " (pr-str hash)
-                         " differs from baseline " (pr-str base-hash)))})))
+                             "or diff a screenshot")
+                        (str "no pixels were captured"
+                             (when frame-id (str " for " (pr-str frame-id)))
+                             ": no Story runner takes a screenshot, and the "
+                             "snapshot identity hashes the variant's declared "
+                             "inputs, not its rendered output"))
+                      #{:pixels}))
 
 ;; ===========================================================================
 ;; AXE-STYLE A11Y  (`:rf.assert/a11y`, requires :a11y-engine)
@@ -260,40 +255,57 @@
   - `:frame-id` — the variant frame whose live violations to read.
 
   In a headless / JVM / node environment (`browser-available?` false) this
-  returns `:cannot-run` — axe-core is browser-only. Under the
-  `:a11y-engine` browser runner it `:passed?` iff no violation (above the
-  optional `:max-impact` floor) was found, projecting the violations into
-  the finding's `:actual` so a failure reads diagnostically. This pairs the
-  pixel/a11y finding with the variant frame (spec/017: SHOULD pair findings
-  with app-db / args / trace / epoch evidence)."
+  returns `:cannot-run` — axe-core is browser-only. In a browser, a frame
+  axe never scanned has no violations vector at all (nil, where a clean
+  scan is `[]`), and that also returns `:cannot-run`, naming the missing
+  `:a11y` evidence: an absent scan is not a clean one. Given a scan it
+  `:passed?` iff no violation (above the optional `:max-impact` floor) was
+  found, projecting the violations into the finding's `:actual` so a
+  failure reads diagnostically. This pairs the pixel/a11y finding with the
+  variant frame (spec/017: SHOULD pair findings with app-db / args / trace /
+  epoch evidence)."
   [payload {:keys [violations frame-id] :as _ctx}]
-  (if-not (browser-available?)
-    (cannot-run-finding rf.story.assertions/id-a11y payload
-                        (str "axe-style a11y requires a real browser "
-                             "(:a11y-engine); the headless runner cannot run "
-                             "axe-core"))
-    (let [opts       (when (map? (first payload)) (first payload))
-          max-impact (:max-impact opts)
-          impact-rank {"minor" 0 "moderate" 1 "serious" 2 "critical" 3}
-          floor       (get impact-rank max-impact 0)
-          vs          (vec (or violations (live-a11y-violations frame-id) []))
-          ;; a violation counts iff its impact is at or above the floor
-          counted     (filterv (fn [v]
-                                  (>= (get impact-rank (:impact v) 1) floor))
-                                vs)
-          passed?     (empty? counted)]
-      {:assertion rf.story.assertions/id-a11y
-       :payload   (vec payload)
-       :passed?   passed?
-       :status    (if passed? :pass :fail)
-       :expected  :no-a11y-violations
-       :actual    (mapv axe-finding counted)
-       :count     (count counted)
-       :reason    (if passed?
-                    (str "no axe-core a11y violations"
-                         (when max-impact (str " at/above " (pr-str max-impact))))
-                    (str (count counted) " axe-core a11y violation(s)"
-                         (when max-impact (str " at/above " (pr-str max-impact)))))})))
+  (let [scanned (when (browser-available?)
+                  (if (some? violations) violations (live-a11y-violations frame-id)))]
+    (cond
+      (not (browser-available?))
+      (cannot-run-finding rf.story.assertions/id-a11y payload
+                          (str "axe-style a11y requires a real browser "
+                               "(:a11y-engine); the headless runner cannot run "
+                               "axe-core")
+                          #{:a11y})
+
+      (nil? scanned)
+      (cannot-run-finding rf.story.assertions/id-a11y payload
+                          (str "no axe-core scan has run"
+                               (when frame-id (str " for " (pr-str frame-id)))
+                               ", so the :a11y evidence this assertion reads "
+                               "was never produced")
+                          #{:a11y})
+
+      :else
+      (let [opts        (when (map? (first payload)) (first payload))
+            max-impact  (:max-impact opts)
+            impact-rank {"minor" 0 "moderate" 1 "serious" 2 "critical" 3}
+            floor       (get impact-rank max-impact 0)
+            vs          (vec scanned)
+            ;; a violation counts iff its impact is at or above the floor
+            counted     (filterv (fn [v]
+                                   (>= (get impact-rank (:impact v) 1) floor))
+                                 vs)
+            passed?     (empty? counted)]
+        {:assertion rf.story.assertions/id-a11y
+         :payload   (vec payload)
+         :passed?   passed?
+         :status    (if passed? :pass :fail)
+         :expected  :no-a11y-violations
+         :actual    (mapv axe-finding counted)
+         :count     (count counted)
+         :reason    (if passed?
+                      (str "no axe-core a11y violations"
+                           (when max-impact (str " at/above " (pr-str max-impact))))
+                      (str (count counted) " axe-core a11y violation(s)"
+                           (when max-impact (str " at/above " (pr-str max-impact)))))}))))
 
 ;; ===========================================================================
 ;; STRUCTURAL A11Y  (`:rf.assert/a11y-structural`, requires :hiccup-structure)
@@ -500,9 +512,9 @@
   - `:rf.assert/a11y`            → `eval-a11y` (`:a11y-engine`)
   - `:rf.assert/a11y-structural` → `eval-structural-a11y` (`:hiccup`)
 
-  `ctx` is the per-run context (`:snapshot-identity` / `:baseline` /
-  `:violations` / `:frame-id` / `:hiccup`), supplied by the caller. A
-  non-browser-tier atom returns nil (the caller routes it elsewhere)."
+  `ctx` is the per-run context (`:violations` / `:frame-id` / `:hiccup`),
+  supplied by the caller. A non-browser-tier atom returns nil (the caller
+  routes it elsewhere)."
   [assertion-atom ctx]
   (let [id      (rf.story.assertions/assertion-atom-id assertion-atom)
         payload (vec (rest assertion-atom))]

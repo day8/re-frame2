@@ -3038,7 +3038,7 @@ the plan compiler (`re-frame.story.assertions/known-assertion-ids`):
 
 | Assertion | Token | Runner | Proof |
 |---|---|---|---|
-| `:rf.assert/visual-snapshot` | `:pixels` | `:browser` | the reused `content-hash` snapshot identity, compared against a baseline: the key, not pixels (see below) |
+| `:rf.assert/visual-snapshot` | `:pixels` | `:browser` | captured pixels against a baseline; nothing captures them yet, so the row is `:cannot-run` (see below) |
 | `:rf.assert/a11y` | `:a11y-engine` | `:browser` | axe-style scan (reuses the `re-frame.story.ui.a11y` axe-core hook) |
 | `:rf.assert/a11y-structural` | `:hiccup-structure` | `:hiccup` | pure structural a11y facts over the rendered hiccup tree |
 
@@ -3052,21 +3052,28 @@ JVM-testable and the `:hiccup` runner satisfies it. Semantic checks that
 genuinely need layout/contrast (colour contrast, computed visibility) stay
 on `:rf.assert/a11y`.
 
-**What `:rf.assert/visual-snapshot` compares today: the identity key, not
-pixels.** Under a browser the finding passes when no baseline is supplied, and
-otherwise iff the variant's `snapshot-identity` `:content-hash` equals the
-baseline's (`re-frame.story.play.browser/eval-visual-snapshot`). That hash is
-over declarations (the variant and story bodies, effective args and tags, the
-view-schema digest, active modes and substrate), not over loaded CSS, the view
-implementation, fonts or any rendered output. `:pixels` names a real-browser
-screenshot and pixel diff, and nothing in the tree fulfils it: no runner
-captures a screenshot and diffs it against a baseline. A green visual snapshot
-therefore means "the declared inputs did not change", never "the pixels did
-not change". Pixel comparison is the job of an external runner the user
-brings, keyed by snapshot identity: the variant id and its active modes, plus
-the viewport and browser of the capture.
+**What `:rf.assert/visual-snapshot` compares today: nothing, so it refuses.**
+The proof it needs is `:pixels` — a real-browser screenshot diffed against a
+baseline — and nothing in the tree fulfils it: no runner captures a
+screenshot. The variant's `snapshot-identity` `:content-hash` is not that
+evidence: it is a hash over declarations (the variant and story bodies,
+effective args and tags, the view-schema digest, active modes and substrate),
+not over loaded CSS, the view implementation, fonts or any rendered output, so
+it cannot say whether the pixels changed. So the finding
+(`re-frame.story.play.browser/eval-visual-snapshot`) is `:cannot-run` on every
+runner, carrying `:missing-evidence #{:pixels}`. Pixel comparison is the job
+of an external runner the user brings, keyed by snapshot identity: the variant
+id and its active modes, plus the viewport and browser of the capture.
 [Local visual review](../../../docs/story/08-snapshot-identity-and-sharing.md#local-visual-review)
 is a Playwright recipe for one.
+
+**What `:rf.assert/a11y` reads: an axe scan of the variant's frame.** Under a
+browser the finding (`re-frame.story.play.browser/eval-a11y`) reads the axe
+violations the a11y panel recorded for the frame. A frame axe never scanned
+has no violations vector at all — distinct from a clean scan's `[]` — and the
+finding is `:cannot-run` there, carrying `:missing-evidence #{:a11y}`: an
+absent scan is not a clean one. Given a scan, it passes iff no violation is at
+or above the payload's `:max-impact` floor.
 
 **What a run reports for both browser-only ids today: `:cannot-run`.**
 Post-run evidence validation
@@ -3074,10 +3081,8 @@ Post-run evidence validation
 evidence slot for `:rf.assert/visual-snapshot` and the `:a11y` slot for
 `:rf.assert/a11y`, and no Story runner produces either slot. So every run
 refuses both with `:required-evidence-missing`, whatever runner it selects
-(below `:browser` they are refused for the missing capability first). In a
-browser the finding's own record can read `:pass` (the identity key matched,
-or the a11y panel held no violations for the frame), but the run's verdict
-is `:cannot-run`, never `:pass`.
+(below `:browser` they are refused for the missing capability first). A row
+whose evidence was never produced reads `:cannot-run` too, never `:pass`.
 
 ### The executor: reuse, not a second system
 
