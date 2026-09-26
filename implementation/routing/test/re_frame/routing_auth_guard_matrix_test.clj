@@ -2,9 +2,9 @@
   "Executable integration matrix pinning the canonical cross-cutting auth-guard
   INTERCEPTOR recipe — the one for a policy that genuinely is not about routes
   (a maintenance-mode lockout, a feature flag over a whole section), which lives
-  in docs/routing/how-to/require-sign-in-on-a-route.md §Appendix and is
-  cross-referenced from docs/core/how-to/add-auth.md §Appendix and
-  spec/012-Routing.md §Cross-cutting guards.
+  in docs/routing/how-to/require-sign-in-on-a-route.md §A policy that is not
+  about routes and is cross-referenced from docs/core/how-to/add-auth.md
+  §Appendix and spec/012-Routing.md §Redirects and guards.
 
   It is NOT the route-auth recipe. Route auth is `:can-enter` metadata plus a
   `:rf.route/entry-denied` handler, evaluated in the one planning pipeline every
@@ -23,8 +23,9 @@
   The guard body below is the SINGLE executable seam the suite drives — it is
   registered as `:app/auth-guard` and the test runs THAT interceptor (its
   `:before`, and end-to-end through the frame), not a divorced boolean copy.
-  It is kept byte-faithful to the shipped recipe, so a drift between the doc
-  recipe and this pin trips a test.
+  Its `matched-id`, `nav-target` and `:before` are the recipe's, verbatim. The
+  doc is not read at test time, so a change to the recipe must be copied here
+  by hand.
 
   A `:rf.route/navigate` branch that normalises a `{:url ...}` target as a
   route id UNCONDITIONALLY would let a map target fall through as a route id:
@@ -56,40 +57,44 @@
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
-;; The canonical guard — byte-faithful to the shipped recipe. Registered as
-;; `:app/auth-guard` below and driven directly (its `:before`) AND end-to-end
-;; through the frame. `nav-target` normalises ANY navigation event to
-;; {:id <route-id> :params <map>} (or nil); `current` is the current route
-;; slice, so an in-place request resolves against it exactly
+;; The canonical guard — the recipe's `matched-id`, `nav-target` and `:before`,
+;; verbatim. Registered as `:app/auth-guard` below and driven directly (its
+;; `:before`) AND end-to-end through the frame. `nav-target` reduces a
+;; navigation event to {:id <route-id> :params <map>} (or nil); `current` is
+;; the current route slice, so an in-place request resolves against it exactly
 ;; as the runtime does.
 ;; ---------------------------------------------------------------------------
 
-(defn- nav-target [[ev-id a _b] current]
+(defn- matched-id
+  "The route a URL matches as {:id :params}, or nil when nothing matches or the
+   params fail their schema (the runtime sends those to not-found)."
+  [url]
+  (when-let [{:keys [route-id params validation-failed?]} (rf.routing/match-url url)]
+    (when-not validation-failed?
+      {:id route-id :params (or params {})})))
+
+(defn- nav-target
+  "Reduce a navigation event to {:id :params}, or nil. `current` is the route
+   slice, needed for an in-place navigate, whose target is the current route."
+  [[ev-id a] current]
   (case ev-id
     :rf.route/navigate
-    (let [{:keys [to url params]} a]                       ;; a is the flat request map
-      (cond
-        to  {:id to :params (or params {})}               ;; route-id destination
-        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]  ;; {:url ...} escape hatch
-              {:id route-id :params (or params {})})
-        :else                                             ;; in-place — stays on the current route
-        {:id (:route-id current) :params (or (:params current) {})}))
-
-    :rf.route/url-requested
-    (let [{:keys [to params url]} a]
+    (let [{:keys [to url params]} a]
       (cond
         to  {:id to :params (or params {})}
-        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
-              {:id route-id :params (or params {})})))
+        url (matched-id url)
+        ;; in-place: a query or fragment edit on the current route
+        (and (nil? params)
+             (or (contains? a :query) (contains? a :query-merge) (contains? a :fragment)))
+        {:id (:route-id current) :params (or (:params current) {})}
+        :else nil))     ;; malformed: the runtime rejects it with :rf.error/navigate-bad-request
 
-    :rf.route/handle-url-change
-    (when-let [{:keys [route-id params]} (rf.routing/match-url a)]
-      {:id route-id :params (or params {})})
-
+    :rf.route/url-requested     (matched-id (:url a))
+    :rf.route/handle-url-change (matched-id a)
     nil))
 
 (defn- auth-guard-before
-  "The canonical guard `:before`. Reads the current route slice from the
+  "The recipe's `:before`. Reads the current route slice from the
   `:rf.db/runtime` coeffect so an in-place request resolves to the route the user
   is already on. Signed-out navigation toward a `:requires-auth` route is
   skipped (so the protected route never commits and its `:on-match` loaders
@@ -98,15 +103,16 @@
   (if-let [{:keys [id]} (nav-target (get-in ctx [:coeffects :event])
                                     (get-in ctx [:coeffects :rf.db/runtime
                                                  :rf.runtime/routing :current]))]
-    (let [needs-auth? (contains? (:tags (rf/handler-meta {:source :store :kind :route :id id})) :requires-auth)
-          signed-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+    (let [route-meta  (rf/handler-meta {:source :store :kind :route :id id})
+          needs-auth? (contains? (:tags route-meta) :requires-auth)
+          signed-in?  (some? (get-in ctx [:coeffects :db :auth/user]))]
       (if (and needs-auth? (not signed-in?))
         (-> ctx
-            (assoc :rf/skip-handler? true)                ;; protected route never commits
+            (assoc :rf/skip-handler? true)
             (assoc-in [:effects :fx]
-                      [[:dispatch [:rf.route/navigate {:to :app/login}]]]))
+                      [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]))
         ctx))
-    ctx))                                                 ;; not a navigation ⇒ pass through
+    ctx))
 
 (defn- register! []
   (rf/reg-route :app/home     {} "/")
@@ -115,7 +121,7 @@
   (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
   (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/reg-interceptor :app/auth-guard
-    {:doc "Redirect signed-out users away from :requires-auth routes."}
+    {:doc "Redirect signed-out readers away from :requires-auth routes."}
     {:before auth-guard-before}))
 
 ;; ---- Helpers: drive the REGISTERED guard's :before over a real ctx ---------
@@ -127,13 +133,13 @@
   ([event]            (ctx-for event nil nil))
   ([event slice]      (ctx-for event slice nil))
   ([event slice user] {:coeffects {:event         event
-                                   :db            (if user {:auth {:user user}} {})
+                                   :db            (if user {:auth/user user} {})
                                    :rf.db/runtime {:rf.runtime/routing {:current slice}}}}))
 
 (defn- skipped? [ctx] (true? (:rf/skip-handler? (auth-guard-before ctx))))
 (defn- redirect [ctx] (get-in (auth-guard-before ctx) [:effects :fx]))
 
-(def ^:private login-redirect [[:dispatch [:rf.route/navigate {:to :app/login}]]])
+(def ^:private login-redirect [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]])
 
 (defn- real-slice-on
   "Run a real (guard-free) navigation and return the resulting runtime-db route
@@ -192,11 +198,11 @@
             (= ctx (auth-guard-before ctx)))
           "a self-nav from a protected route while SIGNED IN is delivered normally"))
 
-    (testing "route-link click (:rf.route/url-requested) — both :to and :url"
+    (testing "route-link click (:rf.route/url-requested, whose payload is {:url ...})"
       (is (skipped? (ctx-for [:rf.route/url-requested {:url "/settings"}]))
           "a link click whose href resolves to a protected route is gated")
-      (is (skipped? (ctx-for [:rf.route/url-requested {:to :app/settings}]))
-          "a :to link click to a protected route is gated")
+      (is (= login-redirect (redirect (ctx-for [:rf.route/url-requested {:url "/settings"}])))
+          "and redirected to login")
       (let [ctx (ctx-for [:rf.route/url-requested {:url "/"}])]
         (is (= ctx (auth-guard-before ctx))
             "a link click to a public route is delivered normally")))
@@ -226,8 +232,8 @@
             change never commits to the route slice (the protected route and its
             loaders do not commit)"
     (register!)
-    (rf/reg-event :test/sign-in  (fn [{:keys [db]} _] {:db (assoc-in db [:auth :user] {:id 1})}))
-    (rf/reg-event :test/sign-out (fn [{:keys [db]} _] {:db (update db :auth dissoc :user)}))
+    (rf/reg-event :test/sign-in  (fn [{:keys [db]} _] {:db (assoc db :auth/user {:id 1})}))
+    (rf/reg-event :test/sign-out (fn [{:keys [db]} _] {:db (dissoc db :auth/user)}))
     ;; Attach the canonical guard to the URL-owning frame — it now runs :before
     ;; every navigation entry event.
     (rf/make-frame {:id :rf/default :url-bound? true :interceptors [:app/auth-guard]})
