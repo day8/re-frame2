@@ -379,6 +379,13 @@
   ;; than silently falling back to a co-located default. Per
   ;; Spec 014 §Reply addressing.
   (validate-reply-target! args-map)
+  ;; A malformed `:carriers` block on the `:rf.http/managed` registration
+  ;; refuses this request with `:rf.error/bad-classification` (resolving the
+  ;; carriers validates them), before the middleware chain runs, so the
+  ;; refusal reaches the app as this fx's handler exception. Carriers only
+  ;; drive trace redaction, so the check shares the trace's dev gate.
+  (when rf.interop/debug-enabled?
+    (rf.http.privacy/managed-carriers))
   ;; `:abort-signal` and `:request-id` are NOT mutually
   ;; exclusive. Both attach cancellation sources to the one managed
   ;; request; the CLJS transport forwards an external `:abort-signal`

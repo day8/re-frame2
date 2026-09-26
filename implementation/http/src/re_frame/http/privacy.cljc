@@ -246,6 +246,19 @@
             header-carriers    (assoc :headers header-carriers)
             query-param-policy (assoc :query-params query-param-policy)))))))
 
+(defn- projection-carriers
+  "`managed-carriers` for a caller that must not throw: returns `[carriers
+  malformed?]`, where a malformed `:carriers` block yields `[nil true]`
+  instead of raising `:rf.error/bad-classification`. Any other throw
+  propagates."
+  []
+  (try
+    [(managed-carriers) false]
+    (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
+      (if (= :rf.error/bad-classification (:rf.error/id (ex-data e)))
+        [nil true]
+        (throw e)))))
+
 ;; ---- trace-event redaction helpers ----------------------------------------
 
 (defn- redact-url-in
@@ -517,18 +530,28 @@
   IDENTICAL `:reply-to` vector leak fields its target had declared
   `:sensitive` into the generic HTTP fx traces.
 
+  Never throws on a malformed `:carriers` block. This fn runs inside core
+  trace emission, where a throw escapes the router's drain and drops the
+  event's remaining effects; `managed-handler` refuses the request with
+  `:rf.error/bad-classification` instead, and here the whole `:request`
+  projects to the redaction sentinel, because the carrier names it should
+  have redacted cannot be read.
+
   Total: a non-map `args` passes through untouched."
   [args]
   (if-not (map? args)
     args
-    (let [sensitive?   (request-sensitive? args)
-          carriers     (managed-carriers)
-          redact-event (or (rf.late-bind/get-fn :classification/redact-event-by-registration)
-                           identity)
-          redact-addr  (fn [v] (if (vector? v) (redact-event v) v))]
+    (let [sensitive?            (request-sensitive? args)
+          [carriers malformed?] (projection-carriers)
+          redact-event          (or (rf.late-bind/get-fn :classification/redact-event-by-registration)
+                                    identity)
+          redact-addr           (fn [v] (if (vector? v) (redact-event v) v))]
       (reduce (fn [m k] (cond-> m (contains? m k) (update k redact-addr)))
               (cond-> args
-                (map? (:request args)) (update :request #(redact-request-tags % sensitive? carriers)))
+                (map? (:request args))
+                (update :request #(if malformed?
+                                    redacted-sentinel
+                                    (redact-request-tags % sensitive? carriers))))
               rf.http.encoding/reply-address-keys))))
 
 ;; ---- trace-event composers ------------------------------------------------
