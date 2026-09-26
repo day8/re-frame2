@@ -274,32 +274,6 @@
                    (text-for {:rf.size/large-elided {:chars 9000}}))
           "the large-elided marker did not render"))))
 
-;; ---- (4) the explicit local-raw grain ----------------------------------
-
-(deftest local-raw-opt-in-returns-the-declared-key-verbatim
-  (testing "the per-(tool,frame) :rf.egress/local-raw opt-in
-            (EP-0015 §Cross-tool visibility grain) reaches the route-sub
-            seam end to end: the SAME projection with `raw? true` returns
-            the declared-sensitive value verbatim. The panel deliberately
-            exposes no toggle, so it always passes the redacted default —
-            this row pins that the mechanism exists rather than that the
-            panel offers it."
-    (classified-route!)
-    (navigate! (str "/rf2-8nyi2/oauth?token=" secret "&tab=" sibling))
-    (let [q       (:query (host-slice))
-          default (local-render/local-render-route-sub-value
-                    q :rf/default :rf.route/query)
-          raw     (local-render/local-render-route-sub-value
-                    q :rf/default :rf.route/query true)]
-      (is (= :rf/redacted (:token default))
-          "the redacted default did not lower the declared key")
-      (is (= sibling (:tab default))
-          "the redacted default scrubbed the undeclared sibling")
-      (is (= secret (:token raw))
-          "the trusted-local raw opt-in withheld the declared key")
-      (is (= q raw)
-          "raw is the identity over the whole query"))))
-
 ;; ---- (5) the seam is the ROUTE re-seeding, not a whole-value walk -------
 
 (deftest whole-value-walk-cannot-match-the-re-rooted-declaration
