@@ -28,6 +28,9 @@
   effect, and nothing waits for a frame. The modal alone carries a
   keyboard handler, `wrap-tab!`, closing the two Tab edges the engine's
   inert-document trap leaves open; a popover is deliberately not a trap.
+  The popover alone reads `:anchor` and `:placement`, because a modal is
+  not positioned against a trigger: a modal given either claims nothing
+  and refuses nothing.
 
   The open flag has one owner. `:open?` false renders nil, so a closed
   overlay has no element, no listener and no anchor claim. Without
@@ -328,7 +331,10 @@
    ;; It fires on the way IN as well, so this one is filtered by
    ;; `newState`; the module's own `hidePopover()` needs no filter of its
    ;; own — see `dismissal-handler`.
-   :closed-only? true})
+   :closed-only? true
+   ;; The popover's alone: a modal is not positioned against a trigger,
+   ;; so its render never reads `:anchor` or `:placement`.
+   :anchored? true})
 
 ;; ---------------------------------------------------------------------------
 ;; The instance cell, the one ref callback that ever attaches, and the one
@@ -483,8 +489,9 @@
       (seq style) (assoc :style style))))
 
 (defn- body
-  [{:keys [tag event closed-only? key-down] :as ops} dismissal-attrs js-props]
+  [{:keys [tag event closed-only? key-down anchored?] :as ops} dismissal-attrs js-props]
   (let [props    (or (unchecked-get js-props "rfProps") {})
+        anchor   (when anchored? (:anchor props))
         ;; Hook 1 — the frame, through the shared reader so a no-provider
         ;; sentinel resolves to nil ("no scope") rather than being mistaken
         ;; for a frame keyword.
@@ -497,7 +504,7 @@
     (when (nil? (.-current ref-cell))
       (set! (.-current ref-cell) (make-cell ops)))
     (let [cell (.-current ref-cell)]
-      (unchecked-set cell "anchorId" (:anchor props))
+      (unchecked-set cell "anchorId" anchor)
       ;; Hook 3 — the anchor's commit-phase reconciliation, and the module's
       ;; only effect. It is a LAYOUT effect for the same reason everything
       ;; else here is in the ref callback: the claim is a position, and a
@@ -510,12 +517,12 @@
       ;; because a closed overlay renders nil and hooks may not be
       ;; conditional — with no panel attached the reconciliation is a no-op.
       (react/useLayoutEffect (fn [] (reconcile-anchor! cell) js/undefined)
-                             #js [(:anchor props)])
+                             #js [anchor])
       ;; Zero cost when closed: no element, so no top-layer entry, no
       ;; listener, no anchor claim and no children rendered.
       (when (:open? props)
         (let [dispatch (when frame-kw (rf.fresco.impl.collector/frame-dispatch frame-kw))
-              area     (position-area (:placement props))
+              area     (when anchored? (position-area (:placement props)))
               extra    (cond-> (assoc (dismissal-attrs props)
                                       :ref   (unchecked-get cell "ref")
                                       event  (dismissal-handler dispatch (:on-dismiss props) closed-only?))

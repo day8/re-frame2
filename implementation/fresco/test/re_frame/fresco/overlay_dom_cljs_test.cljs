@@ -34,6 +34,7 @@
   | zero cost when closed | [[a-closed-overlay-has-no-element-no-listener-and-no-rendered-body]] |
   | an intent inside an overlay lowers in the overlay's frame | [[an-intent-on-an-overlay-child-dispatches-in-the-frame-above-it]] |
   | the anchor is claimed while open and put back after | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
+  | a modal takes no `:anchor`: it claims no trigger and refuses no dangling id | [[a-modal-given-an-anchor-renders-as-a-modal-and-claims-nothing]] |
   | an OPEN panel's anchor follows the prop that names it | [[an-open-popovers-anchor-follows-the-prop-that-names-it]] |
   | three hooks here, and still two in the shell | [[an-overlay-costs-three-hooks-and-the-shell-still-costs-two]] |
   | a close request arrives as an intent | [[a-close-request-on-a-modal-arrives-as-an-intent]] |
@@ -1271,6 +1272,71 @@
             ;; the top layer — an overlay cannot be both refused and open.
             (is (not (some-> ($ "#pop-x") (.matches ":popover-open")))
                 "and the panel never opened"))
+          (finally (rf.fresco.impl.mount/release! handle)))))))
+
+;; --- a modal given the popover's options -----------------------------------
+
+(rf.fresco/defview anchored-modal-page [_]
+  [:div
+   ;; A trigger that RESOLVES, carrying an author-written `anchor-name` a
+   ;; claim would overwrite.
+   [:button#modal-trigger {:type "button" :style {:anchor-name "--mine-m"}} "Open"]
+   ;; Under a watching boundary, so a refusal is read rather than lost to
+   ;; `reportError` — the reason `anchored-page` gives.
+   [rf.fresco/error-boundary {:fallback [:p.modal-refused "the modal refused"]
+                              :on-error (fn [e] (reset! !anchor-refusal e))}
+    [rf.fresco.overlay/modal {:open?      (rf.fresco/sub [::open? :ma])
+                              :on-dismiss [::dismissed :ma]
+                              :anchor     (rf.fresco/sub [::anchor])
+                              :placement  :bottom-start
+                              :id         "modal-anchored"}
+     [:p "a modal"]]]])
+
+(deftest a-modal-given-an-anchor-renders-as-a-modal-and-claims-nothing
+  ;; `:anchor` and `:placement` are the popover's options. A modal is not
+  ;; positioned against a trigger, so it reads neither: it claims no
+  ;; trigger, writes no `position-area`, and an id naming no element is
+  ;; nothing for it to refuse.
+  (if-not (rf.fresco.impl.mount/browser?)
+    (skip! ":node-test has no modal dialog and resolves no anchors")
+    (do
+      (fresh!)
+      (reset! !anchor-refusal nil)
+      (rf/with-frame frame-id (rf/dispatch-sync [::anchored "modal-trigger"]))
+      (let [handle (rf.fresco.impl.mount/root! (rf.fresco.impl.mount/fresh-container!)
+                                                frame-id [anchored-modal-page {}])]
+        (try
+          (rf.fresco.impl.mount/settle!)
+          (let [trigger ($ "#modal-trigger")]
+            (is (= "--mine-m" (.. trigger -style -anchorName))
+                "premise: the trigger carries the author's own anchor name")
+
+            (testing "an `:anchor` that RESOLVES is not claimed: the dialog opens
+                      as a modal and the trigger keeps what its author wrote"
+              (go! [::opened :ma])
+              (let [dialog ($ "#modal-anchored")]
+                (is (some-> dialog (.matches ":modal"))
+                    "it opened through `showModal`, into the top layer")
+                (is (= "--mine-m" (.. trigger -style -anchorName))
+                    "no claim was taken on the trigger")
+                (is (= "" (str (some-> dialog .-style .-positionAnchor)))
+                    "the dialog points at no anchor")
+                (is (= "" (some-> dialog .-style (.getPropertyValue "position-area")))
+                    "and `:placement` wrote no `position-area`"))
+              (go! [::closed :ma]))
+
+            (testing "an `:anchor` naming NO element refuses nothing on a modal,
+                      and the modal still opens"
+              (go! [::anchored "no-such-element"])
+              (go! [::opened :ma])
+              (is (nil? @!anchor-refusal)
+                  (str "no `:rf.error/fresco-overlay-anchor-missing`. saw "
+                       (pr-str (some-> @!anchor-refusal ex-data))))
+              (is (nil? ($ "p.modal-refused"))
+                  "the watching boundary is still rendering its child")
+              (is (some-> ($ "#modal-anchored") (.matches ":modal"))
+                  "and the dialog is open, modally")
+              (go! [::closed :ma])))
           (finally (rf.fresco.impl.mount/release! handle)))))))
 
 ;; --- the anchor that MOVES -------------------------------------------------
