@@ -53,7 +53,9 @@ refresh, `:stale?` and `:has-data?`.
 
 A subscription never fetches. It projects the cache, so a view that only
 subscribes reads `:idle` for ever. An event causes the fetch, here the frame's
-`:todo/initialise` through `[:rf.resource/ensure …]`. Data that the current URL
+`:todo/initialise` through `[:rf.resource/ensure …]`. This `:todo/initialise`
+replaces the one that seeded `:todos` into app-db: the server now owns the
+list, so the seed event asks for it instead. Data that the current URL
 determines is better caused by the route's `:resources`, which SSR and
 transition blocking can also see.
 
