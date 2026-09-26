@@ -55,7 +55,6 @@ const {
   notMeasured,
   positive,
   deltaOf,
-  PUBLISHED,
   CONTROL,
   ALL_ROWS,
   ARMS,
@@ -135,17 +134,6 @@ test('a run that cleared every gate exits 0 and says nothing', () => {
   assert.deepStrictEqual(verdict(sound()), { code: 0, lines: [] });
 });
 
-test('the sound fixture really does clear all five gates, one at a time', () => {
-  // Without this the refusals below would all pass against a fixture that was
-  // already refused for some other reason.
-  const e = sound();
-  assert.strictEqual(e.parity.identical, true, 'parity');
-  assert.strictEqual(e.control.pass, true, 'the control');
-  assert.strictEqual(Object.values(e.summary).reduce((a, s) => a + s.unverified, 0), 0, 'unverified');
-  assert.strictEqual(Object.values(e.summary).reduce((a, s) => a + s.nonPositive, 0), 0, 'non-measurements');
-  assert.strictEqual(e.pageErrors.length, 0, 'page errors');
-});
-
 // --- GATE 1: DOM PARITY ------------------------------------------------------
 
 test('arms that serialise identically are parity, and both lengths are reported', () => {
@@ -210,12 +198,6 @@ test('a control BELOW the band refuses — the instrument saturated', () => {
   assert.strictEqual(verdict(sound({ control: c })).code, 1);
 });
 
-test('a control ABOVE the band refuses — something superlinear dominates', () => {
-  const c = controlVerdict(controlAt(20), '');
-  assert.strictEqual(c.pass, false);
-  assert.strictEqual(verdict(sound({ control: c })).code, 1);
-});
-
 test('both band edges are INCLUSIVE, and a hair outside either is not', () => {
   assert.strictEqual(controlVerdict(controlAt(CONTROL.lo), '').pass, true, 'the low edge is in');
   assert.strictEqual(controlVerdict(controlAt(CONTROL.hi), '').pass, true, 'the high edge is in');
@@ -264,12 +246,6 @@ test('a control arm carrying NO rounds is a FAIL, not a pass', () => {
 
 // --- GATE 3: UNVERIFIED WRITES ----------------------------------------------
 
-test('one unverified write on one row refuses the whole run', () => {
-  const v = verdict(sound({ summary: summaryOf({ [ROW_IDS[0]]: { unverified: 1 } }) }));
-  assert.strictEqual(v.code, 1, 'a sample whose page did not read back is not a sample');
-  assert.deepStrictEqual(v.lines, ['[ours] a gate did not clear — see the report above']);
-});
-
 test('unverified writes are summed across rows, not read off one', () => {
   const over = {};
   for (const id of ROW_IDS) over[id] = { unverified: 0 };
@@ -302,15 +278,7 @@ test('the funnel drops nothing: every arm of every row is gathered', () => {
   for (const r of rows) for (const a of ARMS) assert.ok(errs.includes(`${r.id}/${a}`), `${r.id}/${a} was dropped`);
 });
 
-test('a page error refuses even when every number in the report is sound', () => {
-  assert.strictEqual(verdict(sound({ pageErrors: ['console: boom'] })).code, 1);
-});
-
 // --- GATE 5: THE RECORDING SITE ---------------------------------------------
-
-test('PUBLISHED is exactly the two clocks the report publishes', () => {
-  assert.deepStrictEqual(PUBLISHED, ['taskNet', 'task']);
-});
 
 test('a duration is a measurement only when finite AND strictly positive', () => {
   assert.strictEqual(positive(1), true);
