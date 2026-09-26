@@ -101,6 +101,14 @@ data or describe effects. It never writes app-db (`:rf.error/machine-action-wrot
 
 See [Actions](concepts.md#actions).
 
+### **entry / exit action**
+
+The action a state runs each time it is entered (`:entry`) or left (`:exit`),
+on every path in or out. A transition runs the source's `:exit`, its own
+`:action`, then the target's `:entry`.
+
+See [Entry, exit, and transition actions](concepts.md#entry-exit-and-transition-actions).
+
 ### **action effect map**
 
 The return value from an action.
@@ -273,6 +281,13 @@ It has an allocated id such as `:auth/request#0`. The spec heading says
 
 See [Actors](actors.md).
 
+### **machine type**
+
+The registered machine a spawned actor is an instance of. `:auth/request` is
+the type; each spawn of it gets its own allocated id.
+
+See [Actors](actors.md).
+
 ### **actor**
 
 A live machine instance. A singleton and a spawned child are both actors.
@@ -308,6 +323,13 @@ See [Actors](actors.md).
 ### **:on-done**
 
 A callback or transition that runs when a child or compound sub-flow completes.
+
+See [When a child finishes](actors.md#when-a-child-finishes).
+
+### **:on-error**
+
+The `:spawn` transition taken when the child fails: it reaches a `:final?`
+state marked `:error? true`, or an action throws.
 
 See [When a child finishes](actors.md#when-a-child-finishes).
 
@@ -356,6 +378,13 @@ one committed snapshot.
 ### **commit**
 
 The single runtime-db write that stores the settled snapshot.
+
+### **selection round**
+
+In a parallel machine, one pass that picks transitions for every region
+against a frozen view of the configuration. One event can take several rounds.
+
+See [Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein).
 
 ### **LCA / LCCA**
 

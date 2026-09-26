@@ -21,7 +21,9 @@ starts when `:submitting` is entered and is destroyed on every exit.
 ## State-bound spawn
 
 Put `:spawn` on a state node. Entering the state creates the child. Leaving the
-state — by any transition — destroys it.
+state — by any transition — destroys it. On the
+[machine root](hierarchical-states.md#the-machine-root), the child lives as
+long as the machine.
 
 The singleton login machine spawns a request actor on `:submitting`:
 
@@ -139,7 +141,7 @@ Supply `:machine-id` or `:definition`, not both.
 | `:machine-id` | registered machine type to spawn |
 | `:definition` | inline machine definition instead of a registered id |
 | `:data` | child's initial data — a map, or `(fn [{:keys [snapshot event]}] …)` evaluated on entry against the **post-action** snapshot |
-| `:id-prefix` | base for the allocated id (`:websocket/socket#0`); defaults to `:machine-id`. Ids are counters, never `gensym` |
+| `:id-prefix` | base for the allocated id (`:websocket/socket#0`); defaults to `:machine-id`, so a `:definition` spawn needs it or `:fixed-actor-id`. Ids are counters, never `gensym` |
 | `:start` | first event sent to the newborn |
 | `:on-done` | transition when the child reaches a successful final state — or, as a fn, a `:data` fold |
 | `:on-error` | transition when the child reaches an error final state or fails |
@@ -348,10 +350,30 @@ shape `:auth/request` uses above — is never dispatched. The runtime classifies
 it `:status :stale` and records a `:rf.http/stale-suppressed` trace row
 carrying `:rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete`.
 
-Anything else — a raw `js/WebSocket`, a `setInterval`, a Worker — you close
-yourself in the child's `:exit`. That action runs on every destroy path:
+Anything else — a `js/WebSocket`, an interval, a Worker — is owned by an
+effect you register, keyed by the actor's `:rf/self-id`. The handle itself
+never goes in `:data`, which [must print and read back](concepts.md#the-snapshot).
+The child's actions stay pure and return that effect: `:entry` opens, `:exit`
+closes, and `:exit` runs on every destroy path:
 
 ```clojure
+(defonce sockets (atom {}))
+
+(rf/reg-fx :ws/open
+  (fn [_ctx {:keys [id url]}]
+    (swap! sockets assoc id (js/WebSocket. url))))
+
+(rf/reg-fx :ws/close
+  (fn [_ctx id]
+    (some-> (get @sockets id) .close)
+    (swap! sockets dissoc id)))
+
+:actions
+{:open-socket  (fn [{data :data}]
+                 {:fx [[:ws/open {:id (:rf/self-id data) :url (:url data)}]]})
+ :close-socket (fn [{data :data}]
+                 {:fx [[:ws/close (:rf/self-id data)]]})}
+
 :connected
 {:entry :open-socket
  :exit  :close-socket
@@ -397,7 +419,11 @@ destroyed. Durations are a positive integer (ms) or an ISO-8601 string
 ## Fan-out and join with `:spawn-all`
 
 Use `:spawn-all` when one state starts **N children in parallel** and
-resumes on a join.
+resumes on a join. The `:children` vector is part of the definition, so N is
+fixed there. For a list known only at run time, emit one `[:rf.machine/spawn …]`
+per item from an action ([Imperative spawn and destroy](#imperative-spawn-and-destroy));
+those children have no parent, so pass each an address to report to in its
+`:data`.
 
 ```clojure
 ;; cf. examples/patterns/long_running_work

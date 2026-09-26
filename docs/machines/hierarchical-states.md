@@ -208,6 +208,11 @@ does not exit `:authenticated`.
 
 The ancestor that remains active is not exited or re-entered.
 
+Targeting that ancestor from inside it is different. A transition declared on
+`:settings` with target `[:authenticated]` exits and re-enters
+`:authenticated`, running its `:exit` and `:entry` and restarting its `:spawn`,
+then lands on its `:initial` child.
+
 For a flat machine this collapses to the familiar `exit → action → entry`.
 
 ## Parent lifecycle spans child states
@@ -229,6 +234,31 @@ Put lifecycle work on the parent when it should span several child states.
 The socket actor is spawned when `:active` is entered and destroyed when
 `:active` is left. Moving from `:connecting` to `:connected` does not restart
 it. See [Actors](actors.md).
+
+## The machine root
+
+The top-level map is a state too: the outermost parent, active for the
+machine's whole life. Its `:on` is the last fallback, tried after every active
+state's. Its `:entry` runs once at birth and its `:exit` once at teardown, its
+`:tags` join every snapshot, and its `:spawn` is a child that lives as long as
+the machine.
+
+A root transition to `:same-state` resets the machine: every active state
+exits and the `:initial` chain is entered again. `:data` is kept, so clear
+what should not survive in the `:action`:
+
+```clojure
+(rf/defmachine session
+  {:initial :unauthenticated
+   :on      {:session/reset {:target :same-state
+                             :action :clear-error}}
+   …})
+```
+
+The root reads nothing else. `:always`, `:choice`, `:final?` and `:spawn-all`
+there are refused with `:rf.error/machine-root-slot-not-supported`, whose
+message names the substitute. A root `:after` works only on a
+`:type :parallel` machine.
 
 <a id="when-a-sub-flow-finishes-nested-final-states"></a>
 

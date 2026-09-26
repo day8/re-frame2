@@ -95,7 +95,7 @@ An `:always` transition may be targetless:
            :action :drain-one}]}
 ```
 
-This is the safe "loop until done" pattern. The action changes `:data`; once the guard becomes false, the loop settles.
+This is the safe "loop until done" pattern. The action changes `:data`; once the guard becomes false, the loop settles. The guard is what ends it: an `:always` with neither `:guard` nor `:target` never settles, and `reg-machine` refuses it (`:rf.error/machine-always-unguarded-targetless`). Run-once work belongs in `:entry`.
 
 An `:always` transition may not target its own declaring state. That shape either loops forever or does nothing useful, so `reg-machine` throws `:rf.error/machine-always-self-loop`.
 

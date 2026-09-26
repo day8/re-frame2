@@ -161,6 +161,16 @@ Do not build views that switch on detailed `:state` shapes unless the exact
 state is the product decision. For "busy", "read-only", "connected", use
 [state tags](tags.md).
 
+`:data` must survive `pr-str` and `read-string`: no functions, atoms or host
+objects. That is what lets a snapshot persist. Save the machines from
+`frame-state-value` and hand them back at boot with `:rf/install-frame-state`,
+which restores spawned children and re-arms `:after` timers without re-running
+`:entry` ([Persist and restore](coming-from-xstate.md#persist-and-restore)).
+A hot reload keeps the live snapshot and applies the new table from the next
+event. If the reload removed the current state, the machine restarts from
+`:initial` before handling that event, and reports
+`:rf.error/machine-state-not-in-definition`.
+
 ## Transition forms
 
 An `:on` entry can be written in three forms.
@@ -305,6 +315,23 @@ Use `:entry` for work that should happen whenever the state is entered —
 issuing the request, so every path into `:submitting` fires it. Use `:exit`
 for cleanup.
 
+Each slot takes one fn or one action id. A vector is refused
+(`:rf.error/machine-bad-action-form`); to do two things, call both from one
+action and merge what they return:
+
+```clojure
+(defn clear-error   [_] {:data {:error nil}})
+(defn count-attempt [{data :data}] {:data {:attempts (inc (:attempts data))}})
+
+:actions
+{:clear-and-count
+ (fn [ctx]
+   (let [a (clear-error ctx)
+         b (count-attempt ctx)]
+     {:data (merge (:data a) (:data b))
+      :fx   (into (:fx a []) (:fx b []))}))}
+```
+
 ## Strict encapsulation
 
 <a id="strict-encapsulation"></a>
@@ -319,6 +346,7 @@ declares a coeffect) — never app-db. Parallel regions also see `:tags` /
 | Fact from outside | Put it on the **event** when you dispatch |
 | Write outside the machine | Return `:fx [[:dispatch […]]]` — a real, named event |
 | Clock / random / host fact | Declare a [coeffect](../core/coeffects.md) on the named guard or action — do **not** call `(js/Date.now)` |
+| A subscription's value | Declare `{:rf/sub [:feature/flags] :as :app/flags}` in the named guard's or action's `:rf.cofx/requires` (`:as` takes a namespaced id); it is read once, before the transition |
 
 A declared coeffect arrives under **`:rf.cofx`** on the callback map. Read it
 there, `(:rf/time-ms (:rf.cofx ctx))` — it is *not* a top-level `:rf/time-ms`
@@ -348,6 +376,13 @@ That does not hide mistakes. Broken definitions fail at registration: missing
 targets, undefined guards or actions, invalid timeout shapes, illegal
 `:final?` combinations. The unhandled event is the one intentionally quiet
 case.
+
+Keys are checked too. A state or transition map takes a closed set of bare
+keys, so a typo or an XState spelling (`:invoke`, `:cond`) throws
+`:rf.error/machine-unknown-node-key`, and the message names the valid keys.
+Put your own annotations under a namespaced key (`:my.app/note`) or `:meta`.
+Every refusal is an `ex-info` carrying `:rf.error/id` in its `ex-data`
+([Errors that throw](../core/errors.md#the-errors-that-throw-not-trace)).
 
 ## Self-transitions and wildcards
 
@@ -405,6 +440,11 @@ through to a wildcard.
   spawned protocols that finish, not for "last screen of a long-lived
   machine."
 
+A `:final?` state is a leaf with no way out: it may run `:entry` and `:exit`,
+but `:on`, `:always`, `:after` and `:spawn` there are refused
+(`:rf.error/machine-final-state-has-transitions`). `:output-key` and `:error?`
+belong only beside `:final?`.
+
 Nested finals and parent `:on-done` live in
 [Hierarchical states](hierarchical-states.md) and [Actors](actors.md).
 
@@ -413,7 +453,9 @@ Nested finals and parent `:on-done` live in
 <a id="validating-a-machines-data"></a>
 <a id="validating-a-machines-completion-output"></a>
 
-A machine can validate its private `:data` in development:
+A machine can validate its private `:data` in development. Require
+`[re-frame.schemas]` once at boot; without it, `:schemas` checks nothing and
+says nothing:
 
 ```clojure
 (rf/reg-machine :auth.login/flow
@@ -429,7 +471,13 @@ A failed data validation rolls the transition back before the bad snapshot
 reaches runtime-db (`:where :machine-data`).
 
 `:schemas {:output …}` validates the value a `:final?` leaf reports through
-`:output-key`. Full rules: [`re-frame.machines` API](../api/re-frame.machines.md).
+`:output-key`. The machine has already finished, so a failure is reported
+(`:where :machine-output`) and the value is delivered anyway.
+
+A schema does not hide a value from traces. To redact a secret in `:data`,
+name its path on the machine, starting from the snapshot:
+`{:sensitive [[:data :token]]}`. Every instance redacts that slot, spawned ones
+included — see [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem).
 
 ## Testing
 
@@ -448,6 +496,8 @@ full surface.
 | First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
 | Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
 | Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
+| Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
+| Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
 | Action fails `:rf.error/machine-action-wrote-db` | Returned `:db` | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
 | Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
 | `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
