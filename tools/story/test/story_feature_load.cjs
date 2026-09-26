@@ -469,10 +469,17 @@ async function assertToolbarRecorder(page, phase) {
     );
     await expectTextEquals(recordedCanvas.locator('[data-test="count"]').first(), '3', 10000);
     await page.locator('[data-test="story-recorder-stop"]').click();
+    // With DOM capture on, each click is recorded as a `[:click …]` step and
+    // the `[:counter/inc]` its handler dispatches is not recorded beside it:
+    // replaying the click dispatches it again.
     const snippet = await recorderSnippetText(page);
+    const incClicks = snippet.match(/\[:click "\[data-test=\\"inc\\"\]"\]/g) || [];
     const incEvents = snippet.match(/\[:counter\/inc\]/g) || [];
-    if (incEvents.length !== 3) {
-      throw new Error(`recorder snippet expected 3 [:counter/inc] events, got ${incEvents.length}: ${snippet}`);
+    if (incClicks.length !== 3 || incEvents.length !== 0) {
+      throw new Error(
+        `recorder snippet expected 3 inc clicks and no [:counter/inc] dispatch, ` +
+          `got ${incClicks.length} clicks and ${incEvents.length} dispatches: ${snippet}`,
+      );
     }
     await page.locator('[data-test="story-recorder-close"]').click();
 
