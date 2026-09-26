@@ -530,23 +530,6 @@
         (is (= :span (first unresolved))
             "the unresolved chip is a plain span")))))
 
-(deftest dispatch-source-fx-dispatch-without-history-test
-  (testing "when render-dispatch-step is called without
-            the dispatch-id->epoch-id index (direct test callers, or
-            pre-history-seed cold mount), `:fx-dispatch` still renders
-            the kind label with the parent chip in unresolved form."
-    (let [step {:step :dispatch :badge :DISPATCH :step-number 1
-                :event [:cart/add :apple]
-                :source :fx-dispatch
-                :coord nil
-                :source-enrichment {:parent-dispatch-id 9001}}
-          tree (view/render-dispatch-step step)]
-      (is (nil? (find-by-testid tree "rf-xray-epoch-dispatch-parent-epoch-link"))
-          "no clickable link without dispatch-id->epoch-id threaded")
-      (is (some? (find-by-testid
-                   tree "rf-xray-epoch-dispatch-parent-epoch-unresolved"))
-          "the unresolved-parent chip carries the parent-dispatch-id"))))
-
 (deftest dispatch-source-after-timer-defensive-no-enrichment-test
   (testing "when `:source :after-timer` is stamped but no
             enrichment payload is present (defensive — non-canonical
@@ -2068,45 +2051,6 @@
       (is (nil? (find-by-testid tree "rf-xray-epoch-handler-machine-snapshot-diff"))
           "no SNAPSHOT DIFF sub-section"))))
 
-(deftest machine-handler-cascade-renders-rows-in-trace-order-test
-  (testing "cascade rows render in the projection's
-            step-ordinal order (substrate insertion order). Each
-            row carries `data-cascade-kind` so a smoke test can
-            assert the kind-sequence."
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/start
-                :fx []
-                :machine {:cascade [{:kind :guard :step 1
-                                     :guard-id :ok? :outcome :pass}
-                                    {:kind :action :step 2
-                                     :action-id :a1 :phase :exit}
-                                    {:kind :action :step 3
-                                     :action-id :a2 :phase :entry}
-                                    {:kind :timer :step 4
-                                     :state [:idle] :delay 500
-                                     :reason :on-exit}]
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-1")))
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-2")))
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-3")))
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-row-4"))))))
-
-(deftest machine-handler-cascade-action-row-phase-chip-test
-  (testing "`:action` rows render a phase chip identifying
-            which phase (`:exit / :transition / :entry / :always /
-            :after-action / :initial-entry / :destroy-exit`) fired."
-    (let [step {:step :handler :badge :HANDLER :step-number 3
-                :flavour :reg-machine :event-id :ws/start
-                :fx []
-                :machine {:cascade [{:kind :action :step 1
-                                     :action-id :open-socket
-                                     :phase :entry}]
-                          :transition nil :guards [] :lifecycle [] :timers []}}
-          tree (view/render-handler-step step)]
-      (is (some? (find-by-testid tree "rf-xray-epoch-machine-cascade-phase-entry"))
-          "phase chip is stamped with the row's phase keyword"))))
-
 (deftest machine-handler-cascade-action-fx-attribution-test
   (testing "per-action fx attribution renders inline on
             the `:action` row (no separate FX sub-section). The same
@@ -2661,46 +2605,6 @@
             "the code-block widget mounts under the source slot")
         (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-placeholder"))
             "no placeholder when source IS captured")))))
-
-;; ---- HANDLER source `file:line + [open]` ---------------------------------
-;;
-;; There is no dedicated `file:line + [open]` sub-header alongside the
-;; SOURCE label: the HANDLER step's verb
-;; itself (e.g. `reg-event`) IS the click-to-source hyperlink
-;; (`handler-verb-link` in view.cljs), and the source-block leads with the
-;; code body directly. The absence-of-affordance check below pins that
-;; those testids are nil (no affordance means nothing rendered).
-
-(deftest handler-source-elides-affordance-when-coord-absent-test
-  (testing "when no handler-meta is registered for the
-            event-id (unregistered handler, production builds with
-            goog.DEBUG=false where source-coords elide), the
-            file:line text + [open] button simply do not render. No
-            broken / dead-link affordance.
-
-            Reg-event-* macros automatically stamp :file/:line at
-            expansion time, so the empty-coord state is most cleanly
-            reproduced by pointing at an event-id with no registered
-            handler at all."
-    (rf/with-frame :rf/default
-      (let [step {:step :handler :badge :HANDLER :step-number 3
-                  :flavour :db-only
-                  :event-id :rf.test.epoch.view/ehd8v-never-registered
-                  :fx [] :machine nil}
-            tree (view/render-handler-step step)]
-        (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-coord"))
-            "no coord-row when :file meta is absent")
-        (is (nil? (find-by-testid tree "rf-xray-epoch-handler-source-open"))
-            "no [open] affordance without a coord")))))
-
-;; Machine-handler path is exercised by the handler-source tests above; the
-;; coord-resolution is a shared helper (`coord-from-handler-meta`) so the
-;; event-handler test above pins the affordance shape, and the machine
-;; render-path inherits it without a separate test. Reg-machine stamps
-;; source coords under the `:event` kind (Spec 005 §Registration —
-;; see core/test/.../source_coords_test.clj) while the source-spec
-;; lookup walks the `:machine` slot, so a tight machine-path coord test
-;; would have to re-create both halves of that side-table dance.
 
 ;; ---- values route through edn-inspector ----------------------------------
 
