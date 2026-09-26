@@ -42,7 +42,7 @@ The **metadata map** is open (consumers tolerate unknown keys; new keys are adde
 | `:line` | integer | auto-supplied | Source line. |
 | `:file` | string | auto-supplied | Source file. |
 | `:tags` | set of ids | optional | Application-defined tags for filtering (e.g., `#{:critical :auth}`). |
-| `:platforms` | set of platform-ids | optional | Where the registration is allowed to run. Set of `:client`, `:server`, etc. (See [011](011-SSR.md).) |
+| `:platforms` | set of platform-ids | optional | Where an effect or coeffect runs: a set of `:client`, `:server`, etc., read by `reg-fx` and `reg-cofx` only. Every other kind accepts and stores it, but it gates nothing. (See [011](011-SSR.md).) |
 
 For `reg-event`, the metadata-map carries a reserved **`:interceptors`** key — the map is the one **superset** middle-slot shape (`{:doc … :schema … :interceptors [i1 i2]}`). The positional interceptor **vector** form (`[i1 i2]`) is retired and rejected loudly; callers put interceptor chains in metadata `:interceptors`. See §Allowed forms of the middle slot below and [Conventions §`:interceptors` in the metadata-map — the superset middle slot](Conventions.md#interceptors-in-the-metadata-map--the-superset-middle-slot-reg-event) for the rationale and failure modes.
 

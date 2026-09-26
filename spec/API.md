@@ -379,7 +379,7 @@ Standard SSR-related events:
 
 | Event | What it does | Spec |
 |---|---|---|
-| `:rf/server-init` | Per-request server-side initialisation. Reads request cofx; dispatches setup events. `:platforms #{:server}`. | 011 |
+| `:rf/server-init` | Per-request server-side initialisation. Reads request cofx; dispatches setup events. Server-only because it is dispatched only from the per-request frame's `:initial-events`; `:platforms` gates effects and coeffects, never events. | 011 |
 | `:rf/hydrate` | Seed the client-side `app-db` from the server-supplied payload. Runs once on client bootstrap. | 011 |
 
 Standard SSR-related fx (server-only; `:platforms #{:server}`):
