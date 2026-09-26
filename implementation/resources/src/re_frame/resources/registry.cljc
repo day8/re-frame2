@@ -361,6 +361,26 @@
                   "N ms); a non-positive or absent value means no polling. Per "
                   "Spec 016 §Polling.")
              {:resource-id resource-id :poll-interval-ms (:poll-interval-ms spec)})))
+  ;; `:stale-after-ms` is OPTIONAL (Spec 016 §Freshness clock contract):
+  ;; absent means never time-stale, and a non-negative number of milliseconds
+  ;; is the policy, `0` meaning stale the instant it loads. Anything else — an
+  ;; explicit nil, a negative number, a string, any keyword — is refused here,
+  ;; the same check and error shape `:gc-after-ms` gets, because unchecked it
+  ;; reaches `:stale-at` arithmetic at the first load settle and fails there as
+  ;; a host cast error (or, in CLJS, string concatenation).
+  (when (contains? spec :stale-after-ms)
+    (let [v (:stale-after-ms spec)]
+      (when-not (and (number? v) (not (neg? v)))
+        (throw (registration-error
+                 :rf.error/resource-bad-spec
+                 'rf/reg-resource
+                 (str "resource " resource-id " declares a :stale-after-ms that "
+                      "is neither absent nor a non-negative number of "
+                      "milliseconds (got " (pr-str v) "). Absent means the "
+                      "entry never goes stale on a timer; 0 means it is stale "
+                      "the instant it loads. Per Spec 016 §Freshness clock "
+                      "contract.")
+                 {:resource-id resource-id :stale-after-ms v})))))
   ;; `:infinite` is OPTIONAL (Spec 016 §Infinite resources and load-more feeds,
   ;; EP-0021). When declared it gates the `:infinite`-only slice
   ;; (`:rf/infinite-resource-args`): `:infinite true` makes `:next-page-param`
