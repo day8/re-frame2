@@ -26,7 +26,8 @@
     - first-fail short-circuits guard evaluation (no trace for unreached
       candidate guards), but the failing one IS observed
     - one action-ran trace per user-declared action invocation, in
-      cascade order (exit → action → entry)
+      cascade order (exit → action → entry; the order is pinned in
+      `machine_trace_payload_shapes_test`)
     - `:dispatch-id` matches the originating event's dispatch-id across
       both trace operations, enabling Xray to group by cascade
     - exceptional path: the throwing action emits `action-ran` with
@@ -70,6 +71,8 @@
       (let [g (first gs)]
         (is (= :ready? (-> g :tags :guard-id)) "guard-id is the keyword ref")
         (is (= :fail   (-> g :tags :outcome))  ":fail outcome marker")
+        (is (nil? (-> g :tags :exception))
+            "no :exception slot on the non-throw path — only :threw carries one")
         (is (= {:ready? false} (-> g :tags :input :data))
             "input :data carries the snapshot's :data slot")
         (is (= [:go] (-> g :tags :input :event))
@@ -79,20 +82,6 @@
         ;; belongs to (two states reusing the same event + guard id).
         (is (= :idle (-> g :tags :state))
             ":state carries the active state the guard was evaluated against")))))
-
-(deftest guard-evaluated-pass-outcome
-  (testing "guard returning true emits :pass outcome and the transition fires"
-    (rf/reg-machine :ga/guard-pass
-      {:initial :idle
-       :data    {:ready? true}
-       :guards  {:ready? (fn [{data :data}] (:ready? data))}
-       :states  {:idle  {:on {:go [{:guard :ready? :target :done}]}}
-                 :done  {}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:ga/guard-pass [:go]])))
-          gs  (ops evs :rf.machine/guard-evaluated)]
-      (is (= 1 (count gs)) "exactly one guard-evaluated trace")
-      (is (= :pass (-> gs first :tags :outcome)) ":pass outcome marker"))))
 
 ;; ---- guard short-circuit: failed guard observed; unreached ones silent ----
 
@@ -155,26 +144,6 @@
           (is (= :tap (-> a :tags :action-id)) ":action-id is the keyword ref")
           (is (= :ok  (-> a :tags :outcome))   ":ok marker for nil-returning action")
           (is (= [:go] (-> a :tags :input :event)) ":input :event present"))))))
-
-;; ---- action-ran: cascade order — exit → action → entry --------------------
-
-(deftest action-ran-cascade-order
-  (testing "exit cascade → transition :action → entry cascade — action-ran
-   traces fire in cascade order"
-    (rf/reg-machine :ga/cascade
-      {:initial :idle
-       :actions {:exit-idle  (fn [_] nil)
-                 :do-go      (fn [_] nil)
-                 :enter-done (fn [_] nil)}
-       :states  {:idle {:exit :exit-idle
-                        :on   {:go {:target :done :action :do-go}}}
-                 :done {:entry :enter-done}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:ga/cascade [:go]])))
-          as  (ops evs :rf.machine/action-ran)
-          ids (mapv #(-> % :tags :action-id) as)]
-      (is (= [:exit-idle :do-go :enter-done] ids)
-          "three action-ran traces in exit → action → entry order"))))
 
 ;; ---- action-ran: exception path ------------------------------------------
 

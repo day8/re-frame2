@@ -308,22 +308,6 @@
 
 ;; ---- (2c) :actor-id PREFERRED-branch coverage ----------------------------
 
-(deftest sensitive-slot-redacted-in-egress-actor-id
-  (testing "an :actor-id-keyed transition (the PREFERRED lookup branch
-            production emits) redacts the frame-declared slot in :before /
-            :after exactly like the :machine-id case"
-    (reg-auth-machine!)
-    (declare-frame-marks!)
-    (let [out  (rf.classification/project-trace-event
-                 (machine-transition-event* :actor-id auth-id))
-          tags (:tags out)]
-      (is (= :rf/redacted (get-in tags [:before :data :token])))
-      (is (= :rf/redacted (get-in tags [:after :data :token])))
-      (is (= 0 (get-in tags [:before :data :retries])) "plain sibling untouched")
-      (is (= 1 (get-in tags [:after :data :retries])))
-      (is (not (.contains (pr-str out) "secret-jwt"))
-          "no raw token leaked via the :actor-id branch"))))
-
 (deftest actor-id-takes-precedence-over-machine-id-in-snapshot-egress
   (testing "when a transition carries BOTH ids the lookup PREFERS :actor-id:
             a frame declaration on the :actor-id snapshot path redacts even

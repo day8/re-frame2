@@ -4,31 +4,29 @@
 
   The contract under test:
 
-   1. **Acceptance.** `reg-machine` accepts a machine-level `[:schemas :data]`
-      schema on the machine spec; registration completes without error and the
-      registered spec carries the schema through the `:rf/machine` registrar projection.
-
-   2. **Macrostep boundary.** After a transition action returns a new
+   1. **Macrostep boundary.** After a transition action returns a new
       `:data` that violates the schema, the runtime emits
       `:rf.error/schema-validation-failure :where :machine-data` and
       rolls back the entire cascade — runtime-db returns to its pre-event
-      value (so the violating snapshot never sticks).
+      value (so the violating snapshot never sticks). The failure tag
+      carries `:machine-id`, `:phase`, `:value`, `:explain`, `:rollback?`,
+      `:reason` and the `:recovery` envelope, so the Xray per-step
+      attachment and other downstream consumers have the full surface.
 
-   3. **Initial-data validation (bootstrap).** A machine whose initial
+   2. **Initial-data validation (bootstrap).** A machine whose initial
       `:data` violates the schema emits the same trace on its first
       dispatch (the bootstrap writes the initial snapshot into the
       candidate runtime-db, so the pre-commit walker catches the typo).
 
-   4. **Spawn-time validation.** A spawned actor whose initial `:data`
+   3. **Spawn-time validation.** A spawned actor whose initial `:data`
       violates the schema emits the same trace with `:phase :spawn`
       and the install is skipped — the actor never enters the runtime.
 
-   5. **No schema → no validation.** Machines without `[:schemas :data]` run
+   4. **No schema → no validation.** Machines without `[:schemas :data]` run
       no machine-data validation.
 
-   6. **Tag payload.** Failures carry `:machine-id`, `:phase`, `:value`,
-      `:explain`, `:rollback?`, `:recovery` so the Xray per-step attachment
-      and other downstream consumers have the full surface.
+  That `reg-machine` accepts `[:schemas :data]` and round-trips it through
+  the `:rf/machine` projection is pinned in `machine_schemas_grammar_test`.
 
   Tests use Malli schemas (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -57,22 +55,7 @@
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
 
-;; ---- (1) acceptance: `[:schemas :data]` is accepted on reg-machine -------
-
-(deftest reg-machine-accepts-schema-key
-  (testing "reg-machine completes registration when the spec carries [:schemas :data]"
-    (let [DataSchema [:map [:n :int]]
-          spec       {:initial :idle
-                      :data    {:n 0}
-                      :schemas {:data DataSchema}
-                      :states  {:idle {}}}]
-      (rf/reg-machine :rf.machine-schema/accepted spec)
-      (let [meta (:rf/machine (rf/handler-meta {:source :store :kind :event :id :rf.machine-schema/accepted}))]
-        (is (some? meta) "the :rf/machine projection returns the registered spec")
-        (is (= DataSchema (get-in meta [:schemas :data]))
-            "the [:schemas :data] schema round-trips through the `:rf/machine` projection")))))
-
-;; ---- (2) macrostep boundary: action returns bad :data → rollback + emit --
+;; ---- (1) macrostep boundary: action returns bad :data → rollback + emit --
 
 (deftest macrostep-violation-rolls-back-and-emits
   (testing "an action returning bad :data triggers a :where :machine-data
@@ -108,8 +91,12 @@
             "tag's :phase pins the lifecycle position")
         (is (= {:n 0} (:value tag))
             "tag carries the offending :data value")
+        (is (contains? tag :explain)
+            ":explain present (Xray renders the Malli explanation)")
         (is (true? (:rollback? tag))
             "tag declares :rollback? true (commit was rolled back)")
+        (is (string? (:reason tag))
+            ":reason is a human-readable string")
         ;; `:recovery` is hoisted onto the trace envelope, not inside
         ;; `:tags` — mirrors the `:where :app-db` projection.
         (is (= :no-recovery (:recovery trace-ev))
@@ -122,7 +109,7 @@
                        [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
             "the machine's snapshot returns to its pre-handler value")))))
 
-;; ---- (2b) macrostep boundary on a SPAWNED actor -------------
+;; ---- (1b) macrostep boundary on a SPAWNED actor -------------
 
 (deftest spawned-actor-macrostep-violation-rolls-back-and-emits
   (testing "a SPAWNED actor (no per-instance handler) whose transition action
@@ -192,7 +179,7 @@
         (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
             "post-rollback runtime-db equals pre-handler runtime-db")))))
 
-;; ---- (3) bootstrap-time validation: initial :data violates --------------
+;; ---- (2) bootstrap-time validation: initial :data violates --------------
 
 (deftest bootstrap-violation-emits-and-rolls-back
   (testing "an initial :data that violates [:schemas :data] emits + rolls back the
@@ -219,7 +206,7 @@
         (is (= db-before (:rf.db/runtime (rf/frame-state-value :rf/default)))
             "rolled back: runtime-db unchanged")))))
 
-;; ---- (4) spawn-time validation: spawned actor's :data violates ----------
+;; ---- (3) spawn-time validation: spawned actor's :data violates ----------
 
 (deftest spawn-violation-emits-and-skips-install
   (testing "a spawned actor whose initial :data violates the schema is rejected
@@ -269,7 +256,7 @@
                             :rf.machine-schema/spawned))
             "rejected spawn: the actor does NOT appear under the :rf/machine? filter")))))
 
-;; ---- (5) no schema → no validation (control) ------------------------------
+;; ---- (4) no schema → no validation (control) ------------------------------
 
 (deftest no-schema-no-validation
   (testing "a machine without [:schemas :data] runs without any :where :machine-data trace"
@@ -289,39 +276,10 @@
                           [:rf.runtime/machines :snapshots :rf.machine-schema/no-schema :data :n]))
             "the no-schema machine's :data updates normally")))))
 
-;; ---- (6) tag payload completeness for downstream consumers ----------------
-
-(deftest tag-payload-carries-downstream-required-keys
-  (testing "the failure tag carries every key Xray's per-step attachment
-            consumes — :machine-id, :phase, :value, :explain,
-            :rollback?, :recovery, :reason"
-    (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial :idle
-                      :data    {:n 1}
-                      :schemas {:data DataSchema}
-                      :actions {:bad (fn [_] {:data {:n 0}})}
-                      :states  {:idle {:on {:go {:target :idle :action :bad}}}}}]
-      (rf/reg-machine :rf.machine-schema/payload spec)
-      (rf/dispatch-sync [:rf.machine-schema/payload [:noop]])
-      (let [traces   (collect-traces!
-                       #(rf/dispatch-sync [:rf.machine-schema/payload [:go]]))
-            trace-ev (first traces)
-            tag      (:tags trace-ev)]
-        (is (= :machine-data (:where tag)))
-        (is (= :rf.machine-schema/payload (:machine-id tag)))
-        (is (= :rf.machine-schema/payload (:failing-id tag)))
-        (is (= :macrostep (:phase tag)))
-        (is (contains? tag :value)        ":value present (Xray reads the failing slot)")
-        (is (contains? tag :explain)      ":explain present (Xray renders Malli explanation)")
-        (is (contains? tag :rollback?)    ":rollback? present (Xray's blast-radius muting)")
-        ;; `:recovery` rides the trace envelope, not :tags.
-        (is (contains? trace-ev :recovery) ":recovery present on trace envelope")
-        (is (string? (:reason tag))       ":reason is a human-readable string")))))
-
-;; ---- (7) declaration presence is KEY-presence -----------------------------
+;; ---- (5) declaration presence is KEY-presence -----------------------------
 ;;
 ;; A schema value is OPAQUE to re-frame (Spec 010): an ABSENT [:schemas :data]
-;; key means "no declaration" (case 5 above), while a PRESENT key must hand
+;; key means "no declaration" (case 4 above), while a PRESENT key must hand
 ;; its exact value — nil included — to the registered validator. Seams that
 ;; tested the value for truthiness (if-let / `(and (continue?) schema)`)
 ;; would let `{:schemas {:data nil}}` silently validate nothing.

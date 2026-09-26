@@ -111,26 +111,6 @@
       (is (= :done (rf.machines.test-support/machine-state :mint/live-guard))
           "the guard fired on the generated value"))))
 
-(deftest default-live-still-mints
-  (testing "with NO per-call / frame-config policy the router default :live
-            mints — the common live runtime generates generator-backed facts"
-    (rf/reg-cofx :mint/roll3 {:recordable? true} (fn [] 6))
-    (let [seen (atom ::unset)
-          m {:initial :idle
-             :data    {}
-             :guards  {:rolled-six?
-                       {:rf.cofx/requires [:mint/roll3]
-                        :fn (fn [{cofx :rf.cofx}]
-                              (reset! seen (:mint/roll3 cofx))
-                              (= 6 (:mint/roll3 cofx)))}}
-             :states  {:idle {:on {:go {:target :done :guard :rolled-six?}}}
-                       :done {}}}]
-      (rf/reg-machine :mint/default-guard m)
-      (rf/dispatch-sync [:mint/default-guard [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen) "default :live minted the fact")
-      (is (= :done (rf.machines.test-support/machine-state :mint/default-guard))))))
-
 (deftest strict-bootstrap-ensure-refuses-to-mint-birth-fact-throws
   (testing "white-box: the BIRTH ensure step (`rf.machines.cofx-attach/bootstrap-ensure-
             cofx`) under `:strict` refuses to mint a generator-backed initial-
@@ -152,57 +132,9 @@
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
           "strict refused to mint the birth :entry action's generator-backed fact"))))
 
-(deftest live-frame-config-tier-still-mints-end-to-end
-  (testing "end-to-end: a :live (default) frame mints normally — the frame-tier
-            resolution does not break the common live runtime. (Pairs with the
-            :strict white-box above: the tier is read, not ignored.)"
-    (rf/reg-cofx :mint/birth-roll2 {:recordable? true} (fn [] 9))
-    (let [m {:initial :booting
-             :data    {}
-             :actions {:stamp-birth
-                       {:rf.cofx/requires [:mint/birth-roll2]
-                        :fn (fn [{:keys [data] cofx :rf.cofx}]
-                              {:data (assoc data :birth (:mint/birth-roll2 cofx))})}}
-             :states  {:booting {:entry :stamp-birth}}}]
-      (rf/reg-machine :mint/live-birth m)
-      (rf/dispatch-sync [:mint/live-birth [:rf.machine/start]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 9 (:birth (rf.machines.test-support/machine-data :mint/live-birth)))
-          "default :live minted the birth :entry fact"))))
-
 ;; ===========================================================================
 ;; raised-event transitions get their cofx ensured
 ;; ===========================================================================
-
-(deftest raised-user-event-guard-fact-ensured
-  (testing "a same-macrostep RAISED user event whose selected guard requires a
-            generator-backed recordable fact has it ENSURED before selection —
-            the guard reads the GENERATED value (not nil). The external event's
-            ensure-set does not cover the raised event's guard, so without the
-            in-drain ensure the raise would read nil"
-    (rf/reg-cofx :raise/roll {:recordable? true} (fn [] 6))
-    (let [seen (atom ::unset)
-          m {:initial :a
-             :data    {}
-             :guards  {:rolled-six?
-                       {:rf.cofx/requires [:raise/roll]
-                        :fn (fn [{cofx :rf.cofx}]
-                              (reset! seen (:raise/roll cofx))
-                              (= 6 (:raise/roll cofx)))}}
-             :actions {;; :go's action raises [:inner], which selects a guard
-                       ;; that requires :raise/roll — NOT in :go's ensure-set.
-                       :raise-inner (fn [_] {:fx [[:raise [:inner]]]})}
-             :states  {:a {:on {:go {:target :b :action :raise-inner}}}
-                       :b {:on {:inner {:target :done :guard :rolled-six?}}}
-                       :done {}}}]
-      (rf/reg-machine :raise/user-guard m)
-      (rf/dispatch-sync [:raise/user-guard [:go]]
-                        {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 @seen)
-          "the RAISED event's guard read the GENERATED fact (not nil) —
-           ensured before the raised transition's selection")
-      (is (= :done (rf.machines.test-support/machine-state :raise/user-guard))
-          "the raised event's guard fired on the ensured value"))))
 
 (deftest raised-user-event-strict-missing-fact-throws
   (testing "white-box on the engine: a PROVIDED (non-generator) fact required

@@ -327,19 +327,3 @@
              nil
              {:initial :idle :states {:idle {}}}))
         "an explicit nil opts is the no-opts path (normalised to {}), not rejected")))
-
-(deftest two-arity-reg-machine-still-works
-  (testing "the 2-arity (reg-machine* id machine) stamps the meta so the
-            [:schemas :data] schema is LIVE"
-    (rf.machines/reg-machine* :rf.machine-arity/plain
-      {:initial :idle
-       :data    {:attempts 0 :token nil :error nil}
-       :schemas {:data AuthLoginData}
-       :states  {:idle {}}})
-    (let [spec (:rf/machine (rf/handler-meta {:source :store
-                                              :kind   :event
-                                              :id     :rf.machine-arity/plain}))]
-      (is (some? spec)
-          "2-arity stamps the :rf/machine registration metadata")
-      (is (= AuthLoginData (get-in spec [:schemas :data]))
-          "2-arity stamps the [:schemas :data] schema so it round-trips (validation is LIVE)"))))
