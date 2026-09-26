@@ -216,6 +216,9 @@ The snapshot's location in `runtime-db` is `[:rf.runtime/machines :snapshots <id
 | `:spawn-all` | per-state | declarative **spawn-and-join** of N parallel child actors (sugar over N `:spawn`s plus a join condition) — see [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all); refused at the top level |
 | `:type :choice` + `:choice` | per-state | a **transient / choice** state: a routing node that resolves immediately on entry to the first guard-passing candidate — sugar over `:always`, see [§`:type :choice` (transient / choice states)](#type-choice-transient--choice-states) |
 | `:internal-events` | top-level | optional — a **set** of keyword event-ids the machine raises + handles privately. An external dispatch of one is refused at the machine dispatch boundary; an internal `:raise` of it is handled normally — see [§Public / private `:internal-events`](#public--private-internal-events) |
+| `:sensitive`, `:large` | top-level | optional — each a vector of paths into one actor snapshot, rooted at `[:data …]` (e.g. `[[:data :payment :token]]`), classifying those `:data` slots for trace and snapshot egress; the runtime lowers them per actor instance. A malformed declaration fails registration with `:rf.error/invalid-machine-classification` — see [§Privacy — redacting machine `:data` at trace egress](#privacy--redacting-machine-data-at-trace-egress) |
+| `:always-depth-limit` | top-level | optional — the per-machine bound on the `:always` microstep loop (default 16) — see [§Bounded depth](#bounded-depth) |
+| `:raise-depth-limit` | top-level | optional — the per-machine bound on the raised events one macrostep dequeues (default 16) — see [§Bounded depth](#bounded-depth) |
 | transition shape | per-event | `{:target :guard :action :meta}` |
 | multiple-candidate transitions | per-event | vector of guarded specs, first-match-wins |
 | self-transitions | per-event | omit `:target` for the targetless `internal?` no-op, or name the declaring state as the `:target` (non-reentering by default — target survives, descendants re-resolve); add `:reenter? true` for external (exit+re-enter). A `:target` naming a proper ancestor of the declaring state exits and re-enters that ancestor either way |
@@ -2040,15 +2043,15 @@ Conformance: [conformance/fixtures/always-settles-before-raise.edn](conformance/
 
 ### Bounded depth
 
-Default microstep depth limit: **16** (matching `:raise`-depth's default). User-configurable at frame-config level (`:always-depth-limit`). Exceeding the limit:
+Default microstep depth limit: **16** (matching `:raise`-depth's default). User-configurable per machine, with `:always-depth-limit` at the machine spec's root (per [§Transition table top-level keys](#transition-table-top-level-keys)). Exceeding the limit:
 
-- Emits `:rf.error/machine-always-depth-exceeded` with `:tags {:machine-id <id> :depth <limit> :path [<state> <state> ...]}`.
+- Emits `:rf.error/machine-always-depth-exceeded` with `:tags {:actor-id <live-instance-id> :depth <limit> :path [<state> <state> ...]}`.
 - Halts the cascade with the snapshot **uncommitted** — external observers do not see the partial path.
 - Recovery: `:no-recovery` (the runtime cannot guess the author's intent for a non-converging cycle).
 
 **A tripped depth limit is a FAILED macrostep, not a benign no-op (XState v5 parity).** XState v5 **throws** on a non-converging eventless / `raise` cycle; re-frame2 surfaces it as a **failed** macrostep — the abort routes through the **same** failure path a thrown action takes (the handler short-circuits to `{}`; no snapshot write reaches runtime-db, which **is** the atomic rollback). It does **not** emit the benign `:rf.machine.event/unhandled-no-op` an unhandled / guard-blocked event emits, so a runaway cycle is **distinguishable** from a guard-blocked decline rather than silently swallowing the triggering event. The `:rf.error/machine-always-depth-exceeded` (or `:rf.error/machine-raise-depth-exceeded`) error trace is the single signal for the trip.
 
-The depth counter is **separate** from the `:raise` depth counter — a microstep that itself raises events does not double-count. The two limits compose: each microstep can raise up to 16 events, and the macrostep can include up to 16 microsteps.
+The depth counter is **separate** from the `:raise` depth counter — a microstep that itself raises events does not double-count. The two limits compose: `:always-depth-limit` bounds the `:always` microsteps, and `:raise-depth-limit` bounds the raised events the whole **macrostep** dequeues — 16 in total by default, however they are spread across its microsteps, not 16 per microstep.
 
 ### Hierarchy interaction
 
