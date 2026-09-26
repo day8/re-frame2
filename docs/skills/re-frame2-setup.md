@@ -8,6 +8,8 @@ You start with an empty directory, or close to it: a `deps.edn` you mean to fill
 
 It covers only the re-frame2-specific wiring: which artefacts to add, the canonical `(rf/init! rf.adapter.reagent/adapter)` entry namespace, and a counter that exercises every layer (event → handler → app-db change → sub recompute → view re-render). It assumes you know `deps.edn`, npm and shadow-cljs themselves.
 
+In a project that already has build tooling, it merges into your `deps.edn`, `package.json` and `shadow-cljs.edn` rather than overwriting them, and keeps your other builds, mount point and dev port. A shadow-cljs project with no `deps.edn` gets one, because until re-frame2 is on Clojars it resolves only through `deps.edn` coordinates; your existing dependencies and source paths move into it.
+
 Every `day8/re-frame2*` framework artefact ships at one version, and the skill keeps them in lockstep; mixing versions is unsupported. Xray and Story are tools and ship on their own `xray-v*` / `story-v*` tags.
 
 ## When to reach for it
@@ -36,9 +38,9 @@ The skill runs every command itself:
 
 1. Writes the scaffold from the project template. re-frame2 is not on Clojars yet, so it points the re-frame2 dependencies at the re-frame2 checkout the skill was installed from, or at a `:git/sha` when there is no checkout.
 2. Installs, then runs a terminating `npx shadow-cljs compile app`.
-3. Starts the watch and reports the URL it printed. If 8280 is taken, it moves the port and reports the one the watch actually used.
+3. Starts the watch and reports the URL it printed. If 8280 is taken, it moves the port and reports the one the watch actually used. The watch keeps running in the background; stop it when you are finished.
 
-You open the URL and click `+1` to confirm the count advances. Story, the component playground, comes wired at `#/stories`. Nothing else is set up on day one — schemas, Xray and the rest attach later, on request. Writing tests, schemas or further features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request.
+You open the URL and click `+1` to confirm the count advances. Story, the component playground, comes wired at `#/stories`, and the scaffold carries one starter test, which `npm test` runs. Nothing else is set up on day one — schemas, Xray and the rest attach later, on request. Writing further tests, schemas or features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request. Fresco is not a scaffold option: a new project starts on an adapter and can move its views later with [reagent-migration](reagent-migration.md).
 
 Both routes — writing the files directly or running the deps-new generator — need **Java 21+ and the Clojure CLI**: the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even when launched through npm. The skill checks `java -version` and `clojure -Sdescribe` before writing anything. The deps-new tool is needed only for the generator route.
 

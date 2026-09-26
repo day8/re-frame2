@@ -22,7 +22,9 @@ Use a different skill for:
 
 - Writing new application code → [re-frame2](re-frame2.md).
 - Greenfield setup → [re-frame2-setup](re-frame2-setup.md).
-- Migrating a v1 project → [re-frame-migration](re-frame-migration.md).
+- Finding your way around the Xray panel yourself → [re-frame2-xray](re-frame2-xray.md).
+- A retrospective on a pair session → [re-frame2-pair-retro](re-frame2-pair-retro.md).
+- Migrating a v1 project, including its boot smoke-test → [re-frame-migration](re-frame-migration.md).
 
 ## Kickoff
 
@@ -86,6 +88,8 @@ The server is `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding one pe
 | `--allow-sensitive-reads` | off | Lets a structured read lift `:rf/redacted` per call (`include-sensitive true`). |
 | `--no-eval` | absent (eval on) | Disables `eval-cljs` and a `tail-build` probe; they refuse with `:rf.error/eval-cljs-disabled`. |
 
+The server does not refuse a flag it cannot read: a misspelled or retired flag is logged to stderr at startup and ignored, so that gate stays at its default.
+
 `eval-cljs` returns values without the redaction the structured reads apply, which is why the skill prefers a typed tool whenever one fits and uses `eval-cljs` for the long tail no typed tool covers (epoch forensics, arbitrary-selector DOM reads, cross-referencing, recovery). The per-tool list with argument signatures is [`references/mcp-transport.md` §MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args); port discovery and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides are in the same file. Server source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
 
 ## When it stops
@@ -98,10 +102,14 @@ Every tool answers a failure with `{:ok? false :reason …}` rather than guessin
 | `:build-not-running` | shadow is up but not running the named build. | Re-target one of the `:running-builds` the reply lists. |
 | `:no-runtime-connected` | The build runs but no browser tab is attached. | Open or reload the app's tab. |
 | `:runtime-loaded-but-preload-missing` | The app runs without the preload — or has no re-frame2 dependency at all. | Step 2 above, then reload the page. |
+| `:debug-disabled` | The build has `interop/debug-enabled?` false — a production build, or `goog.DEBUG` set false — so it carries no trace stream or epoch history. | Attach to a dev build. |
+| `:no-frames-registered` | No frame is up yet. `rf/init!` installs the adapter but creates no frame. | Wait for the app to boot, or have it create its frame at the root (`frame-root {:id …}` or `make-frame`). |
 | `:ambiguous-frame` | Two or more app frames and no frame chosen. | Name one — the skill pins it with `set-operating-frame`. |
 | `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | Relaunch with the flag if you want time-travel and state injection. |
 
-The skill cannot reload a browser. When `discover-app`'s `:freshness` says the tab is serving old code (`:stale-build`) or no runtime is live (`:no-runtime`), it relays the URL to reload and waits for you. Epoch reads that come back `[]` after the app has plainly dispatched mean `day8/re-frame2-epoch` is missing from step 2 — `discover-app` does not check for it. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
+The skill cannot reload a browser. When `discover-app`'s `:freshness` says the tab is serving old code (`:stale-build`) or no runtime is live (`:no-runtime`), it relays the URL to reload and waits for you. `:unknown` means the build's state could not be read, usually because a stale shadow-cljs JVM is still running: stop it with `npx shadow-cljs stop`, start one `watch`, reload the tab and let the skill reconnect.
+
+Epoch reads that come back `[]` after the app has plainly dispatched mean `day8/re-frame2-epoch` is missing from step 2 — `discover-app` does not check for it. Without it `dispatch-dry-run`, `restore-epoch` and `replay-epoch` refuse too, and `replace-app-db` fails with `:rf.error/epoch-artefact-missing`. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
 ## Where the skill lives
 

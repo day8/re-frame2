@@ -8,6 +8,8 @@ The `re-frame2` skill maps ideas you already know — events, state machines, HT
 
 A few rules shape the code it writes. It reads and changes state through `dispatch` and `subscribe`, never through frame internals. It uses the `reg-*` macros, which record source locations for tools, rather than their runtime-function forms. And it gives application keywords a feature prefix such as `:cart/…`, because `:rf/*` is reserved.
 
+Its views are written for the Reagent, reagent-slim and UIx adapters. For Fresco, re-frame2's own view layer, it carries a short note on what changes and where Fresco's contract lives; everything upstream of the view is the same either way.
+
 ## When to reach for it
 
 Use it for **writing or editing re-frame2 application source** — `.cljs` / `.cljc` files. You don't have to name re-frame2; any of these load it:
@@ -22,6 +24,8 @@ Use a different skill for:
 - Greenfield project setup → [re-frame2-setup](re-frame2-setup.md). When the counter mounts, switch back here.
 - Migrating a v1 codebase → [re-frame-migration](re-frame-migration.md). A **v1 name in the prompt routes there**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub-raw`, `reg-global-interceptor`, `re-frame.db`, `^:flush-dom` and the rest were removed in re-frame2, and a stale call raises a hard error.
 - Inspecting a *running* app → [re-frame2-pair](re-frame2-pair.md).
+- Reviewing existing code for anti-patterns → [re-frame2-improver](re-frame2-improver.md).
+- Finding your way around the Xray panel → [re-frame2-xray](re-frame2-xray.md).
 - Rewriting existing Reagent views into Fresco → [reagent-migration](reagent-migration.md).
 - Building a new re-frame2 implementation in another host language → [re-frame2-implementor](re-frame2-implementor.md).
 
