@@ -1807,11 +1807,8 @@ A cross-cutting guard interceptor **must cover all three entry doors**, or it fa
                                             {:id route-id :params (or params {})})
                                       :else                          ;; in-place — stay on the current route
                                       {:id (:route-id current) :params (or (:params current) {})}))
-      :rf.route/url-requested           (let [{:keys [to params url]} a]
-                                    (cond
-                                      to  {:id to :params (or params {})}
-                                      url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
-                                            {:id route-id :params (or params {})})))
+      :rf.route/url-requested     (when-let [{:keys [route-id params]} (rf.routing/match-url (:url a))]
+                                    {:id route-id :params (or params {})})   ;; a is {:url …}
       :rf.route/handle-url-change (when-let [{:keys [route-id params]} (rf.routing/match-url a)]
                                     {:id route-id :params (or params {})})
       nil)))
