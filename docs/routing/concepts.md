@@ -154,9 +154,9 @@ Link to other sites with a plain `[:a {:href …}]`.
 
 `:to` and `:url` are alternatives, and a `:url` carries its own path and query, so it
 takes no `:params`, `:query` or `:query-merge`. A request that breaks a rule like that,
-names a key outside the table (a namespaced one included), or isn't exactly one map is
-rejected with `:rf.error/navigate-bad-request`, and the error's `:reason` names the
-rule it broke.
+or names a key outside the table, is rejected with `:rf.error/navigate-bad-request`, and
+the error's `:reason` names the rule. The
+[full rules](../api/re-frame.routing.md#navigate-request-rules) are in the API reference.
 
 Outside a view there is no frame in scope. Navigate from a handler's `:fx`, or pass
 `{:frame :app}` to `rf/dispatch` at the REPL. A bare `rf/dispatch` inside a timeout or
@@ -195,8 +195,7 @@ its params stay; `:query-merge` folds into the query, `:query` replaces it, and
 rather than `"2"`.
 
 An in-place request needs a current route to edit, and it can't change path params:
-`:params` names a new address, so it needs `:to`. Use `:query` or `:query-merge`, not
-both.
+`:params` names a new address, so it needs `:to`.
 
 ### Linking from views
 
@@ -505,7 +504,7 @@ nothing on the server.
 | `route-url` throws `:rf.error/route-url-validation` | Params or query fail the schema (a missing path param included), name a param the path doesn't capture, or the address carries a key that isn't an address key, such as `:replace?` | Fix the address |
 | `route-url` throws `:rf.error/route-url-non-edn-value` | A float, `Date` or other value with no URL form | Encode it as a string first |
 | `route-link` throws `:rf.error/route-link-bad-prefetch` | `:prefetch` is something other than `:intent` | Use `:intent`, or leave the key off |
-| Navigation rejected with `:rf.error/navigate-bad-request` | The payload is not one request map, or the map breaks a [request rule](#navigating-to-a-raw-url-string) | Write `[:rf.route/navigate {:to …}]`; the error's `:reason` names the rule |
+| Navigation rejected with `:rf.error/navigate-bad-request` | The payload is not one request map, or the map breaks a [request rule](../api/re-frame.routing.md#navigate-request-rules) | Write `[:rf.route/navigate {:to …}]`; the error's `:reason` names the rule |
 | A navigate does nothing; `:rf.error/schema-validation-failure` in traces | Unknown route id, a missing path param, or params that fail the schema | Fix the address; the route slice is unchanged |
 | A navigate from a callback throws `:rf.error/no-frame-context` | Bare `rf/dispatch` in a timeout or promise | Navigate from an event handler's `:fx` |
 | `[:rf.route/prefetch …]` does nothing; `:rf.error/prefetch-bad-address` | Malformed address or unknown destination | Fix the address |

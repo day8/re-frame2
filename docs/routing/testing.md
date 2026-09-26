@@ -24,8 +24,10 @@ which restores the registrar and the routing state around each test:
                                   :ambient-frame nil}))   ;; each test makes its own frame
 ```
 
-The tests below use the routes of the [tutorial](tutorial.md#the-complete-app)'s
-articles app.
+The tests below use the [tutorial](tutorial.md#the-complete-app)'s articles app, with
+the `:rf.route/entry-denied` and `:auth/sign-in` handlers from
+[Require sign-in on a route](how-to/require-sign-in-on-a-route.md) in place of the
+tutorial's, so a refused entry stores where the reader was going.
 
 ## URLs
 
@@ -159,31 +161,29 @@ Dispatching `[:rf.route/cancel <id>]` instead clears the pending navigation and 
 the route unchanged. Navigating with `:bypass-leave? true` is never blocked.
 
 A `:can-enter` refusal parks nothing, so there is no pending value to check. Assert on
-what your `:rf.route/entry-denied` handler does instead. The tutorial's sends the
-reader to `/login`:
+what the `:rf.route/entry-denied` handler did instead: it stored the denied
+`:destination` and sent the reader to `/login`, and signing in brings them back:
 
 ```clojure
-(deftest settings-sends-a-signed-out-reader-to-login
+(deftest settings-returns-the-reader-after-sign-in
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
     (is (= :app/login @(rf/subscribe [:rf.route/id])))
-    (is (nil? @(rf/subscribe [:rf/pending-navigation])))
+    (is (= {:to :app/settings} (:auth/return-to (rf/app-db-value f))))
 
     (rf/dispatch-sync [:auth/sign-in {:name "Ada"}])
-    (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
     (is (= :app/settings @(rf/subscribe [:rf.route/id])))))
 ```
 
 `dispatch-sync` also runs the events the handler dispatches, so the redirect to login
-has happened by the first assertion. The second navigation is an ordinary new one,
-and with a user present the guard allows it.
+has happened by the first assertion. The stored destination leaves out an empty
+`:params` and `:query` and a `nil` `:fragment`, so a refused `/settings` is
+`{:to :app/settings}`. Returning after sign-in is an ordinary new navigation, and
+with a user present the guard allows it.
 
-A spy registered under `:rf.route/entry-denied` doesn't work here: the app registers
-that id too, and `make-frame` refuses one id registered by two namespaces with
-`:rf.error/image-duplicate-id`. If your handler stores the denied `:destination`, as
-the [sign-in recipe](how-to/require-sign-in-on-a-route.md) does, read it from app-db.
-It leaves out an empty `:params` and `:query` and a `nil` `:fragment`, so a refused
-`/settings` stores `{:to :app/settings}`.
+Read what the handler stored rather than registering a spy under
+`:rf.route/entry-denied`: the app registers that id already, and `make-frame` refuses
+one id registered by two namespaces with `:rf.error/image-duplicate-id`.
 
 A frame interceptor that guards navigations, as in
 [Require sign-in on a route](how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes),

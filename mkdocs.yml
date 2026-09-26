@@ -383,6 +383,7 @@ nav:
     - "How-to":
       - "Guard against unsaved changes": routing/how-to/guard-unsaved-changes.md
       - "Require sign-in on a route": routing/how-to/require-sign-in-on-a-route.md
+      - "Redirect an old URL": routing/how-to/redirect-an-old-url.md
     - "Operating":
       - "Testing": routing/testing.md
       - "Examples": routing/examples.md
