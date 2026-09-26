@@ -59,7 +59,7 @@ Split it. A small extractor decides whether anything changed, and a layer-2 sub 
 
 !!! warning "Gotcha: a mistyped `:inputs` id makes the result wrong, not slow"
 
-    The new `:inputs` edge names another sub by id. If the id is wrong (a typo, or a sub not yet registered), nothing throws: the runtime emits a `:rf.error/no-such-sub` [error record](../glossary.md#error-record) (recovery `:replaced-with-default`) to your error listeners and feeds `nil` for that input. The list renders empty, or a downstream `nil` throws somewhere unrelated. If a sub you just split returns nothing, check its `:inputs` ids against your `reg-sub` names. A malformed `:inputs` literal is rejected at registration with `:rf.error/reg-sub-bad-args`. An `:inputs` producer function that throws raises `:rf.error/sub-input-fn-exception`, and one that returns something other than a vector of query vectors raises `:rf.error/sub-input-fn-bad-return`.
+    The new `:inputs` edge names another sub by id. If the id is wrong (a typo, or a sub not yet registered), nothing throws: the runtime emits a `:rf.error/no-such-sub` [error record](../glossary.md#error-record) (recovery `:replaced-with-default`) to your error listeners and feeds `nil` for that input. The list renders empty, or a downstream `nil` throws somewhere unrelated. If a sub you just split returns nothing, check its `:inputs` ids against your `reg-sub` names.
 
 The same mistake happens one level up. Computation in a view body runs on every render of that view, including renders caused by its ancestors. Move sorting, filtering, and formatting into a layer-2 sub, where it runs once per input change and every consumer shares the result; the view only walks data and returns hiccup ([Views](../views.md)).
 
@@ -85,7 +85,7 @@ A cloud of rows in the Views tab almost always means a parent passes each child 
      ^{:key (:id todo)} [todo-item todo])])
 ```
 
-Toggle one todo in a 200-item list and `:todo/all` is a new vector, because one map inside it changed. `todo-list` re-renders and builds hiccup for all 200 rows. The 199 untouched rows pass their `=` prop checks and keep their DOM, but those checks still run on full todo maps on every click. That hiccup and those comparisons are the hitch.
+Toggle one todo in a 200-item list and `:todo/all` is a new vector, because one map inside it changed. `todo-list` re-renders and builds hiccup for all 200 rows. The 199 untouched rows receive the same todo maps as last time, so their `=` prop checks pass at once and they keep their DOM. The hitch is `todo-list` itself: it re-renders and builds 200 row elements for one changed todo.
 
 Pass each row an id, and let the row subscribe to its own slice:
 
@@ -151,7 +151,7 @@ The channel is off by default and has its own compile-time flag, independent of 
         :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
 ```
 
-A build without the flag carries no User Timing code at all, because dead-code elimination removes every measurement. (This repository's `npm run test:perf-bundle` builds one example both ways and checks that the flag-off bundle contains no `performance.measure`, `clearMeasures`, or `rf:` string.) Turning the channel on in production is cheap ([Configure dev and production builds](configure-dev-and-prod.md)).
+A build without the flag carries no User Timing code at all, because dead-code elimination removes every measurement. Turning the channel on in production is cheap ([Configure dev and production builds](configure-dev-and-prod.md)).
 
 To read it, open the Chrome DevTools **Performance** panel, where the `rf:` measures appear as named bars beside React renders, paint, and layout.
 

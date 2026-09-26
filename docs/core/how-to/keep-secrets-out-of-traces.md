@@ -18,14 +18,13 @@ For a token that lives in app-db at a path you own, return a classification effe
 
 ```clojure
 (rf/reg-event :auth/init
-  (fn [{:keys [db]} _]
-    {:db        (assoc db :auth {})
-     :sensitive [[:auth :token] [:auth :refresh-token]]}))
+  (fn [_ _]
+    {:sensitive [[:auth :token] [:auth :refresh-token]]}))
 ```
 
 `:sensitive` takes a vector of paths. From then on, whatever value is at `[:auth :token]` shows as `:rf/redacted` in Xray's App-DB panel, in your off-box sink, and in any epoch you export through `project-egress`, while your handlers still read the real token. Only the copy projected for observers is redacted, never the live value.
 
-The path is classified before any token exists there, since `:auth/init` only seeds an empty map. A classification over an absent path does nothing until a value arrives, so you don't re-classify on every write.
+The path is classified before any token exists there, since `:auth/init` writes nothing. A classification over an absent path does nothing until a value arrives, so you don't re-classify on every write.
 
 Run `:auth/init` from the frame's `:initial-events`, so the classification is in place before any value can be observed:
 
@@ -35,7 +34,9 @@ Run `:auth/init` from the frame's `:initial-events`, so the classification is in
    :initial-events [[:auth/init]]})
 ```
 
-The token stays in app-db and is redacted at egress. App-db paths are classified only by events: a frame-level `:sensitive` or `:large` key throws `:rf.error/bad-frame-classification`.
+If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: a `frame-root` that mounts over an existing frame replaces that frame's config with its own options.
+
+The token stays in app-db and is redacted at egress. App-db paths are classified only by events.
 
 ??? info "For JavaScript developers"
 
@@ -77,7 +78,7 @@ You rarely need `:clear-*`: when a value goes away, nothing is left to redact. C
 
 ??? note "How classification is stored"
 
-    Classification effects are applied together with the `:db` write, at the [commit](../glossary.md#commit), rather than as a later `:fx`. They are stored in the framework's [runtime-db](../glossary.md#runtime-db) partition rather than in app-db. So a path classified in an event is redacted from its very first egress, and a `restore-epoch!` revert rolls the classification back with the rest of the frame's state. A malformed effect (a non-vector value, an unknown axis) aborts the transition before commit with `:rf.error/classification-effect-shape`.
+    Classification effects are applied together with the `:db` write, at the [commit](../glossary.md#commit), rather than as a later `:fx`. They are stored in the framework's [runtime-db](../glossary.md#runtime-db) partition rather than in app-db. So a path classified in an event is redacted from its very first egress, and a `restore-epoch!` revert rolls the classification back with the rest of the frame's state.
 
 ## Classify a transient payload on the registration
 
@@ -139,8 +140,6 @@ The same `:sensitive` key works on the other registrations that define a payload
 
 The `:decode` schema in the sign-in example, `[:token {:sensitive? true} :string]`, classifies the *response body*. It is separate from the path classification in the first section, which covers the copy `:auth/signed-in` later stores at `[:auth :token]`; nothing carries one to the other. Classify each place the secret passes through: the reply it arrives in and the path where it is stored.
 
-A path that doesn't exist is ignored, but a malformed one is not: a non-vector path is rejected at registration with `:rf.error/bad-classification` (a [flow](../glossary.md#flow)'s malformed output marks raise `:rf.error/flow-bad-marks`).
-
 ### HTTP carriers: redact by header and query-param name
 
 Secrets also travel in requests: an `Authorization: Bearer …` header or a `?shop_token=…` query param, and [managed HTTP](../../resources/glossary.md#managed-http) records the request. These are classified by name, in a `:carriers` block on the `:rf.http/managed` registration. Re-register the effect with the stock handler and your block:
@@ -162,7 +161,7 @@ The built-in denylist (`Authorization`, `Proxy-Authorization`, `Cookie`, `Set-Co
   http-managed/managed-handler)
 ```
 
-Carriers apply to the whole process (there is one registration, not one per frame). A malformed `:carriers` block throws `:rf.error/bad-classification`.
+Carriers apply to the whole process (there is one registration, not one per frame).
 
 ## Classify subsystem data on the subsystem
 
@@ -205,8 +204,6 @@ A route with a token in its query string (`?reset_token=…`) classifies it on t
   (fn [{:keys [user-id]} _ctx]
     {:request {:method :get :url (str "/api/users/" user-id)}}))
 ```
-
-A malformed subsystem declaration throws at registration: `reg-machine` raises `:rf.error/invalid-machine-classification`, and a bad resource declaration raises `:rf.error/resource-bad-spec`.
 
 !!! warning "Gotcha: `:sensitive` and `:sensitive?` are different"
 
@@ -259,20 +256,12 @@ Both streams are projected under the same frame classification, so `[:auth :toke
 
 ### Choosing a profile
 
-A profile names who is about to see the data, instead of a combination of on/off flags. There are six, and you can't define new ones. A shipper uses one of the two off-box profiles; the others cover dev panels, trusted local access, SSR, and server error responses:
+A profile names who is about to see the data. A shipper uses one of these two:
 
 | Profile | Boundary |
 |---|---|
 | `:rf.egress/off-box-observability` | hosted monitoring (Datadog / Sentry / Honeycomb): redact sensitive, elide large, omit raw `:event` args |
 | `:rf.egress/off-box-tool` | MCP / AI / tool wire: redact sensitive, elide large; each marker's `:path` / `:bytes` / `:type` / `:handle` let a tool reason about structure without content (no digests) |
-| `:rf.egress/local-redacted` | on-box dev-UI default: suppress sensitive, may show size indicators |
-| `:rf.egress/local-raw` | trusted local operator opt-in: include sensitive + large (subject to size caps) |
-| `:rf.egress/ssr-hydration` | the projection applied *after* the SSR allowlist (defence-in-depth) |
-| `:rf.egress/public-error` | client-safe server error responses; never internal raw values |
-
-??? note "Override flags"
-
-    Beneath the profiles are `:rf.egress/*` flags: `:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-digests?`, and `:rf.egress/threshold-bytes`. A profile sets the defaults and an explicit flag overrides one of them. You rarely need them.
 
 ### Check these before the first record ships
 
@@ -298,9 +287,9 @@ A profile names who is about to see the data, instead of a combination of on/off
 ;;     :event-id :auth/sign-in ...}   ;; no :event slot
 ```
 
-!!! warning "Classification fails open; routing fails closed"
+!!! warning "Gotcha: with no sink policy, nothing is sent"
 
-    An undeclared path is sent as is. Routing is the opposite: with no policy in reach (neither the frame's nor a `configure!` default) nothing is sent, a record whose frame can't be resolved goes only to the process default with its data redacted (no default frame is assumed), an unknown profile throws `:rf.error/unknown-egress-profile`, and a sink that throws doesn't affect other sinks.
+    With no `:observability` policy in reach (neither the frame's nor a `configure!` default), records go nowhere. A record whose frame can't be resolved goes only to the process default, with its data redacted. A sink that throws doesn't affect other sinks.
 
 !!! note "Exceptions are the gap"
 
@@ -320,16 +309,40 @@ A profile names who is about to see the data, instead of a combination of on/off
 
 Dispatch `[:auth/sign-in {:email "a@b.c" :password "hunter2"}]` in a dev build and open Xray. The event row shows a redacted marker on its arg map, and the `:password` slot reads `:rf/redacted`, which can never be expanded. In the App-DB panel, `[:auth :token]` reads `:rf/redacted` too.
 
-Xray's panels render under the `:rf.egress/local-redacted` profile, so in development you see the same redactions your shipper relies on, and a missing declaration shows up there rather than in a production log.
+Xray's panels render under the [`:rf.egress/local-redacted`](#the-other-egress-profiles) profile, so in development you see the same redactions your shipper relies on, and a missing declaration shows up there rather than in a production log.
 
 - `:rf/redacted` for a sensitive value: no type, no size, no way to reveal it. A path declared both sensitive and large also shows as `:rf/redacted`.
 - `{:rf.size/large-elided {:path … :bytes … :type … :reason … :handle …}}` for a large value. Xray's diff view shows this map; a tool may display it more compactly, for example as `:rf/large {:bytes N :head "…"}`. On the machine, a tool may offer to load the full value through its `:handle` after confirming the size.
 
-To see a sensitive value in a local tool, the tool uses the trusted-local `:rf.egress/local-raw` profile, and revealing a value is itself recorded in the trace. There is no process-wide "show sensitive values" switch.
+To see a sensitive value in a local tool, the tool uses the trusted-local [`:rf.egress/local-raw`](#the-other-egress-profiles) profile, and revealing a value is itself recorded in the trace. There is no process-wide "show sensitive values" switch.
 
-If a value you expected to be redacted shows raw, its path isn't classified: the declaration is missing, names the wrong path, or the secret was copied to a path you didn't classify. Classify the path where it actually lives, and Xray, the epoch history, and your sinks all pick up the change.
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| A value you expected redacted shows raw | Its path isn't classified: the declaration is missing, names the wrong path, or the secret was copied to a path you didn't classify | Classify the path where the value actually lives; Xray, the epoch history and your sinks all pick it up |
+| `:rf.error/bad-frame-classification` at `make-frame` | A frame-level `:sensitive` / `:large` key | Classify app-db paths from an event, beside `:db` |
+| `:rf.error/classification-effect-shape`; the event's commit is aborted | A classification effect whose value is not a vector of paths, or holds an invalid path | Return a vector of path vectors |
+| `:rf.error/bad-classification` at registration | A non-vector path in a registration's `:sensitive` / `:large`, or a malformed `:carriers` block (a [flow](../glossary.md#flow)'s malformed marks raise `:rf.error/flow-bad-marks`) | Use vectors of keys |
+| `:rf.error/invalid-machine-classification` / `:rf.error/resource-bad-spec` at registration | A malformed `:sensitive` / `:large` on `reg-machine` / `reg-resource` | Use vectors of paths relative to the instance |
+| `:rf.error/unknown-egress-profile` | A profile outside the built-in six | Use one from [Choosing a profile](#choosing-a-profile) or [the other egress profiles](#the-other-egress-profiles) |
 
 ## Advanced
+
+### The other egress profiles
+
+The four profiles a shipper doesn't use cover dev panels, trusted local access, SSR, and server error responses. With the two off-box profiles they make six, and you can't define new ones:
+
+| Profile | Boundary |
+|---|---|
+| `:rf.egress/local-redacted` | on-box dev-UI default: suppress sensitive, may show size indicators |
+| `:rf.egress/local-raw` | trusted local operator opt-in: include sensitive + large (subject to size caps) |
+| `:rf.egress/ssr-hydration` | the projection applied *after* the SSR allowlist (defence-in-depth) |
+| `:rf.egress/public-error` | client-safe server error responses; never internal raw values |
+
+??? note "Override flags"
+
+    Beneath the profiles are `:rf.egress/*` flags: `:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-digests?`, and `:rf.egress/threshold-bytes`. A profile sets the defaults and an explicit flag overrides one of them. You rarely need them.
 
 ### SSR and hydration: another egress point
 

@@ -16,7 +16,7 @@ The test kit has two namespaces:
 
 Both ship with Fresco. From a `:local/root` checkout you add the kit to a test
 alias yourself, and mounted tests need a build target that provides a
-`document`; both steps are under [Advanced](#put-the-test-kit-on-the-classpath).
+`document`; both steps are under [Set up the test kit](#set-up-the-test-kit).
 
 ## The testing ladder
 
@@ -141,9 +141,6 @@ Use the same approach for:
 A test does not need to mount and click a button merely to learn which event
 vector the button contains.
 
-`ht/canonical-dom` also belongs to this level as a pure comparator applied to
-live DOM nodes. It is described under [Advanced](#canonical-dom).
-
 ## L2: one view body as a semantic tree
 
 A `defview` cannot be called directly. `ht/tree` supplies a browser-free render
@@ -178,6 +175,9 @@ semantic tree.
            (ht/intents tree)))))
 ```
 
+The head may be the `defview` or its underlying body function. No React
+element is created, and nothing mounts or paints.
+
 Useful tree helpers include:
 
 - `ht/find` — find a node using a predicate over node maps;
@@ -193,9 +193,6 @@ typing the string, so a rename moves the test with the code:
 ```clojure
 (ht/find tree #(= (ht/view-name views/todo-row) (:view-id %)))
 ```
-
-The head may be the `defview` or its underlying body function. No React
-element is created, and nothing mounts or paints.
 
 If the tree contains an `h/route-link`, compare intents by membership rather
 than exact equality; see
@@ -230,8 +227,9 @@ are query vectors compared by value, so these are different fixtures:
 [:todo/by-id "7"]
 ```
 
-A read without a fixture raises and names the missing query. The harness does
-not silently substitute `nil` or call the live subscription cache.
+A read without a fixture raises `:rf.error/fresco-test-missing-read-fixture`
+and names the missing query. The harness does not silently substitute `nil` or
+call the live subscription cache.
 
 ### Child views stay as calls
 
@@ -253,8 +251,6 @@ The harness raises and points to L3 when a body reaches a raw React element
 body that calls a React hook fails with React's own error instead; that body
 belongs at L3 too.
 
-It also raises when a subscription fixture is missing.
-
 !!! warning "Do not build a fake hook dispatcher"
     A fake dispatcher can pass tests that real React fails under abandoned
     renders, StrictMode, or effect ordering. Split the semantic part from the
@@ -268,18 +264,6 @@ error boundaries, hosts, or real DOM nodes.
 Each mount gets its own frame, app-db, queue, subscription cache, React root,
 and leak baseline. It also needs a document; see
 [Where L3's DOM comes from](#where-l3s-dom-comes-from).
-
-| Call | Behaviour |
-| --- | --- |
-| `hm/mount!` | Mount a view under a fresh isolated frame and return a handle |
-| `hm/hydrate!` | Hydrate supplied server HTML; returns a promise of the handle |
-| `hm/rerender!` | Render a new element into the same root |
-| `hm/dispatch-and-settle!` | Dispatch into the mount's frame, run that event synchronously and commit the result. Follow-up work the router only queued is not waited for; use `hm/settle-until!` |
-| `hm/settle!` | Commit pending work after a user-event or other external interaction |
-| `hm/settle-until!` | Wait until a predicate holds, then settle; returns a promise of the handle. Use it for work the router has only queued, such as after a route-link click |
-| `hm/advance-clock!` | Advance the mount's [virtual clock](#virtual-clock-behaviour) and run due work |
-| `hm/unmount!` | Tear down the root |
-| `hm/assert-clean!` | After unmount, check that no subscription, reader edge, boundary registration, cached read set or frame survived compared with the pre-mount baseline |
 
 ```clojure
 (ns todo.views-mounted-test
@@ -317,6 +301,19 @@ The facade does not add a selector language. `(:container m)` is a real DOM
 node, so use Testing Library and user-event normally. After a user-event
 sequence, call `(hm/settle! m)` before asserting.
 
+| Call | Behaviour |
+| --- | --- |
+| `hm/mount!` | Mount a view under a fresh isolated frame and return a handle |
+| `hm/hydrate!` | Hydrate supplied server HTML; returns a promise of the handle |
+| `hm/rerender!` | Render a new element into the same root |
+| `hm/dispatch-and-settle!` | Dispatch into the mount's frame, run that event synchronously and commit the result. Follow-up work the router only queued is not waited for; use `hm/settle-until!` |
+| `hm/settle!` | Commit pending work after a user-event or other external interaction |
+| `hm/settle-until!` | Wait until a predicate holds, then settle; returns a promise of the handle. Use it for work the router has only queued, such as after a route-link click |
+| `hm/advance-clock!` | Advance the mount's [virtual clock](#virtual-clock-behaviour) and run due work |
+| `hm/bodies-run` | Call a function and return how many view bodies ran while it did. Settle inside the function, or the count is short |
+| `hm/unmount!` | Tear down the root |
+| `hm/assert-clean!` | After unmount, check that no subscription, reader edge, boundary registration, cached read set or frame survived compared with the pre-mount baseline |
+
 Mounted operations take the handle first and return it where chaining is
 useful. `assert-clean!` is asynchronous because it waits for pending work to
 finish before checking.
@@ -325,6 +322,9 @@ Use the settle operations rather than React's `act` for page assertions.
 `dispatch-and-settle!` runs the event and commits the result before it returns,
 so the next line sees the DOM a user would see; `act` runs through a test
 scheduler that is not the browser's.
+
+`ht/canonical-dom` serialises a mounted subtree so two pages can be compared;
+see [Canonical DOM](#canonical-dom).
 
 ### Use L3 for React claims
 
@@ -419,7 +419,7 @@ props. The row's own test proves what a row renders.
 | --- | --- | --- |
 | `ht/tree` raises and points to L3 | The body reached a raw React element or a host | Mount the view at L3; split out a hook-free semantic part when useful |
 | `ht/tree` fails with React's invalid-hook error | The body called a React hook, and L2 installs no hook dispatcher | Mount the view at L3; split out a hook-free semantic part when useful |
-| `ht/tree` raises and names a query | The body read a subscription with no fixture | Add a fixture for that exact query vector |
+| `ht/tree` raises `:rf.error/fresco-test-missing-read-fixture` | The body read a subscription with no fixture | Add a fixture for that exact query vector |
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
 | A plain test raises `:rf.error/fresco-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
 | `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body, or pass the realised value ([Views and reads](02-views-and-reads.md)) |
@@ -449,99 +449,7 @@ Do not claim more than the level proves:
 - a timing assertion is not a performance test until it follows the method in
   [Performance](19-performance.md).
 
-## Advanced
-
-### Name the equality being tested
-
-| Equality | Level | Claim |
-| --- | --- | --- |
-| Authored data | L1 | This function returned this value |
-| Semantic tree | L2 | Under these reads, this body means this |
-| Intent stream | L2 or L3 | These interactions produced these events in this order |
-| Canonical DOM | L3 | Two mounted implementations produced the same page structure |
-| React server bytes | Server test | The server emitted these exact bytes |
-| Hydrated behaviour | L4 | A real engine adopted and ran the page correctly |
-
-### Canonical DOM
-
-`ht/canonical-dom` serialises a live DOM subtree with element attribute names
-sorted. `innerHTML` preserves insertion order, so two equivalent pages can
-produce different strings solely because props were applied in a different
-order.
-
-Use canonical DOM when comparing:
-
-- before and after a refactor;
-- a Fresco port with its Reagent original
-  ([Migrating from Reagent](20-migration-from-reagent.md));
-- a React island with the interpreted subtree it replaced
-  ([Islands](10-native-tier.md)).
-
-### Virtual clock behaviour
-
-A virtual clock is opt-in:
-
-```clojure
-(hm/mount! [view] {:clock true})
-```
-
-`hm/advance-clock!` advances `Date.now`, `setTimeout`, and `setInterval`. This
-matters because retention often compares a deadline with `Date.now`; firing a
-timer without moving the clock would leave the deadline unexpired.
-
-The clock does **not** advance:
-
-- `requestAnimationFrame`;
-- promises or microtasks;
-- `performance.now`;
-- the `Date` constructor;
-- timer functions captured before the virtual-clock window opened, including
-  React scheduler references captured at module load.
-
-Calling `hm/advance-clock!` on a handle mounted without `{:clock true}` raises. Use it for
-work that has an actual duration; use `hm/settle!` for work that does not.
-
-### Migration shadow tests
-
-`hm/shadow!` is a development-only migration harness. It drives a Fresco view
-and its Reagent original with one script, then compares canonical DOM and
-intent streams at each checkpoint. Its full use belongs to
-[Migrating from Reagent](20-migration-from-reagent.md).
-
-### The intent stream carries more than your events
-
-`ht/intents` returns every event vector in the tree, not only your
-application's. A tree holding an `h/route-link` also holds routing's click
-decision, which embeds its frame. Under `ht/tree` that frame is a fresh probe
-keyword per call, numbered in the order the tests ran:
-
-```clojure
-[:re-frame.fresco.impl.intent/navigate
- {:frame   :re-frame.fresco.test/probe-7
-  :payload [:rf.route/url-requested {:url "/profile/jane" ...}]
-  :native? false
-  :veto    nil}]
-```
-
-So the exact-equality assertion in L2 is right for the todo row, whose tree has
-no link, and fragile for any tree that has one: adding a test above it
-renumbers the probe and fails it. Where a link is in play, assert what you
-actually meant — that your intent is offered:
-
-```clojure
-(is (contains? (set (ht/intents tree)) [:todo/toggle 7]))
-```
-
-or, when the order of your own events is the claim, filter to the heads you
-own before comparing:
-
-```clojure
-(is (= [[:todo/toggle 7] [:todo/delete 7]]
-       (filterv #(= "todo" (namespace (first %))) (ht/intents tree))))
-```
-
-For the link itself, assert its `:href`. Routing synthesised it from `:to` and
-`:params`, which is the fact worth pinning, and it does not move.
+## Set up the test kit
 
 ### Put the test kit on the classpath
 
@@ -641,3 +549,97 @@ test then has to skip visibly when there is no document:
 
 The printed skip keeps the Node run honest: a mounted test that silently
 passes without a document reports coverage it never had.
+
+## Advanced
+
+### Name the equality being tested
+
+| Equality | Level | Claim |
+| --- | --- | --- |
+| Authored data | L1 | This function returned this value |
+| Semantic tree | L2 | Under these reads, this body means this |
+| Intent stream | L2 or L3 | These interactions produced these events in this order |
+| Canonical DOM | L3 | Two mounted implementations produced the same page structure |
+| React server bytes | Server test | The server emitted these exact bytes |
+| Hydrated behaviour | L4 | A real engine adopted and ran the page correctly |
+
+### Canonical DOM
+
+`ht/canonical-dom` serialises a live DOM subtree with element attribute names
+sorted. `innerHTML` preserves insertion order, so two equivalent pages can
+produce different strings solely because props were applied in a different
+order.
+
+Use canonical DOM when comparing:
+
+- before and after a refactor;
+- a Fresco port with its Reagent original
+  ([Migrating from Reagent](20-migration-from-reagent.md));
+- a React island with the interpreted subtree it replaced
+  ([Islands](10-native-tier.md)).
+
+### Virtual clock behaviour
+
+A virtual clock is opt-in:
+
+```clojure
+(hm/mount! [view] {:clock true})
+```
+
+`hm/advance-clock!` advances `Date.now`, `setTimeout`, and `setInterval`. This
+matters because retention often compares a deadline with `Date.now`; firing a
+timer without moving the clock would leave the deadline unexpired.
+
+The clock does **not** advance:
+
+- `requestAnimationFrame`;
+- promises or microtasks;
+- `performance.now`;
+- the `Date` constructor;
+- timer functions captured before the virtual-clock window opened, including
+  React scheduler references captured at module load.
+
+Calling `hm/advance-clock!` on a handle mounted without `{:clock true}` raises. Use it for
+work that has an actual duration; use `hm/settle!` for work that does not.
+
+### Migration shadow tests
+
+`hm/shadow!` is a development-only migration harness. It drives a Fresco view
+and its Reagent original with one script, then compares canonical DOM and
+intent streams at each checkpoint. Its full use belongs to
+[Migrating from Reagent](20-migration-from-reagent.md).
+
+### The intent stream carries more than your events
+
+`ht/intents` returns every event vector in the tree, not only your
+application's. A tree holding an `h/route-link` also holds routing's click
+decision, which embeds its frame. Under `ht/tree` that frame is a fresh probe
+keyword per call, numbered in the order the tests ran:
+
+```clojure
+[:re-frame.fresco.impl.intent/navigate
+ {:frame   :re-frame.fresco.test/probe-7
+  :payload [:rf.route/url-requested {:url "/profile/jane" ...}]
+  :native? false
+  :veto    nil}]
+```
+
+So the exact-equality assertion in L2 is right for the todo row, whose tree has
+no link, and fragile for any tree that has one: adding a test above it
+renumbers the probe and fails it. Where a link is in play, assert what you
+actually meant — that your intent is offered:
+
+```clojure
+(is (contains? (set (ht/intents tree)) [:todo/toggle 7]))
+```
+
+or, when the order of your own events is the claim, filter to the heads you
+own before comparing:
+
+```clojure
+(is (= [[:todo/toggle 7] [:todo/delete 7]]
+       (filterv #(= "todo" (namespace (first %))) (ht/intents tree))))
+```
+
+For the link itself, assert its `:href`. Routing synthesised it from `:to` and
+`:params`, which is the fact worth pinning, and it does not move.

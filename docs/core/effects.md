@@ -26,8 +26,8 @@ The todo list forgets everything on reload. The obvious fix is to write to
 That write costs you three things:
 
 - **The handler isn't pure any more.** Testing it now means faking `localStorage`.
-- **Replay repeats the write.** Re-running the event history, as time-travel does,
-  writes to storage again, and the event record never shows that a write happened.
+- **Replay repeats the write.** Replaying the recorded events writes to
+  storage again, and nothing in the event history shows that a write happened.
 - **It breaks off the browser.** During [server-side rendering](../ssr/concepts.md)
   there is no `localStorage`, so the handler throws.
 
@@ -94,10 +94,8 @@ That row is an [effect](glossary.md#effect).
 the row's argument, here the todos map. The first is a small context map, which this
 handler ignores ([Advanced](#the-effect-handlers-two-arguments) covers it).
 
-`:platforms #{:client}` says where the effect may run. During server-side rendering
-the runtime skips a `:client`-only effect and emits a `:rf.fx/skipped-on-platform`
-trace event, so handlers never branch on platform. The set holds `:client`,
-`:server` or both; omit the key and the effect runs on both.
+`:platforms #{:client}` tells the runtime to skip this effect during server-side
+rendering, so the handler never branches on platform.
 
 What you gain:
 
@@ -144,9 +142,7 @@ queues it. For a delayed dispatch, return
 `js/setTimeout`.
 
 A row may be `[fx-id]` when the effect takes no argument. A `nil` row is skipped, so
-`(when saving? [:todo.storage/save todos])` makes a row conditional. A row of any
-other shape, such as a bare `:dispatch` left in `:fx` without its inner vector, is
-dropped with `:rf.error/effect-map-shape` and the other rows still run.
+`(when saving? [:todo.storage/save todos])` makes a row conditional.
 
 ### Ordering and atomicity — what you can rely on
 
@@ -161,25 +157,11 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`:
 4. **Effects see the new state.** A `[:dispatch [:next-step]]` row queues an event
    whose handler reads the app-db this handler just committed. That is how you chain
    steps: write state, then dispatch the event that builds on it.
-
-!!! warning "Gotcha — one effect throwing does not stop the others, and nothing rolls back"
-
-    If the handler for `[a 1]` throws, `[b 2]` and `[c 3]` still run, and each
-    failure is reported separately as `:rf.error/fx-handler-exception`. The `:db`
-    [commit](glossary.md#commit) already happened and is kept. App-db is never rolled
-    back and effects that already ran are not undone; most real effects, like a sent
-    request, cannot be undone anyway. If one step depends on another succeeding, have
-    the first report its outcome as an event (as `:rf.http/managed` does with
-    `:on-success`) and run the second step in that event's handler.
-
-!!! warning "Gotcha — `:db` and `:fx` are the whole top level"
-
-    Any other top-level key, apart from the classification keys, is a malformed
-    effect map. The runtime emits `:rf.error/effect-map-shape`, naming the key, and
-    [refuses the whole event](glossary.md#fail-loud-not-silent): nothing is applied,
-    not even `:db`. Committing the state while a requested effect silently vanished
-    would look like success and hide the bug. This catches a typo (`:dn` for `:db`)
-    and the re-frame v1 habit of returning a top-level `:dispatch`.
+5. **A row that throws doesn't stop the others, and nothing rolls back.** Each
+   failure is reported as `:rf.error/fx-handler-exception`, and the committed `:db`
+   stays. When one step depends on another succeeding, have the first report its
+   outcome as an event (as `:rf.http/managed` does with `:on-success`) and run the
+   second from that event's handler.
 
 ## Run to completion
 
@@ -190,9 +172,8 @@ After both. When the runtime starts processing events, it
 [**drains the queue to completion**](glossary.md#drain--run-to-completion) before any
 view re-renders. The dequeued event runs its handler and
 [commits](glossary.md#commit) its app-db write, then any events it dispatched run
-theirs, and so on until the queue is empty. Only then, at the host's next
-checkpoint, do views render, once. Every dispatch behaves this way, and there is no
-opt-out.
+theirs, and so on until the queue is empty. Only then do views render, once. Every
+dispatch behaves this way, and there is no opt-out.
 
 One click here dispatches `:todo/add-samples`, which queues three `:todo/add`
 events: four pipeline runs, one render. Click into the cell, press **`Ctrl-Enter`**
@@ -237,7 +218,7 @@ All three todos appear together. The view never renders a list with only
 Three details:
 
 1. **Each dequeued event is its own [epoch](glossary.md#epoch).** The parent and its
-   three children are four rows in the event record, even though they rendered
+   three children are four epochs in the history, even though they rendered
    together.
 2. **Async effects are not drained.** An HTTP request started during the drain does
    not delay the render. Its reply arrives later as a new event, in a new drain.
@@ -252,10 +233,10 @@ drain are on [Run to completion](run-to-completion.md). You don't need them to u
 
     React batches the state updates inside one event handler and paints once at the
     end. Run to completion takes that further: the smallest unit that renders is an
-    entire settled drain, not one handler. As in React, the batch closes at the
-    host's next checkpoint, so two drains in the same stack can render together. You
-    never need `flushSync` for app work, and you never see the UI between
-    synchronous follow-ups.
+    entire settled drain, not one handler. As in React, the batch closes at the next
+    microtask checkpoint, so two drains that finish in the same task can render
+    together. You never need `flushSync` for app work, and you never see the UI
+    between synchronous follow-ups.
 
 ## HTTP
 
@@ -324,11 +305,11 @@ and [RealWorld HTTP](../../examples/real-apps/realworld_http).
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/effect-map-shape`; nothing applied, not even `:db` | A top-level key other than `:db` / `:fx` (often a typo like `:dn`, or app-db returned without `{:db …}`) | Put every effect in an `:fx` row |
+| `:rf.error/effect-map-shape`; [nothing applied](glossary.md#fail-loud-not-silent), not even `:db` | A top-level key other than `:db` / `:fx`: a typo like `:dn`, app-db returned without `{:db …}`, or a re-frame v1 top-level `:dispatch` | Put every effect in an `:fx` row |
 | `:rf.error/effect-map-shape` naming one `:fx` entry; the other rows run | That entry is not an `[fx-id arg]` vector | Wrap it: `[:dispatch [:saved]]`, not a bare `:dispatch` |
 | `:rf.error/no-such-fx`; that row fails, the others run | The `:fx` row names an unregistered id | Register it with `reg-fx`, or fix the typo |
 | `:rf.error/fx-handler-exception`; later rows still run | An effect handler threw; `:db` is already committed | Chain dependent steps through reply events |
-| Handler calls `dispatch` or does I/O directly | The handler is no longer pure, and the event record misses the work | Return an `:fx` row (`[:dispatch …]`, or your own `reg-fx` id) |
+| Handler calls `dispatch` or does I/O directly | The handler is no longer pure, and the epoch history misses the work | Return an `:fx` row (`[:dispatch …]`, or your own `reg-fx` id) |
 | `:rf.error/no-such-fx` naming `:rf.http/managed` | The HTTP artefact isn't loaded | Add `day8/re-frame2-http` and require `re-frame.http.managed` |
 | `:rf.error/no-frame-context` from an async callback | A bare `dispatch` in a callback that runs later | Capture `(:frame ctx)` in the effect handler ([below](#the-effect-handlers-two-arguments)) |
 
@@ -338,8 +319,9 @@ and [RealWorld HTTP](../../examples/real-apps/realworld_http).
 
 The first argument to an effect handler is a context map carrying `:frame`, the
 frame the originating event ran in, and `:event`, the originating event vector. It is
-not the coeffects map and has no `:db`. An effect that needs state gets it in its
-argument, or reads it at run time with `(rf/app-db-value frame)`.
+not the [world](glossary.md#world) map an event handler receives, and has no `:db`.
+An effect that needs state gets it in its argument, or reads it at run time with
+`(rf/app-db-value frame)`.
 
 You need `:frame` when an effect dispatches back later. A page can run several
 [frames](frames.md), and a callback that fires after the effect handler has returned
@@ -372,6 +354,8 @@ and the `dispatch` a view receives from [`reg-view`](views.md) is already captur
   with `:rf.error/no-such-fx`, reported through the always-on error listener.
 - Registration order across files doesn't matter. The effect is looked up when the
   row runs, not when the event handler is registered.
+- `:platforms` holds `:client`, `:server` or both; omit it and the effect runs on
+  both. A skipped row emits a `:rf.fx/skipped-on-platform` trace event.
 - Treat an effect's argument as an API you are designing, and prefer explicit keys.
 
 ### Stubbing effects in tests

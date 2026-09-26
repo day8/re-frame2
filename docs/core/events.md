@@ -107,12 +107,9 @@ The handler rules:
    writes it.
 
 A handler returns `:db`, `:fx`, both or neither; with no `:db`, state is left alone.
-The top level of the effect map is closed. Returning app-db itself instead of
-`{:db …}` puts your own keys there, and a key the runtime does not know refuses the
-event with `:rf.error/effect-map-shape`, committing nothing. Returning `nil` does
-nothing, so a body wrapped in `when` is fine; any other non-map return reports
-`:rf.error/effect-handler-bad-return`. The state rules live on [app-db](app-db.md);
-effects other than `:db` are covered in [Effects](effects.md).
+Returning `nil` does nothing, so a body wrapped in `when` is fine. The state rules
+live on [app-db](app-db.md); effects other than `:db` are covered in
+[Effects](effects.md).
 
 ### Metadata when you need it
 
@@ -122,20 +119,20 @@ need that, the two-argument form is enough. [Coeffects](coeffects.md) shows the 
 metadata you are likely to use.
 
 Without a `:doc`, the development build emits `:rf.warning/missing-doc` once per
-handler, because tools show it. A plain key `reg-event` does not recognise, such as
-`:interceptor`, draws a
-`:rf.warning/unknown-registration-key` development warning and is ignored. Namespaced
-keys are not checked, so a misspelt `:rf.cofx/require` is silently ignored and its
-fact never arrives.
+handler, because tools show it. The examples in this guide omit `:doc` to stay short.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Button "does nothing" | You dispatched an id nobody registered | The runtime reports `:rf.error/no-such-handler` naming the id and skips the event. Register the handler or fix the typo |
-| Callback throws from a timer / fetch | Bare `dispatch` outside a frame | `:rf.error/no-frame-context`. Capture the frame ([Frames](frames.md)) |
-| Click does nothing and app-db is unchanged | The handler threw | `:rf.error/handler-exception`; nothing was committed. Fix the handler ([Errors](errors.md#a-handler-throws)) |
-| Handler gets no payload | The payload went in the options map: `(rf/dispatch [:todo/add] {:title "x"})` | The runtime warns `:rf.warning/unknown-dispatch-opt`. Put the payload in the event, `(rf/dispatch [:todo/add {:title "x"}])`; the second argument takes options such as `:frame` |
+| Button "does nothing"; `:rf.error/no-such-handler` names the id | You dispatched an id nobody registered; the runtime skips the event | Register the handler or fix the typo |
+| A timer or fetch callback throws `:rf.error/no-frame-context` | Bare `rf/dispatch` outside a frame | Capture the frame ([Frames](frames.md)) |
+| Click does nothing, app-db is unchanged, and `:rf.error/handler-exception` is reported | The handler threw; nothing was committed | Fix the handler ([Errors](errors.md#a-handler-throws)) |
+| Handler gets no payload, and `:rf.warning/unknown-dispatch-opt` is reported | The payload went in the options map: `(rf/dispatch [:inc-by] {:n 5})` | Put it in the event: `(rf/dispatch [:inc-by {:n 5}])`. The second argument takes options such as `:frame` |
+| `:rf.error/effect-map-shape` is reported and nothing is committed | The top level of the effect map is closed, and the handler returned app-db itself (or another map with keys the runtime does not know) instead of `{:db …}` | Wrap the next state: `{:db (assoc db …)}` |
+| `:rf.error/effect-handler-bad-return` is reported | The handler returned something other than a map or `nil` | Return an effect map, or `nil` for no change |
+| `:rf.warning/unknown-registration-key` at registration; the key is ignored | A misspelt plain metadata key, such as `:interceptor` for `:interceptors` | Fix the key |
+| A declared coeffect never arrives and nothing warns | A misspelt namespaced key, such as `:rf.cofx/require` for `:rf.cofx/requires`; namespaced keys are not checked | Fix the key |
 | Handler can't be unit-tested | You called `js/fetch` / read the clock inside the body | Return the request as an effect ([Effects](effects.md)); declare the clock as a coeffect ([Coeffects](coeffects.md)) |
 
 An unregistered id is reported rather than thrown so that one missing handler, for

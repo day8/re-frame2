@@ -139,18 +139,13 @@ the element the wrapper writes, and are read only from that map.
 
 ## Reset with `::h/revision`
 
-A reset must be an explicit domain event. Fresco never infers a reset because
-the incoming value equals a particular target. Value-based reset detection
-cannot distinguish a user typing that value from an application reset, and it
-cannot observe a same-value reassertion.
-
 Place [`::h/revision`](glossary.md#hrevision) beside the controlled `:value`:
 
 ```clojure
 (h/defview revertable-field [{:keys [id]}]
   [:input {:type        :text
            :value       (h/sub [:todo.ui/field id])
-           ::h/revision (h/sub [:todo.ui/baseline id])
+           ::h/revision (h/sub [:todo.ui/field-revision id])
            :on-input    [:todo.ui/edit-field id ::h/value]}])
 ```
 
@@ -162,7 +157,7 @@ The reset event updates both the value and the revision:
     {:db (-> db
              (assoc-in [:todo.ui :fields id]
                        (get-in db [:todo.ui :saved id]))
-             (update-in [:todo.ui :baselines id] inc))}))
+             (update-in [:todo.ui :field-revisions id] (fnil inc 0)))}))
 ```
 
 ```clojure
@@ -172,6 +167,11 @@ The reset event updates both the value and the revision:
 Only a revision change triggers the reset behaviour. A new value under an
 equal revision is an ordinary controlled update. Revisions compare with `=`,
 so a freshly constructed but equal persistent value is unchanged.
+
+A reset must be an explicit domain event. Fresco never infers a reset because
+the incoming value equals a particular target. Value-based reset detection
+cannot distinguish a user typing that value from an application reset, and it
+cannot observe a same-value reassertion.
 
 Async normalization uses the same rule: write the canonical value and advance
 the revision when the server result should replace the current draft. This can
@@ -223,8 +223,9 @@ commits on Enter or blur and cancels on Escape.
 A controlled field writes app-db on every keystroke. Measure that path before
 using it across a dense editable grid.
 
-Use the [forms module](05-forms.md) when the user needs a separate draft that
-commits on Enter or blur, cancels on Escape, or survives validation failure.
+Use a [buffered field](05-forms.md#buffered-fields) when the user needs a draft
+that commits on Enter or blur and cancels on Escape; keep a draft map in app-db
+([Forms](05-forms.md#gate-validation-by-interaction)) when fields save together.
 
 Use an uncontrolled input (`:default-value` without `:value`) when no other
 part of the application needs the intermediate text, such as a scratch field
@@ -240,7 +241,7 @@ synchronous. React therefore receives the model echo during the same discrete
 browser event.
 
 On the event path, Fresco uses `flushSync` only for controlled-text convergence
-(the root doors `h/render!` and `h/unmount!` also commit inside it). It commits the
+(`h/render!` and `h/unmount!` also commit inside it). It commits the
 pending value before React's end-of-event restore so that both the value and
 selection are correct when the handler accepts, rejects, or normalizes an
 edit. The path runs once per controlled text keystroke and once when an IME

@@ -17,22 +17,18 @@ Macros are marked. Two of them, `h/defview` and `h/defhost`, expand to a
 `def`, so they are written at the top level of a namespace and never inside a
 body.
 
-Errors are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`, except the
-`hm/advance-clock!` and `hm/hydrate!` timeout errors and `evidence/envelope`'s
-refusal, which carry none. Entries
-name the ids a name raises; [Errors](17-errors.md) explains the shape and
-[Troubleshooting](troubleshooting.md) indexes them.
+Errors are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`, except
+`hm/advance-clock!`'s no-clock error, the `hm/hydrate!` timeout and
+`evidence/envelope`'s refusal, which carry none. Entries name the ids a name
+raises; [Troubleshooting](troubleshooting.md#start-from-a-complaint) describes
+the shape every error carries and indexes each id.
 
-Three questions are answered on other pages:
+Two questions are answered on other pages:
 
 | Question | Where it is answered |
 | --- | --- |
 | What each surface does on the server, and under hydration | [SSR and hydration](18-ssr-and-hydration.md#server-policy-by-surface) |
-| Every error id, its cause and its fix | [Troubleshooting](troubleshooting.md#the-complaint-index), with [Errors](17-errors.md) for the shape each one carries |
-| Which names this guide teaches under a spelling the code does not yet carry | the Status block on [the guide index](index.md) |
-
-If a name you remember no longer compiles, see [Names that
-changed](#names-that-changed).
+| Every error id, its cause and its fix | [Troubleshooting](troubleshooting.md#the-complaint-index), with the [error shape](troubleshooting.md#start-from-a-complaint) above it |
 
 ## `re-frame.fresco` — the main namespace
 
@@ -368,7 +364,7 @@ Node's `react-dom/server`.
 `server/render` renders one request and returns:
 
 ```clojure
-{:frame-id       :the-per-request-gensym
+{:frame-id       :the-per-request-gensym   ;; already destroyed when render returns; for test assertions
  :html           "the app root's INNER markup"
  :payload        {}      ;; the :rf/hydration-payload map
  :payload-edn    "that map, pr-str'd"
@@ -387,7 +383,7 @@ Its `opts`:
 | `:client-frame-id` | the stable wire `:rf/frame-id`, or absent to omit the key |
 | `:identifier-prefix` | React's `identifierPrefix`. The hydrating root must be handed the same string |
 | `:app-element-id`, `:script-src`, `:title` | the document envelope's |
-| `:frame-opts` | merged under the id, the platform and the setup vector, for a request needing `:images`, `:url-strategy` or `:fx-overrides`. `:id`, `:platform` (always `:server`) and `:initial-events` are this module's and cannot be overridden |
+| `:frame-opts` | extra `rf/make-frame` options for the request frame, such as `:images`, `:url-strategy` or `:fx-overrides`. `:id`, `:platform` (always `:server`) and `:initial-events` belong to this module and cannot be overridden |
 | `:version`, `:schema-digest` | passed to the payload builder |
 | `:payload-include-sensitive` | optional vector of app-db paths classified `:sensitive` whose raw value may ride the payload (a CSRF token, say). Absent, every classified value arrives as `:rf/redacted` |
 
@@ -411,9 +407,7 @@ modified `:html`.
 The determinism check lives in the test kit as
 [`re-frame.fresco.test.server/render-twice`](#re-framefrescotestforms-and-re-framefrescotestserver).
 
-`:frame-id` names a per-request frame that is destroyed before `render`
-returns. It is for assertions in tests, not for use. Taught in [SSR and
-hydration](18-ssr-and-hydration.md).
+Taught in [SSR and hydration](18-ssr-and-hydration.md).
 
 ## `re-frame.fresco.substrate`
 
@@ -530,26 +524,26 @@ ht/tree-version
 
 | Name | What it answers |
 | --- | --- |
-| `ht/boundary?` | is `v` a minted boundary — the value `h/defview` defines? False for the plain function its body is |
-| `ht/host?` | is `v` a minted crossing — the value `h/defhost` defines? False for the foreign component it named |
+| `ht/boundary?` | is `v` a view, the value `h/defview` defines? False for the plain function its body is |
+| `ht/host?` | is `v` a host, the value `h/defhost` defines? False for the foreign component it wraps |
 | `ht/callback?` | is `v` the one callback form? False for an identically written plain `fn` |
-| `ht/view-name` | the `"<ns>/<sym>"` name a minted boundary or host carries; `nil` for anything unminted |
+| `ht/view-name` | the `"<ns>/<sym>"` name a view or host carries; `nil` for anything else |
 | `ht/host-policy` | the `:server` policy a crossing was declared with. Anything that is not a `defhost` value raises `:rf.error/fresco-test-not-a-host` rather than answering nil |
 | `ht/ladder` | the testing ladder as data — five rows, L0 to L4, each with `:tier`, `:proves`, `:mechanism` and `:here?` (whether this namespace covers that tier) |
-| `ht/element-props` | the emitted prop slots of one native form, as a map of slot name to value. A lowered handler records as `{:rf.ui/opaque :fn}` |
+| `ht/element-props` | the emitted prop slots of one native form, as a map of slot name to value. A converted handler records as `{:rf.ui/opaque :fn}` |
 | `ht/controlled?` | does the codec install the controlled shadow for this form? The runtime's own decision, not a re-derivation |
-| `ht/revision` | the `::h/revision` value a native form carries, read pre-merge-conversion where the codec reads it |
-| `ht/materialize` | the marker law as a pure function: what an intent materializes to, given what the event target carried |
+| `ht/revision` | the `::h/revision` value a native form carries, as the runtime reads it |
+| `ht/materialize` | what an event vector becomes at dispatch, given the target's value and checked flag, as a pure function |
 | `ht/canonical-dom` | a DOM subtree serialised with every element's attribute names sorted, so two renderings compare equal when only attribute order differs |
 | `ht/capture-intents` | runs `f` and returns `{:value <f's value> :intents [event-v …]}` — the events dispatched into `frame-kw` meanwhile. Other frames' events are ignored |
-| `ht/fire!` | lowers one handler position and invokes it with an event described as data; returns `{:intents […] :prevented? bool}` |
+| `ht/fire!` | converts one handler position to its React callback and invokes it with an event described as data; returns `{:intents […] :prevented? bool}` |
 | `ht/tree` | runs one hook-free body under injected read fixtures and returns its versioned semantic tree. `opts` takes only `:subs`; any other key throws |
 | `ht/tree-version` | the structural-tree schema version `ht/tree` stamps on its root |
 | `ht/find-all` / `ht/find` | every node, or the first node, for which `pred` is truthy, in document order. `nil` threads through a missed match |
 | `ht/attrs` | the merged attribute projection of a node — `:attrs` with `:events` for an element, the passed props for a boundary call, `{}` for a fragment |
 | `ht/text` | the concatenation of a node's text descendants. Over a boundary node this is what the **call site** wrote, never the child's own rendering |
 | `ht/intents` | every event vector the tree carries, in document order — what a rendering **offers** to dispatch, where `ht/capture-intents` says what it did |
-| `ht/role` | the ARIA role of a node — written, else implicit — as a keyword, or `nil`. Total over the node set |
+| `ht/role` | the ARIA role of a node — written, else implicit — as a keyword, or `nil` |
 | `ht/accessible-name` | the accessible name a node carries **within** a tree. A node not in the tree throws rather than returning nil |
 | `ht/unnamed-controls` | every operable node with no accessible name, in document order. It does not exempt a control inside an `aria-hidden` subtree |
 
@@ -621,24 +615,3 @@ it uses.
 | --- | --- |
 | `tf/edit-id`, `tf/commit-id`, `tf/cancel-id` | the event ids of `forms/buffered-field`'s protocol — `[edit-id control revision text]`, `[commit-id control revision on-commit]`, `[cancel-id control revision on-cancel]` — for a test that drives the field by hand or asserts on its intents |
 | `ts/render-twice` | runs `server/render` twice on the same `opts` and compares the two documents byte-for-byte. Returns `{:first :second :identical? :differs-at}`, where `:differs-at` is the index of the first differing character, or `nil`. The only kit namespace that requires the server module and `react-dom/server` |
-
-## Names that changed
-
-Fresco is pre-alpha and some names have changed. Old names have no aliases, so
-an old spelling fails to compile. This is what to write instead.
-
-| What you may have written | What it is today | Why |
-| --- | --- | --- |
-| `hfn`, or `h/fn` | `h/event` | `event` states the contract: the callback turns the invoker's arguments into one event vector, or `nil`. `handler` would suggest imperative work whose return is ignored, and `fn` shadows `cljs.core/fn` for anyone who `:refer`s it |
-| `h/root!`, `h/mount!` | `h/client-root` + `h/render!`, with the frame written in the tree as `h/frame-root` or `h/frame-provider` | One handle with a first-call mode covers creating, updating and hydrating a root, the same lifecycle every re-frame2 React view adapter uses |
-| `h/hydrate-root!`, `h/hydrate!` | `h/render!` with `{:hydrate? true}` on the first call | A root that adopts server DOM and a root that creates it differ only in which React constructor the first render calls |
-| `hm/render!`, on the mounted test kit | `hm/rerender!` | `render!` collided with the product's `h/render!` |
-| `ht/render`, with a `{:reads …}` fixture | `ht/tree`, with a `{:subs …}` fixture | L2 returns a data tree and never DOM, so `render` misdescribed it |
-| `:ssr`, on a `defhost` declaration | `:server` | `:server` names the side that renders. A declaration still carrying `:ssr` raises `:rf.error/fresco-bad-host-declaration` |
-| `server/fresh-frame-id`, `server/setup-events` | Neither is public | `server/render` creates its own frame id and refuses an override, and the event setup is covered by the options `server/render` already accepts |
-| `server/render-twice` | `re-frame.fresco.test.server/render-twice` | A determinism probe belongs to tests, and keeping it in its own kit namespace means only the test that asks requires `react-dom/server` |
-
-Error ids do not follow renames: an id never changes meaning or spelling, so
-stored errors and monitoring rules keep working. `:rf.error/fresco-test-bad-reads`
-keeps the word `reads` although the option is now `:subs`; its message names the
-current option.

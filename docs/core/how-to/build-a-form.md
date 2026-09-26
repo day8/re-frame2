@@ -162,8 +162,6 @@ The submit handler validates the draft against `LoginForm`. Only when it is clea
 
 `:submit-attempted?` flips to `true` in both branches, valid or not. That is what drives the visibility rule in step 3: after the first submit, every invalid field shows its error, whether or not the user visited it.
 
-The effect checks two of its slots before any request leaves. `:on-success` and `:on-failure` must each be an event vector (or `nil`), otherwise it throws `:rf.error/http-bad-reply-target`, and the final `:url` must be a non-blank string, otherwise `:rf.error/http-bad-request`. So a typo like `:on-success :form.login/submit-success` (a bare keyword instead of a vector) is a named error rather than a submit that never replies.
-
 ### The success reply
 
 Managed HTTP delivers its result as the reply event's last argument ([the uniform reply](../glossary.md#the-uniform-reply)). On success that is the envelope `{:status :ok :value <decoded body> …}`; a JSON body is decoded with keyword keys:
@@ -326,6 +324,14 @@ Run this list on any form before you call it done:
 
 For a worked example, read `auth.cljs` in the [RealWorld example](../../../examples/real-apps/realworld_http). Its login and register forms follow this recipe, with submit handed off to an auth state [machine](../../machines/glossary.md#machine).
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `:rf.error/http-bad-reply-target`; the submit never replies | `:on-success` / `:on-failure` is a bare keyword instead of an event vector | Write `[:form.login/submit-success]` |
+| `:rf.error/http-bad-request` | The request's final `:url` is blank or not a string | Build the URL before returning the effect |
+| `:rf.error/http-bad-retry-on` | `:retry :on` is a vector, or names a category outside `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}` | Use a set of those categories |
+
 ## When not to use a form slice
 
 Use the slice when there is a distinct moment between "the user finished editing" and "the system accepts the result", with validation at that moment. Without one, the seven keys are overhead:
@@ -422,7 +428,7 @@ That is fine for your own backend. When the response crosses a trust boundary (a
              (assoc-in [:auth :user]             (dissoc (:user value) :token)))}))
 ```
 
-A malformed reply is now refused in every build: the handler is skipped and the payload never reaches app-db. In development the refusal is the usual `:rf.error/schema-validation-failure` trace with `:where :event`, the offending value, and Malli's explanation. In a release build it still reaches the two always-on streams: one `:rf.error/schema-validation-failure` record with `:source :boundary` on the error stream, and `:status :rejected` on that dispatch's `:handled-events` record ([Report errors in production](report-errors-in-production.md)). The production record carries nothing derived from the payload (no event vector, value, or explanation), so to diagnose a particular refusal, read the dev trace or branch in the handler. Registering `:boundary? true` on a handler with no `:schema` throws `:rf.error/at-boundary-missing-schema`.
+A malformed reply is now refused in every build: the handler is skipped and the payload never reaches app-db. In development the refusal is the usual `:rf.error/schema-validation-failure` trace with `:where :event`; what a release build reports is in [Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays).
 
 The other place to check a server payload is a Malli `:decode` schema on the `:rf.http/managed` request, which validates the response body as it is decoded; a mismatch is a `:rf.http/decode-failure` routed to `:on-failure`. It runs in production because it is part of decoding. Use `:decode` to check the body on the way in, and `:boundary? true` when you skip the decode schema but still want the handler's write guarded in production. [Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays) covers both.
 
@@ -436,7 +442,7 @@ A 503 from a restarting node or a dropped connection is a transport failure, and
         :backoff      {:base-ms 250 :factor 2 :max-ms 2000 :jitter true}}
 ```
 
-`:on` must be a set drawn from `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Any other member, or a vector instead of a set, raises `:rf.error/http-bad-retry-on` when the effect runs. Leave `:rf.http/http-4xx` out for a login: a 401 is a correct answer ("wrong password"), and retrying it only makes the user wait. `:on-failure` fires only after the final attempt, so a retry that succeeds reaches `:submit-success` and your handlers never see the intermediate 503s; each failed attempt leaves a `:rf.http/retry-attempt` trace row you can watch in [Xray](../glossary.md#xray). [Managed HTTP](../../async/http.md) has the full retry contract.
+Leave `:rf.http/http-4xx` out for a login: a 401 is a correct answer ("wrong password"), and retrying it only makes the user wait. `:on-failure` fires only after the final attempt, so a retry that succeeds reaches `:submit-success` and your handlers never see the intermediate 503s; each failed attempt leaves a `:rf.http/retry-attempt` trace row you can watch in [Xray](../glossary.md#xray). [Managed HTTP](../../async/http.md) has the full retry contract.
 
 !!! warning "Gotcha: transport retry is not 'refresh the token, then retry'"
 

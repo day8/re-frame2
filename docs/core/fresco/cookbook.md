@@ -111,11 +111,9 @@ for the Reagent adapter with its own event names, is `examples/core/todomvc`.
   serves as both boot and `^:dev/after-load` hook. With a plain `def`, a reload
   creates a fresh handle and the next render replaces the whole tree, losing DOM
   nodes and component state.
-- **Let `h/frame-root` create and seed the frame.** It creates the frame if it
-  does not exist and runs `:initial-events` in order before the first paint. If
-  the frame already exists, it reuses it and does not run the events, so do not
-  call `rf/make-frame` for the same id yourself. It accepts the whole
-  `rf/make-frame` option map (`:url-bound?`, `:fx-overrides`, `:images` and the
+- **Let `h/frame-root` create and seed the frame.** Do not also call
+  `rf/make-frame` for the same id; the `frame-root` head takes the whole
+  `make-frame` option map (`:url-bound?`, `:fx-overrides`, `:images` and the
   rest).
 - **Render the same options on reload.** Re-rendering a mounted `frame-root`
   with different options, such as dropping `:initial-events` because they have
@@ -428,6 +426,10 @@ Chapter: [Async resources](08-async-resources.md).
 
 ## Links that change the URL
 
+Register the routes, put `:url-bound? true` on the frame that owns the address
+bar, and render links with `h/route-link`. Without `:url-bound?`, navigation
+still changes the page but the address bar never moves.
+
 ```clojure
 (ns my.app.routes
   (:require [re-frame.core :as rf]
@@ -437,6 +439,12 @@ Chapter: [Async resources](08-async-resources.md).
 (rf/reg-route :app/todo
   {:params [:map [:id :string]]}
   "/todos/:id")
+```
+
+```clojure
+;; the boot recipe's app-tree, with the URL owned by this frame
+[h/frame-root {:id :app :url-bound? true :initial-events [[:todo/initialise]]}
+ [views/todo-app {}]]
 ```
 
 ```clojure
@@ -467,9 +475,6 @@ Chapter: [Async resources](08-async-resources.md).
   [focus recipe](07-routing-and-navigation.md#move-focus-after-a-page-change)
   makes the main region focusable with `:tab-index -1` and focuses it from a
   ref.
-
-The frame that owns the address bar needs `:url-bound? true` on its
-`h/frame-root`.
 
 Chapter: [Routing and navigation](07-routing-and-navigation.md).
 
@@ -540,9 +545,9 @@ Put error boundaries around regions rather than only around the whole
 application, so one failure does not blank the page.
 
 ```clojure
-(rf/reg-event :app/record-failure
+(rf/reg-event :todo/record-failure
   (fn [{:keys [db]} [_ error]]
-    {:db (update db :failures (fnil conj []) (ex-message error))}))
+    {:db (update db :todo/failures (fnil conj []) (ex-message error))}))
 
 (h/defview todo-panel [_]
   (let [todos (h/sub [:todo/all])]
@@ -554,21 +559,23 @@ application, so one failure does not blank the page.
                    [:p "The list could not be shown."]
                    [:button {:type "button" :on-click [:todo/reload]}
                     "Try again"]]
-       :on-error  [:app/record-failure]}
+       :on-error  [:todo/record-failure]}
       [todo-list {}]]]))
 ```
 
 `:todo/reload` is your own event that fetches the todos again.
 
-- **Use the content as the reset key.** `:reset-key` is compared with `=`, so
-  the boundary clears when different todos arrive and stays in the fallback
-  when the same bad data arrives again. A counter would reset, render the same
-  bad data, throw, and flicker back to the fallback.
+- **Choose what resets the region.** `:reset-key` is compared with `=`. Keyed
+  on the content, as here, the boundary clears only when different todos
+  arrive, so the same bad data stays in the fallback instead of throwing again.
+  A retry counter kept in app-db, as in
+  [Errors](17-errors.md#nested-boundaries-and-retry), remounts the region on
+  every click, which suits a failure that may not recur.
 - **You schedule the retry.** The button dispatches an ordinary event, and the
   new content resets the region.
 - **`:on-error` runs once per caught failure.** A vector is dispatched with the
-  error appended; a function is called with the error. Anything else is
-  rejected at the first render.
+  error appended; a function is called with the error. Anything else raises
+  `:rf.error/fresco-boundary-bad-on-error` at the first render.
 - **The fallback can show subscription values**, for example a translated
   message: read them in the body that writes the boundary, or render a view
   inside the fallback. An `h/sub` called directly inside a `(fn [error] …)`

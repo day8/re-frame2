@@ -6,8 +6,8 @@ runtime performs them. This page covers the other direction, the facts a handler
 
 Reading those inside the handler would make it impure. Instead, the handler declares
 what it needs and the runtime delivers the values as inputs called
-[coeffects](glossary.md#coeffect). Facts that end up in app-db are also recorded with
-the event, so replay and time-travel reproduce a run exactly.
+[coeffects](glossary.md#coeffect). A fact registered as recordable is stored with the
+event, so replaying the event reproduces the run exactly.
 
 ## Stamping todos with the time
 
@@ -65,11 +65,13 @@ Notes:
 
 1. The handler has the same shape as before. The only addition is
    `:rf.cofx/requires [:rf/time-ms]` in the metadata map, and the value arrives in
-   the handler's first argument, the **coeffects map**, under its own id.
+   the handler's first argument, the [world](glossary.md#world) map, under its own
+   id.
 2. The runtime reads the clock once, when the event is queued, and records the value
    with the event. Replay the event next week and `:created-at` comes out the same.
-3. App-db stores raw milliseconds. Formatting them for people is the view's job;
-   the view here shows the raw number.
+3. App-db stores raw milliseconds. Formatting them for people belongs in a
+   subscription ([Views](views.md#views-compute-hiccup-only)); this view shows the
+   raw number to keep the example short.
 
 `:rf/time-ms` is the one fact core provides. Everything else you register yourself.
 
@@ -121,15 +123,15 @@ storage, and the coeffect `:todo.storage/todos` is the only code that reads it.
     `:rf.cofx/requires [[:local-store "k"]]` in the metadata map, and the supplier
     returns the value instead of updating a context. `inject-cofx` is removed with no
     alias: `re-frame.core` has no such var, so a leftover call fails to compile. Coeffects are delivered before the
-    interceptor chain runs, so no interceptor sees a half-filled coeffects map. And
+    interceptor chain runs, so no interceptor sees a half-filled world map. And
     because there is only one `reg-event`, every handler can declare requirements
     (v1's `reg-event-db` could not). See the [migration guide](25-from-re-frame-v1.md).
 
-## The coeffects map
+## The world map
 
-The `{:keys [db]}` you destructure in every handler *is* the coeffects map. `:db` and
-`:event` are always there. Anything else arrives only if the handler declares it, and
-then sits beside `:db` under its own id. That map is the handler's whole input: it
+The `{:keys [db]}` you destructure in every handler is the
+[world](glossary.md#world) map, and everything in it is a coeffect. `:db` and `:event` are always there. Anything else arrives only
+if the handler declares it, and then sits beside `:db` under its own id. That map is the handler's whole input: it
 should read nothing else.
 
 | | Inputs (coeffects) | Outputs (effects) |
@@ -204,7 +206,8 @@ A new todo needs an id. An id ends up in app-db, so like the clock it can't come
 1. **Derive it from state.** The todo handlers above compute the next id from the
    existing keys, so nothing new needs recording.
 2. **Mint it at the dispatch site** and put it in the event, as in
-   `(dispatch [:todo/add {:id (random-uuid) :title "Buy milk"}])`. The id is part of
+   `(dispatch [:todo/add (random-uuid) "Buy milk"])`, with the handler destructuring
+   `[_ id title]`. The id is part of
    the recorded event vector, so replay reproduces it. This is the usual choice when
    state can't supply one.
 3. **A recordable coeffect**, only for values internal to event processing that the
@@ -212,37 +215,17 @@ A new todo needs an id. An id ends up in app-db, so like the clock it can't come
 
 ## The ledger
 
-Think of app-db as the running total of a **ledger**. Each event is a line added to
-the lines before it, and the app-db you see is the result of starting from the
-initial state and applying every event since, in order.
+App-db is the result of applying every event since the frame started, in order, like
+the running total of a ledger. Two fresh frames fed the same events therefore finish
+in the same state, provided handlers read nothing but `:db`, the event and recorded
+facts. A handler that reads the clock or storage in its body uses a value the ledger
+never recorded, and replay diverges. Declared requirements, recordable grades and the
+minting ladder all exist to prevent that.
 
-That gives a promise you can test:
-
-> **Two fresh apps, fed the same sequence of events, finish in identical states.**
-
-It holds only if handlers read nothing but their recorded inputs: `:db`, the event,
-and recordable facts. A handler that reads the clock or storage in its body uses a
-value the ledger never recorded, and replay diverges. Declared requirements,
-recordable grades, and the minting ladder all exist to keep the promise.
-
-With it in place:
-
-- **[Time travel](glossary.md#time-travel) re-totals fewer lines.** "Go back five
-  events" is the total up to line *n−5*, not an undo of five mutations.
-- **A bug report is a ledger excerpt.** "It broke after I did these things" becomes
-  an event list that reproduces the bad state in a fresh app, which is also a
-  regression test ([Test a pipeline run](testing/pipeline-runs.md)).
-- **Xray's event rows are the ledger, drawn.** [Xray](glossary.md#xray) renders the
-  [epoch](glossary.md#epoch) record the runtime already keeps, including the
-  recorded coeffects each event used.
-
-??? note "Going deeper"
-
-    The whole app is a left fold, Clojure's `reduce`, over the event stream:
-    `state' = step(state, event)`. Your handlers are the step function and the
-    runtime is the `reduce`. "Same events, same state" holds because `reduce` is
-    deterministic when its step function is pure, and recordable coeffects keep it
-    pure.
+This is what lets a bug report's list of events become a regression test that
+rebuilds the bad state in a fresh frame ([Test a pipeline run](testing/pipeline-runs.md)).
+[Xray](glossary.md#xray)'s event rows show each [epoch](glossary.md#epoch), including
+the recorded coeffects the event used.
 
 ## Supplying facts in tests
 

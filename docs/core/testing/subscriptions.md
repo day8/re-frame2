@@ -1,6 +1,6 @@
 # Test a subscription
 
-A [subscription](../subscriptions.md) computes a value from app-db, so testing it needs no reactive runtime, DOM or browser. `rf/compute-sub` runs a sub against an app-db **value** and returns the result. It runs on the JVM with no Reagent, no installed [adapter](../glossary.md#adapter) and no subscription cache.
+A [subscription](../subscriptions.md) computes a value from app-db. `rf/compute-sub` runs a sub against an app-db **value** and returns the result. It runs on the JVM with no Reagent, no installed [adapter](../glossary.md#adapter) and no subscription cache.
 
 The subs under test are the todo chain from [Subscriptions](../subscriptions.md#three-layers-one-graph): `:todo/todos` and `:todo/showing` read app-db, `:todo/all` turns the map into a sorted vector, and `:todo/visible` filters it.
 
@@ -68,7 +68,7 @@ Use a literal `db` when the sub is trivial and the shape is obvious, and seed wi
 
 ## When the sub carries a `:schema`
 
-Your assertions don't change. A sub registered with an output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) validates its value in dev, `compute-sub` included. A shape bug raises a structured `:rf.error/schema-validation-failure`, and the call returns `nil`. [Asserting on that error record](../errors.md#test-the-structure-not-the-string) is an ordinary listener-based test.
+Your assertions don't change. A sub registered with an output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) validates its value in dev, `compute-sub` included. A shape bug emits a `:rf.error/schema-validation-failure` error record, and the call returns `nil`. [Asserting on that error record](../errors.md#test-the-structure-not-the-string) is an ordinary listener-based test.
 
 ## Troubleshooting
 

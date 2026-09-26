@@ -134,16 +134,16 @@ views, exactly the way a `:div` contains a `:span`:
   [:span {:style {:color (if done? "MediumSeaGreen" "Tomato") :font-weight "bold"}}
    (if done? "done" "to do")])
 
-(rf/reg-view todo-row [{:keys [title done?]}]
+(rf/reg-view todo-item [{:keys [title done?]}]
   [:li {:style {:margin "0.25em 0"}}
    title " " [done-badge done?]])
 
 [:ul
- [todo-row {:title "Buy milk" :done? false}]
- [todo-row {:title "Walk the dog" :done? true}]]
+ [todo-item {:title "Buy milk" :done? false}]
+ [todo-item {:title "Walk the dog" :done? true}]]
 ```
 
-The same shape repeats at every level: `todo-row` uses `done-badge` the way `:li`
+The same shape repeats at every level: `todo-item` uses `done-badge` the way `:li`
 uses `:span`. A screen is a tree of views, and views bottom out in element keywords.
 
 !!! tip "Try it"
@@ -157,7 +157,7 @@ uses `:span`. A screen is a tree of views, and views bottom out in element keywo
 
     (into [:ul]
       (for [t todos]
-        [todo-row t]))
+        [todo-item t]))
     ```
 
 ## Troubleshooting
@@ -166,4 +166,4 @@ uses `:span`. A screen is a tree of views, and views bottom out in element keywo
 |---|---|---|
 | `[:p "hi" {:style ...}]` | The attribute map must be **second**; anywhere later it's just another child | `[:p {:style ...} "hi"]` |
 | The cell reports a reader error | A bracket is unbalanced; hiccup must first read as data | Balance the brackets |
-| The console warns that every element in a seq needs a unique `:key` | A `(for ...)` sequence was placed directly as a child | Pour it in with `into`, or give each item a stable `^{:key id}` ([Views](views.md) shows keys) |
+| The console warns that every element in a seq needs a unique `:key` | A `(for ...)` sequence was placed directly as a child | Give each item a stable `^{:key id}` ([Views](views.md) shows keys). Pouring the seq in with `into` also silences the warning, but React then matches children by position, so use it only for a list that never reorders |

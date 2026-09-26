@@ -30,7 +30,7 @@ stream also gets a `:rf.error/drain-depth-exceeded` trace with the full last eve
 a readable `:reason`.
 
 The [commit](glossary.md#commit) is per event, not per drain: every event the drain
-already settled keeps its app-db write and its history row. The runtime discards the
+already settled keeps its app-db write and its epoch. The runtime discards the
 remaining queued events and leaves the frame at the last settled state. In Xray you'll
 see the settled rows followed by a single `:halted-depth` marker.
 
@@ -85,5 +85,5 @@ running; the handler carries on, and a dev build reports
 
     There is no `^:flush-dom`: the drain never pauses mid-run to let a paint
     through. For "show this, *then* run the heavy work", return a
-    `[:dispatch-later {:ms 0 :event [...]}]` row, which lets one paint land before
-    the next event runs. See [From re-frame v1](25-from-re-frame-v1.md).
+    `[:dispatch-later {:ms 0 :event [...]}]` row. The current drain ends and views
+    re-render before the next event runs. See [From re-frame v1](25-from-re-frame-v1.md).

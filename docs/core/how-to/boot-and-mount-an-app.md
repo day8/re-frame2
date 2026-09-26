@@ -66,6 +66,15 @@ Wire `run` as the build's `:init-fn` — for example
 inside `mount!` lets the namespace load in tests or Node hosts where
 `js/document` is not present.
 
+Keep `render!` and listener installation out of top-level code too: a test
+host, a Story tool, or another namespace may load this one for its
+registrations without mounting the app.
+
+```clojure
+;; Don't do this at namespace load.
+(reagent-adapter/render! app-root [counter] (js/document.getElementById "app"))
+```
+
 The `ns` form is also part of boot. `counter.events` and `counter.subs` look
 unused, but requiring them runs their `reg-event` and `reg-sub` forms. Loading
 the code is the registration; there is no manifest and no wiring step. A real
@@ -194,32 +203,6 @@ full split and its edge cases are in
 (rf/make-frame {:id :todos/work :initial-events [[:todo/initialise]]})
 [rf/frame-provider {:frame :todos/work}
  [todo-app]]
-```
-
-## The boot lifecycle
-
-The whole recipe, one moment per row:
-
-| Moment | What should happen |
-| --- | --- |
-| Namespace load | The entry/boot namespace requires the registration namespaces, so their `reg-*` forms run. |
-| First page load | `run` installs the adapter, installs any host listeners, and mounts the view. |
-| First mount of `frame-root {:id ...}` | Ensure creates the frame (if absent) and runs `:initial-events`. |
-| Hot reload | The reload hook re-renders into the same root and reuses the same frame. |
-| Host listener edit | Reinstall the stored listener so the browser calls the current code. |
-| Fresh setup wanted | Reload the page, or destroy and re-create the frame; remounting does not replay setup. |
-
-## No DOM work at namespace load
-
-Top-level `reg-*` forms and allocating the `client-root` handle are fine at
-namespace load; `client-root` touches nothing until the first `render!`. Keep
-`render!` and listener installation out of top-level code, because the
-namespace may be loaded by a test host, a Story tool, or another namespace that
-wants the registrations without mounting the app.
-
-```clojure
-;; Don't do this at namespace load.
-(reagent-adapter/render! app-root [counter] (js/document.getElementById "app"))
 ```
 
 ## Troubleshooting

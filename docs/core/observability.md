@@ -11,9 +11,56 @@ each step. That stream of records is the [trace stream](glossary.md#trace-stream
 Each [frame](glossary.md#frame) also keeps a buffer of recent trace events and a
 history of [epochs](glossary.md#epoch), one record per run.
 
-The dev tools ([Xray](glossary.md#xray), Story, and the pair MCP server) read that
-stream and history, and so does any listener you write. None of them has a private
-data source, so they agree about what a run did.
+## Tools that read the trace stream
+
+re-frame2's tools read the stream, buffer and epoch history described below. None of
+them has a private channel, patches the framework, or instruments your handlers.
+
+```mermaid
+flowchart LR
+    RT["runtime\nevents · subs · fx · renders · machines · errors"] --> WIRE(("the trace\nstream"))
+    WIRE --> XR[Xray]
+    WIRE --> ST[Story]
+    WIRE --> MCP[pair MCP]
+    WIRE --> MV[machines-viz]
+    WIRE --> YOU[your listener]
+```
+
+**Xray shows what happened.** It is the Redux DevTools of re-frame2, covering the
+whole run: the epoch list, app-db diffs per event, which subscriptions recomputed,
+which views rendered, effects, machine transitions, schema failures, and time travel
+with `restore-epoch!`. It also draws the
+[derivation graph](derivations-and-algebra-views.md) from the registrations, so you
+can see where a value comes from. Start with [Debug with Xray](../xray/index.md).
+
+**Story shows the states a view should have.** It is re-frame2's Storybook. You
+render a [view](glossary.md#view)'s loading, empty, error and happy states as named
+variants, each in its own frame, and then turn good examples into tests. Story embeds
+Xray's panels for diagnosis. It has [its own docs](../story/index.md).
+
+**The pair MCP lets an agent help.** It is an MCP server that lets an AI attach to
+your running app: read frames and app-db, follow epochs, dispatch events, dry-run a
+pipeline run, time-travel. Mutating tools are flagged so the agent host can gate
+them.
+
+**machines-viz draws a machine.** It renders a
+[machine definition](../machines/concepts.md) as an interactive statechart (like
+Stately Studio) with the current state highlighted. Xray's machine inspector and Story
+both embed it.
+
+| Question | Open |
+|---|---|
+| "What did that event do?" | Xray |
+| "What states should this view support?" | Story |
+| "Where did this failed assertion come from?" | Story, then Xray |
+| "What does this state machine look like?" | machines-viz (inside Xray or Story) |
+| "Can an AI inspect the live app?" | the pair MCP |
+| "Can I ship telemetry to my APM?" | None of these: use an `:observability` sink |
+
+If you write your own tool (a domain monitor, a recorder, a release-health
+dashboard), build it on the same data: trace and epoch records for what happened, the
+[registrar](glossary.md#registrar) for what exists, and frame-scoped reads that
+respect classification. One listener registration is a complete integration.
 
 ## The trace stream
 
@@ -168,9 +215,7 @@ Set the depth with `configure!`:
 (rf/configure! {:trace-buffer {:events-retained 50}})   ;; the default
 ```
 
-`:events-retained` is the only key. Any other shape, such as `{:depth 50}` borrowed
-from `:epoch-history` below, leaves retention unchanged and emits
-`:rf.warning/trace-buffer-unrecognised-opts`.
+`:events-retained` is the only key.
 
 That sets the process default; a frame can set its own with
 `:rf.trace/events-retained` in its frame config. `{:events-retained 0}` turns
@@ -180,39 +225,6 @@ settings stay in force.
 
 Reading a frame that does not exist, or has been destroyed, returns `[]` rather than
 an error, just as `(rf/app-db-value <unknown>)` returns `nil`.
-
-??? info "Coming from Redux DevTools?"
-
-    This buffer is the action log you scroll back through after something looks wrong,
-    except that the framework keeps it itself, per frame, rather than a browser
-    extension recording dispatches. The epoch history below adds state diffs and time
-    travel.
-
-### Reading a slice
-
-`(rf/trace-buffer frame-id opts)` takes a filter map, so a tool does not have to read
-the whole buffer and filter it itself:
-
-```clojure
-;; Just the runs of :todo/add:
-(rf/trace-buffer :app {:event-id :todo/add})
-
-;; Polling: remember the last :id you saw and ask for what's newer
-;; (needs :flat, since :id is on individual trace events):
-(rf/trace-buffer :app {:flat true :since last-seen-id})
-
-;; Only error events, flat:
-(rf/trace-buffer :app {:flat true :op-type :error})
-
-;; Anything your own predicate accepts (it receives a bundle, or an event with :flat):
-(rf/trace-buffer :app {:pred (fn [run] (< 100 (count (:effects run))))})
-```
-
-Keys combine with AND. A missing key means no constraint, and an unrecognised key is
-ignored, so a tool can use a newer key and still work on an older runtime.
-`:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms` and `:pred`
-work on bundles and flat reads; `:operation`, `:op-type`, `:severity`, `:since`,
-`:source`, `:handler-id` and `:sensitive?` need `:flat true`.
 
 ## The epoch history: what the app *was*
 
@@ -231,8 +243,10 @@ coherent after-state; it returns `false` and emits an error trace instead.
 
 ??? info "Coming from Redux DevTools?"
 
-    This is the state-diff and time-travel feature, without re-running reducers from a
-    recorded action log. Each epoch record holds the actual immutable value, before
+    The trace buffer is the action log you scroll back through after something looks
+    wrong, kept per frame by the framework rather than by a browser extension. The
+    epoch history is the state-diff and time-travel feature, without re-running
+    reducers from a recorded action log. Each epoch record holds the actual immutable value, before
     and after, so a rewind is one assignment. That follows from [app-db](app-db.md)
     being a single immutable value per frame.
 
@@ -258,9 +272,7 @@ after projection: `(-> record rf/project-egress my-scrub)`.
 
 The only other listener stream is `:epoch`. It delivers one epoch record per run,
 after the run settles. Use it when you think in runs rather than in individual trace
-events. It needs the `day8/re-frame2-epoch` artefact; without it,
-`register-listener!` returns `nil` for this stream. Any other stream name, such as
-`:errors`, throws `:rf.error/unknown-listener-stream`; production errors reach you
+events. It needs the `day8/re-frame2-epoch` artefact. Production errors reach you
 through a sink ([below](#consuming-production-telemetry-declare-a-sink)).
 
 ```clojure
@@ -277,24 +289,6 @@ event, the parent and the child are two epochs and the callback fires twice. The
 exception is a [state machine](../machines/concepts.md) working on itself: when a
 transition raises an internal event or takes an immediate automatic transition, those
 steps belong to the triggering event's epoch.
-
-The same epoch can be delivered more than once. A late render, sub-run or unmount
-that arrives after the run settled re-publishes the record with the same
-`:epoch-id`, and a `replace-frame-state!` write or a halt publishes a record that no
-dequeued event produced. An `:epoch-id` is unique only within its frame, so key any
-cache by `[(:frame record) (:epoch-id record)]` and let a re-publication replace the
-entry.
-
-Each record's `:outcome` says how the run ended: `:ok` for a normal settle,
-`:halted-depth` if the run hit the re-entrancy depth guard, `:halted-destroy` if the
-frame was destroyed mid-run. A halted record holds what was captured up to the halt,
-plus a `:halt-reason`. A `:halted-destroy` record reaches listeners only; a destroyed
-frame keeps no history. A handler that threw still settles `:ok`: nothing was
-committed, and the error is in the record's `:trace-events`. To skip halted runs,
-check `(= :ok (:outcome record))` first.
-
-`re-frame.epoch/register-epoch-listener!` is the internal function behind this
-stream. Use `(rf/register-listener! :epoch …)`.
 
 ## In production builds
 
@@ -346,10 +340,7 @@ A frame names its sinks in its `:observability` config (`:errors` for error reco
 
 A sink id with no registered function receives nothing; in a development build, an
 error record no sink handled is printed to the console instead. A sink that throws is
-dropped for that record, and the other sinks still receive it. A typo in the
-`:observability` map (an unknown stream key such as `:error`, an unknown entry key, or
-an unknown `:rf.egress/profile`) throws `:rf.error/bad-frame-classification` from
-`make-frame`, or from `configure!`, before anything is installed.
+dropped for that record, and the other sinks still receive it.
 
 Most apps declare the policy once for the process instead:
 
@@ -397,22 +388,10 @@ A path counts as sensitive when the handler that writes it says so, with a
 [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md) covers marking
 data in full.
 
-On the `:handled-events` stream, each record's `:status` says how the dispatch ended:
-
-| `:status` | Meaning |
-|---|---|
-| `:ok` | Committed, flows ran, `:fx` processed. |
-| `:error` | The handler or an interceptor threw. |
-| `:rejected` | A `:boundary? true` handler's `:schema` refused the payload, so the handler never ran. |
-| `:rolled-back` | Schema validation rejected the new app-db before it was installed. |
-| `:flow-error` | A flow threw and halted the run. |
-
-`:rolled-back` never occurs in a release build, because app-db schema validation is
-elided: a dispatch that violates a schema installs and reports `:ok`. `:rejected` does
-occur, because the boundary check runs in every build.
-[Errors](errors.md#schema-validation-failures) covers both, and
-[Report errors in production](how-to/report-errors-in-production.md) shows the exact
-records your sinks receive.
+Each `:handled-events` record's `:status` says how the dispatch ended (`:ok`,
+`:error`, `:rejected`, `:rolled-back`, `:flow-error`);
+[Report errors in production](how-to/report-errors-in-production.md) shows the records
+your sinks receive and which statuses a release build can produce.
 
 ??? info "Coming from the Sentry / Datadog SDKs?"
 
@@ -431,58 +410,65 @@ it wraps the four hot paths (event dispatch, sub recompute, fx processing, rende
 is separate from `goog.DEBUG`, so you can ship timing without the trace stream.
 [Find and fix a slow view](how-to/fix-a-slow-view.md) shows the entries in use.
 
-## Tools that read the trace stream
+## Troubleshooting
 
-re-frame2's tools read the stream, buffer and epoch history described above. None of
-them has a private channel, patches the framework, or instruments your handlers.
-
-```mermaid
-flowchart LR
-    RT["runtime\nevents · subs · fx · renders · machines · errors"] --> WIRE(("the trace\nstream"))
-    WIRE --> XR[Xray]
-    WIRE --> ST[Story]
-    WIRE --> MCP[pair MCP]
-    WIRE --> MV[machines-viz]
-    WIRE --> YOU[your listener]
-```
-
-**Xray shows what happened.** It is the Redux DevTools of re-frame2, covering the
-whole run: the epoch list, app-db diffs per event, which subscriptions recomputed,
-which views rendered, effects, machine transitions, schema failures, and time travel
-with `restore-epoch!`. It also draws the
-[derivation graph](derivations-and-algebra-views.md) from the registrations, so you
-can see where a value comes from. Start with [Debug with Xray](../xray/index.md).
-
-**Story shows the states a view should have.** It is re-frame2's Storybook. You
-render a [view](glossary.md#view)'s loading, empty, error and happy states as named
-variants, each in its own frame, and then turn good examples into tests. Story embeds
-Xray's panels for diagnosis. It has [its own docs](../story/index.md).
-
-**The pair MCP lets an agent help.** It is an MCP server that lets an AI attach to
-your running app: read frames and app-db, follow epochs, dispatch events, dry-run a
-pipeline run, time-travel. Mutating tools are flagged so the agent host can gate
-them.
-
-**machines-viz draws a machine.** It renders a
-[machine definition](../machines/concepts.md) as an interactive statechart (like
-Stately Studio) with the current state highlighted. Xray's machine inspector and Story
-both embed it.
-
-| Question | Open |
-|---|---|
-| "What did that event do?" | Xray |
-| "What states should this view support?" | Story |
-| "Where did this failed assertion come from?" | Story, then Xray |
-| "What does this state machine look like?" | machines-viz (inside Xray or Story) |
-| "Can an AI inspect the live app?" | the pair MCP |
-| "Can I ship telemetry to my APM?" | None of these: use an `:observability` sink |
-
-If you write your own tool (a domain monitor, a recorder, a release-health
-dashboard), build it on the same data: trace and epoch records for what happened, the
-[registrar](glossary.md#registrar) for what exists, and frame-scoped reads that
-respect classification. One listener registration is a complete integration.
+| Symptom | Cause | Fix |
+|---|---|---|
+| A listener works in dev and never fires in production | The `:trace` and `:epoch` streams are elided from release builds | Ship telemetry through an `:observability` sink ([Consuming production telemetry](#consuming-production-telemetry-declare-a-sink)) |
+| `(rf/register-listener! :errors …)` throws `:rf.error/unknown-listener-stream` | Only `:trace` and `:epoch` are listener streams | Declare an `:errors` sink |
+| `(rf/register-listener! :epoch …)` returns `nil` | The `day8/re-frame2-epoch` artefact is not loaded | Add the artefact |
+| `:rf.warning/trace-buffer-unrecognised-opts`, retention unchanged | `configure!` got a `:trace-buffer` map with no non-negative `:events-retained`, such as `{:depth 50}` | Use `{:trace-buffer {:events-retained 50}}` |
+| A sink receives nothing and dev prints the error to the console | The sink id in `:observability` has no registered function | Register it with `rf/register-observability-sink!` |
+| `make-frame` or `configure!` throws `:rf.error/bad-frame-classification` | A typo in `:observability`: an unknown stream key such as `:error`, an unknown entry key, or an unknown `:rf.egress/profile` | Use `:errors` / `:handled-events`, `:sink`, and a listed profile |
+| A tool's listener keeps triggering itself | Its bookkeeping dispatch emits trace events that reach the listener again | Silence the handler or frame ([Silencing tool code](#silencing-tool-code)) |
 
 ## Advanced
+
+### Reading a slice
+
+`(rf/trace-buffer frame-id opts)` takes a filter map, so a tool does not have to read
+the whole buffer and filter it itself:
+
+```clojure
+;; Just the runs of :todo/add:
+(rf/trace-buffer :app {:event-id :todo/add})
+
+;; Polling: remember the last :id you saw and ask for what's newer
+;; (needs :flat, since :id is on individual trace events):
+(rf/trace-buffer :app {:flat true :since last-seen-id})
+
+;; Only error events, flat:
+(rf/trace-buffer :app {:flat true :op-type :error})
+
+;; Anything your own predicate accepts (it receives a bundle, or an event with :flat):
+(rf/trace-buffer :app {:pred (fn [run] (< 100 (count (:effects run))))})
+```
+
+Keys combine with AND. A missing key means no constraint, and an unrecognised key is
+ignored, so a tool can use a newer key and still work on an older runtime.
+`:event-id`, `:origin`, `:dispatch-id`, `:between [t0 t1]`, `:since-ms` and `:pred`
+work on bundles and flat reads; `:operation`, `:op-type`, `:severity`, `:since`,
+`:source`, `:handler-id` and `:sensitive?` need `:flat true`.
+
+### Epoch records: re-delivery and outcome
+
+The same epoch can be delivered more than once. A late render, sub-run or unmount
+that arrives after the run settled re-publishes the record with the same
+`:epoch-id`, and a `replace-frame-state!` write or a halt publishes a record that no
+dequeued event produced. An `:epoch-id` is unique only within its frame, so key any
+cache by `[(:frame record) (:epoch-id record)]` and let a re-publication replace the
+entry.
+
+Each record's `:outcome` says how the run ended: `:ok` for a normal settle,
+`:halted-depth` if the run hit the re-entrancy depth guard, `:halted-destroy` if the
+frame was destroyed mid-run. A halted record holds what was captured up to the halt,
+plus a `:halt-reason`. A `:halted-destroy` record reaches listeners only; a destroyed
+frame keeps no history. A handler that threw still settles `:ok`: nothing was
+committed, and the error is in the record's `:trace-events`. To skip halted runs,
+check `(= :ok (:outcome record))` first.
+
+`re-frame.epoch/register-epoch-listener!` is the internal function behind the
+`:epoch` stream. Use `(rf/register-listener! :epoch …)`.
 
 ### Emitting your own trace events
 

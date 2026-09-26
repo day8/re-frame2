@@ -46,20 +46,10 @@ bail-outs can skip their bodies.
     Collections, JS objects, dates, booleans, and functions are not.
 
 A missing key normally produces React's own development warning. Fresco adds
-two development-only warnings, each printed once per site and removed from
-production builds:
-
-- `:rf.warning/fresco-entity-key` fires for a sequence member whose head is an
-  `h/defview`, as in `[todo-row {:key …}]`, and whose key is not a string,
-  number, keyword, UUID, or symbol. It names the child view, the shape it found
-  at `:key`, and the first offending index, without printing the key itself.
-- `:rf.warning/fresco-missing-key` fires when a sequence of `h/defview`
-  children with no `:key` is passed as children to another Fresco view. Fresco
-  flattens those children before React sees them, so React's own check cannot
-  run there.
-
-Neither covers native tags. `[:li {:key {:id id}} …]` inside a `for` is the
-same mistake and passes silently.
+development-only warnings, printed once per site, for view children
+(`:rf.warning/fresco-entity-key`, `:rf.warning/fresco-missing-key`). Native
+tags are not checked, so `[:li {:key {:id id}} …]` inside a `for` passes
+silently.
 
 ??? info "For readers coming from Reagent"
     Fresco does not read `^{:key id}` metadata. Use
@@ -181,7 +171,8 @@ each view and how often they change.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | React warns about a missing key | A sequence member has no `:key` in its props map | Put `:key` in every sequence member's props map; Reagent metadata is not read |
-| Editing a row remounts it and reports an entity key | `:rf.warning/fresco-entity-key` | Use a stable primitive domain id, not the full row value |
+| Editing a row remounts it and reports an entity key | `:rf.warning/fresco-entity-key`; the warning names the child view, the shape at `:key` and the first offending index | Use a stable primitive domain id, not the full row value |
+| A list of views passed as another view's children reports `:rf.warning/fresco-missing-key` | The children have no `:key`; Fresco flattens view children before React sees them, so React's own check cannot run | Put `:key` in each child's props map |
 | Input state or animation jumps after insertion/reorder | Index keys changed row identity | Key rows by domain id |
 | One entity change runs every row body | The read sits too high for a sparse workload, or every row's props changed | Let rows read their own entities, or accept and measure the coarse model |
 | A bulk write runs every body despite equal-props bail-outs | Props contain a fresh function/JS object, or fields that change but are not rendered | Use event vectors and persistent values; select only displayed fields |
@@ -273,11 +264,17 @@ This uses the fine-grained `todo-row`, which reads its own todo:
 - `:compute-item-key` returns the same todo ids ordinary row keys would use.
 - Scroll position stays in the host rather than in app-db.
 
+`todo-row` holds a checkbox and a Delete button, so this list also needs the
+focused-row pin in [Keep the focused row mounted](#keep-the-focused-row-mounted).
+Check the virtualizer against [the three properties
+below](#screen-a-virtualizer-before-adopting-it) before copying this
+declaration; the declaration shows the host wiring and does not screen the
+library.
+
 By default a `defhost` renders only its `:fallback` (or nothing) on the
 server. Virtualization also changes find-in-page, select-all, print, and
-assistive-technology behaviour. The next three sections cover what a windowed
-list has to get right that an ordinary list does not; verify each in a real
-browser.
+assistive-technology behaviour. Verify focus and screen-reader behaviour in a
+real browser.
 
 ### Keep the focused row mounted
 

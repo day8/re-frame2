@@ -3,7 +3,9 @@
 A controlled field writes every edit directly to app-db. A form often needs a
 separate draft, validation that appears at the right time, and a submit status
 that survives renders. The optional `re-frame.fresco.forms` module provides
-those pieces without introducing local atoms or completion callbacks.
+the first of these, a buffered field whose draft lives in app-db. Validation
+timing and submit status are ordinary events, subscriptions and a mutation,
+shown below.
 
 A form has three kinds of state:
 
@@ -68,9 +70,7 @@ the value, handler, key, and revision slots remain owned by the field.
 
 Use an address that identifies the form instance and field. Two fields with
 the same address intentionally share a draft, which is usually a bug.
-`:control` is required: a missing or `nil` address is refused at the field's
-first render, reported as `:rf.error/sub-exception` whose cause is
-`:rf.error/fresco-state-bad-argument`.
+`:control` is required.
 
 `buffered-field` always renders an `<input>`, with `:type` defaulting to
 `"text"`. For multi-line text, use a controlled `:textarea` with the
@@ -122,6 +122,11 @@ The module also settles two common races:
   idempotent no-ops.
 
 ## Gate validation by interaction
+
+A buffered field commits one value at a time, which suits editing a todo in
+place. A form whose fields save together, such as the todo editor built in the
+rest of this chapter, keeps one draft map in app-db and edits it with ordinary
+controlled inputs.
 
 Validation can remain a pure function of the draft. Error display should be
 gated so a blank form does not report every problem on first paint. Track which
@@ -197,8 +202,8 @@ its `:on-commit` handler and use the same gated subscription.
 
 The handler needs to reject an invalid submission, and anything else that asks
 *may this be saved?* must get the same answer. Compute that decision once
-rather than maintaining two validation paths. A flow can materialise it into
-app-db:
+rather than maintaining two validation paths. A [flow](../flows.md) can
+materialise it into app-db:
 
 ```clojure
 (def can-submit-flow
@@ -220,9 +225,18 @@ app-db:
     (boolean (get-in db [:todo.editor :can-submit?]))))
 ```
 
-Register the flow once during boot. The subscription is the public read of the
-gate; the handler reads the same value directly from `db`, so the two cannot
-drift:
+Register the flow once, when the frame is created, by listing
+`:todo.editor/register-flow` in the frame's `:initial-events`:
+
+```clojure
+[h/frame-root {:id             :app
+               :initial-events [[:todo/initialise]
+                                [:todo.editor/register-flow]]}
+ [editor-form]]
+```
+
+The subscription is the public read of the gate; the handler reads the same
+value directly from `db`, so the two cannot drift:
 
 ```clojure
 (def save-instance :todo.editor/save)
@@ -296,9 +310,9 @@ its instance.
 
 ## Troubleshooting
 
-The module's common failures are behavioural rather than separately named
-runtime errors. Underlying controlled elements still use errors such as
-`:rf.error/fresco-revision-not-controlled`.
+Most failures here are behavioural. The named ones come from the pieces
+underneath: `reg-state` for a bad `:control`, and
+`:rf.error/fresco-revision-not-controlled` for a misplaced revision.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
@@ -308,6 +322,7 @@ runtime errors. Underlying controlled elements still use errors such as
 | The button enables but the handler rejects, or the reverse | The two sites recompute validity independently | Materialise one gate; subscribe in the view and read the same db value in the handler |
 | Escape clears the field and the old draft returns on blur | A second draft copy exists outside the module | Keep one addressed draft. The module's trailing blur already no-ops after cancel |
 | Two fields overwrite one another's drafts | Their `:control` addresses collide | Include form instance and field identity, for example `[:todo id :title]` |
+| A buffered field reports `:rf.error/sub-exception` at its first render, with cause `:rf.error/fresco-state-bad-argument` | `:control` is missing or `nil` | Pass a stable address such as `[:todo id :title]` |
 | A rejected or normalized draft remains visible | The committed value stayed equal and the revision did not advance | Move `::h/revision` whenever a commit rejects or rewrites |
 | An external value update does not replace the active edit | Value changed under an equal revision | Advance the revision only when the application intends to replace the draft |
 | A late async acceptance overwrites newer work | The settle event wrote without a revision/supersession fence | Settle value and revision together; apply the mutation's supersession policy |
@@ -320,9 +335,10 @@ runtime errors. Underlying controlled elements still use errors such as
 Use a direct controlled input for a search box, filter, settings toggle, or
 other value that should update app-db immediately and has no abandonable draft.
 
-Use the forms module only when you need at least one of its actual jobs:
-commit/cancel buffering, interaction-gated errors, or a readable submit
-lifecycle. Each buffered field adds an address and commit protocol to app-db.
+Use the forms module when a field needs commit/cancel buffering.
+Interaction-gated errors and a readable submit lifecycle need no module; they
+are the patterns on this page. Each buffered field adds an address and commit
+protocol to app-db.
 
 ## Advanced
 
@@ -330,8 +346,8 @@ lifecycle. Each buffered field adds an address and commit protocol to app-db.
 
 A draft survives re-render, remount, virtualization, and navigation, so every
 durable draft needs an owner that ends it: route entry, explicit cancel, or the
-successful save reply. Drafts live under the `forms/drafts` state concern,
-keyed by `:control`; end one by clearing that address:
+successful save reply. Drafts live under the `forms/drafts`
+[state concern](11-ephemeral-state.md), keyed by `:control`; end one by clearing that address:
 
 ```clojure
 {:fx [[:dispatch [::h/clear forms/drafts [:todo id :title]]]]}
@@ -352,11 +368,11 @@ For a dense grid where that cost is too high, use an explicitly uncontrolled
 input or a measured native island. The forms module is not a performance escape
 from controlled fields.
 
-### Problems the module avoids
+### Problems these patterns avoid
 
-Each row is a hand-written pattern the module replaces:
+Each row is a hand-written pattern and the model this page uses in its place:
 
-| Hand-written pattern | Failure it creates | Forms-module model |
+| Hand-written pattern | Failure it creates | Model on this page |
 | --- | --- | --- |
 | External value plus local atom for each field | Two sources must be synchronized, usually during rendering | One addressed draft in app-db |
 | Detect reset by comparing values | Reasserting an equal committed value cannot make a rejected draft disappear | Reset is signalled separately with `::h/revision` |

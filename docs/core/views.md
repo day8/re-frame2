@@ -3,7 +3,7 @@
 A [view](glossary.md#view) turns application state into a screen. It reads values
 through [subscriptions](subscriptions.md), returns [hiccup](hiccup.md) describing the
 screen for those values, and dispatches events when the user interacts. It stores no
-application state and performs no side effects; only frame-by-frame mechanics that
+application state and performs no side effects; only transient UI mechanics that
 nothing else reads, such as hover, focus or an animation's progress, may stay local
 to it. When a value it reads changes, the framework re-runs it and React updates the
 DOM.
@@ -204,10 +204,7 @@ as arguments.
 ```clojure
 ;; Do this: the child that touches state is registered; the parent passes data
 (rf/reg-view todo-item [{:keys [id title]}]
-  (let [editing? @(subscribe [:todo.ui/editing? id])]
-    [:li {:class    (when editing? "editing")
-          :on-click #(dispatch [:todo/toggle id])}
-     title]))
+  [:li {:on-click #(dispatch [:todo/toggle id])} title])
 
 (rf/reg-view todo-list []
   [:ul
@@ -219,14 +216,11 @@ Helpers stay plain: inputs that take `:value` and an `:on-change` callback,
 formatters, presentational wrappers. The [TodoMVC example](../../examples/core/todomvc)
 follows this split.
 
-!!! warning "A plain `defn` cannot find its frame"
-
-    An unregistered `defn` that calls `rf/subscribe` or `rf/dispatch` under
-    `frame-provider` / `frame-root` raises `:rf.error/no-frame-context`.
-    Registration is how a view finds its frame. If a helper must stay
-    unregistered, pass the frame explicitly (`{:frame …}` on each call, or the
-    `:dispatch` from a `(rf/capture-frame)` taken in a registered ancestor).
-    See [Frames](frames.md).
+An unregistered `defn` that calls `rf/subscribe` or `rf/dispatch` raises
+`:rf.error/no-frame-context`, even under `frame-root`, because registration is how a
+view finds its frame. A helper that must stay unregistered takes a callback its
+registered parent builds with the injected `dispatch`, as the inputs above take
+`:on-change`.
 
 !!! note "Setup on mount → `:initial-events`"
 
@@ -296,15 +290,11 @@ covers finding and fixing it.
 
 ## The trap: a callback that fires after render has no frame
 
-A view's `:on-*` handler runs *later*, when the user clicks, not when the view
-renders. By then the render is over: the dynamic [frame](glossary.md#frame) binding
-has unwound and the [frame-provider](glossary.md#frame-provider)'s React context is
-no longer being read. The adapter does not re-wrap `:on-*` callbacks to restore it
-(see [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found)).
-What works is capturing the frame *at render time*, which is what `reg-view`'s
-injected `dispatch` and `subscribe` do: each is a
-[`capture-frame`](glossary.md#capture-frame) operation bound to the render frame. So
-use the injected `dispatch` rather than the fully qualified `rf/dispatch`.
+A view's `:on-*` handler runs later, when the user clicks, after the render has
+finished. `rf/dispatch` looks for the current frame when it is called, and by then
+there is none. The injected `dispatch` captured its frame while the view rendered, so
+it still works; use it rather than `rf/dispatch`
+([why](glossary.md#frame-identity-is-carried-not-found)).
 
 A todo row that fades out and then deletes itself shows the difference:
 
@@ -338,7 +328,7 @@ returns a dispatch locked to the render frame that works after any async hop.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
 | Screen shows wrong data | A wrong event handler or sub, not the view | Inspect the data with [Xray](../xray/index.md); test the handler or sub without a browser |
 | View re-renders too often | Sort/filter in the view, or a sub that returns more than the view needs | Move the work into a sub; see [Find and fix a slow view](how-to/fix-a-slow-view.md) |

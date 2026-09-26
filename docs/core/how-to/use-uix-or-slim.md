@@ -10,7 +10,7 @@ This recipe moves an app's views to UIx, for a team that writes React function c
 
 Reagent is the default. It has the full example set and is the notation used throughout this guide. Choose UIx when your team or host codebase already writes React function components; its examples are the counter and login (which mirror the Reagent versions) and an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)). Choose slim when you have measured that the bundle is too large.
 
-## Step 1 — The one line that changes
+## 1. The one line that changes
 
 In the boot shape from [Boot and mount an app](boot-and-mount-an-app.md), the substrate is chosen by the first line of `run`:
 
@@ -40,7 +40,7 @@ The published reagent-slim artefact puts its adapter at the same `re-frame.adapt
 (rf/init! reagent-adapter/adapter)
 ```
 
-Moving from stock Reagent to slim therefore changes your `deps.edn` coordinate and your `reagent.*` view requires ([Step 6](#step-6--reagent-slim-kilobytes-for-capability)), not your boot call.
+Moving from stock Reagent to slim therefore changes your `deps.edn` coordinate and your `reagent.*` view requires ([step 6](#6-switch-to-reagent-slim)), not your boot call.
 
 !!! note "Using the repository instead of the published jar?"
 
@@ -75,13 +75,13 @@ A UIx app needs three coordinates:
         com.pitch/uix.core {:mvn/version "1.4.4"}}}    ; defui / $ / hooks
 ```
 
-`<latest>` is the released re-frame2 version; every re-frame2 artefact ships at the same version. The adapter mounts through its own `client-root` / `render!` (Step 4), so the app doesn't need `com.pitch/uix.dom`. Add it, at the same version as `uix.core`, only if something drives a React root by hand, as the component-test recipe in [Testing views](../testing/views.md#4-uix-hook-components-mount-it-for-real) does.
+`<latest>` is the released re-frame2 version; every re-frame2 artefact ships at the same version. The adapter mounts through its own `client-root` / `render!` ([step 4](#4-mount-it-scope-a-frame-into-the-subtree)), so the app doesn't need `com.pitch/uix.dom`. Add it, at the same version as `uix.core`, only if something drives a React root by hand, as the component-test recipe in [Testing views](../testing/views.md#4-uix-hook-components-mount-it-for-real) does.
 
 !!! note "Coordinates are not published yet"
 
     re-frame2 is pre-alpha; these coordinates publish with the first public release. In the repository the adapters build from [`implementation/adapters/`](../../../implementation/adapters).
 
-## Step 2 — Write a UIx view
+## 2. Write a UIx view
 
 Your events, subs, and effects port without edits; only the views change. Here is the counter in UIx:
 
@@ -103,18 +103,16 @@ Your events, subs, and effects port without edits; only the views change. Here i
 Three rules for UIx components:
 
 - **Read subs with `use-sub`.** It is a React hook built on `useSyncExternalStore`, so a subscription re-renders the component like any other hook. It uses the [frame](../glossary.md#frame) from the surrounding provider; `(use-sub [:q …] {:frame f})`, the same opts form `subscribe` takes, reads from an explicit frame instead.
-- **Dispatch through `use-frame`.** `(use-frame)` is a hook that returns the [frame api](../glossary.md#capture-frame), the map `{:frame :dispatch :dispatch-sync :subscribe}` for the surrounding provider's frame, which is exactly what `(rf/capture-frame)` returns. Take `dispatch` from it during render and close over it; never call a bare `rf/dispatch` in a callback (Step 3 explains why).
+- **Dispatch through `use-frame`.** `(use-frame)` is a hook that returns the [frame api](../glossary.md#capture-frame), the map `{:frame :dispatch :dispatch-sync :subscribe}` for the surrounding provider's frame, which is exactly what `(rf/capture-frame)` returns. Take `dispatch` from it during render and close over it; never call a bare `rf/dispatch` in a callback ([step 3](#3-why-callbacks-dispatch-off-the-frame-api) explains why).
 - **There is no `reg-view` for UIx.** UIx components are plain `defui`. `rf/reg-view*` exists for the rare component that needs a registry id.
 
 ??? info "For JavaScript developers"
 
     `use-sub` is `useSelector`: a hook over `useSyncExternalStore`, the primitive react-redux uses. The explicit-frame form is spelled the same way as Reagent's: `(use-sub [:q] {:frame f})` beside `@(rf/subscribe [:q] {:frame f})`.
 
-## Step 3 — Why callbacks dispatch off the frame api
+## 3. Why callbacks dispatch off the frame api
 
-A click handler runs after render, when no frame is in scope, so a bare `rf/dispatch` inside it raises `:rf.error/no-frame-context` ([Frames](../frames.md#the-async-boundary-capture-the-frame)). The [frame api](../glossary.md#capture-frame), taken during render while the provider's frame is in scope, holds that frame as a value the callback closes over ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
-
-[`capture-frame`](../glossary.md#capture-frame) is the underlying operation, and each substrate spells it its own way: Reagent's `reg-view` injects `dispatch` and `subscribe` into the view body, and UIx gives you the `use-frame` hook. Both produce the same map. Outside a component, where hooks can't run, call `(rf/capture-frame frame-id)` directly (below).
+A click handler runs after render, with no frame in scope, so a bare `rf/dispatch` in it raises `:rf.error/no-frame-context` ([Frames](../frames.md#the-async-boundary-capture-the-frame)). `use-frame` is UIx's spelling of [`capture-frame`](../glossary.md#capture-frame): take the frame api during render and close over it.
 
 The frame api holds every frame-bound operation:
 
@@ -147,7 +145,7 @@ Hooks run only during render. Outside any component (an async setup function, a 
 
     v1's global `re-frame.core/dispatch` worked anywhere because there was one implicit app. re-frame2 can run many frames and never guesses one, so the frame api is how a callback keeps the right frame ([Frames](../frames.md#the-one-rule-frame-identity-is-carried-not-found)).
 
-## Step 4 — Mount it: scope a frame into the subtree
+## 4. Mount it: scope a frame into the subtree
 
 Mount the root inside a `frame-root`, which creates the frame on first mount and makes it the frame every `use-sub` and `use-frame` below it uses. This is the Reagent boot shape from [Boot and mount an app](boot-and-mount-an-app.md) with the UIx adapter:
 
@@ -183,12 +181,9 @@ The `client-root` / `render!` / `unmount!` trio works as it does for Reagent: th
 
     A tree rendered with no `frame-root` or `frame-provider` above it raises `:rf.error/no-frame-context` at the first `use-sub`. re-frame2 never guesses a frame.
 
-## Step 5 — Ensure a view's own frame
+## 5. Ensure a view's own frame
 
-There are two frame components ([Frames — frame-provider and frame-root](../frames.md#frame-provider-and-frame-root)):
-
-- **`frame-root {:id …}`** ensures a frame exists: it creates it on first mount if absent and reuses it, without re-seeding, if present. It takes `rf/make-frame`'s construction options: `:id` (a required keyword), `:images` (the [images](../glossary.md#image) of events, subs, and effects the frame is created with), and `:initial-events` (setup events run in order right after creation). It never destroys the frame on unmount. Use it for the app root, and for a modal, tab, or per-tenant panel that brings its own frame.
-- **`frame-provider {:frame …}`** scopes a frame that already exists, created with `rf/make-frame` at boot, in a test, or by SSR. It creates and destroys nothing.
+`frame-root {:id …}` creates its frame on first mount, taking any `make-frame` option (`:images`, `:initial-events`, `:url-bound?`, …), and reuses it on remount; `frame-provider {:frame …}` scopes a frame that already exists. [Frames](../frames.md#frame-provider-and-frame-root) covers the split. In UIx:
 
 ```clojure
 ;; A panel that brings its own frame: created on first mount, reused on remount.
@@ -205,7 +200,9 @@ There are two frame components ([Frames — frame-provider and frame-root](../fr
 
 All the React adapters use the same React context for frames, so frame components compose across substrates: a Reagent `frame-root` above a UIx subtree works.
 
-## Step 6 — reagent-slim: kilobytes for capability
+A `frame-provider`'s `:frame` of `nil` raises `:rf.error/no-frame-context`; a string or number raises `:rf.error/bad-frame-provider-arg`.
+
+## 6. Switch to reagent-slim
 
 reagent-slim is plain Reagent with legacy surface removed, for apps where bundle size is a measured problem. It is not a different way of writing views. The trade:
 
@@ -214,7 +211,7 @@ reagent-slim is plain Reagent with legacy surface removed, for apps where bundle
 
 Your app depends on exactly one of `day8/re-frame2-reagent` and `day8/reagent-slim`. The migration:
 
-1. Change the deps coordinate to `day8/reagent-slim`. The `re-frame.adapter.reagent` require and the `init!` line stay as they are ([Step 1](#step-1--the-one-line-that-changes)).
+1. Change the deps coordinate to `day8/reagent-slim`. The `re-frame.adapter.reagent` require and the `init!` line stay as they are ([step 1](#1-the-one-line-that-changes)).
 2. Set `react` and `react-dom` to 19.x in `package.json`.
 3. Change `reagent.*` requires in your views to `reagent2.*` (for example `reagent2.core` for `reagent.core`).
 4. If you call Reagent's DOM API directly rather than the adapter's `client-root` / `render!`, replace `reagent.dom/render` with `reagent2.dom.client/create-root` plus `render`, and `reagent.dom/unmount-component-at-node` with `reagent2.dom.client/unmount`.
@@ -258,21 +255,7 @@ To confirm the port, run the app and open [Xray](../glossary.md#xray): the event
 
 ## Advanced
 
-### Frame components in detail
-
-Each component fails loud when given the other's key: a `frame-root` given `:frame` raises `:rf.error/frame-root-given-frame`, a `frame-provider` given `:id` raises `:rf.error/frame-provider-given-id`, and a `frame-root` without a keyword `:id` raises `:rf.error/frame-root-missing-id`. A `frame-provider`'s `:frame` must be a frame-id keyword or a frame value: `nil` raises `:rf.error/no-frame-context`, another type (a string, a number) raises `:rf.error/bad-frame-provider-arg`, and a frame that was never created or has been destroyed raises `:rf.error/frame-provider-frame-absent`.
-
-!!! note "frame-root creates its frame at commit"
-
-    `frame-root` creates the frame in a `useLayoutEffect`, not during render: its first render has no children, the frame is created after commit, and then the children render against it. A render React discards before commit, such as a Suspense abort, creates and seeds nothing.
-
-!!! note "Remounting is safe"
-
-    Remounting `frame-root` under the same `:id` (a hot reload, React StrictMode's double render in dev, a Story re-evaluation) doesn't destroy state or replay `:initial-events`: it refreshes the config and image and keeps app-db, the subscription cache, and the queue. Changing a mounted `frame-root`'s `:id` or options raises `:rf.error/frame-root-reconfigured`; to switch to a different frame, give the component a React `key` that changes with it.
-
-!!! note "Owning a frame's whole lifetime"
-
-    Since `frame-root` never destroys its frame, a component that should own a frame from birth to death (a modal whose state goes away on close) must do it explicitly: call `rf/make-frame` when it mounts and `rf/destroy-frame!` when it unmounts, and scope the frame to its children with `frame-provider`.
+Frame-component errors, `frame-root`'s commit-time creation, remounting and owning a frame's whole lifetime work as described in [Frames](../frames.md#frame-provider-and-frame-root); the UIx components behave identically.
 
 !!! warning "Gotcha: a captured frame can outlive a destroyed frame"
 

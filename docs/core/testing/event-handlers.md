@@ -1,12 +1,12 @@
 # Test an event handler
 
-An [**event handler**](../glossary.md#event-handler) is the pure function that runs when an [event](../glossary.md#event) is dispatched and computes the next state. Most of an app's logic lives in handlers, so most of your tests belong here. They are also the cheapest tests you will write: pull the handler out of the [registrar](../glossary.md#registrar), call it with literal values, and assert on what it returns. No browser, no DOM, no fake network or clock.
+An [**event handler**](../glossary.md#event-handler) is the pure function that runs when an [event](../glossary.md#event) is dispatched and computes the next state. Most of an app's logic lives in handlers, so most of your tests belong here. They are also the cheapest tests you will write: pull the handler out of the [registrar](../glossary.md#registrar), call it with literal values, and assert on what it returns.
 
 The examples test the todo app, whose app-db looks like `{:todos {1 {:id 1 :title "Buy milk" :done? false}} :showing :all}`.
 
 ## 1. Pluck the handler and call it
 
-Every event handler takes two arguments: the [**coeffects**](../glossary.md#coeffect) map (the facts the framework hands it, always including `:db`, the current [app-db](../glossary.md#app-db)) and the event vector. It returns an [**effect map**](../glossary.md#effect-map) whose `:db` key is the next state.
+Every event handler takes two arguments: the [**world**](../glossary.md#world) map (the facts the framework hands it, always including `:db`, the current [app-db](../glossary.md#app-db)) and the event vector. It returns an [**effect map**](../glossary.md#effect-map) whose `:db` key is the next state.
 
 ```clojure
 ;; src/my_app/todos.cljc
@@ -25,6 +25,8 @@ Every event handler takes two arguments: the [**coeffects**](../glossary.md#coef
             [re-frame.substrate.plain-atom :as plain-atom]
             [my-app.todos]))   ;; loading the ns registers the handlers
 
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
 (deftest toggle-flips-done
   (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :todo/toggle}))
         db      {:todos {1 {:id 1 :title "Buy milk" :done? false}}}]
@@ -32,9 +34,7 @@ Every event handler takes two arguments: the [**coeffects**](../glossary.md#coef
                        [:db :todos 1 :done?])))))
 ```
 
-That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (`ts` and `plain-atom` are used by the reset fixture later on this page. Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).)
-
-`handler-meta` returns `nil` for an unregistered id. If you misspell the id or forget the require, `(:handler-fn nil)` is `nil` and the next line fails with "nil is not a function". When that happens, check the id and the require list.
+That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).)
 
 `:handler-fn` is the handler alone, without the interceptors its registration lists. A handler registered with [`[:rf.interceptor/path [:todos]]`](../interceptors.md#the-one-standard-interceptor-path) expects `:db` to be the `:todos` map, so pass that map in the literal, or test it through the runtime ([section 3](#3-when-you-want-the-runtime-a-fresh-frame-per-test)). Given the whole db, it writes to the wrong place and nothing fails.
 
@@ -46,7 +46,7 @@ A handler that only performs side effects, say one that dispatches a follow-up, 
 
 ## 2. A handler that needs the world
 
-Some handlers need facts from outside: the current time, a random number, a value from local storage. The handler **declares** each one as a [coeffect](../glossary.md#coeffect), and the value arrives as ordinary data in the coeffects map. The test hands it in.
+Some handlers need facts from outside: the current time, a random number, a value from local storage. The handler **declares** each one as a [coeffect](../glossary.md#coeffect), and the value arrives as ordinary data in the world map. The test hands it in.
 
 This `:todo/add` stamps the creation time and asks for the list to be saved:
 
@@ -62,7 +62,7 @@ This `:todo/add` stamps the creation time and asks for the list to be saved:
        :fx [[:todo.storage/save todos]]})))
 ```
 
-`:rf.cofx/requires` lists the coeffects the handler reads, here only the clock. Each arrives flat in the coeffects map beside `:db`. The list is also the test's fixture checklist, and you can read it off the registrar:
+`:rf.cofx/requires` lists the coeffects the handler reads, here only the clock. Each arrives flat in the world map beside `:db`. The list is also the test's fixture checklist, and you can read it off the registrar:
 
 ```clojure
 (:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id :todo/add}))
@@ -85,7 +85,7 @@ The test supplies exactly those facts:
 
 The handler did not write to storage. It returned a description of the write, an [effect](../glossary.md#effect), and the runtime, absent from this test, is what would perform it. So the test asserts on the description. [Effects and coeffects](../coeffects.md) explains why the outside world only appears at this boundary.
 
-!!! note "What the coeffects map contains"
+!!! note "What the world map contains"
 
     At runtime a handler receives the base keys (`:db`, `:event`, the frame id and the recorded `:rf.cofx` map) plus exactly the facts named in its `:rf.cofx/requires`, each under its own id. An undeclared fact is not delivered. In a pure-call test you only build the keys the handler reads.
 
@@ -106,16 +106,12 @@ A frame runs on a substrate [adapter](../glossary.md#adapter), even on the JVM, 
     (is (= "Buy milk" (get-in (rf/app-db-value f) [:todos 1 :title])))))
 ```
 
-[`dispatch-sync`](../glossary.md#dispatch-sync) [drains](../glossary.md#drain--run-to-completion) the queue before it returns, so the next line reads committed state. The two options replace the literal coeffects map from section 2:
+[`dispatch-sync`](../glossary.md#dispatch-sync) [drains](../glossary.md#drain--run-to-completion) the queue before it returns, so the next line reads committed state. The two options replace the literal world map from section 2:
 
 - **`:rf.cofx`** supplies coeffects on the dispatch. Supplied values win, and the runtime fills in only what is missing. Without it the clock would be the real time the event was queued.
 - **`:fx-overrides`** redirects an effect for this one dispatch. Here it discards the storage write. [Test a pipeline run](pipeline-runs.md) shows how to capture the args instead, or answer an HTTP request with a canned reply.
 
-!!! warning "Gotcha"
-
-    Call `dispatch-sync` from a test, at boot or at the REPL, never from inside a running handler. In a handler, `(rf/dispatch-sync [:other])` drops the event, and a dev build reports `:rf.error/dispatch-sync-in-handler`. Return `{:fx [[:dispatch [:other]]]}` instead, and the runtime runs it in the same drain.
-
-Inside a `with-new-frame` body you don't pass `:frame`, because the macro makes `f` current. If you keep a frame in a `let` and destroy it yourself, pass `{:frame f}` in the dispatch opts. Under the reset fixture a dispatch without it goes to the fixture's `:rf/default` frame, not to `f`, and nothing fails; outside any scope it raises `:rf.error/no-frame-context` (see [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
+Inside a `with-new-frame` body you don't pass `:frame`, because the macro makes `f` current. If you keep a frame in a `let` and destroy it yourself, pass `{:frame f}` in the dispatch opts.
 
 ### Seeding state: the frame boots it, the body tests it
 
@@ -138,8 +134,6 @@ When a test needs state before the action under test, hand the setup to `make-fr
                    :opts  {:rf.cofx {:rf/time-ms 1781078400123}}}]}
 ```
 
-If a setup step fails (a handler throws, a required coeffect is missing), `make-frame` destroys the partial frame and throws `:rf.error/initial-events-step-failed` naming the step, so a broken seed fails at the `make-frame` line.
-
 ### Checking one path
 
 `re-frame.test-support` has a `clojure.test`-aware path assertion, `(ts/assert-path-equals path expected opts?)`. It reads a frame's app-db, compares the value at `path`, and reports a pass or fail through `clojure.test`. Like `dispatch-sync`, it works on the current frame, so inside `with-new-frame` it needs no `:frame`. A failure message names the frame by its id, so an `:id` makes that message readable:
@@ -161,15 +155,11 @@ To check a different frame, pass `{:frame x}`, where `x` is the frame's id or th
 
 If two test namespaces register different handlers under the same id, the later load wins silently. Every test passes alone, the suite fails together, and the failure moves when test order changes.
 
-If your tests, or helpers they load, register anything themselves, add the reset fixture:
+That is why the test namespace in section 1 installs the reset fixture.
 
-```clojure
-(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
-```
+`make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. It snapshots the registrar before each test and restores it afterwards, keeping what was registered before the `use-fixtures` form ran. So register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes. It also resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches (when the test requires `re-frame.resources.test-support`), epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing, so use it as the default for any real suite.
 
-`make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. It snapshots the registrar before each test and restores it afterwards, keeping what was registered before the `use-fixtures` form ran. So register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes (`:rf.error/no-such-handler`). It also resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches (when the test requires `re-frame.resources.test-support`), epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing, so use it as the default for any real suite.
-
-The reset removes whatever adapter is installed, so the fixture takes `:adapter`: `plain-atom/adapter` is the headless adapter for the JVM, and the fixture installs it and creates the `:rf/default` frame before each test. Without `:adapter`, the next `make-frame` throws `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` if your code called `rf/init!` itself.
+The reset removes whatever adapter is installed, so the fixture takes `:adapter`: `plain-atom/adapter` is the headless adapter for the JVM, and the fixture installs it and creates the `:rf/default` frame before each test.
 
 For a single ad-hoc block, call the primitives `ts/snapshot-registrar` and `ts/restore-registrar!` yourself:
 
@@ -180,6 +170,17 @@ For a single ad-hoc block, call the primitives `ts/snapshot-registrar` and `ts/r
     ;; ... assertions that need the scratch registration ...
     (finally (ts/restore-registrar! snap))))
 ```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| "nil is not a function" on the line after `handler-meta` | `handler-meta` returned `nil`: the id is misspelt or the handler's namespace isn't required | Check the id and the test's require list |
+| `make-frame` throws `:rf.error/no-adapter-installed` or `:rf.error/adapter-disposed` | No reset fixture, or one without `:adapter` (the reset removes whatever adapter `rf/init!` installed) | Pass `{:adapter plain-atom/adapter}` to the fixture |
+| `:rf.error/dispatch-sync-in-handler` in a dev build, and the event never runs | A handler called `dispatch-sync` | Return `{:fx [[:dispatch [:other]]]}` instead; it runs in the same drain |
+| An assertion on `f` sees no change, and nothing fails | A dispatch outside `with-new-frame` without `{:frame f}` went to the fixture's `:rf/default` frame | Dispatch inside `with-new-frame`, or pass `{:frame f}` |
+| `make-frame` throws `:rf.error/initial-events-step-failed` | A seed step threw or lacked a required coeffect; the error names the step | Fix that step, or give it `:opts` with the missing `:rf.cofx` |
+| `:rf.error/no-such-handler` for a handler the test file registers | A top-level `reg-*` below `use-fixtures` is outside the fixture's baseline | Move it above the fixture form, or into the `deftest` body |
 
 ## Advanced
 
@@ -206,8 +207,4 @@ Some coeffects are backed by a **generator**: an app-registered, recordable `reg
 
 Supply the fact in `:rf.cofx`, which is almost always what you want. When a fresh value per run is intended, pass `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
 
-`{:preset :test}` expands to three entries: it redirects `:rf.http/managed` to a canned-success stub (registered by `re-frame.http.test-support`, so require that namespace), sets `:rf.cofx/mint-policy :strict`, and sets `:drain-depth 100`, the framework default. Your own keys win over the expansion, key by key, so your own `:fx-overrides` replaces the HTTP redirect ([Test a pipeline run](pipeline-runs.md#the-test-preset) shows how to keep both).
-
-### Why no mocks are needed
-
-Declaring its inputs makes the handler a function from an environment (the coeffects map) to a value (the effect map). The framework builds the environment and performs the effects, and the handler in between is pure. The test calls that pure function with a literal environment, and the `:rf.cofx/requires` vector tells you what the environment must contain.
+`{:preset :test}` also redirects `:rf.http/managed` to a canned stub; [Test a pipeline run](pipeline-runs.md#the-test-preset) lists the whole expansion and how it combines with your own `:fx-overrides`.

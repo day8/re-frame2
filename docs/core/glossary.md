@@ -55,9 +55,9 @@ Related: [app-db](app-db.md).
 
 A fact about the world (the time, a fresh id, a stored value) that the runtime hands
 to an [event handler](#event-handler) as data, so the handler never reaches out
-itself. The handler's first argument is the coeffects map: `:db` is always there, and
-any other fact is listed under `:rf.cofx/requires`. The clock, `:rf/time-ms`, is
-built in:
+itself. The handler's first argument is the [world](#world) map: `:db` is always
+there, and any other fact is listed under `:rf.cofx/requires`. The clock,
+`:rf/time-ms`, is built in:
 
 ```clojure
 (rf/reg-event :todo/add
@@ -125,9 +125,9 @@ Related: [Effects](effects.md).
 ### **error record**
 
 The structured map the runtime produces when something fails. Its category, an
-`:rf.error/*` keyword, is under `:operation` on a traced record and under
-`:rf.error/id` in `ex-data` when the framework throws. Branch on the category, never
-on the human-readable `:reason`.
+`:rf.error/*` keyword, is under `:operation` on a traced record, under `:error` on the
+record an `:errors` [sink](#sink) receives, and under `:rf.error/id` in `ex-data` when
+the framework throws. Branch on the category, never on the human-readable `:reason`.
 
 ```clojure
 {:op-type   :error
@@ -175,8 +175,7 @@ per [render batch](#render-batch) after the queue settles ([derive](#derive) →
 One pass through the pipeline is a [run](#run); the record it leaves is an
 [epoch](#epoch).
 
-Related: [Introduction](introduction.md). Say "event pipeline" or "pipeline run",
-not "the loop".
+Related: [Introduction](introduction.md).
 
 ### **run**
 
@@ -240,15 +239,15 @@ Related: [Coeffects](coeffects.md).
 The runtime's internal wrapper around a dispatched [event](#event): the event vector
 plus its target [frame](#frame), origin, tracing ids, per-dispatch options, and the
 recorded values of replayable coeffects such as `:rf/time-ms`. Handlers never see it;
-they get the event vector and the coeffects map. You meet it only in tools and
+they get the event vector and the [world](#world) map. You meet it only in tools and
 low-level code.
 
 Related: [Frames](frames.md).
 
 ### **event handler**
 
-The pure function registered with `reg-event`. It takes the [coeffects](#coeffect)
-map (including `:db`) and the event vector, and returns an
+The pure function registered with `reg-event`. It takes the [world](#world) map
+(including `:db`) and the event vector, and returns an
 [effect map](#effect-map). It describes changes; it does not perform them.
 
 ```clojure
@@ -295,8 +294,8 @@ Related: [Frames](frames.md).
 
 ### **capture-frame**
 
-`(rf/capture-frame)` returns a map with the current frame's `:dispatch`,
-`:dispatch-sync` and `:subscribe`, plus its `:frame` id. Call it while the frame is in
+`(rf/capture-frame)` returns a **frame api**: a map with the current frame's
+`:dispatch`, `:dispatch-sync` and `:subscribe`, plus its `:frame` id. Call it while the frame is in
 scope and use the result in a later `setTimeout`, promise or WebSocket callback, which
 would otherwise raise `:rf.error/no-frame-context`.
 
@@ -436,8 +435,9 @@ Related: [the two partitions](#the-two-partitions).
 A data description of a value's shape, in Malli by default:
 `[:map [:id :int] [:title :string] [:done? :boolean]]`. You attach one to an app-db
 path (`reg-app-schema`), an event, or an HTTP `:decode` step. App-db and ordinary
-event checks run only in dev; a `:boundary? true` event schema and an HTTP `:decode`
-schema are checked in every build.
+event checks run only in dev; a `:boundary? true` event schema, a recordable
+coeffect's schema, a declared route's shape, a managed-HTTP `:decode` schema and the
+reserved `:rf.server/*` effects' arguments are checked in every build.
 
 Related: [Validate with schemas](how-to/validate-with-schemas.md),
 [Errors](errors.md#schema-validation-failures).
@@ -582,7 +582,8 @@ in ClojureScript, `-Dre-frame.debug` on the JVM). It removes the
 [trace stream](#trace-stream), the [epoch](#epoch) history and the schema checks you
 declared. The always-on error and handled-event records survive, and so do the
 framework's own boundary checks (a `:boundary? true` event schema, a recordable
-coeffect's schema, a declared route's shape).
+coeffect's schema, a declared route's shape, a managed-HTTP `:decode` schema and the
+reserved `:rf.server/*` effects' arguments).
 
 Related: [Observability](observability.md#in-production-builds),
 [Configure dev and production builds](how-to/configure-dev-and-prod.md).
@@ -651,9 +652,10 @@ Related: [Effects](effects.md).
 ### **Fail loud, not silent**
 
 When the runtime cannot do what was asked (an unregistered id, a missing coeffect, an
-unknown effect), it raises a structured [error record](#error-record) rather than
-returning `nil` or doing nothing. Fail-loud (raise instead of swallow) is different
-from fail-closed (deny by default at a boundary).
+unknown effect), it emits a structured [error record](#error-record) naming the
+problem, even when it carries on (a missing fx is dropped, a missing sub reads `nil`).
+Nothing fails silently. Fail-loud (report instead of swallow) is different from
+fail-closed (deny by default at a boundary).
 
 Related: [Errors](errors.md).
 

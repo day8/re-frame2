@@ -1,8 +1,8 @@
 # Test a view
 
-A [view](../glossary.md#view) returns [hiccup](../glossary.md#hiccup), which is plain data, so a view test is a function call and a tree walk. It checks what the view is responsible for: the structure it returns, the text it shows for a given state, and which event each control dispatches. It needs no browser, no JSDOM and no `act()`, and runs on the JVM.
+A [view](../glossary.md#view) returns [hiccup](../glossary.md#hiccup), which is plain data, so a view test is a function call and a tree walk. It checks what the view is responsible for: the structure it returns, the text it shows for a given state, and which event each control dispatches.
 
-Most wrong screens are data bugs. A view holds no state and decides nothing, so the cause is usually an upstream [subscription](subscriptions.md) or [handler](event-handlers.md), and those have cheaper tests. Keep view tests for structure, text and wiring.
+Most wrong screens are data bugs: a view holds no state and decides nothing, so the cause is usually upstream. If the assertion is really "the filter is right" or "the count is correct", write a [subscription test](subscriptions.md); if it is "the state changed correctly", write a [handler test](event-handlers.md). Write a view test for the view's own structure, text and wiring. Many views need none.
 
 Sections 1–3 test the todo views from [Views](../views.md), which are `reg-view`s you can call as functions. A UIx `defui` that calls `use-sub` or `use-frame` is a React hook component and has to be mounted in a browser; [section 4](#4-uix-hook-components-mount-it-for-real) has that recipe.
 
@@ -15,7 +15,8 @@ The tools are `re-frame.test-helpers`, pure functions over hiccup [listed in the
             [re-frame.test-support :as ts]
             [re-frame.test-helpers :as th]
             [re-frame.substrate.plain-atom :as plain-atom]   ;; the JVM / headless adapter
-            [my-app.todos]                                   ;; events and subs
+            [my-app.todos]                                   ;; events
+            [my-app.subs]                                    ;; subs
             [my-app.views :as views]))
 
 (use-fixtures :each
@@ -27,7 +28,7 @@ The tools are `re-frame.test-helpers`, pure functions over hiccup [listed in the
                               :showing :all}])}))
 ```
 
-Given an `:adapter`, the fixture installs it before each test and makes the `:rf/default` frame current, so views can subscribe and dispatch. `:init-fn` then runs, so it is the place to seed state; here the built-in `:rf/set-db` event sets app-db wholesale. The fixture also restores the registrar after every test.
+Given an `:adapter`, the fixture installs it before each test and makes the `:rf/default` frame current, so views can subscribe and dispatch. `:init-fn` then runs, so it is the place to seed state; here the built-in `:rf/set-db` event sets app-db wholesale. These tests share the fixture's `:rf/default` frame instead of making one per test, so the seed goes in `:init-fn`, the fixture's equivalent of `:initial-events`. The fixture also restores the registrar after every test.
 
 ## 1. Call it, walk it
 
@@ -56,7 +57,7 @@ Call the view like a function and read the tree it returns:
     (is (true? (:checked (th/attrs (th/find-by-testid tree "toggle-1")))))))
 ```
 
-`find-by-testid` returns the first node carrying that `:data-testid`, and `text-content` joins the string leaves under it. `find-all-by-testid`, `find-by-testid-prefix`, `find-by-attr`, `attrs` and `children` cover lists and other attributes.
+`find-by-testid` returns the first node carrying that `:data-testid`, and `text-content` joins the string and number leaves under it. `find-all-by-testid`, `find-by-testid-prefix`, `find-by-attr`, `attrs` and `children` cover lists and other attributes.
 
 ??? info "Coming from React Testing Library?"
 
@@ -64,7 +65,7 @@ Call the view like a function and read the tree it returns:
 
 ## 2. Views that subscribe
 
-`todo-footer` reads `:todo/remaining-count`, and `todo-list`, changed here to read `:todo/visible` (the one on [Views](../views.md) reads `:todo/all`), renders a `todo-item` per todo. The test dispatches, calls the view and walks the tree:
+`todo-footer` reads `:todo/remaining-count`, and `todo-list` is the `:todo/visible` version from [Views](../views.md#views-compute-hiccup-only), rendering a `todo-item` per todo. The test dispatches, calls the view and walks the tree:
 
 ```clojure
 (deftest footer-counts-remaining
@@ -277,17 +278,12 @@ What each part does:
 
 - **The fixture.** With `:adapter`, `make-reset-runtime-fixture` installs the UIx adapter and makes `:rf/default` current before each test, then disposes both afterwards. `:async? true` is there because one test is asynchronous. The test scopes the frame into the tree with `frame-provider {:frame :rf/default}`. Your app's `frame-root {:id :rf/default …}` also works there; it reuses the fixture's frame without replaying `:initial-events`, which is why the seed lives in `:init-fn`.
 - **`flush-views!` for changes the test drives.** It wraps React's `act()`, so the mount inside it is committed when it returns, and so is the re-render caused by a `dispatch-sync` inside it. Each adapter has its own `flush-views!` (see [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md#what-carries-over-what-doesnt)).
-- **`poll-until` for a real click.** The view's `dispatch` queues the event and the router drains it later, so `act()` can't wait for it; the test polls the DOM instead, as in section 3. React's `act()` checks the global `IS_REACT_ACT_ENVIRONMENT` flag. The recipe sets it while `flush-views!` drives React and clears it while waiting for an update React schedules itself, as Testing Library's `waitFor` does. `mount!` records the flag's previous value and `unmount!` restores it; the last test checks that restore with a sentinel value.
-- **Unconditional teardown.** `unmount!` runs in a `finally` (or the promise's `.finally`), so a failed assertion never leaves a root mounted. A failed `mount!` cleans up before rethrowing, and the async test calls `done` whatever teardown does.
+- **`poll-until` for a real click.** The view's `dispatch` queues the event, so `act()` can't wait for it; the test polls the DOM instead, as in section 3. While it waits, `wait-for` turns React's act environment off, the way Testing Library's `waitFor` does, and `mount!`/`unmount!` restore the flag's previous value.
 
-Run it in a browser build. In re-frame2's tree the `-dom-cljs-test` suffix puts the file in the `:browser-test` lane (`npm run test:browser` from `implementation/`), and a JVM test checks that this page's block matches the file byte for byte. In your own project, the generated scaffold's `:test` build is a Node target with no DOM, which suits handler and subscription tests. A component test like this one needs a shadow-cljs `:browser-test` target and a browser.
+Run it in a browser build. In your own project, the generated scaffold's `:test` build is a Node target with no DOM, which suits handler and subscription tests. A component test like this one needs a shadow-cljs `:browser-test` target and a browser.
 
 ## When you want more than hiccup
 
 - **Rendered markup.** When the assertion is about the HTML string a view produces, use `render-to-string`; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
 - **A real DOM.** When a Reagent view needs React mounted (a ref, a portal, an imperative child), use the recipe from [section 4](#4-uix-hook-components-mount-it-for-real) with your adapter's `flush-views!`.
 - **A view's states.** "Show this view empty, loading, failed and loaded" is a job for [Story](../observability.md#tools-that-read-the-trace-stream): named variants in isolated frames, which can be promoted into tests.
-
-## When not to test a view
-
-A view test that re-checks upstream logic costs more than it catches. If the assertion is really "the filter is right" or "the count is correct", write a [subscription test](subscriptions.md). If it is "the state changed correctly", write a [handler test](event-handlers.md). Write a view test when the thing under test is the view's own structure, text or wiring. Many views need none.

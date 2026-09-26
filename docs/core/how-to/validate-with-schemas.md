@@ -126,15 +126,7 @@ Paths may nest: a write under `[:todo.ui :draft]` is checked against that schema
 
 A duplicate path is last-write-wins, and the call returns the vector of paths it registered. Use the singular `reg-app-schema` when a feature has only a path or two, or when registration order matters: the plural form registers in the map's iteration order, which for a large map is not source order.
 
-These paths cover your data only. The framework's [runtime-db partition](../app-db.md) validates itself, and registering a schema against it is an error (below).
-
-!!! warning "Gotcha: three ways to get a registration wrong"
-
-    All three fail closed, so a malformed path or schema can never install a validator that silently checks nothing.
-
-    - **A non-sequential path is rejected at registration.** The path must be a sequential collection of keys (or `[]` for the root). A bare keyword, string, or map throws `:rf.error/app-schema-bad-path` before anything registers. `reg-app-schemas` checks every key first and rejects the whole batch; a non-map argument throws `:rf.error/app-schemas-bad-batch`. This check runs in every build.
-    - **A path into runtime-db throws.** A path whose first segment is a reserved `:rf.runtime/*` key, or the `:rf/runtime` root, throws `:rf.error/app-schema-runtime-path` at registration. [Runtime-db](../glossary.md#runtime-db) belongs to the framework and has no public schema surface ([app-db's two partitions](../app-db.md)).
-    - **A malformed schema fails at its first check.** Malli validates schema forms lazily, so a broken schema (a childless `[:vector]`, an unknown op) registers cleanly and throws on the first validation. The runtime emits `:rf.error/malformed-schema` for that entry and rejects the candidate rather than installing unchecked state, while the frame's other schemas keep validating.
+These paths cover your data only. The framework's [runtime-db partition](../app-db.md) validates itself, and registering a schema against it is an error ([Troubleshooting](#troubleshooting)).
 
 ## Every registered path is checked on every commit
 
@@ -199,21 +191,7 @@ The `:schema` key works on other registration kinds too, with the same failure t
 
 - **Sub return** (`:where :sub-return`): the failure is reported and the [subscription](../glossary.md#subscription) yields `nil` to its consumer (`:replaced-with-default`), so [views](../glossary.md#view) see no value rather than a bad one. The [pipeline run](../glossary.md#run) continues.
 - **Fx args** (`:where :fx-args`): the offending [effect](../glossary.md#effect) is skipped and the others in the same `:fx` vector still run. The trace names the failing effect.
-- **Recordable coeffect**: a [recordable coeffect](../glossary.md#coeffect)'s value is saved so the run [replays](../glossary.md#time-travel) identically, so a value that fails its schema would make a later replay rebuild corrupt state ([Coeffects](../coeffects.md) explains the two grades). A mismatch emits `:rf.error/cofx-value-invalid` and throws, halting the run, in every build. An ambient coeffect's `:schema` is a dev-only check like the others above.
-
-!!! warning "Gotcha: the recordable coeffect check is a production error"
-
-    Unlike the other schemas you declare, a recordable coeffect's `:schema` runs in release builds, because the framework is protecting its own replay data. Seeing `:rf.error/cofx-value-invalid` in production means the framework refused to record a value that would have corrupted a replay. Other checks also survive a release build ([In production](#in-production-what-goes-what-stays)), but this is the one that survives by throwing.
-
-If you use [machines](../../machines/concepts.md), a machine's `:data` takes a schema too, declared at `[:schemas :data]` on the machine spec rather than with `reg-app-schema`, because the snapshot lives in [runtime-db](../glossary.md#runtime-db). The runtime checks it at boot and after every transition. A mismatch rolls the whole macrostep back, as an app-db failure does, and reports `:where :machine-data`; it reaches the `:errors` stream too, carrying `:machine-id` and `:phase` instead of `:registered-path`. Narrower machine checks (a rejected `spawn`, a skipped `:rf.machine/update-snapshot` patch) stay on the trace only, because they skip one write rather than discarding the transaction.
-
-```clojure
-(rf/reg-machine :todo/editor
-  {:initial :idle
-   :data    {:title ""}
-   :schemas {:data [:map [:title :string]]}   ;; validates :data
-   :states  {:idle {}}})
-```
+- **Recordable coeffect**: a [recordable coeffect](../glossary.md#coeffect)'s value is saved so the run [replays](../glossary.md#time-travel) identically, so a value that fails its schema would make a later replay rebuild corrupt state ([Coeffects](../coeffects.md) explains the two grades). A mismatch emits `:rf.error/cofx-value-invalid` and throws, halting the run, in every build: the framework refuses to record the value. An ambient coeffect's `:schema` is a dev-only check like the others above.
 
 ## Read the failure trace
 
@@ -236,29 +214,6 @@ Every violation is a structured `:rf.error/schema-validation-failure` [trace eve
 In **Xray**, `:event`, `:fx-args`, and `:sub-return` failures appear on the DISPATCH, FX, and SUBSCRIPTIONS steps of the event row. An `:app-db` failure appears on the FX step's `:db` row, and the steps downstream of it are muted because they never ran ([Debug with Xray](../../xray/index.md)).
 
 An `:app-db` rejection also reaches the error stream in a dev build: one record per failing registration, with `:where :app-db`, `:rollback? true`, the `:registered-path`, and a `:reason` naming the type it found there ("got nil"). It goes to your frame's `:observability :errors` sink (or the process default's), and to the console as a red `[re-frame2] :rf.error/schema-validation-failure …` line when no sink handles errors. That tells you which registrations the candidate broke; open the trace or Xray for the leaf `:path`, the `:value`, and the `:explain`. None of this happens in a production build, because the check doesn't run there.
-
-!!! warning "Gotcha: tightening a schema mid-session can flag a value no handler wrote"
-
-    Re-registering a path's schema replaces it, so a hot reload with a tighter shape takes effect at once, but the value already at that path was written under the old schema. Nothing is dispatched, so nothing fails; instead the runtime emits a `:rf.schema/violation` warning trace carrying `:path`, `:pre-reload-schema`, `:post-reload-schema`, and `:mismatching-value` (Xray shows it in the Issues panel). app-db is not cleared or rewound; dispatch the event that rewrites the slice, or reload the page.
-
-## Keep a failing value out of the trace
-
-A validation failure carries the failing value, which is what makes it debuggable, but a credential that fails its schema would then reach every listener, including off-box monitors. Two reserved keys in a schema slot's properties map change what a failure trace carries:
-
-```clojure
-(rf/with-frame :app
-  (rf/reg-app-schema [:auth]
-    [:maybe [:map
-             [:user  [:maybe [:map [:email :string] [:username :string]]]]
-             [:token {:sensitive? true} [:maybe :string]]]]))   ;; a bad :token fails redacted
-```
-
-- **`:sensitive? true`**: when this slot fails, the trace's `:value`, `:explain` (which would repeat the value), and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot.
-- **`:large? true`**: the value is replaced with a `:rf.size/large-elided` marker instead of putting megabytes into the trace. A slot marked both ways is redacted; sensitive wins, since even the size says something about a secret.
-
-!!! warning "Gotcha: these flags affect only the failure trace"
-
-    `:sensitive?` and `:large?` in a schema control only what a validation-failure trace carries. They don't classify the value for normal traces, epochs, or production records. For that, a handler returns a classification effect alongside `:db` (`{:db … :sensitive [[:auth :token]]}`); see [Keep secrets out of traces](keep-secrets-out-of-traces.md).
 
 ## In production: what goes, what stays
 
@@ -285,7 +240,7 @@ To validate untrusted data in production (an HTTP response, a websocket message,
 
 The flag doesn't add a check; it keeps the handler's existing `:schema` in production. The check runs before any interceptor, against the event vector as dispatched, so dev and production check the same value at the same point. Registering `:boundary? true` on a handler with no `:schema` throws `:rf.error/at-boundary-missing-schema`. Payloads from outside are checked in production while your other handlers stay free of checks.
 
-A rejected payload is refused in every build: the handler is skipped and nothing reaches app-db. In a release build the refusal still reaches the two always-on streams, with no wiring on your part: one `:rf.error/schema-validation-failure` record with `:source :boundary` on the error stream, and `:status :rejected` on that dispatch's `:handled-events` record ([Report errors in production](report-errors-in-production.md#7-pair-errors-with-its-handled-events-sibling)).
+A rejected payload is refused in every build: the handler is skipped and nothing reaches app-db. In a release build the refusal still reaches the two always-on streams, with no wiring on your part: one `:rf.error/schema-validation-failure` record with `:source :boundary` on the error stream, and `:status :rejected` on that dispatch's `:handled-events` record ([Report errors in production](report-errors-in-production.md#6-pair-errors-with-its-handled-events-sibling)).
 
 The production error record carries nothing derived from the payload. Its keys are `:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, and `:time`: no event vector, value, Malli explanation, or `:reason` text. A boundary payload is untrusted and may carry secrets under keys your schema never anticipated, so the value is omitted rather than redacted. You can count refusals, attribute them, and alert on the rate; to diagnose one, read the dev trace or branch in the handler.
 
@@ -306,7 +261,49 @@ Skip it when the slice is a single scalar: `{:nav/open? true}` doesn't need `[:m
 
 Use `[:enum …]` for fixed value sets rather than bare `:keyword`, keep maps open except at boundaries, and keep each schema in the same namespace as the handlers that write its slice.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `:rf.error/app-schema-bad-path` at registration (every build) | The path is a keyword, string or map, not a vector of keys; in `reg-app-schemas`, one bad key rejects the whole batch | Pass a vector, or `[]` for the root |
+| `:rf.error/app-schemas-bad-batch` | `reg-app-schemas` got something other than a `{path schema}` map | Pass a map of vector paths |
+| `:rf.error/app-schema-runtime-path` | The path starts with `:rf/runtime` or a reserved `:rf.runtime/*` key | Schema your own data only; runtime-db validates itself |
+| `:rf.error/malformed-schema` at the first check; the commit is rejected | A broken schema form (a childless `[:vector]`, an unknown op) registers cleanly because Malli validates forms lazily | Fix the form; the frame's other schemas keep validating |
+| Every commit rejected, naming a path the handler never touched | A schema registered before its slice was seeded | Seed every slice in one commit, or wrap the schema in `:maybe` ([above](#every-registered-path-is-checked-on-every-commit)) |
+| `:rf.schema/violation` warning (Xray Issues panel) after a hot reload | A tightened schema no longer matches the value already in app-db; the warning carries `:pre-reload-schema`, `:post-reload-schema` and `:mismatching-value` | Dispatch the event that rewrites the slice, or reload the page |
+
 ## Advanced
+
+### Machine data schemas
+
+If you use [machines](../../machines/concepts.md), a machine's `:data` takes a schema too, declared at `[:schemas :data]` on the machine spec rather than with `reg-app-schema`, because the snapshot lives in [runtime-db](../glossary.md#runtime-db). The runtime checks it at boot and after every transition. A mismatch rolls the whole macrostep back, as an app-db failure does, and reports `:where :machine-data`; it reaches the `:errors` stream too, carrying `:machine-id` and `:phase` instead of `:registered-path`. Narrower machine checks (a rejected `spawn`, a skipped `:rf.machine/update-snapshot` patch) stay on the trace only, because they skip one write rather than discarding the transaction.
+
+```clojure
+(rf/reg-machine :todo/editor
+  {:initial :idle
+   :data    {:title ""}
+   :schemas {:data [:map [:title :string]]}   ;; validates :data
+   :states  {:idle {}}})
+```
+
+### Keep a failing value out of the trace
+
+A validation failure carries the failing value, which is what makes it debuggable, but a credential that fails its schema would then reach every listener, including off-box monitors. Two reserved keys in a schema slot's properties map change what a failure trace carries:
+
+```clojure
+(rf/with-frame :app
+  (rf/reg-app-schema [:auth]
+    [:maybe [:map
+             [:user  [:maybe [:map [:email :string] [:username :string]]]]
+             [:token {:sensitive? true} [:maybe :string]]]]))   ;; a bad :token fails redacted
+```
+
+- **`:sensitive? true`**: when this slot fails, the trace's `:value`, `:explain` (which would repeat the value), and other value-bearing slots are replaced with `:rf/redacted`, and the trace event carries `:sensitive? true` at its top level. The structural tags (`:path`, `:failing-id`, the schema id) remain, so you can still find the slot.
+- **`:large? true`**: the value is replaced with a `:rf.size/large-elided` marker instead of putting megabytes into the trace. A slot marked both ways is redacted; sensitive wins, since even the size says something about a secret.
+
+!!! warning "Gotcha: these flags affect only the failure trace"
+
+    `:sensitive?` and `:large?` in a schema control only what a validation-failure trace carries. They don't classify the value for normal traces, epochs, or production records. For that, a handler returns a classification effect alongside `:db` (`{:db … :sensitive [[:auth :token]]}`); see [Keep secrets out of traces](keep-secrets-out-of-traces.md).
 
 ### Query your schemas (tools and agents)
 

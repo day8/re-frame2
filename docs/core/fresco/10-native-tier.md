@@ -117,7 +117,7 @@ Both hooks resolve the frame from the island's position in the tree. No
 argument reaches a sibling frame. Rendering outside every frame raises
 `:rf.error/no-frame-context`.
 
-Keep high-rate work inside the island. A resize handle keeps the live width in
+Keep high-rate work inside the island. A drag keeps the pointer position in
 `react/useState` and dispatches one event when the pointer is released
 ([Ephemeral state](11-ephemeral-state.md)).
 
@@ -131,8 +131,8 @@ and installs no live subscription ([SSR and hydration](18-ssr-and-hydration.md))
 
 ## When not to write an island
 
-Do not cross without a reproducible, measured interaction problem traced to
-this region. Read placement, unstable props, excessive event volume and a large
+Do not cross for speed without a reproducible, measured interaction problem
+traced to this region. Read placement, unstable props, excessive event volume and a large
 DOM are fixed at the Fresco level first.
 
 Keep form controls interpreted. An `<input>` inside an island loses Fresco's

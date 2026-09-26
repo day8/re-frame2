@@ -2,13 +2,13 @@
 
 re-frame2 asks something of you up front. It costs more ceremony than `useState`, and it forbids things React allows, such as keeping state in a component. This page argues that the trade is worth it. The working model is taught in the [Introduction](../introduction.md) and the pages from [Events](../events.md) to [Views](../views.md); you can build apps without reading this.
 
-The argument in one sentence: your programming language should be Turing complete, but your architecture shouldn't be. The language you compute in should be able to express anything. The structure your app's behaviour moves through should be deliberately limited, because the limits are what make the app easy to reason about. The rest of the page covers the problem this solves, the design, what it buys and what it costs.
+The argument in one sentence: your programming language should be Turing complete, but your architecture shouldn't be. The language you compute in should be able to express anything. The structure your app's behaviour moves through should be deliberately limited, because the limits are what make the app easy to reason about.
 
 ## The gravity well: ten years of React state management
 
 For about a decade, the React world has organised itself around one centre of mass: the component. State lives in the component, in a `useState`. Data fetching lives in the component, in a `useEffect`. Store subscriptions are a `useSelector` — another hook, in the component. Everything orbits the component.
 
-Many React developers already sense this is a problem, and the history of React state management is a series of attempts to get state out of the component tree. Redux put it in one store, off to the side, updated by pure reducers. The ecosystem then moved much of that back into hooks — `useReducer`, `useContext`, "co-location" — and MobX, Zustand, Recoil, Jotai, signals and server components each attach state to the component tree in a new way.
+Many React developers already sense this is a problem, and the history of React state management is a series of attempts to get state out of the component tree. Redux put it in one store, off to the side, updated by pure reducers. The ecosystem then moved much of that back into hooks (`useReducer`, `useContext`, "co-location"), and the libraries that keep state outside components, such as MobX, Zustand, Jotai and signals, are read through hooks inside them, so the component is still where state and rendering meet.
 
 That isn't a failure of taste. The component tree is what the framework can see, so that is where things end up living.
 
@@ -80,26 +80,26 @@ ClojureScript is Turing complete, and inside a handler you can compute anything.
 A constrained execution model is easier to reason about, because each constraint removes something a reader, human or AI, would otherwise have to simulate. re-frame2 has five:
 
 - **Discrete events.** The app advances one event at a time. Events don't suspend or interleave, and a state update lands in one [commit](../glossary.md#commit) — so *between* events the app is in exactly one well-defined state, schema-checkable as a whole. (This is why there's no "torn read": no observer ever catches app-db half-written.)
-- **A fixed pipeline.** Every event goes through the same sequence: dispatch → event handler → effects → derivations → view → DOM. Stages can't be skipped, reordered or added at runtime, so there is no hidden control flow to chase. ([The Introduction](../introduction.md) walks through the stages.)
+- **A fixed pipeline.** Every event goes through the stages above, in that order. Stages can't be skipped, reordered or added at runtime, so there is no hidden control flow to chase.
 - **Purity within each stage.** Inside a stage the host language is Turing-complete but harnessed: handlers are pure `(coeffects, event) → effect map`, derivations are pure `state → value`, data is immutable, and neither time nor place reaches in — the world arrives only as declared [coeffects](../glossary.md#coeffect) and leaves only as described [effects](../glossary.md#effect). A pure function's behaviour is fixed by its arguments alone, which is exactly why the counter above tested in two lines.
-- **State machines as a sub-pattern.** When a handler's own logic has the shape of a finite-state machine — modal flows, multi-step lifecycles — a [**machine**](../../machines/glossary.md#machine) expresses it as a transition table, with the [frame](../glossary.md#frame) as the actor boundary and the same run-to-completion drain. (See [State machines](../../machines/concepts.md).)
+- **State machines as a sub-pattern.** When a handler's own logic has the shape of a finite-state machine — modal flows, multi-step lifecycles — a [**machine**](../../machines/glossary.md#machine) expresses it as a transition table, driven by events through the same pipeline and drain as the rest of the app. (See [State machines](../../machines/concepts.md).)
 - **Declarative data DSLs.** What gets done is described as data — events, effect maps, hiccup, transition tables, schemas — and the runtime carries it out. A tool can read your app's behaviour without executing it.
 
 ??? note "Going deeper"
 
-    Each layer depends on the one below it. Discrete events are what let a state be well-defined enough to schema-check; the fixed pipeline is the sequence those discrete states move through; purity makes each step a function rather than something that happens in time; and data DSLs make the whole thing inspectable from outside. Data DSLs, as opposed to string DSLs, can be composed, diffed, linted and round-tripped with no parse step, which is what lets a tool read behaviour without running it. Dijkstra described the underlying bet: *"Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed."* The constraints turn processes in time into static relations you can read.
+    Each constraint depends on the one before it. Discrete events are what let a state be well-defined enough to schema-check; the fixed pipeline is the sequence those discrete states move through; purity makes each step a function rather than something that happens in time; and data DSLs make the whole thing inspectable from outside. Data DSLs, as opposed to string DSLs, can be composed, diffed, linted and round-tripped with no parse step, which is what lets a tool read behaviour without running it. Dijkstra described the underlying bet: *"Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed."* The constraints turn processes in time into static relations you can read.
 
 ## The ceremony is real
 
-A counter in plain React is `useState(5)` and two `onClick`s, about six lines. The same counter in re-frame2 is about thirty: a few event registrations, a subscription, namespaced ids, and a seed event that puts the initial value into app-db at startup.
+A counter in plain React is a `useState` and an `onClick`, a few lines. The re-frame2 counter in the [Introduction](../introduction.md) is about twice that: two event registrations, a subscription, a view, and a seed event that puts the initial value into app-db at startup.
 
 !!! note "If your whole app is a counter, use `useState`"
 
     At counter scale the ceremony is overhead, and the simpler tool is the right one.
 
-    Inside a re-frame2 app, whether a value goes in app-db or stays in local `useState` is decided per value, with three tiers. The **default** is app-db. The **render-mechanical exception** allows local state for frame-by-frame view mechanics that no handler, sub, schema or tool reads: uncommitted IME composition, transient focus or hover, animation interpolation. And anything a handler, sub, schema or tool *does* read **must** live in app-db. When in doubt, use app-db. ([Where should this value live?](../where-state-lives.md) covers the choice between app-db and the other homes.)
+    Inside a re-frame2 app the choice is per value. A value goes in app-db by default, and must if a handler, subscription, schema or tool reads it. Only transient UI mechanics that nothing else reads, such as uncommitted IME composition, focus or hover, and animation interpolation, may stay local to the view. ([Where should this value live?](../where-state-lives.md) covers the choice between app-db and the other homes.)
 
-The ceremony is a fixed cost per feature. It pays for itself as the app grows, for the reason in the next section.
+The ceremony is a fixed cost per feature. It pays for itself as the app grows.
 
 ## The bounded-cost claim
 
@@ -109,11 +109,11 @@ Most codebases age the other way. In a typical app, adding a feature means first
 
 State lives only in [app-db](../app-db.md) and changes only through registered event handlers, so the set of things that can change your feature's state is exactly the handlers that write that path, and a grep finds all of them. No component three screens away can reach into the same `useState` through a context provider, because there is no such mechanism. "What can change this?" has a finite, searchable answer.
 
-For that to hold, a mistake must be visible. re-frame2 [fails loud](../glossary.md#fail-loud-not-silent): when it can't act on something, it raises a structured [error record](../glossary.md#error-record) with an `:rf.error/*` id instead of returning `nil` or doing nothing. Dispatch an id nobody registered and you get `:rf.error/no-such-handler`, naming the id. Return an effect for an unregistered fx id and you get `:rf.error/no-such-fx`. Declare a coeffect with no supplier and the event fails with `:rf.error/unregistered-cofx` before the handler runs. Return an effect map with a stray top-level key and you get `:rf.error/effect-map-shape`, and the whole event is refused, so no half-applied write is left behind. A typo surfaces as a named error rather than a hidden place where state lives. [Errors](../errors.md) shows how to read these records.
+For that to hold, a mistake must be visible. re-frame2 [fails loud](../glossary.md#fail-loud-not-silent): when it can't act on something, it raises a structured [error record](../glossary.md#error-record) with an `:rf.error/*` id instead of returning `nil` or doing nothing. Dispatch an id nobody registered and you get `:rf.error/no-such-handler`, naming the id. Return an effect map with a stray top-level key and you get `:rf.error/effect-map-shape`, and the whole event is refused, so no half-applied write is left behind. A typo surfaces as a named error rather than a hidden place where state lives. [Errors](../errors.md) shows how to read these records.
 
 ??? note "Going deeper"
 
-    The enumerability comes from the constraints; you don't maintain it. In an architecture where any code holding a reference can write through it, the set of writers to a piece of state is in general undecidable, because aliasing makes "who can reach this?" unanswerable by search. Restricting writes to one mechanism (registered handlers) on one container (app-db) turns that into a finite, searchable list. The five layers above make the same trade throughout: give up expressive power you weren't using in exchange for a decidable answer to a question you ask often.
+    The enumerability comes from the constraints; you don't maintain it. In an architecture where any code holding a reference can write through it, the set of writers to a piece of state is in general undecidable, because aliasing makes "who can reach this?" unanswerable by search. Restricting writes to one mechanism (registered handlers) on one container (app-db) turns that into a finite, searchable list. The five constraints above make the same trade throughout: give up expressive power you weren't using in exchange for a decidable answer to a question you ask often.
 
 ## One impure spot, one wire
 

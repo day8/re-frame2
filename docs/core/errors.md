@@ -8,11 +8,6 @@ it ran in, which [handler](glossary.md#event-handler) was running, and what the
 error the framework detects becomes a structured
 [error record](glossary.md#error-record) with that context attached.
 
-This page covers reading the record, how your app degrades after each kind of
-failure, the errors you will meet first, and testing errors by their structure.
-Shipping errors from production is covered in
-[Report errors in production](how-to/report-errors-in-production.md).
-
 ## The error record
 
 Here is the record for an event handler that threw:
@@ -46,8 +41,7 @@ Three fields do most of the work:
   runtime recovers from. Filter on `:op-type :error` to see everything that failed.
 - **`:operation`** is the category, such as `:rf.error/handler-exception` or
   `:rf.error/no-such-fx`. Match it exactly to narrow.
-- **`:recovery`** is what the framework did after the error, which tells you whether
-  the app is still standing.
+- **`:recovery`** is what the framework did after the error.
 
 `:rf.trace/trigger-handler` gives the file and line where the failing handler was
 registered, and `:rf.trace/call-site` gives the line of the
@@ -68,12 +62,12 @@ equals `:handler-id`).
 This record comes from the [trace stream](glossary.md#trace-stream), which production
 builds [elide](glossary.md#elide): the code that builds it is compiled out of the
 release bundle. Errors that must reach a monitor in production go through a separate
-always-on channel with a smaller record, described at the end of
-[Test the structure, not the string](#test-the-structure-not-the-string).
+always-on channel with a smaller record; see
+[Errors in production](#errors-in-production).
 
-Xray shows every record. Without it, a development build in the browser prints an
-error that reaches no `:errors` sink or listener with `console.error`: `[re-frame2]`,
-the category and its reason, then the record. Warnings are never printed; read them
+Xray shows every record. A development build in the browser also prints each error
+that no `:errors` sink handled, with `console.error`: `[re-frame2]`, the category and
+its reason, then the record. Warnings are never printed; read them
 in Xray or with a `:trace` listener ([Observability](observability.md)). On the JVM
 and Node nothing is printed.
 
@@ -92,7 +86,8 @@ prefix tells you what kind of record you are holding:
 
 Existing categories are never renamed or repurposed, so a test pinned to
 `:rf.error/no-such-fx` keeps meaning the same thing. Every record also gives a
-one-sentence `:reason`. Treat categories like HTTP status codes: look one up when you
+one-sentence `:reason`. Treat categories like HTTP status codes: look one up in the
+[error catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) when you
 meet it.
 
 ## What the runtime does after an error
@@ -118,20 +113,16 @@ swallows an exception or substitutes a result. Swallowing an exception hides a b
 and a substituted result is something the handler could not have produced. Recover
 from expected failures at the source: [managed HTTP's](../async/http.md) `:retry` for
 a flaky network, or a default at the point of a read. The framework never re-runs a
-failing handler; to try again, dispatch a fresh event.
-
-!!! note "No error hook"
-
-    There is no `reg-event-error-handler`. To observe errors, give the frame an
-    `:observability` `:errors` sink, covered at the end of this page. If a v1 app
-    installed an error hook, the [migration guide](25-from-re-frame-v1.md) maps the
-    translation.
+failing handler; to try again, dispatch a fresh event. To observe errors, use an
+`:errors` sink ([Errors in production](#errors-in-production)); v1's
+`reg-event-error-handler` maps onto one
+([From re-frame v1](25-from-re-frame-v1.md#removed-surfaces-interceptors-and-the-test-rename)).
 
 The `:recovery` field names the default that was applied:
 
 | `:recovery` | Meaning |
 |---|---|
-| `:no-recovery` | The operation did not complete. |
+| `:no-recovery` | The failing step did not complete. For a handler, coeffect or interceptor exception that is the whole run; for a missing or throwing fx, only that effect, and the rest of the run still applies. |
 | `:replaced-with-default` | An unresolved input was substituted (for example `nil` for a missing sub input) and the body ran on. |
 | `:logged-and-skipped` | The offending input was dropped; its siblings still applied. |
 | `:warned-and-replaced` | Two writes conflicted over one target and the last one won. Advisory only. |
@@ -186,9 +177,8 @@ wrong and right versions side by side.
 
 ### A handler throws
 
-*The user arrived on a deep link that skipped `:todo/initialise`, so there are no
-todos yet. Adding the first one computes the next id with `max` over no keys, and
-that throws.*
+*Adding the first todo computes the next id with `max` over no keys, and that
+throws.*
 
 ```clojure
 (rf/reg-event :todo/add
@@ -235,9 +225,9 @@ anything the handler computed.
 
 A missing [coeffect](glossary.md#coeffect) is stricter, because a cofx is input. If a
 handler's `:rf.cofx/requires` names an id with no `reg-cofx` registration, the
-framework emits `:rf.error/unregistered-cofx` and
-[fails loud](glossary.md#fail-loud-not-silent): at registration where it can check
-statically, otherwise at first use, and always before the handler runs. Running the
+framework emits `:rf.error/unregistered-cofx` and halts the run: at registration
+where it can check statically, otherwise at first use, and always before the handler
+runs. Running the
 handler anyway would compute new state from a missing fact, which is what
 [declared coeffects](coeffects.md) exist to prevent.
 
@@ -248,10 +238,8 @@ handler anyway would compute new state from a missing fact, which is what
 phase has two categories, mirroring the event side:
 
 - **A throwing sub computation emits `:rf.error/sub-exception`** (recovery
-  `:replaced-with-default`). The sub returns `nil` and the failure is named. The
-  on-demand `compute-sub` path stamps `:where :compute-sub`; the normal reactive
-  recompute path carries no `:where`, so branch on its presence. Fix it with a
-  default, as in a handler.
+  `:replaced-with-default`). The sub returns `nil` and the failure is named. Fix it
+  with a default, as in a handler.
 - **A `subscribe` to an unregistered sub id, or an `:inputs` entry naming one, emits
   `:rf.error/no-such-sub`** (recovery `:replaced-with-default`). The missing input is
   `nil` and the sub's body still runs. This is the render-side counterpart of
@@ -261,6 +249,22 @@ In both cases the view still renders, with one value missing. That is gentler th
 the event side: a handler exception halts the whole run, while a sub failure is
 contained to that node and its dependents in the
 [derivation graph](glossary.md#the-derivation-graph).
+
+## Errors in production
+
+The record above comes from the `:trace` stream, which production builds
+[elide](glossary.md#elide). A separate always-on channel survives. Declare
+`{:observability {:errors [{:sink :app/sentry}]}}` on the frame, or once for every
+frame with `(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})`, and
+register the function with `rf/register-observability-sink!`. The record your sink
+receives is smaller than the trace record. Its category is under `:error` rather than
+`:operation`, and it arrives already projected under the frame's
+[data classification](glossary.md#data-classification), so sensitive paths are
+redacted before your code sees them. The process-wide entry also receives records
+whose frame does not resolve at all.
+[Report errors in production](how-to/report-errors-in-production.md) walks through
+it. On the server, [SSR](../ssr/concepts.md) projects error records to a sanitised
+public shape before anything reaches the browser.
 
 ## Test the structure, not the string
 
@@ -316,28 +320,6 @@ The same approach covers every category: `dispatch-sync` for event errors, a
 subscription computation for sub errors, frame setup and teardown for lifecycle
 errors.
 
-!!! note "The test tap is not the production route"
-
-    The `:trace` stream is [elided](glossary.md#elide) from production builds. It is
-    what [Xray](glossary.md#xray) reads and the right tool inside a test, but it is not
-    how you ship errors off-box.
-
-    The always-on error channel survives production, and you reach it through the
-    frame's `:observability` policy. Declare `{:observability {:errors [{:sink ::sentry}]}}`
-    on the frame and register the sink with `rf/register-observability-sink!`. The
-    record arrives already projected under that frame's
-    [data classification](glossary.md#data-classification), so sensitive paths are
-    redacted before your code sees them. To cover every frame, and records whose frame
-    does not resolve at all, declare the same entry once with
-    `(rf/configure! {:observability {:errors [{:sink ::sentry}]}})`.
-    [Report errors in production](how-to/report-errors-in-production.md) walks through
-    it. On the server, [SSR](../ssr/concepts.md) projects error records to a sanitised
-    public shape before anything reaches the browser.
-
-    The only other listener stream is `:epoch` ([epoch](glossary.md#epoch) records for
-    time-travel tooling), covered in [Observability](observability.md). Passing any
-    other stream throws `:rf.error/unknown-listener-stream`.
-
 ## Advanced
 
 ### The errors that throw, not trace
@@ -377,9 +359,9 @@ bracketed `[:rf.error/<id>]` token, e.g.
 The token is greppable in a raw log. In tests, match it with a substring or a
 `thrown-with-msg?` regex, never whole-string equality.
 
-Because a traced `:operation` and a thrown `:rf.error/id` come from the same
-catalogue, a tool or test branches on one set of keywords whether the failure
-recovered or aborted.
+Because a traced `:operation`, a sink record's `:error` and a thrown `:rf.error/id`
+come from the same catalogue, a tool or test branches on one set of keywords whether
+the failure recovered or aborted.
 
 ### Schema validation failures
 
@@ -423,26 +405,11 @@ A sink reading these records must look under `:tags`: use
 `:error`, `:event-id`, `:frame`, `:time` and `:kind` are top-level; `:rollback?`,
 `:where`, `:registered-path`, `:reason` and `:recovery` are under `:tags`.
 
-Three schema checks run in **every** build:
-
-- **An event handler registered with `{:schema … :boundary? true}`**, for untrusted
-  input such as an HTTP body, a websocket message or a query string. A payload that
-  fails is rejected in production too: the handler is skipped and the payload never
-  reaches app-db. The failure is reported on both always-on streams, as a
-  `:rf.error/schema-validation-failure` record tagged `:source :boundary` on the
-  `:errors` sink and as `:status :rejected` on the dispatch's `:handled-events`
-  record, so it is the one member of this category you can alert on from a release
-  build. The production record carries identifiers only (`:error`, `:where`,
-  `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`,
-  `:time`) and omits the payload, the offending value, `:explain` and `:reason`,
-  because a boundary value can hold secrets under keys the schema never named.
-  [Validate with schemas](how-to/validate-with-schemas.md#in-production-what-goes-what-stays)
-  has the details.
-- **A managed-HTTP `:decode` schema.** This is a different category: a 2xx body that
-  fails its schema is classified as `:rf.http/decode-failure` (with
-  `:schema-validation-failure? true`) and the request fails.
-- **A recordable coeffect's `reg-cofx` `:schema`.** A supplied, replayed or generated
-  value that fails it raises `:rf.error/cofx-value-invalid`, which throws
-  (`:recovery :no-recovery`) in production as well as dev. Recordable coeffects are
-  part of the event's durable record, and a bad one would corrupt replay, SSR and
-  [Xray](glossary.md#xray). [Coeffects](coeffects.md) explains why.
+A few schema checks run in every build. The one in this category is an event handler
+registered with `{:schema … :boundary? true}`: a payload that fails is rejected in
+production too, and reported as a `:rf.error/schema-validation-failure` record tagged
+`:source :boundary` on the `:errors` sink, carrying identifiers only. A managed-HTTP
+`:decode` schema reports `:rf.http/decode-failure` instead, and a recordable
+coeffect's `:schema` throws `:rf.error/cofx-value-invalid`.
+[Validate with schemas](how-to/validate-with-schemas.md#in-production-what-goes-what-stays)
+lists them all, with the production record's keys.

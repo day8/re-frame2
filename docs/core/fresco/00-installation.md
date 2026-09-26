@@ -155,7 +155,7 @@ Compared with the Core counter, three things differ:
 `init` is the build's `:init-fn`. It installs the adapter, then mounts.
 Loading the namespace only registers handlers and defines views, so a test or
 another namespace can require it without touching the DOM; [Boot and mount an
-app](../how-to/boot-and-mount-an-app.md#no-dom-work-at-namespace-load) gives
+app](../how-to/boot-and-mount-an-app.md#the-small-shape) gives
 that rule for every substrate.
 
 ## Fresco needs a substrate adapter
@@ -170,15 +170,9 @@ before it mounts anything:
 ```
 
 `re-frame.fresco.substrate` ships inside `day8/re-frame2-fresco`, so it needs
-no extra dependency. Skipping the call fails on the first mount, because
-`h/frame-root` creates a frame and the frame asks the adapter for a state
-container:
-
-```text
-rf/make-state-container was called before (rf/init! ...); require an adapter
-ns and pass its `adapter` Var, e.g. (rf/init! reagent/adapter).
-[:rf.error/no-adapter-installed]
-```
+no extra dependency. Skipping the call fails on the first mount with
+`:rf.error/no-adapter-installed`, because `h/frame-root` creates a frame and
+the frame asks the adapter for a state container.
 
 A page that also renders Reagent or UIx components can install that library's
 adapter instead; see [Use another adapter](#use-another-adapter).
@@ -201,17 +195,11 @@ optional root options) and creates the root. Every later call through the same
 handle updates that root, so the frame, its app-db and its subscriptions carry
 on. That is why `mount!` doubles as the hot-reload hook.
 
-Pass the same tree, `frame-root` included, on every call. The frame lives in
-the tree, so dropping the head renders a root with no frame, and the first view
-raises `:rf.error/no-frame-context`. Changing the
-`frame-root` options, for example dropping `:initial-events` because they have
-already run, raises `:rf.error/frame-root-reconfigured`.
+Pass the same tree, including the `frame-root` head and its options, on every
+call. The frame lives in the tree, and `frame-root` checks its options against
+the live frame ([Troubleshooting](#troubleshooting)).
 
 ```clojure
-(h/render! app-root
-           [h/frame-root {:id :app :initial-events [[:initialise 3]]}
-            [counter]]
-           (js/document.getElementById "app"))
 (h/unmount! app-root)
 ```
 
@@ -220,12 +208,10 @@ releases the root's subscriptions and empties the DOM node. It is idempotent,
 so fixtures, reload hooks and `finally` blocks can all call it. It does not
 destroy the frame; `rf/destroy-frame!` does that.
 
-Fresco reports mistakes by throwing, and React unmounts a root whose tree
-throws with no error boundary above it: the whole page goes blank and the error
-appears only in the console. Wrap the regions a user can carry on without in
-`h/error-boundary`, usually a route's main content rather than the root.
-[Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) has the
-rule, and [Routing and
+Wrap regions a user can carry on without in `h/error-boundary`, usually a
+route's main content. A throw with no boundary above it unmounts the whole
+root. [Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) has
+the rule, and [Routing and
 navigation](07-routing-and-navigation.md#move-focus-after-a-page-change) shows
 it in a routed root.
 
@@ -236,15 +222,13 @@ for an application that owns the browser URL, `:fx-overrides` for a stubbed
 backend, `:images`, and the rest. They all go on the `frame-root` head:
 
 ```clojure
-(defn ^:export init []
-  (rf/init! substrate/adapter)
+(defn ^:dev/after-load mount! []
   (h/render! app-root
              [h/frame-root {:id             :app
                             :url-bound?     true
                             :initial-events [[:initialise 3]]}
               [counter]]
-             (js/document.getElementById "app"))
-  nil)
+             (js/document.getElementById "app")))
 ```
 
 `h/render!`'s own options are for the React root only, and it throws if handed
@@ -321,7 +305,8 @@ than re-throwing it, so these show up in the console.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | The page stays empty and the console reports `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#fresco-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
-| The page stays empty and the console reports `:rf.error/no-frame-context` | The tree has no `h/frame-root` or `h/frame-provider` head | Wrap it: `[h/frame-root {:id :app …} [counter {}]]` |
+| The page stays empty and the console reports `:rf.error/no-frame-context` | The tree has no `h/frame-root` or `h/frame-provider` head, for example a reload that renders `[counter]` without the head | Wrap it: `[h/frame-root {:id :app …} [counter {}]]` |
+| A hot reload raises `:rf.error/frame-root-reconfigured` | The `h/frame-root` options changed between `h/render!` calls, for example `:initial-events` dropped after the first mount | Pass the identical `frame-root` head on every call; `:initial-events` do not re-run on a live frame |
 | The page stays empty and the console reports `:rf.error/initial-events-step-failed` | An `:initial-events` handler threw, or a coeffect it requires is missing. Creating a frame is strict, so the half-built frame is torn down and nothing renders | Fix the event the error names (`:step-index`, `:event`) |
 | `(counter {})` ignores its props, or fails with React's invalid-hook error | A `defview` is a React component used as a Hiccup head, not a function to call | Render `[counter {}]`. Use a plain `defn` for inline markup |
 | `h/sub` in a callback, timer or promise throws `:rf.error/fresco-sub-outside-render` | The read happened outside a synchronous view body | Read during the body and close over the value. Async work reads state through events and coeffects |
@@ -350,8 +335,10 @@ existing frame and never creates, reconfigures or destroys one:
 (defonce app-root (h/client-root))
 (defonce status-root (h/client-root))
 
-(defn ^:export init []
-  (rf/init! substrate/adapter)
+(h/defview status-badge [_]
+  [:span "Count: " (h/sub [:value])])
+
+(defn ^:dev/after-load mount! []
   (h/render! app-root
              [h/frame-root {:id :app :initial-events [[:initialise 3]]}
               [counter]]
@@ -361,7 +348,11 @@ existing frame and never creates, reconfigures or destroys one:
              [h/frame-provider {:frame :app}
               [status-badge]]
              (js/document.getElementById "status")
-             {:identifier-prefix "status"})
+             {:identifier-prefix "status"}))
+
+(defn ^:export init []
+  (rf/init! substrate/adapter)
+  (mount!)
   nil)
 ```
 

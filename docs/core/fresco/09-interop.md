@@ -52,12 +52,8 @@ inside an options object, or a string where you hold a keyword, build that
 value yourself with `#js`, a string, or `(name value)`. Fresco does not guess a
 library's data model.
 
-The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`.
-An unknown option, a `:callbacks` value other than `:event` or `:render`, or a
-malformed `:slots` set raises `:rf.error/fresco-bad-host-declaration`, with a
-reason naming the fault. A component that resolved to `nil`, often a mistaken
-`:default` import, raises `:rf.error/fresco-host-no-component`. Both errors are
-raised at the declaration, not at a later mount.
+The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`, and
+validates them when the namespace loads rather than at a later mount.
 
 ## Callback contracts
 
@@ -68,7 +64,7 @@ untouched anywhere. No declaration is needed for the usual case:
 
 ```clojure
 (h/defhost date-picker DatePicker)
-(h/defhost virtual-list VirtualList)
+(h/defhost virtual-list Virtuoso)
 ```
 
 ### Event positions
@@ -95,12 +91,12 @@ It must be pure and must return a React element, not raw Hiccup:
 
 ```clojure
 [virtual-list
- {:item-count (count todos)
-  :render-row (h/event [i]
-                (let [{:keys [id title]} (nth todos i)]
-                  (h/as-element
-                   [:li.row {:on-click [:todo/toggle id]}
-                    title])))}]
+ {:total-count  (count todos)
+  :item-content (h/event [i]
+                  (let [{:keys [id title]} (nth todos i)]
+                    (h/as-element
+                     [:li.row {:on-click [:todo/toggle id]}
+                      title])))}]
 ```
 
 `h/as-element` converts the Hiccup result. `h/event` captures the supplying
@@ -292,8 +288,7 @@ render.
 Reagent, UIx, raw React, JavaScript, or TypeScript parents:
 
 ```clojure
-(def todo-card*
-  (h/as-component todo-card))
+(def todo-row* (h/as-component todo-row))
 ```
 
 React props return to the Fresco view as a normal props map with canonical
@@ -326,7 +321,8 @@ as a component.
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
 | React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
 | A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |
-| `:rf.error/fresco-bad-host-declaration` at declaration | A malformed option, often a `:callbacks` value such as `:handler` | Pass a plain function for a handler; declare `:event` or `:render` only where the spelling is wrong |
+| `:rf.error/fresco-bad-host-declaration` at declaration | An unknown option, a `:callbacks` value other than `:event` or `:render` (often `:handler`), or a malformed `:slots` set; the error's reason names the fault | Pass a plain function for a handler; declare `:event` or `:render` only where the spelling is wrong |
+| `:rf.error/fresco-host-no-component` at declaration | The component resolved to `nil`, often a mistaken `:default` import | Check the require's `:default` or `:refer` form against the library's exports |
 | A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Fresco body or use a declared event callback |
 | A shared namespace fails to load on the JVM | It contains a JavaScript require | Move the require and host declarations to a `.cljs` namespace |
 | `:rf.error/fresco-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |
@@ -381,5 +377,5 @@ StrictMode performs attach, cleanup, then attach in development; each handle is
 cleaned by the closure that created it. A ref does not rerun merely because a
 configuration value changed. Keep attachment configuration stable and send
 steady-state updates through events/effects. If attachment must close over
-per-instance props with hook-managed identity, move the edge into a named
-native component; hooks do not belong in a `defview` body.
+per-instance props with hook-managed identity, move the edge into an island
+([Islands](10-native-tier.md)); hooks do not belong in a `defview` body.

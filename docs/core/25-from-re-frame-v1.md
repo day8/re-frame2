@@ -4,7 +4,7 @@ You have a re-frame v1 app and a migration to plan. Most of the code already mat
 
 ## What stayed the same
 
-The [**event pipeline**](glossary.md#event-pipeline), the one-way path a dispatched [event](glossary.md#event) takes through six stages (dispatch → event handler → effects → derivations → view → DOM), is the same in v2:
+The [**event pipeline**](glossary.md#event-pipeline), the path a dispatched [event](glossary.md#event) takes from handler to screen (v1's six dominoes: dispatch → event handler → effects → derivations → view → DOM), is the same in v2:
 
 - [Events](glossary.md#event) are still data.
 - [Event handlers](glossary.md#event-handler) are still pure functions of state.
@@ -14,7 +14,7 @@ A `reg-sub` is still a `reg-sub`, and a [hiccup](glossary.md#hiccup) view is sti
 
 ??? info "Coming from a React 17→18 upgrade?"
 
-    It is closer to turning on TypeScript's `strict` flag than to the concurrent-rendering changes. Almost all the behaviour you rely on is unchanged; v2 mainly makes you declare things v1 let slide, such as an implicit global frame or an unrecorded clock read. The one real runtime-behaviour change is run-to-completion dispatch, described below.
+    It is closer to turning on TypeScript's `strict` flag than to the concurrent-rendering changes. Almost all the behaviour you rely on is unchanged; v2 mainly makes you declare things v1 let slide, such as an implicit global frame or an unrecorded clock read. The main runtime-behaviour change is run-to-completion dispatch, described below.
 
 ## The migration skill
 
@@ -27,7 +27,7 @@ Workflow:
 3. Answer Type B checkpoints — the agent explains risk and waits before rewriting.
 4. Run your test suite. The agent re-verifies and writes a migration report.
 
-The rest of this page explains the categories of change you will see at step 3; the complete rule list is in the skill. When a failure doesn't match a known rule, the skill reports it for review instead of guessing.
+The rest of this page explains the categories of change you will see at step 3; the complete rule list is [Migration rules](../../migration/from-re-frame-v1/README.md). When a failure doesn't match a known rule, the skill reports it for review instead of guessing.
 
 ## Deps
 
@@ -40,7 +40,7 @@ re-frame2 ships each capability as a separate artefact, so the ones you don't us
 
 !!! warning "Gotcha"
 
-    Two exceptions to rule 4. **React 19 and Reagent 2 are required.** re-frame2 adapters target React 19, and the Reagent adapter targets Reagent 2.x, so a React 17 or 18 project upgrades in the same change. If a component library has no React 19 build, the skill raises it before anything else (wait for a release, replace the library, patch it, or test it under React 19). **Some v1 add-ons stop compiling as soon as re-frame2 is on the classpath.** `http-fx`, `async-flow-fx`, `undo` and `forward-events-fx` all reference `re-frame.core/console`, which v2 removed, and the build fails with an unresolved `re-frame.core/console` until each is removed or converted (`http-fx` → managed HTTP, below; `async-flow-fx` → `reg-machine`; `undo` → app-db snapshots or epoch time-travel). You can't leave these for later.
+    Two exceptions to rule 4. **React 19 and Reagent 2 are required.** re-frame2 adapters target React 19, and the Reagent adapter targets Reagent 2.x, so a React 17 or 18 project upgrades in the same change. If a component library has no React 19 build, the skill raises it before anything else (wait for a release, replace the library, patch it, or test it under React 19). **Some v1 add-ons stop compiling as soon as re-frame2 is on the classpath.** `http-fx`, `async-flow-fx`, `undo` and `forward-events-fx` all reference `re-frame.core/console`, which v2 removed, and the build fails with an unresolved `re-frame.core/console` until each is removed or converted (`http-fx` → managed HTTP, below; `async-flow-fx` → [`reg-machine`](../../migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md); `undo` → app-db snapshots or epoch time-travel). You can't leave these for later.
 
 ??? info "Coming from npm's all-or-nothing bundles?"
 
@@ -52,7 +52,7 @@ These are the deterministic rewrites the skill applies, roughly in order of how 
 
 ### One event registration form
 
-`reg-event-db` is the most common registration in most v1 apps, and v2 doesn't have it. v1 had three forms: `reg-event-db` (db in, db out), `reg-event-fx` ([coeffects](glossary.md#coeffect) map in, [effect map](glossary.md#effect-map) out) and `reg-event-ctx` (raw interceptor context). v2 has one, [**`reg-event`**](glossary.md#register), shaped like `reg-event-fx`: coeffects map in, effect map (`{:db … :fx […]}`) out. When a handler later needs an effect or a coeffect, you add a key to the map it already returns.
+`reg-event-db` is the most common registration in most v1 apps, and v2 doesn't have it. v1 had three forms: `reg-event-db` (db in, db out), `reg-event-fx` ([coeffects](glossary.md#coeffect) map in, [effect map](glossary.md#effect-map) out) and `reg-event-ctx` (raw interceptor context). v2 has one, [**`reg-event`**](glossary.md#register), shaped like `reg-event-fx`: [world](glossary.md#world) map in, effect map (`{:db … :fx […]}`) out. When a handler later needs an effect or a coeffect, you add a key to the map it already returns.
 
 ```clojure
 ;; v1                                  ;; v2
@@ -104,6 +104,34 @@ In v1's two-function `reg-sub` form, the first function declared what the [subsc
 
     In v1 the signal function ran the subscription and returned a live `Reaction`. In v2 it returns data describing the subscriptions it wants, and the runtime resolves them. A vector of vectors can be read, diffed and graphed without mounting the app, which is how [Xray](glossary.md#xray)'s dependency view draws the subscription graph.
 
+### Effect and coeffect handler signatures
+
+Every `reg-cofx` in a v1 app needs one mechanical rewrite: **suppliers return a value instead of updating the context.** v1 suppliers took the interceptor context and added a value, `(fn [ctx arg] (assoc-in ctx [:coeffects :id] v))`. A v2 supplier returns the value, `(fn [arg] v)` or `(fn [] v)`, and the runtime places it under the cofx id. On the consuming side, v1's `[(rf/inject-cofx :viewport "main")]` becomes `:rf.cofx/requires [[:viewport "main"]]` in the registration metadata:
+
+```clojure
+;; v1 — ctx→ctx handler, injected positionally
+(rf/reg-cofx :viewport
+  (fn [ctx] (assoc-in ctx [:coeffects :viewport] (.-innerWidth js/window))))
+(rf/reg-event-fx :layout/measure
+  [(rf/inject-cofx :viewport)]
+  (fn [{:keys [db viewport]} _] ...))
+
+;; v2 — value-returning supplier, declared via :rf.cofx/requires
+(rf/reg-cofx :viewport
+  {:doc       "Ambient viewport width."
+   :platforms #{:client}}              ;; reads a browser global
+  (fn [] (.-innerWidth js/window)))
+(rf/reg-event :layout/measure
+  {:rf.cofx/requires [:viewport]}
+  (fn [{:keys [db viewport]} _] ...))
+```
+
+`re-frame.core` has no `inject-cofx`, so a remaining call fails to compile; `:rf.cofx/requires` replaces it.
+
+The supplier change applies to every `reg-cofx`, recordable or not, with or without call-site arguments (`(fn [k] v)`, declared as `[[:viewport k]]`).
+
+Effects change too: **`reg-fx` handlers take a context argument.** v1 handlers were `(fn [value] …)`; v2 handlers are `(fn [ctx args] …)`, where `ctx` carries `:frame` and `:event` and `args` is the value your event handler put in `:fx`. A v1 handler pasted in unchanged reads the context map as its arguments and gets `nil`s, so add a leading `_ctx` parameter to each one.
+
 ### Removed surfaces, interceptors, and the test rename
 
 Each of these v1 features has a replacement:
@@ -111,11 +139,13 @@ Each of these v1 features has a replacement:
 - `dispatch-with` / `dispatch-sync-with` → two-arg `dispatch` with an opts map.
 - `reg-global-interceptor` gone — interceptors are frame-scoped; register with `reg-interceptor` and reference from a frame's `:interceptors`.
 - `reg-sub-raw` → `reg-sub` or the substrate adapter.
-- `^:flush-dom` event metadata → `[:dispatch-later {:ms 0 :event ev}]`.
+- `^:flush-dom` event metadata → `[:dispatch-later {:ms 0 :event ev}]`: the current drain ends and views re-render before the next event runs.
 - The `day8/re-frame-test` helpers (`re-frame.test`) → `re-frame.test-support` in the core artefact. `assert-state` becomes `assert-path-equals`, and `run-test-sync` is dropped: call `dispatch-sync` directly.
 - A `reg-fx` or `reg-cofx` that touches a browser global (`js/window`, `js/localStorage`, `js/document`) needs `:platforms #{:client}` in its metadata. v2 runs effects on every platform by default, including the JVM for [SSR](../ssr/glossary.md#ssr), so a browser-only effect that doesn't say so runs during server rendering and throws. Client-only apps never hit this.
+- `reg-event-error-handler` → an `:observability :errors` sink ([Errors](errors.md#errors-in-production)). Its other half, swallowing an exception or substituting a result, has no replacement: recovery is the framework's fixed per-category default.
+- `add-post-event-callback` → a dev-only `:trace` or `:epoch` listener ([Observability](observability.md#write-a-listener)).
 
-Six v1 interceptors are gone: `debug` → the [trace stream](glossary.md#trace-stream) ([Observability](observability.md)); `trim-v` → not needed, since the event shape is consistent; `enrich` and `after` → [flows](glossary.md#flow) and [schemas](glossary.md#schema); `on-changes` → flows (see below); `inject-cofx` → `:rf.cofx/requires` ([Coeffects](coeffects.md)). One standard interceptor remains, `path`, written `[:rf.interceptor/path <path-vector>]`. Anything else is registered with `reg-interceptor` and referenced by id; interceptor chains hold references, not inline values. [Interceptors](interceptors.md) covers the model.
+Six v1 interceptors are gone: `debug` → the [trace stream](glossary.md#trace-stream) ([Observability](observability.md), and the [observability logging sweep](../../migration/from-re-frame-v1/observability-logging-sweep.md) for logging interceptors); `trim-v` → not needed, since the event shape is consistent; `enrich` and `after` → [flows](glossary.md#flow) and [schemas](glossary.md#schema); `on-changes` → flows (see below); `inject-cofx` → `:rf.cofx/requires` ([Coeffects](coeffects.md)). One standard interceptor remains, `path`, written `[:rf.interceptor/path <path-vector>]`. Anything else is registered with `reg-interceptor` and referenced by id; interceptor chains hold references, not inline values. [Interceptors](interceptors.md) covers the model.
 
 ??? note "Going deeper"
 
@@ -133,6 +163,8 @@ A form the skill missed fails in one of these ways:
 | `:<-`, or two trailing functions, in `reg-sub` | Throws `:rf.error/reg-sub-bad-args` at load | `{:inputs [[:todo/all]]}` in the metadata map |
 | `[:dispatch-n [ev1 ev2]]` in `:fx` | Nothing is dispatched; `:rf.error/no-such-fx` | One `[:dispatch ev]` row per event |
 | `[:dispatch-later {:ms 100 :dispatch [:tick]}]` | Nothing is dispatched; `:rf.error/no-such-handler` for a `nil` event | `[:dispatch-later {:ms 100 :event [:tick]}]` |
+| A v1 `reg-fx` handler, `(fn [value] …)` | In ClojureScript it runs with the context map as `value`, reads `nil`s, and nothing is reported | Add a leading context parameter: `(fn [_ctx value] …)` |
+| The same event, sub or fx id registered from two namespaces (v1's last-write-wins override) | The frame fails to build with `:rf.error/image-duplicate-id`, naming both namespaces | Rename one, or put the override in a later [image](images.md#composing-images-the-later-one-wins) |
 
 ## Establish a root frame
 
@@ -231,7 +263,7 @@ There is no automated rewrite for cache keys; the skill flags hand-built keys fo
 
 v1 let a handler read the outside world and write the result into state: `(js/Date.)` for `:created-at`, `(random-uuid)` for an id, a `:now` cofx injected by interceptor, a boot handler reading `localStorage` to seed a session. None of those gives the same answer on replay, and v1 code does this often.
 
-The v2 rule: **a fact that decides a durable write must be one the runtime recorded**. Every outside fact a handler uses is declared with `:rf.cofx/requires` and delivered flat under its id. Whether a fact is [recordable or ambient](glossary.md#recordable-vs-ambient-coeffects) decides replay: a recordable fact is captured and fed back on replay, and an ambient one is read fresh each time ([Coeffects](coeffects.md)). The mapping:
+The v2 rule: **a fact that decides a durable write must be one the runtime recorded**. Every outside fact a handler uses is declared with `:rf.cofx/requires` and delivered flat under its id. Whether a fact is [recordable or ambient](glossary.md#recordable-vs-ambient-coeffects) decides replay: a recordable fact is captured and fed back on replay, and an ambient one is read fresh each time ([Coeffects](coeffects.md)). Whether a read decides durable state is a question of intent, so the skill flags these for review rather than rewriting them. The mapping:
 
 - **Clock reads that reach state** (`js/Date.now`, `(.now js/Date)`): add `:rf.cofx/requires [:rf/time-ms]` and read the flat `time-ms` key. The runtime stamps `:rf/time-ms` on every dispatch and records it; it is the framework's one built-in recordable fact.
 - **Generated ids** (`random-uuid` feeding durable state): preferably create the id at dispatch and pass it in the event, `(dispatch [:todo/add {:id (random-uuid) :title "Buy milk"}])`; for an id created inside the handler, declare a recordable cofx with an app-registered supplier.
@@ -247,41 +279,13 @@ The v2 rule: **a fact that decides a durable write must be one the runtime recor
   (fn [] (.now js/Date)))
 ```
 
-Every `reg-cofx` in a v1 app needs one mechanical rewrite: **suppliers return a value instead of updating the context.** v1 suppliers took the interceptor context and added a value, `(fn [ctx arg] (assoc-in ctx [:coeffects :id] v))`. A v2 supplier returns the value, `(fn [arg] v)` or `(fn [] v)`, and the runtime places it under the cofx id. On the consuming side, v1's `[(rf/inject-cofx :viewport "main")]` becomes `:rf.cofx/requires [[:viewport "main"]]` in the registration metadata:
-
-```clojure
-;; v1 — ctx→ctx handler, injected positionally
-(rf/reg-cofx :viewport
-  (fn [ctx] (assoc-in ctx [:coeffects :viewport] (.-innerWidth js/window))))
-(rf/reg-event-fx :layout/measure
-  [(rf/inject-cofx :viewport)]
-  (fn [{:keys [db viewport]} _] ...))
-
-;; v2 — value-returning supplier, declared via :rf.cofx/requires
-(rf/reg-cofx :viewport
-  {:doc       "Ambient viewport width."
-   :platforms #{:client}}              ;; reads a browser global
-  (fn [] (.-innerWidth js/window)))
-(rf/reg-event :layout/measure
-  {:rf.cofx/requires [:viewport]}
-  (fn [{:keys [db viewport]} _] ...))
-```
-
-`re-frame.core` has no `inject-cofx`, so a remaining call fails to compile; `:rf.cofx/requires` replaces it.
-
-The supplier change applies to every `reg-cofx`, recordable or not, with or without call-site arguments (`(fn [k] v)`, declared as `[[:viewport k]]`). A cofx that only measures something diagnostic or transient stays **ambient**: register it without `:recordable?` and it runs again on replay. `:recordable?` matters only when the value decides a durable write.
-
-Effects change too: **`reg-fx` handlers take a context argument.** v1 handlers were `(fn [value] …)`; v2 handlers are `(fn [ctx args] …)`, where `ctx` carries `:frame` and `:event` and `args` is the value your event handler put in `:fx`. A v1 handler pasted in unchanged reads the context map as its arguments and gets `nil`s, so add a leading `_ctx` parameter to each one.
-
-!!! note "Why this matters"
-
-    A handler that reads `(js/Date.)` and writes it to state gives a different result on replay once the clock has moved. A fact that decides a durable write must come from a recorded coeffect; a diagnostic that never reaches durable state can stay ambient. Whether a read decides durable state is a question of intent, so the skill flags these for review rather than rewriting them.
+A cofx that only measures something diagnostic or transient stays **ambient**: register it without `:recordable?` and it runs again on replay. `:recordable?` matters only when the value decides a durable write.
 
 ## Changes that need a decision
 
 ### HTTP folds onto `:rf.http/managed`
 
-A v1 codebase using `day8.re-frame/http-fx` (`:http-xhrio`), `re-frame-fetch-fx` or its own `:http` fx moves to [`:rf.http/managed`](../resources/glossary.md#managed-http) ([Managed HTTP](../async/http.md)). This is a Type B rewrite: the skill proposes the new shape for each call site and waits for approval. The steps:
+A v1 codebase using `day8.re-frame/http-fx` (`:http-xhrio`), `re-frame-fetch-fx` or its own `:http` fx moves to [`:rf.http/managed`](../resources/glossary.md#managed-http) ([Managed HTTP](../async/http.md)). This is a Type B rewrite: the skill proposes the new shape for each call site and waits for approval. The [http-fx conversion](../../migration/from-re-frame-v1/http-fx-to-managed-http.md) maps each `:http-xhrio` slot. The steps:
 
 1. Add `day8/re-frame2-http` and require it from namespaces that issue requests.
 2. Replace `[:http {:url ... :on-success ... :on-error ...}]` with `[:rf.http/managed {:request {:url ...} :on-success ... :on-failure ...}]`. Wire-shape keys (`:method`, `:url`, `:body`, `:headers`, `:params`) move *inside* `:request`.
@@ -336,7 +340,7 @@ The rewrite is Type B. The mapping is `(rf/on-changes f out-path & in-paths)` �
 
 ## Growing into images and frames
 
-A v1 app registers everything at namespace load with `reg-*` into one process-global [registrar](glossary.md#registrar). v2 keeps that: `reg-*` still registers, and a frame made without further options uses those global registrations. The migration doesn't change how you register.
+A v1 app registers everything at namespace load with `reg-*` into one process-global [registrar](glossary.md#registrar). v2 keeps that: `reg-*` still registers, and a frame made without further options uses those global registrations. The migration doesn't change how you register, except that an id registered from two namespaces is an error rather than last-write-wins (see the table above).
 
 Images are for structure v1 didn't have. An [**image**](glossary.md#image) (`rf/image`) is a value naming a set of registrations, selected from loaded namespaces (`:select-ns`) or listed inline (`:registrations`). A [**frame**](glossary.md#frame) (`rf/make-frame`) built from images runs the resolved set of registrations those images produce, called a **generation**, with its own app state, subscription cache and adapter. Use them to package a feature as a unit, or for per-tenant or multi-frame setups. They are not a migration step.
 

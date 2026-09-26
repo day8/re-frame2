@@ -52,7 +52,7 @@ Or it may inspect the thrown value:
  (fn [error]
    [:div.oops
     [:p "This panel failed."]
-    [:pre (ex-message error)]])}
+    (when ^boolean goog.DEBUG [:pre (ex-message error)])])}
 ```
 
 Show detailed messages in development and user-safe copy in production. The

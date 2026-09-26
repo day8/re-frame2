@@ -48,11 +48,13 @@ keyword values into strings, wrapped `r/partial`, and read metadata keys.
 Fresco does none of that, so a `[:>]` form can keep rendering while sending
 different values to the component. The reporter classifies every crossing:
 
-| Category | Named classes | Meaning |
-| --- | --- | --- |
-| Mechanical | W1–W6, described below | The codemod can preserve the previous behaviour from source text alone |
-| Human decision | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error`, `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | The source does not contain enough information for a safe rewrite, or the change repairs previously broken behaviour that must be reviewed |
-| Runtime blocker | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | The site will raise or silently misrender until someone chooses the correct Fresco shape |
+| Category | Meaning |
+| --- | --- |
+| Mechanical | The codemod can preserve the previous behaviour from source text alone; these are W1–W6, described below |
+| Human decision | The source does not contain enough information for a safe rewrite, or the change repairs previously broken behaviour that must be reviewed, for example `:computed-props` |
+| Runtime blocker | The site will raise or silently misrender until someone chooses the correct Fresco shape, for example `:intent-needs-a-declaration` |
+
+The full list is under [Crossing classes](#crossing-classes).
 
 Each entry gives the file, line and column, the source form, its
 classification, a sentence on how to fix it, and the component name where it
@@ -173,7 +175,7 @@ The same table for the second starting point. Every row is a spelling change:
 | --- | --- |
 | `rf/reg-view` | `h/defview`. You mount it by its var, not by an id; development builds also register it under `:<ns>/<name>` for tools |
 | `subscribe`, injected into a `reg-view` body | `h/sub`. A `h/defview` body binds nothing you did not write |
-| `dispatch`, injected into a `reg-view` body | the event vector itself, or `h/event` when the event matters |
+| `dispatch`, injected into a `reg-view` body | the event vector itself, or `h/event` when callback arguments matter |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
 | `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
 | `[rf/frame-root {:id :app ...}]` around the tree | `[h/frame-root {:id :app ...}]`, with the same options in the same place |
@@ -190,7 +192,7 @@ shape, and a routed application needs `:url-bound? true`
 nothing, and a bare `rf/subscribe` in a Fresco body throws. Translate every
 read and dispatch in a body you move, not only the ones the compiler flags.
 
-Two common mistakes fail loudly:
+Two differences catch people out:
 
 - A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
   browser invokes it later, so ambient dispatch raises
@@ -213,8 +215,8 @@ Port the shared view once, with the first screen that needs it, and bridge it
 back to the callers that are still Reagent:
 
 ```clojure
-;; app.views.todo-item, now Fresco
-(h/defview todo-item [{:keys [id]}]
+;; app.views.todo-row, now Fresco
+(h/defview todo-row [{:keys [id]}]
   (let [todo (h/sub [:todo/by-id id])]
     [:li
      [:input {:type      :checkbox
@@ -223,7 +225,7 @@ back to the callers that are still Reagent:
      (:title todo)]))
 
 ;; Created once, beside the view, for callers that have not moved yet.
-(def todo-item-component (h/as-component todo-item))
+(def todo-row-component (h/as-component todo-row))
 ```
 
 ```clojure
@@ -231,7 +233,7 @@ back to the callers that are still Reagent:
 (defn archive-page []
   [:ul.archive
    (for [{:keys [id]} @(rf/subscribe [:todo/all])]
-     ^{:key id} [:> todo-item-component {:id id}])])
+     ^{:key id} [:> todo-row-component {:id id}])])
 ```
 
 The unported caller changes by one line, and changes back to an ordinary
@@ -263,8 +265,8 @@ than the screen is worth, see
 
 ### Keep the original alongside the port
 
-Shadow comparison needs the Reagent original to keep compiling. For one screen
-that means three namespaces:
+Shadow comparison needs the Reagent original to keep compiling. For the shared
+`todo-row` above, that means three namespaces:
 
 | Namespace | Holds | Rendered by |
 | --- | --- | --- |
@@ -382,14 +384,14 @@ parsed (`:parse-error`).
 
 It applies six rewrites:
 
-| Rewrite | Input | Output | Behaviour preserved |
-| --- | --- | --- | --- |
-| W1 | `^{:key k}` metadata on a vector | `:key k` in the props map | Reagent read metadata; Fresco reads props |
-| W2 | Literal nested prop maps | The same map with literal keys camel-cased | Reagent deep-camel-cased nested keys; Fresco passes them by identity |
-| W3 | Literal keyword or quoted-symbol prop value | Its `name` as a string | Reagent named these values; namespaced keywords lost their namespace there too |
-| W4 | Literal `(r/partial f a ...)` prop | Hygienic `let` capture plus function wrapper | Reagent evaluated the callee and captured args once at construction |
-| W5 | `[(r/adapt-react-class X) ...]` | `[:> X ...]` | Same native React element path in Fresco syntax |
-| W6 | `[:> "tag" ...]` for a plain HTML tag | `[:tag ...]` | Moves the native element onto Fresco's normal, controlled-element path |
+| Rewrite | Report `:class` | Input | Output | Behaviour preserved |
+| --- | --- | --- | --- | --- |
+| W1 | `:metadata-key` | `^{:key k}` metadata on a vector | `:key k` in the props map | Reagent read metadata; Fresco reads props |
+| W2 | `:nested-map-keys` | Literal nested prop maps | The same map with literal keys camel-cased | Reagent deep-camel-cased nested keys; Fresco passes them by identity |
+| W3 | `:named-value` (`:namespaced-named-value` for a namespaced keyword) | Literal keyword or quoted-symbol prop value | Its `name` as a string | Reagent named these values; namespaced keywords lost their namespace there too |
+| W4 | `:partial-wrapper` | Literal `(r/partial f a ...)` prop | Hygienic `let` capture plus function wrapper | Reagent evaluated the callee and captured args once at construction |
+| W5 | `:adapt-react-class-head` | `[(r/adapt-react-class X) ...]` | `[:> X ...]` | Same native React element path in Fresco syntax |
+| W6 | `:string-tag-head` | `[:> "tag" ...]` for a plain HTML tag | `[:tag ...]` | Moves the native element onto Fresco's normal, controlled-element path |
 
 A rewrite runs only when both the old and new behaviour can be read from the
 literal source. A prop that merely looks like an event never triggers a
@@ -454,6 +456,14 @@ records the site instead of guessing.
   intended change. Spend that effort on screens that must behave the same.
 
 ## Advanced
+
+### Crossing classes
+
+| Category | Named classes | Meaning |
+| --- | --- | --- |
+| Mechanical | W1–W6, described in [step 4](#4-apply-the-mechanical-codemod) | The codemod can preserve the previous behaviour from source text alone |
+| Human decision | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error`, `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | The source does not contain enough information for a safe rewrite, or the change repairs previously broken behaviour that must be reviewed |
+| Runtime blocker | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | The site will raise or silently misrender until someone chooses the correct Fresco shape |
 
 ### The census
 
