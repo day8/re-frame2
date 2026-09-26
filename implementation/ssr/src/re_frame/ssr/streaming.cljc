@@ -41,18 +41,21 @@
   - `render-shell` — walks the hiccup tree once, top-down. At each
     `:rf/suspense-boundary` node it (a) renders the fallback wrapped in
     a `<template data-rf2-suspense-id … data-rf2-suspense-fallback>`
-    placeholder, (b) registers a continuation `{:id :subtree}` for the
-    body. Returns `{:shell-html … :continuations [{:id … :subtree …} …]}`
+    placeholder, (b) registers a continuation `{:id :subtree :fallback}`
+    for the body. Returns
+    `{:shell-html … :continuations [{:id … :subtree … :fallback …} …]}`
     where `:continuations` is in registration FIFO order (see invariant
     above).
 
   - `render-continuation` — drains one continuation. Captures the
-    before-db, calls `render-to-string` on the subtree, captures the
-    after-db, computes the per-subtree app-db delta via
-    `clojure.data/diff`. Returns `{:html … :delta {…} :failed? false}`
-    or, on subtree-render throw, `{:html <fallback-html>
-    :delta nil :failed? true}` with a `:rf.ssr/suspense-boundary-failed`
-    trace emitted.
+    before-db, renders the subtree through the same shell walker,
+    captures the after-db, computes the per-subtree app-db delta via
+    `clojure.data/diff`. Returns
+    `{:id … :html … :delta {…} :failed? false :continuations […]}`, where
+    `:continuations` holds the boundaries nested in the subtree, or, on
+    subtree-render throw, `{:id … :html <fallback-html> :delta nil
+    :failed? true :continuations []}` with a
+    `:rf.ssr/suspense-boundary-failed` trace emitted.
 
   - `build-final-payload` — after every continuation has drained,
     constructs the canonical `:rf/hydration-payload`. The client
@@ -127,8 +130,10 @@
   hydration semantics — the same visible-fallback-plus-stable-mount shape
   React 18 / Solid use): the inert `<template>` is the wire-carrier for the
   fallback markup, the client owns the painted mount. A streaming page
-  therefore requires the client runtime to show fallbacks — non-JS clients
-  see the shell structure without painted skeletons until the final payload."
+  therefore requires the client runtime to show a boundary at all. A client
+  that runs no JavaScript sees only the shell outside the boundaries: the
+  fallback and the resolved chunk both arrive as inert `<template>`s, so it
+  never paints a skeleton or any boundary content."
   [id fallback-html]
   (suspense-template id (str rf.ssr.streaming.constants/attr-suspense-fallback "=\"1\"") fallback-html))
 
@@ -284,7 +289,7 @@
 ;; returned vector directly.
 
 (defn- new-continuation-accumulator []
-  ;; Atom of `[{:id :subtree} …]` so the recursive walker can record
+  ;; Atom of `[{:id :subtree :fallback} …]` so the recursive walker can record
   ;; from nested branches without threading the result through.
   (atom []))
 
@@ -623,7 +628,7 @@
   Returns:
 
     {:shell-html    \"…\"        ;; the HTML string with fallbacks inline
-     :continuations [{:id … :subtree …} …]   ;; FIFO drain order}
+     :continuations [{:id … :subtree … :fallback …} …]   ;; FIFO drain order}
 
   The shell-html is what the host adapter flushes as the first chunk.
   The `:continuations` vector is the drain queue — the host walks it

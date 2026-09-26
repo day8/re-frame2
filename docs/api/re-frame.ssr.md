@@ -480,7 +480,7 @@ All seven are server-only (`:platforms #{:server}`). They write the response acc
 | `[:rf.server/set-cookie :rf.server/cookie]` | a structured cookie map |
 | `[:rf.server/delete-cookie {:name ?:path ?:domain}]` | — |
 | `[:rf.server/redirect {:location ?:status}]` | Default `:status 302`; the HTML body is dropped. Use it for a `:location` you trust. |
-| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow ?:status}]` | For an untrusted `:location`, such as a `?next=` parameter. Before setting `:redirect` it parses `:location` (`:rf.error/safe-redirect-invalid-url`), rejects `javascript:`, `data:` and `vbscript:` schemes (`:rf.error/safe-redirect-scheme-rejected`), and enforces the `:relative-only?` / `:allow` allowlist (`:rf.error/safe-redirect-host-disallowed`). |
+| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow ?:status}]` | For an untrusted `:location`, such as a `?next=` parameter. Before setting `:redirect` it rejects a `:location` that does not parse, or that names a scheme but no host, such as `http:evil.example` (`:rf.error/safe-redirect-invalid-url`); rejects every scheme other than `http` and `https`, `javascript:`, `data:` and `vbscript:` among them (`:rf.error/safe-redirect-scheme-rejected`); and enforces the `:relative-only?` / `:allow` allowlist (`:rf.error/safe-redirect-host-disallowed`). None of these rejections throws: each reports its error and writes no redirect, so the page renders without one. |
 
 All seven validate their arguments:
 

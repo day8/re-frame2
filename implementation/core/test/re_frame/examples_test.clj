@@ -210,12 +210,9 @@
                                        :initial-events [[:rf/server-init]]
                                        :fx-overrides {:rf.http/managed :ssr.http/canned-articles}})
           final-db     (rf/app-db-value f)
-          ;; The root view's body invokes the articles-page render fn,
-          ;; which calls (rf/subscribe-once [:articles]). Both run
-          ;; INSIDE render-to-string's tree walk; with-frame binds
-          ;; *current-frame* across that walk so the sub reads from f
-          ;; and not from :rf/default.
-          hiccup      ((rf/view :app/root))
+          ;; The root view's body subscribes, so it is called under
+          ;; `with-frame f`: its subs read f's app-db, not :rf/default's.
+          hiccup      (rf/with-frame f ((rf/view :app/root)))
           ;; One walk, two channels — the shape the example itself uses.
           render-hash (rf.ssr/render-tree-hash hiccup)
           html        (rf/with-frame f
@@ -231,7 +228,12 @@
       ;; Spec 011); the client recomputes it and the runtime emits a
       ;; :rf.ssr/hydration-mismatch trace event on disagreement.
       (is (re-matches #"[0-9a-f]{8}" render-hash))
-      (is (clojure.string/includes? html "data-rf-render-hash")))))
+      (is (clojure.string/includes? html "data-rf-render-hash"))
+      ;; The hash covers the page the root renders, not a view reference:
+      ;; the ambient :rf/default frame holds no articles, so its render of
+      ;; the same root hashes differently.
+      (is (not= render-hash (rf.ssr/render-tree-hash ((rf/view :app/root))))
+          "the root view's render hash tracks the state it renders"))))
 
 ;; ============================================================================
 ;; ssr — per-request frame lifecycle. The example's

@@ -245,8 +245,15 @@
 ;; is in flight. The same view code runs on both — the "one app, runs twice"
 ;; promise, now over a managed resource.
 ;; See docs/ssr/glossary.md#render-to-string.
+;;
+;; The root view returns the page's elements itself rather than handing off to
+;; another view, because the render hash walks the tree the root returns and
+;; never calls a view it finds inside: `[(rf/view :some/page)]` hashes as one
+;; fixed token. A root whose whole body is another view would hash the same
+;; for every cache state, and the client's check would pass whatever either
+;; side rendered.
 
-(rf/reg-view ^{:rf/id :pages/articles} articles-page []
+(rf/reg-view ^{:rf/id :app/root} root-view []
   (let [state @(subscribe [:rf/resource
                            {:resource :articles/list
                             :scope    :rf.scope/global
@@ -265,9 +272,6 @@
              (for [{:keys [slug title]} (:data state)]
                ^{:key slug}
                [:li {:data-testid (str "article-" slug)} title])))]))
-
-(rf/reg-view ^{:rf/id :app/root} root-view []
-  [(rf/view :pages/articles)])
 
 ;; ============================================================================
 ;; DIRECT RESOURCE-PRELOAD POLL (route-free — no `reg-route` in this example)
