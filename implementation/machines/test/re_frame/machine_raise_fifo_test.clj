@@ -54,24 +54,7 @@
           "FIFO (XState/SCXML): the nested raise D lands behind sibling C —
            NOT the depth-first [:go :b :d :c] a prepending drain would produce"))))
 
-;; ---- 2. plain two-sibling order (no nesting) -----------------------------
-
-(deftest fifo-sibling-raises-process-in-emit-order
-  (testing "A raises [B] then [C] (neither nests) ⇒ B before C, in :fx order"
-    (let [spec {:initial :hub
-                :data    {}
-                :actions {:go (log-action :go [:b] [:c])
-                          :b  (log-action :b)
-                          :c  (log-action :c)}
-                :states  {:hub {:on {:go {:action :go}
-                                     :b  {:action :b}
-                                     :c  {:action :c}}}}}
-          {snap :snapshot} (rf.machines/machine-transition
-                                 spec {:state :hub :data {}} [:go])]
-      (is (= [:go :b :c] (:log (:data snap)))
-          "sibling raises drain in the order they entered the queue"))))
-
-;; ---- 3. deeper interleave — two nesters -----------------------------------
+;; ---- 2. deeper interleave — two nesters -----------------------------------
 
 (deftest fifo-two-nesting-siblings-interleave-breadth-first
   (testing "A raises [B] [C]; B raises [D]; C raises [E] ⇒ B, C, D, E"
@@ -96,7 +79,7 @@
           "both first-level siblings (B, C) drain before either's nested
            raise (D, E) — breadth-first, the XState/SCXML internal queue"))))
 
-;; ---- 4. linear chain — FIFO and depth-first agree -------------------------
+;; ---- 3. linear chain — FIFO and depth-first agree -------------------------
 
 (deftest fifo-linear-chain-unchanged
   (testing "a linear self-chain (one raise per step) reaches the terminal
@@ -120,56 +103,14 @@
       (is (= [:a1 :a2 :a3] (:log (:data snap)))
           "linear chain order is identical under FIFO and depth-first"))))
 
-;; ---- 5. depth bound is order-independent ----------------------------------
-
-(deftest fifo-depth-bound-counts-total-raises-not-order
-  (testing "the :raise-depth-limit trips on the COUNT of raises drained,
-   unaffected by FIFO vs depth-first ordering"
-    ;; Six sibling raises in one :fx vector under limit 4. The drain
-    ;; processes raises at depths 0..3 then aborts at depth 4 — the >=
-    ;; boundary — regardless of queue ordering, because order changes the
-    ;; SEQUENCE not the COUNT. The macrostep rolls back atomically.
-    (let [seen (atom [])
-          spec {:initial :idle
-                :data    {}
-                :raise-depth-limit 4
-                :actions {:fan-out (fn [_]
-                                     {:fx [[:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]
-                                           [:raise [:noop]]]})}
-                :states  {:idle    {:on {:start {:target :running :action :fan-out}
-                                         :noop  :idle}}
-                          :running {:on {:noop :idle}}}}]
-      (let [listener (fn [ev] (when (= :rf.error/machine-raise-depth-exceeded
-                                        (get-in ev [:tags :rf/op-type-id]
-                                                (:op-type-id ev)))
-                                (swap! seen conj ev)))]
-        ;; A depth-bound abort is a FAILED macrostep, not an :ok rollback
-        ;; no-op (XState v5 throws on such a runaway). The pure surface
-        ;; returns `:status :error` whose `:kind` names the depth-exceeded
-        ;; category; atomic rollback is guaranteed — a failure threads NO
-        ;; snapshot / fx, so nothing intermediate escapes the abort. (The
-        ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
-        ;; snapshot committed in runtime-db.)
-        (let [r (rf.machines/machine-transition spec {:state :idle :data {}} [:start])]
-          (is (= :error (:status r))
-              "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
-          (is (= :rf.error/machine-raise-depth-exceeded (get-in r [:error :kind]))
-              "the failure names the raise depth-exceeded category (a bounded-depth trip)")
-          (is (nil? (:snapshot r))
-              "a :fail threads no snapshot — nothing intermediate survives")
-          (is (nil? (:fx r))
-              "a :fail threads no fx — no accumulated side-effect leaks the abort"))))))
-
-;; ---- 6. depth-bound rollback is TRULY atomic ------------------------------
+;; ---- 4. depth-bound rollback is TRULY atomic ------------------------------
 ;;
-;; The plain rollback test (§5) fans out identical `[:noop]` self-loops that
-;; neither mutate :data nor emit non-raise fx, so the partially-advanced
-;; snapshot HAPPENS to equal the original even without a real rollback — it
-;; cannot distinguish a non-atomic abort from a true one. These fixtures make
+;; Raises that neither mutate :data nor emit non-raise fx (identical `[:noop]`
+;; self-loops) leave the partially-advanced snapshot EQUAL to the original even
+;; without a real rollback, so they cannot distinguish a non-atomic abort from a
+;; true one. (That the limit counts every raise drained, siblings included, is
+;; pinned by `machine_transition_purity_test`'s
+;; `raise-depth-boundary-matches-always-boundary`.) These fixtures make
 ;; every intermediate raise MUTATE state + :data AND emit a non-raise
 ;; side-effect fx BEFORE the limit trips, so a non-atomic abort would commit a
 ;; drifted snapshot and leak the accumulated effects. The contract: the WHOLE

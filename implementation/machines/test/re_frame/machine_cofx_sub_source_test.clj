@@ -93,31 +93,18 @@
         ex-data
         :rf.error/id)))
 
-(deftest sub-source-missing-as-rejected
-  (testing "a `{:rf/sub …}` source with NO `:as` fact-id fails registration —
-            `:as` is MANDATORY (it is the recorded fact's id + dedup key)"
-    (is (= :rf.error/cofx-request-invalid
-           (reg-rejected-id [{:rf/sub [:a/x]}])))))
-
-(deftest sub-source-non-vector-query-rejected
-  (testing "a `{:rf/sub …}` source whose `:rf/sub` is not a query VECTOR fails"
-    (is (= :rf.error/cofx-request-invalid
-           (reg-rejected-id [{:rf/sub :not-a-vector :as :app/x}])))
-    (is (= :rf.error/cofx-request-invalid
-           (reg-rejected-id [{:rf/sub [] :as :app/x}]))
-        "an empty query vector is rejected")))
-
-(deftest sub-source-non-qualified-as-rejected
-  (testing "a `{:rf/sub …}` source whose `:as` is not owner-qualified fails"
-    (is (= :rf.error/cofx-request-invalid
-           (reg-rejected-id [{:rf/sub [:a/x] :as :bare}]))
-        "a bare (unqualified) `:as` keyword is rejected")))
-
-(deftest sub-source-extra-key-rejected
-  (testing "a `{:rf/sub …}` source carrying a key other than :rf/sub / :as fails
-            — the source map is exactly `{:rf/sub query-v :as fact-id}`"
-    (is (= :rf.error/cofx-request-invalid
-           (reg-rejected-id [{:rf/sub [:a/x] :as :app/x :bogus 1}])))))
+;; The source map is exactly `{:rf/sub query-v :as fact-id}`: `:as` is
+;; MANDATORY (it is the recorded fact's id + dedup key), `:rf/sub` is a
+;; non-empty query VECTOR, `:as` is owner-qualified, and no other key is admitted.
+(deftest malformed-sub-source-rejected
+  (doseq [[label requires]
+          [["no :as fact-id"                 [{:rf/sub [:a/x]}]]
+           [":rf/sub not a query vector"     [{:rf/sub :not-a-vector :as :app/x}]]
+           ["an empty query vector"          [{:rf/sub [] :as :app/x}]]
+           ["a bare (unqualified) :as"       [{:rf/sub [:a/x] :as :bare}]]
+           ["a key other than :rf/sub / :as" [{:rf/sub [:a/x] :as :app/x :bogus 1}]]]]
+    (testing (str "a {:rf/sub ...} source with " label " fails registration")
+      (is (= :rf.error/cofx-request-invalid (reg-rejected-id requires))))))
 
 ;; ===========================================================================
 ;; 3. End-to-end — a named action reads the RESOLVED sub value off :rf.cofx

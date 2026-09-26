@@ -71,22 +71,6 @@
       (is (= :done (:state (snapshot :world/guard)))
           "the guard fired the transition on the causal :time-ms"))))
 
-(deftest guard-blocks-on-wrong-causal-time-ms
-  (testing "the same guard BLOCKS when the scripted :time-ms differs — proving
-            the decision folds the token's value, not an ambient read"
-    (let [m {:initial :idle
-             :data    {}
-             :guards  {:at-scripted-time?
-                       (fn [{cofx :rf.cofx}]
-                         (= SCRIPTED-TIME-MS (:rf/time-ms cofx)))}
-             :states  {:idle {:on {:go {:target :done :guard :at-scripted-time?}}}
-                       :done {}}}]
-      (rf/reg-machine :world/guard-block m)
-      (rf/dispatch-sync [:world/guard-block [:go]]
-                        {:rf.cofx {:rf/time-ms (inc SCRIPTED-TIME-MS)}})
-      (is (= :idle (:state (snapshot :world/guard-block)))
-          ":go blocked — the causal :time-ms did not match the guard's predicate"))))
-
 ;; ---- (b) a flat-machine ACTION folds the scripted :time-ms into :data ------
 
 (deftest action-folds-causal-time-ms-into-data

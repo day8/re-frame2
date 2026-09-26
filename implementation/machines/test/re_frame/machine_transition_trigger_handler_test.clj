@@ -45,61 +45,31 @@
 
 (deftest machine-transition-carries-trigger-handler
   (testing ":rf.machine/transition fires inside the machine's event-handler
-   scope, so :rf.trace/trigger-handler rides the trace with the machine's
-   registration coord — Xray's machine-inspector renders jump-to-source
-   from this field"
+   scope, so :rf.trace/trigger-handler rides the trace — at the top level,
+   NOT nested under :tags, mirroring the error-path shape — carrying the
+   machine's registration coord exactly as the registrar holds it. Xray's
+   machine-inspector renders jump-to-source from this field"
     (rf/reg-machine :rf2-lf84g/tl
       {:initial :red
        :states  {:red    {:on {:tick {:target :green}}}
                  :green  {:on {:tick {:target :yellow}}}
                  :yellow {:on {:tick {:target :red}}}}})
-    (let [evs    (record-traces
-                   (fn [] (rf/dispatch-sync [:rf2-lf84g/tl [:tick]])))
-          trans  (transitions-of evs)
-          [first-trans] trans]
-      (is (some? first-trans) ":rf.machine/transition fired")
-      (let [t (:rf.trace/trigger-handler first-trans)]
-        (is (some? t) ":rf.trace/trigger-handler present on transition trace")
-        (is (= :event (:kind t)) "kind is :event (machines register as event handlers)")
-        (is (= :rf2-lf84g/tl (:id t)) "id is the machine-id")
-        (let [c (:source-coord t)]
-          (is (map? c) ":source-coord present")
-          (is (symbol? (:ns c))    ":ns is a symbol")
-          (is (string? (:file c))  ":file is a string")
-          (is (integer? (:line c)) ":line is an integer"))))))
-
-(deftest machine-transition-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler is a top-level field on the
-   :rf.machine/transition event, NOT nested under :tags — mirrors the
-   error-path shape"
-    (rf/reg-machine :rf2-lf84g/top-level
-      {:initial :a
-       :states  {:a {:on {:go {:target :b}}}
-                 :b {}}})
-    (let [evs    (record-traces
-                   (fn [] (rf/dispatch-sync [:rf2-lf84g/top-level [:go]])))
-          [tr]   (transitions-of evs)]
-      (is (some? tr))
-      (is (contains? tr :rf.trace/trigger-handler)
-          ":rf.trace/trigger-handler lives at top level")
-      (is (not (contains? (:tags tr) :rf.trace/trigger-handler))
-          ":rf.trace/trigger-handler does NOT live under :tags"))))
-
-(deftest machine-transition-coord-matches-registrar
-  (testing "the :source-coord under :rf.trace/trigger-handler equals what
-   the registrar holds on the machine's slot — same comparison the
-   trigger-handler-coord-test does for the error path"
-    (rf/reg-machine :rf2-lf84g/coord
-      {:initial :a
-       :states  {:a {:on {:go {:target :b}}}
-                 :b {}}})
-    (let [reg-meta (rf/handler-meta {:source :store :kind :event :id :rf2-lf84g/coord})
+    (let [reg-meta (rf/handler-meta {:source :store :kind :event :id :rf2-lf84g/tl})
           evs      (record-traces
-                     (fn [] (rf/dispatch-sync [:rf2-lf84g/coord [:go]])))
+                     (fn [] (rf/dispatch-sync [:rf2-lf84g/tl [:tick]])))
           [tr]     (transitions-of evs)
-          coord    (-> tr :rf.trace/trigger-handler :source-coord)]
-      (is (some? tr))
-      (is (= (:ns     reg-meta) (:ns coord)))
-      (is (= (:file   reg-meta) (:file coord)))
-      (is (= (:line   reg-meta) (:line coord)))
-      (is (= (:column reg-meta) (:column coord))))))
+          t        (:rf.trace/trigger-handler tr)
+          c        (:source-coord t)]
+      (is (some? tr) ":rf.machine/transition fired")
+      (is (some? t) ":rf.trace/trigger-handler present at the trace's top level")
+      (is (not (contains? (:tags tr) :rf.trace/trigger-handler))
+          ":rf.trace/trigger-handler does NOT live under :tags")
+      (is (= :event (:kind t)) "kind is :event (machines register as event handlers)")
+      (is (= :rf2-lf84g/tl (:id t)) "id is the machine-id")
+      (is (symbol? (:ns c))    ":ns is a symbol")
+      (is (string? (:file c))  ":file is a string")
+      (is (integer? (:line c)) ":line is an integer")
+      (is (= (:ns     reg-meta) (:ns c)))
+      (is (= (:file   reg-meta) (:file c)))
+      (is (= (:line   reg-meta) (:line c)))
+      (is (= (:column reg-meta) (:column c))))))

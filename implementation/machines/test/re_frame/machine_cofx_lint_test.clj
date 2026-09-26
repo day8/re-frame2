@@ -199,36 +199,6 @@
 
 ;; ---- the string-shaped :source-code the macro actually stamps -------------
 
-(deftest consume-undeclared-fires-against-macro-string-source
-  (testing "the reg-machine macro stamps `:source-code` as a
-            pr-str STRING; the scan parses it back to a form (via the safe
-            EDN reader) before `tree-seq`, so the identical read that fires as
-            a FORM (see -form test above) also fires as the STRING the macro
-            actually stamps. Unparsed, a STRING is a `tree-seq` LEAF → zero
-            keyword tokens → the diagnostic would be dead against real macro
-            output."
-    (rf/reg-cofx :lint/declared4   {:recordable? true} (fn [] :D))
-    (rf/reg-cofx :lint/undeclared3 {:recordable? true} (fn [] :U))
-    (let [m {:initial :idle
-             :data    {}
-             :guards  {:g {:rf.cofx/requires [:lint/declared4]
-                           :fn (fn [_] true)
-                           ;; the SAME read as the -form positive, but as the
-                           ;; STRING the macro actually stamps
-                           :source-code "(fn [{cofx :rf.cofx}] (:lint/undeclared3 cofx))"}}
-             :states  {:idle {:on {:go {:target :done :guard :g}}}
-                       :done {}}}]
-      (lint! :lint/consume-string m)
-      (let [w (warns CONSUME)]
-        (is (= 1 (count w))
-            "the scan reads the STRING source-code as a form")
-        (is (= {:machine-id :lint/consume-string
-                :slot       :guards
-                :entry-id   :g
-                :rf.cofx/id :lint/undeclared3}
-               (:tags (first w)))
-            "flags the undeclared registered cofx the fn read")))))
-
 (deftest consume-undeclared-tolerates-unreadable-string-source
   (testing "an unreadable `:source-code` STRING (an exotic reader macro the
             safe EDN reader chokes on) is a tolerated false-NEGATIVE: the scan

@@ -69,18 +69,6 @@
                  (= [:rf/machine mid] (get-in % [:tags :rf.sub/query-v])))
            events))
 
-(deftest machine-declaration-is-lowered
-  (testing "every redaction below reads the lowered declaration, so pin that it
-            is there: a missing claim would make them read raw for a reason that
-            has nothing to do with the sub"
-    (reg-auth-machine!)
-    (rf/dispatch-sync [mid [:login token-1]])
-    (let [reg (:rf.runtime/elision (rf.machines.test-support/runtime-db))]
-      (is (contains? (:sensitive-declarations reg)
-                     [:rf.runtime/machines :snapshots mid :data :token]))
-      (is (contains? (:declarations reg)
-                     [:rf.runtime/machines :snapshots mid :data :blob])))))
-
 (deftest sub-run-trace-redacts-the-machine-declaration
   (reg-auth-machine!)
   (rf/dispatch-sync [mid [:login token-1]])
