@@ -791,9 +791,9 @@
   (reset! schemas-by-frame snap))
 
 (defn clear-schemas-by-frame!
-  "Reset the per-frame schema registry to `{}`. Used by test fixtures
-  and by `make-reset-runtime-fixture`'s `:clear-app-schemas? true`
-  path. The per-frame registry is the artefact's only mutable registration
+  "Reset the per-frame schema registry to `{}`. Used by test fixtures,
+  among them the reset `make-reset-runtime-fixture` runs before every
+  test. The per-frame registry is the artefact's only mutable registration
   state."
   []
   (reset! schemas-by-frame {}))

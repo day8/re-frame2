@@ -35,8 +35,7 @@
             [re-frame.security.gen :as rf.security.gen]))
 
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:clear-app-schemas? true}))
+  (rf.test-support/make-reset-runtime-fixture))
 
 (def ^:private sentinel "S3CR3T-rf2-zsm03-ERROR-SLOT-DO-NOT-LEAK")
 
