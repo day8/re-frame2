@@ -1161,7 +1161,7 @@
 
   - `:columns` — `:grid` / `:variants-grid` fixed column-count
     (spec/001-Authoring.md §`:columns`). Renderer-honoured —
-    when present the grid emits `repeat(N, minmax(280px,1fr))`; absent it
+    when present the grid emits `repeat(N, minmax(0, 1fr))`; absent it
     keeps the responsive `auto-fit` default.
   - `:for` — `:variants-grid` auto-enumerate anchor story-id
     (spec/001-Authoring.md §`:variants-grid`):

@@ -1,7 +1,7 @@
 # Story-MCP — Design Rationale
 
 > WHY each major design call was made. Why Cheshire over data.json;
-> why the stage marker is independent from Story's; why the protocol
+> why the MCP jar carries its own stage marker; why the protocol
 > version is pinned; why the write gate is opt-in.
 
 ## §separate-jar — why a separate artefact from Story
@@ -37,18 +37,17 @@ Alternatives considered:
   per agent tool call; not a throughput-bound workload). Rejected on
   simplicity.
 
-## §independent-stage-marker — why stage is independent from Story's
+## §independent-stage-marker — why the MCP jar carries its own stage marker
 
-Story's own `re-frame.story/stage` advances when Story's runtime
-extends (e.g. `:sota-features` after Stage 6 lands the v1 panels).
-This jar carries its own `re-frame.story-mcp.config/stage = :mcp`
-that advances when *its* surface extends.
+This jar carries `re-frame.story-mcp.config/stage = :mcp`, a sentinel
+naming its own surface, which advances when *its* surface extends. Its
+presence tells a reader the MCP jar is loaded. Story carries no stage
+marker: a single value with nothing to tell apart would say nothing.
 
-The two artefacts have **independent stage progression** per
+The two artefacts evolve **independently** per
 [`tools/README.md`](../../README.md)'s per-tool jar convention. A
 release of Story does not force a release of Story-MCP, and vice
-versa. The MCP server can ship `:mcp` at v1 while Story is still at
-`:sota-features` at v1 — the constants serve different runtimes.
+versa.
 
 ## §protocol-version-pin — why pin the MCP protocol version
 

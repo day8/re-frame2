@@ -45,9 +45,9 @@ because:
   JSON-RPC framing, asynchronous-handler runtime) that the vast
   majority of Story consumers never load.
 - Splitting at the jar boundary keeps the Story core lean.
-- The MCP surface can evolve on its own cadence. Story's
-  `re-frame.story/stage` and the MCP jar's
-  `re-frame.story-mcp.config/stage` describe different surfaces.
+- The MCP surface can evolve on its own cadence. The MCP jar's
+  `re-frame.story-mcp.config/stage` names its own surface; Story
+  carries no stage marker.
 
 The pattern mirrors `tools/machines-viz/` vs.
 `tools/machines-viz-mcp/` (per [`tools/README.md`](../../README.md)).
@@ -129,7 +129,7 @@ written a story that demonstrates the component working.
   `allow-writes?` config and gate behaviour.
 - [`API.md`](API.md) — consolidated tool surface.
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — why Cheshire, why
-  stage-marker is independent from Story, why protocol-version pinned.
+  the MCP jar carries its own stage marker, why protocol-version pinned.
 - [`tools/story/spec/006-MCP-Surface.md`](../../story/spec/006-MCP-Surface.md) —
   Story's side of the contract.
 - [`spec/Tool-Pair.md`](../../../spec/Tool-Pair.md) — the separate

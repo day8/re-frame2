@@ -86,13 +86,10 @@ implementation detail of the current server.
 
 story-mcp carries its own stage constant
 (`re-frame.story-mcp.config/stage = :mcp`) that advances when *its*
-surface extends. Story's own `re-frame.story/stage` advances on its
-own cadence.
+surface extends. Story carries no stage marker.
 
-The two artefacts have **independent stage progression**: a release
-of Story does not force a release of story-mcp, and vice versa. The
-MCP server can ship `:mcp` at v1 while Story is at `:sota-features`
-at v1 — the constants serve different runtimes.
+The two artefacts evolve **independently**: a release of Story does
+not force a release of story-mcp, and vice versa.
 
 Concretely: a story-mcp release that adds a new tool advances `:mcp`
 and ships on its own; Story-side work doesn't block it. A Story

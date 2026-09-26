@@ -204,30 +204,32 @@
 ;;
 ;; The workspace body's optional `:columns` integer pins the grid's column
 ;; count. Absent, the grid uses the responsive `auto-fit` default (fit as
-;; many 280px-min columns as the canvas width allows). Present, it pins a
-;; fixed `repeat(N, minmax(280px, 1fr))` template. Pure string → string so
-;; the JVM test suite covers the template selection without a DOM.
+;; many 280px-min columns as the canvas width allows). Present, it pins N
+;; equal columns that share the canvas width, `repeat(N, minmax(0, 1fr))`:
+;; a 280px floor there would make N columns wider than a narrow canvas, and
+;; the last ones would overflow the pane. A view wider than its cell scrolls
+;; inside the cell. Pure string → string so the JVM test suite covers the
+;; template selection without a DOM.
 
 (def ^:private grid-min-cell-width
-  "Minimum cell width in the grid track template (px). Shared between the
-  responsive `auto-fit` default and the fixed `:columns` template."
+  "Minimum cell width of the responsive `auto-fit` default (px)."
   "280px")
 
 (defn grid-template-columns
   "Return the CSS `grid-template-columns` value for a workspace grid given
   its body's `:columns` slot (or nil).
 
-  - `:columns N` (a positive int) → `repeat(N, minmax(280px, 1fr))` —
-    a fixed N-column track template.
+  - `:columns N` (a positive int) → `repeat(N, minmax(0, 1fr))` — exactly
+    N equal columns sharing the canvas width, so the grid never overflows
+    the pane.
   - absent / nil / non-positive → `repeat(auto-fit, minmax(280px, 1fr))`
     — the responsive default (fit as many columns as fit at 280px min).
 
   Pure; JVM-testable."
   [columns]
-  (let [track (str "minmax(" grid-min-cell-width ", 1fr)")]
-    (if (and (integer? columns) (pos? columns))
-      (str "repeat(" columns ", " track ")")
-      (str "repeat(auto-fit, " track ")"))))
+  (if (and (integer? columns) (pos? columns))
+    (str "repeat(" columns ", minmax(0, 1fr))")
+    (str "repeat(auto-fit, minmax(" grid-min-cell-width ", 1fr))")))
 
 ;; ---- styling -------------------------------------------------------------
 

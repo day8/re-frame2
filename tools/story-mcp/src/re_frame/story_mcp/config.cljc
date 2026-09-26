@@ -235,6 +235,7 @@
 ;; ---- stage marker --------------------------------------------------------
 
 (def stage
-  "Sentinel naming the loaded Story-MCP surface. It is independent of
-  `re-frame.story/stage` because the two artefacts evolve separately."
+  "Sentinel naming the loaded Story-MCP surface, so a reader can tell the
+  MCP jar is present. Story itself carries no stage marker; the two
+  artefacts evolve separately."
   :mcp)
