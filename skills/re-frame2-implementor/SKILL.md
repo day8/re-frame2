@@ -1,20 +1,20 @@
 ---
 name: re-frame2-implementor
 description: >
-  Guides an engineer building a NEW re-frame2 implementation in one of the
-  eight in-scope JS-cross-compile-to-React+VDOM host languages — ClojureScript
-  (the reference), TypeScript, Melange/ReScript/Reason, F# (Fable), Squint,
-  Scala.js, PureScript, Kotlin/JS — over a two-phase workflow (record the port
-  profile, then one EP loop driven by the pinned spec and live conformance
-  fixtures, with the conformance corpus as the acceptance test). **Do not
-  use** for: writing apps on the CLJS reference (`re-frame2`), greenfield
-  bootstrap (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`),
-  live-app inspection (`re-frame2-pair`), or an out-of-scope target — a
-  non-React substrate (Vue, Solid, Svelte, vanilla DOM) or a host that does
-  not cross-compile to JS (Python, Ruby, native Rust, Go, server-side JVM):
-  out of scope by deliberate spec choice, so surface the `spec/000-Vision.md`
-  scope footnote and stop. Trigger on "port re-frame2", "implement re-frame2
-  in a language", "conformance corpus".
+  Drives building re-frame2 itself — a NEW implementation (port) in one of
+  the eight in-scope JS-cross-compile-to-React+VDOM hosts: ClojureScript (the
+  reference), TypeScript, Melange/ReScript/Reason, F# (Fable), Squint,
+  Scala.js, PureScript, Kotlin/JS. Records a port profile, then walks the EPs
+  in dependency order against the pinned spec, with the conformance corpus as
+  the acceptance test. Use whenever someone wants to port or reimplement
+  re-frame2, asks about the Implementor Checklist, capability claims, or
+  running spec/conformance fixtures against a port — even if they only ask
+  where to start. Not for: apps on the CLJS reference (re-frame2), greenfield
+  bootstrap (re-frame2-setup), v1→v2 migration (re-frame-migration), live-app
+  inspection (re-frame2-pair). A non-React substrate (Vue, Solid, Svelte,
+  vanilla DOM) or a host that does not compile to JS (Python, Ruby, native
+  Rust, Go, server-side JVM) is out of scope by spec choice: cite the
+  spec/000-Vision.md scope footnote and stop.
 allowed-tools:
   - Bash(gh issue *)
   - Bash(git -C * rev-parse *)
@@ -46,7 +46,7 @@ Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single
 
 ## Cardinal rules (one-liners; full text in [`references/cardinal-rules.md`](references/cardinal-rules.md))
 
-1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile **and that its `spec/` tree is clean** (a matching HEAD is not a matching tree — uncommitted edits and untracked fixtures ride under the recorded SHA), then resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
+1. **Spec is the contract — pinned before reading.** Verify the checkout's HEAD and origin against the pin recorded in the port profile **and that its `spec/` tree is clean** (a matching HEAD is not a matching tree — uncommitted edits and untracked fixtures ride under the recorded SHA; on a mismatch, report and stop — clearing it with a reset, checkout or stash is the engineer's call, not yours), then resolve every contract read through that checkout at the pin — the live-site URLs in this skill are citations, never the reading route; when `implementation/` and `spec/` disagree, the spec wins.
 2. **Phase 1 before Phase 2.** Record the profile before implementing; committing it is a done-gate concern, not a pre-code gate.
 3. **Dependency order.** EP 001 → 002 → 006 → views → 009 → 015 → 013 are the foundation (015 Data Classification and 013 Flows are both v1-required — 015 rides the 009 emission boundary, and 013 stands on everything before it); optional EPs sit downstream.
 4. **Substrate-agnostic phrasing.** "The identity primitive", "the render-tree", "the reactive container" — not hiccup / Reagent / keywords.
