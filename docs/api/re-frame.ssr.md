@@ -1,6 +1,6 @@
 # re-frame.ssr
 
-Render a re-frame2 app to HTML on the server and resume it in the browser. Each request renders in its own frame: its events run to completion, the root view becomes an HTML string, and the resulting state ships in the page as a hydration payload, which `hydrate!` installs on the client before the first render so the browser adopts the server's markup. Most apps serve requests through the Ring handler in [`re-frame.ssr.ring`](re-frame.ssr.ring.md), which calls this namespace for them.
+Render a re-frame2 app to HTML on the server and resume it in the browser. Each request renders in its own frame: its events run to completion, the root view becomes an HTML string, and the resulting state ships in the page as a hydration payload. On the client, `hydrate!` installs that state before the first render, and the view adapter then adopts the server's markup. Most apps serve requests through the Ring handler in [`re-frame.ssr.ring`](re-frame.ssr.ring.md), which calls this namespace for them.
 
 Ships in the `day8/re-frame2-ssr` artefact; require `re-frame.ssr` once at boot. Without it, `rf/reg-head` and `rf/reg-error-projector` throw `:rf.error/ssr-artefact-missing`, naming the artefact and the namespace to require.
 
@@ -79,7 +79,7 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
   ```
 - **Description**: Returns a structural hash of a render tree. The hash is computed over the tree's canonical EDN, so the same tree hashes the same on JVM and CLJS. Hydration compares the server's hash with the client's first render; a mismatch means the client's first render is not the tree the server rendered.
     - Attribute order does not matter and `nil` values are dropped: `[:div {:class nil}]` and `[:div {}]` hash the same.
-    - It does not call views. A view in the tree (a function head) hashes as one fixed token followed by its arguments, so the hash covers the markup the tree spells out and the arguments it passes to views, not what those views render. Hash the tree a view returns, `((rf/view :app/root))`: `[(rf/view :app/root)]` hashes to the same constant for every app.
+    - It does not call views. A view in the tree (a function head) hashes as one fixed token followed by its arguments, so the hash covers the markup the tree spells out and the arguments it passes to views, not what those views render. Hash the tree a view returns, `((rf/view :app/root))`: `[(rf/view :app/root)]` hashes to the same constant for every app ([What the hash covers](../ssr/concepts.md#what-the-hash-covers)).
 - **Example**:
   ```clojure
   ;; Capture the hash at render time; it rides the hydration payload as
@@ -106,18 +106,17 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
 
 ## The head model
 
-A head model is data describing the page's `<head>`: `:title`, `:meta`, `:link`, `:script`, `:json-ld`, `:html-attrs` and `:body-attrs`. Register a head function with `rf/reg-head` and select it from a route's `:head` metadata. Read the model with `head-model` and emit it with `head-model->html`; both are defined on [`re-frame.ssr.head`](re-frame.ssr.head.md) and re-exported here under the same names. `head-model` returns the model and records it nowhere, and there is no `:rf/head` subscription ([below](#subscriptions--there-are-none)). [Head metadata](../ssr/head.md) shows a complete head and route.
+A head model is data describing the page's `<head>`: `:title`, `:meta`, `:link`, `:script`, `:json-ld`, `:html-attrs` and `:body-attrs`. Register a head function with `rf/reg-head` and select it from a route's `:head` metadata; read the model with `head-model` and emit it with `head-model->html`. [Head metadata](../ssr/head.md) shows a complete head and route.
 
 ### `reg-head`
 
-- **Kind**: macro
+- **Kind**: macro (`rf/reg-head`); also a function, `re-frame.ssr.head/reg-head`
 - **Signature**:
   ```clojure
   (reg-head id ?metadata head-fn) → id
   ```
 - **Description**: Registers a head function under `id`; a route selects it with `:head id` in its metadata. Returns `id`.
     - `head-fn` is `(fn [db route] head-model)`: pure, like a subscription.
-    - Called as `rf/reg-head` on the `re-frame.core` facade. There is no `re-frame.ssr/reg-head`; the function form is `re-frame.ssr.head/reg-head`.
 - **Example**:
   ```clojure
   (rf/reg-head :app/head
@@ -177,7 +176,7 @@ On the client, `hydrate!` installs that state into the frame before the first re
 - `:rf.ssr/version-mismatch` — the payload came from a different framework version.
 - `:rf.ssr/schema-digest-mismatch` — the app's schema set has changed since the payload was built.
 
-The reference `:rf/hydrate` handler runs the last two, which check where the payload came from ([client-only fx](#client-only-fx)). A payload that is not a map, or names a different frame, is refused before anything is installed ([`hydrate!`](#hydrate)'s errors). [The client side: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) explains the boot sequence.
+`:rf/hydrate` runs the last two, which check that the payload came from a compatible build ([client-only fx](#client-only-fx)). A payload that is not a map, or names a different frame, is refused before anything is installed ([`hydrate!`](#hydrate)'s errors). [The client side: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) explains the boot sequence.
 
 ### `hydrate!`
 
@@ -188,7 +187,7 @@ The reference `:rf/hydrate` handler runs the last two, which check where the pay
   ```
 - **Description**: Boots the client from the server's payload. Call it after `rf/init!` and `make-frame`, before the view adapter mounts. It runs three steps in order:
     1. **Read** the payload: `:payload` if supplied, else (CLJS) the DOM's `__rf_payload` `<script>`, via [`read-server-payload`](#read-server-payload).
-    2. **Hydrate**: `dispatch-sync [:rf/hydrate payload]` against `:frame` before the first render. `:rf/hydrate` replaces `app-db` with the payload's `:rf/app-db` and the runtime-db with its `:rf/runtime-db`; a slice the payload omits keeps the frame's current value.
+    2. **Hydrate**: `dispatch-sync [:rf/hydrate payload]` against `:frame` before the first render ([`:rf/hydrate`](#rfhydrate)).
     3. **Verify**: call `:render-tree-fn` under `:frame` and pass its tree to [`verify-hydration!`](#verify-hydration) (omit `:render-tree-fn` to skip).
     - Returns the payload it applied, or `nil` when there is none to apply: no payload script (a client-only first load), or a payload `:rf/hydrate` refused as malformed. Branch on it to choose between adopting the server's DOM and mounting fresh.
     - `hydrate!` installs state only. Adopting the server's DOM is a separate call to the view adapter, such as the Reagent adapter's `render!` with `{:hydrate? true}` ([`re-frame.adapter.reagent`](re-frame.adapter.reagent.md)).
@@ -198,7 +197,7 @@ The reference `:rf/hydrate` handler runs the last two, which check where the pay
     - `:payload` — the payload map. Required on the JVM; on CLJS, omit it to read the payload from the DOM.
     - `:element-id` (CLJS) — the payload `<script>` id to read when `:payload` is omitted; default `"__rf_payload"`.
     - `:render-tree-fn` — a 0-arity fn returning the client's render tree, for the verify step; `hydrate!` calls it once, under `:frame`, so the view's subscriptions resolve. Pass `(fn [] ((rf/view :app/root)))`, calling the view to match what the server hashed. Pass it only when your views return hiccup (Reagent, Reagent-slim). Omit it for native UIx and Fresco roots, whose views return React elements: they report mismatches through the adapter's hydrating render instead.
-    - `:container` (CLJS) — discover and validate the root manifest beside this root's container, for a page with several roots.
+    - `:container` (CLJS) — this root's container element, for a page with several roots. `hydrate!` reads the root manifest from the element immediately after it, a `<script type="application/edn" data-rf-root>` describing the root, and validates it; a missing or invalid manifest throws `:rf.error/root-manifest-invalid`. The bundled Ring handler writes no root manifest, so pass `:container` only when your host emits one.
     - `:manifest` — an explicit root manifest, validated in place of discovery.
     - `:root-id` — this root's id, recorded as the payload's installer and named in a conflict. Defaults to the manifest's `:root-id` when a manifest was resolved.
 - **Errors**:
@@ -223,7 +222,7 @@ The reference `:rf/hydrate` handler runs the last two, which check where the pay
   (hydrate-page! roots) → [{:root-id … :status :hydrated :payload …}
                            | {:root-id … :status :failed :error throwable} …]
   ```
-- **Description**: Boots a page with several roots, isolating each root's failure from the others. `roots` is a collection of per-root opts maps: each is the map `hydrate!` takes, plus an optional 0-arity `:mount-fn` that runs right after that root's hydrate, inside the same failure boundary. Pass the mount as `:mount-fn` rather than mounting after the call: a mount that throws outside the boundary is not isolated.
+- **Description**: Boots a page with several roots, isolating each root's failure from the others ([Several roots on one page](../ssr/concepts.md#several-roots-on-one-page)). `roots` is a collection of per-root opts maps: each is the map `hydrate!` takes, plus an optional 0-arity `:mount-fn` that runs right after that root's hydrate, inside the same failure boundary. Pass the mount as `:mount-fn` rather than mounting after the call: a mount that throws outside the boundary is not isolated.
     - A root whose hydrate or mount throws is reported with an always-on `:rf.error/root-boot-failed` record carrying `:root-id` and `:phase`: `:hydrate` when `hydrate!` threw (a frame-id mismatch, payload conflict or manifest refusal before anything was installed, or a `:hard-error` hash mismatch after the frame was seeded), `:mount` when `hydrate!` returned and `:mount-fn` threw. The remaining roots keep booting.
     - Outcomes come back in input order.
     - A failed root is not retried.
@@ -270,7 +269,7 @@ The reference `:rf/hydrate` handler runs the last two, which check where the pay
     - The second argument is a render tree (it is hashed with [`render-tree-hash`](#render-tree-hash)) or a precomputed hash string.
     - When the payload carried no `:rf/render-hash` it compares nothing and reports nothing. The Ring handler writes that hash only when its `:root-view` resolves to a tree headed by an HTML element ([`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)).
     - On a mismatch it emits the `:rf.ssr/hydration-mismatch` trace, with tags `:server-hash`, `:client-hash`, `:frame`, `:failing-id` (default `:rf/hydrate`), `:recovery` and, when supplied, `:first-diff-path`. It also emits an always-on error record under the same id, carrying the hashes, `:frame`, `:failing-id` and `:recovery` only. That record reaches the frame's `:observability :errors` sinks in a production build, where the trace is elided.
-    - The hash says that the renders differ, not where: no path is computed. `opts` may carry `:first-diff-path` (from your own tree diff), `:failing-id` and `:server-hash`; `:server-hash` overrides the stored server hash.
+    - The hash says that the renders differ, not where: no path is computed. `opts` may carry `:first-diff-path` (from your own tree diff), `:failing-id` and `:server-hash`; `:server-hash` overrides the stored server hash ([Which node, and which substrate](../ssr/concepts.md#which-node-and-which-substrate)).
     - Two per-frame `:ssr` settings control it. `{:detect-mismatch? false}` skips the comparison. `{:on-mismatch :hard-error}` turns a detected mismatch into a thrown `ex-info` whose data carries `:rf.error/id :rf.ssr/hydration-mismatch`, both hashes and `:frame`; the default, `:warn`, records `:recovery :warned-and-replaced` and returns.
 - **Example**:
   ```clojure
@@ -288,24 +287,26 @@ Streaming sends the page shell first, with a fallback in place of each region ma
 
 ### `boundary`
 
-- **Kind**: component (every host)
+- **Kind**: component (server and client)
 - **Signature**:
   ```clojure
   (boundary attrs & body) → hiccup
   ```
-- **Description**: Marks `body` as a streamed region; the same form works on every host. `attrs` requires two keys:
-    - `:id` — the boundary's identity, unique on the page and stable across renders; it pairs an arriving chunk with its placeholder. A keyword or a string. Two boundaries with one `:id` emit `:rf.error/suspense-boundary-duplicate-id`; the last one registered gets the chunk and the earlier one keeps its fallback.
+- **Description**: Marks `body` as a streamed region. `attrs` requires two keys:
+    - `:id` — the boundary's identity, unique on the page and stable across renders; it pairs an arriving chunk with its placeholder. A keyword or a string.
     - `:fallback` — hiccup rendered in the shell while `body` is still resolving, and rendered again by this component when the boundary is reported failed.
 
-    On each host:
+    On the server and the client:
 
-    - Server: expands to the `:rf/suspense-boundary` marker the shell walker defers on. That marker is wire syntax; do not write it yourself. Outside a stream, `render-to-string` rejects it with `:rf.error/ssr-suspense-boundary-outside-stream`.
+    - Server: expands to the `:rf/suspense-boundary` marker the shell walker defers on. That marker is wire syntax; do not write it yourself.
     - Client: renders `body`, or `:fallback` when `:id` is in the page's failed-boundary record, written when the stream finalises. With no record (a client-only mount, a page that did not stream) it renders `body`.
-
-    Malformed `attrs` raise `:rf.error/suspense-boundary-invalid-attrs`.
 
     This is not React Suspense: there are no promises, thrown thenables or selective hydration. The server decides what defers; the client shows the fallback and swaps in content as chunks arrive.
 
+- **Errors**:
+    - `:rf.error/suspense-boundary-invalid-attrs` — `attrs` is not a map carrying both `:id` and `:fallback`.
+    - `:rf.error/suspense-boundary-duplicate-id` — two boundaries on the page share an `:id` (compared by its printed form). The last one registered gets the chunk and the earlier one keeps its fallback.
+    - `:rf.error/ssr-suspense-boundary-outside-stream` — the boundary reached `render-to-string` or `ssr-handler` rather than `stream-handler`.
 - **Example**:
   ```clojure
   (require '[re-frame.ssr :as ssr])
@@ -323,7 +324,7 @@ Streaming sends the page shell first, with a fallback in place of each region ma
   ```
 - **Description**: Installs the client-side streaming runtime, which applies streamed chunks to the page as they arrive. Install it before the first chunks can land; its initial sweep also picks up chunks that arrived earlier. Idempotent per chunk.
     - It watches the document for chunks. It turns each inert fallback `<template>` into a visible mount, swaps in resolved subtrees, and merges each subtree's hydration delta into the `:frame`'s `app-db`.
-    - It disconnects itself once the final `__rf_payload` node lands; from there, the bootstrap's `:rf/hydrate` is the canonical reconciliation.
+    - It disconnects itself once the final `__rf_payload` node lands; from there, the `hydrate!` you call from `:on-ready` installs the final state.
     - The returned `stop!` disconnects it early. Stopping early abandons the stream: finalisation does not run and `:on-ready` never fires.
     - A page with no payload script at all, such as a client-only load, never finalises either, so `:on-ready` never fires there.
     - Failures do not stop the stream. Each reports an always-on `:rf.ssr/suspense-boundary-failed` record carrying `:id` and `:recovery`: `:inline-fallback` (the server's render of the region threw; its fallback stays), `:skipped-delta` (a delta chunk did not read as an EDN map and was not merged) or `:quarantined-delta` (a delta arrived for a failed boundary and was not merged).
@@ -351,9 +352,14 @@ Streaming sends the page shell first, with a fallback in place of each region ma
 
 ## Error projection
 
-When a server-side handler, effect, subscription or view throws, the error is mapped through an error projector to a client-safe `:rf/public-error` (`:status`, `:code`, `:message`, `:retryable?`), and only that shape reaches the response. A frame names its projector in its `:ssr` config, `{:public-error-id … :dev-error-detail? …}` on `make-frame` / `frame-root`, or through `ssr-handler`'s `:ssr` option. The config is per frame, not a `configure` key, so frames in one process can use different projectors and detail settings. [When the server throws](../ssr/concepts.md#when-the-server-throws) explains the model.
+When a server-side handler, effect, subscription or view throws, the error is mapped through an error projector to a client-safe `:rf/public-error` (`:status`, `:code`, `:message`, `:retryable?`), and only that shape reaches the response. A frame names its projector in its [`:ssr` config](#frame-ssr-config), `{:public-error-id … :dev-error-detail? …}` on `make-frame` / `frame-root`, or through `ssr-handler`'s `:ssr` option. The config is per frame, not a `configure` key, so frames in one process can use different projectors and detail settings. [When the server throws](../ssr/concepts.md#when-the-server-throws) explains the model.
 
-What the client sees is the projected `:status`. Under the Ring handler, a projected 4xx keeps the page, so the app renders its own not-found or bad-request view and still hydrates; a projected 5xx replaces the page with the error page, rendered from the public error alone by `ssr-handler`'s `:error-view`. A failed `:initial-events` step is not projected: an event handler, interceptor, coeffect or flow that throws there, or a rejected `:rf.cofx` value, aborts frame construction, and the request answers through `ssr-handler`'s `:on-error`. Only the response is sanitised: the full error still reaches trace listeners and the `:observability :errors` sinks. Some failures are reported without changing the status: a head function that throws (the page renders with an empty head), a refused `:rf.server/safe-redirect` (the page renders without the redirect) and a failed streaming boundary (the region keeps its fallback).
+What the client sees is the projected `:status`.
+
+- Under the Ring handler a projected 4xx keeps the page, so the app renders its own not-found or bad-request view and still hydrates; a projected 5xx replaces the page with the error page, rendered from the public error alone by `ssr-handler`'s `:error-view` ([`ssr-handler`](re-frame.ssr.ring.md#ssr-handler) has the failure table).
+- A failed `:initial-events` step is not projected: an event handler, interceptor, coeffect or flow that throws there, or a rejected `:rf.cofx` value, aborts frame construction, and the request answers through `ssr-handler`'s `:on-error`. [`reg-error-projector`](#reg-error-projector) lists which errors reach a projector.
+- Only the response is sanitised: the full error still reaches trace listeners and the `:observability :errors` sinks.
+- Three failures are reported without changing the status: a head function that throws (the page renders with an empty head), a refused `:rf.server/safe-redirect` (the page renders without the redirect) and a failed streaming boundary (the region keeps its fallback).
 
 ### `reg-error-projector`
 
@@ -395,20 +401,17 @@ What the client sees is the projected `:status`. Under the Ring handler, a proje
   (default-error-projector-fn trace-event) → :rf/public-error
   ```
 - **Description**: The built-in projector, registered as `:rf.ssr/default-error-projector`. A frame whose `:ssr` config names no `:public-error-id` uses it. It maps:
-    - `:rf.error/no-such-handler` → `404 :not-found`, only when the miss's `:kind` tag is `:route` (a URL that matched no route). The category also covers an unregistered event id (`:kind :event`) and a Tool-Pair call naming an unknown frame id (`:kind :frame`). Those are server defects and get the generic `500`, as does a miss with no `:kind`, because a `404` would tell the client, and any crawler, that its URL was wrong. The category is always-on, so the route miss reaches the projector in release builds too.
-    - `:rf.error/no-such-route` → `404`, unconditionally. This category is caller misuse of `route-url` and is reported on the dev-only trace stream, so a release build never reaches this arm.
-    - `:rf.error/cofx-value-invalid` (a client-supplied coeffect rejected at dispatch) → `400 :bad-request`.
-    - `:rf.error/schema-validation-failure` → `400 :bad-request`, only when the `:where` tag is `:event` (a client-supplied event payload). Server-side surfaces such as `:where :fx-args`, and a record with no `:where`, get the `500`.
-    - Everything else → `500 :internal-error` ([`fallback-public-error`](#fallback-public-error)).
 
-    The three maps it returns are exactly `{:status 404 :code :not-found :message "Page not found" :retryable? false}`, `{:status 400 :code :bad-request :message "Invalid input" :retryable? false}` and [`fallback-public-error`](#fallback-public-error).
+    | Error | When | Returns |
+    |---|---|---|
+    | `:rf.error/no-such-handler` | `[:tags :kind]` is `:route` (a URL that matched no route) | `{:status 404 :code :not-found :message "Page not found" :retryable? false}` |
+    | `:rf.error/no-such-route` | always (caller misuse of `route-url`, reported on the dev-only trace stream, so a release build never reaches it) | the same `404` |
+    | `:rf.error/cofx-value-invalid` | always (a client-supplied coeffect rejected at dispatch) | `{:status 400 :code :bad-request :message "Invalid input" :retryable? false}` |
+    | `:rf.error/schema-validation-failure` | `[:tags :where]` is `:event` (a client-supplied event payload) | the same `400` |
+    | anything else | — | [`fallback-public-error`](#fallback-public-error) (`500`) |
 
-    In a release build (`:advanced` with `goog.DEBUG=false`, or the JVM `-Dre-frame.debug=false` an SSR service must set), most schema validation is elided: the `validate-*!` functions return `true`. The `400` schema arm then fires only for handlers registered with `{:boundary? true}`:
-
-    - A boundary handler's own `:schema` is checked in every build. A malformed request body skips the handler, the payload never reaches `app-db`, and one always-on `:rf.error/schema-validation-failure` record (`:source :boundary`, `:where :event`) reaches the projector, so the endpoint answers `400`.
-    - That production record carries identifiers only (no event vector, value or explanation), because a boundary payload is attacker-controlled. [Validate with schemas](../core/how-to/validate-with-schemas.md#in-production-what-goes-what-stays) covers `:boundary? true`.
-    - The arm sets the status only. To shape the response (field-level errors, submitted values kept), validate in the handler body and emit `[:rf.server/set-status 400]`.
-    - The `:rf.error/safe-redirect-*` errors are not projected at all. A refused redirect is the mitigation working, and turning `?next=javascript:alert(1)` into a `500` would be a denial of service.
+    - An unregistered event id (`:kind :event`), an unknown Tool-Pair frame id (`:kind :frame`), a miss with no `:kind`, and a schema failure on a server-side surface such as `:where :fx-args` all get the `500`: a `404` or `400` would tell the client, and any crawler, that its request was at fault.
+    - In a release build (`-Dre-frame.debug=false` on the JVM), the route-miss `404` still fires, because `:rf.error/no-such-handler` is always on. Most schema validation is elided, so the `400` schema arm fires only for handlers registered with `{:boundary? true}`, whose `:schema` is checked in every build. The arm sets the status only; to shape the response, validate in the handler body and emit `[:rf.server/set-status 400]`. [What reaches the projector in a release build](../ssr/concepts.md#what-reaches-the-projector-in-a-release-build) explains the rule.
 
 ### `project-error`
 
@@ -448,17 +451,60 @@ What the client sees is the projected `:status`. Under the Ring handler, a proje
   ```
 - **Description**: The generic `500` public error. The runtime returns it whenever the active projector throws or returns a non-conforming shape.
 
-## Keyword surfaces
+## Frame `:ssr` config
 
-Everything in this section is addressed by keyword rather than imported as a var.
+A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the per-request server frame, through `ssr-handler`'s `:ssr` option. Every key is optional.
 
-### Events
+| Key | Set on | Default | Effect |
+|---|---|---|---|
+| `:public-error-id` | server frame | `:rf.ssr/default-error-projector` | The [error projector](#reg-error-projector) this frame's errors go through. |
+| `:dev-error-detail?` | server frame | `false` | `true` adds `:details`, the raw trace event, to each projected public error. Leave it off in production. |
+| `:on-view-exception` | server frame | project the exception | `:throw` re-throws a render-time exception unchanged instead of projecting it ([`project-render-exception!`](#project-render-exception)), to surface bugs during development. Under the Ring handlers the exception reaches `:on-error` (by default a plain-text `500`). |
+| `:on-mismatch` | client frame | `:warn` | `:hard-error` makes a detected hydration mismatch throw ([`verify-hydration!`](#verify-hydration)). |
+| `:detect-mismatch?` | client frame | `true` | `false` skips the hydration hash comparison. |
 
-| Event | What it does |
-|---|---|
-| `:rf/server-init` | The conventional per-request setup event; the app registers it. It reads request cofx and dispatches setup events. `:platforms #{:server}`. |
-| `:rf/hydrate` | Seeds the client frame from the server's payload before the first render: `:rf/app-db` replaces `app-db` and `:rf/runtime-db` replaces the serialisable `runtime-db` slice; a slice the payload omits keeps the frame's current value. Framework-owned; runs once on client boot. A non-map payload, or a present but non-map `:rf/app-db` / `:rf/runtime-db` slice, is rejected with `:rf.error/malformed-hydration-payload`. A payload `:rf/frame-id` naming a different frame than the dispatch target is rejected with `:rf.error/hydration-frame-id-mismatch`. Either way the frame's state is left unchanged. |
+```clojure
+;; Server: a custom projector, with error detail while developing.
+(ssr.ring/ssr-handler {:initial-events [[:app/server-init]]
+                       :root-view      (fn [] ((rf/view :app/root)))
+                       :payload        [:articles]
+                       :ssr            {:public-error-id   :app/public-error
+                                        :dev-error-detail? true}})
 
+;; Client: fail loudly on a hydration mismatch, for CI.
+(rf/make-frame {:id :app :platform :client :ssr {:on-mismatch :hard-error}})
+```
+
+## Events
+
+`re-frame.ssr` registers `:rf/hydrate`. `:rf/server-init` is a name the app registers by convention.
+
+### `:rf/hydrate`
+
+- **Kind**: event
+- **Payload**:
+  ```clojure
+  [:rf/hydrate payload]
+  ```
+- **Description**: Seeds the client frame from the server's payload before the first render: `:rf/app-db` replaces `app-db` and `:rf/runtime-db` replaces the serialisable `runtime-db` slice; a slice the payload omits keeps the frame's current value. [`hydrate!`](#hydrate) dispatches it for you. On a `:client` frame it also runs the [client-only fx](#client-only-fx).
+- **Errors** (the frame's state is left unchanged):
+    - `:rf.error/malformed-hydration-payload` — a non-map payload, or a present but non-map `:rf/app-db` / `:rf/runtime-db` slice.
+    - `:rf.error/hydration-frame-id-mismatch` — the payload's `:rf/frame-id` names a different frame than the dispatch target.
+- **Example**:
+  ```clojure
+  ;; Framework-owned; dispatched on the client (usually via ssr/hydrate!) to
+  ;; seed app-db from the payload before the first render.
+  (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
+  ```
+
+### `:rf/server-init`
+
+- **Kind**: event (registered by the app)
+- **Payload**:
+  ```clojure
+  [:rf/server-init]
+  ```
+- **Description**: The conventional per-request setup event, named in [`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)'s `:initial-events`. It reads the request through the [`:rf.server/request`](#coeffects) coeffect and dispatches setup events.
 - **Example**:
   ```clojure
   ;; :rf/server-init — registered by the app; the per-request frame's
@@ -470,11 +516,11 @@ Everything in this section is addressed by keyword rather than imported as a var
      :rf.cofx/requires [:rf.server/request]}
     (fn [{:rf.server/keys [request]} _]
       {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
-
-  ;; :rf/hydrate — framework-owned; dispatched on the client (usually via
-  ;; ssr/hydrate!) to seed app-db from the payload before the first render.
-  (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
   ```
+
+## Keyword surfaces
+
+Everything in this section is addressed by keyword rather than imported as a var.
 
 ### Server-only fx
 
@@ -488,9 +534,17 @@ All seven are server-only (`:platforms #{:server}`). They write the response acc
 | `[:rf.server/set-cookie {:name :value ?:path ?:domain ?:max-age ?:expires ?:secure ?:http-only ?:same-site}]` | `:name` and `:value` are required strings; `:path` and `:domain` strings; `:max-age` seconds (an integer or string); `:expires` epoch millis (an integer: the Ring handler refuses a string with `:rf.error/cookie-invalid-expires`); `:secure` and `:http-only` booleans; `:same-site` `:strict`, `:lax` or `:none` (or a string). An optional key present with `nil` is absent. |
 | `[:rf.server/delete-cookie {:name ?:path ?:domain}]` | Writes the cookie with `:value ""` and `:max-age 0`. Pass the `:path` and `:domain` it was set with. |
 | `[:rf.server/redirect {?:location ?:status}]` | Default `:status 302`; the HTML body is dropped. Use it for a `:location` you trust. Without `:location` the response is a 3xx with no `Location` header, and the Ring handler emits the `:rf.ssr/ssr-redirect-no-target` warning. |
-| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow ?:status}]` | For an untrusted `:location`, such as a `?next=` parameter. Before setting `:redirect` it rejects a `:location` that does not parse, or that names a scheme but no host, such as `http:evil.example` (`:rf.error/safe-redirect-invalid-url`); rejects every scheme other than `http` and `https`, `javascript:`, `data:` and `vbscript:` among them (`:rf.error/safe-redirect-scheme-rejected`); and enforces the `:relative-only?` / `:allow` allowlist (`:rf.error/safe-redirect-host-disallowed`). None of these rejections throws: each reports its error and writes no redirect, so the page renders without one. `:location` is required. With neither `:relative-only?` nor `:allow`, any absolute `http` or `https` URL passes, whatever its host, so pass one of them to stop an off-origin redirect. `:allow` is a vector of host strings, matched exactly and case-insensitively; a relative `:location` always passes it. |
+| `[:rf.server/safe-redirect {:location ?:relative-only? ?:allow ?:status}]` | For an untrusted `:location`, such as a `?next=` parameter. `:location` is required; the checks are listed below the table. |
 
-All seven validate their arguments:
+`:rf.server/safe-redirect` rejects a `:location` that fails any of these checks. It reports the check's error and writes no redirect; none of them throws, so the page renders without one.
+
+- The scheme, when there is one, is `http` or `https`. `javascript:`, `data:`, `vbscript:` and every other scheme fail with `:rf.error/safe-redirect-scheme-rejected`.
+- The URL parses, and a scheme comes with a host: `http:evil.example` names a scheme but no host. Otherwise `:rf.error/safe-redirect-invalid-url`.
+- The URL satisfies `:relative-only?` and `:allow`. Otherwise `:rf.error/safe-redirect-host-disallowed`.
+
+With neither `:relative-only?` nor `:allow`, any absolute `http` or `https` URL passes, whatever its host, so pass one of them to stop an off-origin redirect. `:allow` is a vector of host strings, matched exactly and case-insensitively; a relative `:location` always passes it.
+
+All seven validate their arguments ([Invalid values throw](../ssr/response.md#invalid-values-throw)):
 
 - A header name outside the RFC 7230 token grammar throws `:rf.error/header-invalid-name`. A header value containing CR, LF or NUL throws `:rf.error/header-invalid-value`.
 - A cookie `:name` outside the RFC 6265 token grammar, or of an unsupported type, throws `:rf.error/cookie-invalid-name`. Any other cookie attribute (`:value`, `:path`, `:domain`, `:max-age`, `:same-site`, `:expires`) containing CR, LF or NUL throws `:rf.error/cookie-invalid-attribute`, as does a raw `;` in any attribute except the percent-encoded `:value`. The error's `:attribute` slot names the attribute.
@@ -533,7 +587,7 @@ All seven validate their arguments:
 
 ### Client-only fx
 
-Both are client-only (`:platforms #{:client}`). The reference `:rf/hydrate` handler dispatches them after installing the server's state, to check where the payload came from. They are best-effort: a mismatch emits a warning trace and hydration continues.
+Both are client-only (`:platforms #{:client}`). `:rf/hydrate` dispatches them after installing the server's state, to check that the payload came from a compatible build. They are best-effort: a mismatch emits a warning trace and hydration continues. [Deploy-drift checks come along for free](../ssr/concepts.md#deploy-drift-checks-come-along-for-free) shows the schema digest wired end to end.
 
 | Fx | Args |
 |---|---|
@@ -557,7 +611,7 @@ The request's response accumulator (status, headers, cookies, redirect) is not a
 
 | Cofx | Returns |
 |---|---|
-| `:rf.server/request` | The active HTTP request map, as the host stored it with [`set-request!`](#set-request) (a Ring request under the bundled adapter), or `nil` when no host stored one. Server only. Its value is not recorded for replay, so use it for decisions; a request-derived fact that must stay in `app-db` belongs in an event payload, such as `ssr-handler`'s `(fn [request] …)` form of `:initial-events`. |
+| `:rf.server/request` | The active HTTP request map, as the host stored it with [`set-request!`](#set-request) (a Ring request under the bundled adapter), or `nil` when no host stored one. Server only. Its value is not recorded for replay, so use it for decisions ([Reading the request](../ssr/concepts.md#reading-the-request) explains why); a request-derived fact that must stay in `app-db` belongs in an event payload, such as `ssr-handler`'s `(fn [request] …)` form of `:initial-events`. |
 
 - **Example**:
   ```clojure
@@ -585,30 +639,6 @@ The request's response accumulator (status, headers, cookies, redirect) is not a
 
 A skipped effect emits a `:rf.fx/skipped-on-platform` trace event, so debug tools can see the gate; a skipped coeffect emits `:rf.cofx/skipped-on-platform`. [`:platforms`: one handler, gated per runtime](../ssr/concepts.md#platforms--one-handler-gated-per-runtime) shows it in an app.
 
-### Frame `:ssr` config
-
-A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the per-request server frame, through `ssr-handler`'s `:ssr` option. Every key is optional.
-
-| Key | Set on | Default | Effect |
-|---|---|---|---|
-| `:public-error-id` | server frame | `:rf.ssr/default-error-projector` | The [error projector](#reg-error-projector) this frame's errors go through. |
-| `:dev-error-detail?` | server frame | `false` | `true` adds `:details`, the raw trace event, to each projected public error. Leave it off in production. |
-| `:on-view-exception` | server frame | project the exception | `:throw` re-throws a render-time exception unchanged instead of projecting it ([`project-render-exception!`](#project-render-exception)), to surface bugs during development. Under the Ring handlers the exception reaches `:on-error` (by default a plain-text `500`). |
-| `:on-mismatch` | client frame | `:warn` | `:hard-error` makes a detected hydration mismatch throw ([`verify-hydration!`](#verify-hydration)). |
-| `:detect-mismatch?` | client frame | `true` | `false` skips the hydration hash comparison. |
-
-```clojure
-;; Server: a custom projector, with error detail while developing.
-(ssr.ring/ssr-handler {:initial-events [[:app/server-init]]
-                       :root-view      (fn [] ((rf/view :app/root)))
-                       :payload        [:articles]
-                       :ssr            {:public-error-id   :app/public-error
-                                        :dev-error-detail? true}})
-
-;; Client: fail loudly on a hydration mismatch, for CI.
-(rf/make-frame {:id :app :platform :client :ssr {:on-mismatch :hard-error}})
-```
-
 ## Framework integration
 
 Not for application code — used by adapters, tools and the test harness.
@@ -618,10 +648,10 @@ Not for application code — used by adapters, tools and the test harness.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (emit-ui-tree tree)
+  (emit-ui-tree tree)      → HTML string
   (emit-ui-tree tree opts) → HTML string
   ```
-- **Description**: Serialises an already-rendered version-1 structural tree to an HTML string. Where `render-to-string` takes hiccup and renders it, `emit-ui-tree` takes a tree another renderer has already produced, and calls nothing: no view, no subscription, no frame binding. Every dynamic value is already a literal in the tree. Pure, JVM-runnable and deterministic to the byte.
+- **Description**: Serialises an already-rendered version-1 structural tree to an HTML string. Where `render-to-string` takes hiccup and renders it, `emit-ui-tree` takes a tree that is already rendered, such as the one `re-frame.fresco.test/tree` returns ([L2: one view body as a semantic tree](../core/fresco/15-testing.md#l2-one-view-body-as-a-semantic-tree)), and calls nothing: no view, no subscription, no frame binding. Every dynamic value is already a literal in the tree. Pure, JVM-runnable and deterministic to the byte.
     - It emits the markup for one root's tree. Manifests, payloads, root identity and the HTTP response come from the SSR artefact's other functions.
     - `opts` takes one key, `:doctype?`, which prefixes `<!DOCTYPE html>`. Other keys are ignored; `render-to-string`'s options do not apply.
 - **Errors**:
@@ -777,7 +807,7 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   ```clojure
   (get-response frame-id) → response-map
   ```
-- **Description**: Returns the resolved response for a frame; the read host adapters use. It drains any pending error projection first, so `:status` reflects the active projector's output, then strips internal bookkeeping keys. The same drain as `flush-response!`.
+- **Description**: Drains any pending error projection for `frame-id`, so `:status` reflects the active projector's output, then returns the response without internal bookkeeping keys. This is the read host adapters use. Every call clears the projector buffer: only the first call after an error trace projects it, and when several traces are pending the last one wins.
 - **Example**:
   ```clojure
   ;; Host adapter: after the drain settles, read the response to build the wire reply.
@@ -801,7 +831,7 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
   ```clojure
   (flush-response! frame-id) → response-map
   ```
-- **Description**: Drains any pending error projection for `frame-id`, then returns the resolved response. Every call clears the projector buffer, so only the first call after an error trace projects it; when several traces are pending, the last one wins. `get-response` does the same drain.
+- **Description**: The same function as [`get-response`](#get-response).
 
 #### `flush-response-result!`
 
@@ -819,8 +849,8 @@ Each per-request frame collects its HTTP response (status, headers, cookies, red
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (apply-error-projection! frame-id)
-  (apply-error-projection! frame-id trace-event)
+  (apply-error-projection! frame-id)             → :rf/public-error | nil
+  (apply-error-projection! frame-id trace-event) → :rf/public-error | nil
   ```
 - **Description**: Projects an error trace event through `frame-id`'s projector, writes the public error's `:status` to the response, and returns the public-error map. Returns `nil` when there is nothing to do: the frame is missing, is not a server frame, or has no pending trace.
     - 1-arity: drains the frame's error-trace buffer and projects the last trace.
@@ -898,7 +928,7 @@ The host adapter stores each request in a per-frame slot before the drain; the [
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (on-frame-destroyed! frame-id)
+  (on-frame-destroyed! frame-id) → nil
   ```
 - **Description**: Drops the frame's SSR state: its pending error traces, request slot and response slot, and its claim on a hydration payload. Frame teardown calls it for you. Idempotent: a second call for the same frame does nothing.
 
@@ -908,9 +938,12 @@ The host adapter stores each request in a per-frame slot before the drain; the [
 - **Signature**:
   ```clojure
   (drain-blocking-resources! frame-id)
+    → {:settled? bool :timed-out [key …] :route-blocking-failure failure | nil}
   (drain-blocking-resources! frame-id opts)
+    → {:settled? bool :timed-out [key …] :route-blocking-failure failure | nil}
   ```
-- **Description**: Waits for the current navigation's blocking resources on `frame-id` to settle, or for the render deadline, so the render sees settled data rather than a hung `:loading`. The host render path calls it after frame setup and route resolution, before rendering. Returns `{:settled? :timed-out :route-blocking-failure}`: `:settled? false` when the deadline passed, `:timed-out` the scoped keys it settled as first-load failures (`[]` otherwise), and `:route-blocking-failure` the route's failure record, or `nil`.
+- **Description**: Waits for the current navigation's blocking resources on `frame-id` to settle, or for the render deadline, so the render sees settled data rather than a hung `:loading`. The host render path calls it after frame setup and route resolution, before rendering.
+    - `:settled?` is `false` when the deadline passed; `:timed-out` lists the scoped keys it settled as first-load failures (`[]` otherwise); `:route-blocking-failure` is the route's failure record, or `nil`.
     - Without the resources artefact it does nothing and returns `{:settled? true :timed-out [] :route-blocking-failure nil}`.
 - **Options** (all optional):
     - `:ssr-blocking-timeout-ms` — the wall-clock budget; default `5000`.

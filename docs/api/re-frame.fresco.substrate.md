@@ -28,11 +28,9 @@ Fresco renders through `react-dom/client` and interprets its own hiccup, so it
 needs no renderer from an adapter. What the adapter supplies is the reactive half:
 the container `app-db` lives in, and derived values that notify when it changes.
 
-Reagent, reagent-slim and UIx adapters also work under a Fresco tree: every React
-adapter writes the same frame context, so a Fresco subtree and a UIx subtree
-resolve the same frame. So use this adapter when Fresco is the app's only view
-layer. An app that already installs a Reagent or UIx adapter for its other views
-needs no second one: its Fresco views run on that adapter.
+Reagent, reagent-slim and UIx adapters also work under a Fresco tree, because every
+React adapter writes the same frame context. An app that already installs one for
+its other views runs its Fresco views on it and needs no second adapter.
 [Installation](../core/fresco/00-installation.md#fresco-needs-a-substrate-adapter)
 teaches the boot line, and [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md)
 lists the other adapters and their coordinates.
@@ -59,12 +57,10 @@ lists the other adapters and their coordinates.
 - **Description**: The adapter map you pass to `rf/init!` to install Fresco's own
   adapter as the substrate; `(:kind (rf/current-adapter))` reads
   `:rf.adapter/fresco`. Install it before the first frame exists.
-    - Installation is explicit and there is no default adapter, so an app that
-      installs Reagent or UIx instead never loads this namespace.
-    - Asking for a state container before `init!` — as mounting a `frame-root` does
-      — throws `:rf.error/no-adapter-installed`, and after `rf/destroy-adapter!` the
-      same call throws `:rf.error/adapter-disposed` until `rf/init!` installs an
-      adapter again.
+    - Installation is explicit; there is no default adapter.
+    - Mounting a `frame-root`, or making any frame, before `rf/init!` throws
+      `:rf.error/no-adapter-installed`; after `rf/destroy-adapter!` it throws
+      `:rf.error/adapter-disposed` until `rf/init!` installs an adapter again.
     - Its derived values notify watchers from the moment they are created, which a
       live Fresco view needs. The headless `re-frame.substrate.plain-atom` adapter's
       derived values register no watch, so a view under it paints once and never

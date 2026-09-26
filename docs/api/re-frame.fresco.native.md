@@ -33,7 +33,7 @@ written against either pair finds the same frame.
 - **Kind**: function (React hook)
 - **Signature**:
   ```clojure
-  (n/use-sub query-v)
+  (n/use-sub query-v) → current sub value
   ```
 - **Description**: Returns the current value of the subscription `query-v`, read in
   the frame the island is mounted under, and re-renders the component when it
@@ -62,7 +62,7 @@ written against either pair finds the same frame.
 - **Kind**: function (React hook)
 - **Signature**:
   ```clojure
-  (n/use-frame)
+  (n/use-frame) → {:frame … :dispatch … :dispatch-sync … :subscribe …}
   ```
 - **Description**: Returns the frame-locked ops map for the frame the island is
   mounted under, `{:frame :dispatch :dispatch-sync :subscribe}` — the same map
@@ -83,5 +83,6 @@ written against either pair finds the same frame.
 
 ## See also
 
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [Fresco API reference](../core/fresco/api-reference.md) — every Fresco name, with
+  the chapter that teaches it.
 - [`re-frame.fresco`](re-frame.fresco.md) — `h/defhost` and `h/sub`.

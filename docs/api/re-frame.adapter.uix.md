@@ -68,14 +68,15 @@ Components are plain `defui` functions that you mount by referring to their Var,
 - **Signature**:
   ```clojure
   (use-sub query-v)                  → current sub value
-  (use-sub query-v {:frame target})  → current sub value, from `target`
+  (use-sub query-v {:frame target})  → current sub value, from target
   ```
-- **Description**: Returns the current value of the subscription `query-v` and re-renders the component when that value changes. Where `subscribe` returns a subscription, this returns its value. [`re-frame.fresco.native`](re-frame.fresco.native.md#use-sub) publishes the same hook under the same name for React islands under Fresco.
+- **Description**: Returns the current value of the subscription `query-v` and re-renders the component when that value changes. Where `subscribe` returns a subscription, this returns its value. [`re-frame.fresco.native`](re-frame.fresco.native.md#use-sub) publishes a `use-sub` for React islands under Fresco that reads the same frame context; it has no opts form.
     - The 1-arity reads the frame from React context only: the nearest `frame-provider` (SCOPE) / `frame-root` (ENSURE) above the component. With no boundary above it, it raises `:rf.error/no-frame-context`; there is no fallback to `:rf/default`.
     - A `with-frame` scope around a render does not reach a hook, even when the render is synchronous (under `act()`, `flushSync` or a server render). React may render the same tree later, outside that scope, and the tree must resolve the same frame however the render was driven. `re-frame.fresco.native`'s hooks follow the same rule.
     - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required: a missing or `nil` `:frame` raises `:rf.error/no-frame-context`. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
     - A query id with no registered subscription emits `:rf.error/no-such-sub`, and a frame that does not exist or has been destroyed emits `:rf.error/frame-destroyed`. In both cases the hook returns `nil`.
     - Read with `use-sub`, not `rf/subscribe`, in a `defui` body. Dereferencing a subscription in a UIx render does not re-render the component, and the cache reference each `subscribe` call takes is never released. The same holds for the `:subscribe` op in [`use-frame`](#use-frame)'s map.
+    - See [Write a UIx view](../core/how-to/use-uix-or-slim.md#step-2--write-a-uix-view).
 - **Example**:
   ```clojure
   (defui cart-total []
@@ -101,6 +102,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - It takes no options. For a named frame, call `(rf/capture-frame frame-id)` directly.
     - The map is the same object across re-renders while the resolved frame stays the same, so it is safe in effect deps and child props. A provider that switches frames re-renders the caller with a map for the new frame. Destroying the frame and creating another under the same id does not re-render the caller: its next render returns a map for the new frame, and until then the old map's ops emit `:rf.error/frame-destroyed`. The map belongs to the frame it was captured from, not to the id.
     - There is no hook that reads the frame context alone. `(:frame (use-frame))` gives the frame from React context; `(rf/current-frame-id)` checks a `with-frame` binding first, so inside a `with-frame` around a render the two can differ.
+    - See [Why callbacks dispatch off the frame api](../core/how-to/use-uix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api).
 - **Example**:
   ```clojure
   (defui inc-button []
@@ -110,14 +112,14 @@ Components are plain `defui` functions that you mount by referring to their Var,
 
 ## Components
 
-`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse.
+`frame-root` and `frame-provider` write the same React context as Reagent's `rf/frame-root` / `rf/frame-provider` and Fresco's `h/frame-root` / `h/frame-provider`, so the substrates nest: a UIx `frame-provider` can wrap a Reagent subtree, and the reverse. See [Ensure a view's own frame](../core/how-to/use-uix-or-slim.md#step-5--ensure-a-views-own-frame).
 
 ### `frame-provider`
 
 - **Kind**: component (UIx)
 - **Signature**:
   ```clojure
-  ($ uix-adapter/frame-provider {:frame :session} child…)   ;; SCOPE an existing frame
+  ($ uix-adapter/frame-provider {:frame :session} child…)
   ```
 - **Description**: Scopes a subtree to a frame that already exists; it creates, refreshes and destroys nothing. To create the frame if it is absent, use [`frame-root`](#frame-root): roots ensure, providers scope.
     - Pass children after the props map, as for any UIx component; there is no `:children` prop key.
@@ -125,7 +127,7 @@ Components are plain `defui` functions that you mount by referring to their Var,
     - `:rf.error/frame-provider-frame-absent` when the frame does not exist
     - `:rf.error/no-frame-context` on a nil `:frame`
     - `:rf.error/bad-frame-provider-arg` on a `:frame` that is neither a keyword nor a live frame value
-    - `:rf.error/frame-provider-given-id` when given an `:id` (the ENSURE key; use `frame-root`)
+    - `:rf.error/frame-provider-given-id` when given an `:id`, naming `frame-root`
 - **Example**:
   ```clojure
   ($ uix-adapter/frame-provider {:frame :session}
@@ -137,14 +139,17 @@ Components are plain `defui` functions that you mount by referring to their Var,
 - **Kind**: component (UIx)
 - **Signature**:
   ```clojure
-  ($ uix-adapter/frame-root {:id :session :images [session-image]} child…)   ;; ENSURE create-if-absent / reuse
+  ($ uix-adapter/frame-root {:id :session :images [session-image]} child…)
   ```
 - **Description**: Creates the named frame if it is absent, or reuses it without re-seeding if it is live, and provides it to the subtree. It takes the `rf/make-frame` options, including `:images` and `:initial-events`, and never destroys the frame on unmount.
-    - `:id` is required and must be a keyword; a missing, nil or non-keyword `:id` raises `:rf.error/frame-root-missing-id`.
+    - `:id` is required and must be a keyword.
     - The frame is created and seeded in a client `useLayoutEffect` at commit, not during render. The first render emits no children; they render once the frame is live. A render React discards before commit creates and seeds nothing.
     - Re-mounting under the same `:id` (hot reload, React StrictMode's double mount in development) keeps the frame's state and does not re-run `:initial-events`.
-    - Changing a mounted boundary's `:id` or opts raises `:rf.error/frame-root-reconfigured`; to switch frames, give the `frame-root` a React `:key` that changes. A `:frame` key (the SCOPE key) raises `:rf.error/frame-root-given-frame`, naming `frame-provider`.
     - Pass children after the props map.
+- **Errors**:
+    - `:rf.error/frame-root-missing-id` when `:id` is missing, `nil` or not a keyword
+    - `:rf.error/frame-root-reconfigured` when a mounted `frame-root`'s `:id` or opts change; to switch frames, give it a React `:key` that changes
+    - `:rf.error/frame-root-given-frame` on a `:frame` key, naming `frame-provider`
 - **Example**:
   ```clojure
   ;; create the frame on first mount, seed it once via :initial-events,
@@ -157,14 +162,14 @@ Components are plain `defui` functions that you mount by referring to their Var,
 
 A browser app needs one React root for the life of the page: created once, updated on every hot reload, released on teardown. `client-root`, `render!` and `unmount!` manage that root, so your entry namespace never creates one or builds a `uix.dom` root itself. Allocate the handle under a `defonce` and call `render!` from the `^:dev/after-load` hook, as in the example at the top of this page, with `run` as the build's `:init-fn`. On a hot reload shadow-cljs calls `mount!` again: the `defonce` keeps the handle, `render!` updates the same root, and `frame-root` reuses the live frame without re-running `:initial-events`, so app-db survives the reload. [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) has the whole recipe.
 
-These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md#the-client-root), with the same behaviour, except that `render!` here takes a React element built with `uix.core/$` rather than hiccup. The root is created through `react-dom/client`, so the app needs no `com.pitch/uix.dom` dependency to mount. The raw React root is never exposed, and `rf/destroy-adapter!` also releases it, exactly once.
+These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md#the-client-root), with the same behaviour, except that `render!` here takes a React element built with `uix.core/$` rather than hiccup, and also accepts `:on-recoverable-error`. The root is created through `react-dom/client`, so the app needs no `com.pitch/uix.dom` dependency to mount. The raw React root is never exposed, and `rf/destroy-adapter!` also releases it, exactly once.
 
 ### `client-root`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (client-root)
+  (client-root) → handle
   ```
 - **Description**: Returns a new, inert client-root handle. It does no DOM work, so it is safe at namespace load under a `defonce`, in tests and on Node; the first `render!` through the handle creates (or hydrates) the React root.
     - The handle is opaque: pass it to `render!` and `unmount!` and nothing else.
@@ -178,13 +183,13 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (render! handle element mount-point)
-  (render! handle element mount-point opts)
+  (render! handle element mount-point)      → nil
+  (render! handle element mount-point opts) → nil
   ```
 - **Description**: Renders `element`, a React element built with `uix.core/$`, into the DOM element `mount-point` through `handle`: the first call creates the React root, and every later call updates it. Returns nil.
     - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time.
     - Because later calls update the same root, one call serves as both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
-    - `opts` takes `:hydrate?` and `:on-recoverable-error`, read on the first call only. `:on-recoverable-error` is used only when hydrating, as the root's `onRecoverableError`. In development builds the adapter wraps it: each mismatch React recovers from during hydration first emits the `:rf.ssr/hydration-mismatch` warning trace (`:recovery :warned-and-replaced`, with React's message under `:error`), then calls your callback, or React's default report when you gave none. After the hydration commit, recoverable errors emit no trace and go straight to your callback, or to React's default report. There are no UIx-only keys.
+    - `opts` takes `:hydrate?` and `:on-recoverable-error`, read on the first call only. `:on-recoverable-error` is used only when hydrating, as the root's `onRecoverableError`. In development builds the adapter wraps it: each mismatch React recovers from during hydration first emits the `:rf.ssr/hydration-mismatch` warning trace (`:recovery :warned-and-replaced`, with React's message under `:error`), then calls your callback, or React's default report when you gave none. After the hydration commit, recoverable errors emit no trace and go straight to your callback, or to React's default report.
     - Hiccup or other CLJS data in the element position (a vector, seq or map) raises `:rf.error/hiccup-on-element-render-slot`, on the first render and every later one. Hiccup mounts only on the Reagent adapters.
     - After `unmount!`, or after `rf/destroy-adapter!` has released the root, the next `render!` mounts afresh.
     - Call `rf/init!` before the first `render!`. `render!` does not check for an adapter, but the first frame or subscription the tree creates raises `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` after `rf/destroy-adapter!`. Install an adapter again before rendering afresh.
@@ -200,7 +205,7 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (unmount! handle)
+  (unmount! handle) → nil
   ```
 - **Description**: Unmounts the React root `handle` holds and returns the handle to inert, so a later `render!` mounts afresh. Returns nil.
     - Idempotent: a second call, or a call after `rf/destroy-adapter!` has released the root, does nothing.
@@ -302,7 +307,7 @@ To use the port instead, set the var yourself after requiring the adapter and be
 
 ## See also
 
-- [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) — the default browser adapter, with the same client-root functions.
-- [`re-frame.fresco.native`](re-frame.fresco.native.md) — the same `use-sub` / `use-frame` hooks for React islands under Fresco.
+- [`re-frame.adapter.reagent`](re-frame.adapter.reagent.md) — the Reagent adapter, which the Core guide uses, with the same client-root functions.
+- [`re-frame.fresco.native`](re-frame.fresco.native.md) — the `use-sub` / `use-frame` hooks for React islands under Fresco, reading the same frame context.
 - [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — worked examples and the full substrate decision.
 - [Adapter](../core/glossary.md#adapter) in the glossary.

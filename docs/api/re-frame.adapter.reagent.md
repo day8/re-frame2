@@ -1,8 +1,8 @@
 # re-frame.adapter.reagent
 
-Use this namespace to run a re-frame2 app on Reagent, the default browser substrate. It provides the `adapter` you pass to `rf/init!` at boot, and the `client-root`, `render!` and `unmount!` functions your entry namespace mounts the app through.
+Use this namespace to run a re-frame2 app on Reagent. It provides the `adapter` you pass to `rf/init!` at boot, and the `client-root`, `render!` and `unmount!` functions your entry namespace mounts the app through.
 
-Pick it when your views are hiccup; it is the default substrate and the one the guide uses. If your components are React function components written with UIx hooks, use [`re-frame.adapter.uix`](re-frame.adapter.uix.md) instead. It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim), and both publish this namespace; the variants, and when to pick slim, are compared under [`adapter`](#adapter).
+Pick it when your views are hiccup; the Core guide uses it. If your components are React function components written with UIx hooks, use [`re-frame.adapter.uix`](re-frame.adapter.uix.md) instead. It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim), and both publish this namespace; the variants, and when to pick slim, are compared under [Full and slim](#full-and-slim).
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -55,12 +55,14 @@ Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md): `
   (rf/init! reagent-adapter/adapter)   ;; install the substrate once, at boot
   ```
 
+## Full and slim
+
 Reagent ships in two variants. Both publish their adapter as `re-frame.adapter.reagent`, so the require and the `init!` line are the same; the Maven coordinate in your `deps.edn` selects the variant, and a build depends on one of them only. Start on full, and move to slim once you have measured that bundle size matters.
 
-| Variant | Maven coordinate | Adapter ns (require) | Includes | Use when |
-|---|---|---|---|---|
-| Full | `day8/re-frame2-reagent` | `re-frame.adapter.reagent` | stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`) | the default; any app that uses stock Reagent APIs the slim rewrite leaves out, such as `reagent.dom.server` |
-| Slim | `day8/reagent-slim` | `re-frame.adapter.reagent` | the `reagent2` rewrite; static HTML export via a pure-CLJS `reagent2.dom.server`, no `react-dom/server` | browser-only bundles where size is measured to matter; ~7–10 KB gzipped smaller (up to ~22–27 KB where the HTML-export path was in play) |
+| Variant | Maven coordinate | Includes | Use when |
+|---|---|---|---|
+| Full | `day8/re-frame2-reagent` | stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`) | the default; any app that uses stock Reagent APIs the slim rewrite leaves out, such as `reagent.dom.server` |
+| Slim | `day8/reagent-slim` | the `reagent2` rewrite; static HTML export via a pure-CLJS `reagent2.dom.server`, no `react-dom/server` | browser-only bundles where size is measured to matter; ~7–10 KB gzipped smaller (up to ~22–27 KB for a bundle that uses the HTML-export path) |
 
 Both variants need React 19, and full runs on Reagent 2.x. There is no React 17/18 or Reagent 1.x path.
 
@@ -70,7 +72,16 @@ A build on the slim variant includes neither stock Reagent nor `react-dom/server
 
 On full, a view rendered in a pass that React discards before committing keeps its subscriptions for the life of the page. Such passes include a Suspense boundary suspending on first mount, an error boundary catching on mount, and a hidden `Activity` that is never shown. Each change to one of those subscriptions force-updates the never-mounted instance, and React's development build warns about it. Stock Reagent gives the adapter no commit signal to release them. Slim and UIx release them within one macrotask, so prefer one of them where those patterns matter.
 
-Slim rejects hiccup it cannot render with a tagged error, where stock Reagent throws its own untagged one. `[]` raises `:rf.error/template-empty-vector`. A head that is not a tag (a keyword, string or symbol), a component class or a function raises `:rf.error/template-bad-tag`, and any keyword head in the reserved `:rf/*` or `:rf.<name>/*` namespaces raises `:rf.error/invalid-hiccup-head`: no reserved head renders on the client. Its `reagent2.core/create-class` accepts seven keys: `:reagent-render`, `:component-did-mount`, `:component-did-update`, `:component-will-unmount`, `:get-snapshot-before-update`, `:component-did-catch` and `:display-name`. Any other key raises `:rf.error/create-class-key-unsupported` when the class is created, and a spec without `:reagent-render` raises `:rf.error/create-class-missing-render`.
+Slim rejects hiccup it cannot render with a tagged error, where stock Reagent throws its own untagged one.
+
+- **Errors**, on slim only:
+    - At render:
+        - `:rf.error/template-empty-vector`: `[]` as hiccup.
+        - `:rf.error/template-bad-tag`: a head that is not a tag (a keyword, string or symbol), a component class or a function.
+        - `:rf.error/invalid-hiccup-head`: a keyword head in the reserved `:rf/*` or `:rf.<name>/*` namespaces. No reserved head renders on the client.
+    - When `reagent2.core/create-class` creates the class:
+        - `:rf.error/create-class-key-unsupported`: a key outside the seven it accepts, which are `:reagent-render`, `:component-did-mount`, `:component-did-update`, `:component-will-unmount`, `:get-snapshot-before-update`, `:component-did-catch` and `:display-name`.
+        - `:rf.error/create-class-missing-render`: a spec with no `:reagent-render`.
 
 ## The client root
 
@@ -83,7 +94,7 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (client-root)
+  (client-root) → handle
   ```
 - **Description**: Returns a new, inert client-root handle. It does no DOM work, so it is safe at namespace load under a `defonce`, in tests and on Node; the first `render!` through the handle creates (or hydrates) the React root.
     - The handle is opaque: pass it to `render!` and `unmount!` and nothing else.
@@ -97,8 +108,8 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (render! handle render-tree mount-point)
-  (render! handle render-tree mount-point opts)
+  (render! handle render-tree mount-point)      → nil
+  (render! handle render-tree mount-point opts) → nil
   ```
 - **Description**: Renders `render-tree` (hiccup) into the DOM element `mount-point` through `handle`: the first call creates the React root, and every later call updates it. Returns nil.
     - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time. `:hydrate?` is the only `opts` key.
@@ -117,7 +128,7 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (unmount! handle)
+  (unmount! handle) → nil
   ```
 - **Description**: Unmounts the React root `handle` holds and returns the handle to inert, so a later `render!` mounts afresh. Returns nil.
     - Idempotent: a second call, or a call after `rf/destroy-adapter!` has released the root, does nothing.

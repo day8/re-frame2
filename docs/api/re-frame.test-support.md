@@ -33,14 +33,14 @@ Nothing here is re-exported from `re-frame.core`, so a production build never lo
 
 ## Fixture machinery
 
-Each test's registrations are rolled back afterwards, whether it passes or fails, while the registrations made when namespaces loaded (the framework's and your app's) survive. The fixtures do this by snapshotting the registrar before the test and restoring it after.
+Each test's registrations are rolled back afterwards, whether it passes or fails, while the registrations made when namespaces loaded (the framework's and your app's) survive. The fixtures do this by snapshotting the registrar before the test and restoring it after. [The trap: frames don't isolate registrations](../core/testing/event-handlers.md#4-the-trap-frames-dont-isolate-registrations) shows the failure this prevents.
 
 ### `make-reset-runtime-fixture`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (make-reset-runtime-fixture)
+  (make-reset-runtime-fixture)      → fixture-fn
   (make-reset-runtime-fixture opts) → fixture-fn | {:before … :after …}
   ```
 - **Description**: Builds a `clojure.test` / `cljs.test` `:each` fixture that resets the per-process runtime around each test. Pass it to `use-fixtures :each`. Around each test the fixture:
@@ -132,14 +132,15 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (assert-path-equals path expected-val)
-  (assert-path-equals path expected-val opts)
+  (assert-path-equals path expected-val)      → boolean
+  (assert-path-equals path expected-val opts) → boolean
   ```
 - **Description**: Asserts that `(get-in app-db path)` equals `expected-val` in the resolved frame, reporting the result through `clojure.test`'s `do-report` as `is` does. Returns `true` on pass and `false` otherwise; either result has already been reported to `clojure.test`.
     - `opts`: `:frame` names another frame, as either a frame id or a frame value (what `rf/make-frame` returns). Without it, the frame is the current frame scope: a `with-frame` or `with-new-frame` binding, or else the fixture's ambient frame (`:rf/default` unless `:ambient-frame` names another). Outside any scope there is no fallback to `:rf/default`. An unknown or destroyed frame, and a call outside any scope, read as a `nil` app-db rather than raising, so the assertion fails unless `expected-val` is `nil`.
     - It mirrors the `:rf.assert/path-equals` event Story uses, under the same name.
     - To fire several events before asserting, call `rf/dispatch-sync` once per event. Each call drains fully before the next, so the state between calls reflects every committed effect.
     - For a whole-db assertion, compare directly: `(is (= expected-db (rf/app-db-value frame-id)))`.
+    - See [Checking one path](../core/testing/event-handlers.md#checking-one-path).
 - **Example**:
   ```clojure
   (doseq [ev [[:counter/inc] [:counter/inc] [:counter/dec]]]
@@ -157,8 +158,8 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (poll-until pred)
-  (poll-until pred opts)
+  (poll-until pred)      → truthy value (JVM) | js/Promise (CLJS)
+  (poll-until pred opts) → truthy value (JVM) | js/Promise (CLJS)
   ```
 - **Description**: Calls `pred` repeatedly until it returns a truthy value or a deadline passes. Use it in place of a fixed sleep when a test waits on a queued dispatch, an HTTP reply or a timer.
     - JVM: synchronous. Returns the truthy value, or throws `ex-info` on timeout.
@@ -167,6 +168,7 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
     - The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout`, plus `:elapsed-ms` and `:label` in its data.
     - `opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (a string or keyword, shown in the timeout message).
     - On CLJS, handle the rejection before the step that calls `done`, and call `done` once, last. A `.catch` placed after `done` reports a failure from a later namespace against this test and calls `done` a second time.
+    - See [Observing the `:loading` state](../core/testing/pipeline-runs.md#observing-the-loading-state-before-the-reply-lands), which uses it with a delayed HTTP reply and says why not to poll across a debounce window.
 - **Example**:
   ```clojure
   ;; JVM: synchronous; returns the truthy value (throws on timeout).
@@ -197,8 +199,8 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (with-trace-recorder! [recs-sym] body+)
-  (with-trace-recorder! [recs-sym opts] body+)
+  (with-trace-recorder! [recs-sym] body+)      → value of the last body form
+  (with-trace-recorder! [recs-sym opts] body+) → value of the last body form
   ```
 - **Description**: Records the trace events emitted while `body` runs into an atom bound to `recs-sym`.
     - `opts` is an optional map literal, read at macroexpansion. Pass the map itself: a symbol naming a map is not read, and every default applies. A binding vector of any other length, or a `:shape` other than `:flat` or `:by-op`, throws at macroexpansion. The keys:
@@ -230,8 +232,8 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
 - **Kind**: macro
 - **Signature**:
   ```clojure
-  (with-emit-recorder! [recs-sym] body+)
-  (with-emit-recorder! [recs-sym opts] body+)
+  (with-emit-recorder! [recs-sym] body+)      → value of the last body form
+  (with-emit-recorder! [recs-sym opts] body+) → value of the last body form
   ```
 - **Description**: Records what the always-on error or event stream emits while `body` runs into an atom bound to `recs-sym`. It is the always-on counterpart of [`with-trace-recorder!`](#with-trace-recorder): these streams also run in production builds.
     - `opts` is an optional map literal, read at macroexpansion. Pass the map itself: a symbol naming a map is not read, and every default applies. A binding vector of any other length throws at macroexpansion. The keys:
@@ -260,5 +262,5 @@ On the JVM the macros resolve through the ordinary `(:require [re-frame.test-sup
 ## See also
 
 - [re-frame.core](re-frame.core.md): the production functions tests drive (`make-frame`, `with-frame`, `dispatch-sync`, `with-fx-overrides`, `app-db-value`, `compute-sub`) and registrar introspection (`registrations`, `handler-meta`).
-- [re-frame.http](re-frame.http.md): HTTP stubs for tests that exercise managed requests.
+- [Managed HTTP reference](re-frame.http.md#testing-without-a-network): HTTP stubs for tests that exercise managed requests.
 - [Test an event handler](../core/testing/event-handlers.md): testing a handler as a pure function.

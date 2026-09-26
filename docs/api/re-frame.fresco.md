@@ -47,11 +47,6 @@ The frame functions are core's: inside a view body, `(rf/current-frame-id)` and
 zero-arity `(rf/capture-frame)` return the rendering view's frame, and this
 namespace does not duplicate them.
 
-This page has one entry per public var, like every page in this section. The
-guide's [Fresco API reference](../core/fresco/api-reference.md) lists the same names
-from the guide's side, pointing each at the chapter that teaches it, and covers the
-modules that have no page here (see [Optional modules](#optional-modules)).
-
 ## Authoring macros
 
 `defview` and `defhost` each expand to a `def`, so write them at the top level of a
@@ -87,6 +82,7 @@ ClojureScript.
       call order would depend on the data. Put hook-heavy behaviour in a React
       component mounted through `defhost`, which the guide calls an *island*; see
       [`re-frame.fresco.native`](re-frame.fresco.native.md).
+    - See [Views and reads](../core/fresco/02-views-and-reads.md).
 - **Errors**, raised while the view renders:
     - [`:rf.error/no-frame-context`](../core/fresco/troubleshooting.md#no-frame-context)
       when no `frame-root` or `frame-provider` is above the view.
@@ -133,16 +129,20 @@ ClojureScript.
       itself, except at `:class`, `:id`, `:role`, `data-*` and `aria-*`, where it
       becomes its name. A component that expects the string `"primary"` must be
       passed the string, not `:primary`.
+    - See [Interop](../core/fresco/09-interop.md).
 - **Options**:
     - `:callbacks`: `{prop :event|:render}`, overriding the contract a prop's name
       implies. A vendor's `on*`-named render prop needs
-      `{:callbacks {:on-render-item :render}}`.
+      `{:callbacks {:on-render-item :render}}`. See [Callback
+      contracts](../core/fresco/09-interop.md#callback-contracts).
     - `:slots`: the set of props that take a React element. Hiccup written at one is
       converted under the writing view's frame; at an undeclared prop a hiccup vector
-      is passed through as data.
+      is passed through as data. See [ReactNode
+      slots](../core/fresco/09-interop.md#reactnode-slots).
     - `:server`: `:client-only` (the default: the component renders nothing on the
       server or on hydration's first pass, and mounts once the page is adopted) or
-      `:render` (you assert the component is safe to render on the server).
+      `:render` (you assert the component is safe to render on the server). See
+      [Server policy](../core/fresco/09-interop.md#server-policy).
     - `:fallback`: hiccup rendered in place of a `:client-only` component until it
       mounts.
 - **Errors**:
@@ -191,6 +191,7 @@ ClojureScript.
       prop of a native tag, a `defhost` component or a `[:>]` crossing, it is a pure
       render callback and its return is the render output. At `:ref`, which Fresco
       leaves to React, it is a plain function.
+    - See [One callback form: `h/event`](../core/fresco/03-events-as-data.md#one-callback-form-hevent).
 - **Example**:
   ```clojure
   [:input {:type      "file"
@@ -204,7 +205,7 @@ ClojureScript.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/sub query-v)
+  (h/sub query-v) → value
   ```
 - **Description**: Returns the current value of the subscription `query-v`. Call it
   anywhere inside a view body, including inside a `when`, a `for` or a plain helper
@@ -217,6 +218,7 @@ ClojureScript.
     - An unregistered query reads `nil` and emits `:rf.error/no-such-sub`, and a
       subscription whose body throws reads `nil` and emits `:rf.error/sub-exception`.
       Neither throws into the view.
+    - See [Where `h/sub` may run](../core/fresco/02-views-and-reads.md#where-hsub-may-run).
 - **Example**:
   ```clojure
   (h/defview todo-footer [_]
@@ -240,11 +242,12 @@ creates the frame and holds its options. Use `frame-provider` everywhere else a
 subtree needs a frame that already exists. Do not declare a live frame a second
 time with `frame-root` to reach it: a second `frame-root` on the same `:id`
 replaces that frame's options wholesale, so a partial options map drops what the
-first one set.
+first one set. See [What the boot creates](../core/fresco/00-installation.md#what-the-boot-creates)
+and [`frame-provider` and `frame-root`](../core/frames.md#frame-provider-and-frame-root).
 
 ### `frame-root`
 
-- **Kind**: var (usable as a hiccup head)
+- **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
   [h/frame-root {:id :app/main :initial-events [[:app/boot]]} child …]
@@ -276,7 +279,7 @@ first one set.
 
 ### `frame-provider`
 
-- **Kind**: var (usable as a hiccup head)
+- **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
   [h/frame-provider {:frame :app/main} child …]
@@ -288,7 +291,7 @@ first one set.
       as a preview pane.
     - `:frame` is a frame id keyword or the live frame value `rf/make-frame`
       returns.
-    - Everything written below the head uses its frame: intents, `h/event`
+    - Everything written below the head uses its frame: event props, `h/event`
       callbacks and child views. Calls the enclosing body makes itself (`h/sub`,
       `h/route-link`, `rf/capture-frame`) run before the head takes effect and stay
       in the body's frame, so read the scoped frame from a child view under the
@@ -316,14 +319,16 @@ reload and released on teardown. `client-root`, `render!` and `unmount!` manage
 it, with the same names and the same create-then-update behaviour as on the
 [Reagent](re-frame.adapter.reagent.md#the-client-root) and
 [UIx](re-frame.adapter.uix.md#the-client-root) adapters. Each function acts only on
-the root whose handle you pass, so a page can hold as many roots as it needs.
+the root whose handle you pass, so a page can hold as many roots as it needs. See
+[What the boot creates](../core/fresco/00-installation.md#what-the-boot-creates) and
+[Hot reload](../core/fresco/00-installation.md#hot-reload).
 
 ### `client-root`
 
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/client-root)
+  (h/client-root) → handle
   ```
 - **Description**: Returns a new, inert client-root handle. It does no DOM work and
   makes no React call, so it belongs under a `defonce` at namespace load; the first
@@ -342,8 +347,8 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/render! handle view container)
-  (h/render! handle view container opts)
+  (h/render! handle view container)      → nil
+  (h/render! handle view container opts) → nil
   ```
 - **Description**: Renders `view` into the DOM node `container` through `handle`:
   the first call creates the React root, and every later call updates it inside
@@ -355,29 +360,35 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
       checked on every call.
     - `view` is the whole root tree, frame head included:
       `[h/frame-root {:id …} …]` or `[h/frame-provider {:frame …} …]`. Render the
-      same head with the same options each time. A later render that drops the head
-      leaves the subtree with no frame in context; one that drops a `frame-root`
-      option, such as `:initial-events` because they have already run, raises
-      `:rf.error/frame-root-reconfigured`; and switching to the other head is a
-      React type change that remounts everything. Re-passing `:initial-events` is
-      harmless, since they run once per frame, so build the tree in one function and
-      call it from every `render!`.
-    - `opts` takes root options only: `:hydrate?`, and `:identifier-prefix`, which is
-      passed to React as `identifierPrefix`. `:frame` or `:initial-events` raise
-      `:rf.error/fresco-frame-config-misplaced`, naming the head that takes them; any
-      other key raises `:rf.error/fresco-unknown-root-option`.
-    - `{:hydrate? true}` makes the first call adopt the server-rendered DOM already in
-      `container` (`hydrateRoot`) instead of replacing it, with its own
-      recoverable-error reporter in development builds. It returns before adoption
-      finishes, and must be given the same `:identifier-prefix` the server render
-      used. A later call through a live handle ignores `:hydrate?`.
+      same head with the same options on every call: build the tree in one function
+      and call it from every `render!`. Re-passing `:initial-events` is harmless,
+      since they run once per frame.
+    - A later render that drops the head leaves the subtree with no frame in
+      context, and switching to the other head is a React type change that remounts
+      everything.
     - A hydrating tree uses `frame-provider`. `frame-root` creates its frame at
       commit, so its first render has no children, while an adopting root must
       render the server's markup on its first pass; `frame-provider` renders its
       children immediately, so the shapes agree.
     - Neither hydration step creates the frame: `re-frame.ssr/hydrate!` dispatches
       `:rf/hydrate` at a frame that must already exist. Make the frame first, install
-      the payload second, and adopt the DOM third.
+      the payload second, and adopt the DOM third. See [Create the frame, hydrate
+      state, then adopt the DOM](../core/fresco/18-ssr-and-hydration.md#create-the-frame-hydrate-state-then-adopt-the-dom).
+- **Options**:
+    - `:hydrate?`: `true` makes the first call adopt the server-rendered DOM already
+      in `container` (`hydrateRoot`) instead of replacing it, with its own
+      recoverable-error reporter in development builds. It returns before adoption
+      finishes. A later call through a live handle ignores it.
+    - `:identifier-prefix`: passed to React as `identifierPrefix`. A hydrating root
+      must be given the prefix its server render used.
+- **Errors**:
+    - `:rf.error/fresco-frame-config-misplaced`: `opts` carries `:frame` or
+      `:initial-events`. The message names the head that takes them.
+    - `:rf.error/fresco-unknown-root-option`: any other `opts` key, or an `opts`
+      that is not a map.
+    - `:rf.error/frame-root-reconfigured`: a later render changes the
+      `frame-root`'s `:id` or options, for example by dropping `:initial-events`
+      because they have already run.
 - **Example**:
   ```clojure
   (h/render! app-root
@@ -399,7 +410,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/unmount! handle)
+  (h/unmount! handle) → nil
   ```
 - **Description**: Unmounts the React root `handle` holds and returns the handle to
   inert, so a later `render!` through it mounts afresh. Returns nil.
@@ -418,7 +429,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 
 ### `error-boundary`
 
-- **Kind**: var (React class component, usable as a hiccup head)
+- **Kind**: component (React class component, Fresco head)
 - **Signature**:
   ```clojure
   [h/error-boundary {:fallback f :reset-key k :on-error e} child …]
@@ -438,6 +449,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
       A throw from an event handler, a timer or another callback goes to the
       browser's error channel, and a throw while rendering `:fallback` goes to the
       next boundary up.
+    - See [Errors](../core/fresco/17-errors.md).
 - **Errors**:
     - `:rf.error/fresco-boundary-unknown-prop` on any other key, so a misspelt option
       cannot leave a boundary that silently reports nothing.
@@ -455,7 +467,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 
 ### `portal`
 
-- **Kind**: var (usable as a hiccup head)
+- **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
   [h/portal {:target node :fallback markup} child …]
@@ -465,13 +477,14 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
   a popover or dialog, use [`re-frame.fresco.overlay`](re-frame.fresco.overlay.md),
   which handles anchoring, dismissal and focus without a portal.
     - Events bubble through the React tree, so an ancestor's `:on-click` sees clicks
-      inside the portalled subtree, and intents inside it dispatch in the writing
-      view's frame.
+      inside the portalled subtree, and event vectors inside it dispatch in the
+      writing view's frame.
     - A changed `:target` is a remount, so keep it stable rather than looking it up
       on every render. A `:target` that is not a DOM node is React's own error at
       render.
     - It is client-only: the subtree is absent from a server response, and
       `:fallback` takes its tree position there.
+    - See [Portals](../core/fresco/09-interop.md#portals).
 - **Example**:
   ```clojure
   [h/portal {:target js/document.body}
@@ -484,8 +497,9 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 - **Signature**:
   ```clojure
   (h/route-link {:to route :params p :query q :fragment s
+                 :replace? r :scroll sc :bypass-leave? b
                  :prefetch :intent :on-click veto …attrs}
-                child …)
+                child …) → [:a attrs child …]
   ```
 - **Description**: Returns a real `<a>` for a route, as hiccup; the `href` and the
   click handling come from re-frame2's routing. A plain left-click navigates in the
@@ -495,8 +509,10 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
     - It is a plain function, not a view: call it, rather than writing it as a head.
       It adds no boundary and no hook, and it must be called inside a view render.
     - `:to` names a registered route; `:params`, `:query` and `:fragment` build the
-      `href`. Every other key except `:prefetch` and `:on-click` passes through to
-      the `<a>`, so `:class` and `:aria-current` work as usual.
+      `href`. `:replace?`, `:scroll` and `:bypass-leave?` apply to the navigation the
+      click makes, as they do on [`:rf.route/navigate`](re-frame.routing.md#rfroutenavigate-request).
+      Every other key except `:prefetch` and `:on-click` passes through to the `<a>`,
+      so `:class` and `:aria-current` work as usual.
     - `:on-click` is a veto that runs before the navigation: `nil`,
       `[::h/prevent [:app/event]]` (cancel the navigation and dispatch this instead),
       an `h/event` or a plain function. A bare event vector is refused, because the
@@ -504,6 +520,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
     - `:prefetch :intent` dispatches `[:rf.route/prefetch …]` for the link's route
       from `:on-mouse-enter`, `:on-focus` and `:on-touch-start`. Leaving the key out
       is the only way to opt out.
+    - See [Render an application route link](../core/fresco/07-routing-and-navigation.md#render-an-application-route-link).
 - **Errors**:
     - `:rf.error/routing-artefact-missing` at render when `re-frame.routing` is not
       loaded, naming the `:to`.
@@ -537,7 +554,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/as-element hiccup)
+  (h/as-element hiccup) → React element
   ```
 - **Description**: Converts hiccup to a React element, under the frame of the view
   currently rendering. Use it where Fresco does not convert hiccup for you.
@@ -548,9 +565,11 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
       is refused there.
     - Where the crossing is declared, prefer `defhost`'s `:slots`, which converts
       those props at every use site.
-    - Intents in the converted markup keep dispatching in the frame of the view that
-      supplied them. Outside any view render it still converts, but an intent in the
-      markup raises `:rf.error/fresco-intent-outside-boundary`.
+    - Event vectors in the converted markup keep dispatching in the frame of the view
+      that supplied them. Outside any view render it still converts, but an event
+      vector or key map in the markup raises
+      `:rf.error/fresco-intent-outside-boundary`.
+    - See [Render positions](../core/fresco/09-interop.md#render-positions).
 - **Example**:
   ```clojure
   (h/defhost virtual-list VirtualList)
@@ -569,7 +588,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/as-component view)
+  (h/as-component view) → React component
   ```
 - **Description**: Returns a real React component for a Fresco view, so a UIx or
   plain-JavaScript parent can mount it under the frame it is already in. Define it
@@ -581,6 +600,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
     - The frame comes from React context, written by any adapter's frame head, so no
       second root or state owner is involved. Rendered outside every frame, it raises
       `:rf.error/no-frame-context`.
+    - See [Render a Fresco view from native React](../core/fresco/09-interop.md#render-a-fresco-view-from-native-react).
 - **Example**:
   ```clojure
   (def article-card* (h/as-component article-card))
@@ -594,7 +614,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (h/reg-state concern opts?)
+  (h/reg-state concern opts?) → concern
   ```
 - **Description**: Registers per-instance UI state for `concern`: one parametric
   subscription and one setter event, stored in `app-db` at
@@ -613,6 +633,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs.
       value.
     - Registering the same concern again replaces all three registrations, so the
       last `:default` wins.
+    - See [Application-visible state](../core/fresco/11-ephemeral-state.md#1-application-visible-state-app-db).
 - **Errors**:
     - `:rf.error/fresco-state-bad-argument`, thrown by `reg-state`, for an
       unqualified concern, or options that are not a map or carry a key other than
@@ -668,7 +689,9 @@ React element, or a keyword or symbol (rendered as its name). `nil` and `false`
 render nothing. At a native tag, prop keys are camelCased except `aria-*`,
 `data-*` and `--custom` properties; `:class` takes a string, keyword or collection
 of those; a map value such as `:style` gets camelCased keys; and `:ref` reaches
-React untouched.
+React untouched. See [Props, children, and
+fragments](../core/fresco/02-views-and-reads.md#props-children-and-fragments) and
+[Attribute conversion](../core/fresco/02-views-and-reads.md#attribute-conversion).
 
 - **Errors**:
     - [`:rf.error/fresco-empty-vector`](../core/fresco/troubleshooting.md#fresco-empty-vector):
@@ -681,7 +704,8 @@ React untouched.
       `[:>]` given `nil` or a `defview` or `defhost` var.
 - **Warnings**, on the console in development builds, once per site:
     - [`:rf.warning/fresco-missing-key`](../core/fresco/troubleshooting.md#fresco-missing-key):
-      a seq of views with no `:key`, passed as a view's children.
+      a seq of views with no `:key`, passed as a view's children. See [Use stable
+      domain keys](../core/fresco/06-lists-and-collections.md#use-stable-domain-keys).
     - [`:rf.warning/fresco-entity-key`](../core/fresco/troubleshooting.md#fresco-entity-key):
       a view child keyed by a map, vector or other object.
 
@@ -689,12 +713,13 @@ React untouched.
 
 An event prop, named `:on-<event>` or React's `:on<Event>` (`:on-click` and
 `:onClick` are the same prop), takes one of four shapes, on a native tag and on a
-`defhost` component alike:
+`defhost` component alike. Fresco's error ids call a vector or key map written at
+an event prop an *intent*. See [Events as data](../core/fresco/03-events-as-data.md).
 
 | Value | What happens |
 | --- | --- |
 | an event vector, `[:todo/toggle id]` | dispatched in the view's frame when the event fires. At `:on-submit` the browser default is also prevented. |
-| a key map, `{"Enter" [:todo/commit id] "Escape" [:todo/cancel id]}` | the entry for the pressed key (spelled as the browser's `KeyboardEvent.key`) runs: a vector is dispatched, and a function or `h/event` is called. Presses during IME composition are ignored. |
+| a key map, `{"Enter" [:todo/commit id] "Escape" [:todo/cancel id]}` | the entry for the pressed key (spelled as the browser's `KeyboardEvent.key`) runs: a vector is dispatched, and a function or `h/event` is called. Presses during IME composition are ignored. See [Keyboard maps](../core/fresco/03-events-as-data.md#keyboard-maps). |
 | an `h/event` callback | called with the event; a returned vector is dispatched. |
 | a plain function | passed to React unchanged. |
 
@@ -712,9 +737,12 @@ An event prop, named `:on-<event>` or React's `:on<Event>` (`:on-click` and
 ## Marker keywords
 
 `::h/value`, `::h/prevent`, `::h/revision`, `::h/checked` and `::h/clear` are
-keywords in the `:re-frame.fresco` namespace, so they need no export: with this
-namespace aliased as `h`, the auto-resolved spelling the guide uses resolves to
-them.
+keywords in the `re-frame.fresco` namespace; with this namespace aliased as `h`,
+write them as shown. See [Read values from the browser
+event](../core/fresco/03-events-as-data.md#read-values-from-the-browser-event),
+[Prevent browser defaults
+explicitly](../core/fresco/03-events-as-data.md#prevent-browser-defaults-explicitly)
+and [Reset with `::h/revision`](../core/fresco/04-controlled-inputs.md#reset-with-hrevision).
 
 | Keyword | Where it goes | What it does |
 | --- | --- | --- |

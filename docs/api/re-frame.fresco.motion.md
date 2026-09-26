@@ -23,7 +23,7 @@ the marker keywords and the phase table.
 
 ### `presence`
 
-- **Kind**: var (usable as a hiccup head)
+- **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
   [motion/presence {:timeout-ms ms} keyed-child …]
@@ -75,5 +75,6 @@ the marker keywords and the phase table.
 
 ## See also
 
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [Fresco API reference](../core/fresco/api-reference.md) — every Fresco name, with
+  the chapter that teaches it.
 - [`re-frame.fresco`](re-frame.fresco.md) — `h/defview` and `h/defhost`.

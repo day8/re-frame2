@@ -53,11 +53,14 @@ Every key of a head model is optional:
   ```
 - **Description**: Returns `frame-id`'s head model. Pure and JVM-runnable. It resolves in one pass:
     1. The effective route is `:route` when the key is present (an explicit `{:route nil}` means no route), else the frame's active route slice from `runtime-db` at `[:rf.runtime/routing :current]`.
-    2. The head is `:head-id` when supplied, else the effective route's `:head` metadata, else [`default-head`](#default-head). A selected id that is not registered raises `:rf.error/no-such-head`; a route that declares no `:head` falls back to the default without error.
+    2. The head is `:head-id` when supplied, else the effective route's `:head` metadata, else [`default-head`](#default-head).
     3. The head fn runs against that same effective route, so `{:route r}` with no `:head-id` previews `r` end to end.
-    - `frame-id` is required. A `nil` frame raises `:rf.error/no-frame-context`; the head never resolves against a default frame.
+    - `frame-id` is required.
     - The frame selects the registrations as well as the data, so a head declared in one image cannot run against another image's `app-db`.
     - The Ring handler calls it for every page and does not let the head fail the request. If resolution throws, `:rf.error/no-such-head` or a throwing head fn alike, the page renders with an empty head and the handler emits the always-on `:rf.error/ssr-head-resolution-failed` record; the status stays as it was.
+- **Errors**:
+    - `:rf.error/no-such-head` — the selected head id (`:head-id`, or the route's `:head`) is not registered. A route that declares no `:head` falls back to [`default-head`](#default-head) without error.
+    - `:rf.error/no-frame-context` — `frame-id` is `nil`; the head never resolves against a default frame.
 - **Example**:
   ```clojure
   (head/head-model :app/request-17)
