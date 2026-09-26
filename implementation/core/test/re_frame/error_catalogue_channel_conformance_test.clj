@@ -1327,7 +1327,7 @@
   of a conflict wholesale would leave the floor one above a corpus that lost
   two pairings — the silent-count-merge class this ledger exists to make
   impossible, arriving in the ledger itself."
-  91)
+  90)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. Rows that red when the arm runs, held as named debt so a

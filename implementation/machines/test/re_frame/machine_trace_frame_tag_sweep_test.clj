@@ -13,7 +13,7 @@
     - join.cljc — invoke-all resolution traces (any-failed, all-completed,
       some-completed, cancelled-on-join-resolution, late-completion,
       bad-child-id)
-    - timer.cljc — wall-clock fx-layer traces (no-clock-configured,
+    - timer.cljc — wall-clock fx-layer traces (machine-bad-after-delay,
       cancelled (the unified cancellation event with its :reason closed
       set), scheduled-from-watcher, after-fn-threw, after-sub-threw,
       after-watch-failed)
@@ -367,10 +367,10 @@
         (is (= :rf/default (frame-tag ev))
             ":frame tag stamped on bad-child-id error")))))
 
-;; ---- timer.cljc :rf.warning/no-clock-configured ---------------------------
+;; ---- timer.cljc :rf.error/machine-bad-after-delay -------------------------
 
-(deftest timer-no-clock-configured-tag-carries-frame
-  (testing ":rf.warning/no-clock-configured (timer fx layer) carries
+(deftest timer-bad-after-delay-tag-carries-frame
+  (testing ":rf.error/machine-bad-after-delay (timer fx layer) carries
    `:frame` tag (frame-id is the first param of
    schedule-after-timer!). Triggered by a delay fn that returns nil
    (no positive ms resolution)."
@@ -382,7 +382,7 @@
                  :done    {}}})
     (let [traces (record-traces!
                    (fn [] (rf/dispatch-sync [:ko8jb/no-clock [:go]])))
-          ev    (first-of-op traces :rf.warning/no-clock-configured)]
-      (is (some? ev) ":rf.warning/no-clock-configured fired from fx layer")
+          ev    (first-of-op traces :rf.error/machine-bad-after-delay)]
+      (is (some? ev) ":rf.error/machine-bad-after-delay fired from fx layer")
       (is (= :rf/default (frame-tag ev))
           ":frame tag stamped"))))

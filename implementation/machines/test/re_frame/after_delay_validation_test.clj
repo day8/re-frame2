@@ -9,7 +9,7 @@
   an invalid machine as valid.
 
   DYNAMIC delays (a subscription vector / fn that RESOLVES to an invalid ms
-  at runtime) get their fx-time `:rf.warning/no-clock-configured` warning —
+  at runtime) report `:rf.error/machine-bad-after-delay` at fx time —
   only the static key shape is gated here (covered by
   `re-frame.after-test`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
