@@ -70,6 +70,15 @@ Each half tests on its own. The issuing handler returns the effect as data, so a
     (is (= :paid (:checkout/status (rf/app-db-value f))))))
 ```
 
+## Troubleshooting
+
+| You see | What happened |
+|---|---|
+| `:rf.error/no-such-fx` naming your fx id | The `reg-fx` never ran: the namespace that registers it isn't loaded. |
+| `:rf.error/fx-handler-exception` naming your fx id | The fx threw while posting the work (the SDK isn't on the page, say). That effect is skipped and no reply is dispatched; the handler's `:db` write and its other effects still apply. |
+| `:rf.fx/skipped-on-platform` | The fx ran where its `:platforms` excludes it, such as `#{:client}` during server-side rendering, and was skipped. |
+| `:rf.error/frame-destroyed` | The reply was dispatched after its frame was destroyed, and was dropped. The state it would have updated went with the frame. |
+
 ## When *not* to roll your own
 
 - **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — managed HTTP already gives you retries, abort, structured failures, and stale-result suppression. The example above is for APIs that *aren't* HTTP, so it only has the guarantees you put into it.
