@@ -57,7 +57,7 @@ The rules that matter:
 
 - **Chains are per-frame.** An interceptor registered on one [frame](../core/frames.md) never fires for a request from another. Multi-frame apps register independent chains. So registration must name its frame: pass `:frame`, as above, or register inside a frame scope such as `rf/with-frame`. With neither, a top-level registration raises `:rf.error/no-frame-context` and installs nothing. [Add authentication](../core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary) wires a full auth flow this way, including a 401 that logs the user out.
 - **Onion order.** `:before`s run in registration order, `:after`s in reverse — A-registered-before-B means `A.before → B.before → transport → B.after → A.after`. Exactly the event-interceptor mental model.
-- **At least one phase is required.** A map with neither `:before` nor `:after` is rejected at registration with `:rf.error/http-bad-interceptor`. A `:before`-only or `:after`-only interceptor is fine and composes cleanly.
+- **At least one phase is required.** A map with neither `:before` nor `:after` is rejected at registration with `:rf.error/http-bad-interceptor`, as is a phase that isn't a fn, or an id or `:frame` that isn't a keyword. A `:before`-only or `:after`-only interceptor is fine and composes cleanly.
 - **Each phase returns a map.** A `:before` returns the request ctx; an `:after` returns the reply map. Returning `nil`, a vector, or anything else fails the interceptor with `:rf.error/http-interceptor-bad-return`, carrying the interceptor's `:id` and what it `:returned`; the effect is the same as a throw (next rule). So a bad interceptor cannot erase the request or reply.
 - **A throw is named, not swallowed.** A `:before` or `:after` that throws classifies as `:rf.error/http-interceptor-failed` (carrying the offending `:interceptor-id`); a request-side throw means the transport never sees the request. Wrap recoverable logic inside the interceptor yourself — the chain has no recovery cofx.
 - **Clearing.** Inside a frame scope, `(rf/clear :http-interceptor id)` removes that frame's interceptor; there is no `rf/clear-http-interceptor`. Outside a frame scope, or when you want to name the frame directly, use the opts form `(rf/clear :http-interceptor id {:frame frame-id})` — the trailing `{:frame …}` opts map, mirroring `reg-http-interceptor`'s `:frame`. Calling the single-arity form with no frame in scope fails loud with `:rf.error/no-frame-context`. Re-registering an existing id replaces it *in place* (hot-reload-friendly); clear-then-reg appends a fresh slot at the end.
@@ -78,6 +78,8 @@ HTTP is where the secrets are: passwords ride request bodies, auth tokens ride r
               :query-params ["shop_token"]}}
   re-frame.http.managed/managed-handler)
 ```
+
+Names match case-insensitively. A malformed block fails loud with `:rf.error/bad-classification`.
 
 **For a whole request, set `:sensitive?`.** When an *entire* request is sensitive — a login POST whose body is the password — flag it and the framework redacts the body, the `:params`, and *every* URL query value (not just the denylisted ones) on the way to the trace. The flag lives either under `:request` or at the top level of the args map; the two are equivalent, and either being true wins:
 
