@@ -766,7 +766,7 @@ Validation *calls* are not in this cost — every `validate-*!` body is gated on
 **Restrict to dev / test / 10x tiers** — namespaces that bill per-namespace gzip and should NOT be required from production code:
 
 - `malli.error` — humanise + path-walk; ~6 KB gzipped. Use in dev panels and tests. The schemas adapter itself reaches it only in development.
-- `malli.transform` — JSON transformer + decoders; ~9 KB gzipped. Only required directly when an app reaches for managed-HTTP's `:auto` decode arm.
+- `malli.transform` — JSON transformer + decoders; ~9 KB gzipped. An app never requires it for managed HTTP: a schema `:decode` coerces through `malli.transform/json-transformer`, and `re-frame.schemas` already requires the namespace on CLJS, so requiring `re-frame.schemas` is enough. A build that never reaches the schema decoder drops it.
 - `malli.generator` — test.check integration; ~15 KB gzipped (carries test.check transitively). Restrict to test code and property-based-test panels.
 - `malli.registry` — composite-registry helpers; ~3 KB gzipped (most lives in `malli.core`).
 - `malli.dev`, `malli.dev.pretty`, `malli.experimental`, `malli.instrument`, `malli.json-schema`, `malli.swagger`, `malli.provider`, `malli.util` — dev-only tooling; never bundle into production code.
