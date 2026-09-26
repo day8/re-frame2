@@ -260,7 +260,7 @@ When the bug is "the state was briefly wrong between two events", read state aft
 ;; => [[:todo/toggle true] [:todo/toggle false] [:todo/clear-done false]]
 ```
 
-For one path, `ts/assert-path-equals` gives a `clojure.test` failure message naming the frame and path; it looks the frame up by id, so give the frame an `:id` (see [Test an event handler](event-handlers.md#checking-one-path)).
+For one path, `ts/assert-path-equals` gives a `clojure.test` failure message naming the frame and path, and inside `with-new-frame` it reads that frame without a `:frame` option (see [Test an event handler](event-handlers.md#checking-one-path)).
 
 ## Asserting on a derived value
 
