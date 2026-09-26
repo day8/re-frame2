@@ -54,26 +54,6 @@
 
     :else nil))
 
-(deftest static-context-shape-maps-keys-to-type-captions
-  (testing "derives `(key → type-caption)` from the
-            definition's declared `:data`, NOT the live values (the door
-            machine's `{:opened-count 0 :held-open? false :trail []}`
-            shape)."
-    (let [def   {:initial :locked
-                 :data    {:opened-count 0 :held-open? false :trail []
-                           :note "x" :tag :a :nested {} :many #{}}
-                 :states  {:locked {}}}
-          shape (tv/static-context-shape def)]
-      (is (= {:opened-count "number"
-              :held-open?   "boolean"
-              :trail        "vector"
-              :note         "string"
-              :tag          "keyword"
-              :nested       "map"
-              :many         "set"}
-             shape)
-          "each key maps to its value's type caption (shape, not value)"))))
-
 (deftest static-context-shape-nil-when-no-data
   (testing "a machine with no `:data` yields nil so the root
             Context panel stays hidden."

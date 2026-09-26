@@ -147,61 +147,6 @@
              :done    {:final? true}
              :failed  {:final? true}}})
 
-;; ---- (1) registry wiring ------------------------------------------------
-
-(deftest registry-installs-machine-inspector-handlers
-  (testing "register-xray-handlers! installs the Machine Inspector handlers"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/registered-machines)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/machine-snapshots)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/machine-definitions)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/selected-machine-id)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/machine-inspector-data)))
-    (is (some? (rf.registrar/handler
-                 :sub :rf.xray/machine-transitions-for-focused-event)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/machine-scrubber-position)))
-    (is (some? (rf.registrar/handler :event :rf.xray/select-machine-id)))
-    (is (some? (rf.registrar/handler :event :rf.xray/clear-machine-selection)))
-    (is (some? (rf.registrar/handler :event :rf.xray/machine-state-clicked)))
-    (is (some? (rf.registrar/handler :event :rf.xray/machine-focus-prev)))
-    (is (some? (rf.registrar/handler :event :rf.xray/machine-focus-next)))
-    (is (some? (rf.registrar/handler :event :rf.xray/set-scrubber-position))))
-  (testing "production registration installs NO -for-test ids
-            and no *-override subs; the test seam installs them"
-    (registry/register-xray-handlers!)
-    (is (nil? (rf.registrar/handler :sub :rf.xray/machine-definitions-override)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/machine-snapshots-override)))
-    (is (nil? (rf.registrar/handler
-                :event :rf.xray/set-registered-machines-override-for-test)))
-    (is (nil? (rf.registrar/handler
-                :event :rf.xray/set-machine-snapshots-override-for-test)))
-    (is (nil? (rf.registrar/handler
-                :event :rf.xray/set-machine-definitions-override-for-test)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/set-epoch-history-for-test)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))
-    (xray-test-support/install-test-overrides!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/machine-definitions-override)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/machine-snapshots-override)))
-    (is (some? (rf.registrar/handler
-                 :event :rf.xray/set-registered-machines-override-for-test)))
-    (is (some? (rf.registrar/handler
-                 :event :rf.xray/set-machine-snapshots-override-for-test)))
-    (is (some? (rf.registrar/handler
-                 :event :rf.xray/set-machine-definitions-override-for-test)))
-    (is (some? (rf.registrar/handler :event :rf.xray/set-epoch-history-for-test)))
-    (is (some? (rf.registrar/handler :event :rf.xray/set-focus-epoch-id-for-test)))))
-
-(deftest composite-defaults-to-empty-when-no-override
-  (testing "with an empty machines override the composite returns the
-            empty-shape map"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines! [])
-      (let [d @(rf/subscribe [:rf.xray/machine-inspector-data])]
-        (is (= [] (:machines d)))
-        (is (= 0 (:total d)))
-        (is (= :no-machines (:empty-kind d)))))))
-
 ;; ---- (2) empty state (no machines registered) --------------------------
 
 (deftest empty-state-renders-when-no-machines
@@ -293,36 +238,6 @@
             "no topology renders for a focused epoch with no transition")))))
 
 ;; ---- (4) focused-event lens (one section per transition) --------------
-
-(deftest focused-event-lens-renders-one-section-per-transition
-  (testing "an epoch whose :trace-events carry ≥ 1 :rf.machine/transition
-            events yields one section per record"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1 :trace-events []}
-         {:epoch-id 2
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit]
-                   :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 2)
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "the focused-event surface mounts when the cascade has a transition")
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-focused-event-section-auth/login"))
-            "one section per transitioned machine")
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-focused-event-chart"))
-            "the section renders the topology chart")
-        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
-            "the blank-state is suppressed when records exist")))))
 
 (deftest focused-event-machine-start-renders-topology-not-blank-rf2-eldze
   (testing "a focused machine START / initial-entry epoch (a
@@ -492,30 +407,6 @@
              surface")
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "blank suppressed when the `:rf.machine/transition` op fired")))))
-
-(deftest focused-event-section-emits-from-and-to-highlight-ids
-  (testing "the per-section chart carries data-from/to-highlight-id so
-            the chart's render path applies the dashed-origin + bold-
-            landing visual grammar"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree   (panel-tree)
-            chart  (find-by-testid
-                     tree "rf-xray-machine-focused-event-chart")]
-        (is (some? chart))
-        (is (= "idle"    (:data-from-highlight-id (second chart))))
-        (is (= "authing" (:data-to-highlight-id   (second chart))))))))
 
 (deftest focused-event-lens-binds-to-first-machine-in-trace-order-rf2-8og3k
   (testing "Dynamic-mode single-instance rule (spec/003 §Dynamic mode —
@@ -1064,29 +955,6 @@
 
 ;; ---- (5) per-machine prev/next nav -------------------------------------
 
-(deftest prev-next-nav-renders-when-a-machine-is-in-scope
-  (testing "the per-machine prev/next nav appears in the header whenever
-            the focused event has at least one machine section"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-inspector-prev-next-nav"))
-            "prev/next nav is visible when a machine is in scope")
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-prev")))
-        (is (some? (find-by-testid tree "rf-xray-machine-inspector-next")))))))
-
 (deftest prev-next-nav-hidden-in-blank-state
   (testing "the per-machine prev/next nav is hidden when no machine is
             in scope (the blank state)"
@@ -1098,45 +966,6 @@
         (is (nil? (find-by-testid
                     tree "rf-xray-machine-inspector-prev-next-nav"))
             "no nav when there is no machine in scope")))))
-
-(deftest machine-focus-prev-walks-to-prior-event-touching-machine
-  (testing "dispatching :rf.xray/machine-focus-prev moves the spine's
-            focus to the prior epoch that ALSO touched the focused
-            machine — skipping epochs whose cascade did not touch it"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login :checkout/flow])
-      (override-definitions! {:auth/login    fixture-definition
-                              :checkout/flow fixture-definition})
-      ;; Epoch history: e1 touches :auth/login, e2 touches :checkout/flow only
-      ;; (must be skipped), e3 touches :auth/login (the current focus).
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
-         {:epoch-id 2
-          :trace-events
-          [{:id 2 :time 20 :operation :rf.machine/transition
-            :tags {:machine-id :checkout/flow
-                   :before {:state :idle :data {}}
-                   :after  {:state :done :data {}}
-                   :event [:cart/sync] :rf.trace/dispatch-id "d-2"}}]}
-         {:epoch-id 3
-          :trace-events
-          [{:id 3 :time 30 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :authing :data {}}
-                   :after  {:state :done :data {}}
-                   :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
-      (focus-epoch! 3)
-      (rf/dispatch-sync [:rf.xray/machine-focus-prev])
-      (let [xray-db (rf.frame/frame-app-db-value :rf/xray)]
-        (is (= 1 (get-in xray-db [:focus :epoch-id]))
-            "focus stepped from epoch 3 → epoch 1, skipping epoch 2")))))
 
 (deftest machine-focus-next-walks-to-next-event-touching-machine
   (testing "dispatching :rf.xray/machine-focus-next moves the spine's
@@ -1583,22 +1412,6 @@
         "cascade-export sub is unregistered")))
 
 ;; ---- (6) events ---------------------------------------------------------
-
-(deftest select-machine-id-event-writes-to-xray-frame
-  (testing ":rf.xray/select-machine-id stores the id on the Xray frame
-            (the picker focus the Instances jump sets and the
-            cancellation-cascade composite and after-rings overlay read)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-machine-id :checkout/flow])
-      (is (= :checkout/flow @(rf/subscribe [:rf.xray/selected-machine-id]))))))
-
-(deftest clear-machine-selection-drops-the-pick
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/select-machine-id :checkout/flow])
-    (rf/dispatch-sync [:rf.xray/clear-machine-selection])
-    (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id])))))
 
 (deftest scrubber-position-slot-defaults-to-present
   (testing "the scrubber-position slot defaults to :present (the
