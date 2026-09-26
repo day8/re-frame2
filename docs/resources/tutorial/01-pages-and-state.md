@@ -33,7 +33,7 @@ State changes one way only. An [**event**](../../core/glossary.md#event) is data
   [{:slug        "welcome-to-conduit"
     :title       "Welcome to Conduit"
     :description "What you are building, and why."
-    :body        "Conduit is a Medium-style publishing app. Five parts: feeds, auth, favoriting, publishing."
+    :body        "Conduit is a Medium-style publishing app: feeds, auth, favoriting, publishing."
     :tagList     ["intro"]
     :createdAt   "2026-06-01T09:00:00Z"
     :author      {:username "octocat"}}
@@ -70,7 +70,7 @@ State changes one way only. An [**event**](../../core/glossary.md#event) is data
 - `:db` — the next app-db.
 - `:fx` — a vector of [effects](../../core/glossary.md#effect) to run: dispatches, HTTP, navigation, anything that reaches the outside world.
 
-This handler returns only `:db`, because seeding canned data touches nothing outside the map. You'll meet `:fx` in Part 2, and one more key, `:sensitive`, in [Part 3](03-auth-and-forms.md#keeping-the-jwt-redacted-on-both-surfaces). Because the set is closed, returning a key outside it raises an error the moment the handler runs, so a typo'd effect key can't silently do nothing.
+This handler returns only `:db`, because seeding canned data touches nothing outside the map. You'll meet `:fx` and one more key, `:sensitive`, in [Part 3](03-auth-and-forms.md#keeping-the-jwt-redacted-on-both-surfaces). Because the set is closed, returning a key outside it raises an error the moment the handler runs, so a typo'd effect key can't silently do nothing.
 
 This replaces the placeholder `:app/initialise` that setup dropped into `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 

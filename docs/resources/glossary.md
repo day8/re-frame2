@@ -1,4 +1,4 @@
-# Resources & Server State glossary
+# Resources glossary
 
 re-frame2's optional server-state capability — declarative, cached reads and writes where the framework owns the cache, dedupe, staleness, and invalidation, so views read passively and never fetch. See [the model](concepts.md).
 
@@ -29,6 +29,10 @@ A declared server-state **write** — the write-side partner to a [resource](#re
 
 Related: [the model](concepts.md). A `:reply-to` reply carries the result as `:value`; the instance subscription carries it as `:result`.
 
+### **mutation instance**
+
+The id one run of a [mutation](#mutation) is tracked under — the `:instance` on `[:rf.mutation/execute …]`, such as `[:favorite slug]`. Its lifecycle (`:idle`, `:pending`, `:success`, `:error`) is kept per instance rather than per mutation id, so two article cards saving at once don't mix up their state; a view reads it with `[:rf/mutation {:instance …}]`. Executing again under the same instance supersedes the earlier attempt and suppresses its late reply.
+
 ### **invalidate**
 
 A [mutation](#mutation) declares — as data on its registration, never imperatively — which cached [resource](#resource) reads it makes stale (matched by [cache tag](#cache-tag)), so they refetch.
@@ -42,7 +46,11 @@ Related: [the model](concepts.md).
 
 ### **scope**
 
-A [resource](#resource)'s required, fail-closed leak boundary — the declaration of *whose* data a cached read belongs to (`:rf.scope/global` for a genuinely public read, or a per-user/tenant resolver). It's part of the read's cache identity, so one principal's data can never surface in another's cache; a scope that can't resolve **raises** rather than serving the wrong data.
+A [resource](#resource)'s required, fail-closed leak boundary — the declaration of *whose* data a cached read belongs to (`:rf.scope/global` for a genuinely public read, or a per-user/tenant [scope resolver](#scope-resolver)). It's part of the read's cache identity, so one principal's data can never surface in another's cache; a scope that can't resolve **raises** rather than serving the wrong data.
+
+### **scope resolver**
+
+A named, pure function registered with `reg-resource-scope` that answers "whose cache?" from app-db. It declares the app-db paths it reads as `:inputs` and returns a scope value such as `[:rf.scope/session {:username "ada"}]`, or `nil` when it can't tell. A resource points at it with `:scope {:from-db <resolver-id>}`, and `rf/resolve-resource-scope` runs it against a db value, as a logout handler does before clearing the departing user's cache. A `nil` answer fails closed.
 
 ### **cache tag**
 
@@ -56,6 +64,14 @@ The lifecycle a cached read reports to a [view](../core/glossary.md#view): `:idl
 
 Two facts the runtime tracks per fetch. An **owner** is a *hold* — a route, a [machine](../machines/glossary.md#machine), an app event — that keeps a cached entry alive and decides whether an [invalidation](#invalidate) refetches now or merely marks the entry stale; release every owner and the entry becomes GC-eligible. A **cause** is pure provenance — *why* a fetch happened (a route entry, a click, a refresh) — recorded for the trace and never affecting liveness. *Owner = lifetime; cause = explanation.*
 
+### **ensure**
+
+The ordinary way to cause a read: `[:rf.resource/ensure {:resource … :params … :cause …}]`, which a route's `:resources` entry also dispatches for you. It makes sure a fresh-enough load exists — a cache hit when the entry is fresh, joining the request already in flight for the same key, and a fetch otherwise — and attaches the [owner](#owner--cause) it carries, if any. `[:rf.resource/refetch …]` is the forced version: it always sends a new request.
+
+### **infinite resource & load-more**
+
+A [resource](#resource) registered with `:infinite true`: one cache entry whose value is an ordered vector of pages, with the next page's cursor derived by `:next-page-param`. `[:rf.resource/load-more {:resource … :params … :cause …}]` appends the next page to that entry, and `:rf.resource/items` reads the merged list. See [Paginate a feed](how-to/paginate-a-feed.md#load-more-an-infinite-resource-is-one-growing-entry).
+
 ### **optimistic update & rollback**
 
 Writing a [mutation](#mutation)'s expected result into the cache *before* the server confirms, so the UI responds instantly — then, when the [reply](#reply-map) settles, committing it (on success), rolling the slice back (on failure), or reconciling. A `:stale` reply changes nothing.
@@ -67,3 +83,7 @@ The `:rf.http/managed` [effect](../core/glossary.md#effect): you describe a requ
 ### **reply map**
 
 The one map every managed async result arrives in — a closed `:status` (`:ok`/`:error`/`:cancelled`/`:stale`), with `:value` on `:ok` and the failure map under `:error` — the *same* envelope for HTTP and resources alike. It rides as the last argument of the reply [event](../core/glossary.md#event); branch on `:status`, never on a stringified message. (The concrete shape of [the uniform reply](../core/glossary.md#the-uniform-reply).)
+
+### **reply-to continuation**
+
+The event a caller names to run once a write or read settles: `:reply-to [:editor/replied]` on `[:rf.mutation/execute …]`, `[:rf.resource/ensure …]` or `[:rf.resource/refetch …]`. The runtime appends the [reply map](#reply-map) and dispatches it once, for the accepted terminal reply only — a superseded reply never reaches it. A mutation's continuation runs after its cache consequences have been applied. It is where workflow goes (navigate, toast); the cache consequences stay on the registration.

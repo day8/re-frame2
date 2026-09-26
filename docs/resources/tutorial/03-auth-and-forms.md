@@ -35,7 +35,7 @@ schema below, which ships as one more artefact, `day8/re-frame2-schemas`:
             [conduit.api :as api]))
 ```
 
-There's no `:require-macros` here. It's ClojureScript-only, so a `.cljc` file calls the view macro through its alias instead, as `rf/reg-view`.
+There's no `:require-macros` here: that clause is ClojureScript-only, so a `.cljc` file calls the view macro through its alias instead, as `rf/reg-view`.
 
 ??? info "For JavaScript developers"
 
@@ -564,6 +564,7 @@ and wrap the root view's `case` in it:
 Settings and the editor should refuse to open while signed out. Each protected route names a `:can-enter` guard in its metadata, and the runtime consults it for every navigation, however it started. (`:tags` is free-form classification the framework attaches no meaning to — handy when a navbar wants to ask "is this page protected?")
 
 ```clojure
+;; add to src/conduit/auth.cljc
 (rf/reg-route :conduit.user/settings
   {:tags      #{:requires-auth}
    :can-enter [:conduit/signed-in?]

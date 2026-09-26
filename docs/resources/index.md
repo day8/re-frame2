@@ -24,7 +24,7 @@ that keeps each user's cached data separate. Views only read — they never fetc
     {:request {:method :get :url (str "/api/articles/" slug)}
      :decode  :json}))
 
-;; a view only reads — a subscription never fetches
+;; a view reads the cache
 @(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
 ;; => {:status :idle …}  — registered, but nothing has caused a load yet
 
@@ -41,8 +41,7 @@ that keeps each user's cached data separate. Views only read — they never fetc
 
 Every part of the API sits in one of three lanes: **register** a read or write once,
 **cause** a fetch or write (a route, an ensure, an execute), or **project** cached
-state into a view. A subscription that finds no entry stays `:idle` until something
-causes a load. [The model](concepts.md) explains each lane and ends with a
+state into a view. [The model](concepts.md) explains each lane and ends with a
 [complete register + route + view skeleton](concepts.md#a-complete-read-loop).
 
 Resources work alongside [events](../core/introduction.md), app-db and effects rather

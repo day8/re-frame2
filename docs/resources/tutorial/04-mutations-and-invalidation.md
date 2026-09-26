@@ -233,7 +233,7 @@ First, the write. Create and edit share one mutation that switches between POST 
      :decode  :json}))
 ```
 
-The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edit, plus a `:baseline` (the article as loaded, or blank) to tell whether anything changed. There's no `:status` field: the submission lifecycle Part 3 hand-rolled lives on the mutation instance instead. The namespace starts with plain helpers — build a slice, turn an article into a draft and back, validate:
+The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edit, plus `:submitted`, the version the server last accepted (the article as loaded, or blank for a new one), to tell whether anything changed. There's no `:status` field: the submission lifecycle Part 3 hand-rolled lives on the mutation instance instead. The namespace starts with plain helpers — build a slice, turn an article into a draft and back, validate:
 
 ```clojure
 ;; src/conduit/editor.cljs
@@ -246,8 +246,8 @@ The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edi
 
 (defn editor-slice
   ([] (editor-slice nil blank-draft))
-  ([slug baseline]
-   {:slug slug :draft baseline :baseline baseline
+  ([slug submitted]
+   {:slug slug :draft submitted :submitted submitted
     :errors {} :submit-attempted? false}))
 
 (defn draft-from-article [{:keys [title description body tagList]}]
@@ -291,7 +291,7 @@ Submit validates, then fires the mutation, naming the continuation — which car
 (rf/reg-event :editor/submit
   {:rf.cofx/requires [:rf.route/nav-token]}
   (fn [{:keys [db] :rf.route/keys [nav-token]} _]
-    (let [{:keys [slug draft baseline]} (:editor db)
+    (let [{:keys [slug draft submitted]} (:editor db)
           errors (validate-draft draft)]
       (cond
         (seq errors)
@@ -299,7 +299,7 @@ Submit validates, then fires the mutation, naming the continuation — which car
                  (assoc-in [:editor :submit-attempted?] true)
                  (assoc-in [:editor :errors] errors))}
 
-        (= draft baseline) {}   ;; valid but unchanged — nothing to save
+        (= draft submitted) {}  ;; valid but unchanged — nothing to save
 
         :else
         {:fx [[:dispatch [:rf.mutation/execute
@@ -360,8 +360,8 @@ Write half an article, click the site logo, and the draft vanishes. A [`:can-lea
 ;; src/conduit/editor.cljs
 (rf/reg-sub :editor/dirty?
   (fn [db _]
-    (let [{:keys [draft baseline]} (:editor db)]
-      (not= draft baseline))))
+    (let [{:keys [draft submitted]} (:editor db)]
+      (not= draft submitted))))
 
 (rf/reg-sub :editor/can-leave? {:inputs [[:editor/dirty?]]}
   (fn [[dirty?] _] (not dirty?)))
