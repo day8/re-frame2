@@ -123,6 +123,17 @@
                 [[name (str v)]])))
           headers))
 
+(defn header-invalid-cause
+  "The `:cause` of a `:rf.warning/http-header-invalid` trace: a fixed
+  sentence naming only the rejected header's NAME. The host's own rejection
+  message is never used, because the JDK header builder and Fetch
+  `Headers.append` both echo the rejected VALUE in it, and a header value is
+  where credentials live (Spec 014 §Request envelope: the value is omitted)."
+  [header-name]
+  (str "The platform's header builder rejected request header "
+       (pr-str header-name)
+       " (its name or its value), so it was left out of the request."))
+
 ;; ---- body encoding --------------------------------------------------------
 
 (defn encode-body

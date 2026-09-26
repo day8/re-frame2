@@ -1,7 +1,8 @@
 (ns re-frame.http-transport-security-test
   "Security-relevant JVM transport guards: invalid-header warnings,
   privacy composition, timeout application, and host degradation."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.http.handlers]
             [re-frame.http.transport]
             [re-frame.http.transport-jvm]
@@ -55,9 +56,33 @@
               (is (= "https://example.invalid/" (:url tags))
                   "trace carries the request URL for correlation")
               (is (some? (:cause tags))
-                  "trace carries the JDK's validation message at :cause")
+                  "trace carries a :cause naming the rejected header")
               (is (not (contains? tags :value))
                   "trace MUST NOT carry the rejected value — values can be secrets"))))))))
+
+(deftest invalid-header-warning-carries-no-part-of-the-rejected-value
+  (testing "the rejected header VALUE reaches no trace event, `:cause`
+  included. The JDK's own rejection message echoes the value, and a header
+  is where credentials live, so `:cause` is a fixed sentence naming only the
+  header NAME (Spec 014 §Request envelope: value omitted)."
+    (with-trace-capture
+      (fn [captured]
+        (let [sentinel "SECRETVALUE"
+              _req     (jvm-build-request
+                         {:method  :get
+                          :url     "https://example.invalid/"
+                          :headers {"Authorization" (str "tok\n" sentinel)}})
+              warns    (filter #(= :rf.warning/http-header-invalid
+                                   (:operation %))
+                               @captured)]
+          (is (seq warns)
+              "the CR/LF-bearing value is rejected and the warning fires")
+          (let [tags (:tags (first warns))]
+            (is (= "Authorization" (:header tags)))
+            (is (str/includes? (str (:cause tags)) "Authorization")
+                ":cause names the rejected header"))
+          (is (not (str/includes? (pr-str @captured) sentinel))
+              "no captured trace event carries any part of the rejected value"))))))
 
 (deftest invalid-header-name-emits-warning
   (testing "an empty header name also fires the warning"

@@ -122,7 +122,10 @@
                           ;; warning naming the offending header (value omitted —
                           ;; values may carry secrets; URL routed through
                           ;; `privacy/prepare-emit-tags` so a denylisted query
-                          ;; param is scrubbed and `:sensitive?` is stamped),
+                          ;; param is scrubbed and `:sensitive?` is stamped;
+                          ;; `:cause` is the fixed `encoding/header-invalid-
+                          ;; cause` sentence, because the `TypeError` message
+                          ;; echoes the rejected value),
                           ;; omit the bad pair, and continue with the valid
                           ;; headers. A stray bad header does not sink an
                           ;; otherwise-valid request; the trace is the alarm.
@@ -133,14 +136,13 @@
                             (doseq [[k v] (rf.http.encoding/normalize-header-pairs headers)]
                               (try
                                 (.append h k v)
-                                (catch :default e
+                                (catch :default _
                                   (when rf.interop/debug-enabled?
                                     (rf.trace/emit! :warning :rf.warning/http-header-invalid
                                                  (rf.http.privacy/prepare-emit-tags
                                                    {:url    url
                                                     :header k
-                                                    :cause  (or (some-> ^js e .-message)
-                                                                (str e))}
+                                                    :cause  (rf.http.encoding/header-invalid-cause k)}
                                                    (true? sensitive?)))))))
                             (aset init "headers" h)))
                         (when (some? body) (aset init "body" body))

@@ -6,6 +6,7 @@
   only a shadow-cljs build exercises."
   (:require [cljs.reader :as edn]
             [cljs.test :refer-macros [deftest is testing async]]
+            [clojure.string :as str]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -498,7 +499,7 @@
                     (is (= "" (:header tags))
                         "trace names the offending header (the empty name)")
                     (is (some? (:cause tags))
-                        "trace carries the TypeError message at :cause")
+                        "trace carries a :cause naming the rejected header")
                     (is (not (contains? tags :value))
                         "trace MUST NOT carry the rejected value — values can be secrets"))
                   ;; The bad pair is omitted; the valid header survives.
@@ -561,6 +562,42 @@
                       (is false
                           (str "regression — CR/LF header value escaped "
                                "the managed path: " e))
+                      nil))
+            (.then (fn [_] (done))))))))
+
+(deftest cljs-fetch-invalid-header-warning-carries-no-part-of-the-rejected-value
+  (testing "the rejected header VALUE reaches no trace event, `:cause`
+  included. The `Headers.append` `TypeError` message echoes the value, and a
+  header is where credentials live, so `:cause` is a fixed sentence naming
+  only the header NAME (Spec 014 §Request envelope: value omitted)."
+    (async done
+      (let [captured-init (atom nil)
+            sentinel      "SECRETVALUE"
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-trace-capture
+              #(with-init-capturing-fetch resp captured-init
+                 (fn []
+                   (cljs-fetch {:method  :get
+                                :url     "https://example.invalid/v1"
+                                :headers {"Authorization" (str "tok\n" sentinel)}
+                                :decode  :json
+                                :internal-controller (js/AbortController.)})))
+              (fn [seen _result]
+                (let [warns (filter #(= :rf.warning/http-header-invalid
+                                        (:operation %))
+                                    @seen)]
+                  (is (seq warns)
+                      "the CR/LF-bearing value is rejected and the warning fires")
+                  (let [tags (:tags (first warns))]
+                    (is (= "Authorization" (:header tags)))
+                    (is (str/includes? (str (:cause tags)) "Authorization")
+                        ":cause names the rejected header"))
+                  (is (not (str/includes? (pr-str @seen) sentinel))
+                      "no captured trace event carries any part of the rejected value"))))
+            ;; Handler upstream of the single trailing `done`.
+            (.catch (fn [e]
+                      (is false (str "unexpected reject: " e))
                       nil))
             (.then (fn [_] (done))))))))
 
