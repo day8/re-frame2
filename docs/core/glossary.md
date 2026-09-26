@@ -63,7 +63,9 @@ built in:
 (rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ title]]
-    {:db (assoc-in db [:todos 1] {:id 1 :title title :done? false :created time-ms})}))
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id]
+                     {:id id :title title :done? false :created-at time-ms})})))
 ```
 
 Register other suppliers with [`reg-cofx`](../api/re-frame.core.md#reg-cofx). A fact
@@ -265,9 +267,9 @@ A derived value that re-frame2 keeps written at a path in [app-db](#app-db), so
 the output path, and a pure function:
 
 ```clojure
-(rf/reg-flow :todo/remaining
+(rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]
-   :output-path [:remaining]}
+   :output-path [:remaining-count]}
   (fn [todos] (count (remove :done? (vals todos)))))
 ```
 

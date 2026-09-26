@@ -29,7 +29,7 @@ Create a fresh [frame](../glossary.md#frame), call [`dispatch-sync`](../glossary
 
 ## The code under test
 
-The todo list now loads from a server. `:todo/load` records when it asked, fires a request, and the reply handlers fold the result back in. The file is `.cljc`, so the same code runs in the app and under a JVM test runner.
+[Effects](../effects.md#http) loaded the todo list from a server with `:todo/fetch` and its two reply events. Here the same three events also record when the request went out and a sync status, which gives the tests more to check. The file is `.cljc`, so the same code runs in the app and under a JVM test runner.
 
 ```clojure
 ;; src/my_app/sync.cljc
@@ -37,28 +37,28 @@ The todo list now loads from a server. `:todo/load` records when it asked, fires
   (:require [re-frame.core :as rf]
             [re-frame.http.managed]))   ;; registers :rf.http/managed
 
-(rf/reg-event :todo/load
+(rf/reg-event :todo/fetch
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} _]
     {:db (assoc db :sync-status :loading :requested-at time-ms)
      :fx [[:rf.http/managed
            {:request    {:method :get :url "/api/todos"}
-            :on-success [:todo/loaded]
-            :on-failure [:todo/load-failed]}]]}))
+            :on-success [:todo/fetched]
+            :on-failure [:todo/fetch-failed]}]]}))
 
-(rf/reg-event :todo/loaded
+(rf/reg-event :todo/fetched
   (fn [{:keys [db]} [_ {:keys [value]}]]
     {:db (assoc db :sync-status :loaded
-                   :todos (into {} (map (juxt :id identity)) (:todos value)))}))
+                   :todos (into {} (map (juxt :id identity)) value))}))
 
-(rf/reg-event :todo/load-failed
+(rf/reg-event :todo/fetch-failed
   (fn [{:keys [db]} [_ {:keys [error]}]]
     {:db (assoc db :sync-status :error :sync-error (:kind error))}))
 ```
 
 The test can substitute values at two points without touching the handlers. The clock is a declared [coeffect](../glossary.md#coeffect), so the test can supply an exact value. The request is an effect in the returned map, so the test can answer it without a network.
 
-Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{:status :ok :value <decoded-body> …}` or `{:status :error :error <failure-map> …}`. That is why `:todo/loaded` destructures `:value` and `:todo/load-failed` destructures `:error`, whose `:kind` is one of eight `:rf.http/*` categories. [Managed HTTP](../../async/http.md) lists the full reply map.
+Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{:status :ok :value <decoded-body> …}` or `{:status :error :error <failure-map> …}`. That is why `:todo/fetched` destructures `:value` (here the decoded vector of todos) and `:todo/fetch-failed` destructures `:error`, whose `:kind` is one of eight `:rf.http/*` categories. [Managed HTTP](../../async/http.md) lists the full reply map.
 
 ## The test
 
@@ -72,25 +72,25 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
             [my-app.todos]    ;; :todo/add, :todo/toggle, :todo/set-showing, …
             [my-app.sync]))
 
-(deftest load-happy-path
+(deftest fetch-happy-path
   (rf/with-new-frame [f (rf/make-frame {})]
     (http-test-support/with-request-stubs
       {[:get "/api/todos"]
-       {:reply {:ok {:todos [{:id 1 :title "Buy milk" :done? false}]}}}}
+       {:reply {:ok [{:id 1 :title "Buy milk" :done? false}]}}}
       (fn []
-        (rf/dispatch-sync [:todo/load] {:rf.cofx {:rf/time-ms 1781078400000}})
+        (rf/dispatch-sync [:todo/fetch] {:rf.cofx {:rf/time-ms 1781078400000}})
         (let [db (rf/app-db-value f)]
           (is (= :loaded (:sync-status db)))
           (is (= 1781078400000 (:requested-at db)))
           (is (= "Buy milk" (get-in db [:todos 1 :title]))))))))
 
-(deftest load-server-error
+(deftest fetch-server-error
   (rf/with-new-frame [f (rf/make-frame {})]
     (http-test-support/with-request-stubs
       {[:get "/api/todos"]
        {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}}
       (fn []
-        (rf/dispatch-sync [:todo/load])
+        (rf/dispatch-sync [:todo/fetch])
         (is (= :error            (:sync-status (rf/app-db-value f))))
         (is (= :rf.http/http-5xx (:sync-error  (rf/app-db-value f))))))))
 ```
@@ -101,7 +101,7 @@ Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover
 
 The router stamps `:rf/time-ms` on every dispatch, which is why the second test runs without mentioning it. Left alone it is the live clock, and an assertion on `:requested-at` would be flaky, so the first test pins it. Facts supplied under `:rf.cofx` win, and the runtime fills in only what is missing.
 
-A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:source :store :kind :event :id :todo/load})`. A declared fact the runtime can't satisfy raises `:rf.error/missing-required-cofx`, or `:rf.error/unregistered-cofx` when nothing registers it, instead of delivering `nil`.
+A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:source :store :kind :event :id :todo/fetch})`. A declared fact the runtime can't satisfy raises `:rf.error/missing-required-cofx`, or `:rf.error/unregistered-cofx` when nothing registers it, instead of delivering `nil`.
 
 ### Answer the HTTP: canned replies by method and URL
 
@@ -111,7 +111,7 @@ One table can hold several routes. A request is matched on its `:request :method
 
 ```clojure
 (http-test-support/with-request-stubs
-  {[:get    "/api/todos"]   {:reply {:ok {:todos []}}}
+  {[:get    "/api/todos"]   {:reply {:ok []}}
    [:post   "/api/todos"]   {:reply {:ok {:todo {:id 3 :title "Call mum"}}}}
    [:delete "/api/todos/2"] {:reply {:failure {:kind :rf.http/http-4xx :status 403}}}}
   (fn []
@@ -126,17 +126,17 @@ A request that matches no route is answered with a `:rf.http/transport` failure 
 The tests above assert the settled state, so they never see `:sync-status :loading`. To test the in-flight state (a spinner, a disabled button), delay the reply. The route table has no delay option, but the canned stub reads an `:after-ms` key from its args. Redirect `:rf.http/managed` to a wrapper that adds `:after-ms` (and the reply `:value`) and calls the registered `:rf.http/managed-canned-success` handler. The reply then arrives on a later tick:
 
 ```clojure
-(deftest load-shows-loading-then-loaded
+(deftest fetch-shows-loading-then-loaded
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [canned (:handler-fn (rf/handler-meta {:source :store :kind :fx
                                                 :id     :rf.http/managed-canned-success}))]
-      (rf/dispatch-sync [:todo/load]
+      (rf/dispatch-sync [:todo/fetch]
                         {:fx-overrides {:rf.http/managed
                                         (fn [frame-ctx args]
                                           (canned frame-ctx
                                                   (assoc args
                                                          :after-ms 20
-                                                         :value    {:todos []})))}})
+                                                         :value    [])))}})
       ;; The request fired but the reply hasn't landed yet.
       (is (= :loading (:sync-status (rf/app-db-value f))))
       ;; Wait for the deferred reply, then assert the final state.
@@ -153,10 +153,10 @@ Don't use `poll-until` to wait out a timer window such as a debounce. There the 
 The stub table is built on a more general mechanism. A per-dispatch `:fx-overrides` map redirects any effect id for that one dispatch, to a function or to another registered effect:
 
 ```clojure
-(deftest load-sends-the-right-request
+(deftest fetch-sends-the-right-request
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [sent (atom nil)]
-      (rf/dispatch-sync [:todo/load]
+      (rf/dispatch-sync [:todo/fetch]
                         {:fx-overrides {:rf.http/managed
                                         (fn [_frame-ctx args] (reset! sent args))}})
       (is (= :get         (get-in @sent [:request :method])))
@@ -166,7 +166,7 @@ The stub table is built on a more general mechanism. A per-dispatch `:fx-overrid
 An override value is either another registered fx id (a keyword) or a function `(fn [frame-ctx args] …)`. The function receives the exact args map the handler built, so you assert on the request without performing it, and its return value is ignored. The same option captures your own effects, such as `:todo.storage/save`, or redirects by keyword to the shipped success stub:
 
 ```clojure
-(rf/dispatch-sync [:todo/load]
+(rf/dispatch-sync [:todo/fetch]
                   {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
 ;; The stub replies {:status :ok :value {:stubbed true} …}; supply :value in
 ;; the args map to change it.
@@ -183,7 +183,7 @@ Most test frames want HTTP redirected to a stub and generated facts strict. `{:p
 ```clojure
 ;; Never reaches the network; an unsupplied generated cofx raises an error.
 (rf/with-new-frame [f (rf/make-frame {:preset :test})]
-  (rf/dispatch-sync [:todo/load])
+  (rf/dispatch-sync [:todo/fetch])
   (is (= :loaded (:sync-status (rf/app-db-value f)))))
 ```
 
@@ -209,16 +209,16 @@ Sometimes the thing under test is which event a handler dispatches next. `:dispa
 
 A per-call override applies to the run it starts, and to that run's `:dispatch` and `:dispatch-later` children. It does not reach an HTTP reply, which is a new dispatch. To cover the reply too, wrap the body in `rf/with-fx-overrides`: every dispatch made while the body runs carries the override, including stubbed replies. Precedence is per-call opt, then `with-fx-overrides`, then the frame's `:fx-overrides`.
 
-Suppose `:todo/loaded` also returns `:fx [[:dispatch [:todo/set-showing :all]]]`. This test checks that dispatch without running it:
+Suppose `:todo/fetched` also returns `:fx [[:dispatch [:todo/set-showing :all]]]`. This test checks that dispatch without running it:
 
 ```clojure
-(deftest loaded-resets-the-filter
+(deftest fetched-resets-the-filter
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [dispatched (atom [])]
       (rf/with-fx-overrides {:dispatch (fn [_ ev] (swap! dispatched conj ev))}
         (http-test-support/with-request-stubs
-          {[:get "/api/todos"] {:reply {:ok {:todos []}}}}
-          (fn [] (rf/dispatch-sync [:todo/load]))))
+          {[:get "/api/todos"] {:reply {:ok []}}}
+          (fn [] (rf/dispatch-sync [:todo/fetch]))))
       (is (= :loaded (:sync-status (rf/app-db-value f))))
       (is (= [[:todo/set-showing :all]] @dispatched)))))
 ```
@@ -260,7 +260,7 @@ When the bug is "the state was briefly wrong between two events", read state aft
 ;; => [[:todo/toggle true] [:todo/toggle false] [:todo/clear-done false]]
 ```
 
-For one path, `ts/assert-path-equals` gives a `clojure.test` failure message naming the frame and path; it looks the frame up by id, so give the frame an `:id` (see [Test an event handler](event-handlers.md#checking-one-path)).
+For one path, `ts/assert-path-equals` gives a `clojure.test` failure message naming the frame and path, and inside `with-new-frame` it reads that frame without a `:frame` option (see [Test an event handler](event-handlers.md#checking-one-path)).
 
 ## Asserting on a derived value
 
@@ -298,12 +298,12 @@ Because the handler itself can't be replaced, a passing test says that the produ
 Instead of `:on-success` and `:on-failure`, a request can name one event, `:reply-to`, that receives the reply for both outcomes; the handler branches on the reply's `:status`:
 
 ```clojure
-(rf/reg-event :todo/fetch
+(rf/reg-event :todo/fetch-one
   (fn [_ [_ id]]
     {:fx [[:rf.http/managed {:request  {:method :get :url (str "/api/todos/" id)}
-                             :reply-to [:todo/fetched id]}]]}))
+                             :reply-to [:todo/fetched-one id]}]]}))
 
-(rf/reg-event :todo/fetched
+(rf/reg-event :todo/fetched-one
   (fn [{:keys [db]} [_ id {:keys [status value error]}]]
     {:db (assoc-in db [:todos id]
                    (if (= :ok status) value {:id id :error (:kind error)}))}))
@@ -313,7 +313,7 @@ Instead of `:on-success` and `:on-failure`, a request can name one event, `:repl
     (http-test-support/with-request-stubs
       {[:get "/api/todos/2"] {:reply {:ok {:id 2 :title "Walk the dog" :done? false}}}}
       (fn []
-        (rf/dispatch-sync [:todo/fetch 2])
+        (rf/dispatch-sync [:todo/fetch-one 2])
         (is (= "Walk the dog" (get-in (rf/app-db-value f) [:todos 2 :title])))))))
 ```
 

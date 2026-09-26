@@ -102,6 +102,24 @@
       (is (= [:pass :pass] outcomes)
           ":rf/default and the named frame each carry their own state"))))
 
+(deftest assert-path-equals-inside-with-new-frame
+  (testing "a frame OBJECT — the ambient scope `with-new-frame` binds, or an
+            explicit `{:frame <object>}` — resolves to that frame's app-db"
+    (register-counter-handlers!)
+    (rf/with-new-frame [f (rf/make-frame {:initial-events [[:counter/init]
+                                                           [:counter/add 5]]})]
+      ;; An unresolved frame reads nil, so `nil` is the mismatch a
+      ;; mis-resolution would silently accept; `6` is an ordinary mismatch.
+      (let [outcomes (record-reports
+                       (fn []
+                         (rf.test-support/assert-path-equals [:n] 5)
+                         (rf.test-support/assert-path-equals [:n] 6)
+                         (rf.test-support/assert-path-equals [:n] nil)
+                         (rf.test-support/assert-path-equals [:n] 5 {:frame f})
+                         (rf.test-support/assert-path-equals [:n] nil {:frame f})))]
+        (is (= [:pass :fail :fail :pass :fail] outcomes)
+            "the match passes and both mismatches fail, ambient and explicit")))))
+
 ;; ---- make-reset-runtime-fixture hook-cascade coverage --------------------------
 ;;
 ;; The fixture's per-test reset drives an inline table

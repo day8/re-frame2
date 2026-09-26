@@ -760,8 +760,10 @@ so it belongs under a `defonce` at namespace load.
 
 `h/render!` does both the boot render and every hot-reload render. Its first
 call through a handle creates the React root at the node it is given; every
-later call updates that same root, so the DOM, subscriptions and component
-state survive. Its options are React-root options only, `:hydrate?` and
+later call updates that same root, so the frame and its app-db carry on. The
+reloaded views do not: each `defview` evaluation makes a new component, so
+React remounts it and rebuilds its DOM, and focus, the caret and scroll
+position start over. Its options are React-root options only, `:hydrate?` and
 `:identifier-prefix`, both read on the first call. The frame is named in the
 tree: `[h/frame-root {:id …}]` creates it if needed, and
 `[h/frame-provider {:frame …}]` uses one that already exists. `frame-root`

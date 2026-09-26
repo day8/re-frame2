@@ -26,7 +26,7 @@ a recipe shows its own `ns` form only when it needs something more.
 
 (rf/reg-event :todo/add
   (fn [{:keys [db]} [_ title]]
-    (let [id (inc (reduce max 0 (keys (:todos db))))]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
       {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
 
 (rf/reg-event :todo/toggle
@@ -41,9 +41,13 @@ a recipe shows its own `ns` form only when it needs something more.
   (fn [{:keys [db]} [_ showing]]
     {:db (assoc db :showing showing)}))
 
-(rf/reg-sub :todo/all
+(rf/reg-sub :todo/todos
   (fn [db _]
-    (vec (vals (:todos db)))))
+    (:todos db)))
+
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _]
+    (vec (sort-by :id (vals todos)))))
 
 (rf/reg-sub :todo/by-id
   (fn [db [_ id]]

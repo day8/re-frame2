@@ -128,6 +128,29 @@ Read a resource through subscriptions, never the raw cache. `[:rf/resource …]`
 
 Ensuring a stale entry refetches it in the background while the old data stays on screen, and a write elsewhere can invalidate entries by tag. A route declaring its `:resources`, the most common cause, is covered in [Routing](../routing/concepts.md).
 
+#### Reading a resource's state, and a write's
+
+A write to the server is a [mutation](../resources/concepts.md#mutations-invalidate-by-tag), registered with `reg-mutation` and run by dispatching `[:rf.mutation/execute {:mutation … :params … :instance …}]`. The instance id is yours to choose, and it names the write whose progress you read. A view reads it the way it reads a resource:
+
+```clojure
+@(subscribe [:rf/mutation {:instance [:todo/save 1]}])
+;; → {:status :pending :result nil :error nil
+;;    :pending? true :success? false :error? false :settled? false …}
+```
+
+Outside a view (at the REPL, in a test, in a tool) read the stored entry directly with `rf/resource-state` and `rf/mutation-state`, naming the frame:
+
+```clojure
+(rf/resource-state {:resource :todo/list :params {:list-id "team"} :frame :app})
+;; → {:resource/id :todo/list :status :loaded :data {:todos [...]}
+;;    :error nil :refresh-error nil …}
+
+(rf/mutation-state {:instance [:todo/save 1] :frame :app})
+;; → {:mutation/id :todo/save :status :pending :result nil :error nil …}
+```
+
+Both return only the stored facts, such as `:status`, `:data` or `:result`, and `:error`. The booleans (`:loading?`, `:has-data?`, `:pending?`) are computed by the subscriptions, so reading one off these maps gives `nil`. Each returns `nil` when nothing has been ensured or executed under that identity yet. Without `:frame` they raise `:rf.error/no-frame-context` instead of returning a `nil` you could mistake for a missing entry. Views keep reading through the subscriptions, which re-render when the entry changes; [Testing resources](../resources/testing.md) uses both forms.
+
 ### Question 4: does it have its own lifecycle? Then it's a machine
 
 The user clicks **Sync** to push local todos to the server, and you are now modelling a process: idle, syncing, then synced, or in conflict, or failed and retrying. There are rules about which state may follow which, a timeout and cancellation. The question is now "what state are we in, and what moves us on?", and that is a [machine](../machines/glossary.md#machine). The usual sign you need one:

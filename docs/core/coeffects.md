@@ -42,8 +42,9 @@ Instead, declare the fact and receive it as a plain value:
       {:db (assoc-in db [:todos id]
                      {:id id :title title :done? false :created-at time-ms})})))
 
-(rf/reg-sub :todo/all
-  (fn [db _] (->> (:todos db) vals (sort-by :id) vec)))
+(rf/reg-sub :todo/todos (fn [db _] (:todos db)))
+(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
+  (fn [[todos] _] (vec (sort-by :id (vals todos)))))
 
 (rf/reg-view todo-list []
   [:div
@@ -265,7 +266,7 @@ frame.) [Testing event handlers](testing/event-handlers.md) covers this, along w
 |---|---|---|
 | Declared fact is `nil` in the handler | Destructured under the wrong key | Destructure it by its id beside `db`, e.g. `{:keys [db rf/time-ms]}` |
 | `:rf.error/unregistered-cofx` | A `:rf.cofx/requires` entry names an unregistered id, usually a typo | Fix the id, or register it with `reg-cofx` |
-| `:rf.error/missing-required-cofx` | A `:provided?` fact was declared but nothing supplied it | Supply it with the `:rf.cofx` dispatch option, or from its owning subsystem |
+| `:rf.error/missing-required-cofx` | A [`:provided?` fact](#provided-facts) was declared but nothing supplied it | Supply it with the `:rf.cofx` dispatch option, or from its owning subsystem |
 | `:rf.error/cofx-value-invalid` | A recordable value is not EDN (a `js/Date`, a DOM node) | Record plain data, e.g. epoch milliseconds |
 | Replay produces different state | The handler reads the clock, `random-uuid`, or storage in its body | Declare the fact, or mint it at the dispatch site |
 

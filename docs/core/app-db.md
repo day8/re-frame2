@@ -12,16 +12,16 @@ event + world → handler → {:db next-db} → atomic commit
 ## A complete live counter
 
 The counter from the [Introduction](introduction.md) gains a second fact,
-`:step-size`, and a decrement button. Both facts are seeded by `:initialise`. Click
-the buttons (edit the cell and press **`Ctrl-Enter`** / **`Cmd-Enter`** if you change
-the code):
+`:step-size`, and a decrement button. `:initialise` still takes the starting value
+and now seeds both facts. Click the buttons (edit the cell and press
+**`Ctrl-Enter`** / **`Cmd-Enter`** if you change the code):
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
 
 (rf/reg-event :initialise
-  (fn [_world _event]
-    {:db {:value 0 :step-size 1}}))
+  (fn [_world [_ start]]
+    {:db {:value start :step-size 1}}))
 
 (rf/reg-event :step-size/set
   (fn [{:keys [db]} [_ {:keys [step-size]}]]
@@ -48,7 +48,7 @@ the code):
    [:button {:on-click #(dispatch [:step-size/set {:step-size 10}])} "10"]])
 
 [rf/frame-root {:id :app
-                :initial-events [[:initialise]]}
+                :initial-events [[:initialise 0]]}
  [stepping-counter]]
 ```
 
@@ -59,7 +59,7 @@ the event id and takes `:step-size` from the payload map.
 The events produce a sequence of complete map values:
 
 ```clojure
-[:initialise]
+[:initialise 0]
 ;; => {:value 0 :step-size 1}
 
 [:step-size/set {:step-size 10}]

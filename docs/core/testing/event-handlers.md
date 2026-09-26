@@ -52,9 +52,9 @@ This `:todo/add` stamps the creation time and asks for the list to be saved:
 (rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ title]]
-    (let [id    (inc (count (:todos db)))
+    (let [id    (inc (apply max 0 (keys (:todos db))))
           todos (assoc (:todos db) id {:id id :title title :done? false
-                                       :created-ms time-ms})]
+                                       :created-at time-ms})]
       {:db (assoc db :todos todos)
        :fx [[:todo.storage/save todos]]})))
 ```
@@ -73,7 +73,7 @@ The test supplies exactly those facts:
   (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :todo/add}))
         result  (handler {:db {:todos {}} :rf/time-ms 1781078400123}
                          [:todo/add "Buy milk"])
-        todo    {:id 1 :title "Buy milk" :done? false :created-ms 1781078400123}]
+        todo    {:id 1 :title "Buy milk" :done? false :created-at 1781078400123}]
     ;; the state change it computed
     (is (= todo (get-in result [:db :todos 1])))
     ;; the save it asked for, as data
@@ -137,7 +137,7 @@ If a setup step fails (a handler throws, a required coeffect is missing), `make-
 
 ### Checking one path
 
-`re-frame.test-support` has a `clojure.test`-aware path assertion, `(ts/assert-path-equals path expected opts?)`. It reads a frame's app-db, compares the value at `path`, and reports a pass or fail through `clojure.test`. It looks the frame up by id, so give the frame an `:id` and pass that id, not the frame value:
+`re-frame.test-support` has a `clojure.test`-aware path assertion, `(ts/assert-path-equals path expected opts?)`. It reads a frame's app-db, compares the value at `path`, and reports a pass or fail through `clojure.test`. Like `dispatch-sync`, it works on the current frame, so inside `with-new-frame` it needs no `:frame`. A failure message names the frame by its id, so an `:id` makes that message readable:
 
 ```clojure
 (deftest toggle-committed
@@ -145,10 +145,10 @@ If a setup step fails (a handler throws, a required coeffect is missing), `make-
                                         :fx-overrides   {:todo.storage/save (fn [_ _] nil)}
                                         :initial-events [[:todo/add "Buy milk"]]})]
     (rf/dispatch-sync [:todo/toggle 1])
-    (ts/assert-path-equals [:todos 1 :done?] true {:frame :test/todos})))
+    (ts/assert-path-equals [:todos 1 :done?] true)))
 ```
 
-Without `:frame`, the helper reads the reset fixture's current frame (`:rf/default` when the fixture installs an adapter). For a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value f)))`.
+To check a different frame, pass `{:frame x}`, where `x` is the frame's id or the frame value `make-frame` returned. Outside `with-new-frame` and `with-frame`, the helper reads the reset fixture's current frame (`:rf/default` when the fixture installs an adapter). For a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value f)))`.
 
 ## 4. The trap: frames don't isolate registrations
 
