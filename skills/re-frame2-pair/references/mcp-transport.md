@@ -40,6 +40,15 @@ The MCP server is **not yet published to npm** — build it from a re-frame2 clo
 
 `--port-file <abs>` and `--http-port <n>` steer discovery (below). The gates' privacy and write semantics are in [`vocabulary.md` §Privacy posture](vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out).
 
+The server does not refuse launch input it cannot read. It warns on stderr at startup and then ignores:
+
+- an unknown or mistyped flag;
+- a retired flag: `--allow-raw-state` (now `--allow-sensitive-reads`) or `--allow-eval` (eval is on unless `--no-eval` is passed);
+- a boolean flag given a value, such as `--no-eval=true`;
+- a `--port-file` or `--http-port` with no value, or a non-numeric `--http-port`.
+
+Each leaves its gate or setting at the default, so when the server is not in the posture its config asked for, read its stderr.
+
 Once the package is published, `npm install -g @day8/re-frame2-pair-mcp` collapses `command` + `args` to `"command": "re-frame2-pair-mcp"`; until then that form finds no binary.
 
 On the first tool call the server discovers the live shadow-cljs nREPL

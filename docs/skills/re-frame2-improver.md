@@ -17,16 +17,12 @@ A redesign that reaches beyond that scope stays a proposal either way. An instru
 
 ## When to reach for it
 
-Use it when you explicitly ask for a review — "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns in `cart/handlers.cljs`".
+Use it when you explicitly ask for a review of re-frame2 code you already have, and that code is in front of the agent: read or edited in the conversation, pasted as a snippet, or named by a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Asking for a review with no code in scope is not enough, and a path that does not resolve does not count. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md) is the text the agent matches your request against.
 
-There must also be re-frame2 source to review: code read or edited in the conversation, a pasted snippet, or a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Review vocabulary alone is not enough, and a path that does not resolve does not count.
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-Use a different skill for:
-
-- Writing new application code → [re-frame2](re-frame2.md).
-- Working with a live runtime → [re-frame2-pair](re-frame2-pair.md).
-- A retrospective on a pair session → [re-frame2-pair-retro](re-frame2-pair-retro.md).
-- Greenfield setup or v1 migration → [re-frame2-setup](re-frame2-setup.md) or [re-frame-migration](re-frame-migration.md).
+- Writing new code → [re-frame2](re-frame2.md).
+- A retrospective on a pair session, rather than a review of source → [re-frame2-pair-retro](re-frame2-pair-retro.md).
 - *Porting* Reagent views to Fresco → [reagent-migration](reagent-migration.md). Reviewing existing Reagent-view code against the catalogue stays here.
 
 ## Kickoff

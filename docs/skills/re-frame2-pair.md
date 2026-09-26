@@ -16,15 +16,14 @@ A change made at the REPL, such as a hot-swapped handler, is temporary: the next
 
 ## When to reach for it
 
-Use it when you want the agent to look at or change your **running** app, read-only included — *"what's in `app-db`?"*, *"why didn't my view update?"*, *"what did that click do?"*, *"try this handler fix"*. The question is about the live runtime, not about writing new code.
+Use it when you want the agent to look at or change your **running** app, read-only questions included. The question is about the live runtime rather than about writing code. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md) is the text the agent matches your request against.
 
-Use a different skill for:
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-- Writing new application code → [re-frame2](re-frame2.md).
-- Greenfield setup → [re-frame2-setup](re-frame2-setup.md).
-- Finding your way around the Xray panel yourself → [re-frame2-xray](re-frame2-xray.md).
+- Reading the Xray panel yourself → [re-frame2-xray](re-frame2-xray.md). The line is a human reading the panel versus the agent reading the runtime, not read versus write.
+- Writing or changing code with no running app involved → [re-frame2](re-frame2.md).
 - A retrospective on a pair session → [re-frame2-pair-retro](re-frame2-pair-retro.md).
-- Migrating a v1 project, including its boot smoke-test → [re-frame-migration](re-frame-migration.md).
+- The boot smoke-test at the end of a v1 migration → [re-frame-migration](re-frame-migration.md), which owns it as part of the migration.
 
 ## One-time setup
 
@@ -123,4 +122,3 @@ Epoch reads that come back `[]` after the app has plainly dispatched mean `day8/
 - Reference notes: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `SKILL.md` §Where the depth lives names the note for each question.
 - The trace stream, trace buffer and epoch history it reads: [Observability](../core/observability.md#tools-that-read-the-trace-stream).
 - The devtools panel for humans: [Xray](../xray/index.md).
-- Retrospective skill: [re-frame2-pair-retro](re-frame2-pair-retro.md).

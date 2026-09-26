@@ -39,12 +39,15 @@ The docs-site landing page mirrors this index at
 hosted on the mkdocs site (it carries the human-facing decision flow;
 edit routing here first).
 
-**The per-skill pages under `docs/skills/` are entry ramps, not mirrors of
-skill content** (rf2-y126v). They carry the pitch, what the skill is for, its
-triggers, its kickoff shape and links — and no leaf roster and no copied
-inventory, table, procedure or count. Each `SKILL.md`'s own leaf-loading
-section is the roster, so **a leaf change never needs a mirror edit**; a
-change to a skill's purpose, triggers or kickoff still does.
+**The per-skill pages under `docs/skills/` carry what a reader needs to
+choose and use a skill, and the package stays the authority.** A page says
+what the skill does, when it applies, how to start it, and the failures and
+options a user meets, and it links the package for the rest. It describes
+when the skill applies in its own words and links the `SKILL.md` whose
+`description` decides that, rather than repeating trigger phrases. It carries
+no leaf roster: each `SKILL.md`'s own leaf-loading section is the roster, so
+**a leaf change never needs a page edit**. A change to a skill's purpose, its
+kickoff, or the failures and options a user meets still does.
 
 ## Current skills
 

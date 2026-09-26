@@ -41,12 +41,13 @@ Use it only when **both** are true:
 - The app is **already on re-frame2** — the v1→v2 move is done.
 - You **specifically want Fresco** for some views, knowing you do not have to.
 
-Use a different skill for:
+The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md) is the text the agent matches your request against.
+
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
 - The re-frame **v1 → v2** events/subs/db migration → [re-frame-migration](re-frame-migration.md).
 - Writing new re-frame2 code → [re-frame2](re-frame2.md).
-- Greenfield setup → [re-frame2-setup](re-frame2-setup.md).
-- Live-runtime inspection → [re-frame2-pair](re-frame2-pair.md).
+- A review of view code against re-frame2's anti-patterns, without porting it → [re-frame2-improver](re-frame2-improver.md).
 
 ## Kickoff
 

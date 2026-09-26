@@ -16,19 +16,12 @@ A large codebase — roughly 30 or more source files, with rule families collidi
 
 ## When to reach for it
 
-Use it when **any** of these are true:
+Use it when you have a re-frame v1 codebase to move to re-frame2, when you want to know what would break before you start, or when a build fails on a v1-only name after the dependency bump. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/SKILL.md) is the text the agent matches your request against, including the v1-only names that load it.
 
-- You have an existing re-frame v1.x project and want to move to re-frame2.
-- You mention migrating, upgrading, porting, or v1→v2 in a re-frame context.
-- The code shows a v1-only surface, or the build fails on one after a dependency bump — `re-frame.db`, `dispatch-with`, `reg-event-db` / `reg-event-fx`, `reg-global-interceptor`, `reg-sub-raw`, `:<-` subscriptions, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, top-level `:dispatch` / `:dispatch-n`, `http-fx`, `async-flow-fx`, re-frame-10x.
-- You ask *"what breaks?"*, *"what changes?"* or *"is my v1 code compatible?"*.
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-Use a different skill for:
-
-- Greenfield setup → [re-frame2-setup](re-frame2-setup.md).
-- Writing v2 application code → [re-frame2](re-frame2.md).
-- Inspecting or debugging a running v2 app → [re-frame2-pair](re-frame2-pair.md).
 - Rewriting Reagent views into Fresco once you are on re-frame2 (optional) → [reagent-migration](reagent-migration.md).
+- Writing new code once the migration report is signed off → [re-frame2](re-frame2.md).
 
 ## Kickoff
 
