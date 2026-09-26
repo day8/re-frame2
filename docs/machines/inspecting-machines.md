@@ -68,7 +68,7 @@ An action trace tells you:
  :tags {:actor-id  :auth.login/flow
         :action-id :issue-request
         :phase     :entry
-        :outcome   :ok}}    ;; return value, :ok, or :rf.error/action-threw
+        :outcome   {:fx [[:rf.http/managed …]]}}}   ;; the return value; :ok when it returns nil; :rf.error/action-threw
 ```
 
 Those records are what Xray renders. You can also tap the stream yourself in development with `(rf/register-listener! :trace …)`.

@@ -447,8 +447,9 @@ So one child machine composes unchanged under `:spawn` and under
 The runtime owns the join bookkeeping. When the join resolves it fires the
 parent event **and** destroys any siblings still in flight. The event carries
 the decisive child and its result:
-`[<parent-id> [<resolution-event…> <decisive-child-id> <result>]]` — one
-value, the decisive child's `:output-key` slot (its error payload on
+`[<parent-id> [<resolution-event…> <child-id> <result>]]`. `<child-id>` is the
+`:id` the block gave that child, not its allocated actor id, and `<result>` is
+one value, the child's `:output-key` slot (its error payload on
 `:on-any-failed`).
 
 Rules:
