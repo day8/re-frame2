@@ -7,7 +7,9 @@ plus the `core.cljs` docstrings. Sibling leaves:
 
 Two verbs, and they do different jobs. `init!` installs Xray's foundation
 from app code instead of from the preload; `focus!` points an
-already-mounted Xray at something. Neither one mounts a panel.
+already-mounted Xray at something. Neither one mounts a panel. The rest of
+the public facade (visibility, target frame, theme, config setters) is in
+[§The rest of the facade](#the-rest-of-the-facade).
 
 ## Programmatic init!
 
@@ -212,4 +214,27 @@ letters, not keys ([§Wired hotkeys](launch-lifecycle.md#wired-hotkeys)) — a
 caller who wants a tab from code
 uses `focus!`, and a user who wants one from the keyboard uses the
 command palette.
+
+## The rest of the facade
+
+`day8.re-frame2-xray.core` also re-exports these (docstrings in
+[`core.cljs`](https://github.com/day8/re-frame2/blob/main/tools/xray/src/day8/re_frame2_xray/core.cljs)):
+
+| Fn | Does |
+|---|---|
+| `close!` / `toggle!` | Hide the shell (CSS `display: none`, state kept) / flip visibility, mounting on first call — what `Ctrl+Shift+C` runs. |
+| `status` | The mount/diagnostic map ([`launch-modes.md` §Launch diagnostics](launch-modes.md#launch-diagnostics)). |
+| `target-frame` / `set-target-frame!` | Read / set the observed host frame. It starts unselected — never defaulted to `:rf/default` — and `nil` resets it to unselected. |
+| `load-theme!` | Swap the palette with a CSS string re-declaring the `--rf-xray-*` custom properties; `nil` restores the built-in palette. |
+| `configure!` | Boot-time config — the `:rf.xray/*` keys (editor, project root, layout-host selector, auto-open, keybindings, egress profile, Settings defaults, filter seed). |
+| `set-auto-open!` / `set-editor!` | Single-key setters for `:rf.xray/auto-open?` and the click-to-source editor (`:vscode` `:cursor` `:windsurf` `:zed` `:idea` or `{:custom <uri-template>}`). |
+| `set-egress-profile!` | `:rf.egress/local-redacted` (default: the trace collector drops `:sensitive? true` events) or `:rf.egress/local-raw` (trusted-local reveal). It does not affect the always-redacted Snapshot app-db verb. |
+
+The window mirror `window.day8.re_frame2_xray.*` carries `open_BANG_`,
+`open_overlay_BANG_`, `close_BANG_`, `toggle_BANG_`, `popout_BANG_` and
+`status`. For full signatures, and the per-key setters that live in
+`day8.re-frame2-xray.config` rather than the facade, send the user to the
+human API reference:
+[Mount control](https://github.com/day8/re-frame2/blob/main/docs/xray/api/mount-control.md)
+and [Configuration keys](https://github.com/day8/re-frame2/blob/main/docs/xray/api/config-keys.md).
 

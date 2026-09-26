@@ -63,7 +63,8 @@ matching the `init!` docstring's enumeration in `core.cljs`):
  path and the facade's absent-artefact no-op cannot arise here.
 4. Install the `window.day8.re_frame2_xray.*` browser-API exports
  (`install-browser-api-exports!`) — the console verbs `open_BANG_` /
- `open_overlay_BANG_` / `popout_BANG_` the devtools paths below invoke.
+ `open_overlay_BANG_` / `popout_BANG_` the devtools paths below invoke,
+ plus `close_BANG_`, `toggle_BANG_` and `status`.
 5. Attach the global keydown listener (one capture-phase handler routing
  `Ctrl+Shift+C` shell-toggle, `Cmd/Ctrl+Shift+M` mode-toggle,
  `Cmd/Ctrl+K` command-palette, and the focus-gated spine keys).

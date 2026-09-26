@@ -226,7 +226,7 @@ deeper question loads at most **one** focused leaf:
 | Deep question about… | Load |
 |---|---|
 | Launch in depth — preload, the `[data-rf-xray-host]` contract, launch diagnostics + missing-host recovery, `open-overlay!` | [`references/launch-modes.md`](references/launch-modes.md) |
-| Driving Xray from code — `init!` opts, the `focus!` deep-link command | [`references/launch-programmatic.md`](references/launch-programmatic.md) |
+| Driving Xray from code — `init!` opts, the `focus!` deep-link command, the rest of the facade (`close!`, target frame, theme, editor, egress profile, `configure!`) | [`references/launch-programmatic.md`](references/launch-programmatic.md) |
 | Pop-out lifecycle, the full hotkey contract, hidden-state semantics, disabling Xray + production posture | [`references/launch-lifecycle.md`](references/launch-lifecycle.md) |
 | The full tab inventory + scope matrix + the Static catalogues (explicit "list every tab") | [`references/panels.md`](references/panels.md) |
 | The Epoch cascade, Trace rows, or where issues surface | [`references/panels-epoch.md`](references/panels-epoch.md) |
@@ -255,9 +255,14 @@ it nowhere; the contract behind that claim is owned by
 ## Out of scope
 
 - **Deep workflow recipes** (find-wrong-sub walking, redaction-marker
- grammar, click-to-source internals, branch-and-explore). Source of
- truth: [`tools/xray/spec/007-UX-IA.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
- and the per-panel specs — the spec is the answer.
+ grammar, click-to-source, time-travel scrubbing, schema and hydration
+ debugging walkthroughs). For a human who wants the walkthrough, send them
+ to the chapter of the [Xray guide](https://github.com/day8/re-frame2/blob/main/docs/xray/index.md)
+ (installation, panel tour, time-travel, trace stream, click-to-source,
+ schema timeline, hydration, machine inspector, app-db diff, derivation
+ graph, Fresco tab). For normative detail the source of truth is
+ [`tools/xray/spec/007-UX-IA.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
+ and the per-panel specs.
 - **Agent runtime access** — inspecting or driving the running app on the
  user's behalf, read-only or mutating. Route to
  [`re-frame2-pair`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md) (§First fork above).
