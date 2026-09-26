@@ -134,24 +134,9 @@
 ;; set-fns! map-form publication
 ;; =============================================================================
 
-(deftest set-fns!-publishes-every-entry-equivalently-to-set-fn!
-  (testing "set-fns! is equivalent to per-entry set-fn! calls"
-    (let [k1 :test/rtk2e-a
-          k2 :test/rtk2e-b
-          k3 :test/rtk2e-c
-          f1 (fn [] :a)
-          f2 (fn [] :b)
-          f3 (fn [] :c)]
-      (rf.late-bind/set-fns! {k1 f1, k2 f2, k3 f3})
-      (is (identical? f1 (rf.late-bind/get-fn k1))
-          "first entry published")
-      (is (identical? f2 (rf.late-bind/get-fn k2))
-          "second entry published")
-      (is (identical? f3 (rf.late-bind/get-fn k3))
-          "third entry published"))))
-
 (deftest set-fns!-invalidates-each-cache-slot
-  (testing "every entry's slot is invalidated — hot-reload via set-fns! works per key"
+  (testing "every entry is published and its slot invalidated — hot-reload via
+            set-fns! works per key"
     (let [k1     :test/rtk2e-inv-a
           k2     :test/rtk2e-inv-b
           old-a  (fn [] :old-a)
@@ -174,11 +159,9 @@
       (is (identical? new-b (rf.late-bind/get-fn-cached k2))
           "next lookup serves the newly-published fn for k2"))))
 
-(deftest set-fns!-returns-nil
+(deftest set-fns!-returns-nil-and-tolerates-an-empty-map
   (testing "set-fns! returns nil (side-effecting publication)"
-    (is (nil? (rf.late-bind/set-fns! {:test/rtk2e-ret (fn [] :x)})))))
-
-(deftest set-fns!-empty-map-is-a-noop
+    (is (nil? (rf.late-bind/set-fns! {:test/rtk2e-ret (fn [] :x)}))))
   (testing "set-fns! tolerates an empty map (no entries published, no throw)"
     (is (nil? (rf.late-bind/set-fns! {})))))
 
@@ -186,22 +169,10 @@
 ;; G2 — chain-fn! runtime composition ordering
 ;; =============================================================================
 
-(deftest chain-fn!-runs-step-first-then-previous-handler
-  (testing "last-registered step is the OUTER wrapper — step-fn runs before the previous handler"
-    (let [k     :test/g2-order
-          order (atom [])]
-      ;; First step becomes the inner handler.
-      (rf.late-bind/chain-fn! k (fn [_] (swap! order conj :first)))
-      ;; Second step is registered last → runs first.
-      (rf.late-bind/chain-fn! k (fn [_] (swap! order conj :second)))
-      (let [hook (rf.late-bind/get-fn k)]
-        (is (some? hook) "the chained hook is published under the key")
-        (hook :arg))
-      (is (= [:second :first] @order)
-          "step-fn (last-registered) runs FIRST, the previous handler runs after"))))
-
-(deftest chain-fn!-fans-out-the-same-args-to-every-step
-  (testing "every chained step receives the same args"
+(deftest chain-fn!-runs-the-last-registered-step-first-with-the-same-args
+  (testing "last-registered step is the OUTER wrapper — it runs before the
+            previous handler, every step receives the same args, and the first
+            step (chained with no previous) runs exactly once"
     (let [k    :test/g2-args
           seen (atom [])]
       (rf.late-bind/chain-fn! k (fn [a b] (swap! seen conj [:inner a b])))
@@ -217,14 +188,6 @@
       (rf.late-bind/chain-fn! k (fn [_] :outer-return))
       (is (nil? ((rf.late-bind/get-fn k) :arg))
           "chained hook returns nil — callers do not consume a step value"))))
-
-(deftest chain-fn!-first-step-with-no-previous-runs-alone
-  (testing "the very first chain-fn! step runs with no previous handler (previous is nil)"
-    (let [k   :test/g2-first
-          hit (atom 0)]
-      (rf.late-bind/chain-fn! k (fn [_] (swap! hit inc)))
-      ((rf.late-bind/get-fn k) :arg)
-      (is (= 1 @hit) "the lone step runs exactly once with no previous to chain"))))
 
 (deftest chain-fn!-propagates-per-step-throws
   (testing "a throwing step is NOT swallowed — the throw propagates out of the chained hook"

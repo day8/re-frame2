@@ -14,15 +14,15 @@
     - `:throw`     — `rf.late-bind/require-fn!` raises the structured
                      :rf.error/<artefact>-artefact-missing ex-info with
                      the documented slots (:where, :reason, :recovery).
-    - `:nil`       — returns nil when the hook is unregistered;
-                     delegates to the hook when registered.
+    - `:nil`       — returns nil when absent.
     - `:false`     — returns false when absent.
     - `:empty-vec` — returns [] when absent.
     - `:empty-map` — returns {} when absent.
     - literal      — returns the literal value when absent.
+    - every policy delegates to the hook when it is registered.
     - `:ex-data`   — symbol values resolve in the arity's locals and
                      ride the throw's ex-data."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core-artefact :refer [defwrapper]]
             [re-frame.late-bind :as rf.late-bind]))
 
@@ -89,73 +89,51 @@
     (is (= :zero (throw-wrapper)))
     (is (= [:one 42] (throw-wrapper 42)))))
 
-;; ---- :nil policy ----------------------------------------------------------
+;; ---- the silent policies: :nil / :false / :empty-vec / :empty-map / literal -
 
 (defwrapper nil-wrapper
   "Test wrapper — :on-absent :nil."
   {:hook :test/nil-hook :artefact test-artefact :on-absent :nil}
   ([] :delegate))
 
-(deftest nil-policy-returns-nil-when-absent
-  (testing ":on-absent :nil returns nil when the hook is unregistered"
-    (is (nil? (nil-wrapper)))))
-
-(deftest nil-policy-delegates-when-present
-  (testing ":on-absent :nil delegates when the hook is registered"
-    (rf.late-bind/set-fn! :test/nil-hook (fn [] :present))
-    (is (= :present (nil-wrapper)))))
-
-;; ---- :false policy --------------------------------------------------------
-
 (defwrapper false-wrapper
   "Test wrapper — :on-absent :false."
   {:hook :test/false-hook :artefact test-artefact :on-absent :false}
   ([] :delegate))
-
-(deftest false-policy-returns-false-when-absent
-  (is (false? (false-wrapper))))
-
-(deftest false-policy-delegates-when-present
-  (rf.late-bind/set-fn! :test/false-hook (fn [] :really))
-  (is (= :really (false-wrapper))))
-
-;; ---- :empty-vec policy ---------------------------------------------------
 
 (defwrapper empty-vec-wrapper
   "Test wrapper — :on-absent :empty-vec."
   {:hook :test/empty-vec-hook :artefact test-artefact :on-absent :empty-vec}
   ([] :delegate))
 
-(deftest empty-vec-policy-returns-empty-vec
-  (is (= [] (empty-vec-wrapper))))
-
-(deftest empty-vec-policy-delegates-when-present
-  (rf.late-bind/set-fn! :test/empty-vec-hook (fn [] [:a :b]))
-  (is (= [:a :b] (empty-vec-wrapper))))
-
-;; ---- :empty-map policy ---------------------------------------------------
-
 (defwrapper empty-map-wrapper
   "Test wrapper — :on-absent :empty-map."
   {:hook :test/empty-map-hook :artefact test-artefact :on-absent :empty-map}
   ([] :delegate))
-
-(deftest empty-map-policy-returns-empty-map
-  (is (= {} (empty-map-wrapper))))
-
-(deftest empty-map-policy-delegates-when-present
-  (rf.late-bind/set-fn! :test/empty-map-hook (fn [] {:k :v}))
-  (is (= {:k :v} (empty-map-wrapper))))
-
-;; ---- literal-value policy ------------------------------------------------
 
 (defwrapper literal-wrapper
   "Test wrapper — :on-absent literal value (a sentinel keyword)."
   {:hook :test/literal-hook :artefact test-artefact :on-absent :rf/sentinel}
   ([] :delegate))
 
-(deftest literal-policy-returns-the-literal-when-absent
-  (is (= :rf/sentinel (literal-wrapper))))
+(deftest each-silent-policy-returns-its-value-when-the-hook-is-absent
+  (testing "an unregistered hook returns the policy's value, one row per policy"
+    (are [expected wrapper] (= expected (wrapper))
+      nil          nil-wrapper
+      false        false-wrapper
+      []           empty-vec-wrapper
+      {}           empty-map-wrapper
+      :rf/sentinel literal-wrapper)))
+
+(deftest each-silent-policy-delegates-when-the-hook-is-registered
+  (testing "a registered hook is called and its value returned, whatever the
+            absent-policy"
+    (doseq [[hook wrapper value] [[:test/nil-hook       nil-wrapper       :present]
+                                  [:test/false-hook     false-wrapper     :really]
+                                  [:test/empty-vec-hook empty-vec-wrapper [:a :b]]
+                                  [:test/empty-map-hook empty-map-wrapper {:k :v}]]]
+      (rf.late-bind/set-fn! hook (fn [] value))
+      (is (= value (wrapper)) (str hook " delegates to the registered hook")))))
 
 ;; ---- :ex-data sym scoping -----------------------------------------------
 

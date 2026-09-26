@@ -53,15 +53,6 @@
     (is (some? (rf/view :re-frame.reg-view-test/widget-a))
         "the view is registered under (keyword 'this-ns' 'sym)")))
 
-;; ---- auto-id derivation --------------------------------------------------
-
-(deftest reg-view-auto-id-derives-from-ns-and-sym
-  (testing "the registered id is (keyword (str *ns*) (str sym)) when no
-            metadata override is present"
-    (rf/reg-view widget-b [_n] [:p "b"])
-    (is (some? (rf/view :re-frame.reg-view-test/widget-b))
-        "the registered id matches (keyword *ns* sym)")))
-
 ;; ---- ^{:rf/id ...} metadata override -------------------------------------
 
 (deftest reg-view-metadata-override-takes-precedence
@@ -176,25 +167,22 @@
 ;; auto-def of the Var is a side effect; the macro's terminal value is
 ;; the id.
 
-(deftest reg-view-returns-auto-derived-id
-  (testing "(reg-view sym [args] body) returns the auto-derived id"
-    (let [ret (rf/reg-view ret-auto [n] [:p n])]
-      (is (= :re-frame.reg-view-test/ret-auto ret)
-          "the macro returns (keyword *ns* sym), not the auto-defed Var"))))
-
-(deftest reg-view-returns-metadata-override-id
-  (testing "(reg-view ^{:rf/id :explicit/id} sym [args] body) returns the
-            override id"
-    (let [ret (rf/reg-view ^{:rf/id :explicit/ret-meta} ret-meta [n] [:p n])]
-      (is (= :explicit/ret-meta ret)
-          "the macro returns the :rf/id override, not the auto-derived id
-           and not the auto-defed Var"))))
-
-(deftest reg-view-returns-id-with-docstring
-  (testing "(reg-view sym \"doc\" [args] body) returns the id (docstring
-            does not change the return value)"
-    (let [ret (rf/reg-view ret-doc "the doc" [n] [:p n])]
-      (is (= :re-frame.reg-view-test/ret-doc ret)))))
+(deftest reg-view-returns-the-registered-id-in-every-accepted-shape
+  (testing "the macro returns the registered id — never the auto-defed Var —
+            whichever accepted shape it is called in"
+    (doseq [[shape expected ret]
+            [["(reg-view sym [args] body) returns the auto-derived (keyword *ns* sym)"
+              :re-frame.reg-view-test/ret-auto
+              (rf/reg-view ret-auto [n] [:p n])]
+             ["(reg-view ^{:rf/id :explicit/id} sym [args] body) returns the override,
+               not the auto-derived id"
+              :explicit/ret-meta
+              (rf/reg-view ^{:rf/id :explicit/ret-meta} ret-meta [n] [:p n])]
+             ["(reg-view sym \"doc\" [args] body) returns the id — the docstring
+               does not change the return value"
+              :re-frame.reg-view-test/ret-doc
+              (rf/reg-view ret-doc "the doc" [n] [:p n])]]]
+      (is (= expected ret) shape))))
 
 ;; ---- expander helpers expose stable shape --------------------------------
 
