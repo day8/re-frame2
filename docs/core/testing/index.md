@@ -23,4 +23,4 @@ A `reg-fx` body touches the host and a `reg-cofx` supplier reads it, so they can
 
 ## Other capabilities
 
-Each capability has its own testing page built on the same techniques: [Machines](../../machines/inspecting-machines.md), [Routing](../../routing/testing.md), [Resources](../../resources/testing.md) and [SSR](../../ssr/testing.md). Setting up the test runner (the `deps.edn` `:test` alias, and `.cljc` files so your registrations load on the JVM) is covered in [the tutorial's Part 5: test it, ship it](../../resources/tutorial/05-test-and-ship.md).
+Each capability has its own testing page built on the same techniques: [Machines](../../machines/inspecting-machines.md), [Routing](../../routing/testing.md), [Resources](../../resources/testing.md) and [SSR](../../ssr/testing.md). Setting up the test runner (the `deps.edn` `:test` alias, and `.cljc` files so your registrations load on the JVM) is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).

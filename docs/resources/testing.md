@@ -78,7 +78,7 @@ That second assertion is the one that matters: `nil` is the *fail-closed* answer
 
 A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence.
 
-The read it invalidates is *setup*, not the subject, so it goes in the frame's `:initial-events`. The stub table wraps frame creation, because stubs apply for their dynamic extent and the seed fetches as the frame boots. An entry with no owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite [registered in tutorial Part 4](tutorial/04-mutations-and-invalidation.md#register-the-write) `:populates` the article from its reply, and a populated entry counts as freshly loaded:
+The read it invalidates is *setup*, not the subject, so it goes in the frame's `:initial-events`. The stub table wraps frame creation, because stubs apply for their dynamic extent and the seed fetches as the frame boots. An entry with no owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite [registered in tutorial Part 5](tutorial/05-mutations-and-invalidation.md#register-the-write) `:populates` the article from its reply, and a populated entry counts as freshly loaded:
 
 ```clojure
 (deftest favorite-invalidates-the-list
@@ -148,7 +148,7 @@ The stub table answers requests; it doesn't count them. When the claim is about 
                  (frequencies @issued))))))))
 ```
 
-`:realworld/favorite` here is registered the way [tutorial Part 4](tutorial/04-mutations-and-invalidation.md#register-the-write) registers its favorite: `:populates` seeds the detail from the POST's reply, and `:invalidates` stales the list (viewer scope) and the feed (session scope). So the answer is one POST and two GETs. The detail is missing from the ledger because the reply populated it, and a mutation's own invalidation skips a key it populated — drop `:populates` and this same test fails with a third GET, for `/api/articles/intro`. The ensures carry an `:owner` because only an owned entry refetches when invalidated; an unowned one is just marked stale.
+`:realworld/favorite` here is registered the way [tutorial Part 5](tutorial/05-mutations-and-invalidation.md#register-the-write) registers its favorite: `:populates` seeds the detail from the POST's reply, and `:invalidates` stales the list (viewer scope) and the feed (session scope). So the answer is one POST and two GETs. The detail is missing from the ledger because the reply populated it, and a mutation's own invalidation skips a key it populated — drop `:populates` and this same test fails with a third GET, for `/api/articles/intro`. The ensures carry an `:owner` because only an owned entry refetches when invalidated; an unowned one is just marked stale.
 
 !!! note "Why not record through `rf/with-fx-overrides`?"
 
@@ -158,4 +158,4 @@ The stub table answers requests; it doesn't count them. When the claim is about 
 
 - **The route as the cause** — a route's `:resources` entries ensure on navigation; drive them via [Testing routes](../routing/testing.md) (navigate, then read the projections here).
 - **The transport underneath** — retry policies, failure categories, the reply envelope: [Managed HTTP](../async/http.md) and [Test a pipeline run](../core/testing/pipeline-runs.md).
-- **The five statuses and their invariants** — the model these assertions lean on: [the model](concepts.md#what-a-view-sees-five-statuses). The [tutorial's Part 5](tutorial/05-test-and-ship.md) tests the whole RealWorld slice in this style.
+- **The five statuses and their invariants** — the model these assertions lean on: [the model](concepts.md#what-a-view-sees-five-statuses). The [tutorial's Part 6](tutorial/06-test-and-ship.md) tests the whole RealWorld slice in this style.

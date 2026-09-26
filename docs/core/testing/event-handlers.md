@@ -31,7 +31,7 @@ Every event handler takes two arguments: the [**coeffects**](../glossary.md#coef
                        [:db :todos 1 :done?])))))
 ```
 
-That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (`ts` is used by the fixtures later on this page. Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 5: test it, ship it](../../resources/tutorial/05-test-and-ship.md).)
+That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (`ts` is used by the fixtures later on this page. Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).)
 
 `handler-meta` returns `nil` for an unregistered id. If you misspell the id or forget the require, `(:handler-fn nil)` is `nil` and the next line fails with "nil is not a function". When that happens, check the id and the require list.
 

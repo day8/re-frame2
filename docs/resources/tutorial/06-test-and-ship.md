@@ -1,4 +1,4 @@
-# Part 5: test it, ship it
+# Part 6: test it, ship it
 
 Conduit works in the browser. This part proves it with tests that run on the JVM in milliseconds, with no browser, then cuts the production bundle and shows what ships and what doesn't. Cache-specific tests — reads, invalidation, request counts — are in [Testing resources](../testing.md).
 
@@ -12,7 +12,7 @@ The rule for every test here: **supply data, don't swap mechanisms.** You never 
 
 A `.cljs` file compiles to JavaScript, a `.clj` file runs on the JVM, and a `.cljc` file is portable: one source, both targets. re-frame2's core is `.cljc`, so it loads on the JVM too.
 
-That's why Parts 2–4 had you write `api.cljc`, `resources.cljc`, `scope.cljc`, `auth.cljc`, `mutations.cljc` and `views.cljc`: none of them names a browser API outside a `#?(:cljs …)` branch, so the JVM loads them as they are. (Renaming a file isn't enough — an unguarded `js/globalThis` stops the JVM compiler with `No such namespace: js`.) `core.cljs`, `articles.cljs` and `editor.cljs` stay ClojureScript; no test here loads them.
+That's why Parts 2–5 had you write `api.cljc`, `resources.cljc`, `scope.cljc`, `auth.cljc`, `mutations.cljc` and `views.cljc`: none of them names a browser API outside a `#?(:cljs …)` branch, so the JVM loads them as they are. (Renaming a file isn't enough — an unguarded `js/globalThis` stops the JVM compiler with `No such namespace: js`.) `core.cljs`, `articles.cljs` and `editor.cljs` stay ClojureScript; no test here loads them.
 
 Add a `:test` alias with a runner to `deps.edn`:
 
@@ -45,7 +45,7 @@ Then the test namespace, with one fixture that resets the runtime around every t
             [re-frame.substrate.plain-atom :as plain-atom] ;; the headless JVM substrate
             [re-frame.test-support :as ts]
             [conduit.api :as api]
-            [conduit.auth]))                               ;; Part 3's registrations load here
+            [conduit.auth]))                               ;; Parts 3 and 4's registrations load here
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture
@@ -199,7 +199,7 @@ Rather than hand-build an app-db map, the test dispatches the real events that b
 
 State can be right while the screen is wrong: the view reads the wrong path, or wires `:on-click` into the wrong frame. You can catch both on the JVM, because a view-fn is a function and what it returns is [hiccup](../../core/glossary.md#hiccup) — data you can walk.
 
-Give the node a stable handle first. The `testid` helper adds a `:data-testid` to an attrs map, and elides from production. Part 4's `favorite-button` grows one attribute:
+Give the node a stable handle first. The `testid` helper adds a `:data-testid` to an attrs map, and elides from production. Part 5's `favorite-button` grows one attribute:
 
 ```clojure
 ;; src/conduit/views.cljc — require [re-frame.test-helpers :as th], then tag the button:

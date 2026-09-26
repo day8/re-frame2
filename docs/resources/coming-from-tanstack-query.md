@@ -147,7 +147,7 @@ In re-frame2 you declare *only the forward change*, and the runtime records the 
     :patch (fn [data] (favorite-patch true slug data))}])
 ```
 
-(`favorite-patch` flips the heart inside a cached entry; [Part 4 of the tutorial](tutorial/04-mutations-and-invalidation.md#make-the-heart-flip-before-the-reply) defines it.) There are two forward forms: `:optimistic` patches **exact** keys (like `:patches`, without the `result` argument), and `:optimistic-tags` patches **every** entry carrying a tag in its scope — the favorite control, the detail page, every list and the session feed flip at once, without enumerating keys. Both fail closed: a `{:from-db …}` scope resolving to `nil` *drops* that target rather than writing globally, so an optimistic write can't leak across viewers either.
+(`favorite-patch` flips the heart inside a cached entry; [Part 5 of the tutorial](tutorial/05-mutations-and-invalidation.md#make-the-heart-flip-before-the-reply) defines it.) There are two forward forms: `:optimistic` patches **exact** keys (like `:patches`, without the `result` argument), and `:optimistic-tags` patches **every** entry carrying a tag in its scope — the favorite control, the detail page, every list and the session feed flip at once, without enumerating keys. Both fail closed: a `{:from-db …}` scope resolving to `nil` *drops* that target rather than writing globally, so an optimistic write can't leak across viewers either.
 
 The behaviour that is genuinely different is the **contested rollback**: a concurrent write lands on the same entry between your optimistic apply and your failure.
 
