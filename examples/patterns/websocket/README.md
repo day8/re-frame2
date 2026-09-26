@@ -16,7 +16,7 @@ A real connection is harder than the textbook on/off examples, in 3 specific way
 
 **1. The connecting steps belong together.** The happy path has 3 steps: `:connecting`, then `:authenticating`, then `:connected`. All 3 live inside one parent [state](../../../docs/machines/glossary.md#state) called `:active`. Why group them? Because they're the same connection at different stages — they share one socket, one offline queue, one set of in-flight requests (a single `:data` map). Nesting them says exactly that. The siblings of `:active` — `:disconnected`, `:reconnecting`, `:failed` — are the connection not up. (When stages don't share data, you'd use parallel regions instead, as [`nine_states`](../nine_states/) does. Here they share, so nesting is the right shape.)
 
-**2. The real socket can't live in app-db, so a helper holds it.** A live `WebSocket` is a browser object, not a value. It won't serialise, and storing it in [app-db](../../../docs/core/glossary.md#app-db) would break time-travel replay. So a child machine holds it instead. When `:active` begins, it [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor, and that actor keeps the real socket in a private table, off to the side. The connection itself only ever remembers the socket's id, never the socket. The actor lives as long as `:active` does, so it carries across all 3 steps above; leave `:active` and the runtime tears it down, then re-entering spawns a fresh one.
+**2. The real socket can't live in app-db, so a helper holds it.** A live `WebSocket` is a browser object, not a value. It won't serialise, and storing it in [app-db](../../../docs/core/glossary.md#app-db) would break time-travel replay. So a child machine holds it instead. When `:active` begins, it [`:spawn`](../../../docs/machines/glossary.md#spawn)s a `:websocket/socket` actor, and the real socket is kept in a private table, off to the side, under that actor's id. The connection itself only ever remembers the socket's id, never the socket. The actor lives as long as `:active` does, so it carries across all 3 steps above; leave `:active` and the runtime tears it down, then re-entering spawns a fresh one.
 
 **3. A late message from an old socket must be ignored.** After a reconnect, a slow message from the socket you just replaced can still arrive — and acting on it would be a bug. The fix is cheap: every incoming message carries the id of the socket it came from, and a [guard](../../../docs/machines/glossary.md#guard) called `:current-socket?` drops it unless that id is the one currently live. The live socket id is the connection's version number — no separate counter to keep. (That's [Pattern-StaleDetection](../../../spec/Pattern-StaleDetection.md), reusing a value you already had.)
 
@@ -33,10 +33,12 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 
 - A spawned actor owning the host-side socket. The `:websocket/socket` actor
   is itself a small [machine](../../../docs/machines/glossary.md#machine). It
-  keeps the JS `WebSocket`-shaped reference in a private store keyed by its
-  `:rf/self-id`, turns outbound `:send` events into wire writes, and
-  forwards inbound server messages back to the parent. Only the id ever appears
-  in `:data` — never the socket itself.
+  turns outbound `:send` events into wire writes and forwards inbound server
+  messages back to the parent. Its actions stay pure, as every machine action
+  does: they RETURN the `:ws.socket/open`, `:ws.socket/send` and
+  `:ws.socket/close` effects, and those effect handlers own the JS
+  `WebSocket`-shaped reference, in a private store keyed by the actor's
+  `:rf/self-id`. Only the id ever appears in `:data` — never the socket itself.
 
 - Stale-message rejection via the connection epoch. The live socket-actor id
   — read from the runtime-maintained `:rf/spawned` slot in `:data` — is the
@@ -141,8 +143,9 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 - Reconnect cascade with credential rotation threaded through — and no raw
   credential anywhere the framework can see. Machine `:data` is inspectable
   (snapshots, traces, recorder fixtures), so it carries only an opaque
-  `:cred-ref`; the socket actor exchanges the reference for the real bearer
-  inside the `:auth` branch of its private host closure
+  `:cred-ref`; the socket the actor's `:ws.socket/open` effect builds
+  exchanges the reference for the real bearer inside the `:auth` branch of
+  its private host closure
   (`resolve-credential` in `messages.cljs`), writes it to that one wire
   frame, and lets it go out of scope there. Resolving it in the enclosing
   scope instead would keep it alive as long as the stored socket handle —
@@ -150,9 +153,11 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
   `:spawn` desugars to a `:rf.machine/destroy` on exit), and the runtime
   clears its id from the `:rf/spawned` slot — so the connection machine needs
   no `:exit` action to forget the id. The actor itself does carry one: an
-  `:exit :close-socket` on its `:open` state closes the host `WebSocket` on
-  the way down, because a live socket is a handle the runtime can't drop for
-  you. After the `:after` backoff, re-entering `:active` re-runs the
+  `:exit :close-socket` on its `:open` state returns the `:ws.socket/close`
+  effect that closes the host `WebSocket` on the way down, because a live
+  socket is a handle the runtime can't drop for you. The runtime runs an
+  `:exit`'s effects on every way the actor ends — destroyed by its parent,
+  its parent torn down, or its frame destroyed. After the `:after` backoff, re-entering `:active` re-runs the
   `:spawn`'s `:data` function, which re-reads the URL and credential
   reference from `:data` — so a `:ws/rotate-cred` arriving between reconnects
   flows into the next socket with no extra wiring, and the new socket
@@ -173,7 +178,7 @@ Everything below builds on those 3. The rest is ordinary machine grammar — `:a
 |---|---|
 | `core.cljs` | Entry point — installs the adapter, mounts the React root under a `frame-root` that creates the [frame](../../../docs/core/glossary.md#frame) and fires `:ws.app/initialise`. |
 | `connection.cljs` | The `:ws/connection` machine — the heart of the example. Read alongside `spec/Pattern-WebSocket.md` §Worked example: the same state chart, and the live socket id comes from the framework's runtime-maintained `:rf/spawned` slot on both sides (the spec says so in terms — "No `:socket-id` field"). |
-| `messages.cljs` | The `:websocket/socket` actor (the spawned child) + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
+| `messages.cljs` | The `:websocket/socket` actor (the spawned child) + the `:ws.socket/*` effects that own its socket + an in-process mock WebSocket server + `:ws/handle-message` + the app-level send/request/subscribe events. |
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
 | `schema.cljs` | Malli [schemas](../../../docs/core/glossary.md#schema) — the connection machine's `:data` slice, the `[:messages]` app-db slice, and the closed inbound wire contract (`InboundMessage`, plus `RequestOutcome` keyed on the machine-stamped `:origin`). |
 | `index.html` | Minimal harness. |
