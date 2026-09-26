@@ -1898,6 +1898,27 @@ def _site_url_problems(
     return [f"no page builds at `{site_path}` (looked for {looked})"]
 
 
+def _site_url_link_problems(
+    repo_root: Path,
+    dest: str,
+    slugs: Callable[[Path], set[str]] | None = None,
+) -> list[str] | None:
+    """Grade one link destination as this project's published-site URL.
+
+    None when `dest` is not a site URL; otherwise the problems with its path
+    and its decoded `#anchor`, empty when sound. Both link gates call this, so
+    a site URL's fragment is split, decoded and graded one way in each. The
+    anchor is graded by the MkDocs slug model whichever gate asks, because
+    MkDocs renders the published page; `slugs` only swaps in a cached twin of
+    `_slug_index`.
+    """
+    site_path = _site_url_path(repo_root, dest)
+    if site_path is None:
+        return None
+    anchor = urllib.parse.unquote(dest.strip().partition("#")[2]).strip()
+    return _site_url_problems(repo_root, site_path, anchor, slugs=slugs)
+
+
 def _is_ai_findings_link(path_part: str) -> bool:
     """Return True if a link path resolves under the gitignored ai/findings/ tree.
 
@@ -2319,14 +2340,9 @@ def check(
             # graded against that page's MkDocs slugs — checked
             # here for the same reason the arm above is, and inert unless
             # `mkdocs.yml` names a `site_url`.
-            site_path = _site_url_path(repo_root, dest)
-            if site_path is not None:
-                site_anchor = urllib.parse.unquote(
-                    dest.strip().partition("#")[2]
-                ).strip()
-                for problem in _site_url_problems(
-                    repo_root, site_path, site_anchor, slugs=slugs_for
-                ):
+            site_problems = _site_url_link_problems(repo_root, dest, slugs=slugs_for)
+            if site_problems is not None:
+                for problem in site_problems:
                     site_url_broken.append((path, line_no, dest, problem))
                 continue
 

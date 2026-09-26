@@ -158,8 +158,8 @@ try:
         _HEADING_RE,
         _HTML_ANCHOR_RE,
         _extract_links,
+        _site_url_link_problems,
         _site_url_path,
-        _site_url_problems,
         _strip_fences,
     )
 except ImportError as exc:  # pragma: no cover - dev-env path
@@ -173,8 +173,8 @@ except ImportError as exc:  # pragma: no cover - dev-env path
             _HEADING_RE,
             _HTML_ANCHOR_RE,
             _extract_links,
+            _site_url_link_problems,
             _site_url_path,
-            _site_url_problems,
             _strip_fences,
         )
     except ImportError:
@@ -616,13 +616,16 @@ def check(
                 continue
 
             # This project's own published-site URLs, resolved offline to the
-            # source page MkDocs builds them from.  Checked BEFORE the
+            # source page MkDocs builds them from, and their fragment graded
+            # against that page's MkDocs slugs.  Checked BEFORE the
             # external guard below, which would skip them wholesale and let
             # dead ones on the repo's front page go unseen.  Inert unless
-            # `mkdocs.yml` names a `site_url`.
-            site_path = _site_url_path(repo_root, dest)
-            if site_path is not None:
-                for problem in _site_url_problems(repo_root, site_path):
+            # `mkdocs.yml` names a `site_url`.  `slugs_for` is NOT passed:
+            # it is this gate's GitHub `-N` model, and MkDocs, not GitHub,
+            # renders the published page.
+            site_problems = _site_url_link_problems(repo_root, dest)
+            if site_problems is not None:
+                for problem in site_problems:
                     site_url_broken.append((path, line_no, dest, problem))
                 continue
 
@@ -690,9 +693,11 @@ def check(
         sys.stderr.write(
             "\nFix: this is a URL into THIS project's published documentation "
             "site, resolved offline against the source page MkDocs would build "
-            "it from — repoint it at the page's current home. Only the PATH is "
-            "checked: the fragment and the trailing slash are not graded, and "
-            "neither is whether the page it reaches is the right one. "
+            "it from — repoint it at the page's current home. A `#fragment` "
+            "must name a heading that page renders under MkDocs' slug rules "
+            "(a repeated heading takes `_1`, not GitHub's `-1`). The trailing "
+            "slash is not graded, and neither is whether the page it reaches "
+            "is the right one. "
             "Remember that MkDocs publishes `X/index.md` and `X/README.md` at "
             "`X/`, so `X/index/`, `X/README/` and `X.md` are not URLs it "
             "serves.\n"
@@ -815,6 +820,11 @@ def _run_self_tests(verbose: bool = False) -> int:
         # does not move — and rises to 2 the moment a dot in the final segment
         # is read as a file extension before route candidates are tried.
         ("site_url_in_root_markdown",        1),  # two live links, one dead
+        # A site URL's `#fragment`, graded by the MkDocs slug model the
+        # published page renders with, in root markdown and in the redirect
+        # table's bullets alike. 3 only under that model: this gate's own
+        # GitHub `-N` model reads 5, and an ungraded fragment reads 0.
+        ("site_url_anchor_in_root_markdown", 3),
         # The redirect table writes bare URLs after an arrow, which the shared
         # extractor does not and should not read as links — so without the
         # bullet reader the table's rows reach no gate at all. Both
