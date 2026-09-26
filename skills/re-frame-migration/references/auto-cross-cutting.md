@@ -13,7 +13,7 @@ For the *why* of each rule, see [`MIGRATION.md`](https://github.com/day8/re-fram
 - Interceptor list cleanup (M-21 mechanical half)
 - Event interceptor chains → metadata `:interceptors` (M-70 — mechanical; **loud-at-runtime, not loud-at-compile**: structural grep up front)
 - View / hiccup rewrites (M-22, M-24)
-- `reg-event` shape (M-26 mechanical half)
+- M-26 drift-sweep drops (mechanical half)
 - Init / adapter (M-40 — **Type B**; shape is here, the decision is asked-first)
 - Per-feature artefact adds (M-27 through M-33)
 
@@ -315,9 +315,9 @@ Default to Var-ref form unless the call site comments / context indicate late-bi
 
 ---
 
-## `reg-event` shape (M-26 mechanical half)
+## M-26 drift-sweep drops (mechanical half)
 
-Drop / rewrite the dropped public surfaces:
+Drop / rewrite the dropped public surfaces (`make-restore-fn` is a test-layer surface — see [`auto-call-site-rewrites.md` §Test-layer v1 API to v2 mapping](auto-call-site-rewrites.md#test-layer-v1-api-to-v2-mapping)):
 
 ```clojure
 (rf/with-trace ...) → (rf/emit-trace-event! op-type operation tags)
