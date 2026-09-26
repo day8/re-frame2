@@ -2133,7 +2133,8 @@
 (defn app-db-value
   "Return the current `app-db` VALUE (a plain map) for the named frame,
   or `nil` if not registered. Value-form accessor (no deref, no
-  container) — pairs with `app-db-container` (the container accessor).
+  container): the non-reactive snapshot read for tools, tests, the REPL
+  and fx / handler bodies; a view reads reactively with `subscribe`.
   Accepts a frame-id keyword or a live frame value; values are normalized to
   their runnable id. Per Spec 002 §The public registrar query API."
   [frame-id]
@@ -2245,8 +2246,10 @@
 
 ;; ---- privacy / spec / trace / emit / elision (Spec 009, 010) -------------
 
-(def ^{:doc "Predicate: returns `true` iff `trace-event` is a map carrying
-  `:sensitive? true`. Trace-event filter for privacy-aware listeners and
+(def ^{:doc "Predicate: returns `true` when `trace-event` carries a TRUTHY
+  top-level `:sensitive?` stamp. Fail-closed: any truthy value counts, so a
+  malformed stamp (`\"true\"`, `:yes`, `1`) reads as sensitive rather than
+  forwarding the event. Trace-event filter for privacy-aware listeners and
   off-box egress. Per Spec 009 §Privacy."}
   sensitive?           rf.privacy/sensitive?)
 
@@ -2439,15 +2442,23 @@
 (def ^{:doc "Project a record or value for egress across a trust boundary
   (EP-0015 §10/§11). The public, record-level boundary primitive — the
   required step before any off-box sink. Dispatches on a record's `:kind`
-  (`:rf.observe/handled-event` / `:rf.observe/error`) to a private per-kind
-  projector, falling back to walking a kindless input as a tree-shaped
-  value (the direct-read path); for every tree-shaped slot it delegates to
-  the internal `re-frame.elision/elide-wire-value` walker against the
-  frame's classification. `opts` carries
-  `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`, and
-  the advanced `:rf.egress/*` overrides (which compose on top of the
-  profile — the override wins). An unknown profile throws
-  `:rf.error/unknown-egress-profile`. Fail-closed: projects a tree slot
+  (`:rf.observe/handled-event`, `:rf.observe/error`,
+  `:rf.observe/derived-tree`, or `:rf/epoch-record`, whose projector is
+  late-bound from the epoch artefact and raises
+  `:rf.error/epoch-artefact-missing` when that artefact is absent) to a
+  private per-kind projector, falling back to walking a kindless input as a
+  tree-shaped value (the direct-read path); for every tree-shaped slot it
+  delegates to the internal `re-frame.elision/elide-wire-value` walker
+  against the frame's classification. `opts` is a CLOSED map:
+  `:rf.egress/profile` (the closed six-member enum), `:frame`, `:path`,
+  `:query-v`, the `:rf.egress/include-sensitive?` /
+  `:rf.egress/include-large?` / `:rf.egress/include-digests?` /
+  `:rf.egress/threshold-bytes` overrides (which compose on top of the
+  profile — the override wins), and the `:rf/epoch-record`-only
+  `:rf.egress/include-fx-args?` / `:rf.egress/include-runtime-db?` /
+  `:rf.egress/include-event-args?`. An unknown profile throws
+  `:rf.error/unknown-egress-profile`; any other key throws
+  `:rf.error/bad-egress-opts`. Fail-closed: projects a tree slot
   only when the frame is known; no `:rf/default` synthesis. Per Spec 015
   §Projection and Security.md §Off-box egress."}
   project-egress                   rf.projection/project-egress)
