@@ -17,7 +17,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 |---|---|---|
 | `:rf.error/resources-artefact-missing` | Forgot the require | `(:require [re-frame.resources])` at boot |
 | `:rf.error/resource-missing-scope-policy` | `:scope` omitted, or not one of the two shapes | Declare `:scope` as `:rf.scope/global` or `{:from-db <id>}` |
-| `:rf.error/resource-bad-spec` | A malformed spec: the request fn in the metadata, no `:params-schema`, a bad `:gc-after-ms` or `:infinite`, … | The `:reason` names the key |
+| `:rf.error/resource-bad-spec` | A malformed spec: the request fn in the metadata, no `:params-schema`, a bad `:gc-after-ms`, `:stale-after-ms` or `:infinite`, … | The `:reason` names the key |
 | `:rf.error/infinite-missing-next-page-param` | `:infinite true` without `:next-page-param` | [Paginate a feed](how-to/paginate-a-feed.md) |
 | `:rf.error/invalid-resource-scope-spec` | A malformed `reg-resource-scope`: `:inputs` not `{name [:db path]}`, or no resolver fn in the third slot | Fix the resolver registration |
 | `:rf.error/mutation-bad-spec` | A malformed `reg-mutation`, including an unknown `:invalidate-timing` or `:on-conflict` | The `:reason` names the key |
