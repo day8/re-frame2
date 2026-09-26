@@ -68,7 +68,7 @@ allowed-tools:
 
 Pair-program on a **live, running re-frame2 application** (a browser tab behind `shadow-cljs watch`): help the developer understand, debug, and modify it by *operating on the live runtime*, not just reading source.
 
-**Router skill.** Trigger-time guard rails are below; operational depth (op catalogue, recipes, error handling, hot-reload protocol, v1-migration notes) lives in `references/`, loaded on demand.
+**Router skill.** This file carries the core workflow and the guard rails; the op catalogue, recipes, error handling and setup live in `references/`, loaded on demand through [the loading map](#where-the-depth-lives--loading-map).
 
 **One runtime — the browser heap on the other end of the nREPL connection.** Every op this skill teaches or allow-lists reads and writes *that* heap and nothing else. Story variants are no exception: a variant is an ordinary frame in the same heap, so you enumerate and run it through `eval-cljs` over `re-frame.story/*` and then address it with the ordinary frame tools ([references/stories.md](references/stories.md)). Never start or call a second MCP server mid-session to reach a runtime — a separate process has a separate registry and a separate `app-db`, so a keyword that exists in both is two different objects, and composing reads across them produces confident nonsense. Explicitly headless, no-browser Story work is a different task with a different host: route it to [`tools/story-mcp/README.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md) and the authoring skill, and don't run it from inside a live pair session.
 
@@ -77,103 +77,46 @@ Pair-program on a **live, running re-frame2 application** (a browser tab behind 
 Your agency runs through three coupled primitives, all part of re-frame2's [Tool-Pair contract](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md):
 
 1. **The REPL** — a shadow-cljs nREPL session connected to the browser runtime; ClojureScript forms evaluate against the real app.
-2. **The trace stream** — `(rf/register-listener! :trace id cb)` for live trace events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. (Listeners attach through the stream-parameterized facade verb — the 2-arg `re-frame.trace.tooling` fn behind it is an implementation seam, not a second spelling. `trace-buffer`, by contrast, IS a same-signature `rf/` re-export, and it exists on BOTH platforms — in a `cljs-eval` form spell it fully qualified as `re-frame.core/trace-buffer` (or the tooling home), because the eval namespace carries no `rf` alias.) `trace-buffer` takes the frame-id **first** (`(trace-buffer frame-id)` cascade bundles, `(trace-buffer frame-id opts)` filtered) — a missing/destroyed frame-id silently returns `[]`, so never pass an opts map as the sole arg. This skill registers exactly *one* trace listener (id `:re-frame2-pair`) so tools coexist.
+2. **The trace stream** — `(rf/register-listener! :trace id cb)` for live trace events; `(re-frame.trace.tooling/trace-buffer frame-id)` for the retain-N ring. `trace-buffer` takes the frame-id **first** — a missing/destroyed frame-id silently returns `[]`, so never pass an opts map as the sole arg — and an `eval-cljs` form spells it fully qualified (`re-frame.core/trace-buffer` or the tooling home), because the eval namespace carries no `rf` alias. This skill registers exactly *one* trace listener (id `:re-frame2-pair`) so tools coexist.
 3. **The epoch history** — `(rf/epoch-history frame-id)` returns the per-frame ring of `:rf/epoch-record` values, each carrying the cascade's `:db-before`, `:db-after`, `:trace-events`, and the structured `:sub-runs` / `:renders` / `:effects` projections. `(rf/register-listener! :epoch id cb)` is the assembled-stream listener.
 
-Every op eventually becomes a short ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads (see §Setup).
-
----
-
-## Setup — preload `re-frame2-pair.runtime`
-
-The skill's helper namespace ships into the app via shadow-cljs's `:devtools :preloads` mechanism (separate from Xray's devtools preload and true-inline `[data-rf-xray-host]` panel contract). **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. When `discover-app` can't find the marker it runs a diagnostic ladder; the normal missing-preload verdict is `:reason :runtime-loaded-but-preload-missing`. See [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder) for the full reason set and each recovery.
-
-The skill installs from a repo checkout (not npm — see the README's *Install* / [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)), so the preload comes off the linked skill's own `preload/` directory. Setup has two halves: the directory has to join the build's **classpath**, and `re-frame2-pair.runtime` has to be listed in the build's `:devtools :preloads`.
-
-**Include `day8/re-frame2-schemas` alongside core in the app's dev dependencies.** The preload directly requires `re-frame.schemas`; core does not bring that artefact. Use the same revision as the app's core dependency (or this clone's `implementation/schemas` as a `:local/root`). Without it compilation fails with a missing `re-frame.schemas` namespace before discovery can run. Add dependencies through the classpath owner below; the MCP server's dependencies do not enter the app's classpath.
-
-The `:preloads` half is always a `shadow-cljs.edn` line, whatever the app looks like:
-
-```clojure
-{:builds
- {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}  ;; always this
-```
-
-**The classpath half depends on who owns the classpath — read the top of the app's `shadow-cljs.edn` before you edit anything.** A `:deps` or `:lein` key there means shadow does *not* own the classpath, and in those modes it **ignores a `:source-paths` key entirely**, saying so on startup: `WARNING: The configured :source-paths in shadow-cljs.edn were ignored! When using :deps they must be configured in deps.edn`. Put the path in the wrong file and the namespace never compiles, so `discover-app` reports `:runtime-loaded-but-preload-missing` and the setup reads as broken rather than misfiled.
-
-| Top-level key in `shadow-cljs.edn` | Classpath owner | Add the preload directory to |
-|---|---|---|
-| `:deps true` or `:deps {:aliases [...]}` | `deps.edn` | an activated alias's `:extra-paths` (or top-level `:paths`) |
-| `:lein true` or `:lein {...}` | `project.clj` | lein's `:source-paths` (a dev profile if you keep one) |
-| neither | `shadow-cljs.edn` | `:source-paths` |
-
-**A `:deps` app** — the re-frame2 template is one (`{:deps {:aliases [:shadow :dev]}}`), so `:dev` is the alias to extend:
-
-```clojure
-;; deps.edn — the classpath half
-{:aliases
- {:dev {:extra-paths ["<abs>/skills/re-frame2-pair/preload"]}}}  ;; add this
-```
-
-**A standalone shadow app** (no `:deps` / `:lein` key) — here `:source-paths` is the right home, and the whole change is two lines in the one file:
-
-```clojure
-{:source-paths ["src"
-                "<abs>/skills/re-frame2-pair/preload"]  ;; add this (the linked skill's preload/)
- :builds
- {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}  ;; …and this
-```
-
-Either way the preload stays **dev-only**, and it is the `:preloads` entry that makes it so rather than where the path sits: shadow injects `:devtools :preloads` only in `:dev` mode, so a `release` build carries none of it even when the alias still puts the directory on the classpath.
-
-The `re-frame2-pair.runtime` namespace is **separate from the MCP server** (`@day8/re-frame2-pair-mcp`) — the MCP server does NOT ship `preload/`, so wiring only the server leaves `discover-app` failing with `:runtime-loaded-but-preload-missing`. (Once the `@day8/re-frame2-pair` package is published to npm, `npm install -D @day8/re-frame2-pair` and point the classpath entry above at `node_modules/@day8/re-frame2-pair/preload` instead — same branch, same files — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md).)
-
-Verify by running `discover-app` — success is `{:ok? true :build-id ... :debug-enabled? true :frames [...]}` plus other health slots. A missing preload returns `{:ok? false :reason :runtime-loaded-but-preload-missing :hint "..."}`; report the hint verbatim (fixable in seconds). The other ladder rungs (`:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable`, plus the blanket `:runtime-not-preloaded` degradation fallback) each mean a different fix — see [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder).
-
-**The epoch surfaces also need `day8/re-frame2-epoch` on the app's classpath**, with `re-frame.epoch` required at boot. Neither the preload nor the MCP server brings it and `discover-app` does not check for it, so a core-only app passes `discover-app`, then every epoch read (`watch-epochs`, `trace-window`, `(rf/epoch-history …)`) comes back `[]` and `restore-epoch` / `replay-epoch` refuse — see [references/errors.md §Tool-envelope refusals](references/errors.md#tool-envelope-refusals) for its one loud symptom, `:rf.error/epoch-artefact-missing`.
-
-**Registering the MCP server takes a fresh session, not `--continue`.** Wiring `@day8/re-frame2-pair-mcp` into the agent host (`claude mcp add`, or editing `settings.json`) only takes effect in sessions that **start** afterwards — a `--continue`'d session won't surface the tools even though `claude mcp list` reports `Connected`. Exit and start a new session after registering (also after rebuilding `out/server.js`).
-
-**The v1→v2 migration boot-smoke needs only a browser-console read, not this MCP** — see [`skills/re-frame-migration/references/runtime-smoke-test.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/runtime-smoke-test.md). Reserve the full pair MCP for the *deeper* interactive debugging once the boot-smoke flags something.
-
----
-
-## Cardinal rule — two modes of changing the app
-
-- **REPL changes** (hot-swap a handler, evaluate a form, reset a frame's `app-db`) are **ephemeral** — survive hot-reloads of unaffected namespaces, lost on full page reload. Use for **probes, experiments, throwaway fixes**.
-- **Source edits** (`Edit` / `Write`) are **permanent**. Capture your probe's current value **before** the edit (that's the `baseline`); after the edit you *must* run the hot-reload coordination protocol (`tail-build` with the probe **and** that pre-edit `baseline`) before dispatching or tracing, or you'll interact with pre-reload code and get misleading results. The pre-edit baseline is what makes a fast reload — one that lands before `tail-build`'s first sample — read as success instead of a spurious timeout.
-
-Know which mode you're in and why. Strict source-edit protocol: [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination).
+Every op eventually becomes a short ClojureScript form evaluated through the REPL, usually against a helper in the `re-frame2-pair.runtime` namespace the consumer app preloads (see [§Setup](#setup--preload-re-frame2-pairruntime)).
 
 ---
 
 ## Connect first, every session
 
-Before any other op, run `discover-app` (`mcp__re-frame2-pair__discover-app`). It locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the `re-frame2-pair.runtime` preload landed (see §Setup).
+Before any other op, run `discover-app` (`mcp__re-frame2-pair__discover-app`). It locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the `re-frame2-pair.runtime` preload landed.
 
-**Connect once — the resolved build sticks.** A successful `discover-app` records the resolved build as the **session-sticky default** on the connection, for *every* resolution path — auto-selected single build, explicit `:build`, *and* `:port`. After one `discover-app`, call every other tool (`orient`, `read-dom`, `read-ui`, `snapshot`, `get-path`, …) with **no `build` arg** and it targets the resolved build — even with several builds running. Pass `build` again only to *switch* builds (an explicit `:build` on any later call wins and re-sticks). The sticky default resets on nREPL reconnect (a shadow restart); the next `discover-app` re-establishes it.
+**Connect once — the resolved build sticks.** A successful `discover-app` records the resolved build as the **session-sticky default** on the connection, for *every* resolution path — auto-selected single build, explicit `:build`, *and* `:port`. After one `discover-app`, call every other tool with **no `build` arg** and it targets the resolved build — even with several builds running. Pass `build` again only to *switch* builds (an explicit `:build` on any later call wins and re-sticks). The sticky default resets on nREPL reconnect (a shadow restart); the next `discover-app` re-establishes it.
 
 **Arg forms (don't guess).** Each arg has one expected shape:
 
 | Arg | Form | Examples |
 |---|---|---|
 | `build` | bare build id; a leading colon is also tolerated. **Omit it when one build is running** — discover-app auto-selects it | `"examples/standard-epochs"` or `":examples/standard-epochs"` — identical |
-| `port` | integer — the port from the browser URL | `8031` — see *Connecting from a URL* below |
+| `port` | integer — the port from the browser URL | `8031` |
 | `frame` / `frames` | keyword **with** the colon | `":rf/default"`, `":app/main"`, `[":rf/default" ":rf/xray"]` |
 
-**Single-build auto-selection / connecting from a URL.** You usually don't pass `build` — one running build auto-selects (several → it errors with the running-builds list, never a silent guess). When you know only the open tab's URL, pass `discover-app {port: 8031}`: the server reads the `:dev-http` map and resolves the build served on that port (no build maps to it → `:reason :port-unresolved`, no silent fallback; an explicit `:build` wins if you pass both). The port-resolved build **sticks** like every other path. discover-app reports every build/frame id as a **full keyword** in the canonical EDN — read the EDN text for the id exactly as you'd type it back into a `:frame` arg (the `:structuredContent` JSON view strips the colon, a documented lossy projection).
+**Single-build auto-selection / connecting from a URL.** You usually don't pass `build` — one running build auto-selects (several → it errors with the running-builds list, never a silent guess). When you know only the open tab's URL, pass `discover-app {port: 8031}`: the server reads the `:dev-http` map and resolves the build served on that port (no build maps to it → `:reason :port-unresolved`; then read the app's `shadow-cljs.edn` `:dev-http` yourself and pass `build`). discover-app reports every build/frame id as a **full keyword** in the canonical EDN — read the EDN text for the id exactly as you'd type it back into a `:frame` arg (the `:structuredContent` JSON view strips the colon, a documented lossy projection). Port discovery itself is automatic and absorbs shadow restarts; its cascade and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides are in [references/mcp-transport.md](references/mcp-transport.md#install--configure-one-time) — rarely needed.
 
-**Read the `:freshness` token before you trust a read.** Every `:ok? true` discover-app payload carries `:freshness {:liveness <verdict> :hint <str> ...}`. Pattern-match `:liveness` first: `:fresh` (read away), `:stale-build` (tab serving OLD code — the `:hint` names the URL to reload), `:no-runtime` (no live CLJS runtime — reads come back blank; `:hint` names the URL to reload then re-run discover-app), `:unknown` (build-worker state unreadable — **not a green light**; usual cause is a zombie shadow-cljs JVM, so the `:hint` steers to `npx shadow-cljs stop` → one `watch` → reload → re-discover).
+**Read the `:freshness` token before you trust a read.** Every `:ok? true` discover-app payload carries `:freshness {:liveness <verdict> :hint <str> ...}`. Pattern-match `:liveness` first: `:fresh` (read away), `:stale-build` (tab serving OLD code — the `:hint` names the URL to reload), `:no-runtime` (no live CLJS runtime — reads come back blank; `:hint` names the URL to reload then re-run discover-app), `:unknown` (build-worker state unreadable — **not a green light**; usual cause is a zombie shadow-cljs JVM, so the `:hint` steers to `npx shadow-cljs stop` → one `watch` → reload → re-discover). You **cannot reload a browser yourself** — on a non-`:fresh` verdict, relay the `:freshness :hint` to the user as the single next step rather than firing reads that return blank.
 
-You **cannot reload a browser yourself** — on a non-`:fresh` verdict, relay the `:freshness :hint` to the user as the single next step rather than firing reads that return blank.
+**On any failed precondition**, discover-app returns structured edn — `{:ok? false :reason :runtime-loaded-but-preload-missing}` or another ladder rung (`:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable`, plus the blanket `:runtime-not-preloaded` degradation fallback). Report the failing check and its `:hint` verbatim; do *not* guess workarounds. Each rung means a different fix: [references/errors.md §discover-app preload-failure ladder](references/errors.md#discover-app-preload-failure-ladder).
 
-On any failed precondition, discover-app returns structured edn (`{:ok? false :reason :runtime-loaded-but-preload-missing}` or another ladder rung: `:build-not-running` / `:no-runtime-connected` / `:nrepl-unreachable`). Report the failing check verbatim; do *not* guess workarounds. See [references/errors.md](references/errors.md) for reasons + recoveries.
+The nREPL session persists between turns. A full page refresh drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) first; if missing, the op refuses with the runtime-side `:runtime-not-preloaded` hint (distinct from `discover-app`'s richer ladder, which reports the more precise `:runtime-loaded-but-preload-missing` for the same condition).
 
-**Port + build discovery are automatic.** On the first tool call the server discovers the live shadow-cljs nREPL itself and absorbs shadow restarts transparently; the resolved build sticks. Only reach for manual resolution on `:reason :port-unresolved` (read the app's `shadow-cljs.edn` `:dev-http` yourself to correlate the URL port to its build, then pass `discover-app {build: ...}`). The full discovery cascade, build-id resolution rules, and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides live in [references/mcp-transport.md](references/mcp-transport.md#install--configure-one-time) — rarely needed.
+For a refresher on the MCP surface, optionally call `get-re-frame2-pair-instructions` — inline onboarding text (six routing rules, the EDN posture, tagged-mutation conventions, the wire pipeline) with no nREPL round-trip. Its routing preamble states the **same** `eval-cljs` rule as [§Style guidance](#style-guidance) below, so read the two as one rule restated, not as competing advice.
 
-The nREPL session persists between turns. A full page refresh drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) first; if missing, the op refuses with the runtime-side `:runtime-not-preloaded` hint pointing here. (That per-op check is distinct from `discover-app`'s richer ladder, which on the same missing-marker condition reports the more precise `:runtime-loaded-but-preload-missing` — see [references/errors.md](references/errors.md#discover-app-preload-failure-ladder).)
+## Setup — preload `re-frame2-pair.runtime`
 
-For a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` — inline onboarding text (six routing rules for which tool to reach for, then the EDN posture, tagged-mutation conventions, the wire pipeline) with no nREPL round-trip. It does not list the tools; `tools/list` already gave you every descriptor. Its routing preamble states the **same** `eval-cljs` rule as §Style guidance below — reach for a typed tool whenever one fits the gesture, and treat `eval-cljs` as first-class for the long tail no typed tool covers — so read the two as one rule restated, not as competing advice.
+The app's dev build needs three things the MCP server does not supply, and `discover-app` failing is usually one of them missing:
+
+1. **`re-frame2-pair.runtime` in the build's `:devtools :preloads`** — always a `shadow-cljs.edn` line: `{:builds {:app {:devtools {:preloads [re-frame2-pair.runtime]}}}}`. The preload is required; there is no per-session inject fallback.
+2. **The linked skill's `preload/` directory on the build's classpath**, in whichever file *owns* the classpath — a `deps.edn` alias for a `:deps` app, `project.clj` for a `:lein` app, `shadow-cljs.edn` `:source-paths` only for a standalone shadow app. Under `:deps` / `:lein` shadow ignores its own `:source-paths`, so a path put there never loads and `discover-app` reports `:runtime-loaded-but-preload-missing`.
+3. **`day8/re-frame2-schemas`** (the preload requires `re-frame.schemas`; without it the build fails to compile) and, for every epoch surface, **`day8/re-frame2-epoch`** with `re-frame.epoch` required at boot. `discover-app` does not check for the epoch artefact: without it every epoch read comes back `[]` and `dispatch-dry-run` / `restore-epoch` / `replay-epoch` refuse.
+
+The classpath table, per-build-tool snippets, verification and MCP-server registration (a fresh session, not `--continue`) are in [references/setup.md](references/setup.md) — read it before editing the app's build config. (A v1→v2 migration *boot-smoke* needs no pair MCP at all — see [`skills/re-frame-migration/references/runtime-smoke-test.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame-migration/references/runtime-smoke-test.md).)
 
 ---
 
@@ -207,9 +150,18 @@ When the operating frame is ambiguous (two-plus **app** frames, no pin), **every
 
 ---
 
+## Cardinal rule — two modes of changing the app
+
+- **REPL changes** (hot-swap a handler, evaluate a form, reset a frame's `app-db`) are **ephemeral** — survive hot-reloads of unaffected namespaces, lost on full page reload. Use for **probes, experiments, throwaway fixes**.
+- **Source edits** (`Edit` / `Write`) are **permanent**. Capture your probe's current value **before** the edit (that's the `baseline`); after the edit you *must* run the hot-reload coordination protocol (`tail-build` with the probe **and** that pre-edit `baseline`) before dispatching or tracing, or you'll interact with pre-reload code and get misleading results. The pre-edit baseline is what makes a fast reload — one that lands before `tail-build`'s first sample — read as success instead of a spurious timeout.
+
+Know which mode you're in and why. Strict source-edit protocol: [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination).
+
+---
+
 ## Where the depth lives — loading map
 
-Read the leaf matching the task. Most references are ≤250 lines; the two catalogue leaves (`ops.md`, `recipes.md`) run longer. Screen reads — what is on screen and why it rendered — are their own leaf (`screen-reads.md`), so an ordinary read/dispatch/trace session never loads them.
+Read the leaf matching the task. Screen reads — what is on screen and why it rendered — are their own leaf (`screen-reads.md`), so an ordinary read/dispatch/trace session never loads them.
 
 | Task shape | Reference |
 |---|---|
@@ -226,9 +178,11 @@ Read the leaf matching the task. Most references are ≤250 lines; the two catal
 | Drive a Story variant in the app you have open — enumerate the browser's own registry, run a variant, then read/dispatch/trace/diff it as an ordinary frame (the variant id *is* the frame id) | [references/stories.md](references/stories.md) |
 | Decode a deduped wire payload (`:rf.mcp/dedup-table`) or pick the right size-conscious arg (`max-tokens`, `path`, `mode`, `dedup`, `elision`, `limit`/`cursor`, `cache`, `max-entries`) | [references/wire-size-budget.md](references/wire-size-budget.md) |
 | Translate a structured `{:ok? false :reason ...}` to plain English; suggest the recovery | [references/errors.md](references/errors.md) |
+| Decide whether a read may expose sensitive data, or what the server's launch gates allow | [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out) |
 | Edit source, then wait for the browser to pick up the new code | [references/ops.md §Hot-reload coordination](references/ops.md#hot-reload-coordination) |
+| Wire the preload / artefacts into the app, or register the MCP server | [references/setup.md](references/setup.md) |
+| Install/configure the persistent-connection MCP server, its launch flags, port discovery | [references/mcp-transport.md](references/mcp-transport.md) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know it has none) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
-| Install/configure the persistent-connection MCP server | [references/mcp-transport.md](references/mcp-transport.md) |
 
 Load at most two references for a single task. Wanting three means the request spans concerns and should be broken up.
 
