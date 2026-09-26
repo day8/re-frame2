@@ -206,18 +206,14 @@ the control-by-control inventory.
 - **Settings popup (`,` / `s`)** — a 4-tab modal (General · Keybindings ·
  Buffer · Diff). **Density and panel-width are NOT popup controls** —
  density is set at boot or cycled from the palette; width is the drag
- handle. Merge
- order is `defaults < configure! {:rf.xray/settings …} < persisted
- Settings < init! opts` — the popup wins over `configure!`, but
- `init! opts` are written and persisted **LAST**, so they re-pin their
- own keys on every boot. `init! opts` is a per-mount PIN (harnesses,
- testbeds); a user-overridable boot default goes through
- `configure! {:rf.xray/settings {:general {…}}}`.
+ handle. Merge order is `defaults < configure! {:rf.xray/settings …} <
+ persisted Settings < init! opts`: the popup beats `configure!`, but
+ `init! opts` re-pin their keys on every boot, so a user-overridable boot
+ default belongs in `configure!` ([detail](references/launch-programmatic.md#boot-defaults-vs-pins--the-merge-order)).
 - **Snapshot app-db** — the on-box share helper is the palette verb, and
  it is **always redacted and size-elided** (sensitive ⇒ `:rf/redacted`,
- large ⇒ `:rf.size/large-elided`); the command has no raw-capture opt-in.
- Do not present it as a raw-`app-db` /
- secret-egress path.
+ large ⇒ `:rf.size/large-elided`); the command has no raw-capture opt-in,
+ so do not present it as a way to copy raw `app-db` or secrets off-box.
 
 ## Which reference leaf to load
 

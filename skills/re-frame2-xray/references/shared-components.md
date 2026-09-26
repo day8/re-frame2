@@ -37,12 +37,15 @@ depth-2-expanded).
 Operator expansion state persists in app-db
 (`:rf.xray.edn-inspector/expansion {<path>}`) per epoch + path.
 
-### No per-panel prev/next header
+### Spine navigation — no shared per-panel header
 
-**No L4 panel mounts its own epoch stepper.** Spine navigation belongs to
-the **L2 events list** and the chrome ribbon's `‹ › »` cluster
-(previous · next · fast-forward to head), for every L4 panel without
-exception — see [`021-Dynamic-Panel-Designs.md` §5.5](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md).
+There is **no shared prev/next header** for L4 panels. Spine navigation
+belongs to the **L2 events list** and the chrome ribbon's `‹ › »` cluster
+(previous · next · fast-forward to head) — see
+[`021-Dynamic-Panel-Designs.md` §5.5](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/021-Dynamic-Panel-Designs.md).
+The one panel-owned stepper is the Machine tab's per-machine prev/next,
+which jumps to the previous or next event that touched *that* machine
+(`prev-next-nav` in `panels/machine_inspector.cljs`).
 The focus-gated `j` / `k` spine keys
 (`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) are
 the keyboard route; `keybinding.cljs` wires **no** `ArrowLeft` /
@@ -75,22 +78,10 @@ the mnemonic rides in the button's `title`. The per-tab icon and stripe
 table in §021 §17.1.5 is normative-future: do not describe tab icons to a
 user.
 
-Ten Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
-slot; **Resources** `:order 7`, **Graph** `:order 8`, **Frames**
-`:order 9` and **Fresco** `:order 10` are the four cross-feature lenses,
-each self-registered
-through `reg-l4-tab!`). There is **no Issues tab** and **no Event tab** —
-the Epoch tab is the "what happened" surface (issues detail:
-[`panels-epoch.md` §Issues](panels-epoch.md#issues--inline-not-a-tab)).
-
-**The L2 row is glyph-free**: no gutter glyph, no origin
-prefix and no activity badges render. Its left-most column is a plain
-text `source` tag — `ui` for app code (and for the un-stamped defaults),
-otherwise the bare source name (`router`, `http`, `ssr-hydration`,
-`fx-dispatch`, `after-timer`, `tool`, …). **L2 issue pink-wash**: a
-cascade carrying an issue washes its whole L2 row pink
-(`:bg-issue-row`) — the per-row "this epoch is broken" signal, and the
-only row decoration that ships.
+The L2 event row is glyph-free too — a text `source` column, the `>`
+caret and the issue pink-wash are all it carries; see
+[`panels-epoch.md` §The L2 timeline grammar](panels-epoch.md#the-l2-timeline-grammar).
+The tab order and scope matrix live in [`panels.md`](panels.md).
 
 Arrows in the chrome: `↳` cause-attribution chip (`:text-tertiary`,
 11px) · `→` inline state transition (`:text-primary`, mono). There is no
