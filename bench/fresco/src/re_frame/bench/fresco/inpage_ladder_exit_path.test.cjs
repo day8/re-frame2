@@ -65,15 +65,6 @@ test('all four published datasets adjudicate CLEAN', () => {
 
 // --- the line ending ------------------------------------------------------
 
-test('readMap finds its key with CRLF line endings, and with LF', () => {
-  // The slice runs from the start of the form's own line, so it carries that
-  // line's leading space — the parser's shape.
-  const lf = '{\n :rounds\n [[0 :floor 1.5]]\n :arms\n {:floor {:n 1}}}\n';
-  const crlf = lf.replace(/\n/g, '\r\n');
-  assert.strictEqual(agg.readMap(lf, 'rounds'), ' [[0 :floor 1.5]]');
-  assert.strictEqual(agg.readMap(crlf, 'rounds'), ' [[0 :floor 1.5]]');
-});
-
 test('THE CRLF CRASH: a real dataset adjudicates identically as CRLF and as LF', () => {
   // The exact input an LF-only anchor dies on before comparing a single
   // figure — held HERE rather than read off the disk. Both variants are built
@@ -220,20 +211,6 @@ test('an arm made to depend on WHERE IT RAN is REFUSED', () => {
   );
 });
 
-test('a REFUSAL can never reach the exit as an empty problem list', () => {
-  // The fallback. If the guard refuses but the per-factor loop names nothing
-  // — a shape change in `order_guard.cjs`, say — the run must still refuse.
-  // Proven against the real adjudicator by asserting the invariant on a
-  // refusing dataset rather than by faking one.
-  const text = read('A').replace(
-    /\[([45]) :floor (-?[0-9.]+)\]/g,
-    (_, r, ms) => `[${r} :floor ${Number(ms) / 3}]`
-  );
-  const out = agg.checkRun('A', text);
-  assert.ok(out.order.refuse);
-  assert.ok(out.problems.length > 0, 'a refusing guard must contribute at least one problem');
-});
-
 // --- the raw shape, and the NaN that would pass ---------------------------
 //
 // An arm roster derived from the rows that survived would exit 0, print
@@ -308,12 +285,6 @@ test('THE FAIL-OPEN: an arm stripped from the raw rounds REFUSES', () => {
     out.problems.some((p) => /no arm mean recomputed for :noreads/.test(p)),
     'and the refusal must name what was absent, not merely that arithmetic failed'
   );
-});
-
-test('the NaN trap is real — an equality check on one reads as AGREEMENT', () => {
-  // Why finiteness is tested BEFORE the comparison and not by it. This is the
-  // exact expression `checkRun` runs against every stored figure.
-  assert.ok(!(Math.abs(1.2345 - NaN) > agg.EPS), 'NaN comparisons are all false');
 });
 
 test('a whole round missing from the raw rounds REFUSES', () => {

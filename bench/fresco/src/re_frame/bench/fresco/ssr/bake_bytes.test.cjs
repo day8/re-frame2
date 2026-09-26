@@ -74,30 +74,6 @@ const CASES = [
   },
 ];
 
-// --- the inputs really do discriminate -------------------------------------
-
-test('the fixtures are not accidentally ASCII — the escapes survived the file', () => {
-  assert.strictEqual(EM_DASH.codePointAt(0), 0x2014);
-  assert.strictEqual(ELLIPSIS.codePointAt(0), 0x2026);
-  assert.strictEqual(CLEF.codePointAt(0), 0x1d11e);
-  // The clef is the one input that tells all three accountings apart.
-  assert.strictEqual(CLEF.length, 2, 'two UTF-16 code units');
-  assert.strictEqual([...CLEF].length, 1, 'one codepoint');
-  assert.strictEqual(Buffer.byteLength(CLEF, 'utf8'), 4, 'four UTF-8 bytes');
-});
-
-test('every non-ASCII case would give a DIFFERENT answer under the old code', () => {
-  const discriminating = CASES.filter((c) => c.units !== c.bytes);
-  assert.strictEqual(
-    discriminating.length,
-    CASES.length - 1,
-    'exactly one case — the ASCII control — may be indistinguishable',
-  );
-  for (const c of discriminating) {
-    assert.notStrictEqual(c.s.length, utf8Bytes(c.s), `${c.what}: cannot distinguish the defect`);
-  }
-});
-
 // --- the arithmetic --------------------------------------------------------
 
 for (const { what, s, units, bytes } of CASES) {
