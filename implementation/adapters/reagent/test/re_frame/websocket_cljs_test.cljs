@@ -231,8 +231,8 @@
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/connection [:rf.machine/start]] {:frame f})
     (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-      (is (= :disconnected (:state s))
-          (str "expected :disconnected got " (pr-str (:state s))))
+      (is (= [:disconnected] (:state s))
+          (str "expected [:disconnected] got " (pr-str (:state s))))
       (is (= [] (get-in s [:data :queue])))
       (is (= {} (get-in s [:data :in-flight])))
       (is (= #{} (get-in s [:data :subscriptions])))
@@ -278,7 +278,7 @@
                            [:ws/send {:type :note :body "B"}]]
                           {:frame f})
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (is (= :disconnected (:state s)))
+          (is (= [:disconnected] (:state s)))
           (is (= 2 (count (get-in s [:data :queue]))))
           ;; The queue buffers the WHOLE inbound event (so a queued
           ;; :ws/request can rejoin :register-request on flush — see
@@ -318,8 +318,8 @@
           ;; capture-frame so its deferred dispatch carries the frame.
           (messages/simulate-disconnect! (rf/capture-frame f))
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-            (is (= :reconnecting (:state s))
-                (str "expected :reconnecting got " (:state s)))
+            (is (= [:reconnecting] (:state s))
+                (str "expected [:reconnecting] got " (:state s)))
             (is (true?  (machine-has-tag? f :websocket/reconnecting)))
             (is (false? (machine-has-tag? f :websocket/connected)))
             ;; Leaving :active tore the socket actor down; the runtime
@@ -380,8 +380,8 @@
                                           :code 1006}]]
                             {:frame f}))
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (is (= :failed (:state s))
-              (str "expected :failed got " (:state s)
+          (is (= [:failed] (:state s))
+              (str "expected [:failed] got " (:state s)
                    " retries=" (get-in s [:data :retries])
                    " max=" (get-in s [:data :max-retries]))))))))
 
@@ -455,7 +455,7 @@
         (is (true? (machine-has-tag? f :websocket/connected)))
         (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (is (= :disconnected (:state s)))
+          (is (= [:disconnected] (:state s)))
           (is (false? (machine-has-tag? f :websocket/connected)))
           (is (false? (machine-has-tag? f :websocket/reconnecting)))
           (is (false? (machine-has-tag? f :websocket/failed)))
@@ -498,7 +498,7 @@
         "two failed opens spent two retries")
     (let [gave-up (step s3 [:ws/disconnect])
           again   (step gave-up connect)]
-      (is (= :disconnected (:state gave-up)))
+      (is (= [:disconnected] (:state gave-up)))
       (is (= [:active :connecting] (:state again)))
       (is (= 0 (get-in again [:data :retries]))
           "the manual :ws/connect out of :disconnected zeroed the retry counter"))
@@ -547,7 +547,7 @@
                              [:ws/closed {:source-socket-id live-id :code 1006}]]
                             {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-            (is (= :reconnecting (:state s))
+            (is (= [:reconnecting] (:state s))
                 "live :ws/closed passed the guard and dropped to :reconnecting")
             (is (= (inc retries0) (get-in s [:data :retries]))
                 ":on-socket-lost bumped the retry counter on the real drop")))))))
@@ -621,7 +621,7 @@
           (messages/simulate-disconnect! (rf/capture-frame f))
           (let [s  (snapshot (:rf.db/runtime (rf/frame-state-value f)))
                 db (rf/app-db-value f)]
-            (is (= :reconnecting (:state s)))
+            (is (= [:reconnecting] (:state s)))
             (is (= {} (get-in s [:data :in-flight]))
                 ":in-flight cleared on socket drop — no indefinite leak")
             (let [reply (get-in db [:messages :last-reply])]
@@ -1125,7 +1125,7 @@
           ;; Clean disconnect, mid-flight.
           (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-            (is (= :disconnected (:state s)))
+            (is (= [:disconnected] (:state s)))
             (is (nil? (socket-id-of s)) "the socket actor is torn down")
             (is (= {} (get-in s [:data :in-flight]))
                 ":in-flight cleared on clean disconnect — no stranded slot")
@@ -1145,7 +1145,7 @@
                                                    :source-socket-id old-id}]]
                             {:frame f})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-            (is (= :disconnected (:state s))
+            (is (= [:disconnected] (:state s))
                 "the stale timeout does not move the machine")
             (is (= {} (get-in s [:data :in-flight]))
                 "the stale timeout resurrects no slot")
@@ -1298,7 +1298,7 @@
           (rf/dispatch-sync [:ws.app/request "queued-hello"]
                             {:frame f :rf.cofx {:ws.app/request-id rid}})
           (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-            (is (= :disconnected (:state s)))
+            (is (= [:disconnected] (:state s)))
             (is (= 1 (count (get-in s [:data :queue]))))
             (is (= :ws/request (ffirst (get-in s [:data :queue])))
                 "buffered as the WHOLE :ws/request event, not a bare body"))
@@ -1370,7 +1370,7 @@
     (fn []
       (with-new-frame [f (new-frame)]
         (drive-to-failed! f)
-        (is (= :failed (:state (snapshot (:rf.db/runtime (rf/frame-state-value f)))))
+        (is (= [:failed] (:state (snapshot (:rf.db/runtime (rf/frame-state-value f)))))
             "precondition: machine is in top-level :failed")
         (is (true? (machine-has-tag? f :websocket/failed)))
         ;; --- a :ws/send in :failed must QUEUE, never be LOST ----------------
@@ -1378,7 +1378,7 @@
                            [:ws/send {:type :note :body "keep-me"}]]
                           {:frame f})
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (is (= :failed (:state s))
+          (is (= [:failed] (:state s))
               "a :ws/send does not move the machine out of :failed")
           (is (= [[:ws/send {:type :note :body "keep-me"}]]
                  (get-in s [:data :queue]))
@@ -1609,7 +1609,7 @@
         (rf/dispatch-sync [:ws/connection [:ws/subscribe :t/before-connect]]
                           {:frame f})
         (let [s (snapshot (:rf.db/runtime (rf/frame-state-value f)))]
-          (is (= :disconnected (:state s)))
+          (is (= [:disconnected] (:state s)))
           (is (contains? (get-in s [:data :subscriptions]) :t/before-connect)
               "a subscribe while :disconnected is recorded"))
         ;; `drive-to-failed!` connects first, so its :connected entry is the
