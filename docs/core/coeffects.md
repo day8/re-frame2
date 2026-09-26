@@ -54,7 +54,7 @@ Instead, declare the fact and receive it as a plain value:
       ^{:key id}
       [:li title
        [:span {:style {:color "#888" :margin-left "1em"}}
-        (.toLocaleTimeString (js/Date. created-at))]])]])
+        "added at " created-at " ms"]])]])
 
 [rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
  [todo-list]]
@@ -67,8 +67,8 @@ Notes:
    the handler's first argument, the **coeffects map**, under its own id.
 2. The runtime reads the clock once, when the event is queued, and records the value
    with the event. Replay the event next week and `:created-at` comes out the same.
-3. App-db stores raw milliseconds. Formatting is the view's job, and the view's
-   `js/Date.` never touches app-db.
+3. App-db stores raw milliseconds. Formatting them for people is the view's job;
+   the view here shows the raw number.
 
 `:rf/time-ms` is the one fact core provides. Everything else you register yourself.
 

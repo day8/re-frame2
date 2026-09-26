@@ -1,12 +1,12 @@
 # Test a view
 
-A view test checks what a view is responsible for: the structure it returns, the text it shows for a given state, and which handler is attached to which button. A [view](../glossary.md#view) is a function that returns [hiccup](../glossary.md#hiccup), plain data, so the test is a function call and a tree walk. It needs no browser, no JSDOM and no `act()`, and runs on the JVM in milliseconds.
+A [view](../glossary.md#view) returns [hiccup](../glossary.md#hiccup), which is plain data, so a view test is a function call and a tree walk. It checks what the view is responsible for: the structure it returns, the text it shows for a given state, and which event each control dispatches. It needs no browser, no JSDOM and no `act()`, and runs on the JVM.
 
-Sections 1–3 cover views written as plain functions (Reagent-style hiccup). A UIx `defui` that calls `use-sub` or `use-frame` is a React hook component: hooks only run inside React's render, so there is no tree to walk without mounting it in a browser. Its recipe is [section 4](#4-uix-hook-components-mount-it-for-real).
+Most wrong screens are data bugs. A view holds no state and decides nothing, so the cause is usually an upstream [subscription](subscriptions.md) or [handler](event-handlers.md), and those have cheaper tests. Keep view tests for structure, text and wiring.
 
-Most wrong screens are data bugs. A view holds no state and decides nothing, so the cause is usually the [subscription](subscriptions.md) or [handler](event-handlers.md) upstream, and those have cheaper tests ([Views](../views.md#troubleshooting) covers the diagnosis). Keep view tests for structure, text and wiring.
+Sections 1–3 test the todo views from [Views](../views.md), which are `reg-view`s you can call as functions. A UIx `defui` that calls `use-sub` or `use-frame` is a React hook component and has to be mounted in a browser; [section 4](#4-uix-hook-components-mount-it-for-real) has that recipe.
 
-The tools are `re-frame.test-helpers`, pure functions over hiccup [listed in the API reference](../../api/re-frame.test-helpers.md), plus the `re-frame.test-support` fixture:
+The tools are `re-frame.test-helpers`, pure functions over hiccup [listed in the API reference](../../api/re-frame.test-helpers.md), plus the reset fixture from `re-frame.test-support`:
 
 ```clojure
 (ns my-app.views-test
@@ -15,76 +15,90 @@ The tools are `re-frame.test-helpers`, pure functions over hiccup [listed in the
             [re-frame.test-support :as ts]
             [re-frame.test-helpers :as th]
             [re-frame.substrate.plain-atom :as plain-atom]   ;; the JVM / headless adapter
-            [my-app.counter :as counter]))   ;; the app namespace under test
+            [my-app.todos]                                   ;; events and subs
+            [my-app.views :as views]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter
-                                  :init-fn #(rf/dispatch-sync [:counter/init])}))
+  (ts/make-reset-runtime-fixture
+    {:adapter plain-atom/adapter
+     :init-fn #(rf/dispatch-sync
+                 [:rf/set-db {:todos   {1 {:id 1 :title "Buy milk"     :done? false}
+                                        2 {:id 2 :title "Walk the dog" :done? true}}
+                              :showing :all}])}))
 ```
 
-Given an `:adapter`, `make-reset-runtime-fixture` installs it before each test and makes the `:rf/default` frame current for the test body. `:init-fn` runs after that, before the test, which makes it the place to seed state. The fixture also snapshots and restores the registrar around every test. A purely presentational test (section 1) needs neither key, and `(ts/make-reset-runtime-fixture {})` is enough; the connected tests below rely on the `:rf/default` frame.
+Given an `:adapter`, the fixture installs it before each test and makes the `:rf/default` frame current, so views can subscribe and dispatch. `:init-fn` then runs, so it is the place to seed state; here the built-in `:rf/set-db` event sets app-db wholesale. The fixture also restores the registrar after every test.
 
 ## 1. Call it, walk it
 
-Give the nodes you'll assert on a stable address at the view site — `th/testid` builds an attrs map carrying `:data-testid` — then call the view like any function and read the tree it returns:
+Give the nodes you'll assert on a stable address at the view site. `th/testid` builds an attrs map carrying `:data-testid`. Here is `todo-item` with test ids added:
 
 ```clojure
-;; The view under test — a plain function of its arguments.
-(defn price-row [{:keys [label price]}]
-  [:tr (th/testid "price-row")
-   [:td label]
-   [:td (th/testid "price-cell") "$" price]])
-
-(deftest price-row-shows-the-price
-  (let [tree (price-row {:label "Widget" :price "12.50"})]
-    (is (= "$12.50" (th/text-content (th/find-by-testid tree "price-cell"))))))
+;; src/my_app/views.cljc
+(rf/reg-view todo-item [{:keys [id title done?]}]
+  [:li (th/testid (str "todo-" id))
+   [:input (th/testid (str "toggle-" id)
+                      {:type      "checkbox"
+                       :checked   done?
+                       :on-change #(dispatch [:todo/toggle id])})]
+   [:span (th/testid (str "title-" id)) title]
+   [:button (th/testid (str "delete-" id)
+                       {:on-click #(dispatch [:todo/delete id])})
+    "×"]])
 ```
 
-`find-by-testid` returns the first node carrying that `:data-testid`, and `text-content` concatenates the string leaves under it. `find-all-by-testid`, `find-by-testid-prefix`, `find-by-attr`, `attrs` and `children` cover lists and custom attributes ("every node whose testid starts with `row-`").
+Call the view like a function and read the tree it returns:
 
-A view that renders another view returns a component reference such as `[cart-line item]`, a vector whose head is a function rather than a tag. The finders and `text-content` expand those references as they walk, so assertions reach through child views. When you want the fully expanded tree as a value, to bind once for several assertions or walk by hand, call `th/expand-tree`.
+```clojure
+(deftest todo-item-shows-title-and-state
+  (let [tree (views/todo-item {:id 1 :title "Buy milk" :done? true})]
+    (is (= "Buy milk" (th/text-content (th/find-by-testid tree "title-1"))))
+    (is (true? (:checked (th/attrs (th/find-by-testid tree "toggle-1")))))))
+```
+
+`find-by-testid` returns the first node carrying that `:data-testid`, and `text-content` joins the string leaves under it. `find-all-by-testid`, `find-by-testid-prefix`, `find-by-attr`, `attrs` and `children` cover lists and other attributes.
 
 ??? info "Coming from React Testing Library?"
 
-    `find-by-testid` and `text-content` correspond to `getByTestId` and `textContent`, but the "render" was a plain function call, so there is no JSDOM to set up or clean up. The query API is smaller because you are walking a value, not a live document.
+    `find-by-testid` and `text-content` correspond to `getByTestId` and `textContent`, but the "render" was a plain function call, so there is no JSDOM to set up or clean up.
 
-## 2. Views that subscribe: the reset fixture
+## 2. Views that subscribe
 
-A presentational view takes data as arguments. A connected view subscribes and dispatches, so it needs a [frame](../glossary.md#frame) in scope, and the reset fixture at the top of the page provides `:rf/default`. The test dispatches, calls the view and walks the tree:
+`todo-footer` reads `:todo/remaining-count`, and `todo-list` reads `:todo/visible` and renders a `todo-item` per todo. The test dispatches, calls the view and walks the tree:
 
 ```clojure
-(deftest counter-increments-in-the-view
-  (rf/dispatch-sync [:counter/inc])
-  (rf/dispatch-sync [:counter/inc])
-  (is (= "2" (th/text-content
-               (th/find-by-testid (counter/main) "counter-display")))))
+(deftest footer-counts-remaining
+  (is (= "1 left to do" (th/text-content (views/todo-footer)))))
+
+(deftest active-filter-hides-done-todos
+  (rf/dispatch-sync [:todo/set-showing :active])
+  (let [tree (views/todo-list)]
+    (is (some? (th/find-by-testid tree "todo-1")))
+    (is (nil?  (th/find-by-testid tree "todo-2")))))
 ```
 
-`dispatch-sync` drains before it returns, so calling `counter/main` afterwards returns the updated tree. The two dispatches are the action under test. When a view needs state built before the action (a populated cart, a signed-in user), seed it in the fixture's `:init-fn` with `dispatch-sync`, so the body holds only the interaction being tested.
-
-Because the fixture snapshots and restores the registrar around every test, one test's registrations can't leak into the next, which is the trap [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) describes.
+`dispatch-sync` drains before it returns, so calling `todo-list` afterwards returns the updated tree. Each `[todo-item todo]` in the list is a component reference, a vector whose head is a function. The finders and `text-content` expand those references as they walk, so assertions reach through child views; `th/expand-tree` gives you the fully expanded tree as a value.
 
 ## 3. Drive the wiring
 
-`th/invoke-handler` finds the function attached to a node's event attribute and calls it, so the test proves the button is wired and not just present:
+`th/invoke-handler` finds the function attached to a node's event attribute and calls it, so the test proves the checkbox is wired and not only present:
 
 ```clojure
-(deftest inc-button-is-wired
-  (let [btn (th/find-by-testid (th/expand-tree (counter/main)) "counter-inc")]
-    (th/invoke-handler btn :on-click))          ;; runs the attached fn, which dispatches
+(deftest checkbox-toggles-the-todo
+  (let [box (th/find-by-testid (views/todo-list) "toggle-1")]
+    (th/invoke-handler box :on-change))     ;; runs the attached fn, which dispatches
   (is (ts/poll-until
-        #(= "1" (th/text-content
-                  (th/find-by-testid (counter/main) "counter-display")))
-        {:label "counter reached 1"})))
+        #(= "0 left to do" (th/text-content (views/todo-footer)))
+        {:label "todo 1 done"})))
 ```
 
 `invoke-handler` throws `:rf.error/invoke-handler-missing` when the node has no function under that key, because a missing handler is usually the bug you are looking for.
 
-The wait uses `ts/poll-until` rather than an immediate walk. The `:on-click` calls a plain `dispatch`, which queues the event instead of draining it, so the test polls the view until the condition holds or a deadline passes; a timeout throws `:rf.error/poll-until-timeout`. The same form covers any asynchronous change that shows up in the view: an HTTP reply, a machine `:after` transition, a scheduled event. On the JVM `poll-until` is synchronous; on CLJS it returns a `js/Promise`, so compose it with `cljs.test/async`. After a `dispatch-sync`, walking the tree immediately is enough.
+The `:on-change` calls the view's `dispatch`, which queues the event instead of draining it, so the test polls until the condition holds or a deadline passes. A timeout throws `:rf.error/poll-until-timeout`. The same form covers any change that arrives later: an HTTP reply, a machine `:after` transition, a scheduled event. On the JVM `poll-until` is synchronous; on CLJS it returns a `js/Promise`, so compose it with `cljs.test/async`. After a `dispatch-sync`, walking the tree immediately is enough.
 
 ## 4. UIx hook components: mount it for real
 
-A UIx `defui` that reads `use-sub` or `use-frame` can't be called as a function, because hooks run only inside React's render, so the test mounts it in a browser: mount inside a frame boundary, drive it, let React commit, read the DOM, unmount. The file below is the test re-frame2 runs in its own browser lane, [`uix_component_recipe_dom_cljs_test.cljs`](../../../implementation/adapters/uix/test/re_frame/adapter/uix_component_recipe_dom_cljs_test.cljs), shown verbatim:
+A UIx `defui` that reads `use-sub` or `use-frame` can't be called as a function, because hooks run only inside React's render, so the test mounts it in a browser: mount inside a frame boundary, drive it, let React commit, read the DOM, unmount. The file below is the test re-frame2 runs in its own browser lane, [`uix_component_recipe_dom_cljs_test.cljs`](../../../implementation/adapters/uix/test/re_frame/adapter/uix_component_recipe_dom_cljs_test.cljs), shown verbatim. It tests a small counter rather than the todo app because it is re-frame2's own test file:
 
 ```clojure
 (ns re-frame.adapter.uix-component-recipe-dom-cljs-test
@@ -259,22 +273,21 @@ A UIx `defui` that reads `use-sub` or `use-frame` can't be called as a function,
           (act-environment! ambient))))))
 ```
 
-**The fixture.** `make-reset-runtime-fixture` with `:adapter` installs the UIx adapter and makes `:rf/default` current before every test, then disposes the adapter and drops the frame after it. `:async? true` is there because one test is asynchronous. The test scopes that frame into the tree with `frame-provider {:frame :rf/default}`. Your app's `frame-root {:id :rf/default …}` also works in that position: it reuses the fixture's frame without replaying `:initial-events`, which is why the seed lives in `:init-fn`.
+What each part does:
 
-**`flush-views!` for changes the test drives.** It wraps React's `act()`, so the mount inside it is committed when it returns, and so is the re-render caused by a `dispatch-sync` inside it. Each adapter has its own `flush-views!`, as [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md#what-carries-over-what-doesnt) shows.
+- **The fixture.** With `:adapter`, `make-reset-runtime-fixture` installs the UIx adapter and makes `:rf/default` current before each test, then disposes both afterwards. `:async? true` is there because one test is asynchronous. The test scopes the frame into the tree with `frame-provider {:frame :rf/default}`. Your app's `frame-root {:id :rf/default …}` also works there; it reuses the fixture's frame without replaying `:initial-events`, which is why the seed lives in `:init-fn`.
+- **`flush-views!` for changes the test drives.** It wraps React's `act()`, so the mount inside it is committed when it returns, and so is the re-render caused by a `dispatch-sync` inside it. Each adapter has its own `flush-views!` (see [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md#what-carries-over-what-doesnt)).
+- **`poll-until` for a real click.** The view's `dispatch` queues the event and the router drains it later, so `act()` can't wait for it; the test polls the DOM instead, as in section 3. React's `act()` checks the global `IS_REACT_ACT_ENVIRONMENT` flag. The recipe sets it while `flush-views!` drives React and clears it while waiting for an update React schedules itself, as Testing Library's `waitFor` does. `mount!` records the flag's previous value and `unmount!` restores it; the last test checks that restore with a sentinel value.
+- **Unconditional teardown.** `unmount!` runs in a `finally` (or the promise's `.finally`), so a failed assertion never leaves a root mounted. A failed `mount!` cleans up before rethrowing, and the async test calls `done` whatever teardown does.
 
-**`poll-until` for a real click.** The view's `dispatch` queues the event and the router drains it on a later turn, so `act()` can't wait for it. The test polls the DOM with `poll-until`, as in section 3, under `cljs.test/async`. React's `act()` checks the global `IS_REACT_ACT_ENVIRONMENT` flag; the recipe sets it while `flush-views!` drives React and clears it while waiting for an update React schedules itself, which is what Testing Library's `waitFor` does. `mount!` records the flag's previous value and `unmount!` restores it, so the rest of the suite sees the value it started with. The file's last test checks that restore with a sentinel value, so it holds even on a runner whose flag is already `true`.
-
-**Unconditional teardown.** `unmount!` runs in a `finally` (or the promise's `.finally`), so a failed assertion never leaves a root mounted. A `mount!` whose render throws restores the flag and removes its node before rethrowing, `unmount!` does both in its own `finally` even when React's unmount or an effect cleanup throws, and the async test calls `done` whatever teardown does. The fixture's `:after` disposes the frame and the adapter.
-
-Run it in a browser build. In re-frame2's tree the `-dom-cljs-test` suffix puts the file in the `:browser-test` lane (`npm run test:browser` from `implementation/`), and a JVM test in the UIx adapter checks that this page's block matches that file byte for byte. In your own project the generated scaffold's `:test` build is a Node target with no DOM, which suits the [handler](event-handlers.md) and [subscription](subscriptions.md) tests that make up most of a suite. A component test like this one needs a shadow-cljs `:browser-test` target and a browser to run it.
+Run it in a browser build. In re-frame2's tree the `-dom-cljs-test` suffix puts the file in the `:browser-test` lane (`npm run test:browser` from `implementation/`), and a JVM test checks that this page's block matches the file byte for byte. In your own project, the generated scaffold's `:test` build is a Node target with no DOM, which suits handler and subscription tests. A component test like this one needs a shadow-cljs `:browser-test` target and a browser.
 
 ## When you want more than hiccup
 
-- **Rendered markup.** When the assertion is about the HTML string a view produces (attribute serialisation, SSR output), use `render-to-string`; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
-- **A real DOM.** When a Reagent view needs React mounted (a ref, a portal, an imperative child), use the loop from [section 4](#4-uix-hook-components-mount-it-for-real) with your adapter's `flush-views!` in place of UIx's. For a Reagent view this is the exception.
+- **Rendered markup.** When the assertion is about the HTML string a view produces, use `render-to-string`; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
+- **A real DOM.** When a Reagent view needs React mounted (a ref, a portal, an imperative child), use the recipe from [section 4](#4-uix-hook-components-mount-it-for-real) with your adapter's `flush-views!`.
 - **A view's states.** "Show this view empty, loading, failed and loaded" is a job for [Story](../observability.md#tools-that-read-the-trace-stream): named variants in isolated frames, which can be promoted into tests.
 
 ## When not to test a view
 
-Every test is code you maintain, and a view test that re-checks upstream logic costs more than it catches. If the assertion is really "the sort order is right" or "the total is correct", write a [subscription test](subscriptions.md): it is cheaper and fails at the function that owns the logic. If it is "the state changed correctly", write a [handler test](event-handlers.md). Write a view test when the thing under test is the view's own structure, text or wiring. Many views are simple enough to need none.
+A view test that re-checks upstream logic costs more than it catches. If the assertion is really "the filter is right" or "the count is correct", write a [subscription test](subscriptions.md). If it is "the state changed correctly", write a [handler test](event-handlers.md). Write a view test when the thing under test is the view's own structure, text or wiring. Many views need none.
