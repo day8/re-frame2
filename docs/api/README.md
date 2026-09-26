@@ -29,7 +29,7 @@ you use it.
 | Add a buffered form field, a popover or modal, exit animations, or React-island hooks to a Fresco app | [re-frame.fresco.forms](re-frame.fresco.forms.md), [re-frame.fresco.overlay](re-frame.fresco.overlay.md), [re-frame.fresco.motion](re-frame.fresco.motion.md), [re-frame.fresco.native](re-frame.fresco.native.md) |
 | Validate `app-db`, events and effects with Malli schemas | [re-frame.schemas](re-frame.schemas.md) |
 | Keep a derived value materialised in `app-db` | [re-frame.flows](re-frame.flows.md) |
-| Make HTTP requests with retries, cancellation and decoding handled for you | [Managed HTTP](re-frame.http.md) |
+| Make HTTP requests with retries, cancellation and decoding handled for you | [Managed HTTP reference](re-frame.http.md) |
 | Model a workflow as a state machine | [re-frame.machines](re-frame.machines.md) |
 | Map URLs to routes and render links | [re-frame.routing](re-frame.routing.md) |
 | Cache server data that views subscribe to, and write it back with mutations | [re-frame.resources](re-frame.resources.md) |

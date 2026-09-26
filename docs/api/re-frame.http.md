@@ -1,4 +1,4 @@
-# Managed HTTP
+# Managed HTTP reference
 
 Describe an HTTP request as data in an event's `:fx`, and the runtime issues it, applies your timeout and retry policy, decodes and validates the body, classifies any failure into a closed set of kinds, and dispatches the reply to an event you name. Aborting and superseding a request by id are built in.
 
