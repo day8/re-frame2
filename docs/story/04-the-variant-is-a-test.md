@@ -21,7 +21,7 @@ It has a precondition in `:setup`, checks in `:script`, and the `:test` tag.
 Test mode runs it in the shell, and `rf.story/is` runs the same registration
 in CI.
 
-![Test mode showing the login error variant run, its runner, status summary, assertions, and promotion action.](../images/story/story-tutorial-04-test-mode.png)
+![Test mode for the login error variant, with four parts numbered: 1 the canvas running the variant, 2 the runner that ran it beside the runner it requires, 3 the verdict and counts, 4 the Step-debugger.](../images/story/story-tutorial-04-test-mode.png)
 
 ## Test mode
 
@@ -30,14 +30,15 @@ variant's canvas at its top, and the canvas runs the variant with its view
 mounted, so a `:click` or `:assert-dom` step runs against the rendered view.
 The tab runs the variant each time you open it and shows the latest run; a
 Controls edit, a mode or substrate change, a hot reload and **Re-run** each
-run it again. From the top, it shows:
+run it again. From the top, it shows (the numbers are the screenshot's):
 
-- the variant's canvas, as the Canvas tab renders it;
+- the variant's canvas, as the Canvas tab renders it (1);
 - the variant, its parent story, **Re-run**, when the run happened and how long
-  it took, and the runner that ran it beside the runner the variant requires;
-- a summary: the verdict, and the passed, failed and cannot-run counts;
+  it took, and the runner that ran it beside the runner the variant requires
+  (2);
+- a summary: the verdict, and the passed, failed and cannot-run counts (3);
 - each check the variant carries, with the assertions inside it;
-- the **Step-debugger**, whose **Start** runs the `:script` one step at a time
+- the **Step-debugger** (4), whose **Start** runs the `:script` one step at a time
   under **Step →**, **← Back**, **▶ Play**, **Pause** and **↺ Rewind**, with a
   breakpoint toggle on every step;
 - **Step-through**, one tick per step of the last run: click a tick, or drag
@@ -174,8 +175,8 @@ A new `:test` variant joins the suite the moment it is registered, with no
 test file to edit.
 
 `is` reports one pass or failure per assertion. A run that ends `:cannot-run`
-or `:error` fails the test, as does a run the tape floor turned to `:fail`
-(below). A run that passes with no assertions at all reports a single pass.
+or `:error` fails the test, as does a run that
+[unconsumed failure evidence](#the-run-result) turned to `:fail`. A run that passes with no assertions at all reports a single pass.
 The JVM wait is bounded by `:timeout-ms`, 30 seconds by default, as in
 `(rf.story/is :story.login/error {:timeout-ms 5000})`; a run that takes longer
 throws rather than hanging the build.

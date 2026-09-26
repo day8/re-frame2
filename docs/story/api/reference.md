@@ -240,7 +240,7 @@ The chrome / Xray bridge.
 
 ## `re-frame.story.theme.*`
 
-The design-token namespaces. Public for third-party Story-panel authors; chrome consumes tokens, not raw literals. The full per-namespace contracts live in [`016-Design-Tokens.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/016-Design-Tokens.md).
+The design-token namespaces. Public for third-party Story-panel authors; chrome consumes tokens, not raw literals. Panel authors will find the per-namespace contracts in [`016-Design-Tokens.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/016-Design-Tokens.md).
 
 | Namespace | Surface | Purpose |
 |---|---|---|
@@ -309,4 +309,4 @@ A symbol these pages do not list is internal, and a later release may rename it 
 - [Scripts](script.md) — the `:script` grammar + the canonical seven `:rf.assert/*` events.
 - [Runtime](runtime.md) — `configure!`, `run-variant`, `mount-shell!`, the registry-query family.
 - [MCP surface](mcp-surface.md) — the Story-MCP boundary, wire-elision discipline, write-surface gating.
-- [Normative spec — `tools/story/spec/API.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) — the developer-internal source of truth.
+- For Story's maintainers, the [normative API spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md), which also covers the internal surfaces.

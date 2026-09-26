@@ -417,8 +417,21 @@ nav:
     - "4. The variant is a test": story/04-the-variant-is-a-test.md
     - "5. The recorder, and cannot-run": story/05-recorder-and-cannot-run.md
     - "6. Xray, earned at failure": story/06-xray-earned-at-failure.md
-    - "7. Workspaces, modes, composition": story/07-workspaces-modes-composition.md
-    - "8. Snapshot identity and sharing": story/08-snapshot-identity-and-sharing.md
+    # Chapters 7 and 8 are groups: the topics a growing variant library needs,
+    # then sharing and review. 08-snapshot-identity-and-sharing.md keeps its
+    # name because tools/story/spec links to its #static-builds and
+    # #local-visual-review anchors.
+    - "7. Organising a variant library":
+      - "Docs mode": story/07-docs-mode.md
+      - "Workspaces": story/07-workspaces.md
+      - "Modes, viewports and backgrounds": story/07-modes-and-viewports.md
+      - "Decorators": story/07-decorators.md
+      - "Tags and shell tools": story/07-tags-and-tools.md
+      - "Composition": story/07-composition.md
+    - "8. Sharing and review":
+      - "Snapshot identity and sharing": story/08-snapshot-identity-and-sharing.md
+      - "Local visual review": story/08-local-visual-review.md
+      - "Static builds": story/08-static-builds.md
     - "9. Multi-substrate and the agent loop": story/09-multi-substrate-and-agent-loop.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes).

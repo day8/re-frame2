@@ -1,0 +1,155 @@
+{
+  "$comment": [
+    "Annotation regions for the Story tutorial screenshots, keyed by the shot's",
+    "file name in generate-story-tutorial-screenshots.cjs. The fields and the",
+    "overlay are the Xray tutorial's: see tutorial-annotation-spec.json and",
+    "resolveRegion / inPageAnnotateSvg in generate-tutorial-screenshots.cjs.",
+    "Labels start with the number the page's prose refers to. Coordinates are",
+    "for the script's 1440x900 viewport."
+  ],
+  "story-tutorial-01-first-variant.png": [
+    {
+      "selector": "[data-test=\"story-toolbar\"]",
+      "colour": "#1976d2",
+      "label": "1  Toolbar",
+      "labelAt": {
+        "x": 640,
+        "y": 46
+      }
+    },
+    {
+      "selector": "[data-test=\"story-sidebar\"]",
+      "inset": {
+        "h": 812
+      },
+      "colour": "#43a047",
+      "label": "2  Sidebar",
+      "labelAt": {
+        "x": 60,
+        "y": 760
+      }
+    },
+    {
+      "selector": "main",
+      "inset": {
+        "h": 812
+      },
+      "colour": "#e53935",
+      "label": "3  Canvas",
+      "labelAt": {
+        "x": 640,
+        "y": 640
+      }
+    },
+    {
+      "selector": "aside",
+      "inset": {
+        "h": 812
+      },
+      "colour": "#7e57c2",
+      "label": "4  Right rail",
+      "labelAt": {
+        "x": 1210,
+        "y": 760
+      }
+    }
+  ],
+  "story-tutorial-03-controls-and-fidelity.png": [
+    {
+      "selector": "[data-test=\"story-sidebar-variant-row\"][aria-pressed=\"true\"] + [data-test=\"story-sidebar-signal-row\"] [data-test=\"story-sidebar-signal-chip\"][data-axis=\"fidelity\"]",
+      "padding": 3,
+      "colour": "#e53935",
+      "label": "1  Fidelity",
+      "labelAt": {
+        "x": 110,
+        "y": 353
+      }
+    },
+    {
+      "selector": "[data-test=\"story-view-state-section\"]",
+      "padding": 2,
+      "colour": "#1976d2",
+      "label": "2  View State: the three rungs",
+      "labelPos": "left"
+    }
+  ],
+  "story-tutorial-04-test-mode.png": [
+    {
+      "selector": "[data-test=\"story-test-canvas\"]",
+      "padding": 2,
+      "colour": "#43a047",
+      "label": "1  The canvas, running the variant",
+      "labelPos": "below"
+    },
+    {
+      "selector": "[data-test=\"story-test-runner-row\"]",
+      "padding": 4,
+      "colour": "#1976d2",
+      "label": "2  Runner used and runner required",
+      "labelPos": "right"
+    },
+    {
+      "selector": "[data-test=\"story-test-summary-section\"]",
+      "padding": 2,
+      "colour": "#e53935",
+      "label": "3  Verdict and counts",
+      "labelPos": "right"
+    },
+    {
+      "selector": "[data-test=\"story-stepper-controls\"]",
+      "padding": 4,
+      "colour": "#7e57c2",
+      "label": "4  Step-debugger",
+      "labelPos": "right"
+    }
+  ],
+  "story-tutorial-07-xray-embed.png": [
+    {
+      "selector": "[data-test=\"story-xray-panel-chip\"][aria-pressed=\"true\"]",
+      "padding": 3,
+      "colour": "#7e57c2"
+    },
+    {
+      "selector": "[data-testid=\"rf-xray-app-db-state-area-:rf/machines\"]",
+      "inset": {
+        "h": 400
+      },
+      "colour": "#7e57c2",
+      "label": "5  App-db: :login/flow is in :error",
+      "labelPos": "left"
+    }
+  ],
+  "story-tutorial-09-failing-run.png": [
+    {
+      "selector": "[data-test=\"story-test-status-pill\"]",
+      "padding": 4,
+      "colour": "#e53935",
+      "label": "1  Verdict",
+      "labelAt": {
+        "x": 700,
+        "y": 533
+      }
+    },
+    {
+      "selector": "[data-test=\"story-test-row\"][data-status=\"fail\"]",
+      "padding": 2,
+      "colour": "#fb8c00",
+      "label": "2-3  show detail, open in Evidence",
+      "labelPos": "above"
+    },
+    {
+      "selector": "[data-test=\"story-evidence-beat\"][data-selected=\"true\"]",
+      "padding": 2,
+      "colour": "#1976d2",
+      "label": "4  The failing beat",
+      "labelPos": "left"
+    },
+    {
+      "selector": "[data-test=\"story-evidence-beat\"][data-beat-idx=\"1\"]",
+      "padding": 2,
+      "colour": "#7e57c2",
+      "label": "5  The :login/failure beat and its Xray links",
+      "labelPos": "left"
+    }
+  ]
+}

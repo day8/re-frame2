@@ -13,7 +13,7 @@ the screenshot proves the red text renders. It does not prove the login flow can
 reach the error state, that the machine transitioned correctly, or that the
 subscription computes the right value.
 
-![Controls showing args, view-state fidelity, setup provenance, decorators, and save actions.](../images/story/story-tutorial-03-controls-and-fidelity.png)
+![The login error variant with two places its fidelity shows: 1 the real-setup chip under the variant in the sidebar, and 2 the View State section of Controls, listing the three rungs with real setup in use.](../images/story/story-tutorial-03-controls-and-fidelity.png)
 
 ## The three rungs
 
@@ -30,9 +30,10 @@ Args are not a fidelity rung: they are view inputs. Network stubs and effect
 overrides are world inputs, and the runner a variant needs is a separate
 property again. The sidebar shows each on a chip of its own.
 
-The rung shows in three places: the chip under the variant in the sidebar, the
-View State section of Controls, which numbers the three rungs and marks each
-"in use" or "available", and the Status & fidelity section of Docs mode.
+The rung shows in three places: the chip under the variant in the sidebar (1
+in the screenshot above), the View State section of Controls (2), which
+numbers the three rungs and marks each "in use" or "available", and the
+Status & fidelity section of Docs mode.
 
 ## Rung 1: real setup
 

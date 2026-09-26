@@ -29,15 +29,24 @@ Take a variant that expects the wrong state:
    and the reason.
 3. Press **open in Evidence →**. The Evidence panel in the right rail opens on
    the run's narrative, with the failing assertion's beat selected.
-4. The narrative has one span per setup and script step. Under each span are
-   the beats it produced: the event, its epoch number, and counts of what it
-   changed, such as `db Δ 1`, `effects 1`, `trace 14` and `sub-runs 2`. A step
-   that dispatches nothing, such as an `[:assert …]` checkpoint, is marked
-   "non-dispatch step — committed no epoch".
+4. The narrative has one span for setup and one for each script step. Under
+   each span are the beats it produced: the event, its epoch number, and
+   counts of what it changed, such as `db Δ 1`, `effects 1`, `trace 22` and
+   `sub-runs 8`. A step that commits no epoch of its own, such as this
+   `[:assert …]` checkpoint, is marked "non-dispatch step — committed no
+   epoch".
 5. Each beat carries **Xray: Epoch**, **Xray: App-db** and **Xray: Trace**.
-   Pressing one switches the rail to that panel and focuses it on that beat's
-   epoch, so you can walk back from the failed assertion to the setup event
-   that put the machine in `:error`.
+   Press **Xray: App-db** on the second `:login/flow` beat, the setup's
+   `:login/failure`. The Xray panel at the top of the rail switches to App-db
+   and focuses on that beat's epoch; scroll the rail up to it.
+
+![The failing variant in the Tests tab with the Evidence panel open beside it. Numbered: 1 the verdict, 1 failed of 1; 2 and 3 the failed row with show detail and open in Evidence; 4 the failing beat, selected in the Evidence narrative; 5 the setup's :login/failure beat and its Xray links.](../images/story/story-tutorial-09-failing-run.png)
+
+![The same run after pressing Xray: App-db on the :login/failure beat. The rail's Xray panel shows App-db at that epoch: the :login/flow machine is in :error and was :submitting.](../images/story/story-tutorial-07-xray-embed.png)
+
+At that epoch App-db shows the `:login/flow` machine moving from `:submitting`
+to `:error`: `:login/failure` is the event that left the machine in the state
+the assertion did not expect.
 
 Each beat is labelled with how Story knows it. "direct epoch evidence" was
 recorded as the event ran: the app-db before and after, the effects, the trace.
@@ -56,8 +65,6 @@ button.
 
 The rail's Xray panel has one chip per panel: Epoch, App-db, Views, Trace,
 Machines and Routing.
-
-![Story embedding the Xray App-db panel for the selected login variant.](../images/story/story-tutorial-07-xray-embed.png)
 
 The embedded Xray watches the selected variant's frame, because each variant's
 frame is registered under the variant's own id. Select another variant and
@@ -82,9 +89,9 @@ for every panel at once.
 A body can also carry an `:xray` map that configures that full shell when the
 variant is selected: `:open? true` opens it, `:panel` selects its panel (and
 the rail's, when the body names no `:xray-panel`), and `:filters` pre-loads
-its event filters, as in `{:out [:my-app/tick]}` to hide a
-noisy event. Neither slot has any effect in a published static build, which
-carries no Xray.
+its event filters, as in `{:out [:my-app/tick]}` to hide a noisy event.
+Neither slot has any effect in a published static build, which carries no
+Xray.
 
 ## What the evidence records
 

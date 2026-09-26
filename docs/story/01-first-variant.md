@@ -44,21 +44,21 @@ and hot reload still works. The testbed registers these states as
 tutorial uses the shorter `:story.login` your own app would, so
 `:story.login/idle` here is `:story.login-form/idle` there.
 
-![The first login variant selected in Story.](../images/story/story-tutorial-01-first-variant.png)
+![The idle login variant in the Story shell, with the shell's four regions outlined and numbered: 1 the toolbar, 2 the sidebar, 3 the canvas, 4 the right rail.](../images/story/story-tutorial-01-first-variant.png)
 
 The story file does not reimplement the view. The variant names a registered
 view id and supplies the state the view needs.
 
 ## The shell
 
-The shell has four regions:
+The shell has four regions, numbered in the screenshot above:
 
 | Region | What it holds |
 |---|---|
-| Toolbar | The toolbar modes (chapter 7); **Dispatch**, which opens a console in the right rail for sending events to the selected variant; the play status of the variant's `:script`, with **Re-run**; the viewport and background pickers; **Inspect**, which lets you click an element on the canvas to open its view's source; **Share** (chapter 8); and **REC**, the recorder (chapter 5). |
-| Sidebar | A search box, a tag filter, the story tree, the workspaces, and the **Tests** widget with its pass and fail counts, **Run all** and **watch** (chapter 4). |
-| Canvas | The selected variant, under the **Canvas**, **Docs** and **Tests** tabs. The title row names the variant and its view, and **open** shows the variant's registration in your editor. |
-| Right rail | Xray (chapter 6), Explain (chapter 4), Evidence, Controls, and the a11y, Chrome a11y, Layout-debug and Schema validation panels. |
+| 1 Toolbar | The [toolbar modes](07-modes-and-viewports.md); **Dispatch**, which opens a console in the right rail for sending events to the selected variant; the play status of the variant's `:script`, with **Re-run**; the viewport and background pickers; **Inspect**, which lets you click an element on the canvas to open its view's source; **Share** ([Sharing](08-snapshot-identity-and-sharing.md#sharing)); and **REC**, the recorder (chapter 5). |
+| 2 Sidebar | A search box, a tag filter, the story tree, the workspaces, and the **Tests** widget with its pass and fail counts, **Run all** and **watch** (chapter 4). |
+| 3 Canvas | The selected variant, under the **Canvas**, **Docs** and **Tests** tabs. The title row names the variant and its view, and **open** shows the variant's registration in your editor. |
+| 4 Right rail | Xray (chapter 6), Explain (chapter 4), Evidence, Controls, and the a11y, Chrome a11y, Layout-debug and Schema validation panels. |
 
 Under each variant in the sidebar is a row of chips. The first is the variant's
 test status: Pending until it runs, then Pass, Fail, Error or Can't run. The
@@ -121,7 +121,7 @@ may also see it written `[:dispatch-sync [:rf.assert/…]]`, which dispatches
 the same assertion event and records the same row.
 
 `:args` supplies view inputs. A variant can override the parent story's args,
-an active toolbar mode (chapter 7) sits between the two, and live Controls
+an active [toolbar mode](07-modes-and-viewports.md) sits between the two, and live Controls
 edits override all of them:
 
 ```text
@@ -134,7 +134,7 @@ want to explore presentation inputs.
 `:tags` classifies the variant. Story registers seven tags for you: `:dev`,
 `:docs`, `:test`, `:screenshot`, `:experimental`, `:internal` and `:agent`. The
 shell acts on one of them: a `:test` variant joins the sidebar's Tests widget.
-Chapter 7 covers the rest of the tag vocabulary. A variant that declares no
+[Tags and shell tools](07-tags-and-tools.md) covers the rest of the tag vocabulary. A variant that declares no
 `:tags` takes its story's; one that declares its own uses those instead.
 
 A variant body is a closed map. A misspelt or unknown key throws
@@ -167,19 +167,10 @@ view. Without a schema, Story can only guess a control from the value, and the
 Schema validation panel below Controls reports "no schema registered for the
 variant's :component".
 
-Controls follow the schema's shape: `:string` gives a text field, `:int` and
-`:double` a number field, `:boolean` a checkbox, `:keyword` a text field read
-back as a keyword, `[:enum ...]` a select, and `[:maybe X]` the control for
-`X`. `:map`, `:vector`, `:set` and `:tuple` nest their children, and the vector
-and set editors add and remove rows. `:rf/props` is the canonical key; a
-`:schema` key in the same place also works.
-
-Where a derived control is not the one you want, name it in the story's or
-variant's `:argtypes`, keyed by arg, as `{:heading {:control :textarea}}`. The
-controls are `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`,
-`:date` and `:color`; `:select` and `:radio` take their choices from
-`:options`. A variant's `:argtypes` beats its story's, and both beat the
-schema.
+`:rf/props` is the canonical key; a `:schema` key in the same place also works.
+Each schema shape gets its own control, and `:argtypes` picks a different one
+where the derived control is not what you want; [Controls](02-every-state-side-by-side.md#controls)
+in chapter 2 lists both.
 
 ## Every variant gets a frame
 

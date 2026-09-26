@@ -85,41 +85,10 @@ Open the workspace and all five states render together.
 Each cell gets its own frame. If a cell dispatches an event, it changes that
 cell's frame and no other, so reviewing one state cannot disturb the others.
 
-A frame isolates state, not the page. Each cell's frame has its own app-db,
-event queue, subscription cache and epoch history, while every frame runs the
-same registered handlers ([What a frame is](../core/frames.md#what-a-frame-is)).
-Every cell also renders into the one page that hosts the shell. That page's
-stylesheets reach every cell, only one element on it can hold focus, and a
-modal that a view portals into `document.body` lands on the shared page,
-outside its cell. Text colour and font are reset at the cell boundary, so a
-view renders in the browser's default text styles rather than the shell's, and
-a view that relies on inherited text styles from its app shell must set them
-(a decorator can). Storybook renders stories in a preview iframe,
-although its docs pages can render them inline in the page itself; Story's
-canvas and workspaces have no iframe mode. So a job such as checking that a
-design system's CSS holds up without the host page's stylesheets around it may
-need an iframe boundary, and Story does not provide one.
-
-There is also `:variants-grid`, which lists every variant under a parent story
-for you:
-
-```clojure
-(rf.story/reg-workspace :Workspace.login/auto-grid
-  {:layout  :variants-grid
-   :for     :story.login
-   :columns 3})
-```
-
-Use an explicit grid when the order is part of the story you want to tell. Use
-`:variants-grid` when you want every variant under a parent to appear without
-maintaining the list by hand. The cells come in variant-id order. `:for` names
-the story; without it, the workspace id does, so `:Workspace.login/auto-grid`
-enumerates `:story.login`.
-
-A `:variants-grid` mounts every cell at once, each in its own frame. A view
-that creates its own frame provider internally defeats that, because its cells
-end up sharing state. For such a view, `:isolation :shared` mounts one cell at
-a time, with previous and next buttons to move between them.
+A frame isolates state, not the page: every cell shares the shell's page and
+its stylesheets. [Workspaces](07-workspaces.md) covers what that means for a
+view, and the other layouts: a grid that lists a story's variants for you,
+tabs, and prose with live variants between the paragraphs.
 
 ## The bigger wall
 
@@ -137,7 +106,9 @@ Controls, in the right rail, edits the selected variant's args and its view
 state overrides. It also summarises the variant's setup, network and effect
 inputs, and holds the save actions.
 
-For ordinary args, Story derives controls from the view's schema where it can:
+For ordinary args, Story derives a control from the view's `:rf/props` schema
+([chapter 1](01-first-variant.md#a-schema-on-the-view-gives-you-controls))
+where it can:
 
 | Schema shape | Control |
 |---|---|
@@ -151,8 +122,12 @@ For ordinary args, Story derives controls from the view's schema where it can:
 | `:vector`, `:set` | a list of fields, with rows to add and remove |
 | `:tuple` | one field per position |
 
-`:argtypes` picks a different control where the derived one is not right
-(chapter 1).
+Where a derived control is not the one you want, name it in the story's or
+variant's `:argtypes`, keyed by arg, as `{:heading {:control :textarea}}`. The
+controls are `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`,
+`:date` and `:color`; `:select` and `:radio` take their choices from
+`:options`. A variant's `:argtypes` beats its story's, and both beat the
+schema.
 
 Controls edits **inputs**, not arbitrary component internals. Changing
 `:heading` changes an arg. Pinning a subscription value creates a view-state
