@@ -110,8 +110,8 @@ data and cannot key-check it. The separate `:rf.warning/fresco-entity-key`
 warns about a boundary-headed sequence member whose key is not a
 string/number/keyword/uuid/symbol. None replaces moving the metadata key.
 
-`:key` is the **exact literal keyword**. `"key"` and `:x/key` are ordinary
-attributes, not the key.
+Spell it as the exact literal keyword `:key` — the one spelling every head
+reads as the key.
 
 ## The exactly-one-props-map law
 
@@ -175,15 +175,17 @@ codebase needs no respelling (MIG-11). Three edges do not follow that:
   renders `"active true"`, because a map is a collection like any other. Rewrite
   conditional-class maps to a vector with `when`.
 
-## `:on-submit` prevents by default — and a key map there prevents everywhere
+## `:on-submit` prevents by default; a key map belongs at a keyboard event
 
 `:on-submit` is the **one** position that calls `.preventDefault` for you, and
-only for the data spellings (a vector, a key map). An `h/event` or a plain fn at
-`:on-submit` is never auto-prevented — whoever holds the event owns it.
+only for an intent vector. An `h/event` or a plain fn at `:on-submit` is never
+auto-prevented — whoever holds the event owns it.
 
-The consequence to watch: a **key map** written at `:on-submit` passes that
-position down to every branch, so every branch prevents. That is rarely what a
-Reagent keystroke handler meant.
+A **key map** reads the event's `.key` before it looks anything up, so it works
+only where the event carries one — `:on-key-down`, `:on-key-up`. Written at
+`:on-submit` or `:on-click` it raises `:rf.error/fresco-intent-needs-the-event`
+when it fires. And a branch whose value is neither a vector nor a function
+becomes `nil` and never fires — no error, no warning.
 
 ## A callback ref must be a stable top-level fn
 
@@ -238,17 +240,10 @@ creates the root, every later one updates it. Allocate the handle with
 `defonce` — a reload that hands back a fresh one `createRoot`s again and
 replaces the whole tree.
 
-## Silent drops in a key map
-
-A key-map branch whose value is neither a vector nor a function becomes `nil`
-and never fires — no error, no warning. A keyword or a map written there is
-simply dead.
-
 ## The guide is not the API — read the door
 
-The shipped guide (`docs/core/fresco/`, the former `draft-guide/`) **still
-restricts key maps to `:on-key-down` / `:on-key-up`**, and the intent lowering
-accepts one at *any* event position. Older notes may still teach `h/fn` (swept
-to `h/event` on 2026-08-15) or a four-keyword reserved vocabulary (stale — see
-§Markers above). The rule outlives every example: **read the door**
-(`re_frame/fresco.cljc`), not any page — rule 6.
+The guide (`docs/core/fresco/`) is written for people and drifts; design notes
+describe forms that never shipped, such as an `h/fn` callback (the form is
+`h/event`) or a four-keyword reserved vocabulary (two markers and one head —
+§Markers above). **Read the door** (`re_frame/fresco.cljc`), not any page —
+cardinal rule 6.

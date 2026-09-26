@@ -157,15 +157,10 @@ grammar is closed and checked once per render: exactly two elements, the second
 a non-empty vector that is not itself a reserved head. Anything else raises
 `:rf.error/fresco-malformed-prevent`.
 
-Two facts decide most sites:
-
-- **`:on-submit` prevents by default** and needs no head — that is the one
-  special position, and it applies to the data spellings (vector, key map) only.
-  A plain fn or an `h/event` at `:on-submit` is *never* auto-prevented; whoever
-  holds the event owns it.
-- **A key map at `:on-submit` auto-prevents on every branch**, because the
-  position is passed down to each branch. That is rarely what a Reagent
-  keystroke handler meant — check it.
+**`:on-submit` prevents by default** and needs no head — that is the one
+special position, and it applies to an intent vector only. A plain fn or an
+`h/event` at `:on-submit` is *never* auto-prevented; whoever holds the event
+owns it.
 
 **There is no listener-options map.** `{:event […] :prevent-default true}` does
 not exist, and neither does `:capture`, `:passive`, `:once` or
@@ -204,8 +199,8 @@ signals help, and neither is complete cover:
   string/number/keyword nor a uuid/symbol — an entity map used as a key, which
   was never stable.
 
-`:key` is read as the **exact literal keyword** `:key`. `"key"` and `:x/key` are
-*not* the key; they land in the emitted props as ordinary attributes.
+Spell it as the **exact literal keyword** `:key`: that is the spelling a
+boundary lifts off its props, and the one every head reads as the key.
 
 The codemod's **W1** rewrite does this at `[:> …]` crossings automatically; the
 rest is yours.
@@ -435,10 +430,12 @@ mid-IME-composition commits nothing, which is exactly what the hand-written
 version got wrong for every user who composes.
 
 Three things to carry: a branch value that is neither a vector nor a function is
-**silently dropped**, a key map at `:on-submit` prevents on every branch
-(MIG-06), and a branch dispatches in the callback's turn like any other intent —
-the queued `case` became a synchronous drain, so MIG-04 / 05's one check applies
-to this rewrite too.
+**silently dropped**; a key map belongs at a **keyboard** event — it reads the
+event's `.key` before anything else, so at a position whose event carries none
+(`:on-submit`, `:on-click`) it raises `:rf.error/fresco-intent-needs-the-event`
+when it fires; and a branch dispatches in the callback's turn like any other
+intent — the queued `case` became a synchronous drain, so MIG-04 / 05's one
+check applies to this rewrite too.
 
 ## MIG-34 — `dangerouslySetInnerHTML`: unwrap working sites, review inert ones
 
