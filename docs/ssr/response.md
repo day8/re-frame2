@@ -30,8 +30,8 @@ remembers the page size:
 `curl -i localhost:3000/posts` returns a `301` with `Location: /articles` and no body.
 `curl -i localhost:3000/` returns the page with `Cache-Control` and `Set-Cookie`
 headers. The effects write a per-request response accumulator, which `ssr-handler`
-reads after the drain, so the handler stays a pure function you can test like any
-other [effect map](../core/glossary.md#effect-map).
+reads after the drain. Your event handler only returns data, so you can test it like
+any other [effect map](../core/glossary.md#effect-map).
 
 ## The effects
 
@@ -132,7 +132,7 @@ writes neither a redirect nor a status, the host renders your application shell 
 `403`. The protected route is never entered: no `:on-match` runs, no route resource is
 fetched, and no resource or hydration data for it is produced.
 
-A refusal is not an error. Nothing throws, so the [error
+A denial is not an error. Nothing throws, so the [error
 projector](concepts.md#when-the-server-throws) is not involved. It is also server-only;
 a client frame has no response to write. [Require sign-in on a
 route](../routing/how-to/require-sign-in-on-a-route.md) covers the guard itself.

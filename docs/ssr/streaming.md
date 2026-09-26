@@ -1,8 +1,8 @@
 # Streaming: `ssr/boundary`
 
 `ssr-handler` sends the page when all of it has rendered, so one slow region, such as
-a comments section, holds up everything above it. Streaming sends the page shell on
-the first byte with a fallback in place of each slow region, then sends each region as
+a comments section, holds up everything above it. Streaming sends the page shell
+straight away, with a fallback in place of each slow region, then sends each region as
 its own chunk. A page with no independently slow region gains nothing from it; stay
 with `ssr-handler`.
 
@@ -12,7 +12,8 @@ The runnable version is
 ## Mark a slow region
 
 Wrap the region in `ssr/boundary`, with an `:id` and a `:fallback` to show until it
-arrives. Here the tutorial's article list gets a comments region:
+arrives. Here the tutorial's root view gets a comments region, which reads a
+`:comments` vector that `:rf/server-init` seeds beside `:articles`:
 
 ```clojure
 ;; cf. examples/capabilities/ssr/ssr_streaming/core.cljc
@@ -31,8 +32,10 @@ arrives. Here the tutorial's article list gets a comments region:
   (let [arts @(subscribe [:articles/slice])]
     [:main.page
      [:h1 "Recent articles"]
-     (into [:ul] (for [{:keys [id title]} arts]
-                   ^{:key id} [:li [:h3 title]]))
+     (if (seq arts)
+       (into [:ul] (for [{:keys [id title]} arts]
+                     ^{:key id} [:li [:h3 title]]))
+       [:p "No articles."])
      [ssr/boundary {:id :region.comments :fallback [comments-skeleton]}
       [comment-list]]]))
 ```
