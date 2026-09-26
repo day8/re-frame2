@@ -3201,7 +3201,7 @@
 ;;
 ;;   commit-snapshot        — stamp `:state` (denormalised to match the
 ;;                            target's shape, and a keyword in a flat
-;;                            machine) and bump the `:after` epoch when
+;;                            machine or region) and bump the `:after` epoch when
 ;;                            any exited/entered node carries `:after`.
 ;;
 ;;   run-spawn-phase        — reduce over `entered-pairs` dispatching to
@@ -3709,13 +3709,13 @@
         [snap' (vec after-fx)]))))
 
 (defn- flat-machine?
-  "True for a standalone machine whose states are all leaves — the flat arm
-  of Spec 005 §Snapshot shape, whose `:state` is a single keyword. A
-  parallel region's synthetic spec (`:rf/region`) is excluded, so a
-  region-local vector target keeps its vector."
+  "True for a machine whose states are all leaves — the flat arm of Spec
+  005 §Snapshot shape, whose `:state` is a single keyword. A parallel
+  region's synthetic spec (`:rf/region`) qualifies on the same test,
+  because a flat region's value in the region map is a keyword too (Spec
+  005 §Parallel regions §Snapshot shape)."
   [machine]
-  (and (nil? (:rf/region machine))
-       (not-any? :states (vals (:states machine)))))
+  (not-any? :states (vals (:states machine))))
 
 (defn- commit-snapshot
   "Phase 3 — write the new `:state` onto the post-cascade snapshot and
@@ -3726,8 +3726,9 @@
   [machine snapshot snap-after geometry]
   ;; The `cond` has three arms — `internal?` (raw-target
   ;; is nil; preserve current state), vector target (use the cascade-
-  ;; descended leaf as a vector, except that a flat machine's single-
-  ;; element leaf collapses to its keyword, per Spec 005 §Snapshot shape),
+  ;; descended leaf as a vector, except that a flat machine's or flat
+  ;; region's single-element leaf collapses to its keyword, per Spec 005
+  ;; §Snapshot shape),
   ;; keyword target (collapse a single-element leaf to a keyword, else
   ;; vectorise). No `:else` arm is needed: `internal?` already covers the
   ;; nil-raw-target case, and `:target` validation upstream rejects
