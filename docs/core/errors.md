@@ -248,9 +248,10 @@ handler anyway would compute new state from a missing fact, which is what
 phase has two categories, mirroring the event side:
 
 - **A throwing sub computation emits `:rf.error/sub-exception`** (recovery
-  `:replaced-with-default`). The sub returns `nil` and the failure is named. A
-  `:where` tag says which path threw: `:reactive` for the normal recompute path,
-  `:compute-sub` for an on-demand computation. Fix it with a default, as in a handler.
+  `:replaced-with-default`). The sub returns `nil` and the failure is named. The
+  on-demand `compute-sub` path stamps `:where :compute-sub`; the normal reactive
+  recompute path carries no `:where`, so branch on its presence. Fix it with a
+  default, as in a handler.
 - **A `subscribe` to an unregistered sub id, or an `:inputs` entry naming one, emits
   `:rf.error/no-such-sub`** (recovery `:replaced-with-default`). The missing input is
   `nil` and the sub's body still runs. This is the render-side counterpart of

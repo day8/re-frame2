@@ -113,9 +113,9 @@ A frame runs on a substrate [adapter](../glossary.md#adapter), even on the JVM, 
 
 !!! warning "Gotcha"
 
-    Call `dispatch-sync` from a test, at boot or at the REPL, never from inside a running handler. A handler that calls `(rf/dispatch-sync [:other])` raises `:rf.error/dispatch-sync-in-handler`. Return `{:fx [[:dispatch [:other]]]}` instead, and the runtime runs it in the same drain.
+    Call `dispatch-sync` from a test, at boot or at the REPL, never from inside a running handler. In a handler, `(rf/dispatch-sync [:other])` drops the event, and a dev build reports `:rf.error/dispatch-sync-in-handler`. Return `{:fx [[:dispatch [:other]]]}` instead, and the runtime runs it in the same drain.
 
-Inside a `with-new-frame` body you don't pass `:frame`, because the macro makes `f` current. If you keep a frame in a `let` and destroy it yourself, pass `{:frame f}` in the dispatch opts. There is no default frame to fall back on (see [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
+Inside a `with-new-frame` body you don't pass `:frame`, because the macro makes `f` current. If you keep a frame in a `let` and destroy it yourself, pass `{:frame f}` in the dispatch opts. Under the reset fixture a dispatch without it goes to the fixture's `:rf/default` frame, not to `f`, and nothing fails; outside any scope it raises `:rf.error/no-frame-context` (see [frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
 
 ### Seeding state: the frame boots it, the body tests it
 
@@ -167,7 +167,7 @@ If your tests, or helpers they load, register anything themselves, add the reset
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
-`make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. It snapshots the registrar before each test and restores it afterwards, keeping the registrations your namespaces made at load. It also resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches, epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing, so use it as the default for any real suite.
+`make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. It snapshots the registrar before each test and restores it afterwards, keeping what was registered before the `use-fixtures` form ran. So register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes (`:rf.error/no-such-handler`). It also resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches (when the test requires `re-frame.resources.test-support`), epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing, so use it as the default for any real suite.
 
 The reset removes whatever adapter is installed, so the fixture takes `:adapter`: `plain-atom/adapter` is the headless adapter for the JVM, and the fixture installs it and creates the `:rf/default` frame before each test. Without `:adapter`, the next `make-frame` throws `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` if your code called `rf/init!` itself.
 

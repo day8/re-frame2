@@ -168,11 +168,13 @@ The three calls have different jobs:
   only: every later render through `app-root` updates the root it adopted, and
   the key is ignored.
 
-!!! warning "Seeding an absent frame is silent"
+!!! warning "Seeding an absent frame does not throw"
 
     `ssr/hydrate!` installs the payload by dispatching `:rf/hydrate`, and a
-    dispatch into a frame that does not exist does nothing. The call still
-    reads and returns the payload, so step 2 alone looks like it worked. Step 3
+    dispatch into a frame that does not exist installs nothing; its only trace
+    is an `:rf.error/frame-destroyed` record naming `:rf/hydrate` (a console
+    error in development). The call still reads and returns the payload, so
+    step 2 alone looks like it worked. Step 3
     catches it: `h/frame-provider` raises
     `:rf.error/frame-provider-frame-absent` for an absent frame, so a boot that
     skips step 1 fails at adoption.
@@ -390,7 +392,7 @@ adding SSR later needs no view changes.
 | `server/render` raises `:rf.error/ssr-missing-payload-policy` | No fail-closed payload policy was supplied | Allowlist every top-level app-db key the page reads, or explicitly select whole app-db |
 | Pure views still mismatch | A rendered app-db key was omitted from the payload | Add the key to the allowlist |
 | Boot raises `:rf.error/hydration-frame-id-mismatch` | Server `:client-frame-id` and client `:frame` differ | Use one stable wire frame id on both sides |
-| Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty | `rf/make-frame` ran after `ssr/hydrate!`, so the `:rf/hydrate` dispatch had no frame to land in | Call `rf/make-frame` before `ssr/hydrate!` |
+| Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty (an `:rf.error/frame-destroyed` record names `:rf/hydrate`) | `rf/make-frame` ran after `ssr/hydrate!`, so the `:rf/hydrate` dispatch had no frame to land in | Call `rf/make-frame` before `ssr/hydrate!` |
 | `server/render` raises `:rf.error/ssr-render-failed` | The runtime recorded an error during the render, such as a subscription that threw, even though rendering continued | Fix the failure the attached record names; the renderer refuses to return a page built over it |
 
 ## Advanced
@@ -407,8 +409,8 @@ React renders the server output; there is no parallel JVM string emitter.
 | `h/error-boundary` | The component renders, but a server throw uses React's server error channel rather than the client fallback |
 | Roots and `h/as-component` | Render, with request isolation and prefix matching |
 | `h/defhost`, slots, render props, and `h/as-element` | Client-only until the declaration selects Render |
-| Portals, raw React elements, and opaque foreign components | Client-only |
-| A React element returned directly from a `defview` | Render, as React renders it; a component inside it has no Fresco gate, so it must be server-safe itself |
+| Portals, `[:>]` crossings, and opaque foreign components reached through them | Client-only |
+| A React element returned from a `defview` or placed as a child | Render, as React renders it; a component inside it has no Fresco gate, so it must be server-safe itself |
 | React islands, through `h/defhost` | Client-only until the declaration selects Render |
 | Resource boundaries | Follow their module's server contract; a passive read causes nothing, so no client `[:rf.resource/ensure …]` runs during server rendering |
 

@@ -247,11 +247,11 @@ separately, so each failure points at one view.
 
 ### L2 refuses React-only behaviour
 
-The harness raises and points to L3 when a body reaches:
-
-- a React hook;
-- a raw React element;
-- a `defhost` crossing.
+The harness raises and points to L3 when a body reaches a raw React element
+(`:rf.error/fresco-test-react-is-opaque`) or a `defhost` crossing
+(`:rf.error/fresco-test-host-is-opaque`). No hook dispatcher is installed, so a
+body that calls a React hook fails with React's own error instead; that body
+belongs at L3 too.
 
 It also raises when a subscription fixture is missing.
 
@@ -274,12 +274,12 @@ and leak baseline. It also needs a document; see
 | `hm/mount!` | Mount a view under a fresh isolated frame and return a handle |
 | `hm/hydrate!` | Hydrate supplied server HTML; returns a promise of the handle |
 | `hm/rerender!` | Render a new element into the same root |
-| `hm/dispatch-and-settle!` | Dispatch into the mount's frame and wait until Fresco and React are idle |
+| `hm/dispatch-and-settle!` | Dispatch into the mount's frame, run that event synchronously and commit the result. Follow-up work the router only queued is not waited for; use `hm/settle-until!` |
 | `hm/settle!` | Commit pending work after a user-event or other external interaction |
 | `hm/settle-until!` | Wait until a predicate holds, then settle; returns a promise of the handle. Use it for work the router has only queued, such as after a route-link click |
 | `hm/advance-clock!` | Advance the mount's [virtual clock](#virtual-clock-behaviour) and run due work |
 | `hm/unmount!` | Tear down the root |
-| `hm/assert-clean!` | After unmount, check that nothing (subscriptions, listeners, timers) survived compared with the pre-mount baseline |
+| `hm/assert-clean!` | After unmount, check that no subscription, reader edge, boundary registration, cached read set or frame survived compared with the pre-mount baseline |
 
 ```clojure
 (ns todo.views-mounted-test
@@ -322,8 +322,9 @@ useful. `assert-clean!` is asynchronous because it waits for pending work to
 finish before checking.
 
 Use the settle operations rather than React's `act` for page assertions.
-`dispatch-and-settle!` flushes work until the DOM reflects what a user would
-see; `act` runs through a test scheduler that is not the browser's.
+`dispatch-and-settle!` runs the event and commits the result before it returns,
+so the next line sees the DOM a user would see; `act` runs through a test
+scheduler that is not the browser's.
 
 ### Use L3 for React claims
 
@@ -337,9 +338,9 @@ Examples include:
 - hydration through `hm/hydrate!`
   ([SSR and hydration](18-ssr-and-hydration.md)).
 
-`hm/assert-clean!` requires that nothing survives unmount. A surviving
-subscription, listener, scheduled task, or retained callback is a bug; fix it
-rather than loosening the check.
+`hm/assert-clean!` requires that nothing it counts survives unmount: a retained
+subscription, or a frame the app made and did not destroy, is a bug; fix it
+rather than loosening the check. It does not see stray DOM listeners or timers.
 
 ## L4: real browser engines
 
@@ -416,14 +417,16 @@ props. The row's own test proves what a row renders.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `ht/tree` raises and points to L3 | The body reached a hook, a raw React element, or a host | Mount the view at L3; split out a hook-free semantic part when useful |
+| `ht/tree` raises and points to L3 | The body reached a raw React element or a host | Mount the view at L3; split out a hook-free semantic part when useful |
+| `ht/tree` fails with React's invalid-hook error | The body called a React hook, and L2 installs no hook dispatcher | Mount the view at L3; split out a hook-free semantic part when useful |
 | `ht/tree` raises and names a query | The body read a subscription with no fixture | Add a fixture for that exact query vector |
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
 | A plain test raises `:rf.error/fresco-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
 | `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body, or pass the realised value ([Views and reads](02-views-and-reads.md)) |
-| `hm/mount!` throws `:rf.error/initial-events-step-failed` | A seed event threw, or has no handler because the test does not require its namespace | Require the events namespace; the ex-data names the step |
+| `hm/mount!` throws `:rf.error/initial-events-step-failed` | A seed event's handler, interceptor or coeffect threw, or a coeffect it requires is missing | Fix that step; `:step-index` and `:event` in the ex-data name it |
+| The mounted page renders empty | A seed event has no handler because the test does not require its namespace, so the step is skipped with an `:rf.error/no-such-handler` record rather than a throw | Require the events namespace |
 | `hm/settle-until!` rejects with `:rf.error/poll-until-timeout` | The predicate never held within `:timeout-ms` (default 2000) | Check what the predicate reads; pass `:label` to name the wait |
-| `hm/assert-clean!` fails | A subscription, listener, task, or foreign callback survived unmount | Fix the leak; retained host callbacks are a common cause ([Interop](09-interop.md)) |
+| `hm/assert-clean!` fails | A subscription, reader edge or frame survived unmount | Fix the leak; a foreign host that keeps a callback, or a frame the app made and did not destroy, is a common cause ([Interop](09-interop.md)) |
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
 | An L1 equality on a helper's Hiccup sees an unexpected `nil` | A `when` in the helper returned `nil`; it renders nothing but is still in the authored data | Include that `nil` in the expected value, or filter it before comparing |
 | `(nil? (ht/tree ...))` fails on a body that renders nothing | The root is always a node; a body returning `nil` roots in an empty fragment | Assert `(empty? (:children tree))` ([The root is always a node](#the-root-is-always-a-node)) |

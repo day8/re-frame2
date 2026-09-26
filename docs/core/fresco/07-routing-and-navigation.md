@@ -83,8 +83,9 @@ Three things in that boot matter:
   frame that needs more than a
   seed](00-installation.md#a-frame-that-needs-more-than-a-seed).
 
-Exactly one frame may carry `:url-bound? true`. A second raises
-`:rf.error/duplicate-url-binding` and the first claimant keeps the URL. Frames
+Exactly one frame may carry `:url-bound? true`. A second is still created, but
+the runtime reports `:rf.error/duplicate-url-binding` naming both frames (an
+error record, not a throw); the first claimant keeps the URL. Frames
 without it — story variants, devcards, per-test fixtures — route independently
 and never touch the address bar.
 

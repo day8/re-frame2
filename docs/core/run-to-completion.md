@@ -66,8 +66,9 @@ settles. It does not rethrow a handler's exception: it returns normally, and the
 failure becomes an error record (`:rf.error/handler-exception`, nothing committed).
 A test asserts on the resulting state or on that record.
 
-Calling it from inside a handler raises `:rf.error/dispatch-sync-in-handler`, because
-a drain is already running. Return `:fx [[:dispatch event]]` instead. (A
+Called from inside a handler, it drops the event, because a drain is already
+running; the handler carries on, and a dev build reports
+`:rf.error/dispatch-sync-in-handler`. Return `:fx [[:dispatch event]]` instead. (A
 `dispatch-sync` aimed at a *different* frame is allowed, with a warning; see
 [Frames](frames.md#cross-frame-dispatch-sync-during-a-drain).)
 

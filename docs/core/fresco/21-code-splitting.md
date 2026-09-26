@@ -215,8 +215,9 @@ While the pane is hidden:
 - React-held UI state, such as a scroll position, can survive.
 
 When the pane becomes visible, it subscribes again to what its reveal render
-reads. Xray labels hidden-but-retained work separately from mounted and
-unmounted work.
+reads. Xray's census is about subscriptions, not visibility: a hidden pane that
+released its reads looks the same there as an unmounted one. Use React DevTools
+to see what is hidden.
 
 Use Activity only when keeping host-owned UI state is worth the cost.
 Application state already survives an unmount in app-db. Do not retain a pane

@@ -77,10 +77,11 @@ Do not interchange the two forms:
 [todo-row {:id 7}]
 ```
 
-The first mistake raises `:rf.error/fresco-bad-head`. The second throws at the
-call site: a `defview` is a React component, which only React may call, so it
-never turns into an inline helper because it was called with function
-syntax.
+The first mistake raises `:rf.error/fresco-bad-head`. The second gets no Fresco
+error: a `defview` is a React component, which only React may call. Called
+outside a render, it fails with React's invalid-hook error. Called inside
+another view's body, it runs as part of that view and receives none of the
+props you passed. Always mount it as a Hiccup head.
 
 ## Keys go in the props map
 
@@ -305,7 +306,7 @@ Four facts explain the observable behaviour:
 | A read made after rendering throws and names the query | `:rf.error/fresco-sub-outside-render` | Read during the body and retain the value. Event handlers obtain current state through coeffects |
 | An unforced `delay` in props throws at the child view | `:rf.error/fresco-deferred-read-at-boundary` | Force it in the owning body or pass an ordinary function/value with an explicit contract |
 | A plain `defn` used as a Hiccup head throws | `:rf.error/fresco-bad-head` | Call the helper or define it with `h/defview` |
-| Calling a `defview` directly throws | The view was invoked as a function | Render `[todo-row {:id 7}]` |
+| A view called as `(todo-row {:id 7})` ignores its props, or fails with React's invalid-hook error | The view was invoked as a function | Render `[todo-row {:id 7}]` |
 | React warns about a missing key | A sequence member has no `:key` in its props map | Put `:key` in each sequence member's props map; metadata is not read |
 | The first render reports an unknown subscription | `:rf.error/no-such-sub` | Require the namespace that registers the subscription before mounting |
 | A child runs although its props look the same | A prop uses reference identity or one of the child's own reads changed | Hoist a function/JS object, pass persistent data, or inspect the child's own subscriptions |

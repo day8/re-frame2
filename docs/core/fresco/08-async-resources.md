@@ -324,18 +324,20 @@ committing:
 ```
 
 The result view reads the cache. The previous results it shows while a new
-query loads come from the `:keep-previous?` on the ensure:
+query loads come from `:previous-data`, which the ensure's `:keep-previous?`
+fills:
 
 ```clojure
 (h/defview search-results [{:keys [q]}]
-  (let [{:keys [data loading? fetching?]}
+  (let [{:keys [data previous-data loading? fetching?]}
         (h/sub [:rf/resource {:resource :todo/search
-                              :params   {:q q}}])]
+                              :params   {:q q}}])
+        shown (or data previous-data)]
     [:ul.search-results
      {:aria-busy (boolean (or loading? fetching?))}
-     (if (and loading? (not data))
+     (if (and loading? (not shown))
        [:li.hint "Searching…"]
-       (for [{:keys [id title]} (:todos data)]
+       (for [{:keys [id title]} (:todos shown)]
          [:li {:key id} title]))]))
 
 (h/defview todo-search [_]
@@ -360,8 +362,9 @@ What happens as the user types:
    not the list mounting, starts the fetch.
 3. A new committed query releases the old identity and ensures the new one.
    The old request is aborted best-effort once no owner needs it, and a late
-   reply is suppressed. `:keep-previous? true` keeps the previous results
-   visible while `:fetching?` reports the refresh.
+   reply is suppressed. `:keep-previous? true` projects the previous query's
+   results at `:previous-data`, with `:previous? true`, while `:loading?`
+   reports the new query's first load.
 4. Escape releases the owner. Nothing infers that from the view disappearing,
    which is why `:todo.search/clear` does it.
 5. Repeating a query before its `:gc-after-ms` expiry rejoins the cached entry,
@@ -377,7 +380,7 @@ first fetch after hydration.
 | --- | --- | --- |
 | A resource stays `:idle` | Nothing caused it; a subscription never fetches | Give it a cause: route `:resources`, a prefetch, or `[:rf.resource/ensure …]` from the event that decides the data is wanted |
 | Boot raises `:rf.error/resources-artefact-missing` | The resources model was not loaded | Require `re-frame.resources`, normally with `re-frame.http.managed` |
-| Search results flash empty on every new query | Each params value is a separate cache entry, and previous data is not kept | Set `:keep-previous? true` on the `[:rf.resource/ensure …]`, and use `:fetching?` for the refresh state |
+| Search results flash empty on every new query | Each params value is a separate cache entry, and previous data is not kept | Set `:keep-previous? true` on the `[:rf.resource/ensure …]`, render `(or data previous-data)`, and use `:loading?` with `:previous?` for the in-flight state |
 | Old query results replace new ones | Fetching was done outside the resource model | Register the resource and let the runtime suppress stale replies |
 | A resource read throws after render | `h/sub` escaped into a callback, promise, timer, or deferred sequence | Read during the synchronous body and keep the resulting value |
 | Every checkbox becomes pending together | All writes share one instance id | Include the todo's id, such as `[:todo/set-done id]` |

@@ -163,8 +163,9 @@ Related: [Events as data](03-events-as-data.md),
 <a id="owned-wins"></a>
 ### Owned-wins merge
 
-When a view forwards an attributes map into an element, literal keys written by
-the element author take precedence. Control slots such as `:value`, handlers,
+When a view forwards an attributes map into an element, merge the caller's map
+first and the keys the element owns last, so the owned keys win. Fresco does not
+do this for you. Control slots such as `:value`, handlers,
 `:key`, and [`::h/revision`](#hrevision) should not be replaceable through a
 generic forwarded map.
 
@@ -464,7 +465,8 @@ under the same React root and re-frame2 frame as the surrounding Fresco
 application. Use one for React hooks, vendor widgets, and fast-changing state
 that only the component itself needs, such as drag positions.
 
-Xray names and times the island, but does not see inside its React tree.
+Xray shows the island's `n/use-sub` reads. It does not time the island or see
+inside its React tree; React DevTools shows the host under its `defhost` name.
 
 Related: [Islands](10-native-tier.md).
 
@@ -630,7 +632,8 @@ Related: [Testing](15-testing.md).
 
 `ht/tree` runs one hook-free Fresco view body with injected subscription
 fixtures and returns a semantic tree. Nested views remain represented as calls.
-Hooks, hosts, and raw React elements are refused and belong at L3.
+Hosts and raw React elements are refused, and a hook call fails with React's
+own error; all three belong at L3.
 
 Related: [Testing](15-testing.md).
 
@@ -698,8 +701,10 @@ Related: [Diagnostics](16-diagnostics.md).
 <a id="explain-render"></a>
 ### Explain-render
 
-Xray's answer to “why did this view run?” It reports the cause category, changed
-reads or props, current read set, fan-out, completeness, and evidence loss.
+Xray's answer to “why did this view run?” It reports the view's most recently
+changed reads, the recent dispatches that recomputed them as leads rather than
+causes, and what evidence was lost. Props and context are not causes Fresco
+records.
 
 Related: [Diagnostics](16-diagnostics.md).
 
@@ -707,8 +712,9 @@ Related: [Diagnostics](16-diagnostics.md).
 ### Hot-view advisor
 
 A diagnostic ranking that combines time, frequency, read churn, and fan-out,
-then classifies the pressure as computation, topology, lowering, React, or
-layout. It recommends the smallest credible remedy and never auto-promotes
+then classifies the pressure it can measure: computation and read topology.
+Lowering, React and layout it reports as unattributed, naming the tool that can
+measure each. It recommends the smallest credible remedy and never auto-promotes
 code to native.
 
 Related: [Diagnostics](16-diagnostics.md),
@@ -742,7 +748,8 @@ Related: [Diagnostics](16-diagnostics.md).
 ### Production erasure
 
 Removal of development diagnostics, evidence machinery, source locations, and
-complaint messages from default release bundles. Optional performance timing
+development console warnings from default release bundles; a thrown complaint
+keeps its id and message. Optional performance timing
 has a separate compile-time flag and is disabled by default.
 
 Related: [Diagnostics](16-diagnostics.md).

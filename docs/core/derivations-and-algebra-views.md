@@ -213,7 +213,7 @@ fetch.
 {:id          :todo/list
  :kind        :process
  :refinement  :resource-process
- :inputs      [[:param :list-id] [:scope {:from-db :app/session}]]
+ :inputs      [[:param :rf.params] [:scope {:from-db :app/session}]]
  :output      [:runtime [:rf.runtime/resources :entries]]
  :storage     :runtime-db                     ;; the LOCAL cache lives here
  :authority   {:kind :remote :system :server  ;; the truth lives elsewhere
@@ -223,7 +223,8 @@ fetch.
  :materialized? true
  :selectors   [:rf/resource :rf.resource/data :rf.resource/status
                :rf.resource/loading? :rf.resource/fetching? :rf.resource/stale?
-               :rf.resource/error :rf.resource/refresh-error :rf.resource/has-data?]}
+               :rf.resource/error :rf.resource/refresh-error :rf.resource/has-data?
+               :rf.resource/previous-data]}
 ```
 
 **`:storage` always names the local home**, here the runtime-db cache entry.
@@ -264,11 +265,11 @@ graph reads without running anything:
 {:id          :todo/list
  :kind        :process
  :refinement  :resource-process
- :inputs      [[:param :list-id]
+ :inputs      [[:param :rf.params]
                [:scope {:from-db :session/current-tenant}]]   ;; the reference, verbatim
- :scope-resolver {:id     :session/current-tenant
-                  :inputs [[:db [:session :tenant-id]]]}        ;; its declared inputs are static facts
- :params      :parametric}
+ :scope-resolver {:id        :session/current-tenant
+                  :inputs    [[:db [:session :tenant-id]]]     ;; its declared inputs are static facts
+                  :whole-db? false}}
 ```
 
 The same holds throughout the algebra: a dependency declared as data is visible to a
@@ -371,16 +372,18 @@ A tool combines the views into one value, a map of `:nodes` and a vector of `:ed
  :frame :app
  :nodes
  {[:sub [:todo/shared-list "team"]] {:kind :derivation :storage :ephemeral :evaluation :on-demand}
+  [:sub [:rf/resource {:resource :todo/list :params {:list-id "team"}}]]
+                                    {:kind :derivation :storage :ephemeral :evaluation :on-demand}
   :rf/route                         {:kind :process :storage :runtime-db
                                      :output [:runtime [:rf.runtime/routing :current]]}
-  [:resource [[:rf.scope/global] :todo/list {:list-id "team"}]]
+  [:resource [:rf.scope/global :todo/list {:list-id "team"}]]
                                     {:kind :process :storage :runtime-db :status :loaded}}
  :edges
- [{:from [:runtime [:rf.runtime/routing :current :params :list-id]]
-   :to   [:sub [:todo/shared-list "team"]] :role :input}
-  {:from [:runtime [:rf.runtime/routing :current :params :list-id]]
-   :to   [:resource [[:rf.scope/global] :todo/list {:list-id "team"}]] :role :param}
-  {:from [:resource [[:rf.scope/global] :todo/list {:list-id "team"}]]
+ [{:from  :rf/route
+   :to    [:resource [:rf.scope/global :todo/list {:list-id "team"}]]
+   :role  :param
+   :owner [:route :todo/team-list 3]}                ;; [:route route-id nav-token]
+  {:from [:sub [:rf/resource {:resource :todo/list :params {:list-id "team"}}]]
    :to   [:sub [:todo/shared-list "team"]] :role :input}]}
 ```
 
@@ -425,7 +428,7 @@ The model also names the ways a graph can be unhealthy, in the same node vocabul
 - **Unresolved resource scope.** A scope resolver that can't produce a key (its `:from-db` source is empty, say) raises `:rf.error/resource-sub-unresolved-scope`. Without a scope the resource can't form its `[cache-scope resource-id canonical-params]` identity, so it raises instead of serving another principal's data. A resource registered with no scope policy at all raises `:rf.error/resource-missing-scope-policy` at registration.
 - **Stale reply suppressed.** An async reply arrived for a request that a newer navigation or fetch had already superseded, and the process dropped it by its declared identity. This is correct behaviour; the model lists it as a diagnostic so a tool can show that it happened.
 
-The full error catalogue (`:rf.error/*`, `:rf.warning/*`) is in [Errors](errors.md).
+[Errors](errors.md) explains how to read any of these records.
 
 !!! note "No public graph accessor yet"
 
@@ -435,7 +438,7 @@ The full error catalogue (`:rf.error/*`, `:rf.warning/*`) is in [Errors](errors.
 
 ### How optional families plug in
 
-Core can't `:require` flows, resources, routing or machines without defeating their [bundle isolation](glossary.md#elide) and breaking a core-only build. So the internal graph composer reaches each optional family through a **contributor map**, `{family {:static-fn :live-fn …}}`. On the JVM the default contributors find whichever family artefacts are on the classpath; in the browser, the tool that draws the graph, which already requires the families it supports, supplies the map. An absent family contributes nothing, which is why an app without flows shows no flow nodes. The composer is bundle-isolated and has no public accessor.
+Core can't `:require` flows, resources, routing or machines without defeating their bundle isolation and breaking a core-only build. So the internal graph composer reaches each optional family through a **contributor map**, `{family {:static-fn :live-fn …}}`. On the JVM the default contributors find whichever family artefacts are on the classpath; in the browser, the tool that draws the graph, which already requires the families it supports, supplies the map. An absent family contributes nothing, which is why an app without flows shows no flow nodes. The composer is bundle-isolated and has no public accessor.
 
 ### The optional delta law
 

@@ -17,7 +17,9 @@ Macros are marked. Two of them, `h/defview` and `h/defhost`, expand to a
 `def`, so they are written at the top level of a namespace and never inside a
 body.
 
-Errors are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`. Entries
+Errors are `ex-info`s carrying a stable `:rf.error/…` id in `ex-data`, except the
+`hm/advance-clock!` and `hm/hydrate!` timeout errors and `evidence/envelope`'s
+refusal, which carry none. Entries
 name the ids a name raises; [Errors](17-errors.md) explains the shape and
 [Troubleshooting](troubleshooting.md) indexes them.
 
@@ -185,7 +187,7 @@ Later renders through the same handle are ordinary synchronous updates.
 | `h/error-boundary` | `[h/error-boundary opts child …]` | An error boundary. `opts` takes `:fallback` (Hiccup, or `(fn [error] hiccup)`), `:reset-key` (compared with `=`; a change clears the caught error and remounts the children) and `:on-error` (an event vector dispatched with the error appended, or a function called with it). Any other key raises `:rf.error/fresco-boundary-unknown-prop`; a non-callable `:on-error` raises `:rf.error/fresco-boundary-bad-on-error`, and a vector `:on-error` with no frame above it raises `:rf.error/fresco-intent-outside-boundary`. Taught in [Errors](17-errors.md). |
 | `h/portal` | `[h/portal opts child …]` | Renders children into another DOM node with `createPortal`. `:target` is the DOM node; `:fallback` is markup rendered in the portal's place on the server. Events bubble through the React tree, and changing `:target` remounts. |
 | `h/route-link` | `(h/route-link props child …)` | Returns an anchor whose `:href` and click handling come from routing. `props` takes the address (`:to`, `:params`, `:query`, `:fragment`), the navigation policy `:rf.route/navigate` takes (`:replace?`, `:scroll`, `:bypass-leave?`, carried on the click's navigation), `:on-click` and `:prefetch`; other keys are ordinary anchor attributes. **Called, not written as a head**: it is a plain function. Without routing loaded it raises `:rf.error/routing-artefact-missing`. Called outside a view's render it raises `:rf.error/fresco-route-link-outside-boundary`; a bare event vector at `:on-click` raises `:rf.error/fresco-route-link-bad-on-click`; a `:prefetch` value other than `:intent` raises `:rf.error/route-link-bad-prefetch`, and `:prefetch :intent` beside your own value at a position it claims raises `:rf.error/fresco-route-link-claimed-intent-position`. Taught in [Routing and navigation](07-routing-and-navigation.md). |
-| `h/as-element` | `(h/as-element hiccup)` | Converts Hiccup to a React element under the current view's frame. Use it where Fresco does not convert for you: a `:render` callback's return, a child of `[:> …]`, or anything passed to a React island. |
+| `h/as-element` | `(h/as-element hiccup)` | Converts Hiccup to a React element under the current view's frame. Use it where Fresco does not convert for you: a `:render` callback's return, markup passed as a prop of `[:> …]`, or anything passed to a React island. |
 | `h/as-component` | `(h/as-component view)` | Returns a React component for a Fresco view, so React, UIx or plain JavaScript can mount it under the frame it is already in. Define it once at top level, beside the view. |
 
 ### Local state
@@ -591,7 +593,7 @@ hm/this-frame
 | Name | What it does |
 | --- | --- |
 | `hm/mount!` | mounts `form` on a fresh React root under a frame of this mount's own, and returns the handle. `:initial-events` seeds that frame in core's own vocabulary; `:container` renders into an element you already have; `:clock true` installs a virtual clock before anything else this call does |
-| `hm/hydrate!` | mounts by adopting server bytes, and returns a **promise** of the handle, resolved once this root's adoption window has shut. `:html` supplies the bytes, or `:container` a container you already filled; `:initial-events` and `:clock` are as for `hm/mount!`. The default budget is 3000 ms |
+| `hm/hydrate!` | mounts by adopting server bytes, and returns a **promise** of the handle, resolved once this root's adoption window has shut. `:html` supplies the bytes, or `:container` a container you already filled; `:initial-events` is as for `hm/mount!`; `:clock true` is installed once adoption has finished, not before it. The default budget is 3000 ms |
 | `hm/rerender!` | renders `form` into the existing root — same root, same frame, same DOM nodes wherever React can keep them |
 | `hm/dispatch-and-settle!` | dispatches into this mount's frame through the runtime's own synchronous dispatch, drains it, commits the echo, and returns the handle |
 | `hm/settle!` | lets everything React has already scheduled commit. The empty `flushSync`, with no work of its own — it cannot reach work that is merely enqueued |

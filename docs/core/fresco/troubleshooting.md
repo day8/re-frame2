@@ -10,7 +10,7 @@ The most common ones:
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A view does not re-render when app-db changes | The value was not read with `h/sub` during the view's render (for example `rf/subscribe`, or a read in a callback) | Read it with `h/sub` in the view body |
+| A view does not re-render when app-db changes | The value was not read with `h/sub` during the view's render (for example an explicitly framed `rf/subscribe-once`, or a value read once and kept in a callback) | Read it with `h/sub` in the view body |
 | Calling a view as `(todo-row {:id 7})` throws | A `defview` is a component, used as a Hiccup head | Write `[todo-row {:id 7}]`; use a plain `defn` for a helper you call |
 | A dispatch from a timeout or promise raises `:rf.error/no-frame-context` | The callback runs after rendering, with no frame in scope | Capture the frame with `(rf/capture-frame)` while rendering and use its `:dispatch`, or dispatch an effect that carries the frame |
 | A controlled field drops characters or moves the caret | The edit was dispatched asynchronously, or the field left Fresco's controlled path | Dispatch the edit event directly from `:on-input` |
@@ -64,7 +64,7 @@ Every error Fresco raises carries four keys:
 | `:rf.error/id` | Which error this is. Branch on this and nothing else |
 | `:where` | Which function refused |
 | `:reason` | Why, in a sentence, for a human |
-| `:recovery` | `:no-recovery`: the error was thrown; the fix is in `:reason` |
+| `:recovery` | Fresco's own refusals say `:no-recovery`, and the fix is in `:reason`; ids raised through core name a specific recovery. Branch on the id, not on this |
 
 In a development build, errors raised while a view renders also carry `:view`
 and `:source`: the view and the file and line of its `defview`. They are absent
@@ -163,6 +163,16 @@ or close over the result.
 
 Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
 [Diagnostics](16-diagnostics.md).
+
+<a id="ambient-frame-refused"></a>
+#### `:rf.error/ambient-frame-refused`
+
+You called `rf/subscribe` or `rf/dispatch` in a view body without naming a
+frame. Read with `h/sub`; dispatch through an event vector, `h/event`, or the
+`:dispatch` of `(rf/capture-frame)`. A corpus id.
+
+Named in [Views and reads](02-views-and-reads.md),
+[Events as data](03-events-as-data.md).
 
 <a id="fresco-deferred-read-at-boundary"></a>
 #### `:rf.error/fresco-deferred-read-at-boundary`
@@ -394,8 +404,7 @@ markup, not a function.
 
 Write the markup there, or take the position out of `:slots`.
 
-Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
-[Diagnostics](16-diagnostics.md).
+Named in [Interop](09-interop.md), [Diagnostics](16-diagnostics.md).
 
 <a id="fresco-raw-not-a-component"></a>
 #### `:rf.error/fresco-raw-not-a-component`
@@ -552,7 +561,9 @@ You gave an L2 `tree` a `defview` head in a build that erased its body.
 #### `:rf.error/fresco-test-bad-option`
 
 You gave an L2 `tree` non-map options, or an option outside its closed roster
-`#{:subs}`.
+`#{:subs}`. `hm/shadow!` raises it too, for options outside `:reference`,
+`:candidate`, `:initial-events` and `:script`, or a script step other than
+`{:click selector}` or `{:type [selector text]}`.
 
 <a id="fresco-test-bad-reads"></a>
 #### `:rf.error/fresco-test-bad-reads`
@@ -612,8 +623,10 @@ You invoked a handler lowered by a pure L1 projection.
 <a id="initial-events-step-failed"></a>
 #### `:rf.error/initial-events-step-failed`
 
-An `:initial-events` step handed to `hm/mount!` or `hm/hydrate!` threw. Nothing
-was mounted, so there is no handle to tear down. A corpus id.
+An `:initial-events` step threw while a frame was being built, whether handed to
+`hm/mount!` or `hm/hydrate!` or to an `h/frame-root` creating its frame. The
+frame is torn down and nothing was mounted, so there is no handle to tear down.
+The error names the step and its event. A corpus id.
 
 <a id="poll-until-timeout"></a>
 #### `:rf.error/poll-until-timeout`

@@ -49,8 +49,9 @@ queue and returns immediately. The runtime dequeues it shortly after and runs th
 handlers, UI callbacks stay thin and state is written one event at a time.
 
 If the pipeline must finish before your next line of code runs, use `dispatch-sync`.
-It belongs at boot, in tests, and at the REPL; calling it from inside a running
-handler raises `:rf.error/dispatch-sync-in-handler`. Use ordinary `dispatch` in
+It belongs at boot, in tests, and at the REPL; called from inside a running
+handler, it drops the event and a dev build reports
+`:rf.error/dispatch-sync-in-handler`. Use ordinary `dispatch` in
 views. Queue draining is covered in
 [Effects](effects.md#run-to-completion).
 

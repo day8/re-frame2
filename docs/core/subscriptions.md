@@ -282,18 +282,18 @@ with [Xray](glossary.md#xray) attached ([Debug with Xray](../xray/index.md)), cl
 |---|---|---|
 | A sub reads `nil` and `:rf.error/no-such-sub` is reported | The id is not registered: a typo, or its namespace hasn't loaded. An `:inputs` entry naming an unregistered sub reports it too; that input arrives as `nil` and the body still runs | Fix the id or require the namespace; the next subscribe after registration builds normally |
 | A sub reads `nil` and `:rf.error/sub-cycle` is reported (development builds) | Its `:inputs` chain leads back to itself; `:cycle` names the loop, e.g. `[:a :b :a]` | Break the cycle |
-| A sub reads `nil` and `:rf.error/sub-exception` is reported | The computation function threw | Fix the computation; the record's `:where` says which path threw (below) |
+| A sub reads `nil` and `:rf.error/sub-exception` is reported | The computation function threw | Fix the computation; `:where :compute-sub` marks the pure path, and the live path stamps none (below) |
 | A sub reads `nil` and `:rf.error/schema-validation-failure` is reported with `:where :sub-return` | The computed value doesn't match the sub's `:schema` | Fix the computation or the schema |
 | `:rf.error/no-frame-context` from `subscribe` | The subscribe ran under no frame, e.g. in a plain `defn` or an async callback | Subscribe from a `reg-view`, or pass `{:frame id}` |
 | `:rf.error/frame-destroyed` from `subscribe` | The frame was destroyed before the subscribe ran (a stray async callback, a hot-reload race) | Stop the callback when the frame goes away |
 | Typing in one form is slow everywhere | Computation in a layer-1 extractor | Move it into a layer-2 sub |
 
 A computation that throws is recovered to `nil` so it cannot take down the render.
-The error record is always on, so it reaches your production error listeners, and its
-`:where` tag is `:reactive` for the live cache path or `:compute-sub` for the pure
-test/SSR path. Because SSR uses the pure path, a sub that throws during a server
-render lets the server return a real error response instead of HTML built from
-`nil`s.
+The error record is always on, so it reaches your production error listeners. A
+record from the pure `compute-sub` path carries `:where :compute-sub`; one from the
+live cache carries no `:where`. The live record names its frame, and that is what
+lets a server render hit by a throwing sub return a real error response instead of
+HTML built from `nil`s.
 
 Schema validation runs after the body, so a wrong shape is caught at the sub that
 produced it rather than three layers downstream. The whole `:sub-return` check is
@@ -305,7 +305,7 @@ attempted query vector. It is always on, so a genuine use-after-destroy bug stay
 visible in production. A subscribe issued under no frame at all is the different
 `:rf.error/no-frame-context`; see
 [frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found).
-All of these ids are catalogued in [Errors and recovery](errors.md).
+[Errors](errors.md) covers reading these records.
 
 ## Advanced
 
@@ -383,8 +383,7 @@ because wrong dependency edges are hard to debug. Three errors keep three mistak
 apart: a malformed registration signals `:rf.error/reg-sub-bad-args` at `reg-sub`
 time; a bad return value signals `:rf.error/sub-input-fn-bad-return` when the
 concrete subscription is first materialised; a throw inside the input function
-signals `:rf.error/sub-input-fn-exception`. All three are catalogued in
-[Errors and recovery](errors.md).
+signals `:rf.error/sub-input-fn-exception`.
 
 ### Saying things about a sub: metadata
 

@@ -76,7 +76,7 @@ measure, and [Islands](10-native-tier.md) how to move a region.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Calling a `defview` as `(todo-row {:id 7})` throws | A Fresco view is a React component used as a Hiccup head, not a function to call | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
+| A `defview` called as `(todo-row {:id 7})` ignores its props, or fails with React's invalid-hook error | A Fresco view is a React component used as a Hiccup head, not a function to call | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
 | A plain helper written as `[row-icon props]` raises `:rf.error/fresco-bad-head` | A plain function appeared in Hiccup head position | Call it as `(row-icon props)`, or define it with `h/defview` when it needs to re-render on its own |
 | `h/sub` raises `:rf.error/fresco-sub-outside-render` | The read ran outside the synchronous execution of a Fresco view | Read inside the view body and pass or close over the value |
 | An event vector raises `:rf.error/fresco-intent-outside-boundary` | The event vector was turned into a callback outside any view's render, for example inside a function a foreign component calls later | Keep event vectors in Hiccup a view returns; inside a foreign callback, use `h/event` |

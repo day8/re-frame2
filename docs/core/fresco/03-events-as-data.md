@@ -249,8 +249,9 @@ bound to that frame. Use it where foreign code you do not control keeps a
 closure: an SDK attached from a ref, a value-first callback, a host slot.
 
 A captured handle is valid for that frame's lifetime. Destroying the frame and
-creating another under the same id does not revive the old handle; using it
-raises `:rf.error/frame-destroyed` and does not reach the new frame. Capture
+creating another under the same id does not revive the old handle: a call
+through it is dropped and reported as `:rf.error/frame-destroyed`, and never
+reaches the new frame. Capture
 during rendering rather than keeping a global stash. Do not render the frame id
 into markup: on the server it is process-local, and it would break the
 determinism check (`re-frame.fresco.test.server/render-twice`).

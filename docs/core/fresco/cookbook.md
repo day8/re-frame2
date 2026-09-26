@@ -66,8 +66,8 @@ a recipe shows its own `ns` form only when it needs something more.
       todos)))
 ```
 
-Chapter: [Getting started](01-getting-started.md). The full application is
-`examples/core/todomvc`.
+Chapter: [Getting started](01-getting-started.md). A complete TodoMVC, written
+for the Reagent adapter with its own event names, is `examples/core/todomvc`.
 
 ## Boot an application
 
@@ -397,17 +397,17 @@ ensure to keep the previous data while the new request is out.
                        :keep-previous? true}]]]}))
 
 (h/defview search-results [{:keys [q]}]
-  (let [{:keys [data error loading? fetching?]}
+  (let [{:keys [data previous-data error loading? fetching?]}
         (h/sub [:rf/resource {:resource :todo/search :params {:q q}}])
-        todos (:todos data)]
+        todos (:todos (or data previous-data))]
     [:div.search-results {:aria-busy (boolean (or loading? fetching?))}
      (cond
-       error         [:p.problem {:role "alert"} "Search failed."]
-       loading?      [:p.loading "Searching…"]
-       (empty? todos) [:p.empty "No matches"]
-       :else         [:ul
-                      (for [{:keys [id title]} todos]
-                        [:li {:key id} title])])]))
+       error                      [:p.problem {:role "alert"} "Search failed."]
+       (and loading? (not todos)) [:p.loading "Searching…"]
+       (empty? todos)             [:p.empty "No matches"]
+       :else                      [:ul
+                                   (for [{:keys [id title]} todos]
+                                     [:li {:key id} title])])]))
 ```
 
 - **The subscription never fetches.** `[:rf/resource …]` reads whatever the
@@ -417,8 +417,9 @@ ensure to keep the previous data while the new request is out.
   ensuring the new query lets the old result be garbage-collected. Release it
   again when the search closes.
 - **`:keep-previous? true` keeps the last results on screen** while the new
-  request is out. `:loading?` is the first load with no data; `:fetching?` is a
-  refresh with data already showing. Whether to keep old results is your
+  request is out: a new query is a first load (`:loading?`), and the previous
+  query's results arrive at `:previous-data`. `:fetching?` is a refresh of an
+  entry with data already showing. Whether to keep old results is your
   choice: right for a search, wrong for an account balance.
 
 Debouncing keystrokes is covered in the chapter.
@@ -568,8 +569,10 @@ application, so one failure does not blank the page.
 - **`:on-error` runs once per caught failure.** A vector is dispatched with the
   error appended; a function is called with the error. Anything else is
   rejected at the first render.
-- **The fallback is ordinary markup**, so it can read subscriptions, for
-  example to show a translated message.
+- **The fallback can show subscription values**, for example a translated
+  message: read them in the body that writes the boundary, or render a view
+  inside the fallback. An `h/sub` called directly inside a `(fn [error] …)`
+  fallback raises `:rf.error/fresco-sub-outside-render`.
 
 Chapter: [Errors](17-errors.md).
 
@@ -580,9 +583,13 @@ server's state, and then adopts the DOM, in that order.
 
 ```clojure
 (ns my.app.server
-  (:require [re-frame.fresco.server :as server]
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
+            [re-frame.fresco.server :as server]
             [my.app.model :as model]
             [my.app.views :as views]))
+
+(rf/init! ssr/adapter)   ;; once, at process startup
 
 (defn handle [_request]
   (let [{:keys [document]}
@@ -641,9 +648,13 @@ mismatch. `render-twice` takes the same options as `server/render`:
 ```clojure
 (ns my.app.server-test
   (:require [cljs.test :refer [deftest is]]
+            [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
             [re-frame.fresco.test.server :as ts]
             [my.app.model :as model]
             [my.app.views :as views]))
+
+(rf/init! ssr/adapter)   ;; render-twice builds frames, which need an adapter
 
 (deftest the-page-renders-deterministically
   (let [{:keys [identical? differs-at]}

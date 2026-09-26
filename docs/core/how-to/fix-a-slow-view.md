@@ -164,7 +164,7 @@ new PerformanceObserver((list) => {
       sendToAPM(e);                 // { name, startTime, duration }
     }
   }
-}).observe({ type: 'measure', buffered: true });   // buffered: replay entries from before this observer attached
+}).observe({ type: 'measure', buffered: true });   // rf: measures are cleared as they are emitted, so attach this before the work you want to see
 ```
 
 Read the result as in step 1: one wide `rf:render:` or `rf:sub:` bar is misplaced work (step 2), and a cloud of narrow `rf:render:` bars per interaction is a storm (step 3).

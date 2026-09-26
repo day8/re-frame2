@@ -196,7 +196,7 @@ never sees a half-filled one.
 
     In v1, coeffect injection was itself an interceptor, so one placed before it saw
     an incomplete `:coeffects` map. In re-frame2 injection happens before the chain.
-    An `inject-cofx` entry in a chain raises `:rf.error/inject-cofx-removed`; declare
+    `re-frame.core` has no `inject-cofx`, so a leftover entry fails to compile; declare
     the fact with `:rf.cofx/requires` instead. See
     [From re-frame v1](25-from-re-frame-v1.md).
 
@@ -275,9 +275,10 @@ An interceptor sees only the facts the *event* declared, because
 `:rf.cofx/requires` belongs to the event. Leave that line off and `:at` is `nil`.
 
 The factory runs when the chain is built. `[:my-app/stamp :a]` and
-`[:my-app/stamp :b]` are two different chain entries, which is why overrides
-([below](#removing-or-swapping-a-reference-interceptor-overrides)) match the whole
-reference, not just the id.
+`[:my-app/stamp :b]` are two different chain entries. An override
+([below](#removing-or-swapping-a-reference-interceptor-overrides)) keyed by
+`[:my-app/stamp :a]` matches only that entry; a bare `:my-app/stamp` key matches
+every entry with that id.
 
 ??? info "From re-frame v1: the helper interceptors are gone"
 
@@ -307,7 +308,7 @@ event becomes one frame interceptor with no change to handler code.
 ### Removing or swapping a reference: `:interceptor-overrides`
 
 A test can remove or replace one interceptor without touching registrations.
-`:interceptor-overrides` matches a chain entry by its exact reference and removes it
+`:interceptor-overrides` matches a chain entry by its reference and removes it
 (`nil`) or replaces it with another reference, per dispatch or per frame:
 
 ```clojure
@@ -440,11 +441,14 @@ interceptors too. `handler-meta` reads an interceptor's metadata and source loca
 ;;     :ns todo.events :line 12 :file "..." ...}
 ```
 
-An *event's* metadata gives you its chain as written, a vector of references:
+An *event's* metadata gives you its effective chain: your references, then the
+framework's handler wrapper (a map with `:rf/default? true`).
+`(remove :rf/default? (:interceptors m))` is the chain as written:
 
 ```clojure
 (rf/handler-meta {:source :store :kind :event :id :todo/toggle})
-;; => {:doc "Flip one todo between done and not done." :interceptors [:todo/persist] ...}
+;; => {:doc "Flip one todo between done and not done."
+;;     :interceptors [:todo/persist {:id :rf/event-handler :rf/default? true ...}] ...}
 ```
 
 A tool reads the references off the event, then looks up each one's source and
@@ -500,7 +504,7 @@ other chain errors also [fail loud](glossary.md#fail-loud-not-silent):
 |---|---|
 | `:rf.error/invalid-interceptor` | Gave `reg-interceptor` a descriptor that isn't `{:before}`, `{:after}`, `{:before :after}`, or `{:factory}` |
 | `:rf.error/unregistered-interceptor` | Referenced an id with no registration |
-| `:rf.error/invalid-interceptor-ref` | Wrote a chain entry that is neither a keyword nor an `[id arg]` vector |
+| `:rf.error/invalid-interceptor-ref` | Put an entry that is neither a keyword nor an `[id arg]` vector in a frame's `:interceptors` chain (in `reg-event` the same mistake is `:rf.error/reg-event-bad-interceptors`, below) |
 | `:rf.error/inline-interceptor-removed` | Put an interceptor map, value, or Var in a chain instead of an id |
 | `:rf.error/interceptor-factory-arity` | Used a bracket reference on a non-`:factory` interceptor, referenced a `:factory` interceptor as a bare keyword (`:rf.interceptor/path` with no argument), or the factory can't build for that argument |
 | `:rf.error/reg-event-bad-middle-slot` | Passed the chain positionally, `(rf/reg-event :id [:todo/persist] f)`, instead of as `{:interceptors [:todo/persist]}` |

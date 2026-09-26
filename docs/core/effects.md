@@ -294,8 +294,8 @@ All three handlers are pure. Each tests as a plain function, and the request tes
 as data: assert on the `:fx` row, with no network.
 
 `:rf.http/managed` ships in the HTTP artefact, `day8/re-frame2-http`. Require
-`re-frame.http.managed` once at boot; without it, the first `:rf.http/managed` row
-fails with `:rf.error/http-artefact-missing`.
+`re-frame.http.managed` once at boot; without it, `:rf.http/managed` is an
+unregistered effect and the row fails with `:rf.error/no-such-fx`.
 
 Don't call `js/fetch` inside a handler. Besides the problems the storage write had,
 the `.then` callback runs after the handler has returned, so it has no way to
@@ -329,7 +329,7 @@ and [RealWorld HTTP](../../examples/real-apps/realworld_http).
 | `:rf.error/no-such-fx`; that row fails, the others run | The `:fx` row names an unregistered id | Register it with `reg-fx`, or fix the typo |
 | `:rf.error/fx-handler-exception`; later rows still run | An effect handler threw; `:db` is already committed | Chain dependent steps through reply events |
 | Handler calls `dispatch` or does I/O directly | The handler is no longer pure, and the event record misses the work | Return an `:fx` row (`[:dispatch …]`, or your own `reg-fx` id) |
-| `:rf.error/http-artefact-missing` | `:rf.http/managed` used without the HTTP artefact | Add `day8/re-frame2-http` and require `re-frame.http.managed` |
+| `:rf.error/no-such-fx` naming `:rf.http/managed` | The HTTP artefact isn't loaded | Add `day8/re-frame2-http` and require `re-frame.http.managed` |
 | `:rf.error/no-frame-context` from an async callback | A bare `dispatch` in a callback that runs later | Capture `(:frame ctx)` in the effect handler ([below](#the-effect-handlers-two-arguments)) |
 
 ## Advanced
