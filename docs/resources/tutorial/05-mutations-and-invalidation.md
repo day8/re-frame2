@@ -12,9 +12,23 @@ Wiring each write to "now refetch these reads" at the call site works until one 
 
     A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences: invalidation is declared once on the registration, not per call site; every invalidation is **scoped**, so a write names which users' caches it touches; and the post-write continuation is a dispatched [event](../../core/glossary.md#event), not an `onSuccess` callback.
 
-## The reads, ready to be broken
+## Tag the reads
 
-Part 2 already labelled the reads. Each resource declares [`:tags`](../glossary.md#cache-tag) on its data: the article detail carries `[:article slug]`, and the lists carry `[:article-list]` plus one `[:article slug]` per article they contain. A write can then say "I made `[:article slug]` stale", and the runtime finds every read carrying that tag without the write naming any of them.
+A write can only say which reads it broke if the reads say what they hold. That is the job of a [`:tags`](../glossary.md#cache-tag) key: a function of the read's params and its decoded data, returning the *facts* the data is about. In `src/conduit/resources.cljc`, add it to `:conduit/articles`'s metadata:
+
+```clojure
+   :tags           (fn [_params data]
+                     (into #{[:article-list]}
+                           (map (fn [a] [:article (:slug a)]) (:articles data))))
+```
+
+and to `:conduit/article`'s:
+
+```clojure
+   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})
+```
+
+The article detail carries `[:article slug]`, and the list carries `[:article-list]` plus one `[:article slug]` per article it holds. A write can then say "I made `[:article slug]` stale", and the runtime finds every read carrying that tag — the detail, and any list showing that article — without the write naming any of them.
 
 One read is still missing: the **personal feed** (`GET /articles/feed`). Part 4 scoped the article reads by *viewer*; the feed goes further — it exists only for a signed-in user, and it's a different list for each. That's a **session** [scope](../glossary.md#scope): one per signed-in user, and none when nobody is.
 

@@ -67,10 +67,7 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
 (rf/reg-resource :conduit/articles
   {:params-schema  [:map]
    :scope          :rf.scope/global          ; nobody can sign in yet — Part 4 changes this
-   :stale-after-ms 60000
-   :tags           (fn [_params data]
-                     (into #{[:article-list]}
-                           (map (fn [a] [:article (:slug a)]) (:articles data))))}
+   :stale-after-ms 60000}
   (fn [_params _ctx]
     {:request {:method :get
                :url    (str api/api-base "/articles")
@@ -80,8 +77,7 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
 (rf/reg-resource :conduit/article
   {:params-schema  [:map [:slug :string]]
    :scope          :rf.scope/global
-   :stale-after-ms 60000
-   :tags           (fn [{:keys [slug]} _data] #{[:article slug]})}
+   :stale-after-ms 60000}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get
                :url    (str api/api-base "/articles/" slug)}
@@ -94,20 +90,19 @@ A **[resource](../glossary.md#resource)** is a server read registered once. You 
 
 ```clojure
 (rf/reg-resource <resource-id>     ; 1. the name
-  { … metadata … }                 ; 2. the config map (identity, scope, freshness, tags)
+  { … metadata … }                 ; 2. the config map (identity, scope, freshness)
   (fn [params ctx] …))             ; 3. the request fn — the THIRD slot, not a metadata key
 ```
 
 Put `:request` inside the metadata map instead and you get `:rf.error/resource-bad-spec` at registration, telling you to move it to the third slot.
 
-### The four keys that carry the model
+### The three keys that carry the model
 
-Most of the config map is optional. Four keys carry the idea:
+Most of the config map is optional. Three keys carry the idea:
 
 - **`:params-schema`** is the read's *identity*. Everything that changes the server's answer belongs in params, because params are what the cache keys on: `:conduit/article` with `{:slug "hello"}` and with `{:slug "world"}` are two cache entries. The list takes no params, so its schema is an empty `[:map]`.
 - **`:scope`** says *who shares the answer*. `:rf.scope/global` means "the same for everyone", which is true while nobody can sign in. Once requests carry a token, Conduit's articles embed `favorited` and `following` flags relative to the reader, so [Part 4](04-scopes-and-guards.md#whose-cache-is-it-scope-reads-by-viewer) moves both reads to a per-viewer [scope](../glossary.md#scope).
 - **`:stale-after-ms`** is the freshness window: fresh for a minute, then the next ensure refetches in the background. Leave it out and the read is **never stale by the clock** — it stays fresh until a write invalidates it or you refetch it by hand. (TanStack Query's `staleTime` defaults to `0`, the opposite.)
-- **`:tags`** name the *facts* the data contains. They do nothing yet; in Part 5 a write uses them to invalidate exactly the reads it broke.
 
 ??? info "Coming from TanStack Query?"
 
@@ -119,7 +114,7 @@ Most of the config map is optional. Four keys carry the idea:
 
 ??? note "The rest of the metadata keys"
 
-    The remaining registration keys — `:gc-after-ms`, `:poll-interval-ms`, `:data-schema`, `:transport`, `:doc`, `:sensitive` / `:large`, `:infinite` — are listed in [The resource spec](../../api/re-frame.resources.md#the-resource-spec). The request fn returns a [managed-HTTP](../../async/http.md) args map — `{:request {…} :decode …}` — so the transport's options (`:retry`, `:timeout-ms`, `:accept`, headers) are available. It describes the request only: the runtime decides where the reply goes, so supplying `:request-id`, `:on-success` or `:on-failure` is rejected.
+    The remaining registration keys — `:tags` (which [Part 5](05-mutations-and-invalidation.md#tag-the-reads) adds), `:gc-after-ms`, `:poll-interval-ms`, `:data-schema`, `:transport`, `:doc`, `:sensitive` / `:large`, `:infinite` — are listed in [The resource spec](../../api/re-frame.resources.md#the-resource-spec). The request fn returns a [managed-HTTP](../../async/http.md) args map — `{:request {…} :decode …}` — so the transport's options (`:retry`, `:timeout-ms`, `:accept`, headers) are available. It describes the request only: the runtime decides where the reply goes, so supplying `:request-id`, `:on-success` or `:on-failure` is rejected.
 
 Now delete Part 1's `seed-articles`, the `{:status …}` seed inside `:app/initialise`, and the three `:articles/*` subs. The resource replaces all of them, so `:app/initialise` shrinks to an empty seed:
 
