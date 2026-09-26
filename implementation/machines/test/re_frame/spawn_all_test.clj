@@ -399,7 +399,7 @@
                                {:s {:spawn-all {:children        (fn [_] [{:id :x :machine-id :foo}])
                                                  :on-all-complete [:done]}}}})
               nil
-              (catch Throwable t t))]
+              (catch Exception t t))]
       (is (= :rf.error/machine-spawn-all-bad-shape (:rf.error/id (ex-data e)))
           (str "a structured rejection, not a host throw: " (pr-str (type e))))
       (is (re-find #":children must be a non-empty vector" (str (ex-message e)))
