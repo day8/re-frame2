@@ -111,7 +111,7 @@ Most of the config map is optional. Four keys carry the idea:
 
 ??? info "Coming from TanStack Query?"
 
-    `:params-schema` is your `queryKey`, but typed and validated against the schema. `:stale-after-ms` is your `staleTime`. Two keys from the list below map too: `:gc-after-ms` is `gcTime` (both default to five minutes), and `:poll-interval-ms` is `refetchInterval`, but driven by the entry's owners rather than a mounted component. Refetch on window focus or reconnect is off by default and is configured on the frame, not the read — see [Owners, causes, refetch rules](../concepts.md#owners-causes-refetch-rules).
+    `:params-schema` is your `queryKey`, but typed — and validated against the schema once the schemas artefact is loaded, which Part 3 adds. `:stale-after-ms` is your `staleTime`. Two keys from the list below map too: `:gc-after-ms` is `gcTime` (both default to five minutes), and `:poll-interval-ms` is `refetchInterval`, but driven by the entry's owners rather than a mounted component. Refetch on window focus or reconnect is off by default and is configured on the frame, not the read — see [Owners, causes, refetch rules](../concepts.md#owners-causes-refetch-rules).
 
 !!! note "Why is `:scope` required, with no default?"
 
@@ -220,7 +220,7 @@ Each branch of that `cond` handles one state the feed can be in.
 
 ### The view-model: one fixed map
 
-`:rf/resource` returns a map with a fixed set of keys:
+`:rf/resource` returns a map with a fixed set of keys, plus two more while `:keep-previous?` is showing an earlier key's data:
 
 ```clojure
 {:status        :idle | :loading | :fetching | :loaded | :error
@@ -231,7 +231,9 @@ Each branch of that `cond` handles one state the feed can be in.
  :fetching?     <bool>   ;; refreshing over data you already have
  :stale?        <bool>   ;; past its :stale-after-ms window (orthogonal to status)
  :has-data?     <bool>   ;; usable :data is present
- :previous?     <bool>}  ;; :keep-previous? is showing the prior key's data
+ :previous?     <bool>   ;; :keep-previous? is showing the prior key's data
+ :previous-data <prior-key's-data>          ;; only while :previous? is true
+ :previous-key  <prior-key's-cache-key>}    ;; only while :previous? is true
 ```
 
 The five `:status` values are the model:

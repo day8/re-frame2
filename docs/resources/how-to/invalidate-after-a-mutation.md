@@ -105,7 +105,7 @@ Notice what the view doesn't do: it never dispatches an invalidate, never refetc
 | Key | Required | Meaning |
 |---|---|---|
 | `:mutation` | yes | The registered mutation id. |
-| `:params` | yes | The params for this attempt — validated and canonicalized against `:params-schema`. |
+| `:params` | yes | The params for this attempt — canonicalized, and validated against `:params-schema` once the schemas artefact is loaded. |
 | `:instance` | no | The instance id. Caller-supplied, or generated when omitted — supply one when a view watches the write. Two concurrent submissions under *different* instance ids never clobber each other's `:pending` / `:success` / `:error`; re-executing under the *same* instance supersedes the earlier attempt and suppresses its stale reply. |
 | `:scope` | no | The execution scope the invalidation runs in (see [The scope footgun](#the-scope-footgun-and-how-to-disarm-it)). Optional — a mutation defaults to `:rf.scope/global`. |
 | `:cause` | no | Trace data explaining why the write fired. It never changes behaviour. |
@@ -114,7 +114,7 @@ Notice what the view doesn't do: it never dispatches an invalidate, never refetc
 
 !!! warning "Gotcha — bad `:params` fail before the write fires"
 
-    `:params` are checked against the mutation's `:params-schema` before the request is built, so a payload that doesn't conform never reaches the server: the execute raises `:rf.error/mutation-invalid-params`, with the offending value redacted per the [data-classification](../../core/glossary.md#data-classification) policy. Host values — functions, promises, dates, DOM nodes — are rejected the same way, because params must be serializable EDN to take part in identity and replay.
+    Once the [schemas](../../core/how-to/validate-with-schemas.md) artefact is loaded, `:params` are checked against the mutation's `:params-schema` before the request is built, so a payload that doesn't conform never reaches the server: the execute raises `:rf.error/mutation-invalid-params`, with the offending value redacted per the [data-classification](../../core/glossary.md#data-classification) policy. A value that can't be part of a cache key — a float, a function, a promise, a DOM node — is refused with or without schemas, as `:rf.error/resource-non-edn-params`, because params must be serializable to take part in identity and replay.
 
 When a view needs only one fact about the instance, a focused sub projects just that:
 

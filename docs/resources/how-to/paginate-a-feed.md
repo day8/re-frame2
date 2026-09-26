@@ -219,7 +219,7 @@ Beyond `:next-page-param` (required) and `:page->items`, an infinite resource ac
 
     `:next-page-param` is `getNextPageParam`, `:initial-page-param` is `initialPageParam`, and `:page->items` is the accessor you'd write inline when flattening `data.pages`. The first page's `nil` param is TanStack's defaulted `initialPageParam`. re-frame2 adds a derived `:has-next-page?`, so a view never works out the end of the feed itself.
 
-!!! warning "Gotcha — two ways to register a feed wrong, both caught at registration"
+!!! warning "Gotcha — two ways to register a feed wrong"
 
     `:infinite true` with **no `:next-page-param`** raises `:rf.error/infinite-missing-next-page-param` — the runtime can't guess where the next page is. And a feed whose pages are *envelopes* (`{:items [...] :page-info {…}}`) **must** declare `:page->items`, or the runtime raises `:rf.error/infinite-missing-page-accessor` at the merge rather than flattening the wrong key. (If a page is *already a vector*, it flattens as-is and needs no accessor.)
 
@@ -366,7 +366,9 @@ The route's `:scroll` key declares the behaviour, as one of three values:
 
 - **`:top`** — scroll to the top on entry (or scroll a `#fragment` element into view, if the URL has one). The numbered example above uses this.
 - **`:restore`** — restore the saved scroll position for this URL. The runtime saves positions on every navigation, so this is the natural Back/Forward behaviour.
-- **`:preserve`** — leave the scroll position where it is. (Also the meaning of `nil` or no `:scroll`.)
+- **`:preserve`** — leave the scroll position where it is.
+
+`false` switches the scroll effect off.
 
 With no `:scroll` declared, the default is `:top` on forward navigation and `:restore` on Back/Forward — what a feed wants, so an infinite feed usually declares nothing. The saved positions live on the host, outside app-db, and no event is dispatched per scroll.
 
