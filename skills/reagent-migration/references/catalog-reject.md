@@ -9,8 +9,8 @@
 >
 > The list is deliberately **short**. Fresco has a first-class foreign-React
 > door, a callback ref, an error boundary, portals, an ephemeral-state sugar and
-> a real test kit, so most of what an earlier substrate had to refuse now
-> converts. Three things genuinely do not.
+> a real test kit, so most Reagent constructs convert. Three things genuinely
+> do not.
 
 ## MIG-36 — the prev-props / prev-state update protocol
 
@@ -57,11 +57,13 @@ rather than an ergonomics gap. Two honest routes before you hold:
   facade for what the project's version exports rather than assuming a spelling.
 - The subtree genuinely belongs to another frame → **nest a boundary on it**.
   Make that frame, then wrap the subtree in an `[h/frame-provider {:frame …}]`
-  naming it, in place, inside the tree you already have — every `h/sub` read and
-  every intent lowered beneath it resolves against that frame instead. A second
-  root in its own container is still available and is the right answer when the
-  subtree is genuinely a separate mount (a portal into foreign DOM, a detached
-  preview), but it is no longer required merely to read another frame.
+  naming it, in place, inside the tree you already have — every intent lowered
+  beneath it, and every `h/sub` in a child view under it, resolves against that
+  frame. An `h/sub` written in the same body as the provider still reads the
+  body's own frame, because it runs before the head lowers anything, so put the
+  read in a child view. A second root in its own container is the answer only
+  when the subtree is genuinely a separate mount (a portal into foreign DOM, a
+  detached preview).
 
 If neither fits — a cell inside one tree that must reactively read a sibling
 frame — hold the view.
@@ -109,10 +111,9 @@ Subs are pure. This is a *dataflow-side* finding you surface for the author —
 never a view rewrite, and **not** a reason to hold the view: its own deref
 converts fine (MIG-02) once the sub body is made pure.
 
-## No longer a hold
+## Not holds — they convert
 
-These were holds under the previous substrate and are not holds now. Do not
-carry the old refusal across:
+These look like holds and are not; route them to the tier named:
 
 - **Foreign React components and their fn-valued props** (MIG-09/10). `[:> …]`
   is legal, `h/defhost` declares a repeated crossing once (its callbacks

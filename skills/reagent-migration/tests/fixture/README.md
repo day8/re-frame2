@@ -1,7 +1,7 @@
 # MIG-23 cold-start fixture
 
 Executable cold-start evidence for the reagent-migration skill's MIG-23
-SSR-then-hydrate recipe (rf2-vpdrf), in
+SSR-then-hydrate recipe, in
 [`ssr-hydrate.md`](../../references/ssr-hydrate.md).
 
 The recipe stands up a Node rendering service — a separate process from the

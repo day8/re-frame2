@@ -162,11 +162,12 @@ beside it, not a design page and not the guide.
 The lock's original example, an `h/fn` spelling, was swept to `h/event` on
 2026-08-15 and no page teaches it now; and the `draft-guide/` corpus the lock
 named has itself **shipped** as `docs/core/fresco/` (rf2-0yp7w), leaving only a
-rewrite-audit note behind it. **Neither fact retires the lock**, because the
-class outlived both examples: the shipped guide still restricts key maps to
-`:on-key-down`/`:on-key-up` while `impl/intent.cljs`'s `lower-prop` accepts a
-map at any event position. Re-derive the examples when citing them; the rule is
-the constant.
+rewrite-audit note behind it. **Neither fact retires the lock**: a page is
+still not the door. (The key-map example once cited here was wrong in the
+other direction — the guide's "use key maps at keyboard events" matches
+`impl/intent.cljs`'s `key-map-handler`, which reads `.key` first and raises
+`:rf.error/fresco-intent-needs-the-event` where the event carries none.)
+Re-derive the examples when citing them; the rule is the constant.
 
 **This is now the highest-risk lock in the folder**, because `spec/API.md`
 carries no Fresco section. The door's names are rostered in
