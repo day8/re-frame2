@@ -389,7 +389,7 @@ The view changes by *one* thing: drop `:disabled (:pending? fav)` — the user a
 
 ??? info "Coming from TanStack / RTK / SWR?"
 
-    This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace (`:rf.mutation/optimistic-applied` → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic contract is [Concepts → Optimistic writes](../concepts.md#optimistic-writes-commit-roll-back-or-reconcile); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
+    This is their `onMutate` + `onError` rollback (TanStack), `updateQueryData` + undo patch (RTK), or `optimisticData` + `rollbackOnError` (SWR) — except the inverse is runtime-recorded, not hand-written, and the whole apply/settle is on the trace (`:rf.mutation/optimistic-applied` → `optimistic-reconciled` / `optimistic-rolled-back`). The full optimistic contract is [Invalidate after a mutation → Optimistic writes](../how-to/invalidate-after-a-mutation.md#advanced-optimistic-writes); `examples/real-apps/realworld_resources/mutations.cljs` runs exactly this favorite.
 
 ## Publish from the editor — and continue with `:reply-to`
 

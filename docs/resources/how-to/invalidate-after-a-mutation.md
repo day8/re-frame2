@@ -238,7 +238,7 @@ A populated key counts as an **authoritative load** — it becomes `:loaded`, th
 
 !!! warning "Gotcha"
 
-    These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the *optimistic* pre-write arms in [Advanced](#advanced): those run *before* the request is sent, so they reject *every* bad target, recoverable or not — there's no committed write to stay consistent with yet.)
+    These exact-target arms run at *settle*, after the server write has already committed. So a *recoverable* bad target — an **unregistered** resource id, or a non-map target — is **dropped-and-warned, not thrown**: the valid siblings in the same arm still land, the dropped target is recorded on the instance, and you get a dev-only `:rf.warning/mutation-target-skipped` (elided from production). One typo'd sibling must not throw away the good cache writes after an irreversible remote write. A *corruption-class* target, though — a mis-spelled `:rf.scope/*` keyword or a non-EDN scope/params, anything that would write the cache under a **wrong identity** — still throws the whole arm; no relaxed policy may swallow that. (Note the asymmetry with the *optimistic* pre-write arms in [Advanced: optimistic writes](#advanced-optimistic-writes): those run *before* the request is sent, so they reject *every* bad target, recoverable or not — there's no committed write to stay consistent with yet.)
 
 !!! note "Partial replies — `:refetch-populated? true`"
 
@@ -254,7 +254,7 @@ A populated key counts as an **authoritative load** — it becomes `:loaded`, th
 
 !!! note
 
-    **Populate runs on success — reach for `:optimistic` to flip before the reply.** `:populates` seeds the cache from the *accepted reply*, so it runs only after the server confirms. If a write must flip the UI immediately and revert on rejection, declare an [optimistic plan](../glossary.md#optimistic-update--rollback) instead: `:optimistic` (exact target) or `:optimistic-tags` (tag-addressed) patches the cache *before* the request is sent, and the runtime commits, rolls back, or reconciles it deterministically on settle — `:on-conflict` (default `:invalidate`) governs a contested rollback. See [Advanced](#advanced) below, and the worked write in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
+    **Populate runs on success — reach for `:optimistic` to flip before the reply.** `:populates` seeds the cache from the *accepted reply*, so it runs only after the server confirms. If a write must flip the UI immediately and revert on rejection, declare an [optimistic plan](../glossary.md#optimistic-update--rollback) instead: `:optimistic` (exact target) or `:optimistic-tags` (tag-addressed) patches the cache *before* the request is sent, and the runtime commits, rolls back, or reconciles it deterministically on settle — `:on-conflict` (default `:invalidate`) governs a contested rollback. See [Advanced: optimistic writes](#advanced-optimistic-writes) below, and the worked write in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md).
 
 ## 6. Optional: do more than refresh the cache
 
@@ -339,9 +339,9 @@ Because it can stale or refetch data across *every* user, tenant, story frame, a
 
 Reach for `:cross-scope?` only when the scopes are genuinely unenumerable at the call site. If you can name them, name them with descriptors.
 
-## Advanced
+## Advanced: optimistic writes
 
-Everything above settles the cache *after* the server confirms. The power-user move is to flip the UI *before* it confirms — an [optimistic update](../glossary.md#optimistic-update--rollback) — and let the framework reconcile when the reply lands. This is its own small contract; reach for it when a write must feel instant (a favorite toggle, a like count, an item that should vanish on click) and you accept the cost of a possible rollback. The worked example lives in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md); the full settle contract is [Concepts → Optimistic writes](../concepts.md#optimistic-writes-commit-roll-back-or-reconcile).
+Everything above settles the cache *after* the server confirms. The power-user move is to flip the UI *before* it confirms — an [optimistic update](../glossary.md#optimistic-update--rollback) — and let the framework reconcile when the reply lands. This is its own small contract; reach for it when a write must feel instant (a favorite toggle, a like count, an item that should vanish on click) and you accept the cost of a possible rollback. The worked example lives in [Part 4 of the tutorial](../tutorial/04-mutations-and-invalidation.md); the settle contract follows below.
 
 An optimistic plan is a registration-level arm, in two forms that mirror the success-time `:patches` and tag-addressed `:invalidates`:
 

@@ -115,6 +115,28 @@ Other causes use the same entry with a different **cause** recorded for the trac
                :cause    [:manual :article/refresh]}])
 ```
 
+A handler or machine that causes a read and must *continue* once it settles — fill
+an editor once the article is loaded, say — adds a `:reply-to` event vector to the
+`ensure` or `refetch`. The reply map is appended and dispatched once: immediately on a
+cache hit (`:cache-hit? true`), otherwise when the fetch settles, and never for a
+stale reply:
+
+```clojure
+(rf/dispatch [:rf.resource/ensure
+              {:resource :realworld/article
+               :params   {:slug "hello"}
+               :cause    [:event :editor/opened]
+               :reply-to [:editor/article-loaded]}])
+
+(rf/reg-event :editor/article-loaded
+  (fn [{:keys [db]} [_ {:keys [status value]}]]
+    {:db (cond-> db
+           (= :ok status) (assoc-in [:editor :draft] (:article value)))}))
+```
+
+Views still read the cache through the subscription; `:reply-to` is for workflow
+steps. The reply's fields: [`ensure` in the API](../api/re-frame.resources.md#rfresourceensure-).
+
 ??? info "Coming from TanStack Query?"
 
     **Views never fetch.** A route or event causes the load; the view only reads. That
@@ -412,9 +434,12 @@ Register → route causes → view projects. Copy-paste skeleton:
 |---|---|
 | Numbered pages & infinite feeds | [Paginate a feed](how-to/paginate-a-feed.md) |
 | Optimistic UI, patches, populate | [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md) |
-| SSR / hydration of the cache | [SSR concepts](../ssr/concepts.md) + tutorial Part 2 |
+| SSR / hydration of the cache | [SSR: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) and the [`resources_ssr`](../../examples/capabilities/ssr/resources_ssr) example |
+| Reading resources from Fresco views | [Fresco: async resources](../core/fresco/08-async-resources.md) |
 | Full RealWorld build | [Tutorial](tutorial/index.md) |
 | Prove the cache in tests | [Testing](testing.md) |
+| Every key, event and subscription | [API reference](../api/re-frame.resources.md) |
+| Migrating from `re-frame-query` | [re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) |
 
 <a id="infinite-feeds-accumulate-pages-with-infinite"></a>
 <a id="ssr-and-hydration"></a>
