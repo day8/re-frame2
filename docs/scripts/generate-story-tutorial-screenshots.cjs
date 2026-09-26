@@ -12,9 +12,21 @@
  *   cd ..
  *   node docs/scripts/generate-story-tutorial-screenshots.cjs
  *
+ * Name one or more output files to capture only those shots:
+ *
+ *   node docs/scripts/generate-story-tutorial-screenshots.cjs \
+ *     story-tutorial-09-failing-run.png
+ *
  * The script serves the compiled bundles from implementation/out and captures
  * the current Story shell with Playwright. The generated PNGs are committed so
  * the MkDocs site can render without needing Playwright at build time.
+ *
+ * Annotations reuse the Xray tutorial's overlay: `resolveRegion` and
+ * `inPageAnnotateSvg` from `generate-tutorial-screenshots.cjs`. The regions
+ * for each shot live in `story-tutorial-annotation-spec.json`, keyed by the
+ * shot's file name. The tutorial's prose refers to the numbers in the labels,
+ * so a region that does not resolve fails the run instead of shipping an
+ * image without its marker.
  */
 
 const fs = require('fs');
@@ -24,8 +36,15 @@ const path = require('path');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const IMPL_ROOT = path.join(REPO_ROOT, 'implementation');
 const OUT_STORY = path.join(REPO_ROOT, 'docs', 'images', 'story');
+const ANNOTATION_SPEC = path.join(__dirname, 'story-tutorial-annotation-spec.json');
 
 const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
+const {
+  loadAnnotationSpec,
+  resolveRegion,
+  inPageAnnotateSvg,
+  inPageClearAnnotations,
+} = require('./generate-tutorial-screenshots.cjs');
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -69,6 +88,41 @@ const APPS = {
     out: path.join(IMPL_ROOT, 'out', 'examples', 'nine-states-with-stories'),
   },
 };
+
+/*
+ * Chapter 6's failure path. The login testbed has no failing variant, so this
+ * registers the chapter's `wrong-expectation` variant in the running page,
+ * selects it, opens the Tests tab and follows the failed row's
+ * "open in Evidence →" link. The shots that use it wait for the sidebar rather
+ * than the canvas: Story remembers each variant's last mode tab in
+ * localStorage, so `:story.login-form/error` may open in Docs, where the
+ * canvas is not shown.
+ */
+async function openFailingRun(page) {
+  await page.evaluate(() => {
+    const body = cljs.reader.read_string(
+      '{:extends :story.login-form/error ' +
+        ':script [[:assert [:rf.assert/state-is :login/flow :idle]]] ' +
+        ':tags #{:dev :test}}'
+    );
+    re_frame.story.reg_variant_STAR_(cljs.core.keyword('story.login-form', 'wrong-expectation'), body);
+  });
+  const row = page.locator(
+    '[data-test="story-sidebar-variant-row"][data-variant=":story.login-form/wrong-expectation"]'
+  );
+  await row.waitFor({ state: 'visible', timeout: SHOT_VISIBLE_TIMEOUT_MS });
+  await row.click();
+  await page.getByText('Tests', { exact: true }).click();
+  await page
+    .locator('[data-test="story-test-row"][data-status="fail"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: SHOT_VISIBLE_TIMEOUT_MS });
+  await page.locator('[data-test="story-test-row-evidence-link"]').first().click();
+  await page
+    .locator('[data-test="story-evidence-beat"][data-selected="true"]')
+    .first()
+    .waitFor({ state: 'visible', timeout: SHOT_VISIBLE_TIMEOUT_MS });
+}
 
 const SHOTS = [
   {
@@ -136,14 +190,25 @@ const SHOTS = [
     },
   },
   {
+    // The end of chapter 6's failure path: the setup beat's "Xray: App-db"
+    // link switches the rail's Xray panel to App-db at that beat's epoch.
     file: 'story-tutorial-07-xray-embed.png',
     app: '/login',
-    query: '?variant=story.login-form%2Fauthenticated',
+    query: '?variant=story.login-form%2Ferror',
     hash: '#/stories',
-    waitFor: '[data-test="story-xray-embed"]',
+    waitFor: '[data-test="story-sidebar"]',
     before: async (page) => {
-      await page.locator('[data-test="story-xray-panel-chip"]').getByText('App-db').click();
-      await page.locator('[data-test="story-xray-panel-host"]').waitFor({ state: 'visible' });
+      await openFailingRun(page);
+      await page
+        .locator('[data-test="story-evidence-beat"][data-beat-idx="1"] ' +
+                 '[data-test="story-evidence-focus-link"][data-panel="app-db"]')
+        .click();
+      await page
+        .locator('[data-test="story-xray-panel-chip"][aria-pressed="true"]', { hasText: 'App-db' })
+        .waitFor({ state: 'attached', timeout: SHOT_VISIBLE_TIMEOUT_MS });
+      await page.evaluate(() => {
+        document.querySelector('[data-rf-rhs-section="xray"]').scrollIntoView({ block: 'start' });
+      });
     },
   },
   {
@@ -152,6 +217,16 @@ const SHOTS = [
     query: '?workspace=Workspace.nine-states%2Fall-states',
     hash: '#/stories',
     waitFor: '[data-test="story-sidebar"]',
+  },
+  {
+    // Chapter 6's failure path: the failed row in the Tests tab, and the
+    // Evidence panel it opens on the failing beat.
+    file: 'story-tutorial-09-failing-run.png',
+    app: '/login',
+    query: '?variant=story.login-form%2Ferror',
+    hash: '#/stories',
+    waitFor: '[data-test="story-sidebar"]',
+    before: openFailingRun,
   },
 ];
 
@@ -227,7 +302,7 @@ async function withServer(fn) {
   }
 }
 
-async function captureShot(page, baseUrl, shot) {
+async function captureShot(page, baseUrl, shot, annotations) {
   const url = `${baseUrl}${shot.app}/${shot.query || ''}${shot.hash || ''}`;
   try {
     await page.goto(url, { waitUntil: 'networkidle', timeout: NAV_TIMEOUT_MS });
@@ -249,14 +324,43 @@ async function captureShot(page, baseUrl, shot) {
     await shot.before(page);
   }
   await page.waitForTimeout(700);
+  // Focusing a tab or link can scroll the document itself by a few pixels,
+  // which clips the toolbar. The shell's panes scroll on their own, so the
+  // document belongs at the top.
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  const regionSpecs = annotations[shot.file] || [];
+  const resolved = [];
+  for (const region of regionSpecs) {
+    const r = await resolveRegion(page, region);
+    if (!r) {
+      throw new Error(`${shot.file}: annotation region did not resolve: ${region.selector || JSON.stringify(region.xy)}`);
+    }
+    resolved.push(r);
+  }
+  if (resolved.length > 0) {
+    await page.evaluate(inPageAnnotateSvg, [resolved, VIEWPORT]);
+  }
+
   const out = path.join(OUT_STORY, shot.file);
   await page.screenshot({ path: out, fullPage: false });
-  console.log(`wrote ${path.relative(REPO_ROOT, out)}`);
+  if (resolved.length > 0) {
+    await page.evaluate(inPageClearAnnotations);
+  }
+  console.log(`wrote ${path.relative(REPO_ROOT, out)} (annotations ${resolved.length})`);
 }
 
 async function main() {
   assertCompiled();
   fs.mkdirSync(OUT_STORY, { recursive: true });
+  const annotations = loadAnnotationSpec(ANNOTATION_SPEC);
+
+  const wanted = process.argv.slice(2);
+  const unknown = wanted.filter((file) => !SHOTS.some((shot) => shot.file === file));
+  if (unknown.length > 0) {
+    throw new Error(`No shot named ${unknown.join(', ')}`);
+  }
+  const shots = wanted.length ? SHOTS.filter((shot) => wanted.includes(shot.file)) : SHOTS;
 
   await withServer(async (baseUrl) => {
     const browser = await chromium.launch({ headless: true });
@@ -272,8 +376,8 @@ async function main() {
         localStorage.setItem('re-frame.story/seen-help-v1', 'true');
       });
 
-      for (const shot of SHOTS) {
-        await captureShot(page, baseUrl, shot);
+      for (const shot of shots) {
+        await captureShot(page, baseUrl, shot, annotations);
       }
     } finally {
       await browser.close();

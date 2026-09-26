@@ -1,10 +1,56 @@
 # 9. Multi-substrate and the agent loop
 
-You have learned Story as a human workshop. This chapter steps back and shows
-why the same data-shaped artifact also works for renderer experiments, MCP
-tools, and coding agents. The practical takeaway is simple: Story's UI, test
-runner, static docs, and agent surface are meant to read the same registry and
-run the same variants.
+A variant names a view id and describes a state as data, so the same
+registration can render under more than one view layer, and an agent can run
+it. This chapter covers substrates, the two hosts an agent can drive Story in,
+and Story-MCP.
+
+## Substrates
+
+A story body names a view id and describes behaviour. It contains no JSX,
+Reagent hiccup or UIx component code, so the same body can render under
+different view layers, which Story calls substrates:
+
+```clojure
+(rf.story/reg-story :story.login
+  {:component  :my-app.views/login-card
+   :args       {:heading "Sign in"}
+   :substrates #{:reagent}})
+```
+
+A member of `:substrates` names the registered render function that embeds the
+view, which is not the same thing as the adapter `rf/init!` installed. A story
+with `:substrates #{:fresco}` renders Fresco views inside a shell whose
+installed adapter is Reagent's; the Fresco views find their variant's frame
+through React context and respond to events dispatched into it. The testbed at
+`tools/story/testbeds/fresco_counter/` is a worked example.
+
+Story registers the `:reagent` render function itself. `:uix` and `:fresco`
+depend on libraries only your app carries, so your app registers them at boot,
+in a few lines. For UIx:
+
+```clojure
+(ns my-app.stories
+  (:require [uix.core       :refer [$]]
+            [re-frame.core  :as rf]
+            [re-frame.story :as rf.story]))
+
+(rf.story/register-substrate! :uix
+  (fn [_variant-id view-id args]
+    ($ (rf/view view-id) args)))
+```
+
+The render function receives the variant id, the view id and the effective
+args, and returns what the shell mounts inside the variant's frame. The
+`:fresco` version resolves the view the same way and creates the element with
+`re-frame.fresco/as-element`; the testbed above carries it.
+
+A variant whose `:substrates` set names more than one member renders once per
+substrate, side by side, each in a cell headed with its name. A variant
+without `:substrates` takes its story's. When a substrate cannot render a
+variant, Story says so: a substrate nobody registered paints a red cell naming
+the `register-substrate!` call it needs, as `:cannot-run` does for a step a
+runner cannot perform.
 
 ## Two hosts
 
@@ -22,83 +68,22 @@ An agent drives Story in one of two hosts, and each host owns its own frames.
 
 A variant id registered in both hosts names two frames with two separate
 app-dbs, so run a whole loop in the host that holds the frame you care about.
-One rule picks the host before you start, and both skills carry it word for
-word beside the promote, fidelity-upgrade and explain recipes: the `re-frame2`
-skill for story-mcp in
+The agent skills state the rule for choosing: the `re-frame2` skill for
+story-mcp, in
 [`story-mcp-loop.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#which-host-to-use),
-the `re-frame2-pair` skill for the browser in
+and the `re-frame2-pair` skill for the browser, in
 [`stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/stories.md#which-host-to-use).
-The story-mcp
-[README states the same split](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md#what-it-is),
-and [Two surfaces, one live door](api/mcp-surface.md#two-surfaces-one-live-door)
+[Two surfaces, one live door](api/mcp-surface.md#two-surfaces-one-live-door)
 covers the boundary in more depth.
-
-## Substrates
-
-A Story body names a view id and application behaviour. It does not contain
-JSX, Reagent hiccup, or UIx component code. That keeps the variant
-body independent from the renderer:
-
-```clojure
-(rf.story/reg-story :story.login
-  {:component  :my-app.views/login-card
-   :args       {:heading "Sign in"}
-   :substrates #{:reagent}})
-```
-
-The tutorial and the scaffolded path are Reagent-focused because that is where
-most readers start, but the substrate set is not a Reagent set. A member of
-`:substrates` names which registered render fn embeds the subject — the
-authoring layer — and not which adapter `rf/init!` installed. `:fresco` is
-the member that makes the difference visible: a deck declaring
-`:substrates #{:fresco}` runs in a Reagent-hosted shell — the installed
-adapter is Reagent's, the authoring is Fresco's — resolves its own frame
-through React context, and responds to writes into it. Fresco does ship an
-adapter of its own, so the two spellings coincide often enough to be worth
-separating out loud: which adapter is installed is a different question from
-which render fn embeds the subject. There is a worked one at
-`tools/story/testbeds/fresco_counter/`, and it rides the same PR-path play
-gate every Reagent deck does.
-
-Story installs the `:reagent` render fn itself and leaves `:uix` and
-`:fresco` to the host application, because each one's only dependency is
-the host's — five lines at boot, and Story core never names them. For UIx:
-
-```clojure
-(ns my-app.stories
-  (:require [uix.core       :refer [$]]
-            [re-frame.core  :as rf]
-            [re-frame.story :as rf.story]))
-
-(rf.story/register-substrate! :uix
-  (fn [_variant-id view-id args]
-    ($ (rf/view view-id) args)))
-```
-
-The render fn receives the variant id, the view id and the effective args, and
-returns what the shell mounts inside the variant's frame. The `:fresco`
-version resolves the view the same way and mints the element with
-`re-frame.fresco/as-element`; the testbed above carries it.
-
-The design reason is still worth understanding: a variant should describe a
-state and behaviour, not smuggle a renderer-specific render function into the
-artifact.
-
-A variant whose `:substrates` set names more than one member renders once per
-substrate, side by side, each in a cell headed with its name. A variant
-without `:substrates` takes its story's. When a substrate cannot render a
-variant, Story says so: a substrate nobody registered paints a red cell naming
-the `register-substrate!` call it needs. This is the same honesty rule as
-`:cannot-run`: do not pretend the tool proved or displayed something it could
-not actually run.
 
 ## Story-MCP
 
-Story-MCP is a separate tool artifact. Story core owns the registry, variants,
-runtime, snapshot identity, and shell. Story-MCP owns the MCP server, JSON-RPC
-transport, tool registry, and wire redaction/elision.
+Story-MCP is a separate artifact, `day8/re-frame2-story-mcp`. Story holds the
+registry, the runtime, snapshot identity and the shell; Story-MCP adds the MCP
+server, its JSON-RPC transport, the tool registry, and the redaction of values
+sent to the agent.
 
-The canonical tool list currently includes:
+It exposes 19 tools:
 
 | Category | Tools |
 |---|---|
@@ -107,62 +92,30 @@ The canonical tool list currently includes:
 | Testing | `run-variant`, `snapshot-identity`, `read-a11y-violations`, `read-failures` |
 | Write, gated | `register-variant`, `unregister-variant` |
 
-That is the agent-facing version of the same operations a human performs in
-the shell: list states, preview one, run it, read failures, explain how it was
-assembled, record a useful interaction, and optionally write a variant back
-through the gated authoring surface.
+They cover what you do in the shell: list states, preview one, run it, read
+its failures, see how it was assembled, and, when writes are allowed, register
+a variant. [Running the server](api/mcp-surface.md#running-the-server) shows
+how to launch it against your stories.
 
-## Skills
+## The agent loop
 
-The repo also carries Story-related skill documentation under `skills/`. Those
-skills are not a second Story model. They are operating instructions for agents
-using the same Story and Story-MCP surfaces.
-
-The useful loop, run inside one of the two hosts above, is:
+The repository's skills under `skills/` are operating instructions for agents
+that use Story and Story-MCP. Run inside one of the two hosts, the loop is:
 
 1. list or get the variant;
 2. preview it if needed;
 3. run it;
-4. read failures;
-5. in the browser host, inspect the same frame/epochs through pair or Xray
-   tooling;
-6. record or register a refined variant when writes are explicitly allowed.
+4. read its failures;
+5. in the browser host, inspect the same frame and its epochs through the pair
+   tools or Xray;
+6. register a refined variant, when writes are allowed.
 
-That loop is only good if it mirrors the human loop. If the agent sees a
-different artifact from the one the user sees in the Story shell, the tool has
-split its own truth and should be fixed.
-
-## Why this matters
-
-The boring implementation detail is also the product point: a variant is a
-data-shaped artifact in a registry.
-
-Because of that, the same variant can be:
-
-- rendered in Canvas mode;
-- placed in a workspace grid;
-- documented in Docs mode;
-- run in Test mode;
-- executed by `rf.story/run` or `rf.story/is`;
-- inspected through Xray;
-- shared through URL or EDN;
-- addressed by Story-MCP.
-
-That is the reason Story can aspire to more than "Storybook, but in Clojure".
-Storybook is excellent at component examples. Story can use re-frame2's frames,
-schemas, effects, machines, trace bus, and Xray to make examples, tests,
-documentation, diagnostics, and agent workflows converge on one artifact.
-
-There is still work to do on polish and ecosystem. Storybook has years of
-mindshare and a gigantic addon world. Story should not try to win by adding
-every addon-shaped idea as a new subsystem. It should win by making the core
-workflow cleaner: name the state, render it honestly, test it cheaply, diagnose
-it with evidence, and let humans and agents operate on the same thing.
+The agent runs the same variant the shell shows, and reads the same run result
+Test mode does.
 
 ## Useful references
 
-- [Story API reference](api/index.md) - function and registration lookup.
-- [Story-MCP API](api/mcp-surface.md) - the agent boundary from Story's side.
-- [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) - normative Story specs.
-- [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) - MCP server specs.
+- [Story API reference](api/index.md) - the exact form of every registration, step and function.
+- [MCP surface](api/mcp-surface.md) - running Story-MCP, and what crosses the wire to an agent.
 - [Xray](../xray/index.md) - the diagnostic tool Story embeds.
+- For implementors, the normative specs: [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec) for Story and [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) for the MCP server.

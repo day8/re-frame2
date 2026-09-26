@@ -1,10 +1,8 @@
 # 2. Every state, side by side
 
-You like finding UI bugs before a customer does, which means you have to look
-at the awkward states, not just the happy one. This chapter expands the login
-form into five variants and puts them in a workspace grid. You will also see
-how Controls lets you edit explicit inputs without turning the story file into
-a second app.
+UI bugs hide in the states nobody drives by hand: loading, error, retry. This
+chapter gives the login form five variants, puts them side by side in a
+workspace grid, and uses Controls to edit a variant's inputs.
 
 ## Five login states
 
@@ -17,11 +15,6 @@ The login-form testbed carries five variants:
 :story.login/submitting-retry
 :story.login/authenticated
 ```
-
-They are intentionally mundane. That is good. Loading, error, retry, and
-success states are where visual bugs hide because nobody wants to keep driving
-the app through them by hand. A workshop earns its keep when those states are
-one click away.
 
 The error variant looks like this:
 
@@ -36,17 +29,15 @@ The error variant looks like this:
              {:failure {:status 401
                         :message "Invalid credentials."}}]]]
    :decorators [[rf.story/force-fx-stub-id :rf.http/managed {}]]
-   :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
-            [:dispatch-sync
-             [:rf.assert/sub-equals
-              [:login/error]
-              "Invalid credentials."]]]
+   :script [[:assert [:rf.assert/state-is :login/flow :error]]
+            [:assert [:rf.assert/sub-equals [:login/error] "Invalid credentials."]]]
    :tags #{:dev :docs :test}})
 ```
 
-The setup is real behaviour: submit, then receive a failure event. The HTTP
-effect is stubbed at the effect boundary, not by editing the view. The variant
-therefore gets the error state through the same machine path the app uses.
+The setup submits the form and then delivers the failure event, so the
+machine reaches `:error` along the same path the app takes. The
+`force-fx-stub-id` decorator takes over the HTTP effect, so no request is
+sent; the view itself is untouched.
 
 To reach the error through the HTTP reply itself, rather than a hand-fired
 failure event, stub the request with `:network`. Each key is a `[method url]`
@@ -91,64 +82,33 @@ Open the workspace and all five states render together.
 
 ![A login workspace rendering idle, submitting, error, retry, and authenticated states side by side.](../images/story/story-tutorial-02-workspace-grid.png)
 
-Each cell gets its own frame. If a cell dispatches an event, it mutates that
-cell's frame, not the grid's other frames. You can review states without
-accidentally testing a shared global app-db.
+Each cell gets its own frame. If a cell dispatches an event, it changes that
+cell's frame and no other, so reviewing one state cannot disturb the others.
 
-A frame isolates state, not the page. Each cell's frame has its own app-db,
-event queue, subscription cache and epoch history, while every frame runs the
-same registered handlers ([What a frame is](../core/frames.md#what-a-frame-is)).
-Every cell also renders into the one page that hosts the shell. That page's
-stylesheets reach every cell, only one element on it can hold focus, and a
-modal that a view portals into `document.body` lands on the shared page,
-outside its cell. Text colour and font are reset at the cell boundary, so a
-view renders in the browser's default text styles rather than the shell's, and
-a view that relies on inherited text styles from its app shell must set them
-(a decorator can). Storybook renders stories in a preview iframe,
-although its docs pages can render them inline in the page itself; Story's
-canvas and workspaces have no iframe mode. So a job such as checking that a
-design system's CSS holds up without the host page's stylesheets around it may
-need an iframe boundary, and Story does not provide one.
-
-There is also `:variants-grid`, which auto-enumerates variants under a parent
-story:
-
-```clojure
-(rf.story/reg-workspace :Workspace.login/auto-grid
-  {:layout  :variants-grid
-   :for     :story.login
-   :columns 3})
-```
-
-Use an explicit grid when the order is part of the story you want to tell. Use
-`:variants-grid` when you want every variant under a parent to appear without
-maintaining the list by hand. The cells come in variant-id order. `:for` names
-the story; without it, the workspace id does, so `:Workspace.login/auto-grid`
-enumerates `:story.login`.
-
-A `:variants-grid` mounts every cell at once, each in its own frame. A view
-that creates its own frame provider internally defeats that, because its cells
-end up sharing state. For such a view, `:isolation :shared` mounts one cell at
-a time, with previous and next buttons to move between them.
+A frame isolates state, not the page: every cell shares the shell's page and
+its stylesheets. [Workspaces](07-workspaces.md) covers what that means for a
+view, and the other layouts: a grid that lists a story's variants for you,
+tabs, and prose with live variants between the paragraphs.
 
 ## The bigger wall
 
-The `nine_states` example is the same idea made more aggressive: one todos
-view rendered as Nothing, Loading, Empty, One, Some, Too Many, Incorrect,
-Correct, and Done.
+The `nine_states` example puts one todos view on screen in nine states:
+Nothing, Loading, Empty, One, Some, Too Many, Incorrect, Correct and Done.
 
 ![The nine_states workspace showing a matrix of todo UI states.](../images/story/story-tutorial-08-nine-states.png)
 
-This is where Story starts paying rent. You stop asking "can I navigate to the
-empty state?" and start asking "does every state this screen can present look
-professional on the same page?"
+With every state on one page, the question changes from "can I reach the empty
+state?" to "does every state this screen can show look right?"
 
 ## Controls
 
-The right-hand Controls region edits explicit world inputs: args, view state
-overrides, setup/network/effect summaries, and save-authoring actions.
+Controls, in the right rail, edits the selected variant's args and its view
+state overrides. It also summarises the variant's setup, network and effect
+inputs, and holds the save actions.
 
-For ordinary args, Story derives controls from the view's schema where it can:
+For ordinary args, Story derives a control from the view's `:rf/props` schema
+([chapter 1](01-first-variant.md#a-schema-on-the-view-gives-you-controls))
+where it can:
 
 | Schema shape | Control |
 |---|---|
@@ -162,38 +122,30 @@ For ordinary args, Story derives controls from the view's schema where it can:
 | `:vector`, `:set` | a list of fields, with rows to add and remove |
 | `:tuple` | one field per position |
 
-`:argtypes` picks a different control where the derived one is not right
-(chapter 1).
+Where a derived control is not the one you want, name it in the story's or
+variant's `:argtypes`, keyed by arg, as `{:heading {:control :textarea}}`. The
+controls are `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`,
+`:date` and `:color`; `:select` and `:radio` take their choices from
+`:options`. A variant's `:argtypes` beats its story's, and both beat the
+schema.
 
-The important rule is that Controls edits **inputs**, not arbitrary component
-internals. If you change `:heading`, you are changing an arg. If you pin a
-subscription value, you are creating a view-state override. If you save the
-current canvas state, Story tells you which slices can be represented as a
-variant and which are only carried forward or not captured yet.
+Controls edits **inputs**, not arbitrary component internals. Changing
+`:heading` changes an arg. Pinning a subscription value creates a view-state
+override. Saving the current canvas state tells you which parts can be
+written as a variant and which cannot.
 
-## Save current as variant
+## Save the current state as a variant
 
-Story has two different "make this permanent" gestures, and they solve
-different problems.
+When Controls edits give you a state worth keeping, press **save as new
+variant…** under Controls. The dialog shows a `reg-variant` form that extends
+the selected variant with the current args, under an id you can edit. Below
+the form it lists each part of the state it could not take from the live
+canvas, such as sub-overrides, db seed, route, network, effect overrides or
+viewport. Each is marked "captured as declared" when the new variant inherits
+it from the source, or "not yet projectable" when the form leaves it out.
+Story never writes your source; copy the form into your stories namespace.
 
-**Save current state as variant** is an authoring gesture. You have edited
-controls or selected a useful state and want a named variant in source. Press
-**save as new variant…** under Controls. The dialog shows a `reg-variant` form
-that extends the selected variant with the current args, under an id you can
-edit. Below the form it lists each part of the state it could not take from the
-live canvas, such as sub-overrides, db seed, route, network, effect overrides
-or viewport. Each is marked "captured as declared" when the new variant
-inherits it from the source, or "not yet projectable" when the form leaves it
-out. Story never writes your source; copy the form into your stories
-namespace.
-
-**Promote a run to a regression variant** is a testing gesture. A generated or
-recorded run exposed a failure and you want to turn that evidence into a
-curated variant.
-
-The UI keeps those paths separate. If they were one button, it would feel
-convenient for about four minutes and then become another tiny chaos machine in
-the toolbar.
-
-You now have a state matrix. The next question is whether each state is proof,
-illustration, or something in between.
+Saving is an authoring gesture: it names a state you built by hand. Its
+testing counterpart, promoting a run to a regression variant (chapter 4),
+turns a run that failed into a variant, and the shell keeps the two as
+separate actions.

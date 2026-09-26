@@ -1,8 +1,8 @@
 # Registration
 
-This chapter is about the surfaces that tell Story *what variants exist* — the nine `reg-*` macros, their `*`-suffix runtime helpers, the inclusion-tag and mode vocabulary, the two boot-time entry points for global args and global decorators, and the canonical-vocabulary auto-install that fires on the first registration. The core of it is **two parallel surfaces** — `reg-story` / `reg-variant` / etc. for authoring, and `reg-story*` / `reg-variant*` / etc. for programmatic registration. The macro form is what you write; the `*`-fn form is what hot-reload tooling, fixture loaders, and the MCP write surface call.
+This page covers everything that tells Story what exists: the nine `reg-*` macros and their `*` functions, the id shape and body keys of each kind, global args and decorators, the built-in decorators, and the vocabulary Story installs on the first registration. Write the macros; call the `*` functions from code that builds registrations at runtime.
 
-Every registration is **idempotent**: re-registering the same id replaces the entry in place. The nine `reg-*` macros all DCE under `:advanced` compilation when `re-frame.story.config/enabled?` is `false` — production builds carry zero Story registration bytes, and `mount-shell!` short-circuits before any DOM call.
+Registering an id again replaces its entry in place. Under `:advanced` compilation with `re-frame.story.config/enabled?` set to `false`, the `reg-*` macros compile to nothing, so a production build carries no Story registrations, and `mount-shell!` returns before touching the DOM.
 
 ## The nine registration macros
 
@@ -15,7 +15,7 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```clojure
   (reg-story id metadata)
   ```
-- **Description**: Register a story (a cluster of variants under one heading). `metadata` is an EDN map with `:doc`, `:component`, `:args`, `:tags`, `:decorators`, and optional `:variants` (Form B desugaring).
+- **Description**: Register a story (a cluster of variants under one heading). `metadata` is an EDN map with `:doc`, `:component`, `:args`, `:tags`, `:decorators`, and optional `:variants` (the [combined form](#the-combined-reg-story-form)). [Story body](#story-body) lists every key.
 - **Example**:
   ```clojure
   (rf.story/reg-story :story.counter
@@ -112,11 +112,11 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
     {:assertions [[:rf.assert/no-warnings]]})
   ```
 
-The macros expand to their `*`-suffix runtime fns — `reg-story` expands to `(reg-story* id body)` — so the canonical-vocabulary auto-install (see below) fires from the macro form, programmatic-form, or fixture-load form alike.
+Each macro expands to its `*` function — `reg-story` expands to `(reg-story* id body)` — so the [vocabulary auto-install](#canonical-vocabulary-auto-install) runs whichever form registers first.
 
-### Combined `reg-story` Form B
+### The combined `reg-story` form
 
-The combined form `(reg-story id {:variants {...} ...})` desugars at macro-expansion time to N independent `reg-variant` calls plus the bare `reg-story`. This is the ergonomic shortcut for a story whose every variant is a thin override of the same parent body — the parent's `:component` / `:args` / `:decorators` flow into each variant by deep-merge.
+`(reg-story id {:variants {...} ...})` expands to one `reg-variant` call per entry plus the plain `reg-story`. Use it when every variant is a small override of the same parent: the parent's `:component`, `:args` and `:decorators` reach each variant through the usual layering.
 
 ```clojure
 (rf.story/reg-story :story.counter
@@ -127,94 +127,25 @@ The combined form `(reg-story id {:variants {...} ...})` desugars at macro-expan
                :at-max     {:setup [[:counter/initialise 100]]}}})
 ```
 
-The expansion produces three `reg-variant` calls — `:story.counter/empty`, `:story.counter/at-five`, `:story.counter/at-max` — plus the parent `:story.counter` itself. The variant ids are namespaced under the story's id; the parent's args and component flow into each variant's resolved args via the standard precedence chain.
+This registers `:story.counter/empty`, `:story.counter/at-five` and `:story.counter/at-max`, plus the parent `:story.counter` itself. Each variant id takes the story's name as its namespace.
 
-## The nine `*`-suffix runtime helpers
+## The `*` functions
 
-All under `re-frame.story`. The `*`-suffix helpers are the programmatic write path; the macros above expand into them.
+Each macro has a function partner under `re-frame.story`, taking the same `id` and `body`:
 
-### `reg-story*`
+| Function | Registers |
+|---|---|
+| `(reg-story* id body)` | a story |
+| `(reg-variant* id body)` | a variant |
+| `(reg-workspace* id body)` | a workspace |
+| `(reg-mode* id body)` | a mode |
+| `(reg-fragment* id body)` | a fragment |
+| `(reg-check* id body)` | a check |
+| `(reg-story-panel* id body)` | a story panel |
+| `(reg-decorator* id body)` | a decorator |
+| `(reg-tag* id body)` | a tag |
 
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-story* id body)
-  ```
-- **Description**: Programmatic story registration.
-
-### `reg-variant*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-variant* id body)
-  ```
-- **Description**: Programmatic variant registration.
-
-### `reg-workspace*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-workspace* id body)
-  ```
-- **Description**: Programmatic workspace registration.
-
-### `reg-mode*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-mode* id body)
-  ```
-- **Description**: Programmatic mode registration.
-
-### `reg-fragment*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-fragment* id body)
-  ```
-- **Description**: Programmatic fragment registration.
-
-### `reg-check*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-check* id body)
-  ```
-- **Description**: Programmatic check registration.
-
-### `reg-story-panel*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-story-panel* id body)
-  ```
-- **Description**: Programmatic panel registration.
-
-### `reg-decorator*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-decorator* id body)
-  ```
-- **Description**: Programmatic decorator registration.
-
-### `reg-tag*`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (reg-tag* id body)
-  ```
-- **Description**: Programmatic tag registration.
-
-Reach for the `*` forms when authoring inside a higher-order fn, a fixture loader, an MCP write tool, or a hot-reload pipeline that synthesises registrations from another data source. Authoring-site registrations use the macros above; both paths land on the same registrar side-table and fire the same auto-install gate.
+Call them where a macro cannot go: inside a higher-order function, a fixture loader, an MCP write tool, or a hot-reload tool that builds registrations from other data. Both forms write the same registry and run the same auto-install.
 
 ## Ids and bodies
 
@@ -263,7 +194,7 @@ A variant renders its story's `:component` unless it names its own. Its args, ar
 |---|---|
 | `:doc` | A string. |
 | `:component` | The view id, when the variant renders a different view from its story. |
-| `:extends` | Another variant id to inherit from (see the tutorial's chapter 7). |
+| `:extends` | Another variant id to inherit from ([Composition](../07-composition.md#extends)). |
 | `:compose` | Fragment and check ids, applied in order. |
 | `:setup` | Event vectors dispatched before the script. Only dispatch steps may appear here. |
 | `:script` | A step vector, or `{:script [...] :auto-run? bool :name "..."}`. See [Scripts](script.md). |
@@ -314,7 +245,7 @@ A check accepts `:doc` and a required `:assertions` vector.
 | `:content` | For `:prose`, required: `[{:type :prose :body "markdown"} {:type :variant :id variant-id} ...]`. |
 | `:isolation` | For `:variants-grid`: `:isolated` (default) mounts every cell at once; `:shared` mounts one at a time. |
 | `:tags` | Tags. |
-| `:modes` | Mode ids; accepted, not yet acted on. |
+| `:modes` | Mode ids; accepted, but the shell does not act on them. |
 
 A body whose slots do not match its `:layout` throws `:rf.error/workspace-shape`.
 
@@ -370,9 +301,9 @@ Every decorator body also accepts `:doc`.
 
 ## Canonical-vocabulary auto-install
 
-The canonical Story vocabulary auto-installs on the first `reg-*` call. Authors don't call `(rf.story/install-canonical-vocabulary!)` explicitly; the boot is implicit, matching Storybook's ergonomic.
+Story's built-in vocabulary installs on the first `reg-*` call, so there is no boot step to write.
 
-The nine `reg-*` macros expand to their `*`-fn helpers, and the first call to ANY of those helpers flips a single boolean gate in `re-frame.story.canonical` and runs the installer chain: register the seven canonical tags and the five `:state/*` tags, register the lifecycle machine, register the `:rf.assert/*` event handlers, register the `force-fx-stub` decorator, register the layout-debug decorator trio, register the toolbar cofx + subs, and (CLJS only) register the Reagent substrate, open-in-editor and the built-in panels.
+The first call to any of the nine `*` functions flips a single boolean gate in `re-frame.story.canonical` and runs the installers: they register the seven canonical tags and the five `:state/*` tags, the lifecycle machine, the `:rf.assert/*` event handlers, the `force-fx-stub` decorator, the three layout-debug decorators, the toolbar's coeffects and subscriptions, and, in ClojureScript, the Reagent substrate, open-in-editor and the built-in panels.
 
 ### `install-canonical-vocabulary!`
 
@@ -382,13 +313,13 @@ The nine `reg-*` macros expand to their `*`-fn helpers, and the first call to AN
   ```
 - **Description**: Idempotent explicit boot. The auto-install path makes it unnecessary; call it when a host wants a literal boot step, or when a test wants the vocabulary installed before any `reg-*` call.
 
-The auto-install gate flips true *before* the installer chain runs, so the registrar writes triggered by the chain itself hit the early-return branch and don't recurse. Subsequent `reg-*` calls (after the gate has flipped) are a single `deref` + `nil` check — negligible on the hot path.
+The gate flips before the installers run, so the registrations they make do not trigger the install again. After that, each `reg-*` call pays only a `deref` and a check.
 
 `(clear-all!)` resets the gate to `false`; the next `reg-*` re-runs the full auto-install path. A fixture that calls `install-canonical-vocabulary!` after `clear-all!` does no harm — the auto-install the first `reg-*` would run finds the gate already flipped — but it needs no such step.
 
 ## Global args and global decorators
 
-Layer 1 of the five-layer args precedence chain (global → story → mode → variant → cell-override) and the global-decorator stack are both project-wide defaults the host application sets once at boot. Both flow through `configure!`; the global-decorator stack additionally has per-registration helpers for the common "register-and-opt-in" path.
+Global args, the first of the five args layers, and the global-decorator stack are project-wide defaults the host sets once at boot, through `configure!`. The decorator stack also has `reg-global-decorator`, which registers a decorator and adds it to the stack in one call.
 
 ### `configure!` (global args + decorators)
 
@@ -405,7 +336,7 @@ Layer 1 of the five-layer args precedence chain (global → story → mode → v
   (reg-global-decorator id body) → id
   (reg-global-decorator id body ref-args) → id
   ```
-- **Description**: Register a decorator AND opt it into the global stack in one call. Symmetric to the host calling `reg-decorator` + `configure! {:rf.story/global-decorators [...]}` in sequence; preferred when the decorator is exclusively a global-stack member. Earliest-registered-first; re-registering the same id REPLACES the entry in place (same position in the global vector) so hot-reload doesn't reshuffle the stack order.
+- **Description**: Register a decorator and add it to the global stack in one call, as `reg-decorator` followed by `configure! {:rf.story/global-decorators [...]}` would. Prefer it for a decorator used only globally. The earliest registered is outermost, and re-registering an id replaces its entry at the same position, so hot reload does not reorder the stack.
 
 ### `clear-global-decorator`
 
@@ -435,11 +366,11 @@ The five-layer precedence diagram (later wins):
               effective args (deep-merge, vectors replaced)
 ```
 
-Each layer scopes a different authoring intent: global args ride boot configuration (themes, locales, feature flags); story args set the parent default; mode args pivot the entire variant-grid against a chrome-level toggle; variant args carry the per-scenario override; cell-overrides give the reader a knob without mutating source. Reach for the lowest-numbered layer that scopes the change you want.
+Global args suit boot configuration such as a theme, a locale or feature flags; story args set the parent's defaults; mode args switch every variant at once from the toolbar; variant args set one scenario; cell overrides let a reader turn a knob without editing source. Put a value in the layer whose scope matches the variants it should reach.
 
 ## Built-in decorator `*-id` Vars
 
-Four built-in decorators ship with Story's canonical vocabulary. Each has a public `*-id` Var on `re-frame.story` for use in variant `:decorators` slots — the Var pattern lets the registered-id keyword stay opaque (Story can rename the underlying registration without breaking author code).
+Four built-in decorators ship with Story. Refer to each through its `*-id` Var on `re-frame.story` in a `:decorators` slot, rather than through the keyword it is registered under: a misspelt Var fails to compile, and the keyword can change without breaking your stories.
 
 ### `force-fx-stub-id`
 
@@ -489,9 +420,9 @@ A variant declares its sensitive / large app-db paths via the `:sensitive` / `:l
    :large     {:app-db [[:docs :csv-upload]]}})
 ```
 
-These `:app-db` paths are **not** a frame annotation and are **not** threaded onto the variant's frame config — a frame config carrying `:sensitive {:app-db …}` fails loud. Story lowers the variant-body `:app-db` paths into the variant frame's elision registry as **commit-plane classification effects** (`apply-variant-classification!`, `:source :effect`) right after frame creation, before the variant's lifecycle / init events — the same registry write a `reg-event` returning `:sensitive` / `:large` performs. So a classified path is already redacted in any trace the variant's setup emits, and a malformed declaration fails loud as a classification-effect-shape error. This drives every local-redacted Story surface (assertion redaction, trace buffer, recorder, DOM capture) with no post-creation mutation. The `:sensitive` / `:large` slots carry only `:app-db` paths; HTTP carrier names are not declared here — they live on the `:rf.http/managed` `reg-fx` registration's `:carriers` block (the transient-payload case).
+Right after it creates the variant's frame, and before any lifecycle or setup event runs, Story records these paths in the frame's classification registry, the same registry a `reg-event` handler writes when it returns `:sensitive` or `:large`. So a classified path is already redacted in any trace the variant's setup emits, and every Story surface that redacts (assertion records, the trace buffer, the recorder, DOM capture) sees it. A malformed declaration throws a classification-effect shape error.
 
-> **No `add-marks` / `set-marks`.** Story does not publish a post-creation path-mark mutation surface. Durable app-db classification is lowered through commit-plane effects (the underlying fns are framework-internal / test helpers only). Declare classification on the variant body instead. Transient payloads (event args, fx/cofx values) are classified via `:sensitive` / `:large` registration metadata on `reg-event` / `reg-fx` / `reg-cofx`.
+The slots take only `:app-db` paths, and only on the variant body: a frame config carrying `:sensitive {:app-db …}` throws. Story has no function for marking paths after the frame exists. Transient values are classified where they are registered: event arguments and effect or coeffect values through `:sensitive` / `:large` metadata on `reg-event`, `reg-fx` or `reg-cofx`, and HTTP carriers on the `:rf.http/managed` effect's `:carriers` block.
 
 ## See also
 
@@ -500,5 +431,5 @@ These `:app-db` paths are **not** a frame annotation and are **not** threaded on
 - [MCP surface](mcp-surface.md) — the public read primitives Story exposes for the MCP jar to consume; the public write primitives behind the gated agent-write surface; the late-bind `reg-story-panel` contract.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
-- [Story tutorial — Workspaces, modes, and composition](../07-workspaces-modes-composition.md) — workspaces, modes, the args editor.
+- [Workspaces](../07-workspaces.md), [Modes, viewports and backgrounds](../07-modes-and-viewports.md), [Decorators](../07-decorators.md) and [Composition](../07-composition.md) — the tutorial pages for those registrations.
 - [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — the framework's commit-plane `:sensitive` / `:large` classification model.
