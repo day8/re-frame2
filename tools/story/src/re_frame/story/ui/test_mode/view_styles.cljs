@@ -16,6 +16,11 @@
                    :font-family      sans-stack
                    :font-size        (:body rf.story.theme.typography/type-scale)
                    :line-height      "1.5"}
+   ;; The framed canvas at the top of the pane. A column flex box, so the
+   ;; framed canvas's `:flex 1` sizes it here as it does in the main pane.
+   :view-section  {:display          "flex"
+                   :flex-direction   "column"
+                   :margin-bottom    "12px"}
    :h1            {:font-family      mono-stack
                    :font-size        (:display rf.story.theme.typography/type-scale)
                    :font-weight      "bold"

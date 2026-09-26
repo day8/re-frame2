@@ -112,9 +112,10 @@
   NOT called from the canvas or the shell: `ui/canvas`'s
   `component-will-unmount` clears its own render sentinels but never
   destroys a variant frame, and no `ui/` namespace calls `destroy!` at
-  all. The UI reaches teardown only indirectly, via
-  `runtime/reset-variant` (test-mode re-run, stepper) and via
-  `run-variant`'s fresh-run boundary.
+  all. The UI reaches teardown only indirectly, through the in-place
+  frame reset every run's prepare half performs (`runtime/prepare-run!`
+  for the canvas's run and every Re-run, `runtime/prepare-variant` for
+  the step-debugger's Start).
 
   Why it matters that this runs at all. The violations bag holds raw
   axe-core violation objects, each referencing the offending elements

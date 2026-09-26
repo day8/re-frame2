@@ -12,15 +12,14 @@
     of `:pass` / `:fail` / `:skip` lands in its own row and exposes the
     expected `:detail` projection.
 
-  - **Run-on-mount** — invoking `run-variant-pane!` against a variant
-    populates the per-variant slot with a `:result`, `:ran-at-ms`,
-    `:play-events`, and the trailing `:epoch-ids` slice. Re-invoking
-    against the SAME variant updates the slot in place.
+  - **Re-run fills the slot** — invoking `run-variant-pane!` against a
+    variant populates the per-variant slot with a `:result`,
+    `:ran-at-ms`, `:play-events`, and the trailing `:epoch-ids` slice.
+    Re-invoking against the SAME variant updates the slot in place.
 
-  - **Re-run debounce** — `run-variant-pane!` short-circuits when the
-    target variant's slot already carries `:running? true`. A second
-    rapid call lands as a no-op so two parallel `reset-variant` runs
-    can't race the per-frame teardown.
+  - **Re-run debounce** — the slot's `:running? true` is the flag the
+    Re-run button reads to disable itself, so a second rapid click
+    cannot start a second run over the one in flight.
 
   Per spec/009 §`:test` mode pane the renderer is a thin projection
   over the local `results-atom`; pinning the atom shape covers the
@@ -312,9 +311,9 @@
       (is (false? (:all-passed? s3)) "a skip blocks :all-passed?"))))
 
 ;; ===========================================================================
-;; run-on-mount
+;; Re-run fills the slot
 ;;
-;; `run-variant-pane!` is the pane's mount-side entry point. Asserts:
+;; `run-variant-pane!` is the pane's Re-run. Asserts:
 ;;
 ;;   1. First call seeds the per-variant slot with the run's result map,
 ;;      :ran-at-ms timestamp, :play-events copy, and trailing :epoch-ids.
@@ -388,11 +387,9 @@
 ;; ===========================================================================
 ;; re-run debounce
 ;;
-;; `run-variant-pane!` short-circuits when the per-variant slot already
-;; carries :running? true. The race-guard prevents two parallel
-;; reset-variant runs against the same frame (which would race the
-;; per-frame teardown). Asserts: while the slot is :running?, a
-;; second call is a no-op.
+;; The per-variant slot carries :running? true while a run is in flight,
+;; and the Re-run button reads it to disable itself, so two runs are
+;; never started over one frame from the pane.
 ;;
 ;; We can't easily await a *busy* state from the resolved promise (the
 ;; resolve loop happens too fast in CLJS test mode), so we test the

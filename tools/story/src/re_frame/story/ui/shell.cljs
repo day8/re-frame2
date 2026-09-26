@@ -349,14 +349,14 @@
   prepare and the canvas's post-commit prepare for the same logical run
   collapse to ONE frame reset + ONE generation — the shell does not run
   the play-script here (which, with the canvas run and the post-commit
-  auto-run, would make it execute up to three times)."
+  auto-run, would make it execute up to three times). Whichever prepares
+  first sets the run's opts, so this one passes the canvas's own
+  `rf.story.ui.canvas/run-opts`."
   [variant-id]
   (when (and rf.story.config/enabled? variant-id)
     (let [shell @rf.story.ui.state/shell-state-atom
-          opts  {:active-modes   (:active-modes shell)
-                 :cell-overrides (get-in shell [:cell-overrides variant-id])
-                 :substrate      (:substrate shell)
-                 :run-key        (rf.story.ui.canvas/run-key shell variant-id)}]
+          opts  (rf.story.ui.canvas/run-opts
+                  (rf.story.ui.canvas/run-key shell variant-id))]
       (try
         (rf.story.runtime/prepare-run! variant-id opts)
         (catch :default e
@@ -862,8 +862,9 @@
   pane renders `rf.story.ui.docs/docs-view` — the read-only AutoDocs surface
   composed of header / prose / args / decorators / parameters / tags
   sections. The `:test` pane renders `rf.story.ui.test-mode.view/test-view`
-  — the in-canvas aggregated pass/fail summary of the variant's
-  `:script` sequence + assertions. `:dev` renders the framed canvas."
+  — the aggregated pass/fail summary of the variant's `:script` sequence +
+  assertions, with the framed canvas at its top, so the variant's view is
+  mounted while its run executes. `:dev` renders the framed canvas."
   []
   (let [shell      @rf.story.ui.state/shell-state-atom
         variant-id (:selected-variant shell)
@@ -890,11 +891,14 @@
        ws-id    [rf.story.ui.workspace/workspace-view ws-id]
        variant-id (case mode-tab
                     :docs [rf.story.ui.docs/docs-view variant-id]
-                    :test [rf.story.ui.test-mode.view/test-view variant-id]
+                    ;; The Tests pane renders the framed canvas inside
+                    ;; itself: the canvas owns the variant's run, and a DOM
+                    ;; step resolves against the view it mounts.
+                    :test [rf.story.ui.test-mode.view/test-view variant-id
+                           [framed-canvas]]
                     ;; Wrap the canvas with viewport sizing
-                    ;; + background colour. The :docs and :test panes
-                    ;; are NOT framed (they're shell chrome, not the
-                    ;; variant render surface).
+                    ;; + background colour. The :docs pane is NOT framed
+                    ;; (it is shell chrome, not the variant render surface).
                     [framed-canvas])
        ;; Per-story rollup docs page. The
        ;; sidebar's story-header rows dispatch `select-story` which

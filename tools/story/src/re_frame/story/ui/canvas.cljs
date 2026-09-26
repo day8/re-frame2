@@ -382,6 +382,26 @@
    :cell-overrides   (get-in shell [:cell-overrides variant-id])
    :substrate        (:substrate shell)})
 
+(defn run-opts
+  "The one run owner's opts for the canvas's run named by the run-key `key`:
+  the `:active-modes` / `:cell-overrides` / `:substrate` the run reads,
+  the key itself as `:run-key`, and `:runner :auto`.
+
+  `:runner :auto` because the canvas renders the variant: a DOM step or
+  a DOM assertion runs against the mounted view, so the run selects the
+  cheapest runner that covers every step and assertion rather than the
+  `:headless` default, which would refuse them as `:cannot-run`.
+
+  Public so every preparer of the canvas's run passes the SAME opts: the
+  shell's selection edge (`ensure-variant-frame!`), which may prepare first,
+  and the Tests pane's Re-run, which prepares it again."
+  [key]
+  {:active-modes   (:active-modes key)
+   :cell-overrides (:cell-overrides key)
+   :substrate      (:substrate key)
+   :runner         :auto
+   :run-key        key})
+
 (defn- selected-run-key
   "The focused variant's `run-key`, or nil when nothing is selected. The
   canvas derefs this through `r/track`: the track re-derives it
@@ -459,19 +479,15 @@
 (defn- prepare-for-run-key!
   "PREPARE the variant's one run owner for the run named by
   `key` — a `run-key` map, whose `:active-modes` / `:cell-overrides` /
-  `:substrate` are exactly the shell slots the run reads: allocate + reset
-  the frame and run loaders + setup, WITHOUT executing the play script.
-  Idempotent per `:run-key`, so this canvas prepare and the shell's
-  selection-edge prepare for the same logical run collapse to ONE frame
-  reset + ONE generation. The single resume owner runs the script exactly
-  once. Returns nothing — the canvas reads the variant's app-db-value
-  reactively after each run."
+  `:substrate` are exactly the shell slots the run reads — with `run-opts`:
+  allocate + reset the frame and run loaders + setup, WITHOUT executing the
+  play script. Idempotent per `:run-key`, so this canvas prepare and the
+  shell's selection-edge prepare for the same logical run collapse to ONE
+  frame reset + ONE generation. The single resume owner runs the script
+  exactly once. Returns nothing — the canvas reads the variant's
+  app-db-value reactively after each run."
   [variant-id key]
-  (rf.story.runtime/prepare-run! variant-id
-                                 {:active-modes   (:active-modes key)
-                                  :cell-overrides (:cell-overrides key)
-                                  :substrate      (:substrate key)
-                                  :run-key        key})
+  (rf.story.runtime/prepare-run! variant-id (run-opts key))
   nil)
 
 (defn- run-if-needed!

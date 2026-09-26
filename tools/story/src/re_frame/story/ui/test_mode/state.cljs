@@ -22,8 +22,13 @@
   `:assertions` records each stamped with their own `:status`. The pane
   reads it through `re-frame.story.ui.test-mode.pure`'s projection helpers.
 
-  Re-run flips `:running?` on, calls `rf.story.runtime/reset-variant`, swaps the
-  result in on resolve.
+  The pane runs nothing of its own. The canvas it renders owns the
+  variant's run, and every run reaches the slot through the one run owner:
+  `follow-run!` listens (`rf.story.runtime/listen-runs!`) and stores each
+  settled run of the variant the pane shows — the canvas's own, a Re-run, a
+  play-chip Re-run. Re-run (`run-variant-pane!`) re-prepares the frame IN
+  PLACE through that owner and resumes it, so the canvas keeps its frame and
+  its view while the script runs against it.
 
   `:play-events`, `:epoch-ids` + `:selected-step` are the step-through
   scrubber slots. `:selected-step` is the slider position
@@ -43,8 +48,10 @@
             [re-frame.core                :as rf]
             [re-frame.interop             :as rf.interop]
             [re-frame.story.async         :as rf.story.async]
+            [re-frame.story.config        :as rf.story.config]
             [re-frame.story.play          :as rf.story.play]
             [re-frame.story.runtime       :as rf.story.runtime]
+            [re-frame.story.ui.canvas     :as rf.story.ui.canvas]
             [re-frame.story.ui.state      :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]))
 
@@ -63,8 +70,9 @@
   reads, so the pane runs against the effective args the user has been
   editing in the controls panel.
 
-  Re-run, the scrubber and the step-debugger all take their opts here, so
-  all three compile ONE program. A script `[:arg]` fed by a mode
+  The scrubber and the step-debugger take their opts here, and Re-run's
+  `rf.story.ui.canvas/run-opts` carries the same three slots, so all three
+  compile ONE program. A script `[:arg]` fed by a mode
   or an override would otherwise be scrubbed or stepped as a different
   program from the one Re-run executed."
   [variant-id]
@@ -148,7 +156,7 @@
   play-sequence's terminal state).
 
   No-ops while the slot's `:running?` is true. A
-  scrubber-tick during an in-flight `reset-variant` would race
+  scrubber-tick during an in-flight run would race
   `store-result!`: the restore would land against the frame being
   reset, the new `:epoch-ids` would overwrite the slice, and
   `:selected-step` would silently index a different epoch (or no
@@ -203,28 +211,79 @@
   [variant-id on?]
   (swap! results-atom assoc-in [variant-id :failed-only?] (boolean on?)))
 
-(defn run-variant-pane!
-  "Drive a fresh `reset-variant` against the variant's frame and
-  swap the result into local state when it resolves. No-ops if
-  the slot already carries `:running?`.
+;; ---- following the one run owner -----------------------------------------
 
-  The run's opts come from `run-opts` — the variant's OWN cell-overrides
-  entry plus the active modes and substrate — so the test pane re-runs
-  against the same effective-args the user has been editing in the
-  controls panel, and the scrubber compiles its events against those
-  same opts."
+;; The variant the pane shows, or last showed. `test-view` writes it
+;; (`show-variant!`).
+(defonce ^:private pane-variant (atom nil))
+
+(defn show-variant!
+  "Record `variant-id` as the variant the pane shows. `follow-run!` stores
+  the runs of this variant.
+
+  The pane records it on every change of variant and never clears it on
+  unmount. Reagent may dispose a mounted component's `with-let` state and
+  build it again on the next render, so a clear on dispose would leave a
+  mounted pane following nothing until it re-rendered, and a run settling
+  in that gap would be lost. Once the pane unmounts, the variant it last
+  showed stays followed, so its slot holds its latest run when the tab
+  opens again."
   [variant-id]
-  (let [opts (run-opts variant-id)]
-    (begin-run! variant-id)
-    (-> (rf.story.runtime/reset-variant variant-id opts)
-        (rf.story.async/then  (fn [r] (store-result! variant-id opts r) nil))
-        (rf.story.async/catch* (fn [_]
-                        ;; Even a rejection clears :running? so the
-                        ;; UI button comes back to "Re-run". Drop
-                        ;; the shell-state running stamp too — the
-                        ;; widget/dot should not stay yellow on a
-                        ;; rejection.
-                        (swap! results-atom assoc-in
-                               [variant-id :running?] false)
-                        (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run variant-id)
-                        nil)))))
+  (reset! pane-variant variant-id)
+  nil)
+
+(defn- clear-running!
+  "Drop `variant-id`'s running stamps, in the pane and in shell state."
+  [variant-id]
+  (swap! results-atom assoc-in [variant-id :running?] false)
+  (rf.story.ui.state/swap-state! rf.story.ui.state/clear-test-run variant-id))
+
+(defn- follow-run!
+  "The pane's `rf.story.runtime/listen-runs!` listener. A run of the
+  variant the pane shows marks the slot running when its generation is
+  prepared; a settled run is stored when it is still the variant's
+  current generation (a superseded one is dropped — its successor
+  settles), for the variant the pane shows or for a slot a Re-run marked
+  running. So the slot follows every run of the variant, whoever started
+  it, while runs of variants nobody is looking at leave it alone."
+  [variant-id {:keys [generation] :as run}]
+  (cond
+    (not (contains? run :result))
+    (when (= variant-id @pane-variant)
+      (begin-run! variant-id))
+
+    (and (= generation (rf.story.runtime/current-generation variant-id))
+         (or (= variant-id @pane-variant)
+             (get-in @results-atom [variant-id :running?])))
+    (store-result! variant-id (run-opts variant-id) (:result run))))
+
+(when rf.story.config/enabled?
+  (rf.story.runtime/listen-runs! ::pane follow-run!))
+
+(defn run-variant-pane!
+  "Re-run `variant-id` through the one run owner: re-prepare its frame IN
+  PLACE to the declared start and resume the auto-plays, with the canvas's
+  own opts (`rf.story.ui.canvas/run-opts` — the active modes, the variant's
+  cell overrides and the substrate the controls panel has set, the
+  canvas's run-key, and `:runner :auto`). The frame is never destroyed, so
+  the canvas keeps rendering it and a DOM step runs against its view.
+  `follow-run!` stores the settled result into the slot before the
+  returned promise resolves.
+
+  Returns the resume's promise of the unified result, or a resolved nil
+  when there was nothing to run."
+  [variant-id]
+  (begin-run! variant-id)
+  (let [shell @rf.story.ui.state/shell-state-atom]
+    (rf.story.runtime/prepare-run!
+      variant-id
+      (rf.story.ui.canvas/run-opts (rf.story.ui.canvas/run-key shell variant-id))))
+  (if-let [p (rf.story.runtime/resume-run! variant-id)]
+    (rf.story.async/catch* p (fn [_]
+                               ;; Even a rejection clears :running? so the
+                               ;; button comes back to "Re-run" and the
+                               ;; widget/dot does not stay yellow.
+                               (clear-running! variant-id)
+                               nil))
+    (do (clear-running! variant-id)
+        (rf.story.async/resolved nil))))

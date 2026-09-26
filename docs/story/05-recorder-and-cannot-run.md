@@ -204,10 +204,9 @@ that covers them.
 `{:runner :dom}` fixes the runner; `{:runner :auto}`, or `{:escalate true}`,
 picks the cheapest runner whose capabilities cover the variant's, and the run
 is `:cannot-run` when none does. A DOM step also needs a real document: on the
-JVM there is none, so `{:runner :dom}` still refuses it there. The Tests tab
-uses the same `:headless` default, so it lists a DOM step under **Cannot run**;
-the canvas's own play, whose status shows in the toolbar, runs DOM steps in
-the page.
+JVM there is none, so `{:runner :dom}` still refuses it there. The canvas runs
+a variant with `{:runner :auto}`, and the Tests tab shows the canvas's run, so
+a DOM step runs in the page against the rendered view.
 
 Most Story tests should stay headless. If your assertion is about a db path, a
 machine state, a subscription value, or an emitted effect, paying for a browser

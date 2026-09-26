@@ -121,7 +121,7 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   (reset-variant variant-id) → promise
   (reset-variant variant-id opts) → promise
   ```
-- **Description**: Tear the variant's frame down and run it again from its declared start, resolving as `run-variant` does. The Story shell calls this when the user resets a variant.
+- **Description**: Tear the variant's frame down and run it again from its declared start, resolving as `run-variant` does.
 
 ### `watch-variant`
 
