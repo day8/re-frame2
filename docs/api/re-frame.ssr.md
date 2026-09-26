@@ -49,7 +49,7 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
     - It resolves callable-headed views (a Var or `(rf/view :id)`), `:tag#id.cls` shorthand and HTML5 void elements, and escapes text and attribute values.
     - Inline `<script>` / `<style>` string content is HTML raw text: emitted verbatim, never entity-escaped and never refused. The only rewrite is React's: an embedded `</script>` / `</style>` is respelled so the parser cannot end the element early. The output is byte-identical across `render-to-string`, the streaming shell walk and `emit-ui-tree`.
     - Put structured data on its own channel: JSON-LD and other head content through `reg-head`, which escapes `<` as `\u003c`, and state through the `__rf_payload` hydration payload.
-    - It drops props that have no HTML form, as react-dom does: `on*` handlers and other fn-valued props, `:key` and `:ref`, and the `:children` and `:dangerouslySetInnerHTML` props. Markup passed through `:dangerouslySetInnerHTML` is therefore not rendered on the server; the element is sent empty. A `javascript:` URL in `:href`, `:src`, `:action`, `:form-action` or `:xlink-href` is replaced by react-dom's blocked-URL placeholder.
+    - It drops props that have no HTML form, as react-dom does: `on*` handlers and other fn-valued props, `:key` and `:ref`, and the `:children` and `:dangerouslySetInnerHTML` props. `:dangerouslySetInnerHTML` becomes the element's body instead of an attribute: its `:__html` is written raw, as react-dom writes it, so the markup is yours to make safe. It wins over any children, a void element ignores it, and a `nil` `:__html` gives an empty body. A `javascript:` URL in `:href`, `:src`, `:action`, `:form-action` or `:xlink-href` is replaced by react-dom's blocked-URL placeholder.
 - **Options** (all optional):
     - `:doctype?` — prefixes `<!DOCTYPE html>`.
     - `:render-hash` — a hash to stamp as `data-rf-render-hash` on the tree's first DOM element, for client-side mismatch detection. Compute it with `render-tree-hash` over the tree the root view returns, `((rf/view :app/root))`, and use the same value for the payload's `:rf/render-hash`. Without it, no marker is stamped.
@@ -191,7 +191,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
     1. **Read** the payload: `:payload` if supplied, else (CLJS) the DOM's `__rf_payload` `<script>`, via [`read-server-payload`](#read-server-payload).
     2. **Hydrate**: `dispatch-sync [:rf/hydrate payload]` against `:frame` before the first render ([`:rf/hydrate`](#rfhydrate)).
     3. **Verify**: call `:render-tree-fn` under `:frame` and pass its tree to [`verify-hydration!`](#verify-hydration) (omit `:render-tree-fn` to skip).
-    - Returns the payload it applied, or `nil` when there is none to apply: no payload script (a client-only first load), or a payload `:rf/hydrate` refused as malformed. Branch on it to choose between adopting the server's DOM and mounting fresh.
+    - Returns the payload it applied, or `nil` when there is none to apply: no payload script (a client-only first load), a payload `:rf/hydrate` refused as malformed, or a `:frame` that is not live (never made, or destroyed). Branch on it to choose between adopting the server's DOM and mounting fresh.
     - `hydrate!` installs state only. Adopting the server's DOM is a separate call to the view adapter, such as the Reagent adapter's `render!` with `{:hydrate? true}` ([`re-frame.adapter.reagent`](re-frame.adapter.reagent.md)).
     - Installation is idempotent per frame: a second `hydrate!` into the same frame with the same payload finds it installed, skips the seed and the verify, and still returns the payload. This is what lets several roots on one page hydrate one frame.
 - **Options**:
@@ -206,6 +206,7 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
     - `:rf.error/no-frame-context` — no `:frame`. Emitted, then thrown.
     - `:rf.error/hydration-frame-id-mismatch` — the payload's `:rf/frame-id` names a different frame than `:frame`. Emitted, then thrown.
     - `:rf.error/malformed-hydration-payload` — the payload, or its `:rf/app-db` or `:rf/runtime-db` slice, is not a map. Emitted, not thrown: the frame's state is left unchanged and `hydrate!` returns `nil`.
+    - `:rf.error/frame-destroyed` — there is a payload, and `:frame` names no live frame. Emitted, not thrown: nothing is installed, and `hydrate!` returns `nil`.
     - `:rf.error/frame-payload-conflict` — a different payload is already installed in the same frame. Thrown before anything is installed.
     - `:rf.error/root-manifest-invalid` — `:container` has no root manifest beside it, or the manifest (discovered or passed as `:manifest`) is invalid. Thrown before anything is installed.
 - **Example**:

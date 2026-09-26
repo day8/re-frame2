@@ -402,8 +402,8 @@ your sinks receive and which statuses a release build can produce.
 ### Timing in production
 
 A third production channel measures performance. It is off by default. When enabled,
-it wraps the four hot paths (event dispatch, sub recompute, fx processing, render) in
-`performance.mark` / `performance.measure` calls. Turn it on at build time with
+it times the four hot paths (event dispatch, sub recompute, fx processing, render),
+emitting one `performance.measure` entry per run and no marks. Turn it on at build time with
 `:closure-defines {re-frame.performance/enabled? true}`, and any
 `PerformanceObserver`, including your APM's, reads the User Timing entries. The flag
 is separate from `goog.DEBUG`, so you can ship timing without the trace stream.

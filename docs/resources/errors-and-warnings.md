@@ -20,6 +20,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resource-bad-spec` | A malformed spec: the request fn in the metadata, no `:params-schema`, a bad `:gc-after-ms`, `:stale-after-ms` or `:infinite`, … | The `:reason` names the key |
 | `:rf.error/infinite-missing-next-page-param` | `:infinite true` without `:next-page-param` | [Paginate a feed](how-to/paginate-a-feed.md) |
 | `:rf.error/invalid-resource-scope-spec` | A malformed `reg-resource-scope`: `:inputs` not `{name [:db path]}`, or no resolver fn in the third slot | Fix the resolver registration |
+| `:rf.error/resource-scope-source-reserved` | A `reg-resource-scope` input of `[:runtime …]`, a reserved source | Read the input from app-db with `[:db path]` |
 | `:rf.error/mutation-bad-spec` | A malformed `reg-mutation`, including an unknown `:invalidate-timing` or `:on-conflict` | The `:reason` names the key |
 | `:rf.error/mutation-optimistic-before-request` | An optimistic plan with `:invalidate-timing :before-request` | [Pick one](how-to/invalidate-after-a-mutation.md#when-the-invalidation-fires-invalidate-timing) |
 
@@ -31,12 +32,18 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resource-invalid-params` | Params don't conform to `:params-schema` — checked once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded | Fix the params; the error redacts classified values |
 | `:rf.error/resource-non-edn-params` | A resource's or mutation's params carry a float, a ratio, a function or another host value, none of which can be part of a cache key | Pass it as a string or an integer, or leave it out |
 | `:rf.error/resource-reserved-request-key` | The request fn returned `:request-id`, `:on-success` or `:on-failure` | Drop them; the runtime routes the reply |
+| `:rf.error/resource-unknown-transport` | A `:transport` other than `:rf.http/managed`. The spec registers; the first load or write raises | Omit `:transport`, or use `:rf.http/managed` |
+| `:rf.error/http-artefact-missing` | A load or write without `re-frame.http.managed` | `(:require [re-frame.http.managed])` at boot |
+| `:rf.error/reply-invalid-target` | An ensure's or execute's `:reply-to` is not a non-empty vector with a keyword head | Pass an event vector, such as `[:todo/loaded]` |
+| `:rf.error/reply-non-data-target` | A `:reply-to` carries a fn or another host object | Pass data only; the reply is appended to the vector |
 | `:rf.error/resource-sub-unresolved-scope` | A subscription's scope resolver returned `nil` | Resolve only when logged in, or don't subscribe |
 | `:rf.error/resource-scope-unresolved-reference` | An ensure's, execute's or `invalidate-tags`' `{:from-db …}` scope resolved to `nil` | Dispatch it once the resolver's inputs are in app-db |
 | `:rf.error/resource-scope-not-registered` | A `{:from-db id}` names a resolver nothing registered | Register it with `reg-resource-scope` |
 | `:rf.error/resource-invalid-scope` | A misspelled `:rf.scope/*` keyword, `[:rf.scope/global]` in a vector, or a `{:from-db …}` where a concrete scope is required (`clear-scope`) | Use the bare keyword; resolve with `rf/resolve-resource-scope` first |
 | `:rf.error/resource-route-blocking` (on `:rf.route/error`) | A blocking read's first load failed; its failure is under `:error` | Retry with `:rf.resource/refetch`; the route returns to `:idle` when it loads |
 | `:rf.error/resource-route-plan` (on `:rf.route/error`) | A route entry's `:params`, `:scope` or `:when` threw or returned nothing usable | Fix the entry; the original error data is under `:cause` |
+| `:rf.error/resource-ssr-blocking-timeout` | Under SSR, a blocking resource did not settle within the render deadline. It is reported, not thrown, and the resource settles as a first-load failure | Fix the fetch, or render the resource's error state |
+| `:rf.error/no-frame-context` | `resource-state` or `mutation-state` without `:frame` | Pass `:frame` |
 | `:rf.error/infinite-missing-page-accessor` | A feed's pages aren't vectors and it declares no `:page->items` | [Paginate a feed](how-to/paginate-a-feed.md) |
 
 ## Writing
