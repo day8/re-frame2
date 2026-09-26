@@ -14,22 +14,15 @@ For Story work it can also drive the optional `re-frame2-story-mcp` server's too
 
 ## When to reach for it
 
-Use it for **writing or editing re-frame2 application source** — `.cljs` / `.cljc` files. You don't have to name re-frame2; any of these load it:
+Use it when you want the agent to write or change application code, tests included, in a project that already runs on re-frame2. You don't have to name re-frame2 for it to load. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/SKILL.md) is the text the agent matches your request against.
 
-- References to `reg-event`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-resource`, `reg-mutation`.
-- Mentions of `dispatch`, `subscribe`, `app-db`, the nine UI states, managed HTTP, or TanStack-Query-style caching.
-- Pattern names: RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect.
-- "Write a test for a re-frame2 handler / sub / machine."
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-Use a different skill for:
-
-- Greenfield project setup → [re-frame2-setup](re-frame2-setup.md). When the counter mounts, switch back here.
-- Migrating a v1 codebase → [re-frame-migration](re-frame-migration.md). A **v1 name in the prompt routes there**: `reg-event-db`, `reg-event-fx`, `reg-event-ctx`, `reg-sub-raw`, `reg-global-interceptor`, `re-frame.db`, `^:flush-dom` and the rest were removed in re-frame2. A stale `reg-event-db`, `reg-event-fx` or `reg-event-ctx` call raises `:rf.error/reg-event-db-removed` (or its `-fx-` / `-ctx-` twin) naming `reg-event`; the other names no longer exist, and `^:flush-dom` metadata is ignored.
-- Inspecting a *running* app → [re-frame2-pair](re-frame2-pair.md).
-- Reviewing existing code for anti-patterns → [re-frame2-improver](re-frame2-improver.md).
-- Finding your way around the Xray panel → [re-frame2-xray](re-frame2-xray.md).
+- A project with no re-frame2 in it yet → [re-frame2-setup](re-frame2-setup.md). When the counter mounts, switch back here.
+- Code still on re-frame v1 → [re-frame-migration](re-frame-migration.md). re-frame2 removed `reg-event-db`, `reg-event-fx` and `reg-event-ctx`: a leftover call raises `:rf.error/reg-event-db-removed` (or its `-fx-` / `-ctx-` twin) naming `reg-event`. Other v1-only names, such as `reg-sub-raw` and `re-frame.db`, no longer exist, and `^:flush-dom` metadata is ignored.
+- A review of code you already have → [re-frame2-improver](re-frame2-improver.md).
+- A question about the running app → [re-frame2-pair](re-frame2-pair.md).
 - Rewriting existing Reagent views into Fresco → [reagent-migration](reagent-migration.md).
-- Building a new re-frame2 implementation in another host language → [re-frame2-implementor](re-frame2-implementor.md).
 
 ## Kickoff
 

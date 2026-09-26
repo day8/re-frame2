@@ -17,18 +17,12 @@ When it has tool access, the agent runs your port's noninteractive checks itself
 
 ## When to reach for it
 
-Use it when **any** of these are true:
+Use it when you are building a re-frame2 implementation rather than an application: deciding where a port starts, what claiming to be a re-frame2 implementation requires, and how the port is checked against the conformance corpus. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md) is the text the agent matches your request against.
 
-- You are starting a port of re-frame2 to one of the in-scope host languages.
-- You want to claim "this is a re-frame2 implementation" and need to know what the claim requires.
-- You are working through the [Implementor Checklist](../../spec/Implementor-Checklist.md) and the [conformance corpus](../../spec/conformance/README.md) to verify your work.
-
-Use a different skill for:
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
 - Writing application code on the CLJS reference → [re-frame2](re-frame2.md).
-- Bootstrapping a greenfield app on the CLJS reference → [re-frame2-setup](re-frame2-setup.md).
-- Migrating a v1 codebase → [re-frame-migration](re-frame-migration.md).
-- Inspecting or debugging a running v2 app → [re-frame2-pair](re-frame2-pair.md).
+- Moving a re-frame v1 app to re-frame2, which is also called porting → [re-frame-migration](re-frame-migration.md).
 
 A **non-React view layer** (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a **host that does not compile to JavaScript** (Python, Ruby, native Rust, Go, server-side Kotlin / Java) is out of scope by spec decision, not by oversight; the skill cites the scope footnote and stops.
 

@@ -14,19 +14,12 @@ Every `day8/re-frame2*` framework artefact ships at one version, and the skill k
 
 ## When to reach for it
 
-Use it when **any** of these are true:
+Use it when you are starting from nothing: a new directory, or a ClojureScript project that has build tooling but no re-frame2 wiring yet. It also picks up a freshly scaffolded project whose counter, event or subscription fails to compile because the build does not yet know re-frame2. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md) is the text the agent matches your request against.
 
-- You have just created a new directory and want re-frame2 set up in it.
-- You have an empty CLJS project with build tooling but no re-frame2 wiring yet.
-- You say *"start a re-frame2 project"*, *"scaffold re-frame2"*, *"how do I set up re-frame2"*, *"give me a hello-world re-frame2 app"*.
-- A freshly scaffolded project's counter, event or sub fails to compile because the build doesn't yet know `re-frame.core` or `re-frame.adapter.reagent`.
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-Use a different skill for:
-
-- Writing code in a project already on re-frame2 → [re-frame2](re-frame2.md).
-- Adding re-frame2 to an existing app with substantial code or other state management → [re-frame2](re-frame2.md).
-- Migrating a re-frame v1 project → [re-frame-migration](re-frame-migration.md).
-- Inspecting or debugging a running app → [re-frame2-pair](re-frame2-pair.md).
+- A project already on re-frame2, or an existing app with substantial code or other state management → [re-frame2](re-frame2.md). Setup is for a project with no app code yet.
+- A re-frame v1 project → [re-frame-migration](re-frame-migration.md).
 
 ## Kickoff
 

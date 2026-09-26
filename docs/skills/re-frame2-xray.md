@@ -18,12 +18,11 @@ Xray runs in one of two modes, switched by the mode pill or a hotkey. **Dynamic*
 
 ## When to reach for it
 
-Use it when you want to *read* the Xray panel yourself: how to get it on screen, why it never appeared, which Dynamic tab or Static catalogue shows what you are after, or what a control around the tabs does — "open Xray", "which Xray tab shows…", "Xray Static mode", "why did this re-render in Xray".
+Use it when you want to *read* the Xray panel yourself: how to get it on screen, why it never appeared, which Dynamic tab or Static catalogue shows what you are after, or what a control around the tabs does. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/SKILL.md) is the text the agent matches your request against.
 
-Use a different skill for:
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-- **Asking the agent to look at or change the running app**, read-only included (read a sub, get a path, snapshot state, walk traces, dispatch, hot-swap) → [re-frame2-pair](re-frame2-pair.md). The line is a human reading the panel versus the agent reading the runtime, not read versus write.
-- Writing new application code → [re-frame2](re-frame2.md).
+- **Asking the agent to look at or change the running app**, read-only included → [re-frame2-pair](re-frame2-pair.md). The line is a human reading the panel versus the agent reading the runtime, not read versus write.
 - Implementing Xray itself → no skill yet; the spec under `tools/xray/spec/` is the source of truth.
 
 ## Kickoff
@@ -50,4 +49,3 @@ The skill works through these with [`references/launch-modes.md` §Launch diagno
 - `SKILL.md`: [`skills/re-frame2-xray/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/SKILL.md) — its §Which reference leaf to load section names the note for each question.
 - Xray source and spec: [`tools/xray/`](https://github.com/day8/re-frame2/tree/main/tools/xray).
 - The Xray guide: [Xray](../xray/index.md).
-- For the agent reading the live runtime: [re-frame2-pair](re-frame2-pair.md).

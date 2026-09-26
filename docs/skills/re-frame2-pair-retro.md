@@ -17,19 +17,13 @@ The skill is **read-only**. It never files issues, edits a repo, writes files or
 
 ## When to reach for it
 
-Use it when:
+Use it after a `re-frame2-pair` session, when you want to know where the session dragged and what would fix it, or want a GitHub issue drafted about it. It needs a real pair session in the conversation, or a recap of one. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/SKILL.md) is the text the agent matches your request against.
 
-- You want to know how `re-frame2-pair` could better support your workflow.
-- You want a retrospective on a debugging or pairing session that just happened.
-- You want concrete improvement ideas or a GitHub-issue draft for `re-frame2-pair`.
+Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
 
-Use a different skill for:
-
-- Inspecting or debugging a live app → [re-frame2-pair](re-frame2-pair.md) itself.
-- Writing new re-frame2 code → [re-frame2](re-frame2.md).
-- Reviewing re-frame2 source for anti-patterns → [re-frame2-improver](re-frame2-improver.md).
+- Fixing the live bug itself, or driving the app → [re-frame2-pair](re-frame2-pair.md).
+- A review of source code, rather than of a session → [re-frame2-improver](re-frame2-improver.md).
 - A retro on a Story recording session → [re-frame2-pair](re-frame2-pair.md)'s Stories reference covers it.
-- Greenfield setup or v1 migration → [re-frame2-setup](re-frame2-setup.md) or [re-frame-migration](re-frame-migration.md).
 
 ## Kickoff
 
