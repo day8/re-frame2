@@ -267,7 +267,7 @@
            macrostep (one snapshot commit)")
       ;; …whose before/after `:state` is a region→state MAP showing BOTH
       ;; regions moved — the legible parallel render the chart highlights.
-      (is (= {:climate :idle :fan :off} (:from-state tx-row))
+      (is (= {:climate [:idle] :fan :off} (:from-state tx-row))
           "the transition's FROM renders both regions' prior leaves")
       (is (= {:climate [:running :conditioning :heating] :fan :on}
              (:to-state tx-row))
