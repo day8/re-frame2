@@ -352,8 +352,9 @@
   "Return the registered mutation's spec map (`:request`, `:params-schema`,
   `:invalidates`, `:patches`, `:populates`, `:removes`, `:optimistic`,
   `:optimistic-tags`, `:on-conflict`, `:scope`, `:invalidate-timing`,
-  `:transport`, `:doc`, source coords) for `mutation-id`, or nil if no
-  mutation is registered under that id.
+  `:transport`, `:doc`) for `mutation-id`, or nil if no mutation is
+  registered under that id. Source coords are not in this projection; they
+  sit on the outer registrar entry.
 
   Artefact-internal — the `:rf/mutation` inner-key projection off the
   generic registrar lookup, which is the public spelling. The

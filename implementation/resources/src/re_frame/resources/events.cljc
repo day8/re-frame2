@@ -868,7 +868,10 @@
   "`:rf.resource/ensure` — ensure a resource instance is loaded (load it
   if absent; join the in-flight work record if one exists; attach `:owner`
   to the entry; record `:cause`). Per Spec 016 §Events and §Race and
-  in-flight semantics. Payload: `{:resource :scope :params :owner :cause}`."
+  in-flight semantics. Payload: `{:resource :scope :params :owner :cause
+  :keep-previous? :reply-to}` — `:keep-previous?` shows the prior loaded
+  sibling key's data while a first load runs, and `:reply-to` is the
+  optional read-completion continuation."
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? false :where 'rf.resource/ensure}))
 
@@ -876,9 +879,10 @@
   "`:rf.resource/refetch` — force a refresh of a resource instance (forces
   a new generation; supersede + suppress any in-flight prior request by
   generation). Per Spec 016 §Events and §Race and in-flight semantics.
-  Payload: `{:resource :scope :params :owner :cause}` — like `ensure`, a
-  supplied `:owner` is attached as an owner (both route through the shared
-  `ensure-load` core)."
+  Payload: `{:resource :scope :params :owner :cause :keep-previous?
+  :reply-to}` — the same keys as `ensure`, because both route through the
+  shared `ensure-load` core: a supplied `:owner` is attached as an owner,
+  and `:keep-previous?` and `:reply-to` mean what they mean there."
   [cofx [_event-id payload]]
   (ensure-load cofx payload {:force-new? true :where 'rf.resource/refetch}))
 
@@ -1686,10 +1690,12 @@
   **`:scope` is a public ScopeInput** (Spec 016 §Resolver
   references): a CONCRETE scope value OR a `{:from-db <resolver-id>}`
   named-resolver reference, resolved against this handler's app-db coeffect at
-  event-execution time — SYMMETRIC with `ensure` / `clear-scope`
-  (`rf.resources.scope-registry/resolve-scope-input`). A reference that resolves NIL is
+  event-execution time — the same use-time rule `ensure` / `refetch` apply
+  (`rf.resources.scope-registry/resolve-scope-input`). `clear-scope` is not
+  symmetric with it: that handler takes a concrete scope only and refuses a
+  `{:from-db …}` reference. A reference that resolves NIL is
   FAIL-CLOSED with `:rf.error/resource-scope-unresolved-reference` (invalidate
-  is scope-requiring like ensure — NOT clear-scope's warn/no-op); an
+  is scope-requiring, like ensure); an
   unregistered resolver id throws `:rf.error/resource-scope-not-registered`
   before any mutation. The matcher + cache only ever see the RESOLVED canonical
   concrete scope (a refetch dispatch carries the concrete scope, never the
@@ -1817,11 +1823,11 @@
                             "Spec 016 §The cross-scope lattice.")
                        {:recovery :fix-cause
                         :extra    {:tags tags}}))
-        ;; SYMMETRIC {:from-db} RESOLUTION: a scoped invalidation's
+        ;; {:from-db} RESOLUTION: a scoped invalidation's
         ;; :scope is a public ScopeInput — a CONCRETE scope OR a `{:from-db
         ;; <id>}` named-resolver reference, resolved against this handler's
         ;; app-db coeffect at event-execution time, EXACTLY like ensure /
-        ;; clear-scope (Spec 016 §Resolver references — the single use-time
+        ;; refetch (Spec 016 §Resolver references — the single use-time
         ;; rule). `resolve-scope-input` routes a concrete scope through the
         ;; SHARED `rf.resources.state/canonicalize-scope` validation path ONCE (rejects
         ;; reserved-namespace typos + host / non-EDN values + the wrapped
