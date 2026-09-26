@@ -15,9 +15,9 @@ bound to their initiating calls; later success supersedes earlier failure;
 missing results stay unknown/incomplete; unrelated activity stays excluded;
 two plausible sessions get one ask — is exercised by replaying
 representative scenarios against a fresh session and reading the output.
-There is no automated scorer and none should be added: the previous
-regex-based session-evidence scorer accepted keyword soup before it was
-repaired, and the repair cost more than the coverage was worth.
+There is no automated scorer and none should be added: a regex-based
+session-evidence scorer accepts keyword soup, and making one sound costs
+more than the coverage is worth.
 
 Three focused manual replays exercise the runtime boundaries in
 [`known-frictions.md`](../references/known-frictions.md). Give a fresh session
@@ -57,7 +57,7 @@ from the skill root with `bb tests/<file>` and both looped by CI's
 skills-structural job. `tests/eval_corpus_shape_test.clj` pins the
 **data shape** of this directory: that `evals.json` is in neither upstream
 format, that the conversion below is documented honestly, and that applying
-it yields one `query`/`should_trigger` item per fixture (rf2-fzbj.42 F1).
+it yields one `query`/`should_trigger` item per fixture.
 `tests/duplicate_search_test.clj` pins the §Issue drafts duplicate-search **command
 contract** — the prescribed `gh issue list` query stays narrow to
 `day8/re-frame2` and explicitly `--state all` (gh defaults to open-only,
