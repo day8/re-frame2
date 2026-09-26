@@ -1,59 +1,48 @@
 # Story API reference
 
-This is the human-facing API reference for Story — the per-frame Storybook for re-frame2 that turns *registered variants* into a navigable, queryable, snapshot-identified surface for design review, visual regression, recording, and pair-programming. The tutorial chapters one folder up walk a developer through the surface from a sitting position; this folder walks it from a standing one, organised by **what part of the contract you're touching** rather than by user journey. Each chapter opens with a paragraph on what the surface is *for* — the problem it solves, the shape of the contract — and only then drops into the function tables.
+These pages record the exact forms of Story's public surface: every
+registration macro and body key, every script step and assertion, and the run
+options and result keys. The tutorial teaches how to use Story; come here when
+you know what you need and want its exact shape.
 
-If you want the dense, single-page contract — every signature, every status keyword, every cross-reference — the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) is still where that lives. This guide is the consumer extract: the surfaces a *story author*, a *host application*, or a *tool integrator* may legitimately reach for, with intuition notes attached. Chrome internals (the panel-host composer, the shell's URL-state engine, the keybinding installer pair, the theme-token namespaces consumed by chrome) are absent — those are documented for Story's maintainers, not for authors.
-
-## What "canonical" means here
-
-Every row in this reference is **canonical**: a documented, supported v1 surface that downstream authors, hosts, and tools may rely on. There are no "alpha" or "experimental" tiers in the chapters. If a row appears here, you can call it; if a row doesn't appear, it's either chrome internals (the panel-mount aggregators consumed only by Story's shell, the URL-state hydration helpers, the design-token maps) or a `post-v1` extension that hasn't shipped yet. Story-internal surfaces (the late-bind shims, the canonical-vocabulary installer, the panel-host's per-panel mount lifecycle) are explicitly out of scope — hosts that reach for them are reading internal seams that the public-by-default CLJS surface accidentally exposes.
-
-Three audiences read these chapters. **Story authors** writing `reg-story` / `reg-variant` bodies who want to know which registration macros exist, which slots a variant body honours, and what `:script` steps mean — they reach for [Registration](registration.md) and [Scripts](script.md). **Host application developers** wiring Story into a dev build who need to know the programmatic runtime (`run-variant`, `snapshot-identity`, `configure!`, `mount-shell!`) — they reach for [Runtime](runtime.md). And **tool integrators** building MCP servers, recording harnesses, or agent-driven test pipelines against Story's read-and-write seam — they reach for [MCP surface](mcp-surface.md) and the [Reference](reference.md) symbol table.
-
-## How to read a row
-
-Every row carries:
-
-- a **signature** — the call shape, in Clojure form
-- an **intuition** — the one-line answer to "what's this for and when do I reach for it?"
-
-The chapter pages add the **kind** — macro, function or Var — where it matters.
-
-Where a surface lives in more than one namespace the canonical home is the one named. The registration macros and their `*`-fn partners follow the same convention `re-frame.core` uses for `reg-view` and `reg-machine`: the un-starred form is the macro, the `*` form is the underlying runtime fn for higher-order code, fixture loaders, MCP write paths, and hot-reload tooling that synthesises registrations. Durable app-db classification is declared via the `:sensitive` / `:large` slots on a variant body and lowered into the frame's elision registry as commit-plane classification effects — not a re-exported mutation surface (see [Registration §Privacy](registration.md#privacy--variant-body-classification)).
-
-## Where surfaces live
-
-Story's user-facing surface splits across the facade plus a small set of sub-namespaces. The facade carries every user-callable surface; the sub-namespaces are public but called from chrome bootstrap, the shell, or the Xray preset — not from authored story bodies. This mirrors `re-frame.core`'s practice: the facade is the ergonomic surface, sub-namespace requires are a discoverability signal that the surface is chrome-internal even when public.
-
-| Namespace | Use when |
+| Page | What it covers |
 |---|---|
-| `re-frame.story` | The canonical require. Every registration macro + its `*`-fn partner, the run / reset / watch / destroy lifecycle, the registry query family, the assertion + recorder facades, the canonical vocabulary tables, `configure!`, the `*-id` Vars for built-in decorators, the shell-mount surface (CLJS-only), and `variant-share-url`. (Durable app-db classification is declared on variant bodies via `:sensitive` / `:large` and lowered through commit-plane effects, not a published mutation fn.) |
-| `re-frame.story.recorder.play-export` | The rich DOM-capture-aware recorder translator (`recording->script-body`, `render-script-body` — both produce the public `:script` body the runner executes). `recording->script-body` is re-exported on the facade as the runtime counterpart to `gen-play-snippet`'s text output; the render-to-EDN fns stay sub-namespace-only. |
-| `re-frame.story.ui.xray-embed` | The Xray-RHS embed component (`xray-embed-panel`), `mount-fn-for` dispatch, `popout-full-shell!`. Called by the shell or the embed component, rarely by app code. |
-| `re-frame.story.xray-preset` | The chrome / Xray bridge — `wire-cross-host!`, `propagate-project-root!`. |
-| `re-frame.story.theme.*` | The design-token namespaces (`typography`, `colors`, `motion`, `depth`, `glyphs`). Consumed by third-party Story-panel authors; chrome consumes tokens, not raw literals. |
-| `re-frame.story.ui.keybindings` | The chrome's keybinding registry + installer pair. Called by the shell's bootstrap. |
-| `re-frame.story.ui.url-state` | The URL-state engine (`url-from-state`, `params-from-state`, `embed-flag-from-current-url`). Chrome-internal. |
+| [Registration](registration.md) | The nine `reg-*` macros and their `*` functions, id shapes, every body key, global args and decorators, and the built-in decorators. |
+| [Scripts](script.md) | The `:script` step grammar, plays, the `:rf.assert/*` assertions, `:cannot-run`, and the recorder functions. |
+| [Runtime](runtime.md) | The execution verbs, the variant lifecycle, the registry queries, `configure!`, substrates and the shell. |
+| [MCP surface](mcp-surface.md) | What Story exposes to Story-MCP: running the server, the tool list, what is redacted on the wire, and the write gate. |
+| [Reference](reference.md) | Every public symbol, one table per namespace, for looking up a signature by name. |
 
-The dependency direction is one-way: hosts depend on `re-frame.story`; tools depend on the registry-query family plus the `*`-suffix runtime helpers; Story's own chrome never depends on anything outside `tools/story/src/`.
+## Namespaces
 
-## The chapters
+Require `re-frame.story`, conventionally as `rf.story`. It carries every
+registration macro, the execution verbs, the programmatic runtime, the
+registry queries, the recorder, `configure!`, the built-in decorator ids, the
+shell-mount functions (ClojureScript only) and `variant-share-url`.
 
-The reference is divided into four topical chapters plus a closing symbol-table reference. Each is independent — you can land on any of them from a search result and get something useful without reading the others.
+A few sub-namespaces are public, but an author rarely requires them:
 
-The four topical chapters are **[Registration](registration.md)** (the nine `reg-*` macros, their `*`-fn partners, the EDN-first variant contract, the inclusion-tag vocabulary, the `:rf.story/global-args` / `:rf.story/global-decorators` boot-time entry points), **[Scripts](script.md)** (the `:script` grammar — every step, the canonical seven `:rf.assert/*` events, the record-don't-throw discipline, the recorder facade that authors a script from canvas interaction), **[Runtime](runtime.md)** (`run-variant` / `reset-variant` / `watch-variant` / `destroy-variant!`, the four-phase lifecycle, `snapshot-identity`, the registry-query family, `configure!` at boot, the shell-mount surface), and **[MCP surface](mcp-surface.md)** (the wire-elision boundary, the public read primitives consumed by `tools/story-mcp/`, the public write primitives behind the gated agent-write surface, the late-bind `reg-story-panel` contract).
+| Namespace | Holds |
+|---|---|
+| `re-frame.story.recorder.play-export` | The DOM-aware recorder translator: `recording->script-body`, which the facade re-exports, plus `render-script-body` and `render-variant-form`. |
+| `re-frame.story.ui.xray-embed` | The right rail's Xray component, `mount-fn-for` and `popout-full-shell!`. The shell calls these. |
+| `re-frame.story.xray-preset` | The bridge that passes `:rf.story/project-root` on to Xray. |
+| `re-frame.story.theme.*` | The design tokens (`typography`, `colors`, `motion`, `depth`, `glyphs`), for authors of Story panels. |
+| `re-frame.story.ui.keybindings` | The shell's keyboard shortcuts and their installer. |
+| `re-frame.story.ui.url-state` | The shell's address-bar encoding. Call `variant-share-url` instead. |
 
-The closing chapter is **[Reference](reference.md)** — the complete symbol table across `re-frame.story` and its sub-namespaces, organised for `Ctrl-F` use. If you want to know whether `gen-play-snippet` lives on the facade or in the recorder sub-namespace, this is the page.
+## Macros and `*` functions
 
-## When to reach for the spec instead
+Each `reg-*` macro has a `*` function partner, as `reg-view` does in
+`re-frame.core`: `(reg-variant id body)` expands to `(reg-variant* id body)`.
+Write the macro in a stories namespace. Call the `*` function from code that
+builds registrations at runtime, such as a test fixture, a hot-reload tool or
+the Story-MCP write tools.
 
-The chapters here are organised for readers; the [normative spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md) is organised for completeness. If you're looking for *every* row at once — including the chrome-internal surfaces and the resolved-decisions log — that's where you want to be. If you're writing a story body or wiring Story into a host build and want to know which surfaces *exist* in a given domain, you want a chapter here.
+## What is not here
 
-The normative spec docs (`001-Authoring.md`, `002-Runtime.md`, `004-Assertions.md`, `006-MCP-Surface.md`, etc. under [`tools/story/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story/spec)) own the *why* — the design rationale, the alternatives considered, the dispositions. The chapters here cite those when they matter and stay quiet otherwise.
-
-## See also
-
-- [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 walkthrough. Read this first if you've not yet authored a `reg-variant`.
-- [Story tutorial — The recorder, and `:cannot-run`](../05-recorder-and-cannot-run.md) — record a canvas interaction, get a `:script` body back.
-- [Framework API — Instrumentation](../../api/re-frame.core.md) — the trace bus the recorder reads, the source-coord stamping that drives Story's "open in editor" affordances.
-- [Xray API reference](../../xray/api/index.md) — the sibling tool's API. Story embeds Xray in its right-hand pane; the two cross-link extensively.
+ClojureScript makes some of the shell's internals reachable, but they are not
+part of the public surface and can change without notice: the URL-state
+helpers, the panel-mount functions, the late-bind shims and the
+`re-frame.story.config` atoms. Implementors will find them in Story's
+[API spec](https://github.com/day8/re-frame2/blob/main/tools/story/spec/API.md).

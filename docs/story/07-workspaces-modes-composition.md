@@ -1,25 +1,19 @@
 # 7. Workspaces, modes, composition
 
-You have more variants than you want to copy-paste. This chapter explains the
-organizational tools: workspaces for layout, mode tabs for Canvas/Docs/Tests,
-toolbar modes for environment pivots, and composition for shared setup. The
-design goal is reuse without the classic "a decorator did something somewhere"
-mystery.
+As a variant library grows, you want to lay variants out, render them under
+different environments, wrap them, tag them, and share setup between them
+without copying it. This chapter covers Docs mode, workspaces, toolbar modes,
+viewports and backgrounds, decorators, tags, the shell's working tools, and
+composition.
 
-## Three things people call modes
+## Three things called modes
 
-There are two real Story concepts and one browser habit that often get mashed
-together in conversation.
+Two Story concepts and one browser-style control are all called modes.
 
-**Mode tabs** are the tabs above the canvas:
+**Mode tabs** are the tabs above the canvas: Canvas, Docs and Tests. They
+change how the selected variant is presented.
 
-- Canvas;
-- Docs;
-- Tests.
-
-They change how the selected artifact is presented.
-
-**Toolbar modes** are registered arg tuples:
+**Toolbar modes** are registered sets of args:
 
 ```clojure
 (rf.story/reg-mode :Mode.login/dark
@@ -28,21 +22,19 @@ They change how the selected artifact is presented.
    :args {:theme :dark}})
 ```
 
-They change the environment the artifact renders in.
+They change the environment the variant renders in.
 
-**Browser modes** such as viewport and background are chrome selections. They
-are useful for review, but they are not the same thing as `reg-mode`.
-
-Keeping those drawers separate prevents a surprising amount of nonsense.
+The **viewport** and **background** pickers are chrome selections. They help
+with review, but they are not registered with `reg-mode`.
 
 ## Docs mode
 
-Docs mode renders the selected variant as executable documentation.
+Docs mode renders the selected variant as a documentation page.
 
 ![Docs mode for the login error variant, showing status, args, decorators, parameters, evidence, and tags.](../images/story/story-tutorial-05-docs-mode.png)
 
-The page is built from the same registered variant. Under the variant's id,
-parent story and `:doc`, its sections are:
+The page is built from the registered variant. Under the variant's id, parent
+story and `:doc`, its sections are:
 
 | Section | What it shows |
 |---|---|
@@ -59,13 +51,13 @@ A Contents list beside the sections jumps between them. Select a story
 header in the sidebar, rather than a variant, and Docs mode shows every
 variant's sections one after another under the story's `:doc`.
 
-This is the important drift-killer: a documented state is not a Markdown
-example that someone has to keep in sync. It is the same state the canvas and
-test runner use.
+Because the page is generated from the same variant the canvas and the test
+runner use, it cannot drift out of date the way a hand-written Markdown
+example can.
 
 ## Workspaces
 
-Workspaces are layout artifacts. Each `:layout` needs its own slot:
+Workspaces arrange variants. Each `:layout` needs its own slot:
 
 | Layout | Needs | Use it when |
 |---|---|---|
@@ -100,13 +92,12 @@ renders its first 100 cells and offers **+N more** for the rest, up to 400.
 ```
 
 A variant's Docs mode also shows the prose of any `:prose` workspace that
-includes it. Most projects start with `:grid` and `:variants-grid`. The more
-editorial layouts become useful when a component or workflow deserves real
-documentation.
+includes it. Most projects start with `:grid` and `:variants-grid`, and add
+`:tabs` or `:prose` when a component or workflow needs real documentation.
 
 ## Toolbar modes
 
-Toolbar modes are saved args:
+A toolbar mode is a named set of args:
 
 ```clojure
 (rf.story/reg-mode :Mode.app/light
@@ -126,8 +117,7 @@ args and below the variant's:
 global < story < mode < variant < live control override
 ```
 
-That gives you the Storybook globals gesture without hiding it in code. A mode
-is just named data.
+That is Storybook's globals, written as registered data.
 
 The toolbar's Modes cluster shows one labelled group per `:axis`, where
 choosing a mode deselects the others in its group. Modes without an `:axis`
@@ -234,12 +224,11 @@ In Story it is one registration, made once in your stories namespace:
 
 Every variant now renders inside `:app/theme`. Globals are the outermost layer,
 so the stack reads global, then story, then variant, with the earliest-registered
-global outermost. The difference from `preview.ts` is that the chain is data,
-not a module: `rf.story/variant-plan` carries the resolved stack under
-`[:world :decorators]`, and Docs mode's Decorators table lists the global first.
-Explain does not show decorators yet. Neither `rf.story/explain` nor the Explain
-panel lists the stack, so check the plan or Docs mode when you want to know what
-wraps a variant. The
+global outermost. Unlike `preview.ts`, the chain is data:
+`rf.story/variant-plan` carries the resolved stack under `[:world :decorators]`,
+and Docs mode's Decorators table lists the global first. Neither
+`rf.story/explain` nor the Explain panel lists the stack, so check the plan or
+Docs mode when you want to know what wraps a variant. The
 [registration reference](api/registration.md#reg-global-decorator) covers
 `clear-global-decorator` and the `configure!` form.
 
@@ -306,11 +295,7 @@ Xray's source links use it too.
 The child starts from the error state its parent's setup reaches, keeps the
 parent's stubbed HTTP effect, and runs only its own script and assertions.
 
-The inheritance rule is:
-
-**context flows down, verdict is local.**
-
-That means:
+The inheritance rule is: **context flows down, verdict is local.**
 
 | Field | Rule |
 |---|---|
@@ -324,13 +309,13 @@ That means:
 | ordinary `:assertions` | child-only. |
 | tags | union. |
 
-A child inherits the world the parent established. It does not silently run the
-parent's behaviour or inherit the parent's verdict. That rule prevents a parent
-variant from becoming a spooky action at a distance.
+A child inherits the world its parent set up. It does not run the parent's
+script or inherit the parent's verdict, so a change to the parent's
+assertions never changes a child's result.
 
 ## Fragments and checks
 
-Use a fragment for reusable setup/script/world context:
+Use a fragment for reusable setup, script or world context:
 
 ```clojure
 (rf.story/reg-fragment :fragment.login/submitted-wrong-password
@@ -360,24 +345,20 @@ A fragment's setup and script come before the variant's own, in the order
 `:compose` lists them. A fragment's args are deep-merged in, and a check's
 assertions run with the variant's.
 
-Fragments are intentionally flat. A fragment does not compose another fragment:
-a fragment body carrying `:compose` or `:extends` throws
-`:rf.error/fragment-shape`. That keeps composition easy to explain and keeps
-cycle detection from becoming the tutorial's least charming character.
+Fragments are flat. A fragment does not compose another fragment: a fragment
+body carrying `:compose` or `:extends` throws `:rf.error/fragment-shape`. That
+keeps the order of setup easy to read and rules out cycles.
 
 `:fx-overrides` and `:interceptor-overrides` are strict. A value the variant
 sets itself always wins. When two composed fragments set different values for
 the same effect or interceptor and the variant sets none, the variant cannot
 compile: `explain` throws `:rf.error/story-compose-conflict` and a run errors
 with it, naming the field and the key. The variant resolves it by stating the
-value it wants. If that feels wonderfully boring, good. Merge rules should not
-be exciting.
+value it wants.
 
 ## Explain is the receipt
 
-When composition is involved, use `rf.story/explain` or the Explain panel. It shows
-the source chain, merge decisions, setup order, script order, checks, assertion
-locations, runner requirements, and source coordinates.
-
-If a composition system cannot explain itself, it is not a composition system.
-It is a rumour.
+When composition is involved, use `rf.story/explain` or the Explain panel
+([chapter 4](04-the-variant-is-a-test.md#explain)). It shows the source chain,
+merge decisions, setup order, script order, checks, assertion locations,
+runner requirements and source coordinates.

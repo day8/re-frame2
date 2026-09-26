@@ -1,8 +1,6 @@
 # Scripts
 
-This chapter is about a variant's **`:script`** — the slot that turns a variant body into a deterministic, replayable sequence of dispatches, DOM gestures, waits, and assertions. The core is **a tagged-step grammar** that a runner walks in order against the variant's frame. Around it sit the **`:rf.assert/*` assertions** (seven of them events that ride the `[:dispatch-sync …]` rail, the rest evaluated against the run's evidence), the **record-don't-throw** discipline (failures append to the run rather than aborting), the **`:cannot-run`** refusal (a step the runner can't observe is refused, never silently passed), and the **recorder** (which authors a `:script` body from canvas interaction).
-
-The public authoring slots are **`:setup`** (preconditions) and **`:script`** (behaviour under test); you execute a variant with the three verbs `rf.story/run` / `rf.story/is` / `rf.story/explain`.
+This page covers a variant's `:script`: a vector of tagged steps (dispatches, DOM gestures, waits and assertions) that a runner walks in order against the variant's frame after `:setup`. It also covers the `:rf.assert/*` assertions, how failures are recorded, the `:cannot-run` status, and the recorder functions that write a script from canvas interaction.
 
 !!! note "Where the normative contract lives"
 
@@ -58,7 +56,7 @@ The assertion vocabulary auto-registers at Story load (from the first `reg-*` ca
 |---|---|---|
 | `:rf.assert/path-equals` | `[path expected]` | `(= (get-in @app-db path) expected)`. The workhorse. |
 | `:rf.assert/path-matches` | `[path schema]` | the value at `path` validates against a Malli schema. |
-| `:rf.assert/sub-equals` | `[query-vec expected]` | `(= @(subscribe query-vec) expected)`. **Honesty rule:** NOT satisfied by a `:sub-overrides` pin — it evaluates through `compute-sub`, which an override never touches. |
+| `:rf.assert/sub-equals` | `[query-vec expected]` | `(= @(subscribe query-vec) expected)`. A `:sub-overrides` pin does not satisfy it: it evaluates through `compute-sub`, which an override never touches. |
 | `:rf.assert/dispatched?` | `[event-vec]`, `[event-id]` or `[pred]` | was a matching event dispatched into the frame during the run, in `:setup` or `:script`? An event vector must match exactly, an event id matches any event with that id, and a predicate receives each dispatched event vector. |
 | `:rf.assert/state-is` | `[machine-id state]` | the active state of a `reg-machine` machine. |
 | `:rf.assert/no-warnings` | `[]` | no warning-severity trace event (`:op-type :warning`) fired during the run — any operation namespace, not only `:rf.warning/*`. |
@@ -92,7 +90,7 @@ The same assertion atom lives in two positions:
 
 ## Record-don't-throw
 
-Every assertion records its result and the script continues. A failing assertion does not abort the run — the runner walks every remaining step, accumulates every record, and the result asks "did every entry pass?" at the end. A script with eight assertions where three fail still runs all eight. This diverges from Storybook's throw-on-first-failure, which is partly forced on it by JavaScript's async-throw model; re-frame2's run-to-completion drain gives Story room to do better.
+Every assertion records its result and the script continues. A failing assertion does not abort the run: the runner walks every remaining step and collects every record, so a script with eight assertions where three fail still runs all eight and reports all three. Storybook's play functions, by contrast, stop at the first failed expectation.
 
 ```clojure
 (rf.story/reg-variant :story.counter/clicked-three-times
@@ -127,7 +125,7 @@ The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:d
 
 ## Privacy posture
 
-`:rf.assert/*` records build their `:actual` / `:expected` / `:payload` / `:reason` slots through the wire-elision walker before landing in the result — no slot carries a raw secret for a sensitive path. Durable app-db classification is declared on the **variant body** and lowered into the frame's elision registry as commit-plane classification effects: a variant declares its sensitive paths via the `:sensitive` slot on its body, and an assertion against such a path records `:rf/redacted`, not the raw value. The `:rf/redacted` sentinel is a first-class legal `:expected` value — author it directly to pin the redaction contract:
+An assertion record's `:actual`, `:expected`, `:payload` and `:reason` pass through redaction before they reach the result, so no record carries a raw value from a sensitive path. A variant declares its sensitive app-db paths in the `:sensitive` slot of its body ([Registration](registration.md#privacy--variant-body-classification)), and an assertion against such a path records `:rf/redacted`. `:rf/redacted` is a legal `:expected` value, so you can assert the redaction itself:
 
 ```clojure
 (rf.story/reg-variant :story.auth/login
@@ -136,7 +134,7 @@ The cost-ordered runners (`:headless` → `:hiccup` → `:cljs-reactive` → `:d
    :script    [[:dispatch-sync [:rf.assert/path-equals [:auth :token] :rf/redacted]]]})
 ```
 
-A passing assertion proves the observation surface saw the sentinel, not the secret. (There is no `add-marks` / `set-marks` mutation surface — classification is declared on the variant body and lowered through commit-plane effects.)
+A pass proves the assertion saw the sentinel, not the secret.
 
 ## The recorder
 

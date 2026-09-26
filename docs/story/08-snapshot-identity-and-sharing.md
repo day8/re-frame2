@@ -1,10 +1,8 @@
 # 8. Snapshot identity and sharing
 
-You want to send a useful state to someone else, and you want visual-regression
-keys that do not explode every time you rename a variant. This chapter covers
-Story's content identity, a recipe for local visual review, and the Share dialog.
-The theme is the same as the rest of Story: share the artifact, but say honestly
-what the recipient can reproduce.
+This chapter covers how Story identifies a variant's content, a recipe for
+reviewing variants' pixels locally, the Share dialog, and static builds. Each
+share path says how much of the state the recipient can reproduce.
 
 ## Content identity
 
@@ -12,9 +10,7 @@ A variant has a name, but names are not stable enough for every job. You can
 rename `:story.login/error` to `:story.auth/login-error` without changing the
 state it renders. You can also keep the name and change the state completely.
 
-Story therefore computes identity over canonical content, not just the keyword.
-
-The important hashes are:
+So Story also identifies a variant by a hash of its canonical content:
 
 | Hash | Answers |
 |---|---|
@@ -22,9 +18,9 @@ The important hashes are:
 | run hash | Did this run behave the same way? |
 | snapshot identity | What should a visual-regression capture key use? |
 
-This is what lets a visual tool distinguish a rename from a real state change.
-Story does not need to be the pixel-diff service. It needs to hand the pixel
-service a stable, meaningful key.
+A visual-regression tool can use these to tell a rename from a real change of
+state. Story does not compare pixels itself; it gives the tool that does a
+stable key.
 
 ## Local visual review
 
@@ -39,21 +35,25 @@ variant joins the review without an edit. Each case is keyed by snapshot
 identity, the variant id and its theme, plus the viewport and browser of the
 capture: the error state in dark mode is
 `story-login-form-error--dark--1280x800--chromium`. The capture is the variant's
-own subtree, so Story's chrome never enters a baseline. The content hash is not
-part of the key; it is recorded beside each baseline, so a review can tell you
-whether a diff arrived with a declared change or without one. Snapshot identity
-also covers the render inputs a variant receives from a fragment it composes or
-from an ancestor it inherits through `:extends`; the `:fx-overrides` and
-`:interceptor-overrides` a run installs for it, whether they sit on its own body
-or on one of those; and the behaviour `:images` it or its story declares, though
-not an ancestor's, which never reach the variants that extend it. Editing a
-shared fragment, a parent's seed, setup, network stubs or decorators, pointing
-an effect override at a different handler or an interceptor override at a
-different interceptor, or selecting a different behaviour image therefore moves
-the hash of every variant the edit reaches, and the first review after this
-change reports those variants' hashes as moved even where their pixels match.
-A moved hash on its own fails no case and asks for no new baseline: baselines
-are keyed by variant, and only a pixel change needs your approval.
+own subtree, so Story's chrome never enters a baseline.
+
+The content hash is not part of the key. It is recorded beside each baseline,
+so a review can tell you whether a diff arrived with a declared change or
+without one. Besides the variant's own body, the hash covers:
+
+- the render inputs it receives from a fragment it composes, or from an
+  ancestor it inherits through `:extends`;
+- the `:fx-overrides` and `:interceptor-overrides` a run installs for it,
+  whether they sit on its own body or on one of those;
+- the behaviour `:images` it or its story declares. An ancestor's `:images`
+  never reach the variants that extend it, so they are not covered.
+
+So editing a shared fragment, or a parent's seed, setup, network stubs or
+decorators, pointing an override at a different handler or interceptor, or
+selecting a different behaviour image moves the hash of every variant the edit
+reaches, and a review reports those hashes as moved even where the pixels
+match. A moved hash on its own fails no case and asks for no new baseline:
+baselines are keyed by variant, and only a pixel change needs your approval.
 
 Put two files in a `story-visual/` directory in your app.
 
@@ -174,19 +174,15 @@ A case whose pixels differ fails the run, and Playwright writes the expected,
 actual and diff images under `../my-app-visual/results`. When the diff is the
 change you meant, run the command with `-u` again to approve it.
 
-Three rules came out of the
-[experiment behind this recipe](https://github.com/day8/re-frame2/blob/main/tools/story/spec/findings/parity-2026-09/fable/visual-review-experiment-2026-09-14.md),
-and the sample keeps all three:
+The sample follows three rules:
 
 - **Never skip a capture because the content hash is unchanged.** The hash
-  covers declarations, not CSS, fonts or the view's implementation. A CSS-only
-  change differed on all ten cases while every hash stayed the same, so the
-  sample captures and compares every case on every run, and the hash only
-  reports.
-- **Pin `threshold: 0`.** Playwright's default per-pixel tolerance of 0.2
-  passed a real heading-colour change as clean on all ten cases. At 0 the same
-  change differed on all ten, and 130 unchanged comparisons still differed on
-  none.
+  covers declarations, not CSS, fonts or the view's implementation, so a
+  CSS-only change moves pixels and leaves every hash as it was. The sample
+  captures and compares every case on every run, and the hash only reports.
+- **Pin `threshold: 0`.** Playwright's default per-pixel colour tolerance,
+  0.2, is loose enough to pass a real change of heading colour. At 0 that
+  change fails, and unchanged captures still compare clean.
 - **Approve new baselines only with `-u`.** `updateSnapshots: 'none'` stops a
   plain run from quietly writing a missing baseline, so every baseline, and the
   hash beside it, is one you approved.
@@ -255,9 +251,6 @@ rail, for embedding a variant in another page:
 http://localhost:8043/?variant=story.login-form%2Ferror&embed=1#/stories
 ```
 
-That is a small thing, but small things matter. If a tool has a stateful UI and
-the URL is useless, it is making you do filing work in your head.
-
 ## Reproducibility labels
 
 Each share path states how reproducible it is:
@@ -268,8 +261,7 @@ Each share path states how reproducible it is:
 | Partially reproducible | Some state carries, but something is omitted or approximate. |
 | View-only | The artifact shows the state but cannot replay it. |
 
-A screenshot is view-only. That is not a moral failure; it is a static image.
-The useful part is that the UI says so.
+A screenshot is view-only.
 
 Share URL and Copy EDN are fully reproducible when every input that drives the
 variant survives as EDN. When one does not, the row's label drops instead of
@@ -306,8 +298,8 @@ plain files you can publish anywhere. Use it for design review, documentation
 previews, or artifact hosting where the reviewer should not need your dev
 server.
 
-Static export is still Story, not a screenshot album. Variants remain registered
-data, with docs, controls, and status presentation.
+A static build is the Story shell itself, with every variant's canvas, docs,
+controls and status, not a set of screenshots.
 
 It takes an entry namespace, a build, a host page, and one script. The names
 below continue the `my-app` from the [install page](index.md#install-story).
@@ -391,24 +383,12 @@ it. The full account of what is bundled and what is stripped is
 
 ## Privacy boundaries
 
-There are two different questions people often blend:
+Two questions are easy to blend: can this artifact reproduce the state, and
+should this value leave the machine? The reproducibility labels answer the
+first. The second is answered where values leave your machine without you
+choosing each one: Story-MCP and logs redact sensitive values there.
 
-- Can this artifact reproduce the state?
-- Should this value leave the machine?
-
-The Share dialog answers the first question. The MCP and logging boundaries
-answer the second. Story core operates on real values inside your dev process;
-wire-facing tools such as Story-MCP apply redaction/elision when values cross
-the agent boundary.
-
-The share URL, copied EDN, static build, and screenshot ARE re-frame2-created
-artifacts — which the framework's egress policy scopes in. They ship unredacted:
-a human pressing share / copy / export is the trusted-local operator revealing
-their own frame (the same intent as the framework's `:rf.egress/local-raw`
-boundary), of an app they already have full access to. A recipient of a shared
-artifact sees what the operator chose to share, exactly as when pasting console
-output. Redaction lives at the off-box boundaries (MCP / logs), not on this
-human egress UX.
-
-This keeps local developer tooling useful without pretending a screenshot or
-URL is a security boundary.
+The share URL, copied EDN, screenshot and static build carry real values,
+unredacted. Pressing Share or Copy is you handing over your own app's state,
+the same as pasting console output, so anything sensitive in the variant goes
+with it. Read what you share.
