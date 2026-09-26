@@ -1,17 +1,19 @@
 # Testing resources
 
-You can [author](concepts.md) and [build](tutorial/index.md) resources. This page is
-how you **prove** the cache.
+This page shows how to test the cache: that a read loads, that a write invalidates
+what it should, and that it sends exactly the requests you expect.
 
-Resources split into three lanes — register, cause, project — and that split is
-what makes them testable: a test *causes* with an ordinary dispatch, answers the
-network with the same canned replies a [pipeline-run test](../core/testing/pipeline-runs.md)
-uses, and *reads* the outcome through projections. No live server, no waiting, no
+The three lanes — register, cause, project — are what make resources testable. A
+test *causes* with an ordinary dispatch, answers the network with the same canned
+replies a [pipeline-run test](../core/testing/pipeline-runs.md) uses, and *reads* the
+outcome through the same subscriptions a view uses. No live server, no waiting, no
 browser.
 
-> **Cause with a dispatch, answer with a canned reply, read the cache projection.**
+A test reads the `:rf/resource` and `:rf/mutation` subscriptions without the reactive runtime: `rf/compute-sub` computes a subscription against `rf/frame-state-value`, which carries both [partitions](../core/glossary.md#the-two-partitions), because resource entries and mutation instances live in runtime-db ([Test a subscription](../core/testing/subscriptions.md)). The booleans a view branches on — `:has-data?`, `:stale?`, `:success?` — exist only in those subscriptions.
 
-A test reads what a view reads — the `:rf/resource` and `:rf/mutation` subscriptions — minus the reactive runtime: `rf/compute-sub` computes a subscription against `rf/frame-state-value`, which carries both [partitions](../core/glossary.md#the-two-partitions), because resource entries and mutation instances live in runtime-db ([Test a subscription](../core/testing/subscriptions.md)). The booleans a view branches on — `:has-data?`, `:stale?`, `:success?` — exist only there. `rf/resource-state` and `rf/mutation-state` are the tool/test snapshot of the durable runtime row underneath: facts such as `:status`, `:data` and `:error`, never derived booleans, so a boolean read off them is `nil`. The setup every test below shares:
+`rf/resource-state` and `rf/mutation-state` return the raw runtime row instead: facts such as `:status`, `:data` and `:error`, with no derived booleans, so a boolean read off them is `nil`. Prefer the subscriptions.
+
+The setup every test below shares:
 
 ```clojure
 (ns my-app.resources-test
@@ -74,7 +76,9 @@ That second assertion is the one that matters: `nil` is the *fail-closed* answer
 
 ## 3. Invalidation and mutations
 
-A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence. The read it invalidates is *setup*, not the subject — so it rides the frame's `:initial-events`, with the stub table wrapped around frame creation (stubs bind for their dynamic extent, and the seed fetches as the frame boots). Staleness is the observable: an entry with no live owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite [registered in tutorial Part 4](tutorial/04-mutations-and-invalidation.md#register-the-write) `:populates` the article from its reply, and a populated entry counts as freshly loaded:
+A write's cache consequences are declared (`:invalidates`, `:populates`), so the test drives the write and asserts the consequence.
+
+The read it invalidates is *setup*, not the subject, so it goes in the frame's `:initial-events`. The stub table wraps frame creation, because stubs apply for their dynamic extent and the seed fetches as the frame boots. An entry with no owner is *marked stale* by an invalidation rather than refetched, which makes `:stale?` the clean assertion. Watch the list, not the article: the favorite [registered in tutorial Part 4](tutorial/04-mutations-and-invalidation.md#register-the-write) `:populates` the article from its reply, and a populated entry counts as freshly loaded:
 
 ```clojure
 (deftest favorite-invalidates-the-list
@@ -108,7 +112,7 @@ A mutation that `:populates` asserts the other consequence — the target key re
 
 ## 4. Exactly these requests
 
-The stub table answers requests; it doesn't count them. When the claim is about *reach* — a favourite costs one POST plus the refetches its invalidation earns, and nothing more — keep a ledger. Register an HTTP interceptor whose `:before` appends each outgoing request: every request the managed pipeline issues runs the frame's `:before` chain, stubbed or real, so three lines see all of them with no test-only helper.
+The stub table answers requests; it doesn't count them. When the claim is about *reach* — a favorite costs one POST plus the refetches its invalidation earns, and nothing more — keep a ledger. Register an HTTP interceptor whose `:before` appends each outgoing request: every request the managed pipeline issues runs the frame's `:before` chain, stubbed or real, so three lines see all of them with no test-only helper.
 
 ```clojure
 (deftest favorite-issues-exactly-these-requests
