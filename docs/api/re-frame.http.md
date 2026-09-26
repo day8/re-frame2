@@ -152,7 +152,7 @@ Register an interceptor to change every request a frame issues: add an auth head
     - `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus an optional `:frame` and the standard `:rf/registration-metadata` keys.
     - A `:before` fn receives a ctx `{:request … :args … :frame … :event …}` and returns it, possibly changed; the `:request` left at the end of the chain is what is sent. An `:after` fn receives that final ctx and the reply map, so it can match a response to its request, and returns the reply.
     - `:before` fns run in registration order, before the request goes to the platform HTTP client. `:after` fns run in reverse registration order, after the reply is built and before it is dispatched.
-    - If a `:before` throws, the request is not sent; if an `:after` throws, the reply is not delivered. Either way `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url` and `:cause`, plus `:phase :after` when an `:after` threw.
+    - If a `:before` throws, the request is not sent; if an `:after` throws, the reply is not delivered. Either way `:rf.error/http-interceptor-failed` fires with `:frame`, `:interceptor-id`, `:url` and `:cause`, plus `:phase :after` when an `:after` threw. A `:before` or `:after` that returns something other than a map has the same effect, but fires `:rf.error/http-interceptor-bad-return` instead, with `:id` and `:returned`.
     - The target frame is the explicit `:frame` if given, else the frame in scope (`with-frame`, an `:initial-events` step). With neither, it raises `:rf.error/no-frame-context` rather than falling back to `:rf/default`.
     - Re-registering an existing id replaces it in place, keeping its position in the chain. After a `clear-http-interceptor`, registering the same id appends it to the end.
     - An invalid shape (a non-keyword id, neither `:before` nor `:after`, a non-fn slot, a non-keyword `:frame`) raises `:rf.error/http-bad-interceptor`.
@@ -380,6 +380,7 @@ The denylists and the `:sensitive?` flag cover what the request carries. A respo
 | `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Carries `:frame`, `:id`. |
 | `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing interceptor. Carries `:frame`, `:id`. |
 | `:rf.error/http-interceptor-failed` | `:error` | An interceptor's `:before` or `:after` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause`, plus `:phase :after` when an `:after` threw. The request is not sent (`:before`) or the reply is not delivered (`:after`). |
+| `:rf.error/http-interceptor-bad-return` | `:error` | An interceptor's `:before` or `:after` returned something other than a map. Carries `:id`, `:returned`. The request is not sent (`:before`) or the reply is not delivered (`:after`). |
 
 ## See also
 

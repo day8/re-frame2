@@ -340,9 +340,11 @@
 ;; The `:before` (`run-interceptor-chain!`) and `:after`
 ;; (`run-after-chain!`) chains share one walk shape: reduce over the
 ;; per-frame chain, skip interceptors lacking the relevant slot, run the
-;; slot fn, reject a non-map return with `:rf.error/http-interceptor-bad-
-;; return`, and wrap any throw as `:rf.error/http-interceptor-failed`
-;; (routed through the privacy composer + re-thrown). `run-chain*`
+;; slot fn, wrap any throw as `:rf.error/http-interceptor-failed`, and
+;; reject a non-map return with `:rf.error/http-interceptor-bad-return`
+;; (each traced through the privacy composer, then thrown). The return
+;; check sits OUTSIDE the slot fn's `try`, so a bad return reaches the
+;; trace as its own id rather than as the `:cause` of a failure. `run-chain*`
 ;; factors that body out; the two public fns are thin wrappers that vary
 ;; only on: the slot key (`:before` / `:after`), how the slot fn is
 ;; invoked (`(slot acc)` vs `(slot fixed-ctx acc)`), the chain order
@@ -357,60 +359,65 @@
       (let [{:keys [id]} interceptor
             slot          (get interceptor slot-key)]
         (if slot
-          (try
-            (let [out (invoke slot acc)]
-              (if (map? out)
-                out
-                ;; Canonical thrown-error shape (Spec 009): the
-                ;; central builder derives the message from :reason + the
-                ;; [:rf.error/<id>] token, so the human sentence (naming the
-                ;; offending interceptor id) leads the message. The outer
-                ;; wrapper carries :interceptor-id so a chain failure is
-                ;; locatable via ex-data; the :id key here serves
-                ;; programmatic consumers.
-                (rf.error/throw-error!
-                  :rf.error/http-interceptor-bad-return 'rf/reg-http-interceptor
-                  (str "HTTP interceptor `" id "` " slot-noun ". A `:before` / "
-                       ":after` HTTP interceptor (Spec 014 §Middleware) must "
-                       "return a map (the threaded request / response ctx); "
-                       "return the (possibly transformed) ctx, not " (pr-str out) ".")
-                  {:extra {:id id :returned out}})))
-            (catch #?(:clj Throwable :cljs :default) t
-              (let [cause  (or (:reason (ex-data t))
-                               #?(:clj  (.getMessage ^Throwable t)
-                                  :cljs (.-message t)))
-                    ;; Prefer the inner throw's :reason (a human sentence
-                    ;; naming the offending interceptor) over the raw message.
-                    reason (str "HTTP interceptor `" id "` threw while processing "
-                                "the " (if phase (name phase) "request / response")
-                                " chain for `" frame-id "`. Fix the interceptor's "
-                                "handler so it does not throw (Spec 014 "
-                                "§Middleware)."
-                                (when cause (str " Cause: " cause)))
-                    data   (rf.error/thrown-ex-info
-                             :rf.error/http-interceptor-failed where reason
-                             {:extra (cond-> {:frame          frame-id
-                                              :interceptor-id id
-                                              :url            (url-of acc)
-                                              :cause          cause}
-                                       phase (assoc :phase phase))})]
+          (let [out (try
+                      (invoke slot acc)
+                      (catch #?(:clj Throwable :cljs :default) t
+                        (let [cause  (or (:reason (ex-data t))
+                                         #?(:clj  (.getMessage ^Throwable t)
+                                            :cljs (.-message t)))
+                              ;; Prefer the inner throw's :reason (a human sentence
+                              ;; naming the offending interceptor) over the raw message.
+                              reason (str "HTTP interceptor `" id "` threw while processing "
+                                          "the " (if phase (name phase) "request / response")
+                                          " chain for `" frame-id "`. Fix the interceptor's "
+                                          "handler so it does not throw (Spec 014 "
+                                          "§Middleware)."
+                                          (when cause (str " Cause: " cause)))
+                              data   (rf.error/thrown-ex-info
+                                       :rf.error/http-interceptor-failed where reason
+                                       {:extra (cond-> {:frame          frame-id
+                                                        :interceptor-id id
+                                                        :url            (url-of acc)
+                                                        :cause          cause}
+                                                 phase (assoc :phase phase))})]
+                          (when rf.interop/debug-enabled?
+                            ;; Route through the privacy composer so a
+                            ;; denylisted query param (`?api_key=…`) is scrubbed
+                            ;; and `:sensitive?` is stamped on the trace event when
+                            ;; either the request is sensitive (per-call `:sensitive?`
+                            ;; or `[:request :sensitive?]`) OR the URL's query string
+                            ;; carries a denylisted param name.
+                            ;;
+                            ;; `sensitive-of` recomputes the EFFECTIVE
+                            ;; sensitivity from the CURRENT accumulator (the evolving
+                            ;; ctx a prior `:before` may have MARKED sensitive), not a
+                            ;; flag captured before the chain ran. With a captured
+                            ;; flag, a `:before` that set `[:request :sensitive?] true`
+                            ;; followed by a later `:before` that threw would emit this
+                            ;; diagnostic with the stale non-sensitive flag, leaking
+                            ;; non-denylisted query values for a now-sensitive request.
+                            (rf.trace/emit-error! :rf.error/http-interceptor-failed
+                                               (rf.http.privacy/prepare-emit-failure
+                                                 (ex-data data)
+                                                 (sensitive-of acc))))
+                          (throw data))))]
+            (if (map? out)
+              out
+              ;; Canonical thrown-error shape (Spec 009): the central
+              ;; builder derives the message from :reason + the
+              ;; [:rf.error/<id>] token, so the human sentence (naming the
+              ;; offending interceptor id) leads the message. Traced through
+              ;; the same privacy composer as a throw, under the same
+              ;; effective sensitivity.
+              (let [data (rf.error/thrown-ex-info
+                           :rf.error/http-interceptor-bad-return 'rf/reg-http-interceptor
+                           (str "HTTP interceptor `" id "` " slot-noun ". A `:before` / "
+                                ":after` HTTP interceptor (Spec 014 §Middleware) must "
+                                "return a map (the threaded request / response ctx); "
+                                "return the (possibly transformed) ctx, not " (pr-str out) ".")
+                           {:extra {:id id :returned out}})]
                 (when rf.interop/debug-enabled?
-                  ;; Route through the privacy composer so a
-                  ;; denylisted query param (`?api_key=…`) is scrubbed
-                  ;; and `:sensitive?` is stamped on the trace event when
-                  ;; either the request is sensitive (per-call `:sensitive?`
-                  ;; or `[:request :sensitive?]`) OR the URL's query string
-                  ;; carries a denylisted param name.
-                  ;;
-                  ;; `sensitive-of` recomputes the EFFECTIVE
-                  ;; sensitivity from the CURRENT accumulator (the evolving
-                  ;; ctx a prior `:before` may have MARKED sensitive), not a
-                  ;; flag captured before the chain ran. With a captured
-                  ;; flag, a `:before` that set `[:request :sensitive?] true`
-                  ;; followed by a later `:before` that threw would emit this
-                  ;; diagnostic with the stale non-sensitive flag, leaking
-                  ;; non-denylisted query values for a now-sensitive request.
-                  (rf.trace/emit-error! :rf.error/http-interceptor-failed
+                  (rf.trace/emit-error! :rf.error/http-interceptor-bad-return
                                      (rf.http.privacy/prepare-emit-failure
                                        (ex-data data)
                                        (sensitive-of acc))))
@@ -422,7 +429,8 @@
 (defn run-interceptor-chain!
   "Walk the registration-order interceptor `chain` for `frame-id`, threading
   `ctx` through each `:before`. Returns the final ctx, or throws
-  `:rf.error/http-interceptor-failed` if any `:before` throws.
+  `:rf.error/http-interceptor-failed` if any `:before` throws and
+  `:rf.error/http-interceptor-bad-return` if one returns a non-map.
 
   `chain` is the caller's issue-time capture (`capture-chain`), NOT a live
   registry read. The same vector must drive this request's
@@ -486,8 +494,9 @@
   Interceptors without an `:after` slot are transparent in the response
   chain (acc passes through unchanged). Throws by `:after` propagate
   to the caller via the same `:rf.error/http-interceptor-failed` shape
-  the `:before` path uses, so a misbehaving response-side interceptor
-  surfaces on the same trace event."
+  the `:before` path uses, and a non-map return via the same
+  `:rf.error/http-interceptor-bad-return`, so a misbehaving response-side
+  interceptor surfaces on the same trace events."
   [frame-id chain middleware-ctx response]
   (run-chain*
     {;; Reverse order — mirror of the event-interceptor onion (Spec 002).

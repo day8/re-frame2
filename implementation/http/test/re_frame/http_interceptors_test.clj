@@ -436,6 +436,52 @@
         (finally
           (rf.trace.tooling/unregister-listener! listener-id))))))
 
+;; ---- 4b. a non-map return is its own error, distinct from a throw ---------
+
+(defn- run-one-before!
+  "Walk a one-interceptor `:before` chain directly and return
+  `[ex-data-of-the-throw trace-operations]`."
+  [before]
+  (let [traces      (atom [])
+        listener-id (gensym "interceptor-bad-return-")]
+    (rf.trace.tooling/register-listener! listener-id
+                                         (fn [ev] (swap! traces conj ev)))
+    (try
+      (let [ex (try
+                 (rf.http.middleware/run-interceptor-chain!
+                   :rf/default
+                   [{:id :probe :before before}]
+                   {:request {:url "https://api.example.invalid/v1"}})
+                 nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+        [(ex-data ex) (mapv :operation @traces)])
+      (finally
+        (rf.trace.tooling/unregister-listener! listener-id)))))
+
+(deftest before-returning-nil-emits-bad-return-not-failed
+  (testing "a :before that returns nil raises and traces
+  :rf.error/http-interceptor-bad-return as itself; it is not re-wrapped as
+  :rf.error/http-interceptor-failed, which is reserved for a throw"
+    (let [[data ops] (run-one-before! (fn [_ctx] nil))]
+      (is (= :rf.error/http-interceptor-bad-return (:rf.error/id data))
+          "the raised error is the bad-return id")
+      (is (= :probe (:id data)))
+      (is (and (contains? data :returned) (nil? (:returned data)))
+          ":returned carries the offending value")
+      (is (some #{:rf.error/http-interceptor-bad-return} ops)
+          ":rf.error/http-interceptor-bad-return reaches the trace")
+      (is (not (some #{:rf.error/http-interceptor-failed} ops))
+          ":rf.error/http-interceptor-failed does NOT fire for a bad return"))))
+
+(deftest before-that-throws-still-emits-failed
+  (testing "a :before that throws still raises and traces
+  :rf.error/http-interceptor-failed, and emits no bad-return"
+    (let [[data ops] (run-one-before!
+                       (fn [_ctx] (throw (ex-info "kaboom" {:detail :synthetic}))))]
+      (is (= :rf.error/http-interceptor-failed (:rf.error/id data)))
+      (is (some #{:rf.error/http-interceptor-failed} ops))
+      (is (not (some #{:rf.error/http-interceptor-bad-return} ops))))))
+
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 
 (deftest clear-http-interceptor-unregisters
