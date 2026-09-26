@@ -1,20 +1,20 @@
 ---
 name: re-frame2
 description: >
-  Writes re-frame2 ClojureScript application code — events, subscriptions,
-  effects, flows, frames, state machines (reg-machine, parallel regions, tags,
-  spawn), schemas, stories, routing, tests, and the canonical patterns
+  Writes and edits re-frame2 ClojureScript app code — events, subs, fx, cofx,
+  interceptors, flows, frames, views, state machines (regions, tags, spawn),
+  schemas, routing, SSR, stories, tests, and the canonical patterns
   (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
-  AsyncEffect, StaleDetection, FormAction). **Authoring only.** **Do not use**
-  for: live-app inspection (`re-frame2-pair`), greenfield bootstrap
-  (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`), porting Reagent
-  views onto Fresco (`reagent-migration`), or porting re-frame2 itself
-  (`re-frame2-implementor`). Use whenever the user mentions re-frame2,
+  AsyncEffect). **Not for**: live-app inspection (`re-frame2-pair`),
+  anti-pattern review of existing code (`re-frame2-improver`), Xray tours
+  (`re-frame2-xray`), greenfield bootstrap (`re-frame2-setup`), v1→v2
+  migration (`re-frame-migration`), Reagent→Fresco ports
+  (`reagent-migration`), pair retros (`re-frame2-pair-retro`), or porting
+  re-frame2 (`re-frame2-implementor`). Use whenever code mentions or needs
   reg-event, reg-sub, reg-fx, reg-cofx, reg-flow, reg-view, reg-machine,
-  reg-route, reg-resource, reg-mutation, dispatch, subscribe, app-db, flows,
-  frames, regions, tags, the nine UI states, managed HTTP, RemoteData
-  lifecycles, cached server-state / query-cache / TanStack-Query shapes, or
-  tests for a re-frame2 app — even when re-frame2 is not named explicitly.
+  reg-route, reg-resource, reg-mutation, dispatch, subscribe, app-db, frames,
+  the nine UI states, managed HTTP, TanStack-Query-style caching, or tests for
+  a re-frame2 app — even when re-frame2 is not named.
 allowed-tools:
   - Read
   - Edit
@@ -54,13 +54,9 @@ allowed-tools:
 
 Authors re-frame2 ClojureScript application code. Router skill: this file carries decision shortcuts; depth lives one level deep in `references/`, `patterns/`, and `decision-trees/`.
 
-## When to load
+## Scope and side effects
 
-`.cljs` / `.cljc` authoring of: event handlers, subscriptions, flows, state machines, views, schemas, routes, stories, or the canonical patterns. References to `reg-event`, `reg-sub`, `reg-fx`, `reg-flow`, `reg-machine`, `dispatch`, `subscribe`, `app-db`, flows, frames, regions, tags, or pattern names are sufficient triggers — re-frame2 need not be named.
-
-## When NOT to use
-
-Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting existing Reagent views onto **Fresco** (use [`reagent-migration`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md)), porting re-frame2 itself, or spec / API / EP rationale reading.
+Triggers and the sibling-skill carve-outs are in the description above; the full disambiguation matrix is [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). This skill edits source files and runs the project's own declared noninteractive gates (workflow step 9). Its story-mcp grants are the author/refine tools; `register-variant` writes only when the server was started with writes allowed ([`references/tooling/story-mcp-loop.md`](references/tooling/story-mcp-loop.md)).
 
 This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fresco is re-frame2's re-frame-native peer view layer; [`references/fundamentals/views.md` §Fresco](references/fundamentals/views.md#fresco--the-re-frame-native-peer) carries what it changes and where its contract lives. Everything upstream of the view is the same either way, so the rest of this skill applies unchanged.
 
@@ -74,7 +70,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
 7. **`:rf/*` is reserved.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`).
 8. **`reg-*` macros over the runtime-fn forms.** Macros capture source coordinates that tools rely on; the functional counterparts — the `*`-suffixed twins for `reg-view*` / `reg-machine*`, or the same name in value position for everything else (`reg-event`, `reg-sub`, `reg-interceptor`, …) — are for advanced/programmatic cases only. Naming a machine spec is the one place a plain `def` silently defeats this: `reg-machine` sees a symbol rather than a literal and captures nothing per-element, so use **`rf/defmachine`**, which stamps the value itself and does not register, then pair it with `reg-machine` ([`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md)).
-9. **Pillar 4 — assume training knowledge.** Teach the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering.
+9. **Assume training knowledge.** Teach and apply the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering — the model already knows those.
 
 ## Authoring workflow (every task)
 
