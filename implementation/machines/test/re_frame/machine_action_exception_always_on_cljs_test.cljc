@@ -23,7 +23,7 @@
 
 ;; Fresh registrar + plain-atom adapter per test; the always-on error-listener
 ;; registry (a `defonce` atom) cleared so a listener from one test cannot leak
-;; into the next (mirrors machine_spawn_unregistered_type_test /
+;; into the next (mirrors machine_spawn_unregistered_type_cljs_test /
 ;; write_after_destroy_always_on_cljs_test).
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture

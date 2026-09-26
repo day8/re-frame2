@@ -1,4 +1,4 @@
-(ns re-frame.spawn-all-init-incarnation-fence-test
+(ns re-frame.spawn-all-init-incarnation-fence-cljs-test
   "`spawn-all-init-fx`'s admission preflight AND its durable join /
   reject-sentinel writes are fenced to the EXACT frame incarnation.
 
@@ -31,27 +31,36 @@
   fixtures cover conforming, failing, AND throwing schema validators plus
   unregistered-child rejection with a reject-record listener; ordinary
   all-valid and rejection behaviour is unaffected (the fence is scoped to
-  owner-loss only — the two live-owner controls)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
-            [re-frame.frame :as rf.frame]
-            [re-frame.late-bind :as rf.late-bind]
-            ;; Loading the machines facade registers `rf/reg-machine` + the
-            ;; reserved machine fxs when this ns runs alone.
-            [re-frame.machines]
-            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
-            [re-frame.machines.paths :as rf.machines.paths]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
-            [re-frame.machines.test-support :as rf.machines.test-support]
-            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
+  owner-loss only — the two live-owner controls).
 
-;; Fresh registrar + plain-atom adapter per test; the always-on error-listener
+  Named `*-cljs-test.cljc` so both the JVM runner and shadow-cljs's
+  `cljs-test$` build run it: the fence logic is shared `.cljc`, but the
+  schema-validator, trace and frame wiring are host-specific. The CLJS lane
+  runs it under the Reagent substrate."
+  (:require
+   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [re-frame.core :as rf]
+   [re-frame.error-emit :as rf.error-emit]
+   [re-frame.frame :as rf.frame]
+   [re-frame.late-bind :as rf.late-bind]
+   ;; Loading the machines facade registers `rf/reg-machine` + the
+   ;; reserved machine fxs when this ns runs alone.
+   [re-frame.machines]
+   [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+   [re-frame.machines.paths :as rf.machines.paths]
+   [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
+
+;; Fresh registrar + substrate per test; the always-on error-listener
 ;; registry (a `defonce` atom) cleared so an `:errors` listener from one test
 ;; cannot leak into the next.
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture
-    {:adapter rf.substrate.plain-atom/adapter
+    {:adapter #?(:clj  rf.substrate.plain-atom/adapter
+                 :cljs rf.adapter.reagent/adapter)
      :init-fn (fn [] (rf.error-emit/clear-error-listeners!))})
   rf.machines.test-support/trace-capture-fixture)
 
