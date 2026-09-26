@@ -561,7 +561,15 @@ There is no automatic rewrite. Surface every M-16b hit and let the operator pick
 
 ### M-73 — one event-registration form (`reg-event`)
 
-The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. The mechanical (Type A) cases:
+The three public event registrars collapse to one — **`reg-event`**, semantically the former `reg-event-fx` (coeffects in, a closed effects map out). A scanner + conservative codemod ships with the migration guide at [`migration/from-re-frame-v1/codemod/`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/codemod/README.md); prefer running it over hand-editing — it preserves formatting and comments (rewrite-clj) and emits the Type-B flags below. Run it from `migration/from-re-frame-v1/codemod/` in the pinned corpus checkout ([`setup.md` §Pin the migration corpus](setup.md#pin-the-migration-corpus-before-reading-it)), pointing `PATH` at the project's source dirs:
+
+```bash
+clojure -M:run PATH ...                    # scan: report every retired-registrar site
+clojure -M:run --rewrite PATH ...          # dry run: print findings, write nothing
+clojure -M:run --rewrite --write PATH ...  # apply in place; flagged sites stay untouched
+```
+
+The codemod resolves its own dependencies (rewrite-clj) from Clojars on first run. The mechanical (Type A) cases:
 
 **`reg-event-fx` → `reg-event` — pure rename.** The handler is byte-for-byte unchanged.
 
@@ -574,7 +582,7 @@ The three public event registrars collapse to one — **`reg-event`**, semantica
   (fn [{:keys [db]} [_ text]] {:db (assoc-in db [:todos text] true)}))
 ```
 
-**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map, and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is rewritten to the by-reference form: under EP-0022 a public `:interceptors` chain carries **references**, never inline interceptor values, so the inline `(rf/path :counter)` value becomes the standard `[:rf.interceptor/path [:counter]]` factory ref. (There is no public `rf/path` value constructor; an inline value in the chain now throws `:rf.error/inline-interceptor-removed` at registration.)
+**Simple `reg-event-db` → `reg-event` — destructure `db`, wrap the body.** The first handler param (`db`) becomes a `{:keys [db]}` destructure of the coeffects map (a first param with another name, say a path-scoped `c`, is rebound as `{c :db}` so the body's references still resolve), and the body — which always evaluates to the new app-db — is wrapped as the `{:db BODY}` effect. Any path-interceptor metadata in the middle slot is rewritten to the by-reference form: under EP-0022 a public `:interceptors` chain carries **references**, never inline interceptor values, so the inline `(rf/path :counter)` value becomes the standard `[:rf.interceptor/path [:counter]]` factory ref. (There is no public `rf/path` value constructor; an inline value in the chain now throws `:rf.error/inline-interceptor-removed` at registration.)
 
 ```clojure
 ;; before
