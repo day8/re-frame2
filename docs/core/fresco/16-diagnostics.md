@@ -193,39 +193,8 @@ with its cause and fix.
 
 Follow the named recovery before changing unrelated code.
 
-When testing a refusal, assert the stable id rather than the message:
-
-```clojure
-(ns todo.refusal-test
-  (:require [cljs.test :refer [deftest is]]
-            [re-frame.fresco.test :as ht]))
-
-(defn todo-count [_]
-  [:span.todo-count "3 left"])
-
-(defn footer [_]
-  [:footer
-   [todo-count {}]])
-
-(defn refusal-id [f]
-  (try
-    (f)
-    ::did-not-throw
-    (catch :default e
-      (:rf.error/id (ex-data e)))))
-
-(deftest plain-defn-child-head-refuses
-  (is (= :rf.error/fresco-test-plain-fn-head
-         (refusal-id
-          #(ht/tree [footer {}] {:subs {}})))))
-```
-
-Messages may change between releases; ids do not.
-
-The test kit accepts a plain function as the root of `ht/tree`, because that is
-the body it is running. A plain function as a child head raises
-`:rf.error/fresco-test-plain-fn-head`; the same mistake in a mounted tree
-raises `:rf.error/fresco-bad-head`.
+To test a refusal, assert its id; see
+[Testing](15-testing.md#assert-a-refusal-by-its-id).
 
 ## Verify production erasure
 

@@ -28,7 +28,7 @@ The tools are `re-frame.test-helpers`, pure functions over hiccup [listed in the
                               :showing :all}])}))
 ```
 
-Given an `:adapter`, the fixture installs it before each test and makes the `:rf/default` frame current, so views can subscribe and dispatch. `:init-fn` then runs, so it is the place to seed state; here the built-in `:rf/set-db` event sets app-db wholesale. These tests share the fixture's `:rf/default` frame instead of making one per test, so the seed goes in `:init-fn`, the fixture's equivalent of `:initial-events`. The fixture also restores the registrar after every test.
+The fixture is the one [Testing](index.md#set-up-the-test-runner) sets up. It makes the `:rf/default` frame current before each test, so views can subscribe and dispatch, and then runs `:init-fn`, the place to seed state; here the built-in `:rf/set-db` event sets app-db wholesale. These tests share the fixture's `:rf/default` frame instead of making one per test, so the seed goes in `:init-fn`, the fixture's equivalent of `:initial-events`.
 
 ## 1. Call it, walk it
 

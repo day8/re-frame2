@@ -99,7 +99,7 @@ Managed HTTP appends a reply map to the `:on-success` or `:on-failure` event: `{
         (is (= :rf.http/http-5xx (:sync-error  (rf/app-db-value f))))))))
 ```
 
-Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler updates state. The reset fixture is the one [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations) explains; without its `:adapter`, `make-frame` throws `:rf.error/no-adapter-installed`.
+Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover the full chain: request out, reply in, reply handler updates state. The reset fixture is the one [Testing](index.md#set-up-the-test-runner) sets up.
 
 ### Supply the facts: `{:rf.cofx {...}}`
 

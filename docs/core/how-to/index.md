@@ -15,6 +15,7 @@ Testing has [its own section](../testing/index.md).
 | boot and mount the app, with hot reload | [Boot and mount an app](boot-and-mount-an-app.md) |
 | add login and keep the user logged in | [Add authentication](add-auth.md) |
 | build a form: local edits, validation, clean submit | [Build a form](build-a-form.md) |
+| use a React component from npm, such as a date picker | [Use a React component](use-a-react-component.md) |
 | load a feed one page at a time | [Paginate a feed](../../resources/how-to/paginate-a-feed.md) |
 | refetch the right server data after a write | [Invalidate after a mutation](../../resources/how-to/invalidate-after-a-mutation.md) |
 | catch bad state and malformed events early | [Validate with schemas](validate-with-schemas.md) |

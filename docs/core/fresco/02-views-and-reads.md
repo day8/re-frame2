@@ -187,31 +187,9 @@ Five conversion rules cover the normal cases:
   combined.
 - **`:key` is consumed by the runtime.** It is not emitted as a normal prop.
 
-## Forward attributes with owned keys last
-
-A reusable field can accept caller attributes while retaining control of its
-value and handler. Use a normal `merge`, placing the keys owned by the field
-last:
-
-```clojure
-(h/defview search-field [{:keys [id] :as attrs}]
-  [:input.form-control
-   (merge (dissoc attrs :id)
-          {:value    (h/sub [:todo.ui/search id])
-           :on-input [:todo.ui/set-search id ::h/value]})])
-```
-
-The literal entries written by the field win by presence, not truthiness. The
-caller may add `:placeholder`, `:aria-label`, `:data-testid`, or a class, but
-cannot replace the owned `:value` or `:on-input` because those keys are merged
-last. Classes written in the tag still combine with a surviving caller
-`:class`.
-
-When a caller should control a value, omit the owned literal instead of trying
-to override it. Forward maps should use the same kebab-keyword spelling as
-Hiccup; a foreign props object's `"className"` string is a different merge
-key. Controlled inputs also reserve their checked, key, and revision slots, as
-described in [Controlled inputs](04-controlled-inputs.md).
+A reusable view that forwards a caller's attribute map while keeping its own
+value and handler is covered in
+[Forward caller attributes safely](04-controlled-inputs.md#forward-caller-attributes-safely).
 
 ## Where `h/sub` may run
 

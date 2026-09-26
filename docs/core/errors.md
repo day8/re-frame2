@@ -310,8 +310,8 @@ Notes:
    keys, never `:reason`, whose wording can change.
 2. **The listener is scoped to the test** and removed in `finally`, on the stream it
    was registered on, so a failing assertion cannot leak it into the next test.
-   Clearing every listener at once is a fixture concern: `re-frame.test-support`'s
-   reset clears the registries directly, and there is no public bulk-clear function.
+   Clearing every listener at once is the [reset fixture](testing/index.md#set-up-the-test-runner)'s
+   job, and there is no public bulk-clear function.
 3. **It runs on the JVM.** No browser and no DOM: register,
    [dispatch-sync](glossary.md#dispatch-sync), and assert in milliseconds.
    [Test a pipeline run](testing/pipeline-runs.md) covers fixtures for suites of these.
