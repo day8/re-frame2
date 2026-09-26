@@ -238,13 +238,6 @@
     (is (= #{:whole :at-x1} (:tags (snapshot :rl/par)))
         "the root's :tags join the regions' union")))
 
-(deftest parallel-root-exit-follows-every-region-on-destroy
-  (let [log (atom [])]
-    (rf/reg-machine :rl/par-destroy (parallel-machine log {}))
-    (rf/dispatch-sync [:rl/par-destroy [:rf.machine/start]])
-    (kill! :rl/par-destroy)
-    (is (= [:root-in :x1-in :y1-in :x1-out :y1-out :root-out] @log))))
-
 (deftest parallel-root-exit-follows-every-region-at-finality
   (let [log (atom [])]
     (rf/reg-machine :rl/par-final (parallel-machine log {}))

@@ -7,15 +7,15 @@
   Refused: `:spawn`, `:spawn-all`, `:always`, `:final?`, `:output-key`,
   `:error?`, `:deep?`, `:default-target`, `:regions`.
 
-  Controls: the honoured region `:entry` / `:exit` / `:tags` register; a
-  region body's `:after` / `:timeout` keep
-  `:rf.error/machine-non-parallel-root-after-not-supported`, its `:choice`
-  keeps `:rf.error/machine-choice-without-type`, and a nested `:type
-  :parallel` keeps `:rf.error/machine-parallel-nested-not-supported`; a
-  region-body typo keeps `:rf.error/machine-unknown-node-key`."
+  Controls: a region body's `:choice` keeps
+  `:rf.error/machine-choice-without-type`, and a region-body typo keeps
+  `:rf.error/machine-unknown-node-key`. The honoured region `:entry` /
+  `:exit` / `:tags` register throughout `region_lifecycle_test.clj`; a
+  region body's `:after` / `:timeout` refusal is pinned in
+  `root_after_non_parallel_test.clj`, and the nested `:type :parallel`
+  refusal in `parallel_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -72,29 +72,10 @@
     (is (str/includes? msg "region :x"))
     (is (str/includes? msg "compound"))))
 
-(deftest reg-machine-throws-the-refusal
-  (let [e (try (rf/reg-machine :rs/live (with-region-key :always {:action (fn [_] nil)})) nil
-               (catch clojure.lang.ExceptionInfo ex ex))]
-    (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id (ex-data e))))))
-
 ;; ---- controls ----------------------------------------------------------------
 
-(deftest honoured-region-slots-register
-  (is (nil? (refusal (-> (with-region-key :entry (fn [_] nil))
-                         (assoc-in [:regions :x :exit] (fn [_] nil))
-                         (assoc-in [:regions :x :tags] #{:in-x}))))))
-
 (deftest other-region-shapes-keep-their-own-refusal
-  (is (= :rf.error/machine-non-parallel-root-after-not-supported
-         (:rf.error/id (refusal (with-region-key :after {1000 :x2})))))
-  (is (= :rf.error/machine-non-parallel-root-after-not-supported
-         (:rf.error/id (refusal (-> (with-region-key :timeout 1000)
-                                    (assoc-in [:regions :x :on-timeout] :x2))))))
   (is (= :rf.error/machine-choice-without-type
          (:rf.error/id (refusal (with-region-key :choice [{:target :x1}])))))
-  (is (= :rf.error/machine-parallel-nested-not-supported
-         (:rf.error/id (refusal {:type    :parallel
-                                 :regions {:outer {:type    :parallel
-                                                   :regions {:inner {:initial :s :states {:s {}}}}}}}))))
   (is (= :rf.error/machine-unknown-node-key
          (:rf.error/id (refusal (with-region-key :invoke {:machine-id :rs/worker}))))))

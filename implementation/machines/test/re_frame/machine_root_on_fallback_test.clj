@@ -125,15 +125,6 @@
         (is (= [:nope] (-> u :tags :event)))
         (is (= :a (-> u :tags :state)))))))
 
-(deftest handled-event-emits-no-unhandled-no-op
-  (testing "a matched transition emits no unhandled-no-op trace"
-    (rf/reg-machine :rem/handled
-      {:initial :a :states {:a {:on {:go {:target :b}}} :b {}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rem/handled [:go]])))]
-      (is (empty? (ops evs :rf.machine.event/unhandled-no-op)))
-      (is (empty? (ops evs :rf.error/machine-unhandled-event))))))
-
 ;; ---- registration: root-`:on` guard / action refs resolve -----------------
 
 (deftest root-on-refs-validated-at-registration

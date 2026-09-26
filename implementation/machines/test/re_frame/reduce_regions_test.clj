@@ -2,18 +2,20 @@
   "Pure-fn unit test for `re-frame.machines.parallel/reduce-regions` —
   the broadcast invariant for parallel-region machines.
 
-  Asserts the four threading properties the helper encodes:
-   1. Regions iterate in declaration order (the order `:regions` was
-      authored).
-   2. A later region's step sees earlier regions' `:data` writes.
-   3. The shared `:rf/spawn-counter` threads in/out across
+  Asserts the threading properties the helper encodes:
+   1. A later region's step sees earlier regions' `:data` writes.
+   2. The shared `:rf/spawn-counter` threads in/out across
       regions — bumps in one region are visible to the next.
-   4. Per-region fx is prefixed via `prefix-region-invoke-id` so the
+   3. Per-region fx is prefixed via `prefix-region-invoke-id` so the
       `[:rf.runtime/machines :spawned ...]` slot key stays unique per region.
 
   And the contract:
-   5. A `rf.machines.result/fail` from any region short-circuits the reduce — later
+   4. A `rf.machines.result/fail` from any region short-circuits the reduce — later
       regions don't run and the failure propagates verbatim.
+
+  Declaration order — which a two-region array map cannot distinguish from
+  insertion order — is pinned past the 8-key array-map boundary in
+  `region_order_cljs_test.cljc`.
 
   The helper is a `defn-` so the test reaches in via the var to invoke
   it directly. This isolates the reduce-regions semantics from the
@@ -44,22 +46,7 @@
    (cond-> {:state state :data data}
      (some? counter) (assoc :rf/spawn-counter counter))))
 
-;; ---- (1) declaration order -------------------------------------------------
-
-(deftest iterates-regions-in-declaration-order
-  (testing "step-fn receives regions in `:regions` declaration order"
-    (let [machine (two-region-spec)
-          calls   (atom [])
-          step    (fn [region-spec region-snap]
-                    (swap! calls conj (:rf/region region-spec))
-                    (rf.machines.result/ok region-snap []))
-          snap    (snapshot {:a :a/idle :b :b/idle})
-          r       (reduce-regions machine snap step)]
-      (is (= :ok (:status r)))
-      (is (= [:a :b] @calls)
-          "region :a fires before region :b — declaration order"))))
-
-;; ---- (2) :data threads forward --------------------------------------------
+;; ---- (1) :data threads forward --------------------------------------------
 
 (deftest later-region-sees-earlier-region-data-writes
   (testing "region :b's step sees the `:data` value :a's step wrote"
@@ -78,7 +65,7 @@
       (is (= {:seed 1 :written-by :a} (:data (:snapshot r)))
           "merged snapshot carries the final :data after all regions ran"))))
 
-;; ---- (3) :rf/spawn-counter threads in/out ----------------------------------
+;; ---- (2) :rf/spawn-counter threads in/out ----------------------------------
 
 (deftest spawn-counter-threads-across-regions
   (testing ":rf/spawn-counter bump in :a is visible to :b and carries through"
@@ -106,7 +93,7 @@
       (is (not (contains? (:snapshot r) :rf/spawn-counter))
           "no :rf/spawn-counter slot is fabricated when the input snapshot had none"))))
 
-;; ---- (4) per-region fx prefix ---------------------------------------------
+;; ---- (3) per-region fx prefix ---------------------------------------------
 
 (deftest per-region-fx-is-prefixed-with-region-name
   (testing ":rf/invoke-id on emitted fx is prepended with the region name"
@@ -127,7 +114,7 @@
              (:fx r))
           "per-region fx is prefixed with that region's name"))))
 
-;; ---- (5) short-circuit on failure -----------------------------------------
+;; ---- (4) short-circuit on failure -----------------------------------------
 
 (deftest result-fail-short-circuits
   (testing "if region :a's step fails, region :b's step does NOT run"
