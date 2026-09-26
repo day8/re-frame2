@@ -140,34 +140,20 @@ decorators that every variant shares usually live here.
 `reg-variant` names one state of that story. It has `:setup` events,
 `:script` steps, args, expectations and metadata.
 
-`reg-workspace` arranges variants together, usually as a grid.
+`reg-workspace` arranges variants together, usually as a grid
+([Workspaces](07-workspaces.md)).
 
 `reg-mode` creates toolbar-wide sets of args, such as a light or dark theme or
-a locale.
+a locale ([Modes, viewports and backgrounds](07-modes-and-viewports.md)).
 
 `reg-fragment` and `reg-check` package reusable setup and reusable
-expectations for variants to `:compose`, and `reg-decorator` wraps or
-prepares a variant.
+expectations for variants to `:compose` ([Composition](07-composition.md)),
+and `reg-decorator` wraps or prepares a variant ([Decorators](07-decorators.md)).
 
 `rf.story/run`, `rf.story/is` and `rf.story/explain` are the three
 programmatic verbs. They run a registered variant or an inline plan, report
-through the test framework, or show how the final plan was assembled.
+through the test framework, or show how the final plan was assembled
+([chapter 4](04-the-variant-is-a-test.md#the-three-verbs)).
 
 Every body is a closed map: a misspelt key is rejected at registration, and
 the recorder writes the same `:setup` and `:script` keys you do.
-
-## Chapters
-
-1. [Your first variant](01-first-variant.md) - register and render a login state.
-2. [Every state, side by side](02-every-state-side-by-side.md) - build a grid of states and use Story as a review surface.
-3. [The fidelity ladder](03-fidelity-ladder.md) - know whether a state was reached honestly or painted cheaply.
-4. [The variant is a test](04-the-variant-is-a-test.md) - run variants from Test mode and unit tests.
-5. [The recorder, and cannot-run](05-recorder-and-cannot-run.md) - record scripts and understand honest refusal.
-6. [Xray, earned at failure](06-xray-earned-at-failure.md) - move from a failed expectation to runtime evidence.
-7. [Workspaces, modes, composition](07-workspaces-modes-composition.md) - reuse context without hiding behaviour.
-8. [Snapshot identity and sharing](08-snapshot-identity-and-sharing.md) - share reproducible states and stable visual keys.
-9. [Multi-substrate and the agent loop](09-multi-substrate-and-agent-loop.md) - understand renderer choice and Story-MCP.
-
-The [API reference](api/index.md) is the lookup track. Read the tutorial first
-if Story is new to you; use the reference when you already know which surface
-you need.

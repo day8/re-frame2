@@ -112,7 +112,7 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
     {:assertions [[:rf.assert/no-warnings]]})
   ```
 
-Each macro expands to its `*` function — `reg-story` expands to `(reg-story* id body)` — so the vocabulary auto-install (below) runs whichever form registers first.
+Each macro expands to its `*` function — `reg-story` expands to `(reg-story* id body)` — so the [vocabulary auto-install](#canonical-vocabulary-auto-install) runs whichever form registers first.
 
 ### The combined `reg-story` form
 
@@ -194,7 +194,7 @@ A variant renders its story's `:component` unless it names its own. Its args, ar
 |---|---|
 | `:doc` | A string. |
 | `:component` | The view id, when the variant renders a different view from its story. |
-| `:extends` | Another variant id to inherit from (see the tutorial's chapter 7). |
+| `:extends` | Another variant id to inherit from ([Composition](../07-composition.md#extends)). |
 | `:compose` | Fragment and check ids, applied in order. |
 | `:setup` | Event vectors dispatched before the script. Only dispatch steps may appear here. |
 | `:script` | A step vector, or `{:script [...] :auto-run? bool :name "..."}`. See [Scripts](script.md). |
@@ -431,5 +431,5 @@ The slots take only `:app-db` paths, and only on the variant body: a frame confi
 - [MCP surface](mcp-surface.md) — the public read primitives Story exposes for the MCP jar to consume; the public write primitives behind the gated agent-write surface; the late-bind `reg-story-panel` contract.
 - [Reference](reference.md) — the full symbol table for `Ctrl-F` use.
 - [Story tutorial — Your first variant](../01-first-variant.md) — the chapter-1 worked walkthrough.
-- [Story tutorial — Workspaces, modes, and composition](../07-workspaces-modes-composition.md) — workspaces, modes, the args editor.
+- [Workspaces](../07-workspaces.md), [Modes, viewports and backgrounds](../07-modes-and-viewports.md), [Decorators](../07-decorators.md) and [Composition](../07-composition.md) — the tutorial pages for those registrations.
 - [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — the framework's commit-plane `:sensitive` / `:large` classification model.

@@ -1,6 +1,6 @@
 # MCP surface
 
-This page covers the boundary between Story and Story-MCP, the separate `tools/story-mcp/` jar an agent (Claude, Cursor, Copilot) uses to drive Story over JSON-RPC. Story-MCP calls two sets of Story's public functions: the read functions (the registry queries plus `run-variant`, `snapshot-identity` and `variant->edn`) and the write functions (the `*` registration functions plus `unregister!`, `clear-kind!` and `clear-all!`). Story itself carries no stdio or JSON-RPC code, and never depends on `tools/story-mcp/`. The normative statement of everything below is [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary) and [`tools/story-mcp/spec/002-Tool-Registry.md`](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/spec/002-Tool-Registry.md) (the jar's side); this chapter is the orientation read.
+This page covers the boundary between Story and Story-MCP, the separate `tools/story-mcp/` jar an agent (Claude, Cursor, Copilot) uses to drive Story over JSON-RPC. Story-MCP calls two sets of Story's public functions: the read functions (the registry queries plus `run-variant`, `snapshot-identity` and `variant->edn`) and the write functions (the `*` registration functions plus `unregister!`, `clear-kind!` and `clear-all!`). Story itself carries no stdio or JSON-RPC code, and never depends on `tools/story-mcp/`.
 
 ## Host execution model — one JVM, no browser bridge
 
@@ -56,7 +56,7 @@ The write tools are closed by default. Open them with the `--allow-writes` flag,
 
 ## The tool registry at a glance
 
-The jar exposes **19 tools** across four categories. This is the orientation map only — the per-tool wire shape, input schema and result contract are the registry spec's, and the canonical name list ships as the shared fixture `tools/story-mcp/test/fixtures/tool-names.json`, which the JVM and Node test corpora both compare against so spec text and running registry cannot drift.
+The jar exposes **19 tools** across four categories. An agent reads each tool's input schema from the server's `tools/list` response.
 
 | Category | Tools |
 |---|---|
@@ -153,7 +153,7 @@ Story and the MCP jar are versioned and released separately. The MCP jar carries
 
 ## Late-bind `reg-story-panel` contract
 
-The `reg-story-panel` surface is the single hook through which tooling embeds itself into the Story chrome. Five rules govern panel hosting (the full statement lives in the [`003-Render-Shell.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/003-Render-Shell.md) spec doc); the summary as it pertains to this boundary:
+The `reg-story-panel` surface is the single hook through which tooling embeds itself into the Story chrome. Five rules govern panel hosting:
 
 1. **`:render` is a `:view` id.** Late-bind via `(rf/view ...)`. The actual view can register from a different artefact than the panel registration itself.
 2. **Placement is one of five slots** — `:right` / `:left` / `:bottom` / `:top` / `:modal`.
@@ -191,4 +191,4 @@ Runtime values cross the wire with sensitive paths redacted, authored metadata c
 - [Framework API — Schemas and data classification](../../api/re-frame.schemas.md) — `project-egress`, the framework primitive the MCP jar's egress boundary calls.
 - [re-frame2-pair MCP server](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) — the live-app tool pair, which drives a running app. Xray is a panel for people and has no agent interface of its own.
 - [re-frame2-pair skill](../../skills/re-frame2-pair.md) — the live-browser door, for driving a running app's Story runtime.
-- Normative spec — [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) (wire protocol, tool registry, write-surface gating) and [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary).
+- For implementors, the normative specs — [`tools/story-mcp/spec/`](https://github.com/day8/re-frame2/tree/main/tools/story-mcp/spec) (wire protocol, tool registry, write-surface gating) and [`tools/story/spec/006-MCP-Surface.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/006-MCP-Surface.md) (Story's side of the boundary).
