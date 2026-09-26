@@ -103,14 +103,14 @@ A closure **closes over the past; a handler receives the present.** The reply ha
 Naming the continuation makes it a value, and values are governable. Five properties follow, each impossible for a closure:
 
 - **Recordable.** A reply is dispatched as an ordinary event, so it lands in [the event ledger](../core/introduction.md) like everything else — traced, replayable. An awaited value slips into a handler through the call stack, where nothing else can see it, and leaves no line in the record. A reply event leaves one.
-- **Inspectable.** In-flight work and its continuation are both data, so the runtime can show them to you. Every managed surface keeps a queryable registry of what's in flight; server-state work goes further with a durable **work ledger** — literally a table of outstanding continuations, each row carrying what was started, who owns it, and the reply target it will complete. "What is this app waiting on right now?" is a query, not a hunt through invisible suspended stack frames.
+- **Inspectable.** In-flight work and its continuation are both data, so the runtime can show them to you. An HTTP request puts a `:rf.http/issued` row on the [trace stream](../core/glossary.md#trace-stream) as it goes out, carrying its work id and reply target, and [Xray](../xray/index.md) shows it in flight until it lands; server-state work goes further with a durable **work ledger** — literally a table of outstanding continuations, each row carrying what was started, who owns it, and the reply target it will complete. "What is this app waiting on right now?" is a query, not a hunt through invisible suspended stack frames.
 - **Survivable.** The event vector is a *name*, resolved at delivery time. Hot-reload mid-flight and the reply finds the newest handler registered under that name — a closure would have resumed the stale one. And because a ledger row is plain data, it serializes: server-side rendering can wait on outstanding work and ship its summary across the wire, which no captured closure could survive. (Honest footnote: the *host work itself* — the socket, the timer — is never revived across a reload or restore. A late completion whose correlation no longer matches is suppressed. The continuation survives as data; the in-flight attempt fails safe.)
 - **Lawful.** Re-targeting a continuation — a feature module relocating a reply onto its parent's event — is a pure data transform on the target vector. Picture a reusable child feature that issues work with `:on-success [:child/loaded]`; a parent embedding the child rewrites that target to `[:parent/child-loaded]` before the work flies, so the parent hears about it. Because the target is just a vector, this is data-in, data-out, and the guarantee is precise: mapping the target changes *only* which event completes — never the issuance, the work identity (`:work/id`), the status classification, or the staleness checks. There is no hidden callback to smuggle behaviour through.
 - **Managed.** A value can be refused. Every managed reply carries a closed `:status` ([below](#one-envelope-under-every-async-surface)), and the runtime checks staleness *before* delivery — a reply whose correlation was superseded (the search-box race, a navigation, a re-fired mutation) is classified `:stale` and **never dispatched to your handler at all**. A cancellation arrives as `:cancelled` data, never as a silently dropped promise. Try writing "suppress this continuation if superseded" over a captured closure — you can't. The runtime can't see inside it.
 
 !!! warning "Gotcha — silencing a reply on purpose stays honest"
 
-    You *can* decline the continuation: `:reply-to nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure is dropped by `:on-failure nil`, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. Even your deliberate silences leave a line in the record.
+    You *can* decline the continuation: `:reply-to nil` is fire-and-forget, the right shape for a telemetry beacon you genuinely don't care about. But silence is the one place this model could quietly regrow the bug it kills — a dropped failure is an error nobody sees. So the runtime keeps it honest: the first time a *real* (non-aborted) failure is dropped with no target to land on, it emits a one-shot dev-only `:rf.warning/failure-swallowed` trace, naming the silence rather than letting it vanish. Even your deliberate silences leave a line in the record.
 
 !!! note "Do, observe"
 
@@ -124,11 +124,11 @@ The envelope has two pieces. A **reply target** says where completion is dispatc
 
 ```clojure
 [:article/load-replied
- {:id 42}                                        ;; your carried context
- {:status       :ok                              ;; the reply map
-  :value        {:title "Welcome"}
-  :work/id      [:rf.work/http :article/by-id 42 1]
-  :completed-at 1781078400456}]
+ {:id 42}                                            ;; your carried context
+ {:status           :ok                              ;; the reply map
+  :value            {:title "Welcome"}
+  :rf.reply/work-id [:rf.work/http :article/by-id 42 1]
+  :completed-at     1781078400456}]
 ```
 
 **The status set is closed** — five outcomes, never quietly a sixth:

@@ -26,8 +26,12 @@ Three steps: register the effect once, ask for it from a handler (naming where t
   (fn [fx-ctx {:keys [amount on-success on-failure]}]
     (let [frame (:frame fx-ctx)]                    ;; capture the frame for the deferred dispatch
       (-> (js/paymentSdk.charge amount)            ;; the promise-returning API
-          (.then  (fn [result] (rf/dispatch (conj on-success result) {:frame frame})))
-          (.catch (fn [err]    (rf/dispatch (conj on-failure err)    {:frame frame})))))))
+          (.then  (fn [result]                     ;; host objects become plain data here
+                    (rf/dispatch (conj on-success (js->clj result :keywordize-keys true))
+                                 {:frame frame})))
+          (.catch (fn [err]
+                    (rf/dispatch (conj on-failure {:message (.-message err)})
+                                 {:frame frame})))))))
 
 ;; 2. A handler asks for it, naming where the reply lands.
 (rf/reg-event :checkout/pay
@@ -37,10 +41,14 @@ Three steps: register the effect once, ask for it from a handler (naming where t
                             :on-success [:checkout/charged]
                             :on-failure [:checkout/charge-failed]}]]}))
 
-;; 3. The reply is an ordinary event — the result appended as its last arg.
+;; 3. Each reply is an ordinary event — its data appended as the last arg.
 (rf/reg-event :checkout/charged
   (fn [{:keys [db]} [_ result]]
     {:db (assoc db :checkout/status :paid, :checkout/receipt result)}))
+
+(rf/reg-event :checkout/charge-failed
+  (fn [{:keys [db]} [_ {:keys [message]}]]
+    {:db (assoc db :checkout/status :failed, :checkout/error message)}))
 ```
 
 Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worker, or a WebAuthn challenge and the shape is identical: post the work, translate the reply into a `dispatch`.

@@ -110,7 +110,7 @@ Every reply is the one **canonical reply envelope** — a plain map with a close
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:rf.reply/cancel-reason` alongside. |
 | `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
-So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled` — `:stale` never arrives), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:work/id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
+So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled` — `:stale` never arrives), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:rf.reply/work-id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
 
 Every request **addresses its reply** — there is no implicit default. There are two **equal** ways to do it — pick by fit, not correctness.
 
@@ -147,7 +147,7 @@ Three small handlers, each doing one thing. This is the shape to prefer when the
 Point `:reply-to` at the issuing event and both the success and the failure reply land there — the **unified** spelling (the same `:reply-to` key resources and mutations use). One handler then serves all three roles:
 
 ```clojure
-;; From examples/core/managed_http_counter (core.cljs), condensed.
+;; Simplified from examples/core/managed_http_counter (core.cljs).
 (rf/reg-event :counter/+1
   (fn [{:keys [db]} [_ reply]]
     (cond
@@ -163,10 +163,13 @@ Point `:reply-to` at the issuing event and both the success and the failure repl
       ;; reply back here. Test for the ABSENCE of a reply, not the `:else` slot.
       (nil? reply)
       {:db (assoc db :counter/status :loading)
-       :fx [[:rf.http/managed {:request {:url "api/inc.json"} :reply-to [:counter/+1]}]]}
+       :fx [[:rf.http/managed {:request    {:url "api/inc.json"}
+                               :request-id :counter/+1
+                               :reply-to   [:counter/+1]}]]}
 
-      ;; Any other reply — the `:status :cancelled` a manual abort delivers,
-      ;; say — settles the UI and never re-issues the request.
+      ;; Any other reply — the `:status :cancelled` that
+      ;; `[:rf.http/managed-abort :counter/+1]` delivers, say — settles the
+      ;; UI and never re-issues the request.
       :else
       {:db (assoc db :counter/status :idle)})))
 ```
@@ -201,7 +204,7 @@ If a reply handler wants to record *when* something completed, don't call `(js/D
 
 ### Silencing a reply
 
-Write `:reply-to nil` and the whole reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. Setting `:on-success` or `:on-failure` to `nil` silences just that one side of the split form. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped by `:on-failure nil`, a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct silence, not a bug.
+Write `:reply-to nil` and the whole reply is dropped — fire-and-forget, useful for a telemetry beacon you genuinely don't care to handle. Setting `:on-success` or `:on-failure` to `nil` silences just that one side of the split form. But the framework won't let you *accidentally* swallow an error: the first time a non-aborted failure is dropped because its reply has no target — `:reply-to nil`, `:on-failure nil`, or an `:on-success` with no `:on-failure` beside it — a one-shot `:rf.warning/failure-swallowed` trace fires (dev-only) so the silence is observable rather than invisible. Aborted requests are excluded — a cancelled request that no longer wants its reply is correct silence, not a bug.
 
 ## Failures are a closed set
 
@@ -227,11 +230,11 @@ Two classification rules catch newcomers:
 
 ## Validating the body with `:decode`
 
-By default `:decode` is `:auto`, which sniffs the Content-Type and parses accordingly. The 2xx body is exactly where a [schema](../core/glossary.md#schema) earns its keep — coercing and validating the shape your handler then trusts. Hand `:decode` a Malli schema and a malformed body becomes a clean `:rf.http/decode-failure` rather than a `NullPointerException` three handlers later:
+By default `:decode` is `:auto`, which sniffs the Content-Type: JSON for a JSON type, a string for `text/*`, and otherwise the raw binary body (a `Blob` in the browser, bytes on the JVM). The 2xx body is exactly where a [schema](../core/glossary.md#schema) earns its keep — validating the shape your handler then trusts. (Malli has to be in the build, and coercion needs one more namespace: see [tutorial step 3](tutorial.md#step-3--validate-the-body-with-a-schema).) Hand `:decode` a Malli schema and a malformed body becomes a clean `:rf.http/decode-failure` rather than a `NullPointerException` three handlers later:
 
 ```clojure
 (def ArticleResponse
-  "Validates and coerces the JSON body of GET /api/articles/:slug."
+  "Validates the JSON body of GET /api/articles/:slug."
   [:map
    [:article [:map
               [:slug  :string]
@@ -249,15 +252,14 @@ By default `:decode` is `:auto`, which sniffs the Content-Type and parses accord
 
 ## A valid 200 can still be a failure: `:accept`
 
-Some APIs answer `200 OK` and then tell you, *in the body*, that the thing you asked for isn't there — `{"article": null}` instead of a 404. The transport succeeded, the JSON parsed, the schema passed; your domain disagrees. `:accept` is a post-decode normaliser that gets the last word.
+Some APIs answer `200 OK` and then tell you, *in the body*, that the thing you asked for isn't there — `{"article": null}` instead of a 404. The transport succeeded and the body decoded; your domain disagrees. `:accept` is a post-decode normaliser that gets the last word.
 
 `:accept` is a function `(decoded → {:ok value} | {:failure failure-map})`. Return `{:ok v}` and `v` becomes the success payload; return `{:failure m}` and `m` rides into the failure path as `:rf.http/accept-failure`, with your map at `:detail`:
 
 ```clojure
-;; Adapted from examples/real-apps/realworld_http — a 200 with a null article is a domain miss.
 {:fx [[:rf.http/managed
        {:request {:url (str "/api/articles/" slug)}
-        :decode  ArticleResponse
+        :decode  :json
         :accept  (fn [decoded]
                    (if-let [article (:article decoded)]
                      {:ok article}
@@ -269,7 +271,7 @@ Some APIs answer `200 OK` and then tell you, *in the body*, that the thing you a
 
 The default `:accept` is just `{:ok decoded}` — every 2xx that decodes is a success. Three rules keep an explicit one predictable:
 
-- `:accept` runs **only after a successful 2xx decode**. A non-2xx response is sorted by status long before this point, so your `:accept` never has to think about HTTP status.
+- `:accept` runs **only after a successful 2xx decode**. A non-2xx response is sorted by status long before this point, so your `:accept` never has to think about HTTP status. A `:decode` schema runs first too: one that requires `:article` rejects `{"article": null}` as a decode failure before `:accept` sees it.
 - An `:accept` that **throws**, or returns a **malformed shape** (nil, a non-map, a map with neither `:ok` nor `:failure`, or one with *both*) still dispatches a reply — it can never strand the caller. It classifies as `:rf.http/accept-failure` with a framework-supplied `:detail`, and the pre-`:accept` value rides at `:decoded` so you can see what it choked on.
 - An accept-failure is **not retryable**. Retrying the transport won't change the body — this is a domain decision, not a transport blip. If you need "retry after refreshing X," that's a [state machine](../machines/concepts.md), not `:accept`.
 
@@ -398,7 +400,7 @@ The builder returns an args map, so it composes everywhere the args map is accep
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the exact envelope a live request produces. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [Managed HTTP](../api/re-frame.http.md) documents every stub surface.
+Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the `:status` / `:value` / `:error` shape a live request delivers, without the live reply's identity and timing fields (`:rf.reply/work-id`, `:completed-at`). The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; [Managed HTTP](../api/re-frame.http.md) documents every stub surface.
 
 ## A complete request loop
 
@@ -450,7 +452,7 @@ Managed HTTP is right for a **single request → single reply**. Elsewhere:
 | `:rf.error/no-such-fx` naming `:rf.http/managed` | The artefact isn't loaded. Require `re-frame.http.managed` once at boot. |
 | `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying an `:rf.error/http-…` id | The args map was refused and nothing was sent: no reply address, a reply target that isn't a vector, a bad `:url`, or a bad `:retry :on`. The error names the key. |
 | `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
-| `:rf.warning/failure-swallowed` | A failure met `:on-failure nil` and was dropped. See [Silencing a reply](#silencing-a-reply). |
+| `:rf.warning/failure-swallowed` | A failure had no reply target and was dropped. See [Silencing a reply](#silencing-a-reply). |
 | `:rf.error/http-interceptor-failed` or `:rf.error/http-reply-tail-failed` | An interceptor threw, or delivering the reply threw after the response arrived. No reply is delivered. |
 | `:rf.warning/http-malli-absent`, and a malformed body reached your handler | Malli isn't in the build, so the `:decode` schema was skipped. See [step 3 of the tutorial](tutorial.md#step-3--validate-the-body-with-a-schema). |
 
