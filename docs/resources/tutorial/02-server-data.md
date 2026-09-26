@@ -167,7 +167,7 @@ Then the routes:
   "/article/:slug")
 ```
 
-On entry the runtime *ensures* each listed resource, with the **route as [owner](../glossary.md#owner--cause)**; on leave it releases them. *Ensure* means "make sure a fresh-enough load exists": a cache hit when one does, a fetch when it doesn't, and — if a request for the same `{:resource :params}` is already in flight — joining that request rather than sending a second. `:rf.resource/refetch` (Step 5) is the opposite: it always sends a new request.
+On entry the runtime *ensures* each listed resource, with the **route as [owner](../glossary.md#owner--cause)**; on leave it releases them. [*Ensure*](../glossary.md#ensure) means "make sure a fresh-enough load exists": a cache hit when one does, a fetch when it doesn't, and — if a request for the same `{:resource :params}` is already in flight — joining that request rather than sending a second. `:rf.resource/refetch` (Step 5) is the opposite: it always sends a new request.
 
 The flags are per-page choices:
 
@@ -175,11 +175,7 @@ The flags are per-page choices:
 - `:blocking? false` on the home list leaves `:rf.route/transition` alone; the feed page shows its own skeleton.
 - `:keep-previous? true` matters when the params change: the new key's view-model carries the previous params' data (`:previous? true`, `:previous-data`) until its own arrives, so the old page stays on screen. Home's params are always `{}`, so here it's groundwork for [Paginate a feed](../how-to/paginate-a-feed.md).
 
-Notice what you didn't write: a fetch call. No `http-get`, no `then`, no `dispatch [:articles-loaded ...]`. The route declares what the page needs; the runtime does the rest.
-
-??? info "Coming from TanStack Query?"
-
-    In a React + TanStack app the `useQuery` call lives inside the component, so the fetch is a side effect of rendering. Here the page-to-data binding lives in the route table, so you can read the whole app's data dependencies in one place.
+Notice what you didn't write: a fetch call. No `http-get`, no `then`, no `dispatch [:articles-loaded ...]`. The route declares what the page needs, so the route table lists every page's data dependencies in one place, and the runtime does the rest.
 
 !!! note "Routes aren't the only cause"
 

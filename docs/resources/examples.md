@@ -1,7 +1,7 @@
 # Examples
 
-Runnable apps next to the docs. Build something yourself first
-([tutorial](tutorial/index.md) or the [model](concepts.md)), then open these in order.
+Runnable apps in this repository, each paired with the page that explains what it
+shows.
 
 | Example | What it shows | Read first |
 |---|---|---|
