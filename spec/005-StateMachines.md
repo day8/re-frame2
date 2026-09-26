@@ -3830,7 +3830,7 @@ The map under `:spawn-all` accepts the following keys:
 | key | purpose | required? |
 |---|---|---|
 | `:children` | a vector of **invoke-spec** maps — same shape as `:spawn` (see [§Spec-spec keys](#spec-spec-keys)) plus a required `:id` keyword for join-state addressing | required, vector of ≥ 1 |
-| `:join` | join-condition discriminator — a **closed two-member enum**: `:all` (default), `:any`. Any other value (including `{:n N}` / `{:fn pred}` forms) is rejected at registration as an unknown join spec. Quorum uses the data-only `:after` + `:done-guard` idiom (see [§Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after)); a `{:n}` mode would be a compatible widening | optional; default `:all` |
+| `:join` | join-condition discriminator — a **closed two-member enum**: `:all` (default), `:any`. Any other value (including `{:n N}` / `{:fn pred}` forms) is rejected at registration as an unknown join spec. Quorum is a data-only idiom — each child's `:on-done` counts into the parent's `:data` and a guard on the state's `:after` reads that count (see [§Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after)); a `{:n}` mode would be a compatible widening | optional; default `:all` |
 | `:on-all-complete` | event vector the runtime dispatches into the parent when `:join :all` resolves with all-complete | required iff `:join :all` |
 | `:on-some-complete` | event vector the runtime dispatches into the parent when `:join :any` resolves on the success-side | required iff `:join :any` |
 | `:on-any-failed` | event vector the runtime dispatches into the parent when any child fails (sibling cancellation applies) | optional; if absent, child failures are tracked but do not short-circuit the join |
@@ -3873,7 +3873,7 @@ Join condition discriminators — a **closed two-member enum** (`:all` / `:any`,
 - **`:all` (default)** — fires `:on-all-complete` once `:done` covers every `:id`. If `:on-any-failed` is present and any child errors, it fires immediately and the join short-circuits. If `:on-any-failed` is absent, child failures are tracked but the join waits for `:done` to cover every `:id` (failed children never join the `:done` set, so the join never resolves on success — equivalent to the failure tearing down the parent's surrounding state via a separate transition).
 - **`:any`** — fires `:on-some-complete` after the first child's success finality. If `:on-any-failed` is present, the first child error fires it instead.
 
-> **Quorum joins ("N of M") use the documented data-only idiom, not a `:join` mode.** `:join` is a closed two-member enum — `:all` / `:any`; there is no `{:n N}` or `{:fn pred}` mode (quorum is the data-only `:after`/`:always` + `:done-guard` idiom below). Express "fire once K of N children have completed" with an `:after` (or `:always`) on the `:spawn-all`-bearing state guarded by a `:done-guard` that reads the live join-state `:done` count (see [§Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after)). Adding an `{:n}` mode would be a **compatible widening** — the cheap direction — should real corpus demand appear.
+> **Quorum joins ("N of M") use the documented data-only idiom, not a `:join` mode.** `:join` is a closed two-member enum — `:all` / `:any`; there is no `{:n N}` or `{:fn pred}` mode. Each child spec's `:on-done` keeps a count in the parent's `:data`, and an ordinary guard on the `:spawn-all`-bearing state's `:after` reads that count, so "K of N" is decided at the deadline (see [§Composition with hierarchy and `:after`](#composition-with-hierarchy-and-after)). Adding an `{:n}` mode, which would resolve the join as the Kth child completes, would be a **compatible widening** — the cheap direction — should real corpus demand appear.
 
 ### Cancel-on-decision (default `true`)
 
@@ -3995,7 +3995,31 @@ The key property: the parent has no per-child bookkeeping in `:data`. The `:done
 
 `:spawn-all` composes with the standard hierarchical entry/exit cascading machinery just like `:spawn` does — the reducer lowers it for exactly the nodes the cascade enters and exits. `:after` on the same state node is the **canonical** way to set a wall-clock timeout on the whole join — `{60000 :hydrate/timed-out}` fires `:hydrate/timed-out` if the join hasn't resolved in 60 s; the parent's `:on` for `:hydrate/timed-out` transitions out, which exits the state and tears down all surviving children via the exit cascade's destroy. Per [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after), this is the **single** wall-clock-timeout mechanism on `:spawn-all`-bearing states; there is no second `:timeout-ms` surface.
 
-A common partial-success idiom is to declare `:after` for the phase-level timeout and let the timeout transition land in a state whose `:always` checks `[:rf.runtime/machines :spawned <parent> <invoke-id> :done]` against a partial-success guard — the parent reads which children completed before the deadline and decides whether to proceed with degraded data or to fail outright. The cleanest expression is a separate transition out of the `:spawn-all`-bearing state, which the `:after` machinery delivers with nothing `:spawn-all`-specific.
+A common partial-success (quorum) idiom counts completions in the parent's own `:data` and decides at the phase deadline. Each child spec's `:on-done` keeps the count, and the state's `:after` entry is a [guarded candidate-vector](#value-shape) whose guard reads it — proceed with degraded data when enough children completed before the deadline, fail outright otherwise:
+
+```clojure
+(defn count-done [{:keys [data]}]
+  (update data :done-count (fnil inc 0)))
+
+{:initial :hydrating
+ :guards  {:quorum? (fn [{:keys [data]}] (>= (:done-count data 0) 3))}
+ :states
+ {:hydrating
+  {:spawn-all {:children        [{:id :cfg  :machine-id :load-config        :on-done count-done}
+                                 {:id :flag :machine-id :load-feature-flags :on-done count-done}
+                                 {:id :user :machine-id :load-user-profile  :on-done count-done}
+                                 {:id :dash :machine-id :load-dashboards    :on-done count-done}]
+               :join            :all
+               :on-all-complete [:hydrate/done]}
+   :after     {60000 [{:guard :quorum? :target :degraded}   ;; 3 of 4 by the deadline
+                      {:target :error}]}
+   :on        {:hydrate/done :ready}}
+  :ready    {}
+  :degraded {}
+  :error    {}}}
+```
+
+The guard reads `:data`, not the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`: that slot is runtime-db, and a guard sees the context map of [§Guards](#guards) — the snapshot's `:data` / `:event` / `:state` / `:meta` and the causal `:rf.cofx` — never runtime-db. The count is read at the deadline because a join child's completion folds into the join without running a parent macrostep, so an `:always` on the `:spawn-all`-bearing state is not re-checked as each child arrives. `:on-done` runs only at a child's success finality, so the count is of successes; it lives in `:data`, which outlives the state, so reset it on entry if the state can be re-entered. The `:after` transition exits the state and the exit cascade tears down any surviving children, with nothing `:spawn-all`-specific.
 
 ### Capability gating
 
