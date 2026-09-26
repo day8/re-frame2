@@ -33,7 +33,7 @@ Each recipe is in **MCP-tool form** — the only transport this skill exposes �
 
 ## eval-cljs is the workhorse
 
-The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. **Named state rewrites have structured tools too** — `restore-epoch` and `replace-app-db` are the canonical, audited path for time-travel undo and state injection (see [Experiment loop](#experiment-loop) below and SKILL.md §Time-travel writes). But `eval-cljs` — arbitrary ClojureScript against the live runtime — carries the **long tail**: anything the dedicated tools don't have a shape for.
+The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. **Named state rewrites have structured tools too** — `restore-epoch` and `replace-app-db` are the canonical, audited path for time-travel undo and state injection (see [Experiment loop](#experiment-loop) below and [ops.md §Time-travel](ops.md#time-travel-epoch-restore)). But `eval-cljs` — arbitrary ClojureScript against the live runtime — carries the **long tail**: anything the dedicated tools don't have a shape for.
 
 **The rule:** *prefer a structured op WHEN ONE FITS the gesture — including the dedicated write tools for named rewrites; for the long tail and recovery, `eval-cljs` is first-class, not a last resort.*
 

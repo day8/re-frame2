@@ -111,7 +111,7 @@ recovery, and pour raw state into an eval only on explicit user/operator request
 same carve-out applies to the time-travel **eval forms** (`app-db-reset!`, `rf/restore-epoch!`):
 un-elided and un-gated, so for a *named* write prefer the dedicated `--allow-writes`-gated
 tools (`replace-app-db` / `restore-epoch`) — the eval forms are the backstop for a
-gate-OFF server (see §Time-travel writes in SKILL.md).
+gate-OFF server (see [ops.md §Time-travel](ops.md#time-travel-epoch-restore)).
 
 ### Opting in to the unmasked view
 
