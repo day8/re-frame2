@@ -638,7 +638,7 @@ That is the whole gate. There is no normaliser to write, because there is nothin
 
     Navigations enter the system **three** ways: programmatic `:rf.route/navigate`, link clicks (`:rf.route/url-requested`, fired by `route-link`), and the URL bar or back-button (`:rf.route/handle-url-change`, the popstate/initial-load handler) — and `:rf.route/navigate` alone accepts three shapes, including a `{:url "/settings"}` escape hatch and an *in-place* query edit that names no route id at all. A guard written as an event interceptor has to resolve every one of those itself, and the shape it forgets is the shape that lets a signed-out visitor in. (The nastiest corner: a session that expires while the user is already on `/settings`, who then navigates in place with `?page=2` — a request carrying no route id to check.) `:can-enter` is evaluated once, in the planning pipeline all of them funnel through, so it fails **closed** by construction. `spec/012-Routing.md` is explicit that an interceptor attached only to `:rf.route/navigate` fails open.
 
-    A frame interceptor is still right for a policy that genuinely is not about routes — a maintenance-mode lockout, a feature flag gating a whole section. That recipe lives in [Require sign-in on a route → Appendix](../../routing/how-to/require-sign-in-on-a-route.md#appendix--when-the-policy-is-not-about-routes).
+    A frame interceptor is still right for a policy that genuinely is not about routes — a maintenance-mode lockout, a feature flag gating a whole section. That recipe lives in [Require sign-in on a route → A policy that is not about routes](../../routing/how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
 
 ### What a refusal does, and the login bounce
 

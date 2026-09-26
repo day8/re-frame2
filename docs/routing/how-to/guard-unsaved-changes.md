@@ -1,166 +1,127 @@
 # Guard against unsaved changes
 
-You know [the route model](../concepts.md). This page is one job: **"are you sure?
-unsaved changes"** before leaving an editor.
+Ask "leave without saving?" before the reader navigates away from an editor with
+unsaved edits, and let a "save and close" button leave without asking.
 
-Shape: `:can-leave` boolean sub (`true` = leave is fine) → `false` parks the attempt
-in `[:rf/pending-navigation]` → dialog dispatches `:rf.route/continue` or
-`:rf.route/cancel`. Data all the way; tests with zero DOM. The
-[blocking contract](../concepts.md#blocking-a-navigation) is the model.
-
-## 1. Write the "is it safe to leave?" sub
-
-Ordinary [subscription](../../core/subscriptions.md). Read it positively: **`true`
-means leaving is fine.** Here, leaving is fine when the draft matches what was last
-saved:
+The whole guard is a subscription on the route, a pending navigation you render a
+prompt from, and two events to answer it:
 
 ```clojure
-(ns app.editor
+(ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing]))   ;; loads the routing artefact
+            [re-frame.routing]))
 
-(rf/reg-sub :editor/can-leave?
-  (fn [db _]
-    (= (get-in db [:editor :draft])
-       (get-in db [:editor :saved]))))   ;; true when clean ⇒ safe to leave
-```
-
-`[:editor :saved]` holds the article as last saved and `[:editor :draft]` the copy
-the form edits. Each keystroke writes the draft, which is what makes the editor
-dirty:
-
-```clojure
-(rf/reg-event :editor/edit-field
-  (fn [{:keys [db]} [_ field value]]
-    {:db (assoc-in db [:editor :draft field] value)}))
-```
-
-!!! warning "Strict boolean"
-
-    `true` allows, `false` blocks. Anything else (`nil`, map, truthy non-boolean) →
-    runtime **blocks** *and* emits `:rf.error/can-leave-non-boolean`. Deny the leave,
-    raise the error. Keep a real `true`/`false`.
-
-## 2. Declare the guard on the route
-
-```clojure
 (rf/reg-route :app/article-editor
-  {:params    [:map [:id :string]]
-   :can-leave [:editor/can-leave?]}        ;; the sub from step 1
-  "/articles/:id/edit")
-```
+  {:params    [:map [:slug :string]]
+   :on-match  [[:editor/open]]
+   :can-leave [:editor/can-leave?]}
+  "/articles/:slug/edit")
 
-When the guard returns `false`, URL and state stay put — the navigation does not
-commit. The attempt parks, and the runtime dispatches `:rf.route/navigation-blocked`
-(with a matching trace) so you can react beyond the dialog (toast, analytics).
+(rf/reg-sub :editor/can-leave?     ;; true when there is nothing to lose
+  (fn [db _]
+    (= (get-in db [:editor :draft]) (get-in db [:editor :saved]))))
 
-The guard covers every in-app way out: `route-link` clicks, programmatic
-`:rf.route/navigate`, and Back/Forward. On Back/Forward the browser has already
-moved the address bar, so the runtime puts the editor's URL back (a replace, not a
-push) while the attempt waits for an answer.
-
-## 3. Render the prompt from the pending slot
-
-Blocked navigation lands in `:rf/pending-navigation`. Non-`nil` → show the dialog.
-No `window.confirm`, no `beforeunload` — ordinary [view](../../core/views.md) over
-state:
-
-```clojure
-(rf/reg-view leave-guard-dialog []
-  (when-let [pending @(rf/subscribe [:rf/pending-navigation])]
+(rf/reg-view leave-prompt []
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
     [:div.modal
      [:p "You have unsaved changes. Leave anyway?"]
-     ;; Both events take the pending-nav *id* — not a bare keyword.
-     [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])}   "Stay"]
-     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Discard & leave"]]))
+     [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]
+     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
 ```
 
-Choice is a dispatch carrying **`(:id pending)`**:
+`[:editor :draft]` and `[:editor :saved]` are written by the `:editor/open`,
+`:editor/edit` and `:editor/save` events from
+[the tutorial](../tutorial.md#step-11--warn-before-losing-unsaved-changes), which
+builds this editor step by step. Render `[leave-prompt]` once in the root view; it
+renders nothing until a navigation is waiting, and it serves every guarded route.
 
-- `[:rf.route/continue <id>]` — proceed (re-runs `:can-enter` on the target if any).
-- `[:rf.route/cancel <id>]` — drop it; stay put.
+When `:editor/can-leave?` returns `false`, the navigation does not commit: the route
+and URL stay where they are, the attempt is parked in `:rf/pending-navigation`, and
+the runtime dispatches `:rf.route/navigation-blocked` with the same value, which you
+can handle for a toast or analytics. The prompt answers with the pending value's
+`:id`:
 
-Bare `[:rf.route/continue]` / `[:rf.route/cancel]` without the id is wrong — the
-runtime keys the pending slot by that id (stale ids are safe no-ops).
+- `[:rf.route/continue <id>]` replays the navigation the reader started. The target
+  route's `:can-enter` guard, if it has one, still runs.
+- `[:rf.route/cancel <id>]` drops it, and the reader stays in the editor.
 
-Mount `leave-guard-dialog` once near the root; it covers every guarded route and
-renders nothing until something is pending.
+An id from an earlier attempt matches nothing, so a stale button does nothing.
 
-## 4. Add a "save, then leave" path
+The guard covers every way out inside the app: `route-link` clicks,
+`:rf.route/navigate`, and Back/Forward. On Back/Forward the browser has already
+changed the address bar, so the runtime puts the editor's URL back with a replace
+while the prompt is showing.
 
-"Save & close" should leave without the prompt. Save first, then navigate with
+The sub must return `true` or `false`. Any other value blocks the navigation and
+raises `:rf.error/can-leave-non-boolean`.
+
+## Save and leave
+
+A "save and close" button should not ask. Save, then navigate with
 `:bypass-leave? true`:
 
 ```clojure
 (rf/reg-event :editor/save-and-close
   (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]   ;; the editor route's :id
-      {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))     ;; now clean
+    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+      {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))
        :fx [[:dispatch [:rf.route/navigate {:to            :app/article
-                                            :params        {:id id}
+                                            :params        {:slug slug}
                                             :bypass-leave? true}]]]})))
 ```
 
-Saving would make the guard pass anyway — `:bypass-leave? true` makes the intent
-explicit, and it is the only bypass there is. It skips *this* route's `:can-leave`
-for *this* one navigation; the target's `:can-enter` still runs, because an "enter
-anyway" flag would be a hole straight through the auth gate.
+Saving alone would make the guard pass; the flag states the intent. It skips the
+current route's `:can-leave` for this one navigation and nothing else, so the
+target's `:can-enter` still runs. There is no flag that skips `:can-enter`.
 
-## 5. Cover the hard exit too
+## Closing the tab or reloading
 
-A pending value is a fact inside your app, so it cannot stop the browser closing the
-tab, following an external link, or reloading. That is a host concern, and the honest
-pairing is a `beforeunload` listener reading the *same* dirty state the guard reads:
+The router never sees the browser closing the tab, reloading, or following an
+external link. For those, add a `beforeunload` listener that reads the same sub:
 
 ```clojure
 (defn install-unload-warning!
-  "Ask the browser to confirm a hard exit while the draft is dirty.
-   Same source of truth as :editor/can-leave? — one dirty flag, two exits."
+  "Ask the browser to confirm a hard exit while the draft is dirty."
   [frame-id]
   (.addEventListener js/window "beforeunload"
     (fn [e]
       ;; A DOM listener runs outside any frame scope, so name the frame.
       (when-not (rf/subscribe-once [:editor/can-leave?] {:frame frame-id})
         (.preventDefault e)
-        (set! (.-returnValue e) "")))))   ;; the browser owns the wording
+        (set! (.-returnValue e) "")))))
 ```
 
-Call it once at boot with the url-bound frame's id. Routing deliberately does not wrap this: the browser shows its
-own non-customisable dialog, only when the user has interacted with the page, and
-only on a real unload — a second confirmation API pretending otherwise would be
-lying. Deriving both exits from one sub is what keeps them from disagreeing.
+Call it once at boot with `:app`. The browser shows its own dialog with its own
+wording, and only if the reader has interacted with the page. Because both exits read
+`:editor/can-leave?`, they cannot disagree about whether the draft is dirty.
 
-## Test it with zero DOM
+## Test it
 
 ```clojure
 (deftest leaving-a-dirty-editor-asks-first
   (rf/with-new-frame [f (rf/make-frame {})]
-    ;; Land on the editor and make the draft dirty.
-    (rf/dispatch-sync [:rf.route/navigate {:to :app/article-editor :params {:id "intro"}}])
-    (rf/dispatch-sync [:editor/edit-field :title "changed"])   ;; draft ≠ saved
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/article-editor :params {:slug "intro"}}])
+    (rf/dispatch-sync [:editor/edit "A new title"])            ;; draft ≠ saved
 
-    ;; Try to leave — blocked and parked, not committed.
-    (rf/dispatch-sync [:rf.route/navigate {:to :app/home}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/home}])    ;; blocked
     (is (= :app/article-editor @(rf/subscribe [:rf.route/id])))
-    (is (some?                  @(rf/subscribe [:rf/pending-navigation])))
+    (is (some? @(rf/subscribe [:rf/pending-navigation])))
 
-    ;; Reader confirms — continue takes the pending id.
     (rf/dispatch-sync [:rf.route/continue
                        (:id @(rf/subscribe [:rf/pending-navigation]))])
     (is (= :app/home @(rf/subscribe [:rf.route/id])))
-    (is (nil?        @(rf/subscribe [:rf/pending-navigation])))))
+    (is (nil? @(rf/subscribe [:rf/pending-navigation])))))
 ```
 
-Every branch — blocked, confirmed, cancelled, bypassed — is a dispatch and an
-assertion. The namespace setup and reset fixture are on
-[Testing routes](../testing.md).
+Cancelling and bypassing test the same way. The namespace setup and reset fixture are
+in [Testing routes](../testing.md).
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Navigation silently does nothing and no dialog appears | The attempt parked, but `leave-guard-dialog` is not mounted | Mount the dialog once near the root |
-| Every attempt to leave is blocked, even with a clean draft; `:rf.error/can-leave-non-boolean` is raised | The guard sub returned something other than `true`/`false` (for example `nil` from a `get-in` on a key that is not set yet) | Return a real boolean, e.g. `(= draft saved)` |
-| "Discard & leave" or "Stay" does nothing | `:rf.route/continue` / `:rf.route/cancel` was dispatched without the pending id, or with an id from an earlier attempt | Pass `(:id pending)` read from the current `:rf/pending-navigation` value |
-| The prompt appears right after a successful save | The save did not update `[:editor :saved]`, so the guard still sees a dirty draft | Update the saved copy in the same event, or navigate with `:bypass-leave? true` as in step 4 |
-| Closing the tab or reloading loses the draft without a prompt | Hard exits never reach the router | Add the `beforeunload` listener from step 5 |
+| Navigation does nothing and no prompt appears | The attempt was parked, but `leave-prompt` is not rendered | Render it once in the root view |
+| Every attempt to leave is blocked, even with nothing to lose; `:rf.error/can-leave-non-boolean` is raised | The sub returned something other than `true` or `false`, such as `nil` from a key that is not set yet | Return a boolean, e.g. `(= draft saved)` |
+| **Stay** or **Leave** does nothing | `:rf.route/continue` / `:rf.route/cancel` was dispatched without the pending id, or with an old one | Pass `(:id pending)` from the current `:rf/pending-navigation` value |
+| The prompt appears right after saving | The save did not update `[:editor :saved]` | Update it in the same event, or navigate with `:bypass-leave? true` |
+| Closing the tab loses the draft without asking | The router never sees a hard exit | Add the `beforeunload` listener |
