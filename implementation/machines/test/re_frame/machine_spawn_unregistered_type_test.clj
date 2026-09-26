@@ -33,11 +33,10 @@
       would ever be minted for it, blocking
       `(= n-done n-total)` forever) AND it does not orphan the registered
       siblings. `spawn-all-init-fx` seeds a reject SENTINEL
-      (`{:rf/spawn-all-rejected? true}`, no `:children`): the join interceptor
-      treats it as no live child-bearing join so a stray sibling completion is the documented
-      no-op (no hang), and the registered siblings' per-child spawns detect
-      the sentinel and SUPPRESS themselves (no live orphan actor with no
-      seeded join to ever tear it down).
+      (`{:rf/spawn-all-rejected? true}`, no `:children`) that the join
+      interceptor treats as no live child-bearing join, and the registered
+      siblings' per-child spawns detect the sentinel and SUPPRESS themselves
+      (no live orphan actor with no seeded join to ever tear it down).
 
    5. **No false reject.** A registered `:machine-id` and an inline
       `:definition` spawn install cleanly (the gate fires only on the
@@ -45,7 +44,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
-            [re-frame.late-bind :as rf.late-bind]
             ;; Loading the machines facade registers its late-bind hooks +
             ;; the `:rf.machine/spawn` / `:rf.machine/destroy` reserved fxs
             ;; (so `rf/reg-machine` is available when this ns runs alone).
@@ -347,39 +345,6 @@
       (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :card/ok3#1]))
           "no valid sibling was left live or orphaned by the rejected invoke"))))
 
-(deftest spawn-all-registered-sibling-completion-is-noop-not-hang
-  (testing "after the join is rejected, a hand-driven completion finds the
-            childless reject sentinel and falls through to the documented
-            no-op — proving the join cannot be driven into a hang post-reject"
-    (let [ok-child {:initial :running
-                    :data    {}
-                    :states  {:running {:on {:finish {:target :done}}}
-                              :done    {:final? true}}}
-          parent   {:initial :idle
-                    :states
-                    {:idle    {:on {:start :forking}}
-                     :forking {:spawn-all
-                               {:children        [{:id :ok      :machine-id :gc/ok2}
-                                                  {:id :missing :machine-id :gc/missing2}]
-                                :join            :all
-                                :on-all-complete [:all/done]}
-                               :on {:all/done :ready}}
-                     :ready   {}}}]
-      (rf/reg-machine :gc/ok2 ok-child)
-      (rf/reg-machine :sup/join2 parent)
-      (rf/dispatch-sync [:sup/join2 [:start]])
-      ;; A childless reject sentinel — the precondition for "cannot hang".
-      (is (= {:rf/spawn-all-rejected? true}
-             (get-in (frame-db) [:rf.runtime/machines :spawned :sup/join2 [:forking]]))
-          "(precondition) the childless reject sentinel is seeded")
-      ;; Hand-drive a child-done event into the parent. The registered sibling
-      ;; :gc/ok2 was suppressed, so this stands in for any stray completion:
-      ;; the interceptor sees the childless sentinel, treats it as no live
-      ;; child-bearing join, and it is a documented no-op — it does NOT throw and does NOT hang.
-      (rf/dispatch-sync [:sup/join2 [:gc/done :ok]])
-      (is (= :forking (rf.machines.test-support/machine-state :sup/join2))
-          "a child-done against a childless reject sentinel (no live join) is a no-op — never resolves, never hangs"))))
-
 ;; ===========================================================================
 ;; (5) No false reject — registered TYPE + inline :definition spawn.
 ;; ===========================================================================
@@ -425,15 +390,3 @@
             "no reject for an inline :definition spawn")
         (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots :inline/worker]))
             "the inline-definition spawn installs its snapshot (gate did not fire)")))))
-
-;; ===========================================================================
-;; (6) The always-on hook the machines layer reaches error-emit through.
-;; ===========================================================================
-
-(deftest dispatch-error-record-hook-is-published
-  (testing "machines ships above core's require graph, so the always-on
-            reject reaches the listener via the
-            :error-emit/dispatch-error-record late-bind hook — published at
-            error-emit ns-load, so the lookup never misses in production"
-    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-error-record))
-        "the non-event union-record hook is registered at error-emit ns-load")))

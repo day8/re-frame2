@@ -7,9 +7,9 @@
   there declaring `:rf.cofx/requires` must join the ensure-set exactly as the
   same guard on a state's `:spawn` does — flat and parallel alike.
 
-  Controls: the state-level `:spawn :on-error` still contributes; a carrier
-  naming a state's child does not pull in the root's slot; a fn `:on-done` (the
-  `:data` fold) contributes nothing."
+  Controls: a carrier naming a state's child does not pull in the root's slot;
+  a fn `:on-done` (the `:data` fold) contributes nothing. The state-level
+  `:spawn :on-error` guard is pinned in `machine_cofx_attach_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
@@ -62,16 +62,6 @@
   (testing "CONTROL: a fn :on-done is the :data fold and contributes nothing"
     (is (empty? (ensured-ids (flat {:machine-id :x/kid :on-done (fn [data _] data)})
                              flat-snap [:rf.machine.spawn/done [] {:ok 1} 1])))))
-
-(deftest state-spawn-carrier-guard-is-still-ensured
-  (rf/reg-cofx :test/roll9 {:recordable? true} (fn [] 6))
-  (is (contains? (ensured-ids {:initial :working
-                               :guards  {:g rolled-six}
-                               :states  {:working {:spawn {:machine-id :x/kid
-                                                           :on-error {:target :errored :guard :g}}}
-                                         :errored {}}}
-                              flat-snap [:rf.machine.spawn/error [:working] {:boom 1} 1])
-                 :test/roll9)))
 
 (deftest parallel-root-spawn-carrier-guards-are-ensured
   (rf/reg-cofx :test/roll9 {:recordable? true} (fn [] 6))

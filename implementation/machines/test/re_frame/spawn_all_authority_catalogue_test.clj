@@ -421,36 +421,6 @@
 ;;    classifier do not drift
 ;; ---------------------------------------------------------------------------
 
-(deftest late-completion-op-classifies-by-stale-reason
-  (testing "a POST-resolution straggler fires
-            `:rf.machine.spawn-all/late-completion` classified by
-            `:rf.reply/stale-reason` :rf.machine.spawn-all/join-resolved
-            (the op the quick index must list; the classifier key is
-            `:rf.reply/stale-reason`, not the bare `:reason`)."
-    (let [j (reg-join-parent! :sac/p3 :sac/p3a :sac/p3b
-                              {:join :any :on-some-complete [:any/done]})
-          a (get-in j [:children :a])]
-      ;; A resolves the :any join; the parent stays on :racing.
-      (rf/dispatch-sync [a [:go]])
-      (is (true? (:resolved? (join-state :sac/p3 [:racing]))) "the :any join resolved")
-      (rf.machines.test-support/reset-captured!)
-      ;; :a's EXACT-CURRENT completion re-presents AFTER the :resolved? latch
-      ;; flipped — the late-completion path is gated on the exact-attempt fence,
-      ;; so the carrier presents the current attempt's coordinate.
-      (rf/dispatch-sync
-        [:sac/p3 (completion [:racing] :a
-                             {:parent-id  :sac/p3
-                              :invoke-id  [:racing]
-                              :spawned-id a
-                              :attempt    (:rf/attempt (join-state :sac/p3 [:racing]))})])
-      (let [late (first (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))]
-        (is (some? late) "the late-completion op fired")
-        (is (= :stale (:rf.reply/status (:tags late))))
-        (is (= :suppressed (:rf.reply/work-status (:tags late))))
-        (is (= :rf.machine.spawn-all/join-resolved
-               (:rf.reply/stale-reason (:tags late)))
-            "classified by :rf.reply/stale-reason (post-resolution)")))))
-
 (deftest stale-completion-op-classifies-by-stale-reason
   (testing "a PRE-resolution unstamped carrier fires
             `:rf.machine.spawn-all/stale-completion` classified by

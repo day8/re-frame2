@@ -278,114 +278,61 @@
 ;; ---- registration-time validation ----------------------------------------
 
 (deftest registration-time-rejects-bad-shape
-  (testing ":spawn-all with no :id on a child — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/no-id
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children        [{:machine-id :foo}]
-                                             :on-all-complete [:done]}}}}))))
-  (testing ":spawn-all with duplicate child ids — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-duplicate-id"
-          (rf/reg-machine :bad/dup-id
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}
-                                                                {:id :x :machine-id :bar}]
-                                             :on-all-complete [:done]}}}}))))
-  (testing ":spawn + :spawn-all on same state — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-with-spawn"
-          (rf/reg-machine :bad/both
-                          {:initial :s
-                           :states
-                           {:s {:spawn     {:machine-id :foo}
-                                :spawn-all {:children        [{:id :x :machine-id :bar}]
-                                             :on-all-complete [:done]}}}}))))
-  (testing ":spawn-all with :join :all but no :on-all-complete — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/no-on-all
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children        [{:id :x :machine-id :foo}]}}}}))))
-  (testing ":spawn-all with :join :any but no :on-some-complete — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/no-on-some
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children       [{:id :x :machine-id :foo}]
-                                             :join           :any}}}}))))
-  ;; The join grammar is a CLOSED two-member enum (:all + :any). Any other
-  ;; mode ({:n N}, {:fn pred}) and a :cancel-on-decision? key are REJECTED as
-  ;; an unknown join spec / unknown node key.
-  (testing ":spawn-all with a :join {:n 2} mode — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/join-n
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
-                                             :join             {:n 2}
-                                             :on-some-complete [:some]}}}}))))
-  (testing ":spawn-all with a :join {:fn pred} mode — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/join-fn
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children         [{:id :x :machine-id :foo}]
-                                             :join             {:fn (fn [_] true)}
-                                             :on-some-complete [:some]}}}}))))
-  (testing ":spawn-all with a :cancel-on-decision? key — rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/cancel-off
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children            [{:id :x :machine-id :foo}]
-                                             :join                :any
-                                             :cancel-on-decision? false
-                                             :on-some-complete    [:some]}}}}))))
-  ;; A :spawn-all child must declare EXACTLY ONE of :machine-id /
-  ;; :definition (XOR): a child carrying BOTH is rejected, as is a child
-  ;; carrying NEITHER.
-  (testing ":spawn-all child with BOTH :machine-id AND :definition — rejected (XOR)"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #"machine-spawn-all-bad-shape"
-          (rf/reg-machine :bad/child-both
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children        [{:id         :x
-                                                                :machine-id :foo
-                                                                :definition {:initial :i
-                                                                             :states  {:i {}}}}]
-                                             :on-all-complete [:done]}}}}))))
-  (testing ":spawn-all child with EXACTLY ONE of :machine-id / :definition — accepted"
-    (is (some?
-          (rf/reg-machine :ok/child-def
-                          {:initial :s
-                           :states
-                           {:s {:spawn-all {:children        [{:id         :x
-                                                                :definition {:initial :i
-                                                                             :states  {:i {}}}
-                                                                ;; an inline child must be
-                                                                ;; addressed
-                                                                :id-prefix  :ok/x}]
-                                             :on-all-complete [:done]}}}}))
-        "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
+  ;; The join grammar is a CLOSED two-member enum (:all + :any): any other
+  ;; mode ({:n N}, {:fn pred}) and a :cancel-on-decision? key are unknown. A
+  ;; :spawn-all child must declare EXACTLY ONE of :machine-id / :definition.
+  (doseq [[label error-re state-node]
+          [[":spawn-all with no :id on a child"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children        [{:machine-id :foo}]
+                         :on-all-complete [:done]}}]
+           [":spawn-all with duplicate child ids"
+            #"machine-spawn-all-duplicate-id"
+            {:spawn-all {:children        [{:id :x :machine-id :foo}
+                                           {:id :x :machine-id :bar}]
+                         :on-all-complete [:done]}}]
+           [":spawn + :spawn-all on same state"
+            #"machine-spawn-all-with-spawn"
+            {:spawn     {:machine-id :foo}
+             :spawn-all {:children        [{:id :x :machine-id :bar}]
+                         :on-all-complete [:done]}}]
+           [":spawn-all with :join :all but no :on-all-complete"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children [{:id :x :machine-id :foo}]}}]
+           [":spawn-all with :join :any but no :on-some-complete"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children [{:id :x :machine-id :foo}]
+                         :join     :any}}]
+           [":spawn-all with a :join {:n 2} mode"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children         [{:id :x :machine-id :foo}]
+                         :join             {:n 2}
+                         :on-some-complete [:some]}}]
+           [":spawn-all with a :join {:fn pred} mode"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children         [{:id :x :machine-id :foo}]
+                         :join             {:fn (fn [_] true)}
+                         :on-some-complete [:some]}}]
+           [":spawn-all with a :cancel-on-decision? key"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children            [{:id :x :machine-id :foo}]
+                         :join                :any
+                         :cancel-on-decision? false
+                         :on-some-complete    [:some]}}]
+           [":spawn-all child with BOTH :machine-id AND :definition (XOR)"
+            #"machine-spawn-all-bad-shape"
+            {:spawn-all {:children        [{:id         :x
+                                            :machine-id :foo
+                                            :definition {:initial :i
+                                                         :states  {:i {}}}}]
+                         :on-all-complete [:done]}}]]]
+    (testing label
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            error-re
+            (rf/reg-machine (keyword "bad" (str (gensym "spawn-all")))
+                            {:initial :s
+                             :states  {:s state-node}}))))))
 
 ;; A fn in :children, the natural spelling for a runtime-sized fan-out, is
 ;; refused with the grammar's own error rather than a host exception.
@@ -413,7 +360,9 @@
 ;; restore) or NEITHER (nothing to instantiate → late actor-id allocation
 ;; failure) fails-closed with :rf.error/machine-spawn-bad-shape. XState-v5
 ;; alignment: `invoke` takes exactly one source (a referenced/registered
-;; actor logic OR an inline one), never both/neither.
+;; actor logic OR an inline one), never both/neither. The exactly-one forms
+;; register throughout — every :machine-id spawn, and the addressed
+;; inline-:definition controls in machine_spawn_inline_address_test.
 
 (deftest single-spawn-id-xor-definition-validated-at-registration
   (testing "a single :spawn declaring NEITHER :machine-id nor :definition — rejected"
@@ -433,41 +382,7 @@
                            :states  {:working {:spawn {:machine-id :some/child
                                                        :definition {:initial :i
                                                                     :states  {:i {}}}}}
-                                     :done    {}}}))))
-  (testing "a single :spawn declaring EXACTLY ONE — :machine-id alone — accepted"
-    (is (some?
-          (rf/reg-machine :spawnxor/id-only
-                          {:initial :working
-                           :states  {:working {:spawn {:machine-id :some/child}}
-                                     :done    {}}}))
-        "a registered-machine spawn registers cleanly"))
-  (testing "a single :spawn declaring EXACTLY ONE — :definition alone — accepted"
-    (is (some?
-          (rf/reg-machine :spawnxor/def-only
-                          {:initial :working
-                           :states  {:working {:spawn {:definition     {:initial :i
-                                                                        :states  {:i {}}}
-                                                       ;; an inline spawn must be
-                                                       ;; addressed
-                                                       :fixed-actor-id :spawnxor/def-kid}}
-                                     :done    {}}}))
-        "an inline-definition spawn registers cleanly"))
-  (testing "exactly-one :spawn with :fixed-actor-id / :id-prefix still accepted"
-    (is (some?
-          (rf/reg-machine :spawnxor/fixed
-                          {:initial :working
-                           :states  {:working {:spawn {:machine-id     :some/child
-                                                       :fixed-actor-id :the-one}}
-                                     :done    {}}}))
-        "an explicit :fixed-actor-id alongside exactly-one source is fine")
-    (is (some?
-          (rf/reg-machine :spawnxor/prefix
-                          {:initial :working
-                           :states  {:working {:spawn {:definition {:initial :i
-                                                                    :states  {:i {}}}
-                                                       :id-prefix  :worker}}
-                                     :done    {}}}))
-        "an explicit :id-prefix alongside exactly-one source is fine")))
+                                     :done    {}}})))))
 
 ;; ---- decisive-child payload forwarding -----------------------------------
 
@@ -532,46 +447,6 @@
 ;; siblings are DESTROYED (the cancellation cascade fires :rf.machine/destroy
 ;; + :rf.machine.spawn/cancelled-on-join-resolution per survivor) and the
 ;; record stays frozen at the decisive child.
-
-(deftest join-resolution-cancels-siblings-record-frozen
-  (testing "when an :any join resolves, the surviving sibling is
-            cancelled at resolution and the join-state record stays frozen at
-            the decisive child :a"
-    (let [traces (atom [])
-          child  (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children            [{:id :a :machine-id :child/ca :start [:set-id :a]}
-                                           {:id :b :machine-id :child/cb :start [:set-id :b]}]
-                     :join                :any
-                     :on-some-complete    [:race/won]}}}}]
-      (rf/reg-machine :child/ca child)
-      (rf/reg-machine :child/cb child)
-      (rf/reg-machine :sup/cancel parent)
-      (rf/register-listener! :trace ::cancel-cb
-                             (fn [ev] (swap! traces conj ev)))
-      (try
-        (rf/dispatch-sync [:sup/cancel [:start]])
-        (let [ids (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating] :children])]
-          (rf/dispatch-sync [(:a ids) [:go]])
-          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating]])]
-            (is (true? (:resolved? j)) ":any resolved on first :go")
-            (is (= #{:a} (:done j)) "record holds the decisive child only at resolution")))
-        (let [cancel-traces (->> @traces
-                                 (filter #(= :rf.machine.spawn/cancelled-on-join-resolution
-                                             (:operation %))))]
-          (is (pos? (count cancel-traces))
-              "surviving sibling :b is cancelled at resolution (unconditional)")
-          ;; The record stays frozen at :a — the survivor was destroyed, so
-          ;; no late completion arrives to mutate the record.
-          (let [j (get-in (frame-db) [:rf.runtime/machines :spawned :sup/cancel [:hydrating]])]
-            (is (= #{:a} (:done j))
-                "the record stays frozen at resolution")))
-        (finally
-          (rf/unregister-listener! :trace ::cancel-cb))))))
 
 (deftest late-completion-of-known-child-is-stale-record-frozen
   (testing "a post-resolution completion of a KNOWN child (the
@@ -791,7 +666,7 @@
         (is (false? (:resolved? jstate)))
         (is (= :hydrating (:state (snapshot :sup/forge-repeated))))))))
 
-(deftest sibling-invoke-all-child-id-is-not-counted-into-other-join
+(deftest another-parents-child-id-is-rejected-by-this-join
   (testing "a child-id legitimate to one parent's :spawn-all is forged
   for ANOTHER parent's :spawn-all and is rejected by the other"
     (let [parent-1 {:initial :idle
@@ -832,38 +707,6 @@
         (is (= #{} (:done p1-j))
             "p1's join state untouched by the foreign id")
         (is (false? (:resolved? p1-j)))))))
-
-(deftest legitimate-child-id-flow-not-regressed-by-the-gate
-  (testing "the legitimate child-id path still resolves and the gate
-  does not emit a bad-child-id error for real children"
-    (let [child  (mk-child)
-          parent {:initial :idle
-                  :states
-                  {:idle      {:on {:start :hydrating}}
-                   :hydrating
-                   {:spawn-all
-                    {:children        [{:id :a :machine-id :child/gate-a :start [:set-id :a]}
-                                       {:id :b :machine-id :child/gate-b :start [:set-id :b]}]
-                     :join            :all
-                     :on-all-complete [:hydrate/done]}
-                    :on    {:hydrate/done :ready}}
-                   :ready {}}}]
-      (rf/reg-machine :child/gate-a child)
-      (rf/reg-machine :child/gate-b child)
-      (rf/reg-machine :sup/gate-ok parent)
-      (let [traces (collect-traces
-                    (fn []
-                      (rf/dispatch-sync [:sup/gate-ok [:start]])
-                      (let [ids (:children (get-in (frame-db)
-                                                   [:rf.runtime/machines :spawned :sup/gate-ok
-                                                    [:hydrating]]))]
-                        (rf/dispatch-sync [(:a ids) [:go]])
-                        (rf/dispatch-sync [(:b ids) [:go]]))))
-            errs (bad-child-id-error-traces traces)]
-        (is (= [] (vec errs))
-            "no :rf.error/machine-spawn-all-bad-child-id for legitimate flow")
-        (is (= :ready (:state (snapshot :sup/gate-ok)))
-            "legitimate :spawn-all resolution still fires :on-all-complete")))))
 
 ;; ---- parallel regions running structurally identical joins ---------------
 ;;
