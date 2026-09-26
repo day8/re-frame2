@@ -31,6 +31,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 | `:retry` — transport-level only | Function of failure category + attempt count; nothing else. Semantic retry belongs in a state machine — see *§The retry-ownership boundary*. |
 | `:request-id` abort | Stable `=`-comparable id; `[:rf.http/managed-abort id]` cancels in-flight, delivering a `{:status :cancelled …}` envelope (its `:error` carries `{:kind :rf.http/aborted …}`) to your reply target. |
 | Eight-category failure taxonomy | `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`. Closed set. |
+| Request decoration (`rf/reg-http-interceptor`) | Auth / tracing / tenant headers or a common base URL for *every* managed request a frame issues live once in a frame-level HTTP interceptor, not in each request map. Recipe: [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-retry-the-managed-http-seam) — it decorates plain `:rf.http/managed` calls exactly as it does resource reads. |
 | Machine-form wrapper | A child invokable machine of `:rf.http/managed` — `:spawn` it like any other; on reply it transitions to `:succeeded` / `:failed` and dispatches `[<parent-id> [:succeeded value]]` / `[<parent-id> [:failed failure]]` back. Destroying the wrapper aborts in-flight. |
 
 ## Canonical declaration — fx form

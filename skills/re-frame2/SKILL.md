@@ -88,6 +88,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 | Cached server-state shared across views, with invalidation, or a reusable session/tenant scope (`reg-resource-scope`) — read/cache side (TanStack-Query-shaped) | `patterns/resources.md` |
 | Workflow after a write succeeds (navigate / toast / fold errors — mutation `:reply-to`), mixed-scope invalidation, optimistic writes | `patterns/resources-mutations.md` |
 | HTTP with status-aware retries / error projection / batching | `patterns/managed-http.md` |
+| Auth / tracing headers or a base URL on every request (`reg-http-interceptor`) | `patterns/resources.md` §Request decoration |
 | Form input with validation and submit | `patterns/forms.md` |
 | Long-running browser-side work | `patterns/long-running-work.md` |
 | Custom Promise / callback / Web Worker integration, or a fire-and-forget effect | `patterns/async-effect.md` |
@@ -119,7 +120,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 
 Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
 
-**Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md` (value-returning `reg-cofx`, `:rf.cofx/requires`), `subs.md`, `views.md` (`reg-view`, injected `dispatch`/`subscribe`, `reg-view*`), `flows.md` (`reg-flow`, flow-vs-sub), `schemas.md`, `frames.md`, `images.md` (`rf/image`, image-order composition, frame-isolation story — EP-0023), `event-state-cycle.md`, `project-structure.md`.
+**Fundamentals — `references/fundamentals/`**: `events.md` (`reg-event`, `reg-interceptor`, `:interceptors` chains), `fx.md`, `cofx.md` (value-returning `reg-cofx`, `:rf.cofx/requires`), `subs.md`, `views.md` (`reg-view`, injected `dispatch`/`subscribe`, `reg-view*`), `flows.md` (`reg-flow`, flow-vs-sub), `schemas.md`, `frames.md`, `images.md` (`rf/image`, image-order composition, frame-isolation story — EP-0023), `event-state-cycle.md`, `project-structure.md`.
 
 **State machines — `references/state-machines/`**: `reg-machine.md` (declaration, guards/actions, divergence flags), `xstate-translation.md` (the full xstate→re-frame2 catalogue), `machine-schemas.md` (`:schemas` `:data`/`:output` + snapshot redaction), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing model across all: think in xstate, then map onto re-frame2.
 
