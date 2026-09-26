@@ -726,7 +726,7 @@ they are alternatives, not co-equals. Declaring both raises
 | Slot | Shape | Behaviour |
 |---|---|---|
 | `:variants` | `[<variant-id> ...]` (explicit vector) | Renders exactly the listed variants in declared order. Use when you want a curated subset, or to interleave variants from sibling stories. |
-| `:for` | `<story-id>` (single keyword) | Auto-enumerates every registered variant of the named parent story, in registration order. Use when you want "all variants of this story, no maintenance." New variants added to the story appear automatically without touching the workspace body. |
+| `:for` | `<story-id>` (single keyword) | Auto-enumerates every registered variant of the named parent story, sorted by variant id. Use when you want "all variants of this story, no maintenance." New variants added to the story appear automatically without touching the workspace body. |
 
 Equivalent to the Storybook 8 contrast between an explicit `subcomponents`
 list and an auto-enumerated `*` glob — Story names the two paths
@@ -741,7 +741,7 @@ explicitly so the authoring intent is in the body.
               :story.counter/overflow]
    :columns  3})
 
-;; Auto-enumerate — every variant of :story.counter, in registration order:
+;; Auto-enumerate — every variant of :story.counter, sorted by variant id:
 (story/reg-workspace :Workspace.counter/auto-grid
   {:layout  :variants-grid
    :for     :story.counter
@@ -769,8 +769,10 @@ workspace id's namespace.
 
 The `:columns` integer slot pins the column count of a `:grid` /
 `:variants-grid` workspace. When present, the grid emits a fixed
-`grid-template-columns: repeat(N, minmax(280px, 1fr))` template (N =
-`:columns`); when absent the grid keeps the responsive default
+`grid-template-columns: repeat(N, minmax(0, 1fr))` template (N =
+`:columns`): N equal columns sharing the canvas width, so a pinned grid
+never outgrows the pane, and a view wider than its cell scrolls inside
+the cell. When absent the grid keeps the responsive default
 (`repeat(auto-fit, minmax(280px, 1fr))`), which fits as many 280px-min
 columns as the canvas width allows. `:columns` only affects the
 `:grid` and (isolated) `:variants-grid` layouts — the layouts that lay

@@ -712,7 +712,7 @@
 ;; ---- workspace :columns grid template -----------------------------------
 ;;
 ;; The workspace body's `:columns` slot pins the CSS grid's column count:
-;; the capped-grid renderer emits `repeat(N, minmax(280px, 1fr))` when
+;; the capped-grid renderer emits `repeat(N, minmax(0, 1fr))` when
 ;; `:columns` is present and keeps the
 ;; `repeat(auto-fit, minmax(280px, 1fr))` default when absent.
 ;;
@@ -754,7 +754,7 @@
                   :story.ugmrg-cols/c]})
     (let [style (grid-div-style
                   (render-grid-tree :Workspace.ugmrg-cols/grid))]
-      (is (= "repeat(3, minmax(280px, 1fr))"
+      (is (= "repeat(3, minmax(0, 1fr))"
              (:grid-template-columns style))
           (str ":columns 3 MUST pin a 3-column grid template; got "
                (pr-str (:grid-template-columns style)))))))
@@ -786,7 +786,7 @@
        :columns 2})
     (let [tree  (render-grid-tree :Workspace.ugmrg-vg/all)
           style (grid-div-style tree)]
-      (is (= "repeat(2, minmax(280px, 1fr))"
+      (is (= "repeat(2, minmax(0, 1fr))"
              (:grid-template-columns style))
           ":columns 2 MUST pin a 2-column variants-grid template")
       ;; also pins that :for drove the enumeration (2 variants rendered)

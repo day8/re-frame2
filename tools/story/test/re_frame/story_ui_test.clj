@@ -688,11 +688,12 @@
              (set (map :variant-id cells)))))))
 
 (deftest grid-template-columns-honours-columns
-  (testing "grid-template-columns emits a fixed repeat(N, …) template when
-            :columns is a positive int"
-    (is (= "repeat(3, minmax(280px, 1fr))"
+  (testing "grid-template-columns emits N equal columns sharing the canvas
+            width when :columns is a positive int — no 280px floor, so
+            the pinned grid never outgrows the pane"
+    (is (= "repeat(3, minmax(0, 1fr))"
            (rf.story.ui.workspace/grid-template-columns 3)))
-    (is (= "repeat(1, minmax(280px, 1fr))"
+    (is (= "repeat(1, minmax(0, 1fr))"
            (rf.story.ui.workspace/grid-template-columns 1))))
   (testing "absent / nil / non-positive :columns keeps the responsive
             auto-fit default"

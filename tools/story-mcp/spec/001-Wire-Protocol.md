@@ -176,8 +176,7 @@ The MCP protocol revision string is pinned at `2025-06-18` (see
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §protocol-version-pin).
 The pin lives in `re-frame.story-mcp.config/protocol-version`;
 the `initialize` response advertises this version. Bumping the pin
-is a deliberate Story-MCP change — Story's own stage marker is
-independent.
+is a deliberate Story-MCP change, independent of any Story release.
 
 ## Capabilities advertised
 

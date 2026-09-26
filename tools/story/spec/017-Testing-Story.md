@@ -3632,9 +3632,13 @@ The gate replays the event program into **N FRESH frames** and compares
 the runs through `canonicalize`. A run is **deterministic** iff every
 replay's canonical **run-slice** (`run-hash-input-keys` — `:status`, the
 final `:app-db`, the `:epoch-tape`, the `:assertions` / `:checks` verdicts,
-and the projected `:effects` / `:schema-violations` / `:warnings` /
-`:sub-overrides` / `:fidelity`) is `=`. The slice — not the whole result —
-is the authority, because a run-result also carries pure provenance (the
+and the projected `:effects` / `:schema-violations` / `:warnings`) is `=`.
+The slice also names `:sub-overrides` / `:fidelity`, but a run result
+carries neither slot — the resolved overrides and the fidelity set live on
+the plan, at `[:world :render :sub-overrides]` and `[:world :fidelity]`, and
+reach a run's identity through `:plan-hash` — so between two runs those two
+keys read absent on both sides and never differ. The slice — not the whole
+result — is the authority, because a run-result also carries pure provenance (the
 `:frame` replay id, the `:run-artifact` back-link, the per-step
 `:replay-steps`) that legitimately differs per replay and is excluded from
 `run-hash` for exactly this reason. The `run-hash` is the cheap
@@ -3800,9 +3804,9 @@ explains a `:non-deterministic` divergence in readable terms.
 The `:same?` judgement is canonical equality of the run-**slice**
 (`run-hash-input-keys` — the behavioural surface: `:status`, the final
 `:app-db`, the `:epoch-tape`, the `:assertions` / `:checks` verdicts, the
-projected `:effects` / `:schema-violations` / `:warnings`, and
-`:sub-overrides` / `:fidelity`), the EXACT slice + judgement the determinism
-gate's `compare-runs` uses — so a diff agrees with the determinism gate on
+projected `:effects` / `:schema-violations` / `:warnings`, and the
+`:sub-overrides` / `:fidelity` keys a run result does not carry), the EXACT
+slice + judgement the determinism gate's `compare-runs` uses — so a diff agrees with the determinism gate on
 what counts as the same run. The pure provenance a run-result also carries
 (the `:frame` replay id, the `:run-artifact` back-link, the per-step
 `:replay-steps`) is excluded, exactly as it is from `run-hash`.
@@ -3853,16 +3857,22 @@ wants first.
   spine) projected from `:epoch-tape`, reported as both spines plus the
   `:first-divergence` index — order is semantic, so a re-ordered or dropped op
   reads as a difference;
-- `:sub-overrides` — a delta over the resolved `{query-vector value}` override
-  map (§View-state subscription overrides), keyed by query vector
-  (`:added` / `:removed` / `:changed`, each entry a `{:query … :baseline …
-  :current …}`) — an override added/removed or whose pinned value differs;
-- `:fidelity` — a **set** delta over the fidelity-ladder rung set
-  (`:only-baseline` / `:only-current`) — the rungs one run rested on and the
-  other did not (e.g. a baseline using `:real-setup` vs a current that fell
-  back to `:sub-overrides`);
+- `:sub-overrides` — a delta over a result's `:sub-overrides` slot, the
+  resolved `{query-vector value}` override map (§View-state subscription
+  overrides), keyed by query vector (`:added` / `:removed` / `:changed`, each
+  entry a `{:query … :baseline … :current …}`) — an override added/removed or
+  whose pinned value differs;
+- `:fidelity` — a **set** delta over a result's `:fidelity` slot, the
+  fidelity-ladder rung set (`:only-baseline` / `:only-current`) — the rungs
+  one result rested on and the other did not (e.g. a baseline using
+  `:real-setup` vs a current that fell back to `:sub-overrides`);
 - `:status` — the top-level run status, when it differs (a `:pass` → `:fail`
   flip is the headline a reader wants first).
+
+A run result carries no `:sub-overrides` or `:fidelity` slot (both live on
+the plan, at `[:world :render :sub-overrides]` and `[:world :fidelity]`), so
+between two runs those two facets never fire: two runs whose overrides or
+fidelity differ differ by `:plan-hash`, which sits outside the run slice.
 
 `:sub-runs` is **not** a facet. It is deliberately excluded from the run-slice
 (`run-hash-input-keys`) — sub-runs are over-recomputed evidence, not a
@@ -3943,9 +3953,9 @@ drift apart.
 The slice frozen into a golden is `fingerprint/run-hash-input-keys` — the
 behavioural surface (`:status`, final `:app-db`, the `:epoch-tape`, the
 `:assertions` / `:checks` verdicts, the projected `:effects` /
-`:schema-violations` / `:warnings`, and the resolved `:sub-overrides` /
-`:fidelity`). This is the SAME slice `run-hash` hashes and the determinism
-gate (`compare-runs`) and the semantic diff (`diff-runs`'s `:same?`
+`:schema-violations` / `:warnings`, and the `:sub-overrides` / `:fidelity`
+keys a run result does not carry). This is the SAME slice `run-hash` hashes
+and the determinism gate (`compare-runs`) and the semantic diff (`diff-runs`'s `:same?`
 judgement) compare — so a golden match, a determinism `:deterministic`, and
 a diff `{:same? true}` are the **one judgement under three names**. The pure
 provenance a run also carries (`:frame` replay id, `:run-artifact`

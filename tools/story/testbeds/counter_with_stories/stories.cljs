@@ -148,9 +148,9 @@
   ;;
   ;; Per `005-SOTA-Features.md` §`reg-mode` saved-tuple primitive modes are saved tuples of args. When a variant
   ;; renders against `:Mode.app/dark` its `:args` deep-merge into the
-  ;; variant's effective args (precedence: global < mode < story <
-  ;; variant). Each `(variant × mode)` cell has its own snapshot-
-  ;; identity for visual regression keying.
+  ;; variant's effective args (precedence: global < story < mode <
+  ;; variant < a live control override). Each `(variant × mode)` cell has
+  ;; its own snapshot-identity for visual regression keying.
   ;; -------------------------------------------------------------------------
 
   (rf.story/reg-mode :Mode.app/dark
