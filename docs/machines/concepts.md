@@ -125,7 +125,9 @@ should fall back to the definition's `:initial` and `:data`. To boot a
 singleton eagerly instead, dispatch the reserved start marker at startup:
 `(rf/dispatch [:auth.login/flow [:rf.machine/start]])`. It runs the initial
 entry — `:entry` actions fire, `:after` timers arm — and stops; it never
-matches an `:on` transition.
+matches an `:on` transition. The first ordinary event runs the same initial
+entry before it is handled, and either way those `:entry` actions see `:event`
+as `[:rf.machine/start]`, never the trigger that started the machine.
 
 Do not build views that switch on detailed `:state` shapes unless the exact
 state is the product decision. For "busy", "read-only", "connected", use
@@ -159,7 +161,9 @@ is the same sugar for a [path target](hierarchical-states.md#target-forms).
                          :action :clear-error}}
 ```
 
-A map gives the transition a guard, an action, and other options.
+A map gives the transition a guard, an action, and other options. Its keys
+are `:target`, `:guard`, `:action`, `:reenter?`
+([self-transitions](#self-transitions-and-wildcards)) and `:meta`.
 
 ```clojure
 :on {:auth.login/failure [{:target :error-shown
@@ -186,6 +190,10 @@ Every callback receives one context map:
  :state :submitting
  :meta  {…}}
 ```
+
+`:state` is the state the machine was in before this transition, in every
+slot, `:entry` included. `:meta` is the snapshot's `:meta`, which starts as
+the machine root's `:meta`.
 
 There is **no `:db`**. A machine cannot see [app-db](../core/app-db.md). That
 is [strict encapsulation](#strict-encapsulation).
@@ -322,7 +330,9 @@ a coeffect. To reach anything else:
 A declared coeffect arrives under **`:rf.cofx`** on the callback map. Read it
 there, `(:rf/time-ms (:rf.cofx ctx))` — it is *not* a top-level `:rf/time-ms`
 key. Inline callbacks cannot declare requirements
-(`:rf.error/machine-cofx-requires-inline`).
+(`:rf.error/machine-cofx-requires-inline`). Declare every key a callback reads:
+an undeclared key is not ensured, so it can read `nil`, and `reg-machine` warns
+`:rf.warning/machine-cofx-consume-undeclared` in development.
 
 ```clojure
 :guards
@@ -354,6 +364,32 @@ keys, so a typo or an XState spelling (`:invoke`, `:cond`) throws
 Put your own annotations under a namespaced key (`:my.app/note`) or `:meta`.
 Every refusal is an `ex-info` carrying `:rf.error/id` in its `ex-data`
 ([Errors that throw](../core/errors.md#the-errors-that-throw-not-trace)).
+
+## State node keys
+
+These are the bare keys a state takes:
+
+| Key | Meaning | Taught in |
+| --- | --- | --- |
+| `:on` | Transitions taken on an event | [Transition forms](#transition-forms) |
+| `:entry`, `:exit` | Action run on entering or leaving the state | [Entry, exit, and transition actions](#entry-exit-and-transition-actions) |
+| `:initial`, `:states` | Child states, and the one entered first | [Hierarchical states](hierarchical-states.md) |
+| `:on-done` | Transition taken when a child `:final?` state is reached | [Nested final states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states) |
+| `:always` | Eventless transitions | [Automatic transitions](automatic-transitions.md#eventless-always) |
+| `:after` | Delayed transitions | [Delayed `:after`](automatic-transitions.md#delayed-after) |
+| `:timeout`, `:on-timeout` | A deadline and the transition it takes | [`:timeout` and `:on-timeout`](automatic-transitions.md#timeout-and-on-timeout) |
+| `:type` | `:choice` or `:history` on a state; `:parallel` on the root | [Choice states](automatic-transitions.md#choice-states), [History](history.md), [Parallel regions](parallel-states.md) |
+| `:choice` | A choice state's candidate vector | [Choice states](automatic-transitions.md#choice-states) |
+| `:deep?`, `:default-target` | A history pseudo-state's options | [History](history.md#the-keys) |
+| `:spawn`, `:spawn-all` | Child actors that live while the state is active | [Actors](actors.md) |
+| `:tags` | A set of labels projected onto the snapshot | [Tags](tags.md) |
+| `:final?`, `:output-key`, `:error?` | A finishing leaf and what it reports | [Final states](#final-states) |
+| `:meta` | Your own static metadata, such as `{:terminal? true}` | [Final states](#final-states) |
+
+The root also takes `:data`, `:guards`, `:actions`, `:schemas`,
+`:internal-events` and the two depth limits, and a parallel root takes
+`:regions` and `:region-order`; the
+[API reference](../api/re-frame.machines.md#machine-root-keys) lists them.
 
 ## Self-transitions and wildcards
 
@@ -412,9 +448,10 @@ through to a wildcard.
   machine."
 
 A `:final?` state is a leaf with no way out: it may run `:entry` and `:exit`,
-but `:on`, `:always`, `:after` and `:spawn` there are refused
-(`:rf.error/machine-final-state-has-transitions`). `:output-key` and `:error?`
-belong only beside `:final?`.
+but `:on`, `:always`, `:after`, `:spawn` and `:spawn-all` there are refused
+(`:rf.error/machine-final-state-has-transitions`), and so are child `:states`
+(`:rf.error/machine-final-state-compound`). `:output-key` and `:error?` belong
+only beside `:final?`.
 
 Nested finals and parent `:on-done` live in
 [Hierarchical states](hierarchical-states.md) and [Actors](actors.md).
@@ -474,10 +511,15 @@ the rest.
 commit. **`:internal-events`** is the set of event ids that external
 `dispatch` must not send
 (`:rf.error/machine-internal-event-external-dispatch`). Eventless loops and
-raise storms are depth-bounded (default 16);
+raise storms are depth-bounded — 16 by default, or the root's
+`:always-depth-limit` / `:raise-depth-limit`;
 `:rf.error/machine-always-depth-exceeded` /
 `:rf.error/machine-raise-depth-exceeded` abort the whole step — not a silent
 no-op.
+
+A raise is exactly `[:raise event-vec]`. It takes no options, so a delayed
+raise is an `:after` on a state; `[:raise event-vec opts]` throws
+`:rf.error/machine-bad-raise`.
 
 ## When to reach for a machine
 

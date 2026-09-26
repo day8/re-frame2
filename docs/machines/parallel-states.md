@@ -77,7 +77,9 @@ Each region body is the root of a small machine: it has `:initial` and
 `:states`, and may add `:entry` and `:exit` (run at birth and teardown),
 `:tags`, an `:on` fallback for the region, and an `:on-done` that runs when the
 region reaches a `:final?` child. That `:on-done` targets a state inside the
-region.
+region. A region body may not declare `:after`
+(`:rf.error/machine-non-parallel-root-after-not-supported`); put the timer on a
+state inside the region.
 
 At the top level, a parallel machine does not also declare root `:initial` and
 root `:states`. Registration throws `:rf.error/machine-parallel-bad-shape` if
@@ -275,7 +277,9 @@ parallel root or split the feature into several machines.
 A `:regions` map of more than eight entries does not keep its written order,
 and region order decides the order actions run in. Such a machine lists its
 region names, in order, as `:region-order`; without it registration throws
-`:rf.error/machine-parallel-region-order-required`.
+`:rf.error/machine-parallel-region-order-required`, and an order that does not
+name every region exactly once throws
+`:rf.error/machine-parallel-region-order-mismatch`.
 
 ## Troubleshooting
 

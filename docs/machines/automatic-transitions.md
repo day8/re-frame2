@@ -135,10 +135,11 @@ It is equivalent in behaviour to an `:always` decision, but it communicates inte
 
 Choice rules:
 
-- `:type :choice` and `:choice` must appear together.
+- `:type :choice` and `:choice` must appear together (`:rf.error/machine-choice-missing-choice` / `:rf.error/machine-choice-without-type`).
 - `:choice` is a non-empty vector of transition candidates.
 - The vector must include an unguarded default.
-- A choice state only routes; it does not also declare `:on`, `:entry`, `:after`, `:spawn`, and so on.
+- A choice state only routes; it does not also declare `:on`, `:entry`, `:after`, `:spawn`, and so on (`:rf.error/machine-choice-extra-keys`).
+- No candidate may target the choice state itself (`:rf.error/machine-choice-self-loop`).
 - The topology stays data. A function-valued `:choice` fails at registration with `:rf.error/machine-bad-choice`.
 
 ## Delayed `:after`
@@ -191,6 +192,8 @@ A subscription vector. The delay re-resolves while the state is active. If the s
 ```
 
 A function, evaluated once when the state is entered. It does not re-resolve. Delay functions receive `{:snapshot …}`, not the usual guard/action context (`{:data :event :state :meta}`).
+
+A subscription or function delay that throws, or resolves to anything but a positive number, arms no timer, so the state waits for an event instead. A throw is reported as `:rf.error/machine-after-sub-threw` or `:rf.error/machine-after-fn-threw`, and every skipped timer as `:rf.warning/no-clock-configured`.
 
 ## Timer staleness
 
@@ -246,7 +249,7 @@ Use `:timeout` when the intent is a deadline.
 
 The pair lowers onto the same timer mechanism as `:after`. It also works on a [spawn spec](actors.md#timeouts), where it bounds the child's lifetime.
 
-`:timeout` requires `:on-timeout`, and `:on-timeout` requires `:timeout`.
+`:timeout` requires `:on-timeout` (`:rf.error/machine-timeout-without-on-timeout`), and `:on-timeout` requires `:timeout` (`:rf.error/machine-on-timeout-without-timeout`). The pair lowers onto an `:after` key, so a `:timeout` may not resolve to the same delay as an `:after` key on the same state (`:rf.error/machine-timeout-after-collision`).
 
 ## Timeout durations
 
