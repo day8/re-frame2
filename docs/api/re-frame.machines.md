@@ -115,6 +115,19 @@ The machines guide teaches the model, starting from [The table](../machines/conc
   (rf/reg-machine :door/main door-machine)
   ```
 
+### Machine-root keys
+
+Beside `:initial`, `:states`, `:data`, `:guards` and `:actions`, a machine spec's root takes the keys below. The runtime reads them only at the root: on a nested state they throw `:rf.error/machine-unknown-node-key`. [Spec 005](../../spec/005-StateMachines.md) has the long form.
+
+| Root key | What it takes and does |
+|---|---|
+| `:schemas` | A map whose keys are among `:data`, `:output`, `:events`, `:tags` and `:meta`, each a schema. `:data` validates the snapshot's `:data`; see [`validate-machine-data!`](#re-framemachinesvalidate-machine-data). `:output` is the next row. `:events`, `:tags` and `:meta` are accepted and not checked. Any other key, `:input` included, throws `:rf.error/machine-bad-schemas-key`, and a non-map throws `:rf.error/machine-bad-schemas`. |
+| `[:schemas :output]` | A schema for the value a root-level `:final?` leaf reports through `:output-key`, which is `nil` when the leaf has none. It is checked once, as the machine finishes, in development builds only. A failing value emits `:rf.error/schema-validation-failure` with `:where :machine-output`, `:phase :completion` and `:rollback? false`, and nothing is rolled back: the machine has already finished, so it is still destroyed and a parent's `:on-done` still receives the value. A schema the validator throws on emits `:rf.error/malformed-schema` with `:where :machine-output`, and completion proceeds the same way. See [Completion-output validation](../../spec/005-StateMachines.md#completion-output-validation). |
+| `:sensitive`, `:large` | A vector of paths into the snapshot, such as `[[:data :payment :token]]`. They classify those slots of every instance: each actor's paths are registered when it is spawned, first boots or is restored, and removed when it is destroyed. Traces and the SSR hydration payload then show `:rf/redacted` for a sensitive slot and the `:rf.size/large-elided` marker for a large one; the snapshot itself is unchanged. A malformed declaration throws `:rf.error/invalid-machine-classification` at registration. A `:sensitive?` prop inside `[:schemas :data]` does not classify the snapshot; it only redacts a failed validation's trace. See [Classify subsystem data on the subsystem](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem). |
+| `:internal-events` | A set of keywords, such as `#{:tick}`, naming events the machine raises for itself. [`[:raise event-vec]`](#raise-event-vec) says what an external dispatch of one does. A vector, a non-keyword member or a wildcard member such as `:tick/*` throws `:rf.error/machine-bad-internal-events`, and a reserved `:rf/*` id throws `:rf.error/machine-internal-event-reserved`. See [Public / private `:internal-events`](../../spec/005-StateMachines.md#public--private-internal-events). |
+| `:always-depth-limit` | An integer, 16 by default. It bounds the `:always` transitions the machine takes while it settles after an event. Exceeding it aborts the whole macrostep with `:rf.error/machine-always-depth-exceeded`, and no snapshot or effects commit. |
+| `:raise-depth-limit` | An integer, 16 by default. It bounds the raised events one macrostep handles; [`[:raise event-vec]`](#raise-event-vec) has the rule. See [Drain semantics](../../spec/005-StateMachines.md#drain-semantics). |
+
 ## Keyword surfaces
 
 These are the subscriptions and effects the machines artefact registers. They are included in every [image](../core/images.md) whatever its `:select-ns` selection, so a frame loaded from an image resolves them the same way the default frame does.
@@ -179,7 +192,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Kind**: effect (reserved fx-id)
 - **Payload**: `actor-id`.
 - **Description**: Stops an actor. It runs the `:exit` actions of the actor's active states, cancels its pending `:after` timers and removes its snapshot from `[:rf.runtime/machines :snapshots actor-id]` in `runtime-db`.
-    - It also aborts the actor's in-flight `:rf.http/managed` requests and releases any resources the actor owns. Close anything else the actor opened, such as a websocket or an interval, in an `:exit` action, which runs on every destroy path.
+    - It also aborts the actor's in-flight `:rf.http/managed` requests and releases any resources the actor owns. Hold anything else the actor uses, such as a websocket or an interval, in a custom effect handler keyed by the actor's id, and have the actor's `:exit` action return the close effect: `:exit` runs, and its effects execute, on every destroy path.
     - If the actor has its own event-handler registration, that is removed too. A spawned actor has none: it exists for as long as its snapshot does.
     - Destroying an actor that is already gone does nothing.
     - A declarative child rarely needs it: the runtime destroys it when its parent leaves the spawning state or is destroyed, and when it enters a root-level `:final?` state (see [Final states](#final-states-and-on-done)). An actor you started with `:rf.machine/spawn` has no parent state to end it, so emit this effect when you are done with it, unless it finishes by entering a root-level `:final?` state.
