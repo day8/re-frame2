@@ -337,12 +337,18 @@ Args:
    :allow          [\"app.example.com\" \"alt.example.com\"]
    :status         302}
 
-Validation order: (1) URL must parse — :rf.error/safe-redirect-invalid-url;
-(2) reject javascript:/data:/vbscript: schemes —
-:rf.error/safe-redirect-scheme-rejected; (3) :relative-only? + host —
+Validation order: a malformed call throws first (a non-string :location,
+a bad :status, :relative-only? or :allow, a :url / :to key, CR/LF/NUL in
+:location). The gate then rejects, in order: a javascript:/data:/vbscript:
+scheme prefix, before parsing — :rf.error/safe-redirect-scheme-rejected;
+a URL that does not parse — :rf.error/safe-redirect-invalid-url; any
+scheme other than http/https — :rf.error/safe-redirect-scheme-rejected;
+a scheme with no host — :rf.error/safe-redirect-invalid-url;
+:relative-only? and a URL that is not a relative reference —
 :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation);
-(4) :allow allowlist mismatch — :rf.error/safe-redirect-host-disallowed
-(:reason :not-in-allowlist); (5) pass — set Location header."
+:allow and a non-relative URL whose host is not in it —
+:rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
+A URL that passes sets :redirect."
    :schema    rf.ssr.server-fx-schemas/safe-redirect-args
    :platforms #{:server}}
   rf.ssr.response/safe-redirect-fx)

@@ -1693,10 +1693,13 @@
 ;; when the app uses :rf.server/safe-redirect.
 ;;
 ;; Validation order (each step emits its specific :rf.error/safe-redirect-*
-;; category — see Spec 009 §Error event catalogue):
+;; category — see Spec 009 §Error event catalogue). Step 2's prefix check
+;; runs BEFORE step 1, so an unparseable `data:` URL still reports its scheme:
+;;   2. `<scheme>:` prefix ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
 ;;   1. URL must parse → :rf.error/safe-redirect-invalid-url
-;;   2. scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
-;;   3. :relative-only? true + URL has host → :rf.error/safe-redirect-host-disallowed
+;;   2. parsed scheme rejected, or not http/https → :rf.error/safe-redirect-scheme-rejected;
+;;      a scheme with no host → :rf.error/safe-redirect-invalid-url
+;;   3. :relative-only? true + URL not relative → :rf.error/safe-redirect-host-disallowed
 ;;      (:reason :relative-only-violation)
 ;;   4. :allow supplied + host ∉ allow → :rf.error/safe-redirect-host-disallowed
 ;;      (:reason :not-in-allowlist)
@@ -2019,27 +2022,27 @@
              (-> resp :redirect :location))
           ":location passes through unchanged (only the COMPARISON folds case)"))))
 
-;; --- Validation order: parse runs before scheme runs before policy --------
+;; --- Validation order: the scheme prefix runs before the parse -----------
 
-(deftest safe-redirect-validation-order-parse-precedes-scheme
-  (testing "a fundamentally-unparseable URL surfaces the parse
-            error, NOT the scheme error (validation runs in order — see
-            Spec 009 §Error event catalogue)"
+(deftest safe-redirect-validation-order-scheme-prefix-precedes-parse
+  (testing "a URL that is BOTH unparseable AND carries a rejected
+            scheme prefix surfaces the scheme error, NOT the parse error,
+            and only that one (validation runs in order and short-circuits —
+            see Spec 009 §Error event catalogue)"
     (rf/reg-event :sr/order-parse-first
       (fn [_ _]
-        ;; This is BOTH unparseable AND vaguely-javascript-shaped — the
-        ;; parser-fail must fire FIRST because step 1 runs before step 2.
+        ;; Unparseable AND `javascript:`-prefixed — the prefix check fires
+        ;; first, because it runs before the parse.
         {:fx [[:rf.server/safe-redirect
                {:location "javascript: not a real url "}]]}))
     (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
           traces (capture-safe-redirect-traces!
                    (fn [] (rf/dispatch-sync [:sr/order-parse-first] {:frame f})))
           ops    (mapv :operation traces)]
-      ;; Either the URL parses (and we get scheme-rejected) OR it doesn't
-      ;; (and we get invalid-url) — but in both cases exactly ONE
-      ;; :rf.error/safe-redirect-* trace fires; the gate short-circuits.
-      (is (= 1 (count ops))
-          (str "exactly one :rf.error/safe-redirect-* trace; saw: "
+      ;; Exactly ONE :rf.error/safe-redirect-* trace fires; the gate
+      ;; short-circuits at the prefix check.
+      (is (= [:rf.error/safe-redirect-scheme-rejected] ops)
+          (str "exactly one :rf.error/safe-redirect-scheme-rejected trace; saw: "
                (pr-str ops))))))
 
 (deftest safe-redirect-empty-location-rejected-as-invalid-url

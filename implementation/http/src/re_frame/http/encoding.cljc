@@ -263,10 +263,9 @@
   key beside it is either a redundant restatement or a contradiction, and the
   reader cannot tell which was intended.
 
-  Called from THREE paths so the refusal is the same wherever a managed args
-  map is interpreted: the live fx (`handlers/validate-reply-target!`), and the
-  canned success / failure stubs, which resolve reply addressing themselves
-  (`re-frame.http.test-support`)."
+  Called from `handlers/validate-reply-target!`, which the live fx and the
+  `re-frame.http.test-support` stubs both run, so the refusal is the same
+  wherever a managed args map is interpreted."
   [args-map]
   (when (and (map? args-map) (contains? args-map :reply-to))
     (let [mixed (filterv #(contains? args-map %) [:on-success :on-failure])]

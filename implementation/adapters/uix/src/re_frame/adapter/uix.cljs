@@ -138,9 +138,9 @@
 
       (let [n (use-sub [:counter/value])] …)
 
-  ONE name across every React function component: `re-frame.fresco.native`
-  publishes `use-sub` for an island under Fresco and this is the same
-  operation under the same name. The rule the pair follows: the VERB returns a
+  `re-frame.fresco.native` publishes a `use-sub` for React islands under
+  Fresco that reads the same frame context; it has no opts form. The rule
+  the name follows: the VERB returns a
   subscription (`rf/subscribe`, Reagent's reaction), the NOUN returns its
   value (`h/sub` in a Fresco body, `use-sub` in a function component).
 
@@ -209,10 +209,10 @@
 ;; branch, or a `com.pitch/uix.dom` dependency in the shipping app — the Root
 ;; is minted by the shared React spine through `react-dom/client`, and is
 ;; tracked by the SAME active-root ownership as the one-shot substrate
-;; `render` slot, so `rf/destroy-adapter!` releases it too. Same three names,
-;; same shapes and same semantics as `re-frame.adapter.reagent`; the ONE
-;; difference is the tree, which is a React ELEMENT here (`uix.core/$`) rather
-;; than hiccup.
+;; `render` slot, so `rf/destroy-adapter!` releases it too. Same three names
+;; and shapes as `re-frame.adapter.reagent`, with two differences: the tree is
+;; a React ELEMENT here (`uix.core/$`) rather than hiccup, and `render!` also
+;; honours `:on-recoverable-error`.
 
 (def client-root
   "Allocate an inert client-root handle. No DOM work — safe at namespace
@@ -253,7 +253,8 @@
   reporter over it: a mismatch React recovers from during hydration emits
   `:rf.ssr/hydration-mismatch` before reaching the callback (or React's
   default report), and a recoverable error after the hydration commit
-  skips the emit. There are no UIx-only keys.
+  skips the emit. The Reagent adapters' `render!` hydrates without root
+  options, so `:on-recoverable-error` takes effect on this adapter only.
 
   CLJS data in the element slot — a hiccup vector, seq or map — raises
   `:rf.error/hiccup-on-element-render-slot`, on the first render and on

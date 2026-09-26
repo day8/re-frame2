@@ -1120,8 +1120,9 @@
 (defn safe-redirect-fx
   "Handler fn for `:rf.server/safe-redirect`. The caller-untrusted variant
   of `redirect-fx` — validates `:location` against a five-step gate
-  (parse → scheme → relative-only → allowlist → pass) before populating
-  the response accumulator's `:redirect` slot.
+  (parse → scheme → relative-only → allowlist → pass, with the scheme
+  step's prefix check running before the parse) before populating the
+  response accumulator's `:redirect` slot.
 
   Args map:
 
@@ -1130,11 +1131,20 @@
      :allow          [\"app.example.com\" \"alt.example.com\"]  ;; host allowlist
      :status         302}                  ;; defaults 302 if absent
 
-  Validation order (per Spec 009 §Error event catalogue). The gate is on
-  the parsed URL shape, not merely on host presence:
+  A malformed CALL throws before the gate runs: the args map, a retired
+  `:url` / `:to` key, a non-string `:location`, the `:status`,
+  `:relative-only?` and `:allow` shapes, then CR / LF / NUL in `:location`.
 
+  Validation order. The gate is on the parsed URL shape, not merely on
+  host presence, and step 2 runs its prefix check BEFORE step 1, because a
+  `data:text/html,<script>` body fails java.net.URI parsing and must still
+  surface as a scheme rejection:
+
+    2.  `<scheme>:` prefix ∈ #{javascript data vbscript} →
+        :rf.error/safe-redirect-scheme-rejected
     1.  URL parses → :rf.error/safe-redirect-invalid-url on failure
-    2.  scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
+    2.  parsed scheme ∈ #{javascript data vbscript} →
+        :rf.error/safe-redirect-scheme-rejected
     2b. scheme ∉ #{http https} → :rf.error/safe-redirect-scheme-rejected
         (:reason :scheme-not-allowed) — mailto:, ftp:, file:, … rejected
     2c. scheme present but host not extractable (opaque `http:evil` or
