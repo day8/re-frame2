@@ -34,7 +34,7 @@ Every event handler takes two arguments: the [**world**](../glossary.md#world) m
                        [:db :todos 1 :done?])))))
 ```
 
-That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (Setting up the runner, the `deps.edn` `:test` alias and the `.cljc` files that let registrations load on the JVM, is covered in [the tutorial's Part 6: test it, ship it](../../resources/tutorial/06-test-and-ship.md).)
+That is a function call and an assertion, with no [frame](../glossary.md#frame) and no runtime. It runs on the JVM, where most re-frame2 suites live. The require of `my-app.todos` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (The runner, the `.cljc` files that let registrations load on the JVM and the reset fixture are set up once, in [Testing](index.md#set-up-the-test-runner).)
 
 `:handler-fn` is the handler alone, without the interceptors its registration lists. A handler registered with [`[:rf.interceptor/path [:todos]]`](../interceptors.md#the-one-standard-interceptor-path) expects `:db` to be the `:todos` map, so pass that map in the literal, or test it through the runtime ([section 3](#3-when-you-want-the-runtime-a-fresh-frame-per-test)). Given the whole db, it writes to the wrong place and nothing fails.
 
@@ -95,7 +95,7 @@ The pure call tests the handler's logic but skips the runtime: it never checks t
 
 That needs a [**frame**](../glossary.md#frame), an isolated runtime with its own app-db (see [Frames](../frames.md)). `with-new-frame` creates one, makes it current for the body, and destroys it on the way out, even if the body throws.
 
-A frame runs on a substrate [adapter](../glossary.md#adapter), even on the JVM, and nothing installs one for you. The reset fixture in [section 4](#4-the-trap-frames-dont-isolate-registrations) installs the headless one before each test. Without an adapter, `make-frame` throws `:rf.error/no-adapter-installed`.
+A frame runs on a substrate [adapter](../glossary.md#adapter), even on the JVM. The reset fixture in the [section 1](#1-pluck-the-handler-and-call-it) namespace installs the headless one before each test.
 
 ```clojure
 (deftest add-through-the-runtime
@@ -157,9 +157,7 @@ If two test namespaces register different handlers under the same id, the later 
 
 That is why the test namespace in section 1 installs the reset fixture.
 
-`make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. It snapshots the registrar before each test and restores it afterwards, keeping what was registered before the `use-fixtures` form ran. So register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes. It also resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches (when the test requires `re-frame.resources.test-support`), epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing, so use it as the default for any real suite.
-
-The reset removes whatever adapter is installed, so the fixture takes `:adapter`: `plain-atom/adapter` is the headless adapter for the JVM, and the fixture installs it and creates the `:rf/default` frame before each test.
+The fixture snapshots the registrar before each test and restores it afterwards, keeping what was registered before the `use-fixtures` form ran. So register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes. [Testing](index.md#set-up-the-test-runner) lists everything else it resets.
 
 For a single ad-hoc block, call the primitives `ts/snapshot-registrar` and `ts/restore-registrar!` yourself:
 
@@ -176,7 +174,7 @@ For a single ad-hoc block, call the primitives `ts/snapshot-registrar` and `ts/r
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | "nil is not a function" on the line after `handler-meta` | `handler-meta` returned `nil`: the id is misspelt or the handler's namespace isn't required | Check the id and the test's require list |
-| `make-frame` throws `:rf.error/no-adapter-installed` or `:rf.error/adapter-disposed` | No reset fixture, or one without `:adapter` (the reset removes whatever adapter `rf/init!` installed) | Pass `{:adapter plain-atom/adapter}` to the fixture |
+| `make-frame` throws `:rf.error/no-adapter-installed` or `:rf.error/adapter-disposed` | No reset fixture, or one without `:adapter` (the reset removes whatever adapter was installed) | Pass `{:adapter plain-atom/adapter}` to the fixture |
 | `:rf.error/dispatch-sync-in-handler` in a dev build, and the event never runs | A handler called `dispatch-sync` | Return `{:fx [[:dispatch [:other]]]}` instead; it runs in the same drain |
 | An assertion on `f` sees no change, and nothing fails | A dispatch outside `with-new-frame` without `{:frame f}` went to the fixture's `:rf/default` frame | Dispatch inside `with-new-frame`, or pass `{:frame f}` |
 | `make-frame` throws `:rf.error/initial-events-step-failed` | A seed step threw or lacked a required coeffect; the error names the step | Fix that step, or give it `:opts` with the missing `:rf.cofx` |

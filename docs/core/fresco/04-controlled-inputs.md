@@ -109,9 +109,8 @@ own the DOM it needs.
 
 ## Forward caller attributes safely
 
-A reusable field forwards caller attributes the way
-[chapter 02](02-views-and-reads.md#forward-attributes-with-owned-keys-last)
-shows: merge the caller map first and the owned entries last.
+A reusable field can accept caller attributes while keeping its value and
+handler: merge the caller map first and the owned entries last.
 
 ```clojure
 (h/defview field [{:keys [id busy?] :as attrs}]
@@ -128,11 +127,17 @@ shows: merge the caller map first and the owned entries last.
 ```
 
 The owned `:value`, `:disabled`, and `:on-input` replace a caller's entries
-under the same keys. That protection is per map key, not per React prop: a
-caller's `:onInput` or `"value"` is a different key, survives the merge, and
-lands on the same React prop as the owned entry, with map iteration order
-deciding which wins. Forward maps in kebab-keyword spelling, or `dissoc` the
-alternate spellings before merging.
+under the same keys, and they win by presence, not truthiness: when `busy?` is
+`nil`, the owned `:disabled nil` still replaces a caller's `:disabled true`.
+That protection is per map key, not per React prop: a caller's `:onInput` or
+`"value"` is a different key, survives the merge, and lands on the same React
+prop as the owned entry, with map iteration order deciding which wins. Forward
+maps in kebab-keyword spelling, or `dissoc` the alternate spellings before
+merging.
+
+The tag's `.form-control` class combines with a caller's `:class`, which the
+field does not own. To let the caller control a value, omit that key from the
+owned map.
 
 Do not forward `:key` or [`::h/revision`](glossary.md#hrevision): both describe
 the element the wrapper writes, and are read only from that map.

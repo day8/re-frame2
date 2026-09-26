@@ -163,10 +163,9 @@ Notes:
 3. **Listener order is unspecified.** Every listener sees every event, but do not rely
    on yours running first.
 
-Removing every listener at once is a test-fixture concern:
-`re-frame.test-support`'s reset clears the registries through lower-level functions
-(`re-frame.trace.tooling/clear-listeners!` and others), and there is no public
-function for it.
+Removing every listener at once is the
+[reset fixture](testing/index.md#set-up-the-test-runner)'s job, and there is no
+public function for it.
 
 !!! warning "Gotcha: guard dev-only listeners"
 

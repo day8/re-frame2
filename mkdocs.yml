@@ -232,6 +232,7 @@ nav:
       - "Boot and mount an app": core/how-to/boot-and-mount-an-app.md
       - "Add auth": core/how-to/add-auth.md
       - "Build a form": core/how-to/build-a-form.md
+      - "Use a React component": core/how-to/use-a-react-component.md
       - "Validate with schemas": core/how-to/validate-with-schemas.md
       - "Fix a slow view": core/how-to/fix-a-slow-view.md
       # There is no "measure before paint" recipe: Fresco does not answer

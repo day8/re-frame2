@@ -89,7 +89,9 @@ conditional rendering, just an expression that is sometimes `nil`.
 Two special heads cover what a tag keyword can't. `[:<> child1 child2]` is a
 fragment: several siblings with no wrapper element, for a view that returns more
 than one element. `[:> Component props child …]` renders a React component written in
-JavaScript, such as a date picker from npm.
+JavaScript, such as a date picker from npm. [Use a React
+component](how-to/use-a-react-component.md) shows both in a view, with how props
+cross into JavaScript.
 
 ??? info "For JavaScript developers"
 

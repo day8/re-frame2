@@ -21,16 +21,20 @@ and nobody measured.
 
 ## The performance ladder
 
-Take each rung only after the one above it has failed. The code for rungs 3 to
-5 is in [Islands](10-native-tier.md).
+Take each rung only after the one above it has failed. Each rung is a change in
+source: there is no `:fast` mode or build setting that changes what Hiccup
+means. Rung 1 is taught in
+[Views and reads](02-views-and-reads.md), rung 2 in
+[Lists and collections](06-lists-and-collections.md), and the code for rungs 3
+to 5 is in [Islands](10-native-tier.md).
 
 | Rung | What you write | Take it when |
 | --- | --- | --- |
 | 1 | Ordinary Fresco: Hiccup, `h/sub`, event vectors | always; every screen starts here |
 | 2 | Tuned Fresco: view boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
-| 3 | A `defview` body returns a React element | Hiccup conversion is the measured cost |
-| 4 | A React island: raw React or UIx, mounted through `h/defhost` | hooks, vendor internals, reconciliation, or per-frame local work dominate |
-| 5 | A native screen | the screen is React-shaped by design |
+| 3 | Direct React return: a `defview` body returns a React element and keeps its frame, reads, and memo | Hiccup conversion is the measured cost |
+| 4 | A React island: raw React or UIx, mounted through `h/defhost` under the same root and frame | hooks, vendor internals, reconciliation, or high-rate local work dominate |
+| 5 | A native screen, written in React under the same adapter, root and frames | the screen is React-shaped by design |
 
 Most performance work ends at rung 2, which is still ordinary Fresco: moving a
 read down, drawing a view boundary differently, or windowing a list.

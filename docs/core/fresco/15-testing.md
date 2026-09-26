@@ -256,6 +256,43 @@ belongs at L3 too.
     renders, StrictMode, or effect ordering. Split the semantic part from the
     React mechanics. Test the data at L2 and mount the mechanics at L3.
 
+### Assert a refusal by its id
+
+When testing a refusal, assert its stable id rather than its message. A thrown
+Fresco error carries the id in `ex-data` under `:rf.error/id`:
+
+```clojure
+(ns todo.refusal-test
+  (:require [cljs.test :refer [deftest is]]
+            [re-frame.fresco.test :as ht]))
+
+(defn todo-count [_]
+  [:span.todo-count "3 left"])
+
+(defn footer [_]
+  [:footer
+   [todo-count {}]])
+
+(defn refusal-id [f]
+  (try
+    (f)
+    ::did-not-throw
+    (catch :default e
+      (:rf.error/id (ex-data e)))))
+
+(deftest plain-defn-child-head-refuses
+  (is (= :rf.error/fresco-test-plain-fn-head
+         (refusal-id
+          #(ht/tree [footer {}] {:subs {}})))))
+```
+
+Messages may change between releases; ids do not.
+
+The test kit accepts a plain function as the root of `ht/tree`, because that is
+the body it is running. A plain function as a child head raises
+`:rf.error/fresco-test-plain-fn-head`; the same mistake in a mounted tree
+raises `:rf.error/fresco-bad-head`.
+
 ## L3: mounted React and DOM
 
 Use the mounted facade when the claim depends on React, hooks, context, refs,

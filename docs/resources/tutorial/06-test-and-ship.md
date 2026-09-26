@@ -10,27 +10,16 @@ The rule for every test here: **supply data, don't swap mechanisms.** You never 
 
 ## 1. Set up the JVM test runner
 
-A `.cljs` file compiles to JavaScript, a `.clj` file runs on the JVM, and a `.cljc` file is portable: one source, both targets. re-frame2's core is `.cljc`, so it loads on the JVM too.
+The JVM loads `.clj` and `.cljc` files, and a `.cljc` file is one source for both targets. That's why Parts 2–5 had you write `api.cljc`, `resources.cljc`, `scope.cljc`, `auth.cljc`, `mutations.cljc` and `views.cljc`: none of them names a browser API outside a `#?(:cljs …)` branch, so the JVM loads them as they are. (Renaming a file isn't enough — an unguarded `js/globalThis` stops the JVM compiler with `No such namespace: js`.) `core.cljs`, `articles.cljs` and `editor.cljs` stay ClojureScript; no test here loads them.
 
-That's why Parts 2–5 had you write `api.cljc`, `resources.cljc`, `scope.cljc`, `auth.cljc`, `mutations.cljc` and `views.cljc`: none of them names a browser API outside a `#?(:cljs …)` branch, so the JVM loads them as they are. (Renaming a file isn't enough — an unguarded `js/globalThis` stops the JVM compiler with `No such namespace: js`.) `core.cljs`, `articles.cljs` and `editor.cljs` stay ClojureScript; no test here loads them.
-
-Add a `:test` alias with a runner to `deps.edn`:
+Add a `:test` alias beside `:dev` in `deps.edn`'s `:aliases`:
 
 ```clojure
-;; deps.edn
-{:deps {thheller/shadow-cljs        {:mvn/version "3.4.10"}
-        day8/re-frame2              {:local/root "../re-frame2/implementation/core"}
-        day8/re-frame2-reagent      {:local/root "../re-frame2/implementation/adapters/reagent"}
-        day8/re-frame2-routing      {:local/root "../re-frame2/implementation/routing"}
-        day8/re-frame2-http         {:local/root "../re-frame2/implementation/http"}
-        day8/re-frame2-resources    {:local/root "../re-frame2/implementation/resources"}
-        day8/re-frame2-schemas      {:local/root "../re-frame2/implementation/schemas"}}
- :aliases
- {:dev  {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}
-  :test {:extra-paths ["test"]
-         :extra-deps  {io.github.cognitect-labs/test-runner
-                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
-         :main-opts   ["-m" "cognitect.test-runner"]}}}
+;; deps.edn, inside :aliases
+:test {:extra-paths ["test"]
+       :extra-deps  {io.github.cognitect-labs/test-runner
+                     {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+       :main-opts   ["-m" "cognitect.test-runner"]}
 ```
 
 Then the test namespace, with one fixture that resets the runtime around every test so nothing bleeds between them:
@@ -53,7 +42,7 @@ Then the test namespace, with one fixture that resets the runtime around every t
      :ambient-frame nil}))   ;; nil: our tests create their own frames
 ```
 
-`make-reset-runtime-fixture` snapshots the [registrar](../../core/glossary.md#registrar) and resets per-process state — frames, flows, schemas, machine timers, in-flight HTTP, [epoch](../../core/glossary.md#epoch) history, trace listeners — around each test. It's a factory, so you call it to get the fixture fn. Subsystems your suite doesn't touch cost nothing to reset. Later tests add a second layer with `with-new-frame`, which scopes one frame to one test.
+The fixture resets the runtime around each test and installs the headless adapter before it. Each test below makes its own frame with `with-new-frame`, which is why `:ambient-frame` is `nil`. [Set up the test runner](../../core/testing/index.md#set-up-the-test-runner) lists everything the fixture resets.
 
 !!! warning "Gotcha — keep the stubs out of production"
 

@@ -144,27 +144,19 @@ they acquire ([Interop](09-interop.md)). Check it with `hm/assert-clean!` from
 
 ## The performance ladder
 
-Each step is an explicit change in source. There is no `:fast` mode or build
-setting that changes what Hiccup means.
-
-| Level | What changes | Use it when | Details |
-| --- | --- | --- | --- |
-| 1. Ordinary Fresco | Nothing | Always start here | [Views and reads](02-views-and-reads.md) |
-| 2. Tune topology | View boundaries, keys, and read shape | An interaction invalidates too much work | [Lists and collections](06-lists-and-collections.md) |
-| 3. Direct React return | A `defview` returns a React element and keeps its frame, reads, and memo | Hiccup conversion is the measured cost | [Islands](10-native-tier.md) |
-| 4. React island | A React or UIx component mounted with `h/defhost` under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local work dominate | [Islands](10-native-tier.md) |
-| 5. Native screen | A React-first screen under the same state model | The screen is React-shaped by design | [Islands](10-native-tier.md) |
+The five rungs, and what each costs in tests, tools and server rendering, are
+in [The escape ladder](escape-ladder.md#the-performance-ladder).
 
 ### Keep an escape only when it earns its cost
 
-Levels 3 to 5 add another authoring model, hide structure from semantic tests,
+Rungs 3 to 5 add another authoring model, hide structure from semantic tests,
 and make review harder. Keep one only when it:
 
 - recovers 20% or more of the measured interaction,
 - saves 2 ms or more at p95, or
 - turns a failed budget into a pass.
 
-Otherwise remove it and return to the previous level. Re-run the comparison
+Otherwise remove it and return to the previous rung. Re-run the comparison
 when the surrounding code changes materially.
 
 This rule applies to an escape taken for speed. An escape taken because there
