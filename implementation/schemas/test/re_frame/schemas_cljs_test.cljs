@@ -38,18 +38,17 @@
 ;; cannot reload them. Snapshot/restore preserves them and rolls back
 ;; per-test app-schema / reg-event / reg-sub on the way out.
 ;;
-;; `:clear-app-schemas? true` gives the test a clean app-schema slate
+;; The fixture's reset also gives the test a clean app-schema slate
 ;; per-test (app-db schemas live OUTSIDE the registrar in
-;; the schemas artefact's per-frame side-table). Without this,
+;; the schemas artefact's per-frame side-table). Without it,
 ;; nine-states.core's ns-load app-schema (registered for
-;; :new-todo) survives in the snapshot and produces extra schema-
+;; :new-todo) would reach the test body and produce extra schema-
 ;; validation-failure traces that this smoke doesn't expect. The
-;; snapshot holds that entry, so the restore on the way out
-;; leaves nine-states.core's schema intact for downstream tests.
+;; fixture snapshots that side-table first, so the restore on the way
+;; out leaves nine-states.core's schema intact for downstream tests.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter            rf.adapter.reagent/adapter
-     :clear-app-schemas? true}))
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- live dispatch fires app-db schema validation -------------------------
 

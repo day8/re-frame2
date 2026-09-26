@@ -17,7 +17,7 @@
 ;; is called directly, so a clean app-schema slate plus a carried
 ;; `:rf/default` scope is all the harness needs.
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture {:clear-app-schemas? true})
+  (rf.test-support/make-reset-runtime-fixture)
   (fn [test-fn]
     (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))

@@ -39,13 +39,12 @@
 ;; `re-frame.schemas.test-fixture`, which is a `.clj` and unreachable from here,
 ;; so this file takes the CLJS equivalent — the shared fixture's default
 ;; `:ambient-frame :rf/default`, over the same plain-atom substrate the JVM
-;; fixture installs. `:clear-app-schemas? true` gives the end-to-end test a
+;; fixture installs. The fixture's reset gives the end-to-end test a
 ;; clean per-frame app-schema slate so no sibling ns's registrations add
 ;; rejection records to the ones it counts.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter            rf.substrate.plain-atom/adapter
-     :clear-app-schemas? true}))
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private tag #'rf.schemas.validate/record-type-tag)
 

@@ -39,7 +39,7 @@ A **JVM-only** (`.clj`) test drops the conditional and names the plain-atom subs
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
 
-Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:clear-app-schemas?` (boolean — when true, clears the schemas artefact's per-frame side-table to start each test with an empty schema slate while preserving the snapshot on exit; app-db schemas are NOT a registrar kind so they have their own opt), `:async?` (boolean — return the `cljs.test` map-form fixture for suites with async tests; see below).
+Optional opts: `:init-fn` (zero-arg fn run after adapter install, before the test), `:clear-kinds` (a collection of registrar kinds to clear after the snapshot capture), `:async?` (boolean — return the `cljs.test` map-form fixture for suites with async tests; see below). Per-frame app schemas are not a registrar kind; every reset clears them and restores them on exit, so register the schemas a test needs in `:init-fn` or in the test itself.
 
 Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framework registrations cannot be reloaded and will be gone for the rest of the run.
 
@@ -66,7 +66,7 @@ A suite with `(async done …)` tests cannot use the fn-form fixture: `cljs.test
       0)))
 ```
 
-`:before` runs the same reset as the fn-form AND establishes the ambient scope with a **persistent `set!`** of `*current-frame*` (not a dynamic binding) so it survives the async boundary; `:after` tears it down after the test's `done`. Everything else (`:adapter`, `:init-fn`, `:clear-kinds`, `:clear-app-schemas?`, `:ambient-frame`) behaves identically. Two things to verify when you adopt it:
+`:before` runs the same reset as the fn-form AND establishes the ambient scope with a **persistent `set!`** of `*current-frame*` (not a dynamic binding) so it survives the async boundary; `:after` tears it down after the test's `done`. Everything else (`:adapter`, `:init-fn`, `:clear-kinds`, `:ambient-frame`) behaves identically. Two things to verify when you adopt it:
 
 - **Does a bare test-body `dispatch-sync` actually land?** This is the whole point of the map-form. A naive hand-rolled map fixture that only `set!`s `*current-frame* :rf/default` *without re-ensuring the `:rf/default` frame* silences the no-frame-context throw yet **silently does not drain** — `dispatch-sync` resolves `:rf/default`, finds no frame record, and no-ops. Assert a value actually lands; don't assume it.
 - **The fn/map mixing hazard.** `cljs.test` runs every ns in one shared JS runtime, and a *sync* ns's fn-form-fixture teardown resets `frames` to `{}` — destroying `:rf/default` for whatever ns runs next. The `:async? true` fixture is robust because its `:before` re-ensures `:rf/default` every test; a hand-rolled fixture that trusts a sibling-left frame is not. Don't mix fixture *types* within one `use-fixtures` vector — `cljs.test` rejects it ("Fixtures may not be of mixed types").

@@ -68,8 +68,7 @@
 ;; registrar kind).
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter            rf.adapter.reagent/adapter
-     :clear-app-schemas? true}))
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- boundary interceptor under `:advanced` + `goog.DEBUG=false` ---------
 
