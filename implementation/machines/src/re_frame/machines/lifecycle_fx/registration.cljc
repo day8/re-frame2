@@ -48,7 +48,7 @@
 ;;
 ;; A machine that carries a `[:schemas :data]` schema MUST flow through the
 ;; single registration home so the `:rf/machine?` / `:rf/machine` registration-
-;; metadata stamp runs — the `:where :machine-data` post-commit walker resolves
+;; metadata stamp runs — the `:where :machine-data` pre-commit walker resolves
 ;; the `[:schemas :data]` schema THROUGH the `:rf/machine` registrar projection, so without the
 ;; stamp the schema validates NOTHING.
 ;;
@@ -985,7 +985,7 @@
   ;; registered through the single home (`reg-machine` / `reg-machine*` / the
   ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
   ;; `:rf/machine` registration-metadata stamp runs — the `:where :machine-data`
-  ;; post-commit walker resolves the `[:schemas :data]` schema THROUGH
+  ;; pre-commit walker resolves the `[:schemas :data]` schema THROUGH
   ;; the `:rf/machine` registrar projection, so without the stamp the schema validates NOTHING. The
   ;; bare `(reg-event id meta (make-machine-handler spec))` direct path does not
   ;; stamp it — so a `[:schemas :data]` schema reached here outside the home
@@ -1358,7 +1358,7 @@
 (defn- register-machine-event!
   "THE single home for registering a machine as an event handler. It
   stamps the `:rf/machine?` / `:rf/machine` registration metadata
-  so the `:where :machine-data` post-commit walker resolves the
+  so the `:where :machine-data` pre-commit walker resolves the
   `[:schemas :data]` schema through the `:rf/machine` registrar projection (without the stamp the
   schema validates nothing).
 
@@ -1445,7 +1445,7 @@
                           :rf/machine  machine)]
     (rf.events/reg-event machine-id meta handler-fn)
     ;; The `[:schemas :data]` schema VALIDATES `:data` (via the
-    ;; `:where :machine-data` post-commit walker, resolved through the
+    ;; `:where :machine-data` pre-commit walker, resolved through the
     ;; `:rf/machine` meta stamped above); its per-slot props do not classify the
     ;; machine's durable `:data` for trace / SSR egress. Egress classification
     ;; comes from the frame's merged classification registry, including

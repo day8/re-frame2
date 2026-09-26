@@ -388,8 +388,9 @@
   "Walk every snapshot under `[:rf.runtime/machines :snapshots]` in
   `runtime-db` and validate its `:data` against the resolved machine's
   `[:schemas :data]` schema. Returns true iff every snapshot conformed (or
-  carried no schema / no validator); false on first failure with the
-  per-snapshot trace already emitted.
+  carried no schema / no validator); false if any failed. The walk does not
+  stop at the first failure, so every failing snapshot has emitted its own
+  trace by the time it returns.
 
   Schema resolution goes through `resolve-data-schema`, which resolves a
   SINGLETON via `spec-from-registry` AND falls back to the snapshot's

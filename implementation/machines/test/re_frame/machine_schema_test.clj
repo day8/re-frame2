@@ -16,8 +16,8 @@
 
    3. **Initial-data validation (bootstrap).** A machine whose initial
       `:data` violates the schema emits the same trace on its first
-      dispatch (the bootstrap commits the initial snapshot to runtime-db,
-      so the post-commit walker catches the typo).
+      dispatch (the bootstrap writes the initial snapshot into the
+      candidate runtime-db, so the pre-commit walker catches the typo).
 
    4. **Spawn-time validation.** A spawned actor whose initial `:data`
       violates the schema emits the same trace with `:phase :spawn`
