@@ -4,8 +4,8 @@
 > README, or any third-party page as a clean iframe. Walks the
 > `variant-share-url` builder, the `?embed=1` chrome-hide flag, and
 > the three URL surfaces a reader generating embed code consults.
-> Per rf2-ymnfx Issue B there is no separate Share button or QR
-> popover — the variant URL is the browser's live address-bar URL.
+> The variant URL is the browser's live address-bar URL; the
+> toolbar's Share button copies it from the share / export dialog.
 
 ## What "embed mode" buys you
 
@@ -159,15 +159,10 @@ always reflects the focused variant + active modes + cell-overrides
 + chrome state. Cmd-L / Cmd-A / Cmd-C copies it; pasting into chat or
 a docs page links straight back.
 
-There is no separate Share button or QR popover. The v1 affordance
-that lived on each variant's title row was retired in rf2-ymnfx
-Issue B (2026-05-27) — the popover added no capability beyond what
-the browser's address bar already supplied, and the QR code was a
-phone-handoff convenience that AirDrop / "Send to phone" / and any
-of a dozen browser-native flows already cover. The earlier
-`qrcode-generator` (npm, MIT, ~52 KB) local SVG encoder that
-replaced the third-party QR-image service (`rf2-20w5i`, security
-audit, 2026-05-14) retired alongside the popover.
+The toolbar's Share button opens the share / export dialog, whose
+Share URL row copies that same live address-bar URL beside its
+reproducibility badge — a convenience copy, not a second artifact.
+There is no QR popover.
 
 For programmatic embed-URL generation, call `story/variant-share-url`
 directly — see the worked example below.

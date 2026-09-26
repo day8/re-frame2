@@ -810,9 +810,10 @@
   `reg-story-panel*`. The panel renders in the `:right` placement
   (the canonical right-panel slot).
 
-  The panel registration is opt-in by the consumer via the shell's
-  `:panel-visibility` map. By default the a11y slot is off (don't
-  bloat the right pane until the user explicitly opens it)."
+  The panel shows by default: the panel host renders every registered
+  panel whose `:panel-visibility` entry is not `false`, so setting
+  `[:panel-visibility :rf.story.panel/a11y]` to `false` hides it. The
+  axe-core scan itself stays behind the CDN opt-in above."
   []
   (when rf.story.config/enabled?
     ;; Register the panel-view as a re-frame view so the panel system

@@ -326,13 +326,24 @@ See also:
 
 ## Test-runner integration
 
-Stage 5 ships the `story/assertions-passing?` predicate as the canonical
-`cljs.test` / `clojure.test` surface:
+`story/assertions-passing?` is the canonical `cljs.test` /
+`clojure.test` predicate. `run-variant` returns a promise: a
+`CompletableFuture` on the JVM, which `clojure.test` can deref, and a
+`js/Promise` in CLJS, which `cljs.test` waits on with `(async done …)`:
 
 ```clojure
+;; JVM — clojure.test
 (deftest my-component-test
   (let [result @(story/run-variant :story.auth.login-form/happy-path {})]
     (is (story/assertions-passing? result))))
+
+;; CLJS — cljs.test
+(deftest my-component-test
+  (async done
+    (.then (story/run-variant :story.auth.login-form/happy-path {})
+           (fn [result]
+             (is (story/assertions-passing? result))
+             (done)))))
 ```
 
 `assertions-passing?` accepts either the `run-variant` result map or its

@@ -1126,7 +1126,7 @@ async function assertSidebarNavigationSelectsEveryRow(page) {
 }
 
 async function assertArgsPrecedence(page) {
-  // Pins the matrix-doc claim "global < mode < story < variant < controls".
+  // Pins the matrix-doc claim "global < story < mode < variant < controls".
   // Sequence: confirm the variant-level :count seed (7) wins over the
   // story-level seed; flip a toolbar mode to prove it applies; finally
   // override :label via controls and assert the controls-level value

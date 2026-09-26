@@ -7,9 +7,10 @@
   same cell the author is looking at. The URL is the browser's
   address-bar URL — `re-frame.story.ui.url-state` wires pushState /
   popstate against this encoder so back-button + bookmark + Cmd-L /
-  Cmd-A / Cmd-C preserve state. There is no separate Share button or
-  QR popover — the live address-bar URL is the whole sharability
-  surface.
+  Cmd-A / Cmd-C preserve state. The toolbar's Share button opens the
+  share / export dialog (`re-frame.story.ui.share`), whose Share URL row
+  copies that same live address-bar URL rather than minting a second
+  artifact.
 
   ## URL scheme
 

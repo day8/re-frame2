@@ -1273,7 +1273,7 @@ module.exports = {
        * Per Spec 007 §Args (and args.cljc resolve-args) the
        * precedence chain is:
        *
-       *   global-args  <  mode-args  <  story-args  <  variant-args  <  controls-overrides
+       *   global-args  <  story-args  <  mode-args  <  variant-args  <  controls-overrides
        *
        * Each layer DEEP-MERGES into the next; lower-precedence
        * keys survive when the higher-precedence layer doesn't
