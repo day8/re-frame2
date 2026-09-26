@@ -59,11 +59,17 @@ Last-write-wins on multiple redirects, with a `:rf.warning/multiple-redirects` t
 
     For a `:location` built from user input (`?next=...`), use `:rf.server/safe-redirect`.
     It runs the gauntlet in order: the URL must parse
-    (`:rf.error/safe-redirect-invalid-url`), `javascript:` / `data:` / `vbscript:`
-    schemes are rejected (`:rf.error/safe-redirect-scheme-rejected`), and
-    `:relative-only? true` or an `:allow ["app.example.com"]` allowlist gates the host
-    (`:rf.error/safe-redirect-host-disallowed`). An attacker-controlled `?next=…` cannot
+    (`:rf.error/safe-redirect-invalid-url`); any scheme other than `http` or `https` —
+    `javascript:`, `data:`, `mailto:`, `ftp:` and the rest — is rejected
+    (`:rf.error/safe-redirect-scheme-rejected`); an `http(s)` URL with no host, such as
+    `http:evil.example.com`, is rejected as invalid; and `:relative-only? true` or an
+    `:allow ["app.example.com"]` allowlist gates the host
+    (`:rf.error/safe-redirect-host-disallowed`). A relative location such as
+    `/dashboard` always passes `:allow`. An attacker-controlled `?next=…` cannot
     bounce a freshly-authed user off-origin.
+
+    A rejection does not throw. It reports the error and writes no redirect, so the
+    request renders the page it would have rendered anyway, under its current status.
 
 ## A status the framework writes for you: the entry-denial `403`
 
@@ -113,8 +119,7 @@ response stays `403` unless the handler also writes one of the two.
 The floor is server-only — a client frame has no response to stamp. The routing
 contract itself (what makes a guard reject, what the denial value carries, the
 client-side recipe) is [`:can-enter`](../routing/how-to/require-sign-in-on-a-route.md)'s;
-`403` is what this page adds to it. Normative:
-[spec/011-SSR.md §Route entry denial — the default 403](../../spec/011-SSR.md#route-entry-denial--the-default-403).
+`403` is what this page adds to it.
 
 ## Header injection fails loud
 

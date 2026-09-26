@@ -17,12 +17,14 @@ The Ring adapter is in the [tutorial](tutorial.md#step-7--swap-in-the-ring-adapt
 
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr_streaming/core.cljc
-(require '[re-frame.ssr :as ssr])
+(require '[re-frame.core :as rf]
+         '[re-frame.ssr :as ssr])
 
+;; comments, author-feed and their two skeletons are ordinary rf/reg-view views.
 (rf/reg-view ^{:rf/id :article/page} article-page []
   [:main.article-page
-   [:header [:h1 @(rf/subscribe [:article/title])]]
-   [:div.article-body @(rf/subscribe [:article/body])]
+   [:header [:h1 @(subscribe [:article/title])]]
+   [:div.article-body @(subscribe [:article/body])]
    [:section.article-extras
     [ssr/boundary
      {:id :region.comments :fallback [comments-skeleton]}
@@ -42,16 +44,12 @@ defs for you) or by `(rf/view :id)` lookup — a bare `[:article/comments]` head
 an *HTML element*, never a view, so it paints `<comments>` on every host, server
 included.
 
-That rule used to have an exception, and the exception was the dangerous part:
-the JVM SSR emitters resolved keyword heads through the view registry, so the
-same hiccup meant "registered view" on the server and "an HTML element" in the
-browser. The server rendered it *correctly*, which meant no server-side test
-could catch it and only the client went wrong — silently, as wrong pixels rather
-than an error. That exception is gone (rf2-j81hs): both emitters now treat a
-keyword head as an element, matching every client substrate.
+Because the server emitters resolve no ids either, the same hiccup means the same
+thing on every host, and a server-side test sees the wrong element the browser
+would paint.
 
 That same rule is why the boundary is a **component** and not a hiccup keyword.
-`:rf/suspense-boundary` still exists, but it is internal wire syntax between
+`:rf/suspense-boundary` exists, but it is internal wire syntax between
 `ssr/boundary` and the streaming shell walker — never something you write. Left
 in a client render tree its name passes the DOM tag grammar, so React paints a
 phantom `<suspense-boundary>` element rather than raising anything. And it could
@@ -80,12 +78,13 @@ flaky comments service cannot 500 the whole page — blast radius is one boundar
 Use the streaming Ring constructor (re-exported on `re-frame.ssr.ring`):
 
 ```clojure
-(require '[re-frame.ssr.ring :as ssr-ring])
+(require '[re-frame.ssr.ring :as ssr.ring])   ;; JVM only — inside #?(:clj …) in a .cljc ns
 
 (def handler
-  (ssr-ring/stream-handler
+  (ssr.ring/stream-handler
     {:initial-events [[:rf/server-init]]
-     :root-view      [(rf/view :article/page)]
+     ;; The fn form: call the view, so the server hashes the tree it returns.
+     :root-view      (fn [] ((rf/view :article/page)))
      :payload        [:articles :comments]}))   ;; same fail-closed allowlist as ssr-handler
 ```
 
@@ -93,12 +92,16 @@ On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
 `hydrate!`), and **hydrate from its `:on-ready` callback**:
 
 ```clojure
+;; requires, alongside rf and ssr: [re-frame.adapter.reagent :as reagent-adapter]
 (defonce app-root (reagent-adapter/client-root))
 
+(rf/init! reagent-adapter/adapter)
+(rf/make-frame {:id :app/main :platform :client})
 (ssr/streaming-install!
   {:frame    :app/main
    :on-ready (fn [_outcomes]
-               (let [payload (ssr/hydrate! {:frame :app/main})
+               (let [payload (ssr/hydrate! {:frame          :app/main
+                                            :render-tree-fn (fn [] ((rf/view :article/page)))})
                      el      (js/document.getElementById "app")
                      tree    [rf/frame-provider {:frame :app/main}
                               [(rf/view :article/page)]]]
@@ -116,8 +119,9 @@ calling `streaming-install!`, or use the
 The runtime materialises the inert fallback `<template>`s into visible mounts,
 then swaps each mount's content for its resolved chunk — merging that chunk's
 delta — as the chunks arrive. A streaming page therefore *requires* the client
-runtime to paint fallbacks at all: a non-JS client sees the shell structure but
-no skeletons until the final payload lands.
+runtime: fallbacks and resolved regions both arrive inside inert `<template>`s,
+so a client that runs no JavaScript — most crawlers and link unfurlers — sees the
+shell with every boundary region empty.
 
 `:on-ready` fires once, when the last chunk has landed, every delta is consumed,
 and every `<rf-suspense>` mount the runtime created has been **unwrapped**. That
@@ -210,7 +214,7 @@ contracts.
 | `stream-handler` throws at construction | `:rf.error/ssr-streaming-unsupported-opt` — `:html-shell` or `:renderer` passed | Use the shell-hook options; use `ssr-handler` if you need a one-piece shell or the Node renderer |
 | Boundary missing `:id` or `:fallback` | `:rf.error/suspense-boundary-invalid-attrs` | Give every boundary both keys |
 | Page cut off part-way, status 200 | `:rf.error/ssr-streaming-writer-failed` (`:phase` names the chunk) | Check the record's exception; the status was already sent, so it cannot be an error page |
-| No JS client | Shell structure only; no skeletons until final payload | Expected — fallbacks need the client runtime to paint |
+| No JS client (or a crawler) sees empty regions | Fallbacks and resolved regions both ship inside inert `<template>`s | Expected — the client runtime paints them; keep content crawlers need outside any boundary |
 
 ## See also
 

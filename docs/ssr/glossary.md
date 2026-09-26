@@ -8,7 +8,7 @@ Server-side rendering: rendering your app to an HTML string on the server (per r
 
 ### **render-to-string**
 
-Pure function from hiccup to an HTML string — no browser, no DOM, JVM-runnable. It runs your real [views](../core/glossary.md#view) against a [per-request frame](#per-request-frame), which is what makes "one app, runs twice" hold. Lives in `re-frame.ssr`; re-exported on the `rf/` facade.
+Pure function from hiccup to an HTML string — no browser, no DOM, JVM-runnable. It runs your real [views](../core/glossary.md#view) against a [per-request frame](#per-request-frame), which is what makes "one app, runs twice" hold. Lives in `re-frame.ssr` (`ssr/render-to-string`); there is no copy on the `rf/` facade.
 
 ### **per-request frame**
 
@@ -20,7 +20,7 @@ The conventional boot event for a per-request frame, named in `:initial-events`.
 
 ### **blocking resource**
 
-A [resource](../resources/glossary.md#resource) a route declares with `:blocking? true` in its `:resources`. The Ring handler waits for a route's blocking resources to settle before it renders, up to a fixed 5-second render budget; one that has not settled by then enters `:error` and the page renders its error state. Nothing else is waited for: a fetch an `:initial-events` handler starts itself is usually still in flight when the render begins.
+A [resource](../resources/glossary.md#resource) a route declares with `:blocking? true` in its `:resources`. The Ring handler waits for a route's blocking resources to settle before it renders, within a 5-second render budget; one that has not settled by then enters `:error` and the page renders its error state. Nothing else is waited for: a fetch an `:initial-events` handler starts itself is usually still in flight when the render begins.
 
 ### **hydration**
 
@@ -40,11 +40,11 @@ The Ring adapter's required `:payload` option — the top-level app-db keys allo
 
 ### **hydration mismatch**
 
-When the client's first render disagrees with the server's HTML. re-frame2 compares a structural hash of both render trees and fires a structured trace carrying both hashes — warn-and-replace by default, a thrown error under strict mode (`:ssr {:on-mismatch :hard-error}`) for CI. The classic silent SSR bug, made loud.
+When the client's first render disagrees with the server's HTML. For views that return hiccup, re-frame2 compares the two sides' [render hashes](#render-hash) and fires a structured trace carrying both hashes — warn-and-replace by default, a thrown error under strict mode (`:ssr {:on-mismatch :hard-error}`) for CI. The classic silent SSR bug, made loud.
 
 ### **render hash**
 
-A structural hash of the server's render tree, stamped as `data-rf-render-hash` on the root element and as `:rf/render-hash` in the payload. `hydrate!` hashes the client's first render and compares the two. The handler writes it only when `:root-view` is the fn form, `(fn [] ((rf/view :app/root)))`; the vector form `[(rf/view :app/root)]` renders the same HTML with no hash, so nothing is compared. UIx and Fresco roots carry none by design — React's hydration checks them. The head has its own `:rf/head-hash`, which the runtime writes but does not compare.
+A structural hash of the server's render tree, stamped as `data-rf-render-hash` on the root element and as `:rf/render-hash` in the payload. `hydrate!` hashes the client's first render and compares the two. The handler writes it only when `:root-view` is the fn form, `(fn [] ((rf/view :app/root)))`, and the root view returns an element; the vector form `[(rf/view :app/root)]`, or a root whose body is only another view, renders the same HTML with no hash, so nothing is compared. The hash covers the markup the root spells out and the arguments it passes to child views, not what those child views render. UIx and Fresco roots carry none by design — React's hydration checks them. The head has its own `:rf/head-hash`, which the runtime writes but does not compare.
 
 ### **deploy-drift checks**
 

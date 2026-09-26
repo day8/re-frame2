@@ -4,17 +4,18 @@ Ship HTML before the JavaScript loads, then let the client take over — without
 writing your app twice. Most stacks break that promise with a server path and a
 client path that drift, plus `typeof window` checks. re-frame2's rule is **"one
 app, runs twice."** The same events, subscriptions, and views run on the JVM and
-in the browser; only genuinely one-sided code is fenced with `:platforms`.
+in the browser; only genuinely one-sided code is fenced — effects and events with
+`:platforms`, the server and client entry points with reader conditionals.
 
 ```clojure
 (:require [re-frame.core :as rf]
-          [re-frame.ssr  :as ssr])   ;; day8/re-frame2-ssr — forget this → :rf.error/ssr-artefact-missing
+          [re-frame.ssr  :as ssr])   ;; day8/re-frame2-ssr — loading it installs SSR
 
-;; server (JVM): real views, per-request frame — no DOM
-(rf/with-frame f
-  (ssr/render-to-string [(rf/view :app/root)] {}))
+;; server (JVM): real views, a fresh frame per request — no DOM
+(rf/with-new-frame [f (rf/make-frame {})]
+  (ssr/render-to-string ((rf/view :app/root)) {}))
 
-;; client: adopt the server's HTML + state
+;; client: adopt the server's state, then mount with {:hydrate? true} to adopt its HTML
 (ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})
 ```
 
