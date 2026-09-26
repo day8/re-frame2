@@ -104,23 +104,11 @@ helper.
   [:span (:title todo)])
 ```
 
+Outside the body's synchronous run (in a callback, a promise, a timer or a lazy
+sequence realised later) it raises `:rf.error/fresco-sub-outside-render`.
+
 A bare `rf/subscribe` in a view body is not an alternative. React islands use
 [`n/use-sub`](#nuse-sub).
-
-Related: [Views and reads](02-views-and-reads.md).
-
-<a id="read-extent-law"></a>
-### Read-extent law
-
-`h/sub` is legal only during direct synchronous execution of the active view
-body, including helpers it calls immediately. A callback, promise, timer, lazy
-sequence, unforced delay, or other deferred computation may not carry the read
-outside that extent.
-
-A read after the extent raises a structured error such as
-`:rf.error/fresco-sub-outside-render` or
-`:rf.error/fresco-deferred-read-at-boundary`. Read the value during render and
-close over the value instead.
 
 Related: [Views and reads](02-views-and-reads.md).
 
@@ -133,29 +121,15 @@ or retried render acquires no durable subscription ownership.
 
 Related: [Views and reads](02-views-and-reads.md).
 
-<a id="component-abi"></a>
-### Component ABI
-
-The props and children contract for a Hiccup head: which values are converted,
-which pass by identity, where `:key` and `:ref` live, and how children arrive.
-
-- Fresco views receive a ClojureScript props map.
-- Declared hosts follow their callback, slot, and server contracts.
-- A React island, reached through a host, receives React props; nothing lowers
-  Fresco event intents or controlled fields inside it.
-
-Related: [Views and reads](02-views-and-reads.md),
-[Interop](09-interop.md), [Islands](10-native-tier.md).
-
 <a id="lowering"></a>
-### Lowering
+### Hiccup conversion
 
 The conversion from Fresco data to React props and elements. It includes the
 Hiccup walk, event-intent callback creation, controlled-field behaviour, and
 attribute normalisation.
 
-When diagnostics identify lowering itself as the cost owner, the local escape
-is returning a React element directly from the same view.
+When diagnostics name Hiccup conversion as the cost, the local escape is
+returning a React element directly from the same view.
 
 Related: [Events as data](03-events-as-data.md),
 [Islands](10-native-tier.md).
@@ -269,11 +243,12 @@ Related: [Events as data](03-events-as-data.md).
 An input whose displayed value comes from app-db and whose user edits return as
 event intents. Fresco's controlled path provides:
 
-- synchronous same-turn convergence;
-- committed-value echo;
-- caret and selection preservation;
-- IME composition safety;
-- explicit reset through [`::h/revision`](#hrevision).
+- the committed value returns in the same event turn, so fast typing loses
+  nothing;
+- the field shows what the handler committed;
+- caret and selection survive a rejected or rewritten edit;
+- IME composition is not interrupted;
+- [`::h/revision`](#hrevision) resets the field explicitly.
 
 A React island does not provide this repair. Keep controlled text fields on
 the interpreted Fresco path.
@@ -400,14 +375,10 @@ Related: [Interop](09-interop.md),
 <a id="server-policy"></a>
 ### Server policy
 
-The SSR contract for a host or native component:
-
-- **Render**: execute on the server and produce deterministic React HTML;
-- **Client-only**: do not execute on the server; produce a deterministic
-  fallback or nothing until the browser adopts the root.
-
-Foreign hosts and named native components default to Client-only. Native
-Hiccup and intrinsic React elements render by default.
+The SSR contract a `defhost` declares with `:server`. `:render` runs the
+component on the server. `:client-only`, the default, renders nothing there (or
+the declared `:fallback`) until the browser adopts the root. `[:> …]` is always
+client-only. Native Hiccup renders on the server.
 
 Related: [SSR and hydration](18-ssr-and-hydration.md),
 [Interop](09-interop.md).
@@ -421,6 +392,15 @@ crossings should use [`h/defhost`](#defhost) so callback contracts, slots, and
 server policy remain explicit.
 
 Related: [Interop](09-interop.md).
+
+<a id="crossing"></a>
+### Crossing
+
+The point where a Fresco tree hands a subtree to a foreign React component,
+through [`h/defhost`](#defhost) or the [raw escape](#raw-escape), `[:> …]`.
+Fresco converts the props there and sees nothing below it.
+
+Related: [Interop](09-interop.md#crossing-rules).
 
 ## Islands and performance
 
@@ -441,8 +421,8 @@ Related: [Islands](10-native-tier.md).
 ### `n/use-sub`
 
 A React hook that subscribes to a re-frame2 query from inside a React island.
-It reads through the same cell table as `h/sub`, so the read joins the same
-membership and Xray rosters, and it obeys React's rules of hooks: call it
+It reads the same subscription cache as `h/sub`, so it wakes on the same commit
+and Xray shows the read, and it obeys React's rules of hooks: call it
 unconditionally at the top level of the component.
 
 Related: [Islands](10-native-tier.md).
@@ -453,7 +433,8 @@ Related: [Islands](10-native-tier.md).
 A React hook returning the same map as
 [`rf/capture-frame`](../glossary.md#capture-frame) — `:frame`, `:dispatch`,
 `:dispatch-sync`, and `:subscribe` — for the frame the island is mounted in,
-pinned to that frame's incarnation.
+bound to that frame, so a frame recreated later under the same id is not
+reached through it.
 
 Related: [Islands](10-native-tier.md).
 
@@ -473,43 +454,27 @@ Related: [Islands](10-native-tier.md).
 <a id="performance-ladder"></a>
 ### Performance ladder
 
-Five explicit implementation levels:
+The five rungs from ordinary Fresco to a native screen, each taken only after
+the one above fails a measurement.
 
-1. ordinary Fresco;
-2. tuned [read topology](#read-topology);
-3. a React element returned directly from an existing view;
-4. a React [island](#native-island);
-5. a native screen.
-
-Related: [Performance](19-performance.md),
-[Islands](10-native-tier.md).
+Related: [The escape ladder](escape-ladder.md).
 
 <a id="escape-benefit-rule"></a>
 ### Escape-benefit rule
 
-Keep a native escape only when it:
+What a performance escape must achieve to stay: recover at least 20% of the
+measured interaction, save at least 2 ms at p95, or turn a failed budget into a
+pass.
 
-- recovers at least 20% of the measured interaction;
-- saves at least 2 ms at p95; or
-- converts a failed user-visible budget into a pass.
-
-Otherwise remove it.
-
-Related: [Performance](19-performance.md).
+Related: [The escape ladder](escape-ladder.md#taking-a-performance-escape).
 
 <a id="user-visible-budget"></a>
 ### User-visible budget
 
-A performance requirement expressed as an observable user outcome, such as:
+A performance target stated as something the user observes, such as a click
+painting within 50 ms at p95.
 
-- discrete interaction paint within 50 ms p95;
-- controlled echo within one frame;
-- broad operation within 100 ms p95;
-- zero teardown residue.
-
-Synthetic benchmark scores do not replace these budgets.
-
-Related: [Performance](19-performance.md).
+Related: [Performance](19-performance.md#measure-against-a-budget).
 
 ## State homes
 
@@ -533,19 +498,6 @@ element's attributes or a view's props. Not an animation system.
 
 Related: [Motion and presence](12-motion-and-presence.md),
 [Ephemeral state](11-ephemeral-state.md).
-
-<a id="pressure-valve"></a>
-### Pressure valve
-
-A legitimate home for UI state under the one-state-owner rule:
-
-- an explicit app-db address;
-- the forms module for drafts and form control;
-- native host state for high-rate private mechanics;
-- browser-owned state as an explicit interop choice;
-- presence retention for pixels that outlive removed data.
-
-Related: [Ephemeral state](11-ephemeral-state.md).
 
 <a id="overlay"></a>
 ### Overlay
@@ -580,16 +532,6 @@ A resource whose lifetime is a local view rather than the current route. It has
 no dedicated mechanism: the event that decides the data is wanted ensures it
 under an owner, and the event that dismisses the view releases that owner.
 
-```clojure
-(rf/reg-event :todo.search/wanted
-  (fn [_ [_ q]]
-    {:fx [[:dispatch [:rf.resource/ensure
-                      {:resource :todo/search
-                       :params   {:q q}
-                       :owner    [:todo.search]
-                       :cause    [:todo.search/wanted q]}]]]}))
-```
-
 Resource subscriptions never fetch; they read the cache. An owner keeps its
 entry from being garbage-collected until the owner is released.
 
@@ -615,17 +557,10 @@ Related: [Testing](15-testing.md).
 <a id="testing-ladder"></a>
 ### Testing ladder
 
-| Level | Proves | Mechanism |
-| --- | --- | --- |
-| L0 | Handlers, subscriptions, transitions | Pure function calls |
-| L1 | Intents, codecs, revision laws, macro expansion | Data and property tests |
-| L2 | One hook-free body as a semantic tree | [`ht/tree`](#semantic-harness) |
-| L3 | React lifecycle, hooks, hosts, error boundaries | Mounted facade |
-| L4 | IME, caret, focus, hydration, performance | Real browser engines |
+The five test levels, L0 (pure functions) to L4 (real browsers). A lower level
+does not prove what a higher one does.
 
-A lower level does not prove the equality of a higher level.
-
-Related: [Testing](15-testing.md).
+Related: [Testing](15-testing.md#the-testing-ladder).
 
 <a id="semantic-harness"></a>
 ### Semantic harness
@@ -647,7 +582,7 @@ rerender, dispatch-and-settle, settle, virtual-clock advancement, unmount, and
 Related: [Testing](15-testing.md).
 
 <a id="sabotage-control"></a>
-### Sabotage control
+### Sabotage twin
 
 A deliberately broken twin of an important test or measurement. It proves that
 the instrument moves when the input is wrong and prevents an empty population
@@ -680,23 +615,12 @@ Related: [Migrating from Reagent](20-migration-from-reagent.md).
 ## Diagnostics
 
 <a id="causal-lens"></a>
-### Causal lens
+### Causal chain
 
-The diagnostic sequence used by Xray:
+The stages Xray's Causal view follows one dispatch through, from the event to
+the browser paint. Render, commit, and paint are separate claims.
 
-```text
-event
-  → subscriptions recomputed
-  → values changed
-  → views notified
-  → bodies run
-  → React commit
-  → browser paint
-```
-
-Render, commit, and paint are separate claims.
-
-Related: [Diagnostics](16-diagnostics.md).
+Related: [Diagnostics](16-diagnostics.md#the-causal-chain).
 
 <a id="explain-render"></a>
 ### Explain-render
@@ -709,13 +633,13 @@ records.
 Related: [Diagnostics](16-diagnostics.md).
 
 <a id="hot-view-advisor"></a>
-### Hot-view advisor
+### Advisor
 
 A diagnostic ranking that combines time, frequency, read churn, and fan-out,
 then classifies the pressure it can measure: computation and read topology.
-Lowering, React and layout it reports as unattributed, naming the tool that can
-measure each. It recommends the smallest credible remedy and never auto-promotes
-code to native.
+Hiccup conversion, React and layout it reports as unattributed, naming the tool
+that can measure each. It recommends the smallest credible remedy and never
+auto-promotes code to native.
 
 Related: [Diagnostics](16-diagnostics.md),
 [Performance](19-performance.md).
@@ -736,13 +660,13 @@ Missing evidence is not represented as an empty result.
 Related: [Diagnostics](16-diagnostics.md).
 
 <a id="complaint-catalogue"></a>
-### Complaint catalogue
+### Complaint
 
-The stable `:rf.error/*` and `:rf.warning/*` identifier set, including cause,
-recovery, and source links where available. Tests assert the id, not the human
+Fresco's name for one of its errors or warnings, each identified by a stable
+`:rf.error/*` or `:rf.warning/*` id. Tests assert the id, not the human
 message.
 
-Related: [Diagnostics](16-diagnostics.md).
+Related: [Troubleshooting](troubleshooting.md#the-complaint-index).
 
 <a id="production-erasure"></a>
 ### Production erasure
@@ -759,53 +683,20 @@ Related: [Diagnostics](16-diagnostics.md).
 <a id="mount"></a>
 ### `client-root`, `render!`, and `unmount!`
 
-The Fresco root lifecycle — the same three names every re-frame2 React view
-adapter uses.
+The root lifecycle every re-frame2 React view adapter shares. `h/client-root`
+returns an inert handle, so it belongs in a `defonce`. The first `h/render!`
+through the handle creates the React root and every later call updates it, so
+one function serves as the boot and the hot-reload hook. `h/unmount!` removes
+the root and destroys no frame.
 
-`h/client-root` allocates an inert, opaque handle. No DOM work, no React call,
-so it belongs under a `defonce` at namespace load.
-
-`h/render!` does both the boot render and every hot-reload render. Its first
-call through a handle creates the React root at the node it is given; every
-later call updates that same root, so the frame and its app-db carry on. The
-reloaded views do not: each `defview` evaluation makes a new component, so
-React remounts it and rebuilds its DOM, and focus, the caret and scroll
-position start over. Its options are React-root options only, `:hydrate?` and
-`:identifier-prefix`, both read on the first call. The frame is named in the
-tree: `[h/frame-root {:id …}]` creates it if needed, and
-`[h/frame-provider {:frame …}]` uses one that already exists. `frame-root`
-runs `:initial-events` in order before the first paint.
-
-`h/unmount!` tears the root down and is safe to call more than once; a later
-`h/render!` through the handle mounts afresh. It destroys no frame: a frame
-outlives the boundary that ensured it.
-
-```clojure
-(defonce app-root (h/client-root))
-
-(defn ^:dev/after-load mount! []
-  (h/render! app-root
-             [h/frame-root {:id :app :initial-events [[:todo/initialise]]}
-              [todo-app {}]]
-             (js/document.getElementById "app")))
-```
-
-Related: [Installation](00-installation.md).
+Related: [Installation](00-installation.md#what-the-boot-creates).
 
 <a id="hydrate"></a>
 ### `{:hydrate? true}`
 
-Two calls complete hydration, and neither creates the frame:
-
-- `re-frame.ssr/hydrate!` installs the server payload into a client frame that
-  must already exist (`rf/make-frame` made it);
-- `h/render!` with `{:hydrate? true}` on its first call through a handle adopts
-  the existing server DOM for one Fresco root, under an
-  `[h/frame-provider {:frame …}]` for the frame the payload landed in. Later
-  calls through the handle update the root and ignore the key.
-
-Install state before adopting the DOM. `frame-provider` throws if the frame
-was never made, but it cannot tell whether a live frame was hydrated.
+The `h/render!` option that makes its first call adopt server-rendered DOM
+(`hydrateRoot`) instead of replacing it. The frame must already exist and hold
+the server payload, and the tree uses `h/frame-provider`.
 
 Related: [SSR and hydration](18-ssr-and-hydration.md).
 

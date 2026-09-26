@@ -6,26 +6,15 @@ The runtime turns that data into React elements; app-db, events, subscriptions,
 effects, frames, and the event pipeline are ordinary re-frame2, as the Core
 guide teaches them. This guide covers what changes at the view layer.
 
-Alongside the chapters are five lookup pages. The [API
-reference](api-reference.md) lists every public name with its signature; the
-[Cookbook](cookbook.md) has whole recipes you can copy;
-[Troubleshooting](troubleshooting.md) starts from a symptom or an error id;
-[The escape ladder](escape-ladder.md) says when to leave the interpreted model
-and what each step costs; and the [Glossary](glossary.md) defines the
-Fresco-specific terms the chapters use.
-
 ## When Fresco fits
 
-Use Fresco when you want re-frame2's data-oriented model to continue through
-the view tree:
+Use Fresco when the application is primarily a re-frame2 application and you
+want its data-oriented model to continue through the view tree:
 
 - markup remains inspectable Hiccup data
 - a view reads subscriptions with `h/sub` where it needs them
 - common event handlers remain event vectors rather than opaque closures
 - a frame remains explicit across rendering, callbacks, testing, and tools
-
-Choose Fresco when the application is primarily a re-frame2 application and you
-want markup, reads, and ordinary interactions to stay inspectable data.
 
 ## When to use another corpus or adapter
 
@@ -54,6 +43,8 @@ Interpreting Hiccup has a runtime cost. Cold mount can be slower than a
 hand-written UIx equivalent, and each Fresco view pays a small fixed cost for
 tracking its reads. Measure before moving code: a React island is for the part
 of a screen that profiling identifies, not the default authoring style.
+[The escape ladder](escape-ladder.md) says what each step away from interpreted
+Hiccup costs.
 
 Fresco has no second reactive store inside the view layer. State that other
 views, tests, tools, routing, or SSR must observe belongs in app-db. The few

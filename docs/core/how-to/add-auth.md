@@ -4,8 +4,6 @@ This recipe adds login to an app: a session that survives a reload, requests tha
 
 It uses two add-on artefacts, [routing](../../routing/concepts.md) (`day8/re-frame2-routing`) and [managed HTTP](../../async/http.md) (`day8/re-frame2-http`), and optionally [resources](../../resources/concepts.md) for the logout step. The login form itself is [Build a form](build-a-form.md).
 
-[Part 3 of the tutorial](../../resources/tutorial/03-auth-and-forms.md) builds a variant against an API that hands out only a token, so its boot *fetches* the user where this page *restores* one (see the note at the end of step 1).
-
 ## 1. The session slice
 
 The session is two [app-db](../glossary.md#app-db) paths:
@@ -77,7 +75,7 @@ The token is a credential, so the init event in step 4 also returns a `:sensitiv
 
 !!! note "If your API hands out a token and nothing else"
 
-    Some APIs expect you to exchange a stored bearer token for the current user with a `GET /me` at boot. The identity then arrives asynchronously, after the first URL has been resolved, so the guard in step 4 has to cope with a window where the token is known and the user is not. That costs a branch in the denial handler and a "restoring…" state in your shell. Both RealWorld examples take this shape (`examples/real-apps/realworld_http/auth.cljs`, under *the cold-boot deep-link window*), and [Part 4 of the tutorial](../../resources/tutorial/04-scopes-and-guards.md) walks through it. Use it only when the API leaves you no choice.
+    Some APIs expect you to exchange a stored bearer token for the current user with a `GET /me` at boot. The identity then arrives asynchronously, after the first URL has been resolved, so the guard in step 4 has to cope with a window where the token is known and the user is not. That costs a branch in the denial handler and a "restoring…" state in your shell. Both RealWorld examples take this shape (`examples/real-apps/realworld_http/auth.cljs`, under *the cold-boot deep-link window*), and [Part 4 of the tutorial](../../resources/tutorial/04-scopes-and-guards.md) walks through it. Use it only when the API leaves you no choice. Once the reply has stored the user, dispatch `[:rf.route/replan-resources {:cause [:session-restore]}]` so the current route's resources re-plan under the resolved viewer (`{:cause [:session-restore-failed]}` after clearing a rejected token; `examples/real-apps/realworld_resources/auth.cljs` shows both). [Deep links while a saved session is loading](../../routing/how-to/require-sign-in-on-a-route.md#deep-links-while-a-saved-session-is-loading) has the denial-handler branch.
 
 ## 2. Wire the login form
 
@@ -132,7 +130,7 @@ Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../asyn
 ```
 
 - It reads `(:frame ctx)`, the frame this request runs under, so it keeps working on multi-frame pages ([frame identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found)).
-- It returns `ctx` unchanged when there's no token, so login and public reads are untouched. Each slot must return a map: written as `(when token …)`, it would return `nil` for a logged-out request, which raises `:rf.error/http-interceptor-bad-return` and runs neither reply event.
+- It returns `ctx` unchanged when there's no token, so login and public reads are untouched.
 - `Authorization` is on the framework's built-in header denylist, so the live request carries it while traces show it redacted.
 - It never fires for another frame's requests.
 
@@ -161,11 +159,9 @@ Note the two `:status` levels. The reply's `:status` is `:ok`, `:error`, or `:ca
 
 To refresh the token and retry instead of logging out, drive the request from a [state machine](../../machines/concepts.md). Transport `:retry` decides from the failure category alone, so it can't wait on a second request ([Build a form](build-a-form.md#let-transport-retry-ride-out-the-flaky-network)).
 
-An interceptor map needs `:before`, `:after`, or both; with neither, registration throws `:rf.error/http-bad-interceptor`.
-
 ??? note "How the chain composes"
 
-    HTTP interceptors run like event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` in registration order, `:after` in reverse, and an interceptor with only one of the two is skipped on the other leg. If a `:before` throws, the request is never sent rather than going out undecorated: a dev build traces `:rf.error/http-interceptor-failed` (carrying `:frame`, `:interceptor-id` and `:url`), and the error record is `:rf.error/fx-handler-exception`. If an `:after` throws, the reply is dropped, neither reply event runs, and `:rf.error/http-reply-tail-failed` is reported. Handle anything recoverable inside the interceptor itself.
+    HTTP interceptors run like event [interceptors](../interceptors.md#the-sandwich-how-a-chain-runs): `:before` in registration order, `:after` in reverse, and an interceptor with only one of the two is skipped on the other leg.
 
 !!! warning "Gotcha: hot-reloading the interceptor"
 
@@ -173,7 +169,7 @@ An interceptor map needs `:before`, `:after`, or both; with neither, registratio
 
 ## 4. Guard the protected routes
 
-Some routes should open only for signed-in users. Declare a [`:can-enter`](../../routing/concepts.md#guarding-entry--can-enter) guard on each protected route. The runtime checks it for every way a navigation can start (programmatic navigate, a `route-link` click, the URL bar, a reload, Back/Forward, the initial load, and SSR), so there is no per-entry-point code to write.
+Some routes should open only for signed-in users. Declare a [`:can-enter`](../../routing/concepts.md#guarding-entry--can-enter) guard on each protected route. The runtime checks it for every way a navigation can start (programmatic navigate, a `route-link` click, the URL bar, a reload, Back/Forward, the initial load, and SSR), so there is no per-entry-point code to write. For a rule that is not about routes, such as a maintenance-mode lockout, see [A policy that is not about routes](../../routing/how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
 
 ```clojure
 ;; cf. examples/real-apps/realworld_http/routing.cljs
@@ -195,23 +191,9 @@ Some routes should open only for signed-in users. Declare a [`:can-enter`](../..
   (fn [[user] _] (some? user)))               ;; true → OK to enter
 ```
 
-- **The guard must return a boolean.** `true` allows entry and `false` refuses it. Anything else also refuses and raises `:rf.error/can-enter-non-boolean`, so write `(some? …)` or `(boolean …)` rather than relying on truthiness.
-- **It reads step 1's `[:auth :user]`**, the durable slice a reload rebuilds, rather than a separate "logged in" flag or a machine's state. That is why step 1 persists the identity as well as the token.
-- **`:tags #{:requires-auth}` is optional.** The framework attaches no meaning to it; keep it if a nav bar or a tool asks "is this page protected?". A `:can-enter` sub also receives the resolved target appended to its query vector (`(fn [[user] [_ target]] …)`), so one guard can serve every protected route and still branch on where the visitor was headed.
+The guard sub must return `true` or `false`; anything else refuses and raises `:rf.error/can-enter-non-boolean`, hence `some?`. It reads step 1's `[:auth :user]`, which is why step 1 persists the identity as well as the token. `:tags #{:requires-auth}` is optional; the framework attaches no meaning to it.
 
-### What a refusal does
-
-A refused entry commits nothing: no route slice, no URL push, no scroll, no `:on-match`, no resource load. Unlike a `:can-leave` block, it leaves no pending navigation to resume. The runtime dispatches `:rf.route/entry-denied` once, with this payload:
-
-```clojure
-{:destination   {:to :app/settings}          ;; a valid navigate request
- :target        {:route-id :app/settings :params {} :query {} :fragment nil :url "/settings"}
- :cause         :link                        ;; :link | :navigate | :popstate | :initial | :ssr
- :requested-url "/settings"
- :guard         :my-app/signed-in?}
-```
-
-The framework's default handler does nothing, so with only the declarations above a logged-out click on `/settings` leaves the visitor where they are and the URL unchanged. Under [SSR](../../ssr/glossary.md#ssr) the same refusal renders the shell with a `403` ([the entry-denial status](../../ssr/response.md#a-status-the-framework-writes-for-you-the-entry-denial-403)). To send the visitor to login instead, replace the handler.
+A refused entry commits nothing and dispatches `:rf.route/entry-denied`, whose default handler does nothing ([How the guard works](../../routing/how-to/require-sign-in-on-a-route.md#how-the-guard-works) shows the payload and the SSR `403`). To send the visitor to login, replace that handler.
 
 ### Bounce to login, remembering where they were headed
 
@@ -230,10 +212,6 @@ The framework's default handler does nothing, so with only the declarations abov
 - **Use `:destination`, not `:requested-url`.** Re-parsing the URL string is how a query and a `#fragment` get lost.
 - **No `{:sensitive …}` map is needed.** The framework classifies the payload's URL fields as sensitive, and that carries over to your replacement handler, which still receives the real values. [Require sign-in on a route](../../routing/how-to/require-sign-in-on-a-route.md) has the details.
 
-!!! note "Why not an interceptor over the navigation events?"
-
-    A navigation reaches the runtime through three events (`:rf.route/navigate`, `:rf.route/url-requested` for a `route-link` click, and `:rf.route/handle-url-change` for the URL bar, reload, and Back/Forward), plus a `{:url …}` form and an in-place query edit that names no route id. An interceptor has to handle every one of those itself, and the one it misses lets a logged-out visitor in. `:can-enter` runs at the point all of them pass through. A frame interceptor is still right when the policy isn't about routes, such as a maintenance-mode lockout; see the [appendix](#appendix--when-the-policy-is-not-about-routes).
-
 ### Wire the frame and restore the session
 
 The guard needs no wiring: it is route metadata, and requiring the routing artefact makes the runtime check it. What remains is the frame that owns the URL, and the order of its boot.
@@ -246,8 +224,9 @@ Restore the session from the frame's `:initial-events`. A `:url-bound? true` fra
 (rf/reg-event :auth/init
   {:rf.cofx/requires [:auth.session/saved]}        ;; ask for the saved session by name
   (fn [{:keys [db auth.session/saved]} _]
-    {:db        (assoc db :auth {:user  (:user saved)   ;; the IDENTITY the guard reads
-                                 :token (:token saved)}) ;; the credential requests carry
+    {:db        (update db :auth assoc
+                        :user  (:user saved)       ;; the IDENTITY the guard reads
+                        :token (:token saved))     ;; the credential requests carry
      :sensitive [[:auth :token]]}))                ;; step 1's egress protection
 
 (rf/make-frame
@@ -273,10 +252,6 @@ If you mount with `frame-root` as in [Boot and mount an app](boot-and-mount-an-a
 !!! warning "Gotcha: exactly one frame owns the URL"
 
     `:url-bound? true` ([`url-bound?`](../../routing/glossary.md#url-bound)) makes this frame's navigation drive the browser address bar and Back/Forward. Only one frame may declare it; a second is still created, but the runtime reports `:rf.error/duplicate-url-binding` (an error record, not a throw) and the first keeps the URL. Leave any other frame on the page, such as [Xray](../glossary.md#xray), a story, or a second app instance, URL-unbound so it routes in memory.
-
-!!! tip "When the identity arrives after the first route has committed"
-
-    If your restore is asynchronous (a `GET /user` that validates the token), resources on a public deep link were planned while the viewer was unknown, and a `{:from-db …}` scope that resolved `nil` failed the route plan closed. Once the reply's handler has stored the user, re-plan the current route instead of navigating: `[:rf.route/replan-resources {:cause [:session-restore]}]` reruns the active route's resource plan under the resolved viewer and clears the planning error. The failure branch does the same after clearing the stale token (`{:cause [:session-restore-failed]}`). `examples/real-apps/realworld_resources/auth.cljs` shows both.
 
 ## 5. Bounce back after login
 
@@ -330,7 +305,15 @@ In the logout handler, resolve the old scope from the handler's `db` *before* cl
 
 `clear-scope` removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, ignores late replies for the cleared scope, and records a trace row listing what it removed, aborted, and left alone. Other scopes, such as public reads or a second signed-in frame, are untouched ([Server state: resources](../../resources/concepts.md)). If you don't use resources, drop that `:fx` entry and skip the resolver.
 
-`clear-scope` takes a concrete scope. Passing `{:from-db :my-app/session}` raises `:rf.error/resource-invalid-scope`, and it couldn't work anyway: the `:dispatch` runs as a later event, against the db you have just cleared, so a resolver run there would find no user.
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `:rf.error/http-interceptor-bad-return` on a logged-out request; neither reply event runs | A `:before` returned `nil`, e.g. written as `(when token …)` | Return `ctx` unchanged when there is nothing to add |
+| `:rf.error/http-bad-interceptor` at registration | The interceptor map has neither `:before` nor `:after` | Supply at least one |
+| Request never sent; `:rf.error/http-interceptor-failed` in the dev trace (error record `:rf.error/fx-handler-exception`) | A `:before` threw | Handle recoverable failures inside the interceptor |
+| Neither reply event runs; `:rf.error/http-reply-tail-failed` | An `:after` threw | Handle recoverable failures inside the interceptor |
+| `:rf.error/resource-invalid-scope` from logout | `clear-scope` was given `{:from-db …}` | Resolve the concrete scope in the handler before clearing the slice (step 6) |
 
 ## Check it in Xray
 
@@ -340,17 +323,3 @@ With all six steps wired, open [Xray](../../xray/index.md):
 - Logged in, open an authenticated request. The `Authorization` header shows as redacted, as does `[:auth :token]` in the app-db view.
 - Reload the page while signed in on a protected URL. The `:auth/init` row, carrying the saved session from the coeffect, sits above the initial `:rf.route/handle-url-change` row, and the guarded route commits without an `:rf.route/entry-denied`. If the URL row ever comes first, the restore is no longer in `:initial-events`.
 - Dispatch `:auth/logout`. One clear-scope row lists what was removed, aborted, and left alone.
-
-## Appendix — when the policy is not about routes
-
-Use a frame [interceptor](../glossary.md#interceptor) over the navigation events only for a rule that spans many routes and can't be expressed as route metadata: a maintenance-mode lockout, an analytics-driven redirect, a feature flag gating a whole section by tag. For "is this visitor signed in?", use `:can-enter` (step 4).
-
-The interceptor must handle every navigation entry event itself, or a missed one lets the visitor through:
-
-| Event | Trigger |
-|---|---|
-| `:rf.route/navigate` | Programmatic push — `(dispatch [:rf.route/navigate …])`, including the `{:url "/settings"}` escape hatch and the in-place query/fragment edit that names no route id |
-| `:rf.route/url-requested` | A `route-link` click |
-| `:rf.route/handle-url-change` | URL bar, reload, Back/Forward (popstate) |
-
-The full recipe (the three-event normaliser, the `match-url` and in-place resolution each branch needs, and the redirect) is in [Require sign-in on a route → A policy that is not about routes](../../routing/how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).

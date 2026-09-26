@@ -25,6 +25,11 @@ unit that re-renders when the value changes.
 body runs. When one of those subscription values changes, that view
 re-renders.
 
+View bodies must be pure and safe to run again: React may call a body more than
+once for one commit, and under `StrictMode` it does so deliberately in
+development. Mutating a captured atom, starting a fetch, or counting renders
+belongs in events and effects.
+
 `h/sub` is the only read form in a Fresco body. A bare `rf/subscribe` there
 throws `:rf.error/ambient-frame-refused`, because a read the view does not
 track would never re-render it. Event vectors and the
@@ -94,33 +99,13 @@ props you passed. Always mount it as a Hiccup head.
 
 Every member of a sequence of children needs a key. Put `:key` in that child's
 props map. Fresco does not read Reagent-style `^{:key id}` metadata, and `for`
-does not invent a key. A missing key normally produces React's own development
-warning. A map or other entity value at the `:key` of a view child produces
-`:rf.warning/fresco-entity-key`, naming the child.
+does not invent a key.
 
 Use a stable domain identity such as the todo's id, never an array index or
 the whole entity. [Lists and collections](06-lists-and-collections.md) explains
 why.
 
 ## Props, children, and fragments
-
-The supported head shapes have different props and children contracts:
-
-| Head | Props | Children | `:key` | `:ref` |
-| --- | --- | --- | --- | --- |
-| Native tag — `[:div …]` | attribute map | trailing forms | in the attribute map | callback ref, legal |
-| Fresco view — `[todo-row …]` | one props map | trailing forms arrive as `(:children props)` | in the props map; removed before the body sees props | not a view surface; use ids |
-| Fragment — `[:<> …]` | none, except an optional map for `:key` and `:ref` | trailing forms | in the fragment props map | passed to React's fragment |
-| Foreign host — [`h/defhost`](glossary.md#defhost) or `[:>]` | converted according to the host declaration | Hiccup children become React elements | in props | callback ref, legal |
-
-Nested and lazy child sequences are realized once and flattened one level.
-`nil` and `false` render nothing. `true` raises
-`:rf.error/fresco-true-child`. A string or number renders as text, and a keyword
-or symbol as its name. An existing React element is a valid child. Any other
-value, such as a whole entity map, is handed to React, which refuses it with
-*Objects are not valid as a React child*. A
-view may return `nil`, one root form, or a fragment. React consumes `:key`, so
-it never appears in the props map received by the view body.
 
 A view receives trailing children as a vector of Hiccup forms. Splice that
 vector into the result rather than inserting the vector as a single child:
@@ -147,11 +132,6 @@ Return a fragment when the view needs several roots:
    [save-button {}]
    [cancel-button {}]])
 ```
-
-View bodies must be pure and safe to run again: React may call a body more than
-once for one commit, and under `StrictMode` it does so deliberately in
-development. Mutating a captured atom, starting a fetch, or counting renders
-belongs in events and effects.
 
 ## Equal props skip the body
 
@@ -207,13 +187,6 @@ Five conversion rules cover the normal cases:
   combined.
 - **`:key` is consumed by the runtime.** It is not emitted as a normal prop.
 
-The reserved data vocabulary is intentionally small:
-[`::h/value`](glossary.md#hvalue),
-[`::h/checked`](glossary.md#hchecked),
-[`::h/prevent`](glossary.md#hprevent), and
-[`::h/revision`](glossary.md#hrevision). Events and controlled inputs own the
-behaviour of those values.
-
 ## Forward attributes with owned keys last
 
 A reusable field can accept caller attributes while retaining control of its
@@ -250,9 +223,6 @@ their reads are still recorded by the active view.
 A read deferred past that render raises
 `:rf.error/fresco-sub-outside-render` and names the query. This includes a
 callback, timer, promise, delayed computation, or lazy sequence forced later.
-An unforced `delay` passed through a view boundary raises
-`:rf.error/fresco-deferred-read-at-boundary` before the child can retain a
-read that will never update correctly.
 
 ```clojure
 ;; Don't — the read happens when the timer fires
@@ -268,36 +238,6 @@ read that will never update correctly.
 For work that needs current state later, move the work into the event layer and
 declare the state as a coeffect with `:rf.cofx/requires`. The handler then has
 an explicit state dependency instead of a deferred view read.
-
-!!! warning "A mutable thunk can attach the read to the wrong view"
-    A thunk containing `h/sub` can be stored in a mutable reference and later
-    forced by another active view. It does not throw because a view is
-    rendering at that moment, but the read is recorded against the view that
-    forced the thunk rather than the code that created it.
-
-    ```clojure
-    ;; Don't — whichever view invokes this thunk acquires the subscription
-    (reset! !later #(h/sub [:todo/all]))
-    ```
-
-    The runtime does not trace subscription ownership through mutable
-    references. Treat this as undefined behaviour and pass a value or explicit
-    function input instead.
-
-## How read tracking behaves
-
-Four facts explain the observable behaviour:
-
-1. A view records exactly the subscriptions read during that render. A branch
-   that did not run contributes no dependency.
-2. Framework subscriptions — route identity, resource status, or machine tags
-   — use the same tracking mechanism as application subscriptions.
-3. Subscription identity is `(query-id, args)` under value equality. Rebuilding
-   an equal persistent map produces the same cache key. A changed value,
-   function argument, or JS object creates a different key because functions
-   and JS objects compare by identity.
-4. When the set of taken branches changes, the view refreshes the complete
-   recorded set. Dynamic reads are supported; whole-set refresh is their cost.
 
 ## Troubleshooting
 
@@ -327,6 +267,38 @@ to React ([Islands](10-native-tier.md)).
 
 ## Advanced
 
+### Head shapes and child values
+
+The supported head shapes have different props and children contracts:
+
+| Head | Props | Children | `:key` | `:ref` |
+| --- | --- | --- | --- | --- |
+| Native tag — `[:div …]` | attribute map | trailing forms | in the attribute map | callback ref, legal |
+| Fresco view — `[todo-row …]` | one props map | trailing forms arrive as `(:children props)` | in the props map; removed before the body sees props | not a view surface; use ids |
+| Fragment — `[:<> …]` | none, except an optional map for `:key` and `:ref` | trailing forms | in the fragment props map | passed to React's fragment |
+| Foreign host — [`h/defhost`](glossary.md#defhost) or `[:>]` | converted according to the host declaration | Hiccup children become React elements | in props | callback ref, legal |
+
+Nested and lazy child sequences are realized once and flattened one level.
+`nil` and `false` render nothing. `true` raises
+`:rf.error/fresco-true-child`. A string or number renders as text, and a keyword
+or symbol as its name. An existing React element is a valid child. Any other
+value, such as a whole entity map, is handed to React, which refuses it with
+*Objects are not valid as a React child*. A
+view may return `nil`, one root form, or a fragment.
+
+### How read tracking behaves
+
+1. A view records exactly the subscriptions read during that render. A branch
+   that did not run contributes no dependency.
+2. Framework subscriptions — route identity, resource status, or machine tags
+   — use the same tracking mechanism as application subscriptions.
+3. Subscription identity is `(query-id, args)` under value equality. Rebuilding
+   an equal persistent map produces the same cache key. A changed value,
+   function argument, or JS object creates a different key because functions
+   and JS objects compare by identity.
+4. When the set of taken branches changes, the view refreshes the complete
+   recorded set. Dynamic reads are supported; whole-set refresh is their cost.
+
 ### The collector
 
 Each Fresco view opens a collection window while its body runs. The body may probe subscription reads, but only a committed render
@@ -337,3 +309,22 @@ Lazy child sequences are forced while the window is open, which is why their
 reads are attributed correctly. Once the window closes, a deferred `h/sub`
 call can no longer be assigned to a view and raises the named error instead of
 creating a value that looks correct once and then stops updating.
+
+An unforced `delay` passed through a view boundary raises
+`:rf.error/fresco-deferred-read-at-boundary` before the child can retain a
+read that will never update correctly.
+
+!!! warning "A mutable thunk can attach the read to the wrong view"
+    A thunk containing `h/sub` can be stored in a mutable reference and later
+    forced by another active view. It does not throw because a view is
+    rendering at that moment, but the read is recorded against the view that
+    forced the thunk rather than the code that created it.
+
+    ```clojure
+    ;; Don't — whichever view invokes this thunk acquires the subscription
+    (reset! !later #(h/sub [:todo/all]))
+    ```
+
+    The runtime does not trace subscription ownership through mutable
+    references. Treat this as undefined behaviour and pass a value or explicit
+    function input instead.

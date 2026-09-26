@@ -74,15 +74,12 @@ what it can prove from what it can only suggest:
 | Its own reads moved | `:latest-reads`: the view's subscriptions whose values changed most recently | Check whether the read belongs lower in the tree, or whether the subscription is too coarse |
 | Leads, not a cause | `:candidates`: recent dispatches that recomputed a subscription this view reads | Places to look; Fresco records no link from a commit to the dispatch that caused it |
 | Nothing was searched | `:cap`: no dispatch is retained in the frames this view reads, or the view reads nothing | Reproduce the interaction and check again. Retention matters only if it was set to `0`; `(rf/configure! {:trace-buffer {:events-retained 50}})` restores the default |
-| The rest is React's | `:host-opaque`: whether the body ran, was retried or abandoned, bailed out, committed and painted | React DevTools Profiler for the run and commit; browser performance tools for the paint |
 
-Props, context, a parent host, and a retried or discarded render are not causes
-Fresco records. Use the React DevTools Profiler for those.
+Props, context, a parent host, a retried or discarded render, a bail-out, the
+commit and the paint are not causes Fresco records. Use the React DevTools
+Profiler for the run and commit, and the browser's performance tools for the paint.
 
-When several views run for one event, fan-out distinguishes a topology problem
-from independent useful work. One changed subscription reaching hundreds of
-readers deserves attention. Hundreds of unrelated reads changing together may
-be the intended update.
+### The causal chain
 
 Do not collapse render, commit, and paint into one number:
 
@@ -93,7 +90,7 @@ Do not collapse render, commit, and paint into one number:
 Xray labels which stage each measurement belongs to. Timing proximity alone
 does not prove causation.
 
-The causal chain is:
+The **Causal** view walks one dispatch along this chain:
 
 ```text
 event
@@ -119,6 +116,11 @@ views that read them. Four measurements usually identify the shape:
 | Reads per view | Fine-grained, coarse, or accidentally enormous read sets |
 | Fan-out per subscription | Number of views one changed value can notify |
 | Read-set churn | How often a view changes which subscriptions it reads |
+
+When several views run for one event, fan-out distinguishes a topology problem
+from independent useful work. One changed subscription reaching hundreds of
+readers deserves attention. Hundreds of unrelated reads changing together may
+be the intended update.
 
 Two common failures:
 
@@ -153,9 +155,10 @@ commit and paint belong to React.
 
 So the advisor never recommends a native escape, even for the hottest view on
 the page: its evidence cannot show that Hiccup conversion or React owns the
-cost. Check the last three rows yourself, each with its own tool: Fresco's
-User-Timing `:render` measures for Hiccup conversion (off by default), the
-React DevTools Profiler for React, and browser performance tools for layout and
+cost. Check the last three rows yourself, each with its own tool: the
+`rf:render:<view-id>` User Timing measures for Hiccup conversion (off by
+default; see [Performance](19-performance.md#rf-user-timing)), the React
+DevTools Profiler for React, and browser performance tools for layout and
 paint. Any native escape must still pass the thresholds in
 [Performance](19-performance.md).
 
@@ -185,19 +188,8 @@ per site with the id in the message. Core ids such as `:rf.error/frame-destroyed
 also appear as trace records, carrying the recovery the runtime applied. Xray can link to
 the registration site and the call site when source data is available.
 
-Examples from the guide:
-
-| ID | Meaning | Recovery |
-| --- | --- | --- |
-| `:rf.error/fresco-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
-| `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body or pass the realised value |
-| `:rf.error/fresco-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
-| `:rf.error/fresco-intent-outside-boundary` | An event vector reached a position with no frame | Keep it inside a `defview`; use `h/event` for a foreign callback |
-| `:rf.error/fresco-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
-| `:rf.error/fresco-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
-| `:rf.warning/fresco-entity-key` | A view in a sequence has a map, collection, date or similar value as its `:key` | Key on a stable primitive id |
-| `:rf.warning/fresco-missing-key` | A sequence of views passed as children to another view has a member with no `:key`; passing them in flattens the sequence, so React's own warning cannot fire (inside a native element, React's warning fires instead) | Key on a stable id |
-| `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
+[Troubleshooting](troubleshooting.md#the-complaint-index) lists every Fresco id
+with its cause and fix.
 
 Follow the named recovery before changing unrelated code.
 
@@ -326,8 +318,3 @@ default. Data leaves the process only through an authorised consumer.
 The resources module adds its own tooling view: which owners hold an entry, and
 the cause that started each fetch. The forms, overlay and motion modules add no
 evidence of their own.
-
-### Bounded retention
-
-Xray keeps a fixed-size trace history, and nothing grows without bound. When
-older evidence has been dropped, Xray reports `:cap`.

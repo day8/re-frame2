@@ -112,12 +112,6 @@ frame's current map, or `nil` when no frame has that id.
 A handler may return no `:db` key (only `:fx`, say) and leave app-db alone, or return
 the *same* `db` object it was handed so the runtime skips a no-op write.
 
-!!! warning "`{:db nil}`"
-
-    app-db is always a map. An accidental `{:db nil}` is coerced to `{}` with a dev
-    warning (`:rf.warning/db-nil-coerced`). To clear state on purpose, write
-    `{:db {}}`.
-
 ??? info "Coming from Redux?"
 
     app-db is the single store; a handler is a pure function that returns the next
@@ -204,9 +198,9 @@ them wrong. Derive them with a subscription instead.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
-| State "vanished" after a handler | Accidental `{:db nil}` | Write `{:db {}}` to clear; watch for `:rf.warning/db-nil-coerced` |
+| State "vanished" after a handler, and `:rf.warning/db-nil-coerced` is reported | app-db is always a map, so a returned `{:db nil}` is coerced to `{}` | Return the map you meant; to clear state on purpose, write `{:db {}}` |
 | Two facts disagree | A conclusion was stored next to its facts | Derive in a [subscription](subscriptions.md) (or a [flow](flows.md) if handlers must read it) |
 | Initial UI shows empty values | No seed event | List an initialise event (or `[:rf/set-db {…}]`) in `:initial-events` |
 | Frame creation throws `:rf.error/initial-db-retired` or `:rf.error/on-create-retired` | The frame options carry `:initial-db` or `:on-create` | Seed through `:initial-events` |

@@ -168,16 +168,9 @@ The three calls have different jobs:
   only: every later render through `app-root` updates the root it adopted, and
   the key is ignored.
 
-!!! warning "Seeding an absent frame does not throw"
-
-    `ssr/hydrate!` installs the payload by dispatching `:rf/hydrate`, and a
-    dispatch into a frame that does not exist installs nothing; its only trace
-    is an `:rf.error/frame-destroyed` record naming `:rf/hydrate` (a console
-    error in development). The call still reads and returns the payload, so
-    step 2 alone looks like it worked. Step 3
-    catches it: `h/frame-provider` raises
-    `:rf.error/frame-provider-frame-absent` for an absent frame, so a boot that
-    skips step 1 fails at adoption.
+Skipping step 1 does not fail at step 2, because `ssr/hydrate!` still returns
+the payload; it fails at step 3, where `h/frame-provider` raises
+`:rf.error/frame-provider-frame-absent`.
 
 An adopting root is otherwise an ordinary root: its opts carry React-root
 options only, and `h/unmount!` takes it down.
@@ -227,11 +220,10 @@ Client-only is the default for foreign hosts:
 
 ```clojure
 (h/defhost date-picker DatePicker)   ; Client-only, renders nothing on the server
-
-(h/defhost progress-chart ProgressChart
-  {:server   :client-only
-   :fallback [:div {:class "chart chart--pending"} "Chart loads in the browser"]})
 ```
+
+The `progress-chart` host at the top of the page shows the other shape, a
+Client-only host with a fallback.
 
 On the server, the host renders its fallback or nothing. The first client
 pass produces the same fallback. After adoption, the live component mounts. A
@@ -277,7 +269,12 @@ Declare `{:server :render}` when a component is deterministic and safe to run
 on the server:
 
 ```clojure
-(h/defhost theme-provider ThemeProvider
+;; (:require ["react" :as react])
+(def theme-context
+  (react/createContext "light"))
+
+(h/defhost theme-provider
+  (.-Provider theme-context)
   {:server :render})
 ```
 
@@ -293,6 +290,9 @@ Render is also the only policy that renders a host's children on the server.
 A Client-only host emits its fallback, or nothing, in place of the whole host,
 children included. So a wrapper such as a context provider removes its whole
 subtree from the server response unless it is declared Render.
+
+A provider whose value depends on browser-only state has no deterministic
+server contract and remains Client-only, along with its subtree.
 
 A false Render assertion fails loudly, often as `window is not defined` during
 the server render. Other declaration failures include:
@@ -364,18 +364,6 @@ way, the fix is to put values both sides need in the snapshot or payload.
     there is no separate complete Hiccup tree to hash. Verification uses
     React's own root-scoped adoption reports.
 
-## When not to use SSR
-
-A client-only application does not need the Node rendering service, payload
-allowlist, or snapshot plumbing. Boot it with `h/render!` and no `:hydrate?`,
-under an `[h/frame-root {:id … :initial-events …}]`.
-
-Applications behind a login wall often gain little from rendering private,
-per-user HTML on a server.
-
-Even in a client-only deployment, keep host server policies accurate, so that
-adding SSR later needs no view changes.
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -394,6 +382,18 @@ adding SSR later needs no view changes.
 | Boot raises `:rf.error/hydration-frame-id-mismatch` | Server `:client-frame-id` and client `:frame` differ | Use one stable wire frame id on both sides |
 | Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty (an `:rf.error/frame-destroyed` record names `:rf/hydrate`) | `rf/make-frame` ran after `ssr/hydrate!`, so the `:rf/hydrate` dispatch had no frame to land in | Call `rf/make-frame` before `ssr/hydrate!` |
 | `server/render` raises `:rf.error/ssr-render-failed` | The runtime recorded an error during the render, such as a subscription that threw, even though rendering continued | Fix the failure the attached record names; the renderer refuses to return a page built over it |
+
+## When not to use SSR
+
+A client-only application does not need the Node rendering service, payload
+allowlist, or snapshot plumbing. Boot it with `h/render!` and no `:hydrate?`,
+under an `[h/frame-root {:id … :initial-events …}]`.
+
+Applications behind a login wall often gain little from rendering private,
+per-user HTML on a server.
+
+Even in a client-only deployment, keep host server policies accurate, so that
+adding SSR later needs no view changes.
 
 ## Advanced
 
@@ -416,24 +416,6 @@ React renders the server output; there is no parallel JVM string emitter.
 
 Event intents require no wire serialisation. Each side turns the same vector
 into its own callback.
-
-### Context providers
-
-A server-safe context provider must be declared Render so its children remain
-in the response:
-
-```clojure
-;; (:require ["react" :as react])
-(def theme-context
-  (react/createContext "light"))
-
-(h/defhost theme-provider
-  (.-Provider theme-context)
-  {:server :render})
-```
-
-A provider whose value depends on browser-only state has no deterministic
-server contract and remains Client-only, along with its subtree.
 
 ### Islands under SSR
 

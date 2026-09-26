@@ -112,23 +112,10 @@ copy-link, middle-click, and browser link menus continue to work. The helper
 inlines into its caller; it does not create another Fresco view or
 subscription.
 
-The generated Hiccup carries the click decision as data at `:on-click`, a
-vector headed by an internal keyword and wrapping a map:
-
-```clojure
-[:a {:href     "/todos/1"
-     :class    "title"
-     :on-click [navigate-head                       ; route-link's own head
-                {:frame   :app
-                 :payload [:rf.route/url-requested {:url "/todos/1"}]
-                 :native? false
-                 :veto    nil}]}
- "Buy milk"]
-```
-
-Two renders of the same link compare equal with `=`, and structural tests can
-inspect the click decision. You never write this form yourself; `route-link`
-creates it.
+`route-link` puts the click decision in the anchor's props as data, so two
+renders of the same link compare equal with `=` and a structural test can
+inspect where a click goes ([What a route link
+renders](#what-a-route-link-renders) shows the form).
 
 Click conduct is browser-compatible:
 
@@ -141,8 +128,8 @@ Click conduct is browser-compatible:
 A link takes the navigation policy `:rf.route/navigate` takes. `:replace? true`
 replaces the current history entry instead of adding one, `:scroll` sets this
 navigation's scroll policy, and `:bypass-leave? true` skips the current route's
-`:can-leave` once. These keys ride the click's navigation, in the payload above,
-and never reach the anchor.
+`:can-leave` once. These keys ride the click's navigation payload and never
+reach the anchor.
 
 If the routing artefact was not loaded, rendering raises
 `:rf.error/routing-artefact-missing` and names the requested route instead of
@@ -221,30 +208,10 @@ renders
  "Details"]
 ```
 
-`:intent` is the only accepted value. To opt out, omit the key: any other value
-(`true`, `nil`, or a mode borrowed from another router such as `:render`)
-raises `:rf.error/route-link-bad-prefetch` at the render site.
-
-The sugar abbreviates a form you can always write yourself, and that longer
-form is the answer whenever a position must carry something else:
-
-```clojure
-(h/route-link {:to             :app/todo
-               :params         {:id "1"}
-               :on-mouse-enter [:rf.route/prefetch {:to     :app/todo
-                                                    :params {:id "1"}}]}
-  "Details")
-```
-
-The address takes `:to`, `:params`, `:query` and `:fragment` and nothing else
-(`:fragment` is dropped from the prefetch — a fragment is never a resource
-input). Application code may dispatch the event directly.
-
-Do not write both. `:prefetch :intent` claims `:on-mouse-enter`, `:on-focus`
-and `:on-touch-start`, and a value of your own at any of them raises
-`:rf.error/fresco-route-link-claimed-intent-position` at render, because a
-position carries one intent and a half-applied warm-up would prefetch from only
-some positions. Choose the sugar or the explicit vectors per link.
+`:intent` is the only accepted value; to opt out, omit the key. A link that
+needs one of those three positions for something else drops `:prefetch` and
+writes the prefetch vector itself ([Write the prefetch
+yourself](#write-the-prefetch-yourself)).
 
 Prefetch does not navigate. It does not change the URL, run guards, apply
 scroll/focus policy, or block activation. A later click uses ordinary resource
@@ -376,7 +343,7 @@ After a successful save, navigate with a one-shot leave bypass:
      :fx [[:dispatch
            [:rf.route/navigate
             {:to            :app/todo
-             :params        {:id (str (get-in db [:todo.editor :id]))}
+             :params        {:id (str (get-in db [:todo.editor :draft :id]))}
              :bypass-leave? true}]]]}))
 ```
 
@@ -409,20 +376,17 @@ and activation pipeline as route links:
 
 !!! warning "A route deeper than one segment moves what relative URLs resolve against"
 
-    A page's relative URLs resolve against the *document* URL, and under the
-    default history strategy the document URL **is** the route. So a host page
-    carrying `href="css/style.css"` is correct while every route is `/`, and
-    silently wrong the moment somebody deep-links or refreshes on
-    `/todos/1`, where it resolves to `/todos/css/style.css` and 404s.
-    Nothing in the application fails: the script tag is usually absolute already,
-    so the app boots, routes and behaves — with no stylesheet and no favicon.
+    A page's relative URLs resolve against the document URL, which under the
+    default history strategy is the route. A host page carrying
+    `href="css/style.css"` works at `/`, but after a deep link or a refresh on
+    `/todos/1` it requests `/todos/css/style.css` and gets a 404, so the app
+    boots and routes with no stylesheet or favicon.
 
     Give every asset in the host page an absolute path, as [chapter 00's
     `index.html`](00-installation.md#add-the-dependencies) does for
-    `/js/main.js`, or add one `<base href="/">` to `<head>`. Under a sub-path
-    deployment that becomes `<base href="/my-app/">`, with
-    `rf.routing/with-base-path` wrapped around the frame's `:url-strategy` so
-    the two agree.
+    `/js/main.js`, or add `<base href="/">` to `<head>`. Under a sub-path
+    deployment use `<base href="/my-app/">` and wrap the frame's
+    `:url-strategy` in `re-frame.routing/with-base-path` so the two agree.
 
 ??? info "For readers coming from React Router"
     `route-link` is a plain function returning an anchor, not a component with
@@ -435,10 +399,11 @@ and activation pipeline as route links:
 | --- | --- | --- |
 | Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
 | Rendering a route link raises `:rf.error/no-such-route` or `:rf.error/route-url-validation` | `:to` is not a registered route, or, with the schemas artefact loaded, `:params` or `:query` fail the route's schema (a number where the route expects a string, say) | Fix the address; the [routing guide](../../routing/concepts.md) covers route schemas |
-| An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
+| An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link`, or a document-level click listener that dispatches `:rf.route/url-requested` ([Linking from views](../../routing/concepts.md#linking-from-views)) |
 | Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
 | The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |
 | `route-link` raises `:rf.error/fresco-route-link-bad-on-click` for a bare `:on-click` vector | The click would produce two application events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
+| A link raises `:rf.error/route-link-bad-prefetch` at render | `:prefetch` carries a value other than `:intent` (`true`, `nil`, or another router's mode such as `:render`) | Write `:prefetch :intent`, or omit the key |
 | A link carrying `:prefetch :intent` raises `:rf.error/fresco-route-link-claimed-intent-position` | The link also supplies `:on-mouse-enter`, `:on-focus` or `:on-touch-start`, and `:prefetch` claims all three | Drop `:prefetch` and dispatch `[:rf.route/prefetch address]` by hand from the positions you are not otherwise using |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
@@ -453,3 +418,46 @@ and activation pipeline as route links:
 | Wizard steps or temporary tabs that should not change the URL | app-db state or a state machine |
 | External destinations | A plain anchor |
 | Guarding one control rather than every page exit | A link veto or ordinary application event logic |
+
+## Advanced
+
+### What a route link renders
+
+The generated Hiccup carries the click decision as data at `:on-click`, a
+vector headed by an internal keyword and wrapping a map:
+
+```clojure
+[:a {:href     "/todos/1"
+     :class    "title"
+     :on-click [navigate-head                       ; route-link's own head
+                {:frame   :app
+                 :payload [:rf.route/url-requested {:url "/todos/1"}]
+                 :native? false
+                 :veto    nil}]}
+ "Buy milk"]
+```
+
+You never write this form yourself; `route-link` creates it.
+
+### Write the prefetch yourself
+
+`:prefetch :intent` abbreviates a form you can always write yourself, and that
+longer form is the answer whenever a position must carry something else:
+
+```clojure
+(h/route-link {:to             :app/todo
+               :params         {:id "1"}
+               :on-mouse-enter [:rf.route/prefetch {:to     :app/todo
+                                                    :params {:id "1"}}]}
+  "Details")
+```
+
+The address takes `:to`, `:params`, `:query` and `:fragment` and nothing else
+(`:fragment` is dropped from the prefetch — a fragment is never a resource
+input). Application code may dispatch the event directly.
+
+Do not write both. `:prefetch :intent` claims `:on-mouse-enter`, `:on-focus`
+and `:on-touch-start`, and a value of your own at any of them raises
+`:rf.error/fresco-route-link-claimed-intent-position` at render, because a
+position carries one intent and a half-applied warm-up would prefetch from only
+some positions. Choose the sugar or the explicit vectors per link.

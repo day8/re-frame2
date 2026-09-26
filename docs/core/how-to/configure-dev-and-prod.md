@@ -32,7 +32,7 @@ Under an `:advanced` build with `goog.DEBUG=false`, the framework's surfaces sor
 
 - **The handled-event and error streams:** one record per processed event and one per [error record](../glossary.md#error-record). This is the production observability surface. A frame declares `:handled-events` / `:errors` entries under `:observability` with an egress profile, you register the sink function with `rf/register-observability-sink!`, and each record arrives already projected under that frame's classification. To cover every frame, and records whose frame does not resolve, declare the entries once with `(rf/configure! {:observability …})` ([Report errors in production](report-errors-in-production.md)).
 - **Every guardrail in [section 5](#5-the-guardrails-you-cant-turn-off).**
-- **A handler registered `:boundary? true`.** Its own `:schema` is checked on untrusted input (an HTTP reply, a `postMessage` payload) in every build, before any interceptor runs. In dev it changes nothing, since the check already runs. `:interceptor-overrides` cannot remove it, and registering it without a `:schema` throws `:rf.error/at-boundary-missing-schema`. A production rejection produces one `:rf.error/schema-validation-failure` record (`:source :boundary`) on the error stream and a `:rejected` status on that dispatch's handled-event record. The production record carries identifiers only, never the payload ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays)).
+- **A handler registered `:boundary? true`.** Its own `:schema` is checked on untrusted input (an HTTP reply, a `postMessage` payload) in every build, before any interceptor runs, and `:interceptor-overrides` cannot remove it ([Validate with schemas](validate-with-schemas.md#in-production-what-goes-what-stays) covers what a refusal reports).
 - **Checks the framework relies on to keep its own promises:** a *recordable* [cofx](../glossary.md#coeffect)'s `:schema` (which throws rather than record a value a replay would rebuild corrupt state from), a declared route's shape (checked whenever the schemas artefact is present), a managed-HTTP `:decode` schema (part of parsing the response, not a diagnostic over it), and the arguments of the reserved `:rf.server/*` effects. Most of these read a schema you wrote; what decides survival is what the check is for, not who wrote the schema.
 
 **Opt-in:** event, sub, fx, and render timing through the browser Performance API has its own flag, `{:closure-defines {re-frame.performance/enabled? true}}`, and is off by default in every build ([Find and fix a slow view](fix-a-slow-view.md#4-only-slow-in-production-the-rf-timing-channel)).
@@ -43,7 +43,7 @@ Under an `:advanced` build with `goog.DEBUG=false`, the framework's surfaces sor
 
 ??? note "Why elision rather than a runtime check"
 
-    The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` constant. With `goog.DEBUG=false` in `:advanced` mode it folds to `false`, every guarded body becomes unreachable, and DCE removes it along with everything only it referenced. This repository's `npm run test:elision` probe checks that the strings are absent from the bundle.
+    The dev surfaces are written as `(when ^boolean re-frame.interop/debug-enabled? …)`, and `debug-enabled?` is a `goog-define` constant. With `goog.DEBUG=false` in `:advanced` mode it folds to `false`, every guarded body becomes unreachable, and DCE removes it along with everything only it referenced.
 
 ## 2. Gate your own dev-only code
 
@@ -101,9 +101,7 @@ Dev-side configuration lives in three places, sorted by the lifetime of what you
 
 A missing top-level key leaves that subsystem untouched, so you can pass one setting, such as `(rf/configure! {:trace-buffer {:events-retained 200}})`, or all four at once.
 
-An unknown top-level key applies nothing. In dev builds, an unknown bare (or `rf`-namespaced) key such as `:epoch-histroy` also emits `:rf.warning/unknown-configure-key`, naming what you typed and the keys the runtime reads; the call still returns `nil`. A key under your own namespace (`:myapp/thing`) is silent, so a wrapper can pass its own keys through in the same map. The argument itself must be a map: a vector or `nil` throws `:rf.error/configure-bad-arg` in every build.
-
-Inside a key, only `:trace-buffer` checks what you pass: anything but a non-negative `:events-retained`, including `{:depth N}`, emits `:rf.warning/trace-buffer-unrecognised-opts` in dev and changes nothing. `:epoch-history` drops an invalid value or an unknown key without a warning, and `:elision` drops an unknown key the same way. Read back what took effect with `(rf/current-config)`, which returns the same nested shape.
+A misspelled key applies nothing; in dev builds it emits `:rf.warning/unknown-configure-key`, naming the keys the runtime reads. Read back what took effect with `(rf/current-config)`, which returns the same nested shape. The [`configure!` reference](../../api/re-frame.core.md#configure) lists every validation rule.
 
 The four keys:
 
@@ -131,6 +129,8 @@ These keys live in the frame config: `:drain-depth`, `:fx-overrides`, `:intercep
    :drain-depth    100
    :observability  {:errors [{:sink :app.sinks/sentry}]}})
 ```
+
+If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: a `frame-root` that mounts over an existing frame replaces that frame's config with its own options.
 
 An `:observability` entry names a `:sink` keyword that you register, with an optional `:rf.egress/profile`. The entry takes those two keys only; anything else throws at `make-frame`. Vendor configuration belongs in the sink function you register, which closes over it. The frame key accepts `:handled-events` and `:errors` ([Report errors in production](report-errors-in-production.md)).
 

@@ -93,14 +93,10 @@ Notes:
    This one trips people up.
 3. **The framework's own feature handlers are always included.** Routing, managed
    HTTP, Resources, SSR and the `:rf/time-ms` coeffect are registered with no source
-   namespace, so `:select-ns` cannot pick them. Every explicit composition starts from
-   a **framework base** of them (the framework's registrations under the reserved `:rf`
-   root, plus the `:route/link` view). A later image can still override them, and the
-   shadow report (below) names that base `:rf/framework`.
-4. **A registration made through a function alias or generated code** rather than a
-   `reg-*` macro has no source namespace either, so `:select-ns` cannot see it and
-   only the default image includes it. Add `:ns` to its metadata to make it
-   selectable.
+   namespace, so `:select-ns` cannot pick them; every explicit composition includes
+   them beneath your images. A later image can override one of them (the shadow report
+   names that base `:rf/framework`), but not a framework standard such as `:rf/set-db`
+   ([below](#framework-standards-and-the-defaults-youre-meant-to-replace)).
 
 ??? info "Coming from a bundler's globs?"
 
@@ -141,9 +137,9 @@ they often re-register the ids the production sources define. Selecting both wou
 a collision, so `:include` the feature broadly and `:exclude` its tests:
 
 ```clojure
-(rf/image {:select-ns {:include ["day8.re-frame2-xray.**"]
-                       :exclude ["day8.re-frame2-xray.**.*-cljs-test"
-                                 "day8.re-frame2-xray.test-helpers.**"]}})
+(rf/image {:select-ns {:include ["app.todos.**"]
+                       :exclude ["app.todos.**.*-cljs-test"
+                                 "app.todos.test-helpers.**"]}})
 ```
 
 ??? note "The glob grammar"
@@ -205,7 +201,7 @@ body reads app-db as `(fn [db query] …)`. Each entry is parsed by the same cod
     namespace and defined inline in the same image. That is an error
     (`:rf.error/image-within-image-collision`), not an override. To make an inline
     definition win over a selected one, put it in a later image (see
-    [Overriding a registration is a later image](#overriding-a-registration-is-a-later-image)).
+    [Composing images: the later one wins](#composing-images-the-later-one-wins)).
 
 ## Registration ids and frame ids
 
@@ -280,6 +276,11 @@ it: assert there are none, assert a known set, or log them.
 
 A collision within one image is still an error: an image must resolve to one
 registration per `(kind, id)`. To override, compose a later image.
+
+You cannot override a framework standard such as `:rf/set-db`: that collision fails
+assembly with `:rf.error/image-standard-replacement-forbidden`. Three framework
+defaults are the exception, meant to be replaced; see
+[Framework standards, and the defaults you're meant to replace](#framework-standards-and-the-defaults-youre-meant-to-replace).
 
 Before a frame runs an event, its images are resolved into one sealed
 [generation](glossary.md#generation): framework registrations added, collisions and
@@ -375,27 +376,6 @@ The frame goes in the `{:frame …}` opts map, the last argument `dispatch-sync`
     to reset it between tests. Here the test double is a value you compose into a fresh
     frame, so there is no global to dirty and nothing to reset.
 
-## Overriding a registration is a later image
-
-The test above is the general rule. To override an existing `(kind, id)`, define the
-winning registration in a later image and compose. The later image wins, and the
-shadow report records what it replaced, so the override is visible in data rather
-than hidden in load order:
-
-```clojure
-(let [frame (rf/make-frame {:images [todos-image test-doubles]})]
-  (:rf.gen/shadows (rf/frame-generation frame)))
-;; => [{:registration [:fx :todo.storage/save] :image :app/main :shadowed-by :test/doubles}]
-```
-
-An override is always a separate, later image, never a second definition in the same
-one.
-
-You cannot override a framework standard such as `:rf/set-db`: that collision fails
-assembly with `:rf.error/image-standard-replacement-forbidden`. Two routing
-placeholders are the exception, meant to be replaced; see
-[Framework standards, and the defaults you're meant to replace](#framework-standards-and-the-defaults-youre-meant-to-replace).
-
 ## Hot reload swaps the image, keeps the state
 
 During development the registrar changes every time you save a file. Re-evaluating a
@@ -404,6 +384,20 @@ image that selects the changed namespace as dirty, resolves new generations, and
 them into the affected frames. The frames keep their app-db,
 [runtime-db](glossary.md#runtime-db), queues and still-valid subscription caches. You
 save a file and the live frames pick up the change without losing state.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `:rf.error/image-duplicate-id` from a frame with no `:images` | Two loaded namespaces register the same `(kind, id)` | Rename one id, or give each frame its own image ([When two registrations collide](#when-two-registrations-collide)) |
+| `:rf.error/image-within-image-collision` after adding a test double | The fake is in the same image as the registration it replaces | Put the fake in a later image |
+| `:rf.error/image-zero-match` | An `:include` glob matches no loaded namespace: a typo, a missing `require`, or a namespace removed as dead code | Fix the glob, or require the namespace |
+| An explicit image is missing a registration | It was made through a function alias or generated code, so it has no source namespace | Add `:ns` to its metadata |
+| `:rf.error/image-standard-replacement-forbidden` | An image registers a framework standard such as `:rf/set-db` | Use your own id; only [replaceable defaults](#framework-standards-and-the-defaults-youre-meant-to-replace) can be replaced |
+
+## Advanced
+
+### Swapping a frame's images
 
 To change a frame's composition outright, call `rf/make-frame` again with the same
 `:id` and a new `:images` vector. There is no separate reload function:
@@ -437,8 +431,6 @@ To see what changed, read `frame-generation` before and after and compare them w
 `generation-diff` partitions the `(kind, id)` space four ways, so you can invalidate
 only what moved (a sub whose definition didn't change keeps its cache). The reloaded
 frame's `:rf.gen/shadows` shows its new override set.
-
-## Advanced
 
 ### Assembly errors
 
@@ -486,7 +478,7 @@ whether your registration of the same id is an error or the documented recipe.
 - A **replaceable framework default** is the framework's placeholder for a decision
   your application makes, registered so the feature works when you register nothing.
   The framework marks each one with the reserved `:rf/framework-default?` metadata
-  key. Today there are three. The routing events `:rf.route/entry-denied` and
+  key. There are three. The routing events `:rf.route/entry-denied` and
   `:rf.route/navigation-blocked` are no-ops, so a `:can-enter` denial or a
   `:can-leave` block always has a handler, and the
   [auth recipe](../routing/how-to/require-sign-in-on-a-route.md) has you register

@@ -2,7 +2,7 @@
 
 Some behaviour only shows up across several events. A handler writes state and fires an HTTP request; the reply arrives as another event, whose handler writes more state and may dispatch more. Each dispatch is one [**pipeline run**](../glossary.md#run), one pass through the [event pipeline](../glossary.md#event-pipeline), and follow-up dispatches are their own runs inside the same [drain](../glossary.md#drain--run-to-completion).
 
-This page tests that chain end to end: an event goes in, the queue drains, and you assert on the committed [`app-db`](../glossary.md#app-db). The handlers run unmodified and return the same [effect](../glossary.md#effect) data as in production; the test only changes what answers those effects. The tests run on the JVM with no browser, no patched `fetch` and no mock library.
+This page tests that chain end to end: an event goes in, the queue drains, and you assert on the committed [`app-db`](../glossary.md#app-db). The handlers run unmodified and return the same [effect](../glossary.md#effect) data as in production; the test only changes what answers those effects.
 
 ??? info "Coming from MSW?"
 
@@ -105,7 +105,7 @@ Run it with your project's JVM test runner (`clojure -M:test`). Both tests cover
 
 The router stamps `:rf/time-ms` on every dispatch, which is why the second test runs without mentioning it. Left alone it is the live clock, and an assertion on `:requested-at` would be flaky, so the first test pins it. Facts supplied under `:rf.cofx` win, and the runtime fills in only what is missing.
 
-A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:source :store :kind :event :id :todo/fetch})`. A declared fact the runtime can't satisfy raises `:rf.error/missing-required-cofx`, or `:rf.error/unregistered-cofx` when nothing registers it, instead of delivering `nil`.
+A handler receives exactly the facts its `:rf.cofx/requires` names, so that vector is the test's checklist; read it with `(rf/handler-meta {:source :store :kind :event :id :todo/fetch})`.
 
 ### Answer the HTTP: canned replies by method and URL
 
@@ -126,33 +126,6 @@ One table can hold several routes. A request is matched on its `:request :method
 The URL is matched as the request map spells it, before `:params` are appended, so key a request carrying `:params {:page 2}` by its base URL, `"/api/todos"`.
 
 A request that matches no route is answered with a `:rf.http/transport` failure tagged `"no stub matched"`, through the normal `:on-failure` path. The miss shows up in your failure handler's state, where the next assertion catches it, so the table must name every request the path under test fires.
-
-#### Observing the `:loading` state before the reply lands
-
-The tests above assert the settled state, so they never see `:sync-status :loading`. To test the in-flight state (a spinner, a disabled button), delay the reply. The route table has no delay option, but the canned stub reads an `:after-ms` key from its args. Redirect `:rf.http/managed` to a wrapper that adds `:after-ms` (and the reply `:value`) and calls the registered `:rf.http/managed-canned-success` handler. The reply then arrives on a later tick:
-
-```clojure
-(deftest fetch-shows-loading-then-loaded
-  (rf/with-new-frame [f (rf/make-frame {})]
-    (let [canned (:handler-fn (rf/handler-meta {:source :store :kind :fx
-                                                :id     :rf.http/managed-canned-success}))]
-      (rf/dispatch-sync [:todo/fetch]
-                        {:fx-overrides {:rf.http/managed
-                                        (fn [frame-ctx args]
-                                          (canned frame-ctx
-                                                  (assoc args
-                                                         :after-ms 20
-                                                         :value    [])))}})
-      ;; The request fired but the reply hasn't landed yet.
-      (is (= :loading (:sync-status (rf/app-db-value f))))
-      ;; Wait for the deferred reply, then assert the final state.
-      (ts/poll-until #(= :loaded (:sync-status (rf/app-db-value f))))
-      (is (= :loaded (:sync-status (rf/app-db-value f)))))))
-```
-
-`ts/poll-until` polls a predicate until it returns truthy or a deadline passes (defaults `:timeout-ms 2000`, `:interval-ms 5`), so a stuck drain shows up as a timeout rather than a hang. On the JVM it returns the truthy value or throws an `ex-info` carrying `:rf.error/poll-until-timeout`. On CLJS it returns a `js/Promise` to compose under `cljs.test/async`. The optional `:label` goes into the timeout message. Use it whenever work settles after `dispatch-sync` returns: a delayed reply, a machine `:after` transition, a `:dispatch-later`.
-
-Don't use `poll-until` to wait out a timer window such as a debounce. There the duration is what you are testing, so use a `Thread/sleep` and say so in a comment.
 
 ### Redirect any effect: `:fx-overrides`
 
@@ -178,12 +151,6 @@ An override value is either another registered fx id (a keyword) or a function `
 ;; the args map to change it.
 ```
 
-A keyword override must name a registered effect. `:rf.http/managed-canned-success` is registered by `re-frame.http.test-support`; without that require, the runtime emits `:rf.error/override-fallthrough` and runs the real `:rf.http/managed`, so the test fails with a transport error instead of the stubbed reply.
-
-!!! warning "Gotcha: frames isolate `app-db`, not registrations"
-
-    Handlers live in the process-global [registrar](../glossary.md#registrar). The reset fixture in the test namespace above restores it after each test, so keep it whenever your tests call `rf/reg-event` themselves; without it, one test's registrations leak into the next. The fixture's baseline is what was registered before `use-fixtures` ran, so a test file's own `reg-event`, like `:todo/clear-done` below, goes inside the `deftest` body or above the fixture form; a top-level one below it is invisible to the frames the test makes. See [Test an event handler](event-handlers.md#4-the-trap-frames-dont-isolate-registrations).
-
 ### The `:test` preset
 
 Most test frames want HTTP redirected to a stub and generated facts strict. `{:preset :test}` on `rf/make-frame` does both:
@@ -202,11 +169,13 @@ The preset expands to `:fx-overrides {:rf.http/managed :rf.http/managed-canned-s
 Sometimes the thing under test is which event a handler dispatches next. `:dispatch` is itself an effect that can be overridden, so a per-call `:fx-overrides {:dispatch …}` captures the event vector instead of queueing it:
 
 ```clojure
+;; src/my_app/todos.cljc
 (rf/reg-event :todo/clear-done
   (fn [{:keys [db]} _]
     {:db (update db :todos #(into {} (remove (comp :done? val)) %))
      :fx [[:dispatch [:todo/set-showing :all]]]}))
 
+;; test/my_app/sync_test.clj
 (deftest clear-done-resets-the-filter
   (rf/with-new-frame [f (rf/make-frame {})]
     (let [dispatched (atom [])]
@@ -234,8 +203,6 @@ Suppose `:todo/fetched` also returns `:fx [[:dispatch [:todo/set-showing :all]]]
 !!! warning "Gotcha: scope a `:dispatch` override to a call, never to a frame"
 
     In a frame's config, a `:dispatch` override applies to every dispatch routed to that frame, including framework traffic such as machine messages and HTTP reply handling. Scope it to one dispatch, or to a `with-fx-overrides` body.
-
-A few framework effects that install state can't be overridden: `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` and the router's `:rf.route/with-nav-token`. An override targeting one is ignored, and the runtime emits `:rf.error/reserved-fx-override` and runs the real handler, because stubbing them would leave the frame's [runtime-db](../glossary.md#runtime-db) inconsistent. To test those operations, let the real effect run and read the resulting state.
 
 ## Replay a bug as a regression test
 
@@ -297,17 +264,56 @@ Every opt on this page changes something around the handler, never the handler f
 | `:fx-overrides` | what performs the effects the handler returns |
 | `:interceptor-overrides` | which interceptors are removed or replaced for this dispatch |
 
-A key the runtime does not know is ignored. A dev build emits `:rf.warning/unknown-dispatch-opt` naming it, so a misspelt `:rf/cofx` shows up in the trace rather than as a test running on the live clock.
+A key the runtime does not know is ignored.
 
 Because the handler itself can't be replaced, a passing test says that the production handler, given those inputs, returns those effects. Replaying recorded events with their recorded inputs therefore computes the same state production computed.
 
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A stubbed test fails with a `:rf.http/transport` failure tagged `"no stub matched"` | A request the path fires has no route; URLs match before `:params` are appended | Add the route, keyed by the base URL |
+| The real `:rf.http/managed` runs despite a keyword override; `:rf.error/override-fallthrough` in the trace | The override names an unregistered effect | Require `re-frame.http.test-support`, which registers `:rf.http/managed-canned-success` |
+| An override of `:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.fx/reg-flow`, `:rf.fx/clear-flow` or `:rf.route/with-nav-token` is ignored; `:rf.error/reserved-fx-override` | These effects install framework state, and stubbing them would leave runtime-db inconsistent | Let the real effect run and assert on the resulting state |
+| A test runs on the live clock despite `:rf.cofx`; `:rf.warning/unknown-dispatch-opt` in the trace | A misspelt opt such as `:rf/cofx` is ignored | Spell it `:rf.cofx` |
+| `:rf.error/missing-required-cofx` or `:rf.error/unregistered-cofx` | A declared fact the runtime can't supply, or nothing registers it | Supply it under `:rf.cofx`, or register the cofx |
+| `dispatch-sync` stops with partly advanced state; `:rf.error/drain-depth-exceeded` | A handler re-dispatches itself, or a stubbed reply re-fires its request | Break the cycle; see [A runaway drain](#a-runaway-drain-halts-at-drain-depth) |
+
 ## Advanced
+
+### Observing the `:loading` state before the reply lands
+
+The tests above assert the settled state, so they never see `:sync-status :loading`. To test the in-flight state (a spinner, a disabled button), delay the reply. The route table has no delay option, but the canned stub reads an `:after-ms` key from its args. Redirect `:rf.http/managed` to a wrapper that adds `:after-ms` (and the reply `:value`) and calls the registered `:rf.http/managed-canned-success` handler. The reply then arrives on a later tick:
+
+```clojure
+(deftest fetch-shows-loading-then-loaded
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (let [canned (:handler-fn (rf/handler-meta {:source :store :kind :fx
+                                                :id     :rf.http/managed-canned-success}))]
+      (rf/dispatch-sync [:todo/fetch]
+                        {:fx-overrides {:rf.http/managed
+                                        (fn [frame-ctx args]
+                                          (canned frame-ctx
+                                                  (assoc args
+                                                         :after-ms 20
+                                                         :value    [])))}})
+      ;; The request fired but the reply hasn't landed yet.
+      (is (= :loading (:sync-status (rf/app-db-value f))))
+      ;; Wait for the deferred reply, then assert the final state.
+      (ts/poll-until #(= :loaded (:sync-status (rf/app-db-value f))))
+      (is (= :loaded (:sync-status (rf/app-db-value f)))))))
+```
+
+`ts/poll-until` polls a predicate until it returns truthy or a deadline passes (defaults `:timeout-ms 2000`, `:interval-ms 5`), so a stuck drain shows up as a timeout rather than a hang. On the JVM it returns the truthy value or throws an `ex-info` carrying `:rf.error/poll-until-timeout`. On CLJS it returns a `js/Promise` to compose under `cljs.test/async`. The optional `:label` goes into the timeout message. Use it whenever work settles after `dispatch-sync` returns: a delayed reply, a machine `:after` transition, a `:dispatch-later`.
+
+Don't use `poll-until` to wait out a timer window such as a debounce. There the duration is what you are testing, so use a `Thread/sleep` and say so in a comment.
 
 ### One reply handler: `:reply-to`
 
 Instead of `:on-success` and `:on-failure`, a request can name one event, `:reply-to`, that receives the reply for both outcomes; the handler branches on the reply's `:status`:
 
 ```clojure
+;; src/my_app/sync.cljc
 (rf/reg-event :todo/fetch-one
   (fn [_ [_ id]]
     {:fx [[:rf.http/managed {:request  {:method :get :url (str "/api/todos/" id)}
@@ -318,6 +324,7 @@ Instead of `:on-success` and `:on-failure`, a request can name one event, `:repl
     {:db (assoc-in db [:todos id]
                    (if (= :ok status) value {:id id :error (:kind error)}))}))
 
+;; test/my_app/sync_test.clj
 (deftest fetch-single-reply-target
   (rf/with-new-frame [f (rf/make-frame {})]
     (http-test-support/with-request-stubs

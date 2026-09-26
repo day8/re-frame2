@@ -11,7 +11,7 @@ The most common ones:
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A view does not re-render when app-db changes | The value was not read with `h/sub` during the view's render (for example an explicitly framed `rf/subscribe-once`, or a value read once and kept in a callback) | Read it with `h/sub` in the view body |
-| Calling a view as `(todo-row {:id 7})` throws | A `defview` is a component, used as a Hiccup head | Write `[todo-row {:id 7}]`; use a plain `defn` for a helper you call |
+| A view called as `(todo-row {:id 7})` ignores its props, or fails with React's invalid-hook error | A `defview` is a React component that only React may call; Fresco raises nothing for this | Write `[todo-row {:id 7}]`; use a plain `defn` for a helper you call |
 | A dispatch from a timeout or promise raises `:rf.error/no-frame-context` | The callback runs after rendering, with no frame in scope | Capture the frame with `(rf/capture-frame)` while rendering and use its `:dispatch`, or dispatch an effect that carries the frame |
 | A controlled field drops characters or moves the caret | The edit was dispatched asynchronously, or the field left Fresco's controlled path | Dispatch the edit event directly from `:on-input` |
 | Clearing a field does nothing | The model value did not change, so the field saw nothing to update | Advance `::h/revision` when you reset it |
@@ -57,7 +57,9 @@ brackets, and the id is in `ex-data`:
       (js/console.error id where reason))))
 ```
 
-Every error Fresco raises carries four keys:
+Every error Fresco raises carries four keys, except `hm/advance-clock!`'s
+no-clock error, the `hm/hydrate!` timeout and `evidence/envelope`'s refusal,
+which carry no id:
 
 | Key | What it tells you |
 | --- | --- |
@@ -77,13 +79,10 @@ improve between releases; an id never changes and is never reused.
 ## The complaint index
 
 Every error the package raises, grouped by the feature that raises it. Ids that
-core, routing or the SSR module define are marked *a corpus id* where a Fresco
-surface raises them.
+core, routing or the SSR module define say which one defines them.
 
 If an id is not here, it is raised by another part of re-frame2 (core, routing,
-resources), or your application and test-kit versions do not match. Some ids
-are reserved but never raised; see [Ids that are claimed but not
-raised](#ids-that-are-claimed-but-not-raised).
+resources), or your application and test-kit versions do not match.
 
 ### Hiccup, heads and children
 
@@ -92,9 +91,8 @@ Taught in [Views and reads](02-views-and-reads.md).
 <a id="fresco-empty-vector"></a>
 #### `:rf.error/fresco-empty-vector`
 
-You wrote `[]` where hiccup was expected.
-
-A hiccup vector must have a head.
+You wrote `[]` where hiccup was expected. Give the vector a head, or write
+`nil` where you meant nothing.
 
 <a id="fresco-bad-head"></a>
 #### `:rf.error/fresco-bad-head`
@@ -104,9 +102,6 @@ You put something in hiccup head position that is not a tag keyword, `:<>`,
 raw React component that needs `defhost` or `[:> Component …]`. To use a plain
 function, call it; to make it a head, make it a `defview`.
 
-Named in [Views and reads](02-views-and-reads.md), [Lists and
-collections](06-lists-and-collections.md), [Diagnostics](16-diagnostics.md).
-
 <a id="fresco-true-child"></a>
 #### `:rf.error/fresco-true-child`
 
@@ -114,13 +109,11 @@ You let `true` reach child position, usually a predicate result such as
 `(= id selected)` written as a child. Return markup or `nil` instead, for
 example with `when`.
 
-Named in [Views and reads](02-views-and-reads.md).
-
 <a id="ui-tree-malformed"></a>
 #### `:rf.error/ui-tree-malformed`
 
 You let a value outside the structural-tree grammar reach an L2 tree or a
-projection. A corpus id.
+projection. Defined by the SSR module.
 
 Fix the template or the runtime value, which the message names.
 
@@ -161,18 +154,12 @@ You called `h/sub` outside a view body, for example in a callback, a
 promise or a lazy sequence realised later. Read the value in the body and pass
 or close over the result.
 
-Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
-[Diagnostics](16-diagnostics.md).
-
 <a id="ambient-frame-refused"></a>
 #### `:rf.error/ambient-frame-refused`
 
 You called `rf/subscribe` or `rf/dispatch` in a view body without naming a
 frame. Read with `h/sub`; dispatch through an event vector, `h/event`, or the
-`:dispatch` of `(rf/capture-frame)`. A corpus id.
-
-Named in [Views and reads](02-views-and-reads.md),
-[Events as data](03-events-as-data.md).
+`:dispatch` of `(rf/capture-frame)`. Defined by core.
 
 <a id="fresco-deferred-read-at-boundary"></a>
 #### `:rf.error/fresco-deferred-read-at-boundary`
@@ -183,9 +170,6 @@ lost on the next render.
 
 Pass a function instead: the child calls it on every render, so its reads stay
 tracked.
-
-Named in [Views and reads](02-views-and-reads.md), [Testing](15-testing.md),
-[Diagnostics](16-diagnostics.md).
 
 <a id="fresco-generation-fence-exhausted"></a>
 #### `:rf.error/fresco-generation-fence-exhausted`
@@ -214,19 +198,20 @@ already exists.
 #### `:rf.error/fresco-unknown-root-option`
 
 You passed `h/render!` options that are not a map, or a key other than
-`:hydrate?` and `:identifier-prefix`.
+`:hydrate?` and `:identifier-prefix`. Pass a map holding only those two keys.
 
 <a id="no-adapter-installed"></a>
 #### `:rf.error/no-adapter-installed`
 
 A frame was built before an adapter was installed. Make
 `(rf/init! substrate/adapter)` the first line of boot; in Node, call
-`(rf/init! ssr/adapter)` before `server/render`. A corpus id.
+`(rf/init! ssr/adapter)` before `server/render`. Defined by core.
 
 ### Frames
 
 A frame is carried, never looked up. These fire when something rendered or
-dispatched with no frame in scope, or a frame head was given the wrong key.
+dispatched with no frame in scope, a frame head was given the wrong key, or a
+frame could not be built.
 
 Taught in [Events as data](03-events-as-data.md).
 
@@ -234,43 +219,48 @@ Taught in [Events as data](03-events-as-data.md).
 #### `:rf.error/frame-root-given-frame`
 
 You gave `h/frame-root` a `:frame` key. `frame-root` creates a frame and takes
-`:id`; to scope an existing frame, use `h/frame-provider`. A corpus id.
+`:id`; to scope an existing frame, use `h/frame-provider`. Defined by core.
 
 <a id="frame-provider-given-id"></a>
 #### `:rf.error/frame-provider-given-id`
 
 You gave `h/frame-provider` an `:id` key. `frame-provider` scopes an existing
-frame named by `:frame`; to create one, use `h/frame-root`. A corpus id.
+frame named by `:frame`; to create one, use `h/frame-root`. Defined by core.
 
 <a id="frame-provider-frame-absent"></a>
 #### `:rf.error/frame-provider-frame-absent`
 
 You scoped a frame that does not exist. Make it first — `rf/make-frame`, or an
-`h/frame-root` above — or, when hydrating, make it before `ssr/hydrate!`. A
-corpus id.
+`h/frame-root` above — or, when hydrating, make it before `ssr/hydrate!`.
+Defined by core.
 
 <a id="frame-root-reconfigured"></a>
 #### `:rf.error/frame-root-reconfigured`
 
 You re-rendered a mounted `h/frame-root` with a different `:id` or options —
 most often a reload that dropped `:initial-events`. Pass the same options every
-render; to switch frames, change the React `:key` so the boundary remounts. A
-corpus id.
+render; to switch frames, change the React `:key` so the boundary remounts.
+Defined by core.
+
+<a id="initial-events-step-failed"></a>
+#### `:rf.error/initial-events-step-failed`
+
+An `:initial-events` step threw while a frame was being built, whether handed to
+`hm/mount!` or `hm/hydrate!` or to an `h/frame-root` creating its frame. The
+frame is torn down and nothing was mounted, so there is no handle to tear down.
+Fix the event the error names in its `:step-index` and `:event`. Defined by
+core.
 
 <a id="no-frame-context"></a>
 #### `:rf.error/no-frame-context`
 
 You rendered a Fresco boundary or island hook whose React context carries no
-frame, or dispatched from a timeout or promise with no frame in scope. A corpus
-id.
+frame, or dispatched from a timeout or promise with no frame in scope. Defined
+by core.
 
 Nothing falls back to a default frame. Render inside an `h/frame-root` or
 `h/frame-provider`, or capture the frame with `(rf/capture-frame)` while
 rendering and use the captured `:dispatch` in the callback.
-
-Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md),
-[Islands](10-native-tier.md), [SSR and hydration](18-ssr-and-hydration.md),
-[Migrating from Reagent](20-migration-from-reagent.md).
 
 ### Intents and callback positions
 
@@ -291,9 +281,6 @@ It is also raised at render when an overlay's `:on-dismiss`, or an
 region under `h/frame-root` or `h/frame-provider`, or give `:on-error` a
 function.
 
-Named in [Diagnostics](16-diagnostics.md), [Errors](17-errors.md),
-[Overlays and focus](13-overlays-and-focus.md).
-
 <a id="fresco-intent-needs-the-event"></a>
 #### `:rf.error/fresco-intent-needs-the-event`
 
@@ -301,15 +288,11 @@ You wrote an event vector that reads a DOM event (a `::h/value` marker, say)
 at a foreign callback whose first argument is a value rather than a DOM event.
 Use `h/event`, which receives every argument the caller passed, in order.
 
-Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
-
 <a id="fresco-malformed-prevent"></a>
 #### `:rf.error/fresco-malformed-prevent`
 
 You wrapped something other than exactly one event vector in `::h/prevent`.
 Write `[::h/prevent [:todo/set-showing :done]]`.
-
-Named in [Events as data](03-events-as-data.md).
 
 ### Controlled inputs
 
@@ -320,9 +303,6 @@ Taught in [Controlled inputs](04-controlled-inputs.md).
 
 You put `::h/revision` on something that is not a controlled text field. It
 belongs on an `<input>` or `<textarea>` with `:value`.
-
-Named in [Controlled inputs](04-controlled-inputs.md), [Forms](05-forms.md),
-[Diagnostics](16-diagnostics.md).
 
 <a id="fresco-file-input-value-marker"></a>
 #### `:rf.error/fresco-file-input-value-marker`
@@ -339,17 +319,15 @@ Taught in [Errors](17-errors.md).
 #### `:rf.error/fresco-boundary-unknown-prop`
 
 You wrote a key outside `h/error-boundary`'s closed roster — a misspelled
-`:on-error` is an error boundary that reports nothing.
-
-Named in [Errors](17-errors.md#troubleshooting).
+`:on-error` is an error boundary that reports nothing. Use only `:fallback`,
+`:reset-key` and `:on-error`.
 
 <a id="fresco-boundary-bad-on-error"></a>
 #### `:rf.error/fresco-boundary-bad-on-error`
 
 You gave `h/error-boundary` an `:on-error` that is neither an intent vector nor
-a function, so nothing could fire it.
-
-Named in [Errors](17-errors.md#troubleshooting).
+a function, so nothing could fire it. Pass an event vector such as
+`[:todo/record-failure]`, or a function.
 
 ### Hosts and the raw escape
 
@@ -370,21 +348,21 @@ resolved to nothing. Check the import name and whether it is a default export.
 You wrote a `defhost` declaration outside its shape, and the reason names
 which: options that are not a map (usually a docstring written after the
 component instead of before it); an option outside `#{:callbacks :slots :server
-:fallback}` — the retired `:ssr` spelling included; a `:callbacks` contract
-outside `:event` and `:render`; a `:slots` value that is not a set of ordinary
-prop names (a non-set, an entry that names no prop, `key`/`ref`, one slot
-spelled twice, or a position that is also a declared callback); or a form after
-the options map, which is discarded rather than merged.
-
-Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
+:fallback}`; a `:callbacks` contract outside `:event` and `:render`; a `:slots`
+value that is not a set of ordinary prop names (a non-set, an entry that names
+no prop, `key`/`ref`, one slot spelled twice, or a position that is also a
+declared callback); or a form after the options map, which is discarded rather
+than merged. Write the declaration as
+`(h/defhost name docstring? component opts?)` and correct the part the reason
+names.
 
 <a id="fresco-host-bad-ssr-policy"></a>
 #### `:rf.error/fresco-host-bad-ssr-policy`
 
 You gave a `defhost` a `:server` value outside the two it admits, or a
-`:fallback` the policy beside it cannot carry.
-
-Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
+`:fallback` the policy beside it cannot carry. Declare `:server :client-only`
+(the default), optionally with a `:fallback`, or `:server :render` with no
+`:fallback`.
 
 <a id="fresco-host-fallback-boundary-head"></a>
 #### `:rf.error/fresco-host-fallback-boundary-head`
@@ -394,8 +372,6 @@ You put a `defview` or `defhost` head inside a declared fallback.
 Plain hiccup in the fallback, or `:server :render` to render the real subtree on
 the server.
 
-Named in [Interop](09-interop.md), [SSR and hydration](18-ssr-and-hydration.md).
-
 <a id="fresco-host-unclaimed-callback"></a>
 #### `:rf.error/fresco-host-unclaimed-callback`
 
@@ -403,8 +379,6 @@ You wrote `h/event` at a `defhost` prop declared in `:slots`. A slot takes
 markup, not a function.
 
 Write the markup there, or take the position out of `:slots`.
-
-Named in [Interop](09-interop.md), [Diagnostics](16-diagnostics.md).
 
 <a id="fresco-raw-not-a-component"></a>
 #### `:rf.error/fresco-raw-not-a-component`
@@ -415,8 +389,6 @@ is a head in its own right.
 
 Write `[:> Component props & children]` with the real component, or write the
 head as `[my-view …]`. Any other invalid type is React's own error at render.
-
-Named in [Interop](09-interop.md).
 
 ### Routing
 
@@ -434,30 +406,32 @@ You rendered a route link outside any frame. Render it inside a view under an
 You gave a route link an `:on-click` that is not `nil`, a
 `[::h/prevent [:some/event …]]` veto, an `h/event`, or a plain function. A bare
 intent vector is refused because the click already dispatches the navigation.
+To replace the navigation with your own event, wrap it:
+`[::h/prevent [:some/event …]]`.
 
 <a id="fresco-route-link-claimed-intent-position"></a>
 #### `:rf.error/fresco-route-link-claimed-intent-position`
 
 You gave a route link `:prefetch :intent` and also your own value at
 `:on-mouse-enter`, `:on-focus` or `:on-touch-start` — the three positions
-`:prefetch` fills.
+`:prefetch` fills. Drop `:prefetch` and [write the prefetch
+yourself](07-routing-and-navigation.md#write-the-prefetch-yourself) at the
+positions you are not using, or move your handler off those positions.
 
 <a id="route-link-bad-prefetch"></a>
 #### `:rf.error/route-link-bad-prefetch`
 
 You gave a route link a `:prefetch` value other than `:intent`. To make the
-link passive, omit `:prefetch`. A corpus id, raised by routing for both
+link passive, omit `:prefetch`. Defined by routing, which raises it for both
 `h/route-link` and `rf/route-link`.
 
 <a id="routing-artefact-missing"></a>
 #### `:rf.error/routing-artefact-missing`
 
-You rendered a route link with routing absent. A corpus id.
+You rendered a route link with routing absent. Defined by core.
 
 Add `day8/re-frame2-routing` to your dependencies and require `re-frame.routing`
 at boot, before frames are constructed.
-
-Named in [Routing and navigation](07-routing-and-navigation.md).
 
 ### Server rendering
 
@@ -467,16 +441,16 @@ Taught in [SSR and hydration](18-ssr-and-hydration.md).
 #### `:rf.error/ssr-missing-payload-policy`
 
 You called `server/render` without `:payload`. Pass an allowlist vector of
-top-level app-db keys, or `:rf.ssr.payload/whole-app-db` to send everything. A
-corpus id.
+top-level app-db keys, or `:rf.ssr.payload/whole-app-db` to send everything.
+Defined by the SSR module.
 
 <a id="ssr-render-failed"></a>
 #### `:rf.error/ssr-render-failed`
 
 `server/render` or `server/render-body` completed, but the runtime recorded an
 error it recovered from during the pass — a subscription that threw, say — so
-the markup is not trustworthy. Fix the surface the error record names. A corpus
-id.
+the markup is not trustworthy. Fix the surface the error record names. Defined
+by the SSR module.
 
 <a id="hydration-mismatch"></a>
 #### `:rf.ssr/hydration-mismatch`
@@ -494,13 +468,14 @@ Taught in [Motion and presence](12-motion-and-presence.md).
 #### `:rf.error/fresco-presence-child-unkeyed`
 
 You gave `motion/presence` a child with no `:key`, or a child that is not a
-hiccup vector.
+hiccup vector. Write each child as a keyed hiccup vector, such as
+`[:li {:key id} …]`.
 
 <a id="fresco-presence-timeout-required"></a>
 #### `:rf.error/fresco-presence-timeout-required`
 
 You gave `motion/presence` no `:timeout-ms`, or one that is not a positive
-number.
+number. Pass a positive `:timeout-ms` that covers your exit transition.
 
 ### Overlays and focus
 
@@ -525,7 +500,9 @@ Taught in [Ephemeral state](11-ephemeral-state.md).
 
 You gave `h/reg-state` a concern that is not namespace-qualified, or options
 outside `{:default …}`; or you used an instance key outside the accepted set
-(`nil` included) at a read or a write. The reason names which.
+(`nil` included) at a read or a write. The reason names which. Use a qualified
+keyword concern, options holding only `:default`, and an instance key that is a
+keyword, string, number or vector of those.
 
 ### The test kit
 
@@ -538,24 +515,27 @@ Taught in [Testing](15-testing.md).
 <a id="fresco-test-not-a-body"></a>
 #### `:rf.error/fresco-test-not-a-body`
 
-You gave an L2 `tree` form a head that is not a `defview` body.
+You gave an L2 `tree` form a head that is not a `defview` body. Put a
+`defview` view, or the body function it is defined from, in head position.
 
 <a id="fresco-test-not-a-render-form"></a>
 #### `:rf.error/fresco-test-not-a-render-form`
 
-You gave an L2 `tree` something other than a hiccup form.
+You gave an L2 `tree` something other than a hiccup form. Pass a non-empty
+vector, `[view props & children]`.
 
 <a id="fresco-test-plain-fn-head"></a>
 #### `:rf.error/fresco-test-plain-fn-head`
 
-You put a plain function in a hiccup head inside an L2 tree.
-
-Named in [Diagnostics](16-diagnostics.md).
+You put a plain function in a hiccup head inside an L2 tree. Define it with
+`h/defview`, or pass it as the root form of `ht/tree` to run that body alone.
 
 <a id="fresco-test-boundary-body-not-retained"></a>
 #### `:rf.error/fresco-test-boundary-body-not-retained`
 
-You gave an L2 `tree` a `defview` head in a build that erased its body.
+You gave an L2 `tree` a `defview` head in a build that erased its body. Run
+view tests in a development build, or pass the body function instead of the
+head.
 
 <a id="fresco-test-bad-option"></a>
 #### `:rf.error/fresco-test-bad-option`
@@ -563,97 +543,80 @@ You gave an L2 `tree` a `defview` head in a build that erased its body.
 You gave an L2 `tree` non-map options, or an option outside its closed roster
 `#{:subs}`. `hm/shadow!` raises it too, for options outside `:reference`,
 `:candidate`, `:initial-events` and `:script`, or a script step other than
-`{:click selector}` or `{:type [selector text]}`.
+`{:click selector}` or `{:type [selector text]}`. Remove the key or step the
+message names.
 
 <a id="fresco-test-bad-reads"></a>
 #### `:rf.error/fresco-test-bad-reads`
 
-You gave an L2 `tree` a `:subs` option that is not a query-to-value map.
+You gave an L2 `tree` a `:subs` option that is not a query-to-value map. Pass a
+map from query vector to value, such as `{[:todo/by-id 7] {:title "Milk"}}`.
 
 <a id="fresco-test-missing-read-fixture"></a>
 #### `:rf.error/fresco-test-missing-read-fixture`
 
-You let an L2 body read a subscription no fixture answers.
+You let an L2 body read a subscription no fixture answers. Add a fixture for
+the exact query vector the message names.
 
 <a id="fresco-test-host-is-opaque"></a>
 #### `:rf.error/fresco-test-host-is-opaque`
 
-You let a `defhost` crossing reach the L2 semantic tree.
+You let a `defhost` crossing reach the L2 semantic tree. Test the view at L3
+with `hm/mount!`.
 
 <a id="fresco-test-react-is-opaque"></a>
 #### `:rf.error/fresco-test-react-is-opaque`
 
-You let a raw React element reach the L2 semantic tree.
+You let a raw React element reach the L2 semantic tree. Test the view at L3
+with `hm/mount!`.
 
 <a id="fresco-test-not-a-host"></a>
 #### `:rf.error/fresco-test-not-a-host`
 
 You read the declared server policy off something that is not a `defhost`.
+Pass `ht/host-policy` a var defined with `h/defhost`.
 
 <a id="fresco-test-not-a-native-form"></a>
 #### `:rf.error/fresco-test-not-a-native-form`
 
-You gave an L1 projection a form whose head is not a tag keyword.
+You gave an L1 projection a form whose head is not a tag keyword. Pass a
+native form, such as `[:input {:on-input [:todo/edit ::h/value]}]`.
 
 <a id="fresco-test-not-an-intent"></a>
 #### `:rf.error/fresco-test-not-an-intent`
 
 You gave the L1 marker materializer something other than an intent vector.
+Pass `ht/materialize` an event vector.
 
 <a id="fresco-test-not-a-dom-node"></a>
 #### `:rf.error/fresco-test-not-a-dom-node`
 
-You gave the canonical-DOM comparator something that is not a DOM node.
+You gave the canonical-DOM comparator something that is not a DOM node. Pass
+a DOM node, such as a mounted container; compare two L2 trees with `=`.
 
 <a id="fresco-test-no-handler-at-position"></a>
 #### `:rf.error/fresco-test-no-handler-at-position`
 
-You fired at a prop position the form does not write.
+You fired at a prop position the form does not write. Fire at one of the
+positions the message lists.
 
 <a id="fresco-test-position-is-not-a-handler"></a>
 #### `:rf.error/fresco-test-position-is-not-a-handler`
 
-You fired at a position that lowers to something other than a function.
+You fired at a position whose value converts to something other than a
+function. Fire at an `on*` prop that holds an event vector, a key map or a
+function.
 
 <a id="fresco-test-l1-dispatch"></a>
 #### `:rf.error/fresco-test-l1-dispatch`
 
-You invoked a handler lowered by a pure L1 projection.
-
-<a id="initial-events-step-failed"></a>
-#### `:rf.error/initial-events-step-failed`
-
-An `:initial-events` step threw while a frame was being built, whether handed to
-`hm/mount!` or `hm/hydrate!` or to an `h/frame-root` creating its frame. The
-frame is torn down and nothing was mounted, so there is no handle to tear down.
-The error names the step and its event. A corpus id.
+You invoked a handler converted by a pure L1 projection. Use `ht/fire!`, which
+dispatches into a real frame, or test the handler at L3.
 
 <a id="poll-until-timeout"></a>
 #### `:rf.error/poll-until-timeout`
 
 The predicate given to `hm/settle-until!` never held before its `:timeout-ms`
-(default 2000). The ex-data carries `:elapsed-ms` and your `:label`. A corpus
-id.
-
-## Ids that are claimed but not raised
-
-These ids are reserved or retired. None of them appears in a raised error, and
-none should be used for your own errors.
-
-### Reserved
-
-Each names an error for a feature that is not built yet. When the feature
-ships, the id moves into the index above.
-
-| Reserved | What it will reject |
-| --- | --- |
-| `:rf.error/fresco-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head |
-| `:rf.error/fresco-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
-| `:rf.error/fresco-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
-| `:rf.error/fresco-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
-
-### Retired
-
-`:rf.error/fresco-test-residue-after-quiescence` is retired and will not be
-reused. `hm/assert-clean!` reports leaks through the test runner instead of
-throwing, so every leak is reported.
+(default 2000). The ex-data carries `:elapsed-ms` and your `:label`. Check that
+the predicate can become true for what the mount renders, and raise
+`:timeout-ms` only for work that is slow. Defined by core.

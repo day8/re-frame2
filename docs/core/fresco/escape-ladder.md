@@ -19,7 +19,7 @@ Most mistakes here treat one reason as the other: deleting a host because it
 did not recover 20%, or building a native island because a screen felt heavy
 and nobody measured.
 
-## The performance descent
+## The performance ladder
 
 Take each rung only after the one above it has failed. The code for rungs 3 to
 5 is in [Islands](10-native-tier.md).
@@ -28,14 +28,14 @@ Take each rung only after the one above it has failed. The code for rungs 3 to
 | --- | --- | --- |
 | 1 | Ordinary Fresco: Hiccup, `h/sub`, event vectors | always; every screen starts here |
 | 2 | Tuned Fresco: view boundaries, keys, read shape, chunking, windowing | a measured interaction invalidates too much work |
-| 3 | A `defview` body returns a React element | Hiccup lowering is the measured cost |
+| 3 | A `defview` body returns a React element | Hiccup conversion is the measured cost |
 | 4 | A React island: raw React or UIx, mounted through `h/defhost` | hooks, vendor internals, reconciliation, or per-frame local work dominate |
 | 5 | A native screen | the screen is React-shaped by design |
 
 Most performance work ends at rung 2, which is still ordinary Fresco: moving a
 read down, drawing a view boundary differently, or windowing a list.
 
-## The interoperability descent
+## The interoperability ladder
 
 Two rungs, taught in [Interop](09-interop.md). Their order has nothing to do
 with speed.
@@ -58,15 +58,12 @@ Each rung below ordinary Fresco mostly costs you what tests and tools can see
 | At and past | Semantic tests | Tools | Server rendering | Frame carriage |
 | --- | --- | --- | --- | --- |
 | Performance rung 2 | unchanged | unchanged | unchanged | unchanged |
-| Performance rungs 3–5 | assert React behaviour at L3 | Xray names and times the native boundary and shows its supported hook reads; the inner tree is opaque | the island's `h/defhost` declares `:server :render`, or stays Client-only | `(rf/capture-frame)` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
-| A declared host | the crossing is opaque to L2; assert it at L3 | Xray names and times the crossing, not its interior | yours to declare: `:server :render`, or Client-only with an optional `:fallback` | an `h/event` or intent vector at an `on*` prop carries the frame; a plain function does not |
+| Performance rungs 3–5 | assert React behaviour at L3 | a rung-3 view keeps its Xray name and reads; an island's `n/use-sub` reads show, its React subtree is opaque, and Xray times neither | the island's `h/defhost` declares `:server :render`, or stays Client-only | `(rf/capture-frame)` in a rung-3 body carries the frame; inside an island, `n/use-frame` does |
+| A declared host | the crossing is opaque to L2; assert it at L3 | Xray names the crossing; it does not time it or see inside it | yours to declare: `:server :render`, or Client-only with an optional `:fallback` | an `h/event` or intent vector at an `on*` prop carries the frame; a plain function does not |
 | The raw escape | opaque to L2; assert at L3 | the crossing has no authored name | Client-only, with no fallback of its own | contracts are inferred from the spelling as on a declared host; there is no override and no slot |
 
-The L2 limits are enforced: `ht/tree` raises
-`:rf.error/fresco-test-host-is-opaque` at a host and
-`:rf.error/fresco-test-react-is-opaque` at a raw React element, each pointing at
-L3 ([Testing](15-testing.md#l2-refuses-react-only-behaviour)). Both ids are
-indexed in [Troubleshooting](troubleshooting.md#the-complaint-index).
+`ht/tree` throws at a host or a raw React element and names L3 as the level to
+test it at ([Testing](15-testing.md#l2-refuses-react-only-behaviour)).
 
 A controlled text field moved into an island loses Fresco's controlled-field
 handling, and native construction does not make typing faster. Keep those
@@ -116,15 +113,9 @@ Judge it on the questions that do apply:
 ## What every escape must preserve
 
 An escape changes how a subtree is written, but the application must behave
-the same. After taking any rung, re-check what Fresco can no longer inspect for
-you ([Islands](10-native-tier.md#verify-every-crossing)):
-
-- DOM and interaction parity;
-- focus and selection;
-- frame routing;
-- SSR and hydration;
-- cleanup and StrictMode behaviour;
-- the performance script that sent you here in the first place.
+the same. After taking any rung, re-run the checks in
+[Islands](10-native-tier.md#verify-every-crossing), which Fresco can no longer
+perform inside the React subtree.
 
 ## Climbing back
 

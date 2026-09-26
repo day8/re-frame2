@@ -6,9 +6,6 @@ starts when a specific interaction misses a user-visible budget. Measure that
 interaction, find what costs the time, change the smallest relevant piece, and
 measure again.
 
-This page shows why the ordinary shape is cheap, then how to measure and what
-to change when a budget is missed.
-
 ## Trace one controlled keystroke
 
 ```clojure
@@ -43,9 +40,7 @@ One keystroke follows this path:
    turn ends.
 7. The next frame paints the typed character.
 
-That is one write, one changed subscription, and one view body. The guide
-calls the number of view bodies run per state write **write amplification**;
-here it is 1.
+That is one write, one changed subscription, and one view body.
 
 ## Keep reads narrow in lists
 
@@ -128,12 +123,12 @@ they acquire ([Interop](09-interop.md)). Check it with `hm/assert-clean!` from
 2. **Attribute.** Find which subscriptions changed, which views ran, and how
    long React commit and browser paint took. Xray attributes the cost to
    subscription computation or read topology; when neither explains it, Xray
-   names Hiccup lowering, React and layout as candidates it cannot separate
+   names Hiccup conversion, React and layout as candidates it cannot separate
    ([Diagnostics](16-diagnostics.md)). Measure those with the `rf:render` User
    Timing, the React Profiler and the browser Performance panel.
 3. **Tune topology.** Change read placement, keys, view boundaries, or
    collection shape. Most cases end here.
-4. **Return a React element directly** only when Hiccup lowering is the
+4. **Return a React element directly** only when Hiccup conversion is the
    measured cost.
 5. **Build a React island** only when the cost is hooks, vendor internals,
    reconciliation, or high-rate local work.
@@ -156,13 +151,13 @@ setting that changes what Hiccup means.
 | --- | --- | --- | --- |
 | 1. Ordinary Fresco | Nothing | Always start here | [Views and reads](02-views-and-reads.md) |
 | 2. Tune topology | View boundaries, keys, and read shape | An interaction invalidates too much work | [Lists and collections](06-lists-and-collections.md) |
-| 3. Direct React return | A `defview` returns a React element and keeps its frame, reads, and memo | Hiccup lowering is the measured cost | [Islands](10-native-tier.md) |
+| 3. Direct React return | A `defview` returns a React element and keeps its frame, reads, and memo | Hiccup conversion is the measured cost | [Islands](10-native-tier.md) |
 | 4. React island | A React or UIx component mounted with `h/defhost` under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local work dominate | [Islands](10-native-tier.md) |
 | 5. Native screen | A React-first screen under the same state model | The screen is React-shaped by design | [Islands](10-native-tier.md) |
 
 ### Keep an escape only when it earns its cost
 
-Steps 3 to 5 add another authoring model, hide structure from semantic tests,
+Levels 3 to 5 add another authoring model, hide structure from semantic tests,
 and make review harder. Keep one only when it:
 
 - recovers 20% or more of the measured interaction,

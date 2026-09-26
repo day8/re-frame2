@@ -1,7 +1,7 @@
 # Motion and presence
 
 Fresco does not ship an animation system. CSS handles transitions and
-keyframes, and a native host handles high-rate mechanics such as drag positions
+keyframes, and a React island handles high-rate mechanics such as drag positions
 and springs. None of them handles exit: React removes a node as soon as its
 data leaves app-db, and a node that is gone cannot finish an exit animation.
 
@@ -196,4 +196,4 @@ no timer involved.
 - There is no exit animation: remove the data and skip the module.
 - The fact is application-visible (open, selected, draft): store it in app-db
   ([Ephemeral state](11-ephemeral-state.md)).
-- The motion is continuous pointer or layout motion: use a native host or CSS.
+- The motion is continuous pointer or layout motion: use an island or CSS.

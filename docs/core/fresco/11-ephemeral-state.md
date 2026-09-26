@@ -7,30 +7,7 @@ place.
 Fresco has no component-local reactive cell. There is no Fresco equivalent
 of Reagent's `r/atom`, and `useState` does not belong in a `defview` body.
 Application-visible facts live in app-db. High-rate widget mechanics stay
-inside a native host. Browser-owned state stays in the browser.
-
-That gives each fact one owner and keeps a second reactive store out of the
-application.
-
-## Why one owner matters
-
-Three re-frame2 properties depend on it.
-
-**Tests stay data-driven.** If “this dropdown is open” is stored at an app-db
-address, a headless test can seed that address directly. It does not need to
-mount a component, simulate a click, or wait for a timer
-([Testing](15-testing.md)).
-
-**Diagnostics keep a complete cause chain.** Xray can connect an event to a
-state commit, subscription invalidation, view render, React commit, and paint.
-A private reactive store updates on a clock outside that chain
-([Diagnostics](16-diagnostics.md)).
-
-**Frames remain isolated.** App-db is per-frame. A module-level atom is shared
-by every frame that mounts the code, which defeats frame isolation.
-
-A host may still keep React state, DOM state, canvas state, or an SDK handle.
-It must not keep an invisible duplicate of an application fact.
+inside a React island. Browser-owned state stays in the browser.
 
 ## 1. Application-visible state: app-db
 
@@ -43,7 +20,8 @@ selected, or the active tab.
 
 ```clojure
 (ns app.todos.views
-  (:require [re-frame.fresco :as h]))
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco :as h]))
 
 (h/reg-state :todo.ui/expanded? {:default false})
 
@@ -63,14 +41,9 @@ registration, and because the state is at an app-db address you get replay,
 frame isolation, Xray visibility, and direct test setup.
 
 The concern must be a namespace-qualified keyword, because it is a sub id, an
-event id and an app-db key at once. The instance key must be a keyword, string,
-number or vector of those. An unqualified concern or an option other than
-`:default` makes the registration throw `:rf.error/fresco-state-bad-argument`.
-A `nil` or other bad instance key is caught where it is used: a read reports
-`:rf.error/sub-exception` and returns `nil` (not the default), and a write
-reports `:rf.error/handler-exception`, each carrying
-`:rf.error/fresco-state-bad-argument` as its cause. Registering the concern again replaces
-the registration, so a namespace reload is harmless.
+event id and an app-db key at once. The instance key is a keyword, string,
+number or vector of those. Registering the concern again replaces the
+registration, so a namespace reload is harmless.
 
 When a change means more than "this slot now holds that value" (something else
 must happen, or the change itself should be recorded), write a named event and
@@ -134,23 +107,27 @@ result. Here a todo is dragged to a new position in the list:
             [re-frame.fresco :as h]))
 
 (defn drag-surface [^js props]
-  (let [[xy set-xy] (react/useState nil)]
+  (let [[start set-start] (react/useState nil)
+        [dy set-dy]       (react/useState 0)]
     (react/createElement "div"
       #js {:className "card"
-           :style (when xy
-                    #js {:translate (str (aget xy 0) "px "
-                                         (aget xy 1) "px")})
+           :style     #js {:translate (str "0px " dy "px")}
+           :onPointerDown
+           (fn [e]
+             (.setPointerCapture (.-currentTarget e) (.-pointerId e))
+             (set-start (.-clientY e)))
+
            :onPointerMove
            (fn [e]
-             (when (pos? (.-buttons e))
-               (set-xy #js [(.-clientX e) (.-clientY e)])))
+             (when start
+               (set-dy (- (.-clientY e) start))))
 
            :onPointerUp
            (fn [_]
-             (when xy
-               ((.-onDrop props)
-                (js/Math.round (/ (aget xy 1) 40))))
-             (set-xy nil))}
+             (when start
+               ((.-onDrop props) (js/Math.round (/ dy 40))))
+             (set-start nil)
+             (set-dy 0))}
       (.-label props))))
 
 (h/defhost drag-row drag-surface)
@@ -158,13 +135,13 @@ result. Here a todo is dragged to a new position in the list:
 (h/defview todo-drag-row [{:keys [id]}]
   (let [{:keys [title]} (h/sub [:todo/by-id id])]
     [drag-row {:label   title
-               :on-drop (h/event [position] [:todo/moved id position])}]))
+               :on-drop (h/event [rows] [:todo/moved id rows])}]))
 ```
 
 Pointer movement stays in local React state. The completed drop is an
 application event, so it reaches app-db once. `:on-drop` is an `on*` prop, so
 `h/event` there is an event callback, and the island calls it with the
-position it computed.
+number of rows the todo moved.
 
 Hooks belong in the island. A `defview` body may branch and loop, so hooks
 there would make hook order depend on data.
@@ -203,12 +180,30 @@ exiting node painted until its animation finishes.
 | --- | --- | --- |
 | Dropdown open | App-db; the overlay module reconciles the platform to it | It changes what the user can do, and tests and Xray need it |
 | Field draft | App-db through the forms module | Validation, submit gating, dirty-leave, and replay read it |
-| Drag position during a drag | Native host state | High-rate mechanics; dispatch the completed drop once |
+| Drag position during a drag | Island state | High-rate mechanics; dispatch the completed drop once |
 | Scroll offset | DOM; routing restores it per route | Do not re-render for every pixel. Commit meaningful thresholds as events when needed |
 | Animation / exit retention | CSS for animation; [`motion/presence`](12-motion-and-presence.md) for exit retention; host state for rAF mechanics | App-db records truth, not what is still painted |
 | Focus | Browser focus, changed through one-shot focus actions | A mirrored “focused element” value drifts and would update on every Tab |
 | Selected tab | App-db, or routing when it should survive reload | Other views, tests, or deep links care |
-| WebGL context or SDK handle | Declared host or native component | It is an object identity with an attach/teardown lifecycle, not application data |
+| WebGL context or SDK handle | Declared host or island | It is an object identity with an attach/teardown lifecycle, not application data |
+
+## Why one owner matters
+
+**Tests stay data-driven.** If “this dropdown is open” is stored at an app-db
+address, a headless test can seed that address directly. It does not need to
+mount a component, simulate a click, or wait for a timer
+([Testing](15-testing.md)).
+
+**Diagnostics keep a complete cause chain.** Xray can connect an event to a
+state commit, subscription invalidation, view render, React commit, and paint.
+A private reactive store updates on a clock outside that chain
+([Diagnostics](16-diagnostics.md)).
+
+**Frames remain isolated.** App-db is per-frame. A module-level atom is shared
+by every frame that mounts the code, which defeats frame isolation.
+
+A host may still keep React state, DOM state, canvas state, or an SDK handle.
+It must not keep an invisible duplicate of an application fact.
 
 ## Choose a stable instance address
 
@@ -266,15 +261,20 @@ Everything else is application state and should have one app-db address.
 (h/event [e] [:todo/drag-moved id (.-clientX e) (.-clientY e)])
 ```
 
+The open flag belongs at an app-db address through `h/reg-state`
+([section 1](#1-application-visible-state-app-db)), and pointer movement
+belongs in an island that dispatches the completed drop
+([section 3](#3-host-private-mechanics-native-state)).
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | You are reaching for `useState` or `r/atom` to hold “is this open?” | Application-visible state is moving into a private store | Give it an app-db address, or use the overlay module's reconciled open flag |
-| A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Fresco does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into a native component |
+| A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Fresco does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into an island |
 | You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Fresco has no generic lifecycle hook | Identify the job and use the owner in the table above |
 | Every panel opens at once | All instances share one address | Include a stable instance key in the address |
-| `:rf.error/fresco-state-bad-argument`, thrown by the registration or as the cause of a `:rf.error/sub-exception` or `:rf.error/handler-exception` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option | Pass a stable id such as the entity id; the error's reason names which argument is wrong |
+| `:rf.error/fresco-state-bad-argument`, thrown by the registration or as the cause of a `:rf.error/sub-exception` or `:rf.error/handler-exception` | A `reg-state` read or write got a `nil` or non-data instance key, or the registration has an unqualified concern or an unknown option; a failed read returns `nil`, not the default | Pass a stable id such as the entity id; the error's reason names which argument is wrong |
 | Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep pointer mechanics inside the host and dispatch only the semantic result |
 | A dismissed item vanishes before its CSS exit finishes | Exit retention was treated as app-db state, or Presence was not used | See [Motion and presence](12-motion-and-presence.md) |
 | app-db accumulates many `:ui` entries | Application-visible UI state is correctly stored there | Namespace the slice and exclude it from persistence when appropriate |

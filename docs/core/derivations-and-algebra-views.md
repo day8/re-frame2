@@ -104,12 +104,14 @@ The five registration forms — `reg-sub`, `reg-flow`, `reg-resource`, `reg-rout
 `reg-machine` — are each translated into this one shape, called the node's **algebra
 view**.
 
-!!! note "You never write the algebra view"
+!!! note "You never write or call the algebra view"
 
     There is no `reg-fact` and no `reg-derivation`. The view is derived from the
     registration you already wrote, so a tool can answer "where does this value come
     from, when does it run, where does it live, what keeps it alive?" without reading
-    your function bodies.
+    your function bodies. There is no public accessor for the assembled graph either:
+    Xray and the conformance fixtures use it internally, and the maps on this page are
+    what those tools display.
 
 ??? note "Going deeper — two superkinds, nothing more"
 
@@ -138,7 +140,7 @@ the five questions plus labels and diagnostics:
  :evaluation  :on-demand
  :lifecycle   :subscription-cache-entry
  :materialized? false
- :derive      #'app.todos/count-remaining      ;; opaque token, never serialized code
+ :derive      <the fn passed to reg-sub>       ;; opaque token, never serialized code
  :schema      :int                             ;; the output's schema, when registered
  :source      {:ns "app.todos" :file "src/app/todos.cljs" :line 42}}
 ```
@@ -151,10 +153,9 @@ Notes:
    (`:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector`). They
    never live in `:kind`, so a refinement always refines its node's superkind and
    never invents a third one.
-3. **`:derive`** is an opaque token. (`#'app.todos/count-remaining` is Clojure's
-   var-quote: a reference to the function, not its source code.)
-   The graph contract is about dependencies, storage, evaluation, and ownership; it
-   never requires serializing your functions.
+3. **`:derive`** is an opaque token for the function you registered, never its
+   source code. The graph contract is about dependencies, storage, evaluation and
+   ownership; it never requires serializing your functions.
 
 The trailing fields — `:schema` (the output's Malli [schema](glossary.md#schema)),
 `:source` (namespace, file, line) and a doc string — are optional diagnostics. A node
@@ -395,23 +396,13 @@ Four rules for reading it:
 - **Redaction keeps the structure.** Graph payloads carry source coordinates and value
   summaries, never raw sensitive values, so a redacted param is still an edge.
   ([Data classification](glossary.md#data-classification) is the mechanism.)
-- **Every derivation is a whole-value function**: it must be correct when it
-  recomputes its entire output from its declared inputs. Memoization and equality
-  pruning are optimizations that must not change the value. What you rely on in a
-  graph is the structure — who reads what, where it lives, when it runs — not a
-  promise that a node can be re-run on demand.
+- **Every derivation is a whole-value function**: recomputing its entire output
+  from its declared inputs gives the correct value. Memoization and equality pruning
+  are optimizations that must not change that value.
 - **Optional families may be absent.** Flows, resources, routes and machines each
   ship in a separate artefact that core doesn't depend on, and an app that doesn't
   load one contributes no nodes of that kind. A sparse graph is an app that uses
   fewer homes, not a broken graph.
-
-??? note "Going deeper — the whole-value law as a contract"
-
-    The whole-value rule lets conformance tests verify a node by recomputing it, and
-    lets a tool trust declared edges and classifications without running app code. It
-    also defines which optimizations are allowed: anything that preserves the
-    observable value (memoization, equality pruning, dirty checks) is legal, and
-    anything that changes it is a bug.
 
 To see one live, open [Xray](glossary.md#xray) on a running app. Its dependency-graph
 panel draws this assembled view, one node per algebra view and one arrow per edge.
@@ -421,7 +412,7 @@ panel draws this assembled view, one node per algebra view and one arrow per edg
 
 The model also names the ways a graph can be unhealthy, in the same node vocabulary, so a diagnostic can say which node and which field is at fault. Where a concrete error id exists today, it is given:
 
-- **Unknown input fact.** A derivation declares an input that nothing produces. For subscriptions, `subscribe` raises `:rf.error/no-such-sub` naming the missing id. (`compute-sub`, the pure test helper, returns `nil` for such an input without an error record; see [Test a subscription](testing/subscriptions.md#troubleshooting).)
+- **Unknown input fact.** A derivation declares an input that nothing produces. For subscriptions, `subscribe` raises `:rf.error/no-such-sub` naming the missing id.
 - **Cycle in an acyclic graph.** A flow whose inputs depend, directly or through other flows, on its own output. Flows are ordered topologically before they run, so `reg-flow` throws `:rf.error/flow-cycle` at registration, with a `:cycle` vector naming the chain (`[:a :b :a]` for `:a → :b → :a`). Subscriptions have no registration-time cycle check, because their graph is resolved dynamically as views read it; the first `subscribe` that closes a cycle reports `:rf.error/sub-cycle` in development builds, with `:cycle` naming the chain, and yields `nil`.
 - **Illegal storage write.** A registration tries to write where its storage class doesn't allow. A flow writes `app-db` only, so an `:output-path` under `:rf.db/runtime` raises `:rf.error/flow-reserved-output-path`.
 - **Missing lifecycle owner.** A process with nothing to keep it alive or release it. The model treats a graph that shows dependencies but not ownership as incomplete.
@@ -430,26 +421,12 @@ The model also names the ways a graph can be unhealthy, in the same node vocabul
 
 [Errors](errors.md) explains how to read any of these records.
 
-!!! note "No public graph accessor yet"
-
-    The assembled graph is used internally, by Xray and the conformance fixtures, and has no public API yet. The classifications on this page are the stable part, and they are what the tools display.
-
 ## Advanced
 
 ### How optional families plug in
 
 Core can't `:require` flows, resources, routing or machines without defeating their bundle isolation and breaking a core-only build. So the internal graph composer reaches each optional family through a **contributor map**, `{family {:static-fn :live-fn …}}`. On the JVM the default contributors find whichever family artefacts are on the classpath; in the browser, the tool that draws the graph, which already requires the families it supports, supplies the map. An absent family contributes nothing, which is why an app without flows shows no flow nodes. The composer is bundle-isolated and has no public accessor.
 
-### The optional delta law
+### The whole-value law
 
-Every derivation must be correct when it recomputes its entire output. re-frame2 has no incremental (delta) evaluation today, but the model states the rule a delta path would have to follow, so that adding one later can't change observed values.
-
-A derivation could one day declare a `:step-delta` beside its `:derive`, computing a change in output from a change in input instead of rebuilding the whole value. That would help with, say, a hundred thousand todos where one was toggled:
-
-```clojure
-{:id         :todo/visible
- :derive     #'app.todos/visible         ;; whole-value: always correct
- :step-delta #'app.todos/visible-delta}  ;; delta: an optional fast path
-```
-
-The delta path must **commute** with whole-value recomputation: applying the input change and then deriving must equal deriving and then applying the output change. If a `:step-delta` is absent, disabled or fails its conformance check, whole-value derivation remains correct; a delta is only ever a speed-up. The model reserves a seventh error category, **delta law check failed**, for a `:step-delta` that disagrees with whole-value recomputation. Nothing can raise it until delta evaluation exists.
+Because every derivation is correct when recomputed whole, conformance tests verify a node by recomputing it, a tool can trust declared edges without running app code, and any optimization that preserves the value (memoization, equality pruning, dirty checks) is allowed. re-frame2 has no incremental (delta) evaluation. The model reserves a rule for one (a delta path must agree with whole-value recomputation) and a seventh graph error, *delta law check failed*, for a delta that doesn't; nothing raises it.

@@ -31,7 +31,7 @@ function:
 
 - `reg-event` twice (two event handlers)
 - `reg-sub` once (a subscription)
-- `reg-view` once (a view; it is shaped like `defn`, and its name becomes the id)
+- `reg-view` once (a view; it is shaped like `defn`, and its namespace-qualified name becomes the id)
 
 Inside a `reg-view` body, `subscribe` and `dispatch` are provided for you:
 `@(subscribe [:value])` reads the current value, and `(dispatch [:inc])` reports a
@@ -79,11 +79,9 @@ becomes `{:value 3}` once `:initialise` runs, then `{:value 4}` after the first 
 and so on.
 
 `frame-root` creates its frame once, runs `:initial-events` once, and scopes the
-subtree so `dispatch` and `subscribe` inside the view reach that frame. Until the
-[Frames](frames.md) page, that form is the whole boot story. Packaging a real app
-(`init!`, hot reload, listeners) is covered in
-[Boot and mount an app](how-to/boot-and-mount-an-app.md). Giving frames different
-sets of registrations is rare; [Images](images.md) covers it.
+subtree so `dispatch` and `subscribe` inside the view reach that frame. Packaging a
+real app (`init!`, hot reload, listeners) is covered in
+[Boot and mount an app](how-to/boot-and-mount-an-app.md).
 
 ## The event pipeline in one pass
 
@@ -120,17 +118,9 @@ app-state = reduce(event-pipeline, initial-state, events)
 
 ## Events are data
 
-An event is a vector. The head is an id, usually a namespaced keyword. Further
-elements carry the facts the handler needs:
-
-```clojure
-[:inc]
-[:inc-by {:n 5}]
-[:todo/toggle 1]
-```
-
-Events usually record user intent (click, type, navigate), but timers, HTTP replies,
-and route loaders dispatch them too. [Events](events.md) covers them in full.
+An event is a vector whose first element is an id: `[:inc]`, `[:todo/toggle 1]`.
+Clicks, timers and HTTP replies all reach the app as events; [Events](events.md)
+covers them in full.
 
 ## In summary
 

@@ -77,9 +77,12 @@ the `:interceptors` key of the event's metadata:
 The handlers are back to returning just `:db`, and every change to `:todos` is still
 saved.
 
-The runtime looks the id up at dispatch time, so re-registering `:todo/persist` with
-new behaviour applies to the next dispatch without re-registering any event. And
-because the chain is a vector of ids, it is plain data you can print and diff.
+`reg-event` checks that every id in the chain is registered, and throws
+`:rf.error/unregistered-interceptor` if one isn't, so register interceptors in a
+namespace your event namespaces `:require`. The behaviour is looked up at dispatch
+time, so re-registering `:todo/persist` applies to the next dispatch without
+re-registering any event. And because the chain is a vector of ids, it is plain data
+you can print and diff.
 
 An interceptor *map* placed directly in a chain, as in `{:interceptors [{:after …}]}`,
 raises `:rf.error/inline-interceptor-removed`. Register it and reference the id.
@@ -114,6 +117,17 @@ These are the [coeffects](coeffects.md) the handler reads and the
 [effects](effects.md) it returns. So a `:before` sees only `:coeffects`, because the
 outputs don't exist yet, and an `:after` sees both. That is why `:todo/persist` is an
 `:after`: it compares the two.
+
+A `:before` can change `:coeffects`, but it never sees a half-filled map: the runtime
+delivers every declared fact before the chain starts.
+
+??? info "From re-frame v1: coeffect injection left the chain"
+
+    In v1, coeffect injection was itself an interceptor, so one placed before it saw
+    an incomplete `:coeffects` map. In re-frame2 injection happens before the chain.
+    `re-frame.core` has no `inject-cofx`, so a leftover entry fails to compile; declare
+    the fact with `:rf.cofx/requires` instead. See
+    [From re-frame v1](25-from-re-frame-v1.md).
 
 ## Before and after: a logger
 
@@ -178,28 +192,6 @@ only works when another one wraps it; reordering the chain breaks it.
     [`:factory`](#parameterized-interceptors-the-factory-descriptor) builds a
     configured interceptor up front.
 
-### Inputs are complete before the chain runs
-
-By the time the first `:before` runs, `:db`, `:event`, and every declared fact are in
-`:coeffects`. For one event the order is:
-
-```text
-envelope finalization → context assembly → :before pass → handler → :after pass
-```
-
-Envelope finalization is the runtime completing the dispatch's metadata record, the
-[event envelope](glossary.md#event-envelope). Coeffects are delivered during context
-assembly, before the chain. A `:before` can still change the `:coeffects` map, but it
-never sees a half-filled one.
-
-??? info "From re-frame v1: coeffect injection left the chain"
-
-    In v1, coeffect injection was itself an interceptor, so one placed before it saw
-    an incomplete `:coeffects` map. In re-frame2 injection happens before the chain.
-    `re-frame.core` has no `inject-cofx`, so a leftover entry fails to compile; declare
-    the fact with `:rf.cofx/requires` instead. See
-    [From re-frame v1](25-from-re-frame-v1.md).
-
 ## The one standard interceptor: `path`
 
 Core ships one standard interceptor, attached with a second kind of reference, an
@@ -221,7 +213,8 @@ after `path`, it would see only the focused `:todos` map and find no `:todos` ke
 it.
 
 The `[id arg]` form works for any parameterized interceptor: the id names a
-registered factory and `arg` configures it. There is no `rf/path` function: calling
+registered factory ([Advanced](#parameterized-interceptors-the-factory-descriptor))
+and `arg` configures it. There is no `rf/path` function: calling
 it throws `:rf.error/path-removed`. Every chain entry is a keyword or an `[id arg]`
 vector.
 
@@ -240,45 +233,6 @@ Two edge cases:
     map even when nothing changed, which defeats that check. The standard `path`
     returns the original app-db object when the returned part is `identical?` to the
     one it passed in.
-
-### Parameterized interceptors: the `:factory` descriptor
-
-You can write parameterized interceptors too. A descriptor can be `{:factory f}`,
-where `f` takes the reference's one argument and returns an ordinary `:before` /
-`:after` descriptor:
-
-```clojure
-(rf/reg-interceptor :my-app/stamp
-  {:doc "After the handler, record which event last changed app-db, under the given key."}
-  {:factory (fn [stamp-key]
-              {:after (fn [ctx]
-                        (if (contains? (:effects ctx) :db)
-                          (assoc-in ctx [:effects :db stamp-key]
-                                    {:by (first (get-in ctx [:coeffects :event]))
-                                     :at (get-in ctx [:coeffects :rf/time-ms])})
-                          ctx))})})
-```
-
-Reference it with the bracket form, passing the one argument. For several inputs,
-pass a map or vector.
-
-```clojure
-(rf/reg-event :todo/add
-  {:interceptors     [[:my-app/stamp :todo/last-change] :todo/persist]
-   :rf.cofx/requires [:rf/time-ms]}          ;; the :after reads it from :coeffects
-  (fn [{:keys [db]} [_ title]]
-    (let [id (inc (apply max 0 (keys (:todos db))))]
-      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
-```
-
-An interceptor sees only the facts the *event* declared, because
-`:rf.cofx/requires` belongs to the event. Leave that line off and `:at` is `nil`.
-
-The factory runs when the chain is built. `[:my-app/stamp :a]` and
-`[:my-app/stamp :b]` are two different chain entries. An override
-([below](#removing-or-swapping-a-reference-interceptor-overrides)) keyed by
-`[:my-app/stamp :a]` matches only that entry; a bare `:my-app/stamp` key matches
-every entry with that id.
 
 ??? info "From re-frame v1: the helper interceptors are gone"
 
@@ -305,38 +259,11 @@ event becomes one frame interceptor with no change to handler code.
     Per-frame `:interceptors` replace it. Each frame keeps its own list, so nothing
     leaks across SSR requests, Story variants, or test fixtures.
 
-### Removing or swapping a reference: `:interceptor-overrides`
-
-A test can remove or replace one interceptor without touching registrations.
-`:interceptor-overrides` matches a chain entry by its reference and removes it
-(`nil`) or replaces it with another reference, per dispatch or per frame:
-
-```clojure
-(rf/dispatch-sync [:todo/toggle 1]
-                  {:frame                 :app
-                   :interceptor-overrides {:todo/persist nil}})        ;; don't save in this test
-```
-
-```clojure
-(rf/make-frame
-  {:id                    :todos/story
-   :interceptors          [:my-app/logger]
-   :interceptor-overrides {:my-app/logger :story/quiet-logger}})      ;; swap one for another
-```
-
-A parameterized entry is matched in full: `{[:rf.interceptor/path [:todos]] nil}`
-removes only that `path`. Replacements are references too, so override maps stay
-plain data.
-
-When a frame and a dispatch both supply overrides, they merge and the dispatch wins
-on shared keys. A key or replacement that isn't a valid reference raises
-`:rf.error/interceptor-override-invalid`.
-
 ## Contribute, don't perform
 
-The chain is part of the pure event pipeline that replay, time-travel, and tests
-re-run. So don't perform I/O in an interceptor. It would run again on every replay,
-and `:fx-overrides` couldn't redirect it, because `:fx-overrides` replaces registered
+The chain is part of the pure event pipeline that replay and tests re-run. So don't
+perform I/O in an interceptor. It would run again on every replay, and
+`:fx-overrides` couldn't redirect it, because `:fx-overrides` replaces registered
 effects, not a `localStorage` call inside an `:after`. Add an
 [effect](glossary.md#effect) row instead, as `:todo/persist` does:
 
@@ -345,6 +272,15 @@ effects, not a `localStorage` call inside an `:after`. Add an
 :after (fn [ctx]
          (.setItem js/localStorage "todos" (pr-str (get-in ctx [:effects :db :todos])))
          ctx)
+```
+
+```clojure
+;; Do this: add an effect row; the registered effect does the write
+:after (fn [ctx]
+         (if (contains? (:effects ctx) :db)
+           (update-in ctx [:effects :fx] (fnil conj [])
+                      [:todo.storage/save (get-in ctx [:effects :db :todos])])
+           ctx))
 ```
 
 The one exception is diagnostics: the logger's `console.log` can stay, because
@@ -384,13 +320,52 @@ Interceptors do two kinds of work:
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `:rf.error/unregistered-interceptor` at load time | A chain names an unregistered id, usually a typo | Fix the id, or register it |
+| `:rf.error/unregistered-interceptor` at load time | A chain names an id that isn't registered yet: a typo, or the interceptor's namespace loads after the event's | Fix the id, or `:require` the interceptor's namespace from the event's |
 | `:rf.error/inline-interceptor-removed` | A chain holds an interceptor map instead of an id | Register the map and reference its id |
 | An `:after` change is lost | The function returned `nil`, which counts as "unchanged" | End every `:before` / `:after` with the context |
 | `:rf.error/interceptor-exception` with `:phase :after` | The `:after` assumed `[:effects :db]` exists | Check for it first ([When the chain throws](#when-the-chain-throws)) |
 | A side effect repeats on replay, or fails during SSR | The interceptor performs I/O itself | Add an `:fx` row instead ([above](#contribute-dont-perform)) |
 
 ## Advanced
+
+### Parameterized interceptors: the `:factory` descriptor
+
+You can write parameterized interceptors too. A descriptor can be `{:factory f}`,
+where `f` takes the reference's one argument and returns an ordinary `:before` /
+`:after` descriptor:
+
+```clojure
+(rf/reg-interceptor :my-app/stamp
+  {:doc "After the handler, record which event last changed app-db, under the given key."}
+  {:factory (fn [stamp-key]
+              {:after (fn [ctx]
+                        (if (contains? (:effects ctx) :db)
+                          (assoc-in ctx [:effects :db stamp-key]
+                                    {:by (first (get-in ctx [:coeffects :event]))
+                                     :at (get-in ctx [:coeffects :rf/time-ms])})
+                          ctx))})})
+```
+
+Reference it with the bracket form, passing the one argument. For several inputs,
+pass a map or vector.
+
+```clojure
+(rf/reg-event :todo/add
+  {:interceptors     [[:my-app/stamp :todo/last-change] :todo/persist]
+   :rf.cofx/requires [:rf/time-ms]}          ;; the :after reads it from :coeffects
+  (fn [{:keys [db]} [_ title]]
+    (let [id (inc (apply max 0 (keys (:todos db))))]
+      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
+```
+
+An interceptor sees only the facts the *event* declared, because
+`:rf.cofx/requires` belongs to the event. Leave that line off and `:at` is `nil`.
+
+The factory runs when the chain is built. `[:my-app/stamp :a]` and
+`[:my-app/stamp :b]` are two different chain entries. An override
+([below](#removing-or-swapping-a-reference-interceptor-overrides)) keyed by
+`[:my-app/stamp :a]` matches only that entry; a bare `:my-app/stamp` key matches
+every entry with that id.
 
 ### A real interceptor: undo
 
@@ -455,6 +430,33 @@ A tool reads the references off the event, then looks up each one's source and
 `:doc`. That is how [Xray](glossary.md#xray) draws a chain with links to the source.
 (The [trace stream](observability.md) already records every event with timings, so
 a real app doesn't need the logger above.)
+
+### Removing or swapping a reference: `:interceptor-overrides`
+
+A test can remove or replace one interceptor without touching registrations.
+`:interceptor-overrides` matches a chain entry by its reference and removes it
+(`nil`) or replaces it with another reference, per dispatch or per frame:
+
+```clojure
+(rf/dispatch-sync [:todo/toggle 1]
+                  {:frame                 :app
+                   :interceptor-overrides {:todo/persist nil}})        ;; don't save in this test
+```
+
+```clojure
+(rf/make-frame
+  {:id                    :todos/story
+   :interceptors          [:my-app/logger]
+   :interceptor-overrides {:my-app/logger :story/quiet-logger}})      ;; swap one for another
+```
+
+A parameterized entry is matched in full: `{[:rf.interceptor/path [:todos]] nil}`
+removes only that `path`. Replacements are references too, so override maps stay
+plain data.
+
+When a frame and a dispatch both supply overrides, they merge and the dispatch wins
+on shared keys. A key or replacement that isn't a valid reference raises
+`:rf.error/interceptor-override-invalid`.
 
 ### Testing an interceptor
 

@@ -167,7 +167,13 @@ creates a todo when the draft has no `:id` and updates one when it does:
                :url    (if id (str "/api/todos/" id) "/api/todos")
                :body   {:todo todo}}
      :decode  :json}))
+```
 
+The Forms editor's `:todo.editor/replied` resets the editor after a successful
+save. An editor that stays open after saving points `:reply-to` at a
+settle-merge event instead:
+
+```clojure
 [:rf.mutation/execute
  {:mutation :todo/save
   :params   draft
@@ -202,10 +208,8 @@ edited after the request keeps the new draft value. `:reply-to` runs only after
 the runtime has accepted the reply as current, applied its cache effects, and
 settled the instance.
 
-The same comparison appears elsewhere: a debounce compares a generation
-number, and optimistic rollback compares a captured cache revision. The forms
-module handles touched-field display and submit gating; settle-merge only
-protects the draft from the server reply.
+The forms module handles touched-field display and submit gating;
+settle-merge only protects the draft from the server reply.
 
 ## Cancellation and supersession
 
@@ -225,7 +229,8 @@ matter after navigation. Cancel through the domain event that owns the write.
 Most reads belong to the page, but some exist only while one part of the
 screen is showing: search suggestions, picker options, a hover preview. Those
 still need a cause. The event that decides the data is wanted ensures the
-read, and the event that dismisses it releases it:
+read, and the event that dismisses it releases it (`:todo/search` is
+registered in the next section):
 
 ```clojure
 (rf/reg-event :todo.search/wanted
@@ -305,13 +310,7 @@ committing:
     (if (= gen (get-in db [:todo.search :gen]))
       (let [q (get-in db [:todo.search :text])]
         {:db (assoc-in db [:todo.search :committed-q] q)
-         :fx [[:dispatch [:rf.resource/release-owner {:owner [:todo.search]}]]
-              [:dispatch [:rf.resource/ensure
-                          {:resource       :todo/search
-                           :params         {:q q}
-                           :owner          [:todo.search]
-                           :cause          [:todo.search/settle q]
-                           :keep-previous? true}]]]})
+         :fx [[:dispatch [:todo.search/wanted q]]]})
       {})))
 
 (rf/reg-event :todo.search/clear
@@ -320,7 +319,7 @@ committing:
                  :text ""
                  :committed-q ""
                  :gen (inc (get-in db [:todo.search :gen] 0)))
-     :fx [[:dispatch [:rf.resource/release-owner {:owner [:todo.search]}]]]}))
+     :fx [[:dispatch [:todo.search/dismissed]]]}))
 ```
 
 The result view reads the cache. The previous results it shows while a new
@@ -357,16 +356,17 @@ What happens as the user types:
 
 1. Each keystroke updates `:todo.search/text` immediately and increments the
    generation. No fetch starts yet.
-2. After 250 ms of quiet, only the current generation commits `q`. The same
-   handler ensures the resource under the `[:todo.search]` owner; that ensure,
-   not the list mounting, starts the fetch.
+2. After 250 ms of quiet, only the current generation commits `q` and
+   dispatches `:todo.search/wanted`, whose ensure (not the list mounting)
+   starts the fetch.
 3. A new committed query releases the old identity and ensures the new one.
    The old request is aborted best-effort once no owner needs it, and a late
    reply is suppressed. `:keep-previous? true` projects the previous query's
    results at `:previous-data`, with `:previous? true`, while `:loading?`
    reports the new query's first load.
-4. Escape releases the owner. Nothing infers that from the view disappearing,
-   which is why `:todo.search/clear` does it.
+4. Escape dispatches `:todo.search/clear`, which dispatches
+   `:todo.search/dismissed` to release the owner. Nothing infers that from the
+   view disappearing.
 5. Repeating a query before its `:gc-after-ms` expiry rejoins the cached entry,
    and if it is still fresh under `:stale-after-ms` no request is made.
 

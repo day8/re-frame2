@@ -112,13 +112,6 @@ re-frame2 and your rendering library (Reagent here). It creates no frame. Then
 and `subscribe` below resolves to `:app` without naming it. That is also why you can
 add frames later without touching app code.
 
-??? info "For JavaScript developers"
-
-    This is `ReactDOM.render(<Provider store={store}><App/></Provider>)`: set up the
-    store at the root and every component below reads it through context. The
-    difference is that `init!` creates no store; the root boundary creates the frame,
-    and you name it there.
-
 ??? info "From re-frame v1"
 
     v1's single implicit app-db becomes one explicit frame created at the root. That
@@ -127,32 +120,14 @@ add frames later without touching app code.
 
 ### Seeding initial state
 
-A frame's app-db always starts as `{}`. There is no `:db` config key. State arrives
-the way all state arrives, through an [event pipeline](glossary.md#event-pipeline),
-so seed it with a named event:
-
-```clojure
-(rf/reg-event :todo/initialise
-  (fn [_ _] {:db {:todos {} :showing :all}}))
-
-[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
- [todo-list]]
-```
-
-For a raw dump with no domain event, the built-in `[:rf/set-db {…}]` works as the
-first step.
+Seed app-db with named events under `:initial-events`, as
+[app-db](app-db.md#initial-state-is-an-event) showed.
 
 `:initial-events` is an ordered vector of steps. Each step is an event vector
 (`[:todo/initialise]`) or, when it needs dispatch options, a map
 (`{:event [:todo/add "Buy milk"] :opts {…}}`). Each step runs to completion,
 including any events it dispatches, before the next starts, so setup is done by the
 time the frame is created.
-
-If a step fails (its handler throws, or a declared coeffect is missing),
-construction stops: the partial frame is destroyed and `make-frame` or
-`frame-root` throws `:rf.error/initial-events-step-failed`, naming the step's
-`:step-index` and `:event`. A step whose event has no handler is not a failure of
-this kind: it emits `:rf.error/no-such-handler` and the frame is built without it.
 
 ## When you want more than one
 
@@ -194,16 +169,11 @@ There are two frame-boundary components:
 
 - **`frame-root {:id …}`** creates the frame if it doesn't exist and reuses it if it
   does. Use it at the root of an app and for a view that brings its own frame, such
-  as a Story canvas or an embedded widget. Given `:frame` instead of `:id`, it raises
-  `:rf.error/frame-root-given-frame`, naming `frame-provider`. Without `:id`, or with
-  an id that isn't a keyword, it raises `:rf.error/frame-root-missing-id`.
-- **`frame-provider {:frame …}`** makes an existing frame current for a subtree. It
-  creates and destroys nothing. Use it when the frame already exists, because an
-  enclosing `frame-root` or a `make-frame` call ([below](#the-rest-of-the-frame-config))
-  created it. It takes a frame id or a frame value. Given `:id`, it raises
-  `:rf.error/frame-provider-given-id`, naming `frame-root`. Pointed at a frame that
-  was never created or has been destroyed, it raises
-  `:rf.error/frame-provider-frame-absent`.
+  as a Story canvas or an embedded widget.
+- **`frame-provider {:frame …}`** makes an existing frame current for a subtree, and
+  creates and destroys nothing. Use it when an enclosing `frame-root` or a
+  `make-frame` call ([below](#the-rest-of-the-frame-config)) already created the
+  frame. It takes a frame id or a frame value.
 
 A view can bring its own frame:
 
@@ -214,23 +184,8 @@ A view can bring its own frame:
    [todo-list]])
 ```
 
-`frame-root` creates the frame in a client `useLayoutEffect`, at commit, not during
-render, and renders its children once the frame is live. A render React discards
-before commit, such as a Suspense abort, creates nothing.
-
-Remounting `frame-root` doesn't reset anything. After a hot reload or a Story
-re-evaluation, the existing frame keeps its app-db and `:initial-events` do not run
-again, which is why hot reload doesn't lose your place. Changing a mounted
-`frame-root`'s `:id` or options raises `:rf.error/frame-root-reconfigured`. To switch
-to a different frame, give the `frame-root` a React `key` that changes with it. To
-change the same frame's config, call `rf/make-frame` with the same `:id`, which
-updates the config without resetting state.
-
-Neither component destroys the frame on unmount. When a component should own a
-frame's whole lifetime, such as a modal with a throwaway frame, call `rf/make-frame`
-and `rf/destroy-frame!` ([below](#ending-and-resetting-a-frame)) from its mount and
-unmount lifecycle: a `useEffect` and its cleanup in UIx or React, `create-class` in
-Reagent.
+Remounting `frame-root` doesn't reset its frame, which is why hot reload keeps your
+place ([frame-root's lifetime](#frame-roots-lifetime)).
 
 ??? info "For JavaScript developers"
 
@@ -352,6 +307,8 @@ shared derived state, they belong in one frame.
 | `:rf.error/no-frame-context` from a timer, promise, or socket callback | The callback runs after the frame scope ended | Capture with `rf/capture-frame` while in scope, or return `:dispatch` / `:dispatch-later` from a handler |
 | `:rf.error/no-frame-context` at the REPL or in a test | No frame is in scope | Wrap in `rf/with-frame`, or pass `{:frame id}` |
 | `:rf.error/frame-provider-frame-absent` | `frame-provider` names a frame that was never created, or was destroyed | Use `frame-root`, or call `make-frame` first |
+| `:rf.error/frame-root-given-frame` or `:rf.error/frame-provider-given-id` | `:id` and `:frame` swapped between the two components | `frame-root` takes `:id`; `frame-provider` takes `:frame` |
+| `:rf.error/frame-root-missing-id` | `frame-root` has no `:id`, or it isn't a keyword | Give it a keyword `:id` |
 | `:rf.error/frame-root-reconfigured` | A mounted `frame-root`'s `:id` or options changed | Give it a React `key` that changes with the id, or call `rf/make-frame` with the same `:id` to reconfigure |
 | Dispatch does nothing; `:rf.error/frame-destroyed` on the error stream | `{:frame …}` names a mistyped or destroyed frame | Fix the id, or stop dispatching after destroying the frame |
 | `:rf.error/handler-exception` whose exception is `:rf.error/frame-construction-in-handler` | `make-frame` called from an event handler | Write app-db from the handler and let a view's `frame-root` create the frame |
@@ -376,6 +333,26 @@ shared derived state, they belong in one frame.
     different images; see [Images](images.md).
 
 ## Advanced
+
+### frame-root's lifetime
+
+`frame-root` creates the frame in a client `useLayoutEffect`, at commit, not during
+render, and renders its children once the frame is live. A render React discards
+before commit, such as a Suspense abort, creates nothing.
+
+Remounting `frame-root` doesn't reset anything. After a hot reload or a Story
+re-evaluation, the existing frame keeps its app-db and `:initial-events` do not run
+again, which is why hot reload doesn't lose your place. Changing a mounted
+`frame-root`'s `:id` or options raises `:rf.error/frame-root-reconfigured`. To switch
+to a different frame, give the `frame-root` a React `key` that changes with it. To
+change the same frame's config, call `rf/make-frame` with the same `:id`, which
+updates the config without resetting state.
+
+Neither component destroys the frame on unmount. When a component should own a
+frame's whole lifetime, such as a modal with a throwaway frame, call `rf/make-frame`
+and `rf/destroy-frame!` ([below](#ending-and-resetting-a-frame)) from its mount and
+unmount lifecycle: a `useEffect` and its cleanup in UIx or React, `create-class` in
+Reagent.
 
 ### The rest of the frame config
 
@@ -422,6 +399,12 @@ config carries `:sensitive` or `:large` (those belong on handler effects; see
 a bare event instead of a vector of steps, is also rejected before any setup runs,
 with `:rf.error/initial-events-bare-event` and a message naming the fix
 (`[[:todo/initialise]]`).
+
+If a step fails (its handler throws, or a declared coeffect is missing),
+construction stops: the partial frame is destroyed and `make-frame` or
+`frame-root` throws `:rf.error/initial-events-step-failed`, naming the step's
+`:step-index` and `:event`. A step whose event has no handler is not a failure of
+this kind: it emits `:rf.error/no-such-handler` and the frame is built without it.
 
 As an app author you call `init!` once and create frames.
 `re-frame.substrate.adapter/install-adapter!`, `rf/destroy-adapter!`, and the
@@ -507,7 +490,7 @@ Code gets its frame in one of three ways. Prefer them in this order:
     - In a Reagent `reg-view`, the injected `dispatch` and `subscribe` are already
       bound.
     - In UIx, the `(use-frame)` hook returns the same frame api (see
-      [Use UIx or reagent-slim](how-to/use-uix-or-slim.md#step-3--why-callbacks-dispatch-off-the-frame-api)).
+      [Use UIx or reagent-slim](how-to/use-uix-or-slim.md#3-why-callbacks-dispatch-off-the-frame-api)).
     - Anywhere else, call `rf/capture-frame` directly.
 2. **Scope**: make a frame current for a region. `frame-root` and `frame-provider` do
    it for a React subtree through context; `with-frame` does it for a synchronous

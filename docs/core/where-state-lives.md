@@ -15,6 +15,8 @@ Ask them top to bottom and stop at the first *yes*.
 
 If every answer is no, the value is a fact rather than a derivation: an event handler writes it into `app-db`, as with the todos themselves or which filter is showing ([App-db](app-db.md)).
 
+Transient UI mechanics that nothing but the view reads, such as hover, focus or an animation's progress, may stay local to the view ([Views](views.md)). Everything else goes in app-db or one of the four homes.
+
 The questions are ordered by cost. A subscription stores nothing. A flow adds an `app-db` write. A resource adds a cache. A machine adds a transition table. Use a heavier home only when the value needs what it provides.
 
 ??? info "For JavaScript developers"
@@ -56,7 +58,8 @@ The value now needs to be part of the application's state. That is a [flow](glos
 ```clojure
 (rf/reg-flow :todo/remaining-count
   {:inputs      [[:todos]]             ;; app-db paths to watch
-   :output-path [:remaining-count]}    ;; where the result is written
+   :output-path [:remaining-count]     ;; where the result is written
+   :frame       :app}                  ;; a flow belongs to one frame
   (fn [todos]
     (count (remove :done? (vals todos)))))
 ```
@@ -69,11 +72,7 @@ A flow has four parts: the id; `:inputs`, the paths to watch, whose values are p
 
     Handlers write the inputs (`[:todos]`), and the flow writes the output (`[:remaining-count]`) in the same event. A handler that writes the output by hand brings back the two-copies problem. ([Flows](flows.md) covers the rules for `:output-path`.)
 
-Flows fail at registration when the graph is wrong. Two flows whose inputs and outputs form a cycle throw `:rf.error/flow-cycle`, whose `ex-data` carries the chain as `:cycle` (for example `[:a :b :a]`), and two flows writing overlapping paths throw `:rf.error/flow-path-overlap`. At run time a flow is atomic with its event: if its function throws, the whole event aborts before any `:db` is committed.
-
-!!! warning "Gotcha: a flow's `:schema` reports, it doesn't guard"
-
-    A flow may carry an optional `:schema` (a [Malli schema](glossary.md#schema)) for its output, checked in dev on every recompute. A violation does not abort the event: a downstream flow may already have read the value, so the runtime writes it, commits the event, and emits `:rf.error/schema-validation-failure` (`:where :flow-output`) with the failing path and value. Flow schemas are [elided](glossary.md#elide) from production builds.
+A flow runs atomically with its event: if its function throws, the event aborts before anything is committed. [Flows](flows.md) covers the registration errors (cycles, overlapping output paths) and the optional output `:schema`.
 
 ### Question 3: does it come from a server and go stale? Then it's a resource
 
@@ -101,7 +100,7 @@ A resource has two parts: a **read** and a **cause**. The read is an ordinary su
 ;; → {:status :loaded :data {:todos [...]} :has-data? true ...}
 ```
 
-A registration needs three things: **`:params-schema`** (the parameters that identify what you fetch), **`:scope`** (whose cache the entry belongs to), and the request function, returning a [managed-HTTP](../async/http.md) args map. A `reg-resource` missing one throws at registration: `:rf.error/resource-missing-scope-policy` for the scope, `:rf.error/resource-bad-spec` for the others.
+A registration needs three things: **`:params-schema`** (the parameters that identify what you fetch), **`:scope`** (whose cache the entry belongs to), and the request function, returning a [managed-HTTP](../async/http.md) args map.
 
 The params are the identity: two screens asking for `{:list-id "team"}` share one cache entry and one request. The cache is part of runtime-db (`:rf.runtime/resources`), so it is reverted, serialised and hydrated with the rest of the frame's state.
 
@@ -113,45 +112,9 @@ The params are the identity: two screens asking for `{:list-id "team"}` share on
 
     Every resource declares its scope; there is no default. `:rf.scope/global` means the same params give the same data for everyone, as for a list the whole team shares. `{:from-db :app/session}` names a resolver that derives the scope from the current viewer, for a per-user or per-tenant cache. If the resolver produces nothing (nobody is logged in), a read raises `:rf.error/resource-sub-unresolved-scope` instead of reading a shared entry.
 
-Read a resource through subscriptions, never the raw cache. `[:rf/resource …]` returns the whole entry; for one fact there are single-value subs such as `[:rf.resource/data …]`, `[:rf.resource/status …]` and `[:rf.resource/loading? …]` (the full list is in [Server state: resources](../resources/concepts.md)). They keep the first-load and background-refresh cases apart:
+Read a resource through subscriptions: `[:rf/resource …]` returns the whole entry, and single-value subs such as `[:rf.resource/data …]` and `[:rf.resource/loading? …]` return one fact. [Server state: resources](../resources/concepts.md) lists them and shows how a failed first load differs from a failed background refresh. A route declaring its `:resources`, the most common cause, is covered in [Routing](../routing/concepts.md).
 
-```clojure
-;; First-load failure: no data ever arrived.
-{:status :error  :data nil
- :error {:kind :rf.http/http-5xx :status 503}
- :refresh-error nil  :has-data? false}
-
-;; Background-refresh failure: the old list stays on screen, with a warning.
-{:status :loaded  :data {:todos [{:id 1 :title "Buy milk" :done? false}]}
- :error nil
- :refresh-error {:kind :rf.http/http-5xx :status 503}
- :has-data? true}
-```
-
-Ensuring a stale entry refetches it in the background while the old data stays on screen, and a write elsewhere can invalidate entries by tag. A route declaring its `:resources`, the most common cause, is covered in [Routing](../routing/concepts.md).
-
-#### Reading a resource's state, and a write's
-
-A write to the server is a [mutation](../resources/concepts.md#mutations-invalidate-by-tag), registered with `reg-mutation` and run by dispatching `[:rf.mutation/execute {:mutation … :params … :instance …}]`. The instance id is yours to choose, and it names the write whose progress you read. A view reads it the way it reads a resource:
-
-```clojure
-@(subscribe [:rf/mutation {:instance [:todo/save 1]}])
-;; → {:status :pending :result nil :error nil
-;;    :pending? true :success? false :error? false :settled? false …}
-```
-
-Outside a view (at the REPL, in a test, in a tool) read the stored entry directly with `rf/resource-state` and `rf/mutation-state`, naming the frame:
-
-```clojure
-(rf/resource-state {:resource :todo/list :params {:list-id "team"} :frame :app})
-;; → {:resource/id :todo/list :status :loaded :data {:todos [...]}
-;;    :error nil :refresh-error nil …}
-
-(rf/mutation-state {:instance [:todo/save 1] :frame :app})
-;; → {:mutation/id :todo/save :status :pending :result nil :error nil …}
-```
-
-Both return only the stored facts, such as `:status`, `:data` or `:result`, and `:error`. The booleans (`:loading?`, `:has-data?`, `:pending?`) are computed by the subscriptions, so reading one off these maps gives `nil`. Each returns `nil` when nothing has been ensured or executed under that identity yet. Without `:frame` they raise `:rf.error/no-frame-context` instead of returning a `nil` you could mistake for a missing entry. Views keep reading through the subscriptions, which re-render when the entry changes; [Testing resources](../resources/testing.md) uses both forms.
+A write to the server is a [mutation](../resources/concepts.md#mutations-invalidate-by-tag), whose progress a view reads through `[:rf/mutation {:instance …}]`; [Testing resources](../resources/testing.md) reads both from outside a view.
 
 ### Question 4: does it have its own lifecycle? Then it's a machine
 
@@ -208,8 +171,6 @@ A click handler that dispatches is fine, because the cause is the click. re-fram
 ### More on flows
 
 **Inputs can read runtime-db.** An input path starting with `:rf.db/runtime` reads the framework's part of frame state, so a flow can derive an `app-db` value from a machine's snapshot or the current route, for example `[:rf.db/runtime :rf.runtime/machines :snapshots :todo/sync :state]`. The output is always an `app-db` path; an `:output-path` under `:rf.db/runtime` raises `:rf.error/flow-reserved-output-path`.
-
-**Flows are frame-scoped.** `reg-flow` registers against the current frame; add a `:frame` key to the metadata, or wrap the call in `with-frame`, to target a specific one. A `reg-flow` with no frame in scope raises `:rf.error/no-frame-context`.
 
 ### One graph underneath
 

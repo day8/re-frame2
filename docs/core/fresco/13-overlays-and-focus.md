@@ -54,17 +54,11 @@ The options:
   node, listener, or body subscription.
 - **`:on-dismiss`** is dispatched for native light-dismiss, including outside
   click and Escape. Its handler must set the open flag to false; app-db remains
-  the source of truth. Because it is an event vector, an open overlay carrying
-  it needs a frame above it; without one, rendering raises
-  `:rf.error/fresco-intent-outside-boundary`.
+  the source of truth.
 - **`:anchor`** is the unique DOM id of the trigger. The module positions the
-  panel before first paint. It is an ordinary prop: change it while the panel
-  is open (one shared menu reused for a newly selected row) and the panel
-  re-anchors in the same commit without leaving the top layer.
+  panel before first paint.
 - **`:placement`** is `:top`, `:bottom`, `:left` or `:right`, optionally
-  suffixed `-start` or `-end` (`:bottom-start`). Any other value goes through as
-  a raw CSS `position-area`, so a misspelt keyword opens the panel at the
-  browser's default position with no error.
+  suffixed `-start` or `-end` (`:bottom-start`).
 
 Every other key is an ordinary attribute on the panel, a `<div popover>` or a
 `<dialog>`: style it with `:class`, `:style` or `:id`. `:label` sets
@@ -318,11 +312,11 @@ open flag.
 Move to `overlay/popover` when another view, a test, routing, or application
 logic needs to read or control the open state.
 
-## Avoid the old overlay stack
+## Avoid hand-built overlays
 
 ```clojure
 ;; Don't: an in-flow panel plus a document listener.
-(h/defview old-menu [{:keys [id]}]
+(h/defview hand-built-menu [{:keys [id]}]
   (let [open? (h/sub [:menu/open? id])]
     [:div {:style {:position "relative"}}
      [:button {:on-click [:menu/toggled id]} "Menu"]
@@ -351,6 +345,7 @@ to the next library. The top-layer primitives remove those failure classes.
 | `:rf.error/fresco-overlay-anchor-missing` is raised when the overlay opens | `:anchor` names a DOM id no element carries: a typo, or a trigger that renders one commit after the panel. Omitting `:anchor` is legal | Generate a unique, stable trigger id from the instance id, and render the trigger in the same tree as the overlay |
 | An open overlay raises `:rf.error/fresco-intent-outside-boundary` naming its `:on-dismiss` intent | It has `:on-dismiss` but no frame above it (it rendered outside `h/frame-root`, `h/frame-provider` or Story), so the dismissal could never be routed | Mount it under a frame, or drop `:on-dismiss` if it must not be dismissable |
 | Panel opens beside the wrong trigger, and nothing is raised | Several instances reuse one id. The id resolves, so there is nothing to refuse — it resolves to the first element in the document carrying it | Include the row id in the trigger id, the same way you do for the open flag |
+| Popover opens at the browser's default position, and nothing is raised | `:placement` is not one of the listed keywords; any other value passes through as a raw CSS `position-area` | Use `:top`, `:bottom`, `:left` or `:right`, optionally suffixed `-start` or `-end` |
 | Dialog is visible but the background still scrolls and receives clicks | A hand-written `<dialog open>` uses the non-modal path | Use `overlay/modal`, which calls `showModal` |
 | Popover flashes in the wrong place for one frame | Positioning happens after mount | Supply `:anchor` and `:placement`; the module positions before paint |
 | Every row menu opens together | All rows share one app-db address | Include the row id in the address ([Ephemeral state](11-ephemeral-state.md#choose-a-stable-instance-address)) |
@@ -386,3 +381,9 @@ The overlay module has no exit clock. When `:open?` becomes false the panel is
 removed in that commit, so a CSS exit transition on the panel never runs.
 Retaining a node after its data has gone is the job of
 [`motion/presence`](12-motion-and-presence.md).
+
+### Re-anchor an open panel
+
+`:anchor` is an ordinary prop. Change it while the panel is open (one shared
+menu reused for a newly selected row) and the panel re-anchors in the same
+commit without leaving the top layer.

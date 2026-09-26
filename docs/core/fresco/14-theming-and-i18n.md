@@ -203,7 +203,7 @@ host ([Interop](09-interop.md)):
 (def dark-theme
   (createTheme #js {:mode "dark"}))
 
-(h/defhost theme-provider ThemeProvider)
+(h/defhost theme-provider ThemeProvider {:server :render})
 
 (h/defview vendor-area [{:keys [children]}]
   (into
@@ -217,6 +217,10 @@ host ([Interop](09-interop.md)):
 Create vendor theme objects once at namespace load and let app-db choose which
 one to pass. The vendor's context stays on the React side; your own
 application theme still uses CSS.
+
+Declare the provider `{:server :render}`: a transparent wrapper left
+Client-only drops its whole subtree from the server response
+([Interop](09-interop.md#providers-and-compound-components)).
 
 ## Troubleshooting
 
