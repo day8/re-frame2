@@ -1,12 +1,19 @@
 # The model
 
-Server state is data your app **does not own** — a declared, inspectable cache, not a
-private fetch inside each view. This page is the **core model**: register a read,
-cause a fetch, project five statuses, scope the cache, and declare writes that
-invalidate by tag.
+Server state is data your app **does not own**, held in a declared, inspectable
+cache rather than fetched privately inside each view. This page explains the model:
+register a read, cause a fetch, project its status into a view, scope the cache, and
+declare writes that invalidate by tag.
 
-To *build* Conduit end to end, use the [tutorial](tutorial/index.md). Task recipes:
-[paginate](how-to/paginate-a-feed.md), [invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
+<a id="three-lanes--registering-causing-projecting"></a>
+
+Every call in the API sits in one of three **lanes**:
+
+| Lane | Spelling | Who |
+|---|---|---|
+| **Register** | `reg-resource` / `reg-mutation` | Your code, once, at load |
+| **Cause** | route `:resources`, `[:rf.resource/ensure …]`, `[:rf.mutation/execute …]` | Routes, handlers, machines |
+| **Project** | `@(subscribe [:rf/resource …])` and its narrower siblings | Views — a subscription never fetches |
 
 ??? info "Coming from TanStack Query?"
 
@@ -146,7 +153,6 @@ steps. The reply's fields: [`ensure` in the API](../api/re-frame.resources.md#rf
 
 <a id="read-it-from-a-view"></a>
 <a id="what-a-view-sees-five-statuses"></a>
-<a id="three-lanes--registering-causing-projecting"></a>
 
 ```clojure
 (rf/reg-view article-page [slug]
@@ -179,14 +185,6 @@ the booleans (`:loading?`, `:has-data?`, …) over re-deriving rules from `:stat
 
     Missing cause ⇒ permanent `:idle` / skeleton. You are missing a route
     `:resources` or an ensure, not a sub.
-
-### Three lanes
-
-| Lane | Spelling | Who |
-|---|---|---|
-| Register | `reg-resource` / `reg-mutation` | Author at boot |
-| Cause | route `:resources`, `ensure` / `execute` events | Routes, handlers, machines |
-| Project | `[:rf/resource …]` and friends | Views |
 
 Narrower projections (`[:rf.resource/data …]`, `[:rf.resource/status …]`, …) re-render
 only when that slice changes. Commands include
