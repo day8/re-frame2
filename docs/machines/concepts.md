@@ -141,7 +141,7 @@ state is the product decision. For "busy", "read-only", "connected", use
 objects. That is what lets a snapshot persist. Save the machines from
 `frame-state-value` and hand them back at boot with `:rf/install-frame-state`,
 which restores spawned children and re-arms `:after` timers without re-running
-`:entry` ([Persist and restore](coming-from-xstate.md#persist-and-restore)).
+`:entry` ([Persist and restore](persist-and-restore.md)).
 
 In every frame that has an `:id`, a hot reload keeps the live snapshot and
 applies the new table from the next event; a frame made without an `:id` keeps
