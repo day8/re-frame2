@@ -340,11 +340,17 @@
 ;; `:meta` — `{:status :status-text :headers}` as the transport normalized
 ;; them, so `:after` middleware and the app target can read the
 ;; actual status/headers on success as the failure paths already do on `:error`.
-;; The same canonical reply is delivered to the app target verbatim.
-;; `:on-success` / `:on-failure`
-;; are pure ROUTING sugar (both receive the canonical map) and the co-located
-;; `(:rf/reply msg)` merge carries the canonical map under `:rf/reply`. Neither
-;; addressing form selects a second payload dialect.
+;; `reply-ctx` below supplies that map's correlation and identity facts; the
+;; completion itself supplies `:value`, `:error` and `:meta`.
+;; The same canonical reply is delivered to the app target verbatim:
+;; `rf.http.encoding/build-reply-event` appends it as the last argument of the
+;; target event vector. `:reply-to` addresses both branches, and
+;; `:on-success` / `:on-failure` are pure ROUTING sugar addressing one branch
+;; each (an explicit `nil` silences that branch). Every form receives the same
+;; canonical map, so no addressing form selects a second payload dialect. A
+;; request that addresses no reply at all never reaches this path:
+;; `handlers/validate-reply-target!` refuses it at dispatch with
+;; `:rf.error/http-no-reply-target`.
 
 (defn- reply-ctx
   "Project the transport ctx onto the data-only correlation/identity facts
