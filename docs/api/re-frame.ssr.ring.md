@@ -80,9 +80,9 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - A `nil` `:render-hash` omits both the `data-rf-render-hash` marker and the payload's `:rf/render-hash`.
         - A throw is projected like any render-time throw.
         - Omitted, the handler renders locally: resolve `:root-view`, hash, render.
-        - re-frame2 ships one other renderer, `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](#renderer)).
+        - re-frame2 ships one other renderer, `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](re-frame.ssr.ring.node.md#renderer)).
         - `stream-handler` rejects this option at construction.
-        - `:render-state` belongs to [`re-frame.ssr.ring.node/renderer`](#renderer); a copy at the handler's top level is ignored.
+        - `:render-state` belongs to [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer); a copy at the handler's top level is ignored.
 
     The per-request frame takes no other `make-frame` keys. To ship its error and event records off-box, declare the process default with `(rf/configure! {:observability …})` ([`configure!`](re-frame.core.md#configure)).
 
@@ -173,51 +173,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
 
 ## Rendering on a Node sidecar
 
-`re-frame.ssr.ring.node` ships the one other `:renderer`. It sends the settled request frame's state to the Node render sidecar and takes back the body markup; the head, payload, shell, status, headers and error projection stay on the JVM. [Render on Node](../ssr/concepts.md#render-on-node) walks through the bundle, the sidecar and deployment.
-
-```clojure
-(:require [re-frame.ssr.ring.node :as node])
-```
-
-### `renderer`
-
-- **Kind**: function
-- **Signature**:
-  ```clojure
-  (renderer opts) → (fn [{:keys [frame-id request opts]}] {:body-html … :render-hash nil})
-  ```
-- **Description**: Returns a value for `ssr-handler`'s `:renderer`. It validates `opts` and builds one HTTP client at construction; per request it projects the frame's state under `:render-state`, POSTs it to `<endpoint>/render` and returns the sidecar's body verbatim.
-    - `:render-hash` is always `nil`, so the page carries no `data-rf-render-hash` and no payload `:rf/render-hash`.
-    - The projection applies the handler's `:payload-include-sensitive`, so the markup and the payload agree on a permitted value.
-    - The render module reads the state back with `re-frame.ssr.render-state/deserialize`.
-    - A request waits at most `:timeout-ms` + `:admission-ms` + 600 ms, body included.
-- **Options**:
-    - `:entry` (required) — the bundle entry to render; a non-empty string.
-    - `:build-id` (required) — a non-empty string equal to the server bundle's build id.
-    - `:render-state` (required) — what the render may see: `{:app-db [<keys>] :runtime-db [<keys>]}`, fail-closed allowlists of top-level keys with either slot optional, or `(fn [frame-id] → {:rf/app-db {…} :rf/runtime-db {…}})`. It is a policy separate from the handler's `:payload`. Every value must read back equal through EDN: no fn, record, `#inst`, `#uuid`, ratio, big or float number, or integer past 2^53.
-    - `:endpoint` — the sidecar's absolute `http` or `https` URL; default `"http://127.0.0.1:8148"`. A non-loopback URL is accepted; securing it is the operator's job.
-    - `:args` — root arguments sent as EDN, under the same value rule.
-    - `:timeout-ms` — the render deadline sent to the sidecar; a positive integer, default `1000`.
-    - `:admission-ms` — how long the sidecar may queue the request; a non-negative integer, default `250`. Match the sidecar's `--admission-ms`.
-- **Errors**:
-    - At construction: `:rf.error/ssr-node-renderer-opt-invalid` (ex-data `:opt`, `:got`) for a malformed option; `:rf.error/ssr-missing-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist`, with `:opt :render-state`, for a missing or malformed `:render-state`.
-    - Per request, thrown at the render call. The handler projects each as `:rf.error/ssr-render-failed`, with the id below in its `:exception`, so the request answers the 5xx error page and `:on-error` is not called:
-        - `:rf.error/ssr-node-unreachable` — no HTTP answer: connection refused, connect timeout, an I/O fault.
-        - `:rf.error/ssr-node-deadline` — the render missed its deadline; `:observed-by` is `:sidecar` (its `504`) or `:jvm`.
-        - `:rf.error/ssr-node-refused` — any other non-`200`; carries `:status` and the sidecar's `:refusal` code.
-        - `:rf.error/ssr-node-build-skew` — a `200` whose `x-rf-ssr-build` header is missing or is not `:build-id`.
-        - `:rf.error/ssr-render-state-invalid` — a projected value the EDN wire cannot carry, or a `:render-state` fn that returned a malformed envelope.
-- **Example**:
-  ```clojure
-  (ssr.ring/ssr-handler
-    {:initial-events [[:app/init]]
-     :payload        [:todos]
-     :renderer       (node/renderer
-                       {:entry        "my-app/root"
-                        :build-id     (System/getenv "MY_APP_BUILD_ID")
-                        :render-state {:app-db     [:todos :session]
-                                       :runtime-db [:rf.runtime/routing]}})})
-  ```
+[`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer) is the one other `:renderer` re-frame2 ships, for a view layer whose components are JavaScript, such as a Fresco root: it sends the settled request frame's state to a Node render sidecar and takes back the body markup, while the head, payload, shell, status, headers and error projection stay on the JVM. Its options, errors and defaults are on [`re-frame.ssr.ring.node`](re-frame.ssr.ring.node.md).
 
 ## Defaults and overrides
 
@@ -352,6 +308,7 @@ Not for application code — used by adapters, tools and the test harness.
 
 - [`re-frame.ssr`](re-frame.ssr.md) — rendering, the head model, hydration, streaming, error projection and the `:rf.server/*` fx this handler drives.
 - [`re-frame.ssr.head`](re-frame.ssr.head.md) — the head model the handler resolves for each page.
+- [`re-frame.ssr.ring.node`](re-frame.ssr.ring.node.md) — the Node sidecar renderer `ssr-handler` takes as `:renderer`.
 - [`re-frame.core`](re-frame.core.md) — `init!`, `make-frame`, `reg-event`, and the `rf/reg-head` / `rf/reg-error-projector` facade entries.
 - [`re-frame.routing`](re-frame.routing.md) — routes select a head with `:head` metadata.
 - [Server-side rendering](../ssr/index.md) — the guide.

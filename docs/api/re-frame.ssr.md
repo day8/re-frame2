@@ -178,6 +178,8 @@ On the client, `hydrate!` installs that state into the frame before the first re
 
 `:rf/hydrate` runs the last two, which check that the payload came from a compatible build ([client-only fx](#client-only-fx)). A payload that is not a map, or names a different frame, is refused before anything is installed ([`hydrate!`](#hydrate)'s errors). [The client side: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) explains the boot sequence.
 
+The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer`](re-frame.ssr.ring.node.md#renderer) projects it under its own `:render-state` policy, and the render module reads it back with `deserialize` from `re-frame.ssr.render-state`, an implementation namespace with no page of its own.
+
 ### `hydrate!`
 
 - **Kind**: function
@@ -504,7 +506,7 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
   ```clojure
   [:rf/server-init]
   ```
-- **Description**: The conventional per-request setup event, named in [`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)'s `:initial-events`. It reads the request through the [`:rf.server/request`](#coeffects) coeffect and dispatches setup events.
+- **Description**: The conventional per-request setup event, named in [`ssr-handler`](re-frame.ssr.ring.md#ssr-handler)'s `:initial-events`. It reads the request through the [`:rf.server/request`](#coeffects) coeffect and dispatches setup events. It is server-only because only the per-request frame's `:initial-events` dispatch it.
 - **Example**:
   ```clojure
   ;; :rf/server-init — registered by the app; the per-request frame's
@@ -512,8 +514,7 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
   ;; for that route's blocking resources before it renders. A fetch started any
   ;; other way is usually still in flight when the render begins.
   (rf/reg-event :rf/server-init
-    {:platforms        #{:server}
-     :rf.cofx/requires [:rf.server/request]}
+    {:rf.cofx/requires [:rf.server/request]}
     (fn [{:rf.server/keys [request]} _]
       {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
   ```
@@ -558,7 +559,6 @@ All seven validate their arguments ([Invalid values throw](../ssr/response.md#in
   ;; Shape the HTTP response from a server-side handler. Every :rf.server/* fx
   ;; is :platforms #{:server}, so the client render skips them.
   (rf/reg-event :app/respond
-    {:platforms #{:server}}
     (fn [{:keys [db]} _]
       {:db db
        :fx [[:rf.server/set-status    200]
@@ -575,12 +575,10 @@ All seven validate their arguments ([Invalid values throw](../ssr/response.md#in
   ;; Redirects — caller-trusted vs caller-untrusted (e.g. an attacker-supplied
   ;; ?next= param). safe-redirect parses + allowlists before setting :redirect.
   (rf/reg-event :auth/bounce
-    {:platforms #{:server}}
     (fn [_ _]
       {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
 
   (rf/reg-event :auth/continue
-    {:platforms #{:server}}
     (fn [_ [_ next-url]]
       {:fx [[:rf.server/safe-redirect {:location next-url :relative-only? true}]]}))
   ```
@@ -619,8 +617,7 @@ The request's response accumulator (status, headers, cookies, redirect) is not a
   ;; under :rf.server/request (Ring-shaped under the bundled adapter). It uses
   ;; the request to decide, and copies nothing from it into app-db.
   (rf/reg-event :app/check-method
-    {:platforms        #{:server}
-     :rf.cofx/requires [:rf.server/request]}
+    {:rf.cofx/requires [:rf.server/request]}
     (fn [{:rf.server/keys [request]} _]
       (if (= :get (:request-method request))
         {}
@@ -629,7 +626,7 @@ The request's response accumulator (status, headers, cookies, redirect) is not a
 
 ### `:platforms` fx-gating metadata
 
-`reg-fx` accepts a `:platforms` metadata key: a set containing `:server`, `:client` or both. The effect runs only on the listed platforms. The default is `#{:server :client}`.
+`reg-fx` and `reg-cofx` accept a `:platforms` metadata key: a set containing `:server`, `:client` or both. The effect or coeffect runs only on the listed platforms. The default is `#{:server :client}`. It gates effects and coeffects only: an event registration stores the key but the router never reads it, so a server-only event such as [`:rf/server-init`](#rfserver-init) stays on the server by being dispatched only there.
 
 ```clojure
 (rf/reg-fx :my/fx

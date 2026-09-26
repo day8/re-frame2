@@ -8,7 +8,8 @@ that keeps its own state, or pointer handling that updates on every move. An
 island fed only by props needs neither hook.
 
 It is an optional namespace: nothing in `re-frame.fresco` requires it, so an
-application with no island carries none of it.
+application with no island carries none of it. It is ClojureScript only: on the JVM
+the namespace loads but defines neither hook.
 
 ```clojure
 (:require [re-frame.fresco.native :as n])

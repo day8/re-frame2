@@ -310,6 +310,7 @@ nav:
     - "re-frame.ssr": api/re-frame.ssr.md
     - "re-frame.ssr.head": api/re-frame.ssr.head.md
     - "re-frame.ssr.ring": api/re-frame.ssr.ring.md
+    - "re-frame.ssr.ring.node": api/re-frame.ssr.ring.node.md
     - "re-frame.epoch": api/re-frame.epoch.md
     - "re-frame.performance": api/re-frame.performance.md
     - "re-frame.trace.projection": api/re-frame.trace.projection.md

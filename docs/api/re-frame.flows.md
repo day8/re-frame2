@@ -35,13 +35,12 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
   ```
 - **Description**: Registers a flow against a frame and returns `flow-id`.
     - Unlike `reg-sub`'s `:inputs`, each entry is a path (see **Options**), and `derive-fn` receives the values as separate positional arguments, in order. `derive-fn` returns the output; it must be pure and deterministic, and runs whenever an input value changes.
-    - Inputs are read after the event handler and its interceptors have run, from the state the event is about to commit. A bare path reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db` (route or machine state), with the partition key stripped before the read. The output always goes to `app-db`. See [Deriving from route or machine state](../core/flows.md#deriving-from-route-or-machine-state).
-    - An effect that writes `app-db` or `runtime-db` while the event's `:fx` run, such as a machine transition or a resource write, lands after that pass. In a frame that has flows, re-frame then queues one `[:rf/settle-flows]` event at the head of the frame's queue, so the flows see the write before the dispatch returns and before any event the same handler dispatched.
-    - A handler reads the output as it stood after the previous event. When the handler changes an input, the new output is written after the handler returns, in the same commit.
+    - The flow runs inside each event its frame handles, after the handler and before the new `app-db` installs. [When flows run](#when-flows-run) gives the order, and the few ways a flow runs outside that pass.
+    - A bare path in `:inputs` reads `app-db`; a path led by `:rf.db/runtime` reads `runtime-db` (route or machine state), with the partition key stripped before the read. The output always goes to `app-db`. See [Deriving from route or machine state](../core/flows.md#deriving-from-route-or-machine-state).
     - Leave `:output-path` to the flow and change the inputs instead. Nothing stops an event writing the output path directly, but the flow overwrites that value the next time an input changes.
     - A flow registered this way writes its first output during the frame's next event. To have the output in place when a dispatch returns, register with [`:rf.fx/reg-flow`](#rffxreg-flow).
     - A flow belongs to one frame (see `:frame` below). The same id can register against several frames with different definitions.
-    - Registering an id again in the same frame replaces the flow and recomputes it on the next event, which is how hot reload picks up a changed `derive-fn`. If the new definition moves `:output-path`, the value at the old path is removed. See [Re-registering a flow](../core/flows.md#re-registering-a-flow-and-hot-reload).
+    - Registering an id again in the same frame replaces the flow, which is how hot reload picks up a changed `derive-fn`. If the new definition moves `:output-path`, the value at the old path is removed. [When flows run](#when-flows-run) says when each takes effect. See [Re-registering a flow](../core/flows.md#re-registering-a-flow-and-hot-reload).
     - A rejected registration changes nothing; any previous definition stays in place.
     - Destroying a frame removes its flows and their cached inputs. Sibling frames are unaffected.
 - **Options** (the `metadata` map):
@@ -57,7 +56,7 @@ Register and clear flows through the facade, with `rf/reg-flow` and `(rf/clear :
     | `:large` | no | A vector of output subpaths (the same shape as `:sensitive`) marked large for wire-size elision. |
     | `:large?` | no | Boolean; `true` marks the whole output large. |
 - **Errors**:
-    - `:rf.error/invalid-flow-metadata`: `metadata` is not a map, or a `:derive` key sits inside it (the derive function is the third argument).
+    - `:rf.error/invalid-flow-metadata`: `metadata` is not a map, or a `:derive` key sits inside it (the derive function is the third argument). The ex-data's `:value` carries the offending value.
     - `:rf.error/flow-missing-id` / `:rf.error/flow-bad-id`: `flow-id` is `nil` / not a keyword.
     - `:rf.error/flow-bad-inputs`: `:inputs` is not a vector, or an entry is not a non-empty vector of concrete segments; the ex-data's `:bad-entries` lists them.
     - `:rf.error/flow-bad-output`: `derive-fn` is not a function.
@@ -114,9 +113,11 @@ Two reserved fx-ids register and clear flows from an event handler. Both act on 
     - The settle is a separate event with its own `app-db` install, so the registering event still installs `app-db` once.
     - If the new flow's `derive-fn` throws, the registering event's `:db` has already been committed and stays. The failure surfaces as `:rf.error/flow-eval-exception` with the usual `:phase` (see [When a flow throws](#when-a-flow-throws)).
     - A `:frame` key in the payload's metadata is replaced by the dispatching frame.
-    - A registration that `reg-flow` would reject (malformed metadata, an overlap, a cycle) does not throw out of the dispatch. That effect is skipped and its error is reported under its own id, such as `:rf.error/flow-cycle`, on the `:errors` stream and in the trace; the other effects still run and the event's `:db` stands.
     - The settle is idempotent: over a frame that is already settled it recomputes and installs nothing, so dispatching an extra event to update the flows is harmless.
     - See [Toggling a derivation at runtime](../core/flows.md#toggling-a-derivation-at-runtime).
+- **Errors**: A payload that `reg-flow` would reject does not throw out of the dispatch. That effect is skipped, and the error is reported under the id [`reg-flow`](#reg-flow) raises, on the `:errors` stream and in the trace; the other effects still run and the event's `:db` stands. For example:
+    - `:rf.error/invalid-flow-metadata`: the metadata is not a map, or carries `:derive`. The trace's tags and the exception's ex-data carry the offending value under `:value`, as for `reg-flow`.
+    - `:rf.error/flow-path-overlap` and `:rf.error/flow-cycle`: the new flow collides with the frame's other flows.
 - **Example**:
   ```clojure
   (rf/reg-event :wizard/enter-step-2
@@ -142,6 +143,19 @@ Two reserved fx-ids register and clear flows from an event handler. Both act on 
     (fn [_ _]
       {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
   ```
+
+## When flows run
+
+Flows run inside the event pipeline, in a pass the router makes once per event:
+
+- **After the handler, before the install.** Every event a frame handles runs that frame's flow pass as the router's outermost `:after` interceptor: after the handler and every other interceptor, so a `path` interceptor has already spliced its slice back into the whole `app-db`, and before the new `app-db` installs and the event's `:fx` run. An event whose handler returns no `:db` still runs the pass, over the current `app-db`.
+- **Against the pending state.** Inputs are read from the state the event is about to commit, its pending `app-db` and `runtime-db`. Each recomputed output is written into the pending `app-db`, so the event installs `app-db` once, with the handler's write and the flows' outputs together. A handler therefore reads a flow's output as it stood after the previous event.
+- **In dependency order, dirty-checked.** A flow that reads another flow's output runs after it and sees the value computed in the same pass. A flow whose input values are `=` to those of its last run skips `derive-fn` and emits `:rf.flow/skip`.
+- **Checked with the event.** The frame's app-db schemas validate the pending `app-db` with the flows' outputs in it ([What is validated](re-frame.schemas.md#what-is-validated)). When they reject it, nothing installs and the flows' dirty-check state rolls back, so they recompute on the next event.
+- **Not after a failure.** When the handler or an interceptor throws, the pass does not run. When a flow throws, the event commits nothing; see [When a flow throws](#when-a-flow-throws).
+- **Writes made by `:fx`.** The pass has already run when the `:fx` walk starts, so an effect that writes `app-db` or `runtime-db`, such as a machine transition or a resource write, lands after it. In a frame that has flows, the walk then queues one `[:rf/settle-flows]` event at the head of the frame's queue, so the flows see the write before the dispatch returns and before any event the same handler dispatched. `:rf.fx/reg-flow` and `:rf.fx/clear-flow` queue the same settle.
+- **Outside an event.** A flow runs outside an event only when `(rf/clear :flow id)` is called outside one: the clear then recomputes the frame's other flows against the committed `app-db` before it returns (see [Clearing a flow](#clearing-a-flow)). A direct `reg-flow` runs nothing; the flow writes its first output during the frame's next event, whatever that event does.
+- **Re-registration.** Registering an id again replaces the flow and forgets its last inputs, so it recomputes on the next event even when its inputs are unchanged. When the new definition moves `:output-path`, the value at the old path is removed at once if the registration happens outside an event, or by that event's flow pass (or its settle, from an effect) if it happens inside one.
 
 ## When a flow throws
 
@@ -232,7 +246,7 @@ Not for application code — used by adapters, tools and the test harness.
   (run-flows-on-db frame-id db runtime-db) → app-db or :rf.flow/stale-incarnation
   (run-flows-on-db frame-id db runtime-db {:exact-owner-token token}) → app-db or :rf.flow/stale-incarnation
   ```
-- **Description**: Runs one frame's flows over a pending frame-state and returns the resulting `app-db`. The router installs it as the outermost `:after` interceptor, so it runs last, against the chain's pending `:db` effect and before `app-db` is installed.
+- **Description**: Runs one frame's flows over a pending frame-state and returns the resulting `app-db`. The router installs it as the outermost `:after` interceptor, so it runs last, against the chain's pending `:db` effect and before `app-db` is installed; [When flows run](#when-flows-run) places it in the event.
     - Flows run in dependency order. Each is dirty-checked, and each recomputed result is written with `assoc-in` into the returned `app-db`. Outputs write `app-db` only.
     - `db` is the pending `app-db`; `runtime-db` is the pending `runtime-db` (pass `nil` to resolve only bare `app-db` inputs).
     - Inside an event, the 3-arity fences the pass to the current event's owner token; outside one, it runs unfenced. The 4-arity fences the pass to an explicit `:exact-owner-token`, which the artefact's own out-of-drain settle uses. A fenced pass whose frame is destroyed or re-created while it runs stops and returns `:rf.flow/stale-incarnation` in place of an `app-db`; an unfenced call always returns the `app-db`.

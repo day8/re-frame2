@@ -7,7 +7,7 @@ made. For a field whose every keystroke should update the model, a plain control
 input is enough: `[:input {:value v :on-input [:todo/title-edited id ::h/value]}]`.
 
 It is an optional namespace: an application that never requires it carries none of
-its code.
+its code. It is ClojureScript only; the namespace does not exist on the JVM.
 
 ```clojure
 (:require [re-frame.core :as rf]

@@ -154,6 +154,7 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
     - It settles what the test drives: a mount, or a `dispatch-sync` run inside `f`. A `dispatch` queues on the router instead, so wait for it with `re-frame.test-support/poll-until`. Do not call it from inside a `dispatch-sync` handler; it runs a render.
     - React's `act()` expects the test to set `globalThis.IS_REACT_ACT_ENVIRONMENT` to `true` while it drives React through `flush-views!`, and to set it back while it waits on React's own schedule. [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real) shows the pattern.
     - [`re-frame.adapter.uix`](re-frame.adapter.uix.md#flush-views) publishes a `flush-views!` with the same name and nil return; without `act()`, that one does nothing and does not run `f`.
+    - On slim, `reagent2.dom.client/flush-views!` is a different function: it takes no argument and returns a Promise that resolves when the drain has finished (`nil` when `act()` is unavailable, and in a production build), for a test that must await Suspense ordering.
 - **Example**:
   ```clojure
   (reagent-adapter/flush-views!)                                    ;; drain queued renders + effects

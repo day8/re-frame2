@@ -7,7 +7,8 @@ UIx adapter just for its reactive container.
 
 It ships in `day8/re-frame2-fresco` as an optional namespace: nothing else in
 Fresco requires it, so a build that installs Reagent or UIx instead carries none of
-it, and `re-frame.fresco` does not re-export it.
+it, and `re-frame.fresco` does not re-export it. It is ClojureScript only; the
+namespace does not exist on the JVM.
 
 ```clojure
 (:require [re-frame.core :as rf]

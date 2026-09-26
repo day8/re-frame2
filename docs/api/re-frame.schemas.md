@@ -35,13 +35,23 @@ In a development build each schema is checked where its data is produced, and a 
 | An effect | `:schema` on `reg-fx`, matched against the effect's argument | Before the effect handler runs. | `:fx-args`. That effect is skipped; the other effects in the same `:fx` vector still run. |
 | A subscription | `:schema` on `reg-sub`, matched against the computed value | After each recompute. | `:sub-return`. The subscription yields `nil`. |
 
-Each failure emits an `:rf.error/schema-validation-failure` trace. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it) and `:reason`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
-
-Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override yields `nil`). `:recovery` is `:skipped` for `:fx-args`, `:replaced-with-default` for `:sub-return` and `:sub-override`, and `:no-recovery` for `:app-db`, `:event` and `:flow-output`.
+Other checks that run through this validator report the same id with their own `:where`: `:flow-output` (a flow's `:schema`; see [`reg-flow`](re-frame.flows.md#reg-flow)), `:machine-data` and `:machine-output` (a machine's `[:schemas :data]` and `[:schemas :output]`; see [`reg-machine`](re-frame.machines.md#reg-machine)), and `:sub-override` (a Story subscription override whose value fails the subscription's `:schema`; the override yields `nil`).
 
 Routes (`:params`, `:query`; [`reg-route`](re-frame.routing.md#reg-route)) and resources (`:params-schema`; [`reg-resource`](re-frame.resources.md#reg-resource)) also validate through this validator but report their own errors; each of those entries says when its check runs and what a failure does. A `{:recordable? true}` coeffect's `:schema` ([`reg-cofx`](re-frame.core.md#reg-cofx)) is checked in every build as the value is recorded, and a failure emits `:rf.error/cofx-value-invalid` and throws.
 
-Xray shows each failure on the event that caused it. An `app-db` rejection is also reported on the always-on `:errors` stream, so it reaches the frame's `:observability :errors` sinks, or the browser console when no sink handles it. The record carries `:error`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the failing value, the leaf path or the schema. Event, effect and subscription failures appear only in the trace, so without Xray, tap the trace yourself:
+### Failure reports
+
+The four checks in the table, and the flow, machine and `:sub-override` checks, report a failure rather than throw it; see [Errors](README.md#errors) for how a reported id reaches you.
+
+- **The trace.** Each failure emits an `:rf.error/schema-validation-failure` trace, which Xray shows on the event that caused it. Its tags carry `:where`, `:failing-id` (the event, effect or subscription id), `:value` (the value that failed), `:explain` (the validator's explanation, with Malli's `:explain-humanized` beside it) and `:reason`; an `app-db` failure adds `:path` (the failing leaf), `:registered-path` and `:rollback? true`. The trace event carries `:recovery` at its top level, beside `:operation` and `:tags`, and `:sensitive? true` there when the failure was redacted.
+- **`:recovery` by `:where`**: `:no-recovery` for `:app-db`, `:event`, `:flow-output`, `:machine-data` and `:machine-output`; `:skipped` for `:fx-args`; `:replaced-with-default` for `:sub-return` and `:sub-override`.
+- **The always-on `:errors` record.** Two failures are also reported on the always-on `:errors` stream, so they reach the frame's `:observability :errors` sinks, or the browser console when no sink handles them. Neither record carries the failing value:
+    - An `app-db` rejection's record carries `:error`, `:where :app-db`, `:registered-path`, `:event-id`, `:failing-id`, `:frame`, `:rollback? true`, `:recovery`, `:reason` and `:time`, and never the leaf path or the schema.
+    - A [`:boundary? true`](#validation-in-production) event's failure sends a record with a fixed key set: `:error`, `:where`, `:source :boundary`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery` and `:time`.
+- **A malformed schema.** A schema form is not checked when it is registered. A malformed one, such as a childless `[:vector]` or an unknown operator, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
+- **Redaction.** When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers). These props change only what the validation-failure trace carries, except on a managed-HTTP request's `:decode` schema, whose props also classify the response body ([Response-body classification](re-frame.http.md#response-body-classification)). They do not classify `app-db`, a machine's `:data` or a resource's cached data, and a `:sensitive?` slot in a resource's `:data-schema` redacts nothing, because that schema is never run. [Where to declare, by owner](../core/how-to/keep-secrets-out-of-traces.md#where-to-declare-by-owner) says where each kind of data is classified.
+
+Event, effect and subscription failures appear only in the trace, so without Xray, tap the trace yourself:
 
 ```clojure
 ;; Development only: log every schema failure.
@@ -50,10 +60,6 @@ Xray shows each failure on the event that caused it. An `app-db` rejection is al
     (when (= operation :rf.error/schema-validation-failure)
       (js/console.warn (:where tags) (:failing-id tags) (:reason tags)))))
 ```
-
-A schema form is not checked when it is registered. A malformed one, such as a childless `[:vector]` or an unknown operator, makes the validator throw the first time it runs. That check counts as a failure, with the usual recovery, and emits `:rf.error/malformed-schema` in place of `:rf.error/schema-validation-failure`; the trace names the schema and the validator's message but carries no value. An `app-db` schema in that state rejects every commit that returns `:db`, and each rejection is also reported on the `:errors` stream, until the schema is fixed.
-
-When the schema marks a slot `{:sensitive? true}`, the trace's value-bearing tags are replaced with `:rf/redacted`; see [Schema classification walkers](#schema-classification-walkers). These props change only what the validation-failure trace carries, except on a managed-HTTP request's `:decode` schema, whose props also classify the response body ([Response-body classification](re-frame.http.md#response-body-classification)). They do not classify `app-db`, a machine's `:data` or a resource's cached data, and a `:sensitive?` slot in a resource's `:data-schema` redacts nothing, because that schema is never run. [Where to declare, by owner](../core/how-to/keep-secrets-out-of-traces.md#where-to-declare-by-owner) says where each kind of data is classified.
 
 ### Validation in production
 
@@ -68,7 +74,7 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
     {:db (update db :messages (fnil conj []) msg)}))
 ```
 
-- A failure skips the handler, marks the dispatch `:outcome :rejected`, and sends an `:rf.error/schema-validation-failure` record with `:source :boundary` to the always-on `:errors` stream. The record's keys are fixed (`:error`, `:where`, `:source`, `:event-id`, `:failing-id`, `:schema-id`, `:frame`, `:recovery`, `:time`), so it never carries the payload; a development build also emits the full trace.
+- A failure skips the handler, marks the dispatch `:outcome :rejected`, and sends an `:rf.error/schema-validation-failure` record with `:source :boundary` to the always-on `:errors` stream. Its keys are fixed, so it never carries the payload (see [Failure reports](#failure-reports)); a development build also emits the full trace.
 - The check runs through the validator installed here, so the production build must load `re-frame.schemas`. With no validator installed, including after `(set-schema-fns! {:validate nil})`, the check passes.
 - A validator that throws counts as a failure.
 - `:boundary? true` without a `:schema` key throws `:rf.error/at-boundary-missing-schema` at registration. See [`reg-event`](re-frame.core.md#reg-event).
@@ -513,7 +519,8 @@ These functions reset the artefact's state between tests. `re-frame.test-support
   ```clojure
   (clear-schemas-by-frame!)
   ```
-- **Description**: Empties the per-frame schema registry (`{}`). Test fixtures call it, as does `make-reset-runtime-fixture` when given `:clear-app-schemas? true`. The registry is the artefact's only mutable registration state.
+- **Description**: Empties the per-frame schema registry (`{}`). The registry is the artefact's only mutable registration state.
+    - [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) calls it at every reset, through the `:schemas/clear-by-frame!` hook. It takes a `snapshot-schemas-by-frame` first and restores it with `restore-schemas-by-frame!` when the test ends, so a test body starts with no per-frame schemas.
 
 #### `on-frame-destroyed!`
 

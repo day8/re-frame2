@@ -33,7 +33,7 @@ Nothing here is re-exported from `re-frame.core`, so a production build never lo
 
 ## Fixture machinery
 
-Each test's registrations are rolled back afterwards, whether it passes or fails, while the registrations made when namespaces loaded (the framework's and your app's) survive. The fixtures do this by snapshotting the registrar before the test and restoring it after. [The trap: frames don't isolate registrations](../core/testing/event-handlers.md#4-the-trap-frames-dont-isolate-registrations) shows the failure this prevents.
+Each test's registrations are rolled back afterwards, whether it passes or fails, while the registrations made when namespaces loaded (the framework's and your app's) survive. The fixtures do this by snapshotting the registrar before the test and restoring it after. Two kinds of load-time setup are cleared for the length of each test and restored afterwards: per-frame app schemas, and resource registrations once `re-frame.resources.test-support` is loaded; see [`make-reset-runtime-fixture`](#make-reset-runtime-fixture). [The trap: frames don't isolate registrations](../core/testing/event-handlers.md#4-the-trap-frames-dont-isolate-registrations) shows the failure this prevents.
 
 ### `make-reset-runtime-fixture`
 
@@ -43,34 +43,31 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
   (make-reset-runtime-fixture)      → fixture-fn
   (make-reset-runtime-fixture opts) → fixture-fn | {:before … :after …}
   ```
-- **Description**: Builds a `clojure.test` / `cljs.test` `:each` fixture that resets the per-process runtime around each test. Pass it to `use-fixtures :each`. Around each test the fixture:
-    - reinstates the registrations captured when the fixture was built (at the test namespace's load), so tests do not depend on run order inside a shared test bundle;
-    - snapshots the registrar;
-    - drops every frame, clears the trace listeners, and resets each loaded artefact's state (flows, schemas, machines, routing, http, epoch); an artefact that is not on the classpath is skipped;
-    - returns epoch-history configuration to its defaults, so a suite that needs another `:depth` sets it in `:init-fn`;
-    - disposes the adapter, then installs `:adapter` if given;
-    - restores everything in a `finally`.
-
-    The baseline is captured when the fixture is built, at the `use-fixtures` form. Register, or require, everything the suite needs above that form: a registration made below it is outside the baseline, so frames the test makes with `rf/make-frame` do not see it, and another namespace's fixture can roll it back. Setup that must run later belongs in `:init-fn`.
+- **Description**: Builds a `clojure.test` / `cljs.test` `:each` fixture that resets the per-process runtime around each test. Pass it to `use-fixtures :each`.
+    - **Baseline.** The fixture captures its baseline when it is built, at the `use-fixtures` form, which runs when the test namespace loads. Register, or require, everything the suite needs above that form: a registration made below it is outside the baseline, so frames the test makes with `rf/make-frame` do not see it, and another namespace's fixture can roll it back. Setup that must run later belongs in `:init-fn`.
+    - **Before each test**, the fixture:
+        - reinstates the baseline registrations, so tests do not depend on run order inside a shared test bundle, then snapshots the registrar;
+        - drops every frame, clears the trace listeners, cancels pending `:dispatch-later` timers, and resets each loaded artefact's state (flows, schemas, machines, routing, resources, http, epoch); an artefact that is not on the classpath is skipped;
+        - returns epoch-history configuration to its defaults, so a suite that needs another `:depth` sets it in `:init-fn`;
+        - disposes the adapter, then installs `:adapter` if given;
+        - clears the kinds named in `:clear-kinds`, registers the `:app-ns` registrations again, and runs `:init-fn`.
+    - **After each test**, in a `finally` so it runs even when the test throws, the fixture restores the registrar and the per-frame app schemas to the snapshot and drops every frame again.
+    - **Per-frame app schemas** are cleared at every reset and restored afterwards, so a schema registered against a frame at namespace load is not checked inside a test body. Register the schemas a test needs in `:init-fn` or in the test itself.
+    - <a id="reset-fixture-resources"></a>**Resources.** Loading `re-frame.resources.test-support` publishes the resources reset, `:resources/reset-resources!`. At each reset it clears every resource, mutation and resource-scope registration, together with the resource caches, timers, work ledger and revalidation listeners. That includes registrations made at namespace load, so for these kinds the baseline does not survive into the test body. A suite that registers resources at namespace load and loads `re-frame.resources.test-support` therefore needs [`:app-ns`](#reset-fixture-app-ns) to see them in its test bodies: registrations under the prefix are registered again after the reset, before `:init-fn`. Without that namespace loaded, resource registrations follow the ordinary rule.
+    - <a id="reset-fixture-async"></a>**Async.** `:async? true` returns a `cljs.test` map fixture `{:before … :after …}` on CLJS, which suites with `(async done …)` tests require. On the JVM the option is ignored and you always get a function fixture: `clojure.test` calls its fixtures, and a map is callable, so a map fixture would silently skip every test. A `.cljc` suite therefore writes a plain `:async? true`, with no reader conditional.
+    - <a id="reset-fixture-app-ns"></a>**`:app-ns`** is for test runs that load every test namespace before any test runs: a CLJS node test bundle, or a JVM runner that requires all its test namespaces first. When two loaded apps register the same id (`:rf.route/not-found`, or shared event names), building the default image fails with `:rf.error/image-duplicate-id` for any suite whose baseline was captured after the second app loaded.
+        - Give `:app-ns` your own app's root namespace prefix, covering its whole tree (`"my-app."`, not `"my-app.core"`), never a sibling's. Every suite that uses the app declares it, not only the one that loads it first; then no suite needs its siblings' names or depends on load order. A bundle with one app needs this key only for resources it registers at namespace load (see [Resources](#reset-fixture-resources)).
+        - When the fixture is built, before it captures a baseline, registrations whose `:rf.provenance/ns` starts with the prefix are removed. They are registered again before each test (after the reset, before `:init-fn`) and removed again afterwards, even when the test throws.
 - **Options** (all optional):
 
     | Key | Meaning |
     |-----|---------|
     | `:adapter` | Substrate adapter to install; also ensures the `:rf/default` frame. When omitted, no adapter is installed and a test that creates a frame raises `:rf.error/adapter-disposed` (`:rf.error/no-adapter-installed` if no adapter was installed earlier in the process); calling handlers as functions and reading the registrar still work. |
-    | `:app-ns` | Namespace-prefix string naming this suite's own app, for test bundles that load more than one app. See below. |
-    | `:init-fn` | Zero-arg fn run after the adapter is installed and before the test body, in the same ambient frame scope as the body. |
+    | `:app-ns` | Namespace-prefix string naming this suite's own app, such as `"my-app."`. Its registrations are kept out of every baseline and registered again before each test. See [`:app-ns`](#reset-fixture-app-ns). |
+    | `:init-fn` | Zero-arg fn run after the reset and before the test body, in the same ambient frame scope as the body. |
     | `:clear-kinds` | Collection of registrar kinds, as listed under [`rf/clear`](re-frame.core.md#clear), such as `[:event :sub]`, cleared after the snapshot and before the body. The snapshot restores them afterwards. An unknown kind clears nothing and is not an error. |
-    | `:clear-app-schemas?` | Boolean; clears the schemas artefact's per-frame schemas for the test's duration. |
     | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out, for tests that create their own top-level frames. With `nil`, a dispatch or subscription that does not name its frame raises `:rf.error/no-frame-context` instead of landing in `:rf/default`. The fixture creates only `:rf/default`; another id is bound as given, so that frame must exist before the body dispatches. |
-    | `:async?` | Boolean, default `false`. Marks the suite as having async tests. |
-
-    `:async? true` returns a `cljs.test` map fixture `{:before … :after …}` on CLJS, which suites with `(async done …)` tests require. On the JVM the option is ignored and you always get a function fixture: `clojure.test` calls its fixtures, and a map is callable, so a map fixture would silently skip every test. A `.cljc` suite therefore writes a plain `:async? true`, with no reader conditional.
-
-    `:app-ns` is for test runs that load every test namespace before any test runs: a CLJS node test bundle, or a JVM runner that requires all its test namespaces first. When two loaded apps register the same id (`:rf.route/not-found`, or shared event names), building the default image fails with `:rf.error/image-duplicate-id` for any suite whose baseline was captured after the second app loaded.
-
-    Give `:app-ns` your own app's root namespace prefix, covering its whole tree (`"my-app."`, not `"my-app.core"`), never a sibling's. Every suite that uses the app declares it, not only the one that loads it first; then no suite needs its siblings' names or depends on load order. A bundle with one app never needs this key.
-
-    When the fixture is built, before it captures a baseline, registrations whose `:rf.provenance/ns` starts with the prefix are removed. They are registered again before each test (after the reset, before `:init-fn`) and removed again afterwards, even when the test throws.
+    | `:async?` | Boolean, default `false`. Marks the suite as having async tests; the fixture's shape then depends on the platform. See [Async](#reset-fixture-async). |
 - **Example**:
     ```clojure
     (use-fixtures :each

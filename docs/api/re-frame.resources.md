@@ -648,7 +648,19 @@ A view reads the merged list and dispatches [`[:rf.resource/load-more {…}]`](#
 
 `:rf.resource/items`, `:rf.resource/pages` and `:rf.resource/infinite-state` are memoised framework subscriptions. `:rf.resource/ensure`, and a route entry, load page 0 only. A mutation that changes an item inside a feed invalidates the whole feed; patching one item in place inside a feed's pages is not supported.
 
-`:rf.resource/infinite-state` returns `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}`.
+`:rf.resource/infinite-state` is the feed's view-model. It keeps `:status`, `:loading?`, `:stale?`, `:error` and `:refresh-error` from the [`:rf/resource` view-model](#resource-subscriptions-passive), has no `:data` or `:keep-previous?` keys, and adds or changes these:
+
+```clojure
+{:items          <merged-items>         ;; every loaded page's items, in page order
+ :pages          <page-vector>          ;; the raw pages, for page boundaries
+ :page-count     <int>                  ;; the number of pages loaded
+ :has-next-page? <bool>                 ;; :next-page-param returned non-nil for the last page
+ :has-prev-page? <bool>                 ;; :prev-page-param returned non-nil for the first page
+ :fetching-next? <bool>                 ;; a load-more in flight
+ :fetching?      <bool>                 ;; a whole-feed refresh in flight; false during a load-more
+ :has-data?      <bool>                 ;; at least one page loaded
+ :page-error     <failure-map-or-nil>}  ;; a later page failed; the loaded pages are kept
+```
 
 During a load-more the feed's `:status` is `:fetching`, and the `:rf/resource` view-model and `:rf.resource/fetching?` read `:fetching?` true, as for a whole-feed refresh. `:rf.resource/infinite-state` tells the two apart: it reports a load-more as `:fetching-next?` true and keeps its own `:fetching?` for a whole-feed refresh, so it reads `false` while a load-more is in flight.
 
@@ -671,6 +683,53 @@ Resource and mutation runtime state lives in the runtime-db partition (`:rf.db/r
 All three are reserved runtime-db keys: framework-owned, isolated per frame and allocated lazily. App code reads them through the subscriptions and the functions below and never edits them by hand.
 
 Cache entries (durable facts) and work-ledger attempts (in-flight records) are kept separately. Host handles (AbortControllers, timers, promises) live in side tables and are never serialized. Cancellation is best-effort; stale-reply suppression by work id and generation always applies. See [The cache you don't own](../resources/concepts.md#the-cache-you-dont-own) in the guide.
+
+## Errors
+
+[Errors and warnings](../resources/errors-and-warnings.md) gives each id's cause and fix, and [Errors](README.md#errors) says how to read a thrown id against a reported one.
+
+- At registration:
+    - `:rf.error/resources-artefact-missing` — a resource function, or a frame's `:revalidate-on`, without the resources artefact.
+    - `:rf.error/resource-bad-spec` — a malformed [`reg-resource`](#the-resource-spec) spec.
+    - `:rf.error/resource-missing-scope-policy` — `:scope` absent, or not one of the two [policy shapes](#scope-policy).
+    - `:rf.error/infinite-missing-next-page-param` — `:infinite true` without `:next-page-param`.
+    - `:rf.error/mutation-bad-spec` — a malformed [`reg-mutation`](#the-mutation-spec) spec.
+    - `:rf.error/mutation-optimistic-before-request` — an optimistic plan with `:invalidate-timing :before-request`.
+    - `:rf.error/invalid-resource-scope-spec` — a malformed [`reg-resource-scope`](#reg-resource-scope).
+    - `:rf.error/resource-scope-source-reserved` — a `[:runtime …]` input on `reg-resource-scope`.
+- When a resource is ensured, read or subscribed:
+    - `:rf.error/resource-not-registered` — the payload names an unregistered `:resource`.
+    - `:rf.error/resource-invalid-params` — params that fail `:params-schema`.
+    - `:rf.error/resource-non-edn-params` — params or a scope that are not portable EDN.
+    - `:rf.error/resource-invalid-scope` — a misspelt `:rf.scope/*` keyword, `[:rf.scope/global]`, or a `{:from-db …}` map where a concrete scope is required.
+    - `:rf.error/resource-scope-not-registered` — a `{:from-db …}` reference naming no registered resolver.
+    - `:rf.error/resource-scope-unresolved-reference` — an event's `{:from-db …}` scope resolves to `nil`.
+    - `:rf.error/resource-sub-unresolved-scope` — a subscription's, or `resource-state`'s, `{:from-db …}` scope resolves to `nil`.
+    - `:rf.error/resource-invalidate-scope-required` — a scoped `invalidate-tags` without `:scope`.
+    - `:rf.error/resource-cross-scope-cause-required` — a cross-scope `invalidate-tags` without `:cause`.
+    - `:rf.error/resource-cross-scope-scope-conflict` — a cross-scope `invalidate-tags` that also names `:scope`.
+    - `:rf.error/reply-invalid-target` — a `:reply-to` that is not a non-empty vector with a keyword head.
+    - `:rf.error/reply-non-data-target` — a `:reply-to` carrying a fn or other host object.
+    - `:rf.error/resource-reserved-request-key` — a request fn that returns `:request-id`, `:on-success` or `:on-failure`.
+    - `:rf.error/resource-unknown-transport` — a `:transport` other than `:rf.http/managed`.
+    - `:rf.error/http-artefact-missing` — a load or write without `re-frame.http.managed`.
+    - `:rf.error/infinite-missing-page-accessor` — a feed whose pages are not vectors and that has no `:page->items`, when `:rf.resource/items`, `:rf.resource/infinite-state` or an `ensure`'s `:reply-to` needs its items.
+    - `:rf.error/resource-route-plan` — a route's resource plan failed, for example on a scope it cannot resolve; read on `:rf.route/error`.
+    - `:rf.error/resource-route-blocking` — a blocking route resource's first load failed; read on `:rf.route/error`.
+    - `:rf.error/resource-ssr-blocking-timeout` — under SSR, a blocking resource did not settle within the render deadline, so it settles as a first-load failure.
+    - `:rf.error/no-frame-context` — `resource-state` or `mutation-state` without `:frame`.
+- When a mutation runs or settles, beside the params, scope, `:reply-to` and request-building ids above:
+    - `:rf.error/mutation-not-registered` — an unregistered `:mutation`.
+    - `:rf.error/mutation-invalid-params` — params that fail the mutation's `:params-schema`.
+    - `:rf.error/mutation-non-serializable-instance-id` — an `:instance` that is not portable EDN.
+    - `:rf.error/mutation-invalid-target` — a malformed `:optimistic` target, before the request is sent, or a success-arm target whose params are not portable EDN, when the write settles.
+    - `:rf.error/mutation-invalid-invalidation` — `:invalidates` returned neither a tag set nor descriptors, when the write settles.
+- Warnings, in development builds:
+    - `:rf.warning/mutation-scope-mismatch` — the invalidated tags matched nothing in the resolved scope but match entries in another.
+    - `:rf.warning/mutation-target-skipped` — a success-arm target that is not a map, has a non-keyword `:resource` or names an unregistered resource, skipped.
+    - `:rf.warning/optimistic-tags-descriptor-skipped` — a malformed `:optimistic-tags` descriptor, dropped.
+    - `:rf.warning/optimistic-force-clobber` — `:on-conflict :force` restored a snapshot over a newer write.
+    - `:rf.warning/resource-load-more-owner-ignored` — a `load-more` that carries an `:owner`.
 
 ## Framework integration
 

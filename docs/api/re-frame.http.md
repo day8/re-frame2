@@ -46,37 +46,55 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
     - A request issued from inside a spawned machine actor is aborted when that actor is destroyed. Its reply target receives `:status :cancelled` with `:rf.reply/cancel-reason :actor-destroyed`, unless the target is the actor itself, which receives nothing.
     - An abort that lands between retry attempts cancels the pending retry.
     - On the JVM, a relative `:url` fails as `:rf.http/transport`, cookies are neither sent nor stored, the response `:status-text` is `""`, and a connection not made within 10 seconds fails as `:rf.http/timeout`. `:abort-signal` and the CLJS-only `:request` keys are ignored, with a `:rf.http/cljs-only-key-ignored-on-jvm` trace.
-- **Options**:
-    - `:request` — the request envelope:
-        - `:url` (required) — a non-blank string. On the JVM it must be absolute.
-        - `:method` — `:get` (default), `:head`, `:post`, `:put`, `:patch`, `:delete` or `:options`.
-        - `:headers` — header name to a string, or to a vector of strings for a repeated header. Names are case-insensitive. A header the platform rejects is left out, with a `:rf.warning/http-header-invalid` trace.
-        - `:params` — a query-param map, encoded onto the URL before any `#fragment`. A vector value repeats the key (`{:tag ["a" "b"]}` → `tag=a&tag=b`), an empty vector adds nothing, and a keyword key is written by its name.
-        - `:body` — a Clojure collection, a string, a `FormData`, `Blob` or `ArrayBuffer`, or a no-argument fn returning one. The fn is called before each attempt, so a retry gets a fresh body. A fn that throws, or a body the encoder rejects, fails the request as `:rf.http/transport` with `:stage :request-prep`.
-        - `:request-content-type` — `:json`, `:form`, `:text` or a MIME string: serialises `:body` and sets `Content-Type`, unless `:headers` already sets one. Without it, a Clojure map, sequence or set is sent as JSON, and anything else is sent as it is with no `Content-Type`. JSON writes a keyword with its namespace and no colon (`:user/id` → `"user/id"`) and a UUID as its string.
-        - `:credentials` (`:omit`, `:same-origin` (default) or `:include`), `:mode`, `:cache`, `:referrer`, `:integrity` — passed to Fetch; CLJS only.
-        - `:redirect` — `:follow` (default), `:error` or `:manual`. With `:error` or `:manual`, a redirect response fails the request instead of being followed.
-        - `:sensitive?` — the same as the top-level `:sensitive?`.
-    - `:decode` — how to read a 2xx body. JSON object keys decode to keywords.
+- **Options**: `:request` is required, and every request names where its reply goes with `:reply-to` or `:on-success` / `:on-failure`.
+
+    | Key | Value | Default | Meaning |
+    |---|---|---|---|
+    | `:request` | map | required | The request envelope, in the second table below. |
+    | `:decode` | `:auto`, `:json`, `:text`, `:blob`, `:array-buffer`, `:form-data`, a Malli schema or a fn | `:auto` | How to read a 2xx body; the forms are listed below this table. JSON object keys decode to keywords. |
+    | `:accept` | `(fn [decoded] …)` | none: every decoded 2xx body is a success | A domain check after decoding. Returning `{:ok value}` makes `value` the success `:value`; returning `{:failure user-map}` fails the request as `:rf.http/accept-failure`. |
+    | `:retry` | `{:on #{kinds} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}` | none: nothing is retried | The retry policy; its rules are below this table. |
+    | `:timeout-ms` | milliseconds, `nil` or `0` | `30000` | The per-attempt timeout. An explicit `nil` or `0` turns it off. |
+    | `:rf.http/max-decoded-keys` | integer | `10000` | The most unique JSON object keys the decoder will intern for this request. Exceeding it fails the request as `:rf.http/decode-failure` with `:reason :too-many-keys`. |
+    | `:reply-to` | event vector or `nil` | none | Receives both the success and the failure reply; see [Reply addressing](#reply-addressing). |
+    | `:on-success` / `:on-failure` | event vector or `nil` | none | Separate success and failure targets, used instead of `:reply-to`. |
+    | `:request-id` | any `=`-comparable value | none | Names the request, for [`:rf.http/managed-abort`](#rfhttpmanaged-abort-request-id) or supersession; see below this table. |
+    | `:abort-signal` | an external abort signal | none | Aborts the request when it fires. CLJS only. |
+    | `:sensitive?` | boolean | `false` | Redacts this request in traces; see [Privacy and classification](#privacy-and-classification). |
+
+    - `:decode` takes four forms:
         - `:auto`, the default when absent: a `json` or `+json` `Content-Type` decodes as JSON, `text/*` as a string, and anything else, including no `Content-Type`, as a binary body (a `Blob` in the browser, a `byte[]` on the JVM).
         - `:json`, `:text`, `:blob`, `:array-buffer` or `:form-data` forces one.
         - A Malli schema parses JSON and validates it. It decodes only a response whose `Content-Type` is JSON or absent; any other type fails as `:rf.http/decode-failure`. It needs Malli at run time, and `day8/re-frame2-http` does not bring it: add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot. Without Malli the schema is skipped: the parsed JSON goes on to `:accept` and the success reply with no coercion or validation, and a dev build emits `:rf.warning/http-malli-absent` once per process. See [Response-body classification](#response-body-classification) for the schema's `:sensitive?` and `:large?` props.
         - A fn `(fn [body-text headers] → value)` does it all. It receives the raw body text (`""` for an empty body), and a throw fails as `:rf.http/decode-failure`.
-    - `:accept` — `(fn [decoded] → {:ok value} | {:failure user-map})`, a domain check after decoding. `{:ok value}` makes `value` the success `:value`; `{:failure user-map}` fails the request as `:rf.http/accept-failure`. Without it, every decoded 2xx body is a success.
-    - `:retry` — `{:on #{kinds} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
-    - `:timeout-ms` — per-attempt timeout, default 30000. An explicit `nil` or `0` turns it off.
-    - `:rf.http/max-decoded-keys` — the most unique JSON object keys the decoder will intern for this request, default 10000. Exceeding it fails the request as `:rf.http/decode-failure` with `:reason :too-many-keys`.
-    - `:reply-to` — the event vector that receives both the success and the failure reply; see [Reply addressing](#reply-addressing).
-    - `:on-success` / `:on-failure` — separate success and failure event vectors (or `nil`), used instead of `:reply-to`.
-    - `:request-id` — any `=`-comparable value naming the request, for [`:rf.http/managed-abort`](#rfhttpmanaged-abort-request-id) or supersession: issuing a new request with the same id while one is in flight supersedes it, and the old reply is never delivered. Ids are per frame, so two frames running the same code do not cancel each other.
-    - `:abort-signal` — an external abort signal (CLJS only).
-    - `:sensitive?` — redacts this request in traces; see [Privacy and classification](#privacy-and-classification).
+    - `:retry`: `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
+    - `:request-id`: issuing a new request with the same id while one is in flight supersedes it, and the old reply is never delivered. Ids are per frame, so two frames running the same code do not cancel each other.
+
+    The `:request` envelope:
+
+    | Key | Value | Default | Meaning |
+    |---|---|---|---|
+    | `:url` | a non-blank string | required | The request URL. On the JVM it must be absolute. |
+    | `:method` | `:get`, `:head`, `:post`, `:put`, `:patch`, `:delete` or `:options` | `:get` | The HTTP method. |
+    | `:headers` | header name to a string, or to a vector of strings for a repeated header | none | Names are case-insensitive. A header the platform rejects is left out, with a `:rf.warning/http-header-invalid` trace. |
+    | `:params` | a query-param map | none | Encoded onto the URL before any `#fragment`; its rules are below this table. |
+    | `:body` | a Clojure collection, a string, a `FormData`, `Blob` or `ArrayBuffer`, or a no-argument fn returning one | none | The request body; its rules are below this table. |
+    | `:request-content-type` | `:json`, `:form`, `:text` or a MIME string | none: chosen from `:body` | Serialises `:body` and sets `Content-Type`, unless `:headers` already sets one; the rule without it is below this table. |
+    | `:credentials` | `:omit`, `:same-origin` or `:include` | `:same-origin` | Passed to Fetch. CLJS only. |
+    | `:mode`, `:cache`, `:referrer`, `:integrity` | Fetch's values | Fetch's defaults | Passed to Fetch. CLJS only. |
+    | `:redirect` | `:follow`, `:error` or `:manual` | `:follow` | With `:error` or `:manual`, a redirect response fails the request instead of being followed. |
+    | `:sensitive?` | boolean | `false` | The same as the top-level `:sensitive?`. |
+
+    - `:params`: a vector value repeats the key (`{:tag ["a" "b"]}` → `tag=a&tag=b`), an empty vector adds nothing, and a keyword key is written by its name.
+    - `:body`: the fn is called before each attempt, so a retry gets a fresh body. A fn that throws, or a body the encoder rejects, fails the request as `:rf.http/transport` with `:stage :request-prep`.
+    - `:request-content-type`: without it, a Clojure map, sequence or set is sent as JSON, and anything else is sent as it is with no `Content-Type`. JSON writes a keyword with its namespace and no colon (`:user/id` → `"user/id"`) and a UUID as its string.
 - **Errors**, all raised at dispatch, before the request is sent. The effect throws: the request is not sent, no reply is dispatched, the event's other effects still run, and error listeners receive `:rf.error/fx-handler-exception`, whose `:exception` carries the id below:
     - `:rf.error/http-bad-request` — the final `:url`, after the `:before` interceptor chain, is missing, `nil` or blank.
     - `:rf.error/http-bad-retry-on` — `:retry :on` is not a set drawn from the retryable kinds.
     - `:rf.error/http-bad-reply-target` — a reply-target value that is neither an event vector nor `nil`, or `:reply-to` beside `:on-success` / `:on-failure` (`:reason :mixed-addressing`).
     - `:rf.error/http-no-reply-target` — none of `:reply-to`, `:on-success` or `:on-failure` is present.
     - `:rf.error/schemas-artefact-missing` — the `:decode` schema carries a `:sensitive?` or `:large?` prop, but `re-frame.schemas` is not loaded, so the response could not be classified. Add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot.
+    - `:rf.error/bad-classification` — the `:carriers` block on the `:rf.http/managed` registration is malformed; see [Privacy and classification](#privacy-and-classification). `reg-fx` accepts the block, and every request refuses it until it is fixed. `:bad-key` names the offending slot. In a development build this id also escapes the event: `dispatch-sync` throws it, and the event's later effects do not run.
 - **Example**:
   ```clojure
   (rf/reg-event :cart/load
@@ -262,7 +280,7 @@ Four declarations control what managed HTTP redacts from traces, off-box records
 |---|---|---|
 | Built-in header denylist | A fixed set of always-sensitive header names (`Authorization`, `Cookie`, `Set-Cookie`, `X-API-Key`, `X-Auth-Token`, `X-CSRF-Token`, …), redacted in the `:headers` slot of every `:rf.http/*` trace regardless of `:sensitive?`. Case-insensitive; no frame can remove a name. | framework default |
 | Built-in query-param denylist | A fixed set of always-sensitive query-param names (`api_key`, `access_token`, `token`, `secret`, `password`, `session`, `signature`, …). The value is redacted inline in `:url` slots (`?api_key=:rf/redacted&page=2`), keeping the name and position. A hit also stamps `:sensitive? true` on the trace event, since the name alone is the signal. | framework default |
-| Managed-HTTP carriers | App-specific sensitive names, declared on the `:rf.http/managed` `reg-fx` registration. `:headers` is a vector of names added to the built-ins, never a policy map, since the header built-ins cannot be removed. `:query-params` is a vector of names to add, or an `{:include […] :except […]}` policy map with effective policy `(defaults − except) ∪ include`; `:except` drops a built-in name from this app's own dev trace. Names are case-insensitive; a malformed block raises `:rf.error/bad-classification`. | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
+| Managed-HTTP carriers | App-specific sensitive names, declared on the `:rf.http/managed` `reg-fx` registration. `:headers` is a vector of names added to the built-ins, never a policy map, since the header built-ins cannot be removed. `:query-params` is a vector of names to add, or an `{:include […] :except […]}` policy map with effective policy `(defaults − except) ∪ include`; `:except` drops a built-in name from this app's own dev trace. Names are case-insensitive. The block is checked when a request reads it, not at registration, so a malformed block fails each request with `:rf.error/bad-classification` (see the [`:rf.http/managed` errors](#rfhttpmanaged-args-map)). | `reg-fx :rf.http/managed` `:carriers {:headers […] :query-params […]}` |
 | Per-request `:sensitive?` | Redacts one request's body, params and all URL param values. | the `:rf.http/managed` args map (`:sensitive?` at top level, or under `:request`) |
 
 ```clojure
