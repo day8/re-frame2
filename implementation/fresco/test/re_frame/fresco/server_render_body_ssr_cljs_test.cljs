@@ -26,9 +26,9 @@
      because the same process holds the buffered trace and projects it into
      a 5xx before any bytes ship. Across this crossing the buffer is in the
      NODE process and the projector is on the JVM, so the JVM cannot see
-     it: a 200 would ship a wrong page as a success. §4 is therefore
-     written as a PAIR — the refusal, and the control that renders the same
-     tree with a sub that does not throw and gets its markup — because a
+     it: a 200 would ship a wrong page as a success. §4's refusal is read
+     against §1, whose row renders the same shape of tree through the same
+     entry with a sub that does not throw and gets its markup — because a
      refusal row on its own cannot tell 'the check fired' from 'the render
      was broken all along'.
 
@@ -187,12 +187,12 @@
         "two prefixes, two documents — the premise the equality above rests on")))
 
 ;; ---------------------------------------------------------------------------
-;; §4 — the recovered render error, and its control
+;; §4 — the recovered render error
 ;; ---------------------------------------------------------------------------
 ;;
-;; Read the pair together. The control proves the tree renders and the
-;; refusal proves the check bites; either alone is a green that means
-;; nothing.
+;; Read it with §1's `answers-the-inner-markup-alone`, which is its control:
+;; that row proves the same entry renders the same shape of tree, and this
+;; one proves the check bites; either alone is a green that means nothing.
 
 (deftest a-recovered-render-error-fails-the-render
   (let [thrown (try (render-body! [detonating {}] {})
@@ -206,12 +206,6 @@
       (is (pos? (:recorded data)) "the refusal counts what it saw")
       (is (= :rf.error/sub-exception (:error (:record data)))
           "and names the category, so the sidecar log points at the real surface"))))
-
-(deftest the-control-a-tree-with-no-recovered-error-renders
-  (let [html (render-body! [both-partitions {}] {})]
-    (is (string? html))
-    (is (str/includes? html "hello")
-        "the same entry, the same shape of tree, no refusal — so the row above measures the recovered error and not the entry")))
 
 ;; ---------------------------------------------------------------------------
 ;; §5 — teardown, on both exits
