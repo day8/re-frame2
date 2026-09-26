@@ -13,7 +13,9 @@
   `:ns/*`, a guard-blocked `:ns/*` falls through to `:*`, then to the parent.
 
   Exercised through `reg-machine` / `dispatch-sync` — the same runtime
-  surface real apps use."
+  surface real apps use. Exact-beats-`:ns/*` and the bare-event rule (a
+  non-namespaced event has no `:ns/*` tier) are pinned on both hosts by
+  `scxml_irp_semantic_core_cljs_test` (test396 / test399)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -65,33 +67,7 @@
           ":mouse/* fired for every :mouse/... event regardless of the name"))))
 
 ;; ---------------------------------------------------------------------------
-;; (b) exact :mouse/down BEATS :mouse/* (priority — most-specific wins)
-;; ---------------------------------------------------------------------------
-
-(deftest exact-beats-ns-wildcard
-  (testing "an enabled exact :mouse/down wins over :mouse/* (priority)"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           :actions {:exact-down (tag :exact-down)
-                     :ns-any     (tag :ns-any)}
-           :states  {:flat {:on {:mouse/down {:action :exact-down}
-                                  :mouse/*    {:action :ns-any}}}}}]
-      (rf/reg-machine :z4t2v/exact-beats-ns machine)
-      (reset! log [])
-      ;; :mouse/down has an exact entry → it wins; :mouse/* not consulted.
-      (rf/dispatch-sync [:z4t2v/exact-beats-ns [:mouse/down]])
-      ;; :mouse/up has NO exact entry → falls to :mouse/*.
-      (rf/dispatch-sync [:z4t2v/exact-beats-ns [:mouse/up]])
-      (is (= [:exact-down :ns-any] @log)
-          "exact :mouse/down fired for :mouse/down; :mouse/* caught :mouse/up")
-      (is (not (some #{:ns-any} (take 1 @log)))
-          "the namespace-wildcard must NOT fire when an exact candidate is enabled"))))
-
-;; ---------------------------------------------------------------------------
-;; (c) :mouse/* BEATS total :* (priority — most-specific wins)
+;; (b) :mouse/* BEATS total :* (priority — most-specific wins)
 ;; ---------------------------------------------------------------------------
 
 (deftest ns-wildcard-beats-total-wildcard
@@ -117,7 +93,7 @@
           "the total :* must NOT fire when the namespace-wildcard is enabled"))))
 
 ;; ---------------------------------------------------------------------------
-;; (d) guard-blocked exact :mouse/down falls through to :mouse/*
+;; (c) guard-blocked exact :mouse/down falls through to :mouse/*
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-exact-falls-through-to-ns-wildcard
@@ -143,7 +119,7 @@
           "the guard-blocked exact action must NOT fire"))))
 
 ;; ---------------------------------------------------------------------------
-;; (e) guard-blocked :mouse/* falls through to total :*, then to parent
+;; (d) guard-blocked :mouse/* falls through to total :*, then to parent
 ;; ---------------------------------------------------------------------------
 
 (deftest guard-blocked-ns-wildcard-falls-through-to-total-then-parent
@@ -194,7 +170,7 @@
           "the guard-blocked leaf :mouse/* action must NOT fire"))))
 
 ;; ---------------------------------------------------------------------------
-;; (f) :mouse/* does NOT match :keyboard/down (namespace isolation)
+;; (e) :mouse/* does NOT match :keyboard/down (namespace isolation)
 ;; ---------------------------------------------------------------------------
 
 (deftest ns-wildcard-isolates-by-namespace
@@ -221,26 +197,8 @@
       (is (= [:flat] (:state (snapshot :z4t2v/ns-isolation)))
           ":keyboard/down was a genuine no-op — snapshot unchanged"))))
 
-(deftest bare-event-id-has-no-namespace-tier
-  (testing "a non-namespaced event :go has no :ns/* tier — only exact + total :*"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :flat
-           :data    {}
-           :actions {:total-any (tag :total-any)}
-           ;; A :mouse/* must NOT swallow a bare :go (no namespace tier);
-           ;; only the total :* can catch it.
-           :states  {:flat {:on {:mouse/* {:action (tag :mouse-any)}
-                                  :*       {:action :total-any}}}}}]
-      (rf/reg-machine :z4t2v/bare-event machine)
-      (reset! log [])
-      (rf/dispatch-sync [:z4t2v/bare-event [:go]])
-      (is (= [:total-any] @log)
-          "bare :go has no namespace ⇒ skips :mouse/* and lands on the total :*"))))
-
 ;; ---------------------------------------------------------------------------
-;; (g) compound + parallel coverage
+;; (f) compound + parallel coverage
 ;; ---------------------------------------------------------------------------
 
 (deftest compound-ns-wildcard-prefers-leaf-over-parent
