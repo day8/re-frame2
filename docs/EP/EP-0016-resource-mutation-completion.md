@@ -207,8 +207,9 @@ home for cross-cutting transport decoration.
 
 That is not a reason to copy auth header code into every resource. It is a
 reason for Spec 016 to state the doctrine plainly: resources and mutations lower
-through Spec 014 managed HTTP; auth headers, tracing headers, common base URLs,
-and default read retry policy belong in the managed-HTTP decoration seam.
+through Spec 014 managed HTTP; auth headers, tracing headers, and common base
+URLs belong in the managed-HTTP decoration seam, and a read retry policy is a
+`:retry` each read request returns.
 
 ### RealWorld finding 5: populate plus invalidate needs a net-effect rule
 
@@ -794,10 +795,14 @@ decoration seam, not in every resource declaration.
 Spec 016 and the guide should state:
 
 - resource `:request` functions describe domain requests;
-- auth headers, tracing headers, API base URLs, tenant headers, and retry
-  defaults are frame/application managed-HTTP policy;
-- default retry policy should be read-focused; mutation retry defaults must be
-  conservative because retrying writes can duplicate side effects;
+- auth headers, tracing headers, API base URLs, and tenant headers are
+  frame/application managed-HTTP policy; an interceptor decorates the
+  `:request` envelope only;
+- retry is per request, not decoration: a resource or mutation `:request`
+  returns its own top-level `:retry`, which the resources transport carries
+  through unchanged; retry should be read-focused, and a write retries only
+  when its own request declares it, because retrying writes can duplicate side
+  effects;
 - resource/mutation traces should make applied decoration visible without
   leaking sensitive header values.
 
@@ -1055,7 +1060,8 @@ land in one PR.
 
 - Document the managed-HTTP decoration seam.
 - Add a RealWorld bearer-auth example.
-- Update `realworld_resources` to use managed-HTTP decoration for auth/retry.
+- Update `realworld_resources` to use managed-HTTP decoration for auth, and a
+  per-request `:retry` for reads.
 - Replace settings/editor watcher reactions with `:reply-to`.
 - Make the session feed a route resource using a named scope resolver.
 - Fix favorite/unfavorite invalidation with descriptors.
@@ -1108,7 +1114,8 @@ Dogfood acceptance for `examples/real-apps/realworld_resources/`:
 - favorite/unfavorite invalidates global article/list entries and the session
   feed precisely;
 - session feed is a declarative route resource again;
-- auth headers and read retry are demonstrated through managed-HTTP decoration;
+- auth headers are demonstrated through managed-HTTP decoration, and read
+  retry through each read's own `:retry`;
 - no resource subscription starts fetches.
 
 ## Backwards Compatibility
@@ -1240,7 +1247,8 @@ Guide material should be updated in the resources chapter and routing chapter:
 - show session feed as a route resource;
 - show map-form exact targets for populate/patch;
 - explain populate-as-authoritative-load and `:refetch-populated?`;
-- show managed-HTTP request decoration for auth headers and read retry;
+- show managed-HTTP request decoration for auth headers, and per-request read
+  retry;
 - restate that resource subscriptions are passive reads.
 
 The examples should use RealWorld-shaped snippets because this EP is motivated
