@@ -86,13 +86,14 @@ on:
       # The live `cljs-rf2` cells run on docs/cljs/playground-rf2.js,
       # which is not committed: this workflow BUILDS it (below) and ships
       # what it built. The bundle bakes in re-frame2 core + reagent-slim +
-      # machines + flows, so a push touching any of them changes the deployed
+      # machines + flows + schemas, so a push touching any of them changes the deployed
       # live-cell engine and must republish. (docs/tools/playground/** — the
       # bundle's own source and build config — is already inside docs/**.)
       - 'implementation/core/**'
       - 'implementation/adapters/reagent-slim/**'
       - 'implementation/machines/**'
       - 'implementation/flows/**'
+      - 'implementation/schemas/**'
       - '.github/workflows/docs.yml'
   # PR trigger is intentionally UNFILTERED (see REQUIRED-CHECK SHAPE
   # below). The docs surface is re-applied job-side via the `detect` job.
