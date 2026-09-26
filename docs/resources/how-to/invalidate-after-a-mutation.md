@@ -91,7 +91,7 @@ You have a write that knows what it breaks. Now fire it from a view and watch it
 
 One thing about the code below: the read uses the `[:rf/mutation {:instance …}]` [subscription](../../core/glossary.md#subscription), and the write fires with the bare [dispatch](../../core/glossary.md#dispatch), not the fully-qualified `rf/dispatch`. That's because `reg-view` injects `subscribe` / `dispatch` as [frame](../../core/glossary.md#frame)-bound locals — and the click callback fires *outside* render, where a bare `rf/dispatch` wouldn't know which frame it belongs to. The injected one carries that context for you, and the injected `subscribe` resolves that same ambient frame on the read side.
 
-```cljs-rf2
+```clojure
 (rf/reg-view article-editor [article]
   (let [save @(rf/subscribe [:rf/mutation {:instance [:article-save (:slug article)]}])]
     [:<>
