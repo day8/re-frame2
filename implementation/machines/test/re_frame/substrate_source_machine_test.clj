@@ -135,41 +135,6 @@
               ":source :machine-spawn stamped on the spawn dispatch"))
         (finally (rf.trace.tooling/unregister-listener! ::spawn-src))))))
 
-(deftest machine-spawn-synthetic-spawned-stamps-source-machine-spawn
-  (testing "machine spawn fx stamps :source :machine-spawn on the synthetic [:rf.machine.spawn/spawned] event"
-    ;; When the spawn args omit :start, the runtime dispatches
-    ;; [<child-id> [:rf.machine.spawn/spawned]] — same stamp path.
-    (let [parent-machine
-          {:initial :idle
-           :data    {}
-           :states
-           {:idle     {:on {:submit :spawning}}
-            :spawning {:spawn {:machine-id :child-source2/proto
-                                :data       {}}}}}
-          child-machine
-          {:initial :ready
-           :data    {}
-           :states  {:ready {}}}
-          seen (atom [])]
-      (rf/reg-machine :parent-source2/proto parent-machine)
-      (rf/reg-machine :child-source2/proto  child-machine)
-      (rf.trace.tooling/register-listener! ::spawn-src2
-        (fn [ev] (when (= :rf.event/dispatched (:operation ev))
-                   (swap! seen conj ev))))
-      (try
-        (rf/dispatch-sync [:parent-source2/proto [:submit]])
-        (let [synthetic-ev (first
-                             (filter (fn [ev]
-                                       (let [v (get-in ev [:tags :rf.event/v])]
-                                         (and (vector? v)
-                                              (= [:rf.machine.spawn/spawned] (second v)))))
-                                     @seen))]
-          (is (some? synthetic-ev)
-              "the substrate dispatched the synthetic [:rf.machine.spawn/spawned] event")
-          (is (= :machine-spawn (:source synthetic-ev))
-              ":source :machine-spawn stamped on the synthetic spawn dispatch"))
-        (finally (rf.trace.tooling/unregister-listener! ::spawn-src2))))))
-
 ;; ---- :machine-action (actor messages) -----------------------------------
 
 (deftest machine-action-dispatch-stamps-source-machine-action

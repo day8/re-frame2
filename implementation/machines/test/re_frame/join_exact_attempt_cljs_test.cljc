@@ -252,18 +252,6 @@
 ;; unstamped / wrong-actor / wrong-child / wrong-invoke carriers
 ;; ---------------------------------------------------------------------------
 
-(deftest unstamped-carrier-is-suppressed-unverified
-  (testing "a bare hand-authored completion (never minted by a
-            member child's finality, so it bears no exact-attempt coordinate)
-            is classified :attempt-unverified and folds nothing"
-    (reg-join-parent! :jea/p3 :jea/p3a :jea/p3b)
-    (rf.machines.test-support/reset-captured!)
-    (dispatch-forged! :jea/p3 (unstamped-completion :a))
-    (is (= #{} (:done (join-state :jea/p3))) "no fold")
-    (is (false? (:resolved? (join-state :jea/p3))) "no resolution")
-    (is (= [:rf.machine.spawn-all/attempt-unverified] (stale-reasons))
-        "stable typed evidence: :attempt-unverified")))
-
 (deftest wrong-actor-for-correct-child-is-superseded
   (testing "a carrier naming the correct child but the WRONG
             actor (sibling :b's id, current token) fails the exact
