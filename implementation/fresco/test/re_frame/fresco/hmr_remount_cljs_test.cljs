@@ -211,6 +211,11 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-save-re-mints-the-head-and-with-it-the-element-type
+  ;; Both generations share the SAME body function object, so the type
+  ;; change below is not conditional on the body having changed:
+  ;; `mint-view!` allocates a fresh component and memo wrapper on every
+  ;; call, and editing one line anywhere in a source file remounts every
+  ;; boundary that file defines.
   (let [g1 (load-namespace! panel-body)
         g2 (load-namespace! panel-body)]
 
@@ -235,25 +240,6 @@
               and on the view rather than on the frame"
       (is (= view-name (.-displayName ^js g1)))
       (is (= view-name (.-displayName ^js g2))))))
-
-(deftest the-re-mint-is-unconditional-so-an-unchanged-view-is-replaced-too
-  ;; The costly half of the contract, and the one a developer is most likely
-  ;; to get wrong: the type change is not conditional on the body having
-  ;; changed. Both generations below share the SAME body function object —
-  ;; the strongest possible statement of "this view was not edited" — and the
-  ;; type still changes, because `mint-view!` allocates a fresh component and
-  ;; a fresh memo wrapper on every call. Editing one line anywhere in a source
-  ;; file therefore remounts every boundary that file defines.
-  ;;
-  ;; `panel-body` is passed to both mints by name, so the "same body" premise
-  ;; is carried by the code rather than by an assertion — asserting a var is
-  ;; identical to itself would pass without exercising anything.
-  (let [g1 (rf.fresco.impl.collector/mint-view! view-name panel-body)
-        g2 (rf.fresco.impl.collector/mint-view! view-name panel-body)]
-    (is (false? (same-object? g1 g2))
-        "same name, same body, different head")
-    (is (false? (same-object? (element-type-of g1) (element-type-of g2)))
-        "so React replaces the subtree for a view whose source did not change")))
 
 (deftest the-defview-macro-mints-what-a-reload-re-mints
   ;; The model's own guard. `load-namespace!` claims to be what re-evaluating
