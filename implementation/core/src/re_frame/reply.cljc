@@ -361,11 +361,15 @@
     - on the JVM: a `java.util.concurrent.Future`, a `java.lang.Thread`, a
       `java.util.Date`, a `java.util.regex.Pattern`.
 
-  The `Date` / `RegExp` (and their JVM counterparts) belong to the closed set
-  because they are NON-EDN host objects: they neither round-trip through the
-  EDN reader nor compare by value, so they cannot ride durable reply data (SSR
-  / hydration / epoch snapshots / replay) safely — a durable timestamp is an
-  epoch-millisecond long under EP-0010, never a host `Date`. Plain EDN data —
+  A `RegExp` (and its JVM counterpart) belongs to the closed set because it
+  is a NON-EDN host object: it neither round-trips through the EDN reader nor
+  compares by value, so it cannot ride durable reply data (SSR / hydration /
+  epoch snapshots / replay) safely. A `Date` is EDN (`#inst`), and belongs to
+  the set for a different reason: durable reply data carries a timestamp as
+  an epoch-millisecond long under EP-0010, never a host `Date`. The
+  event-payload lint walks this set MINUS instants
+  (`re-frame.router.diagnostics/find-non-serialisable-payload-path`), because
+  an event payload has no such timestamp rule. Plain EDN data —
   maps, vectors, sets, keywords, strings, numbers, booleans, nil, symbols,
   instants represented as longs — passes. The predicate enforces exactly the
   set named here, on both runtimes."
@@ -397,13 +401,15 @@
      :else            nil)))
 
 (defn walk-find-host-handle-bounded
-  "Budget-bounded sibling of `walk-find-host-handle`: the SAME host-handle
-  detection and the same map/vector/set walk, but stops after visiting
-  `max-nodes` nodes and returns nil (no handle reported) rather than
-  continuing an unbounded traversal.
+  "Budget-bounded sibling of `walk-find-host-handle`: the same
+  map/vector/set walk, but stops after visiting `max-nodes` nodes and
+  returns nil (no handle reported) rather than continuing an unbounded
+  traversal. It detects with `host-handle?`, or with the `handle?`
+  predicate the 3-arity takes.
 
   Per Conventions §Event payloads SHOULD be serialisable data:
-  the dev-only event-payload lint reuses this walker to bound a pathological
+  the dev-only event-payload lint uses this walker, with its own
+  `handle?` (`host-handle?` minus instants), to bound a pathological
   deeply-nested or huge payload so the lint itself cannot become a
   performance footgun on the hot dispatch path. A budget-exhausted walk is a
   false NEGATIVE (give up, report clean) rather than a false positive — the
@@ -413,20 +419,21 @@
   handle`: their contract is a hard MUST (a durable reply target /
   reply map must never smuggle a host handle past a budget cutoff), so they
   do not use this bounded sibling."
-  [v max-nodes]
-  (let [remaining (volatile! (long max-nodes))]
-    (letfn [(walk [v path]
-              (if-not (pos? @remaining)
-                nil
-                (do
-                  (vswap! remaining dec)
-                  (cond
-                    (host-handle? v) path
-                    (map? v)         (some (fn [[k vv]] (walk vv (conj path k))) v)
-                    (vector? v)      (first (keep-indexed (fn [i vv] (walk vv (conj path i))) v))
-                    (set? v)         (some #(walk % (conj path '*)) v)
-                    :else            nil))))]
-      (walk v []))))
+  ([v max-nodes] (walk-find-host-handle-bounded v max-nodes host-handle?))
+  ([v max-nodes handle?]
+   (let [remaining (volatile! (long max-nodes))]
+     (letfn [(walk [v path]
+               (if-not (pos? @remaining)
+                 nil
+                 (do
+                   (vswap! remaining dec)
+                   (cond
+                     (handle? v)      path
+                     (map? v)         (some (fn [[k vv]] (walk vv (conj path k))) v)
+                     (vector? v)      (first (keep-indexed (fn [i vv] (walk vv (conj path i))) v))
+                     (set? v)         (some #(walk % (conj path '*)) v)
+                     :else            nil))))]
+       (walk v [])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Data-only / durable target invariant (Managed-Effects §The reply target —

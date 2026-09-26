@@ -1,10 +1,11 @@
 (ns re-frame.non-serialisable-event-payload-warn-test
   "Conventions §Event payloads SHOULD be serialisable data.
   `build-envelope` walks a dispatched event's payload for a host handle (fn /
-  Promise / AbortController / DOM node / Date / RegExp — the same closed set
+  Promise / AbortController / DOM node / RegExp — the set
   `re-frame.reply/host-handle?` polices for the reply-map / reply-target
-  data-only invariant) and, when found, emits
-  `:rf.warning/non-serialisable-event-payload`.
+  data-only invariant, minus instants) and, when found, emits
+  `:rf.warning/non-serialisable-event-payload`. An instant is EDN (`#inst`),
+  so it never warns here, while the reply invariant keeps refusing it.
 
   This is a SHOULD, not the `:rf.cofx` structural-EDN MUST: the warning is
   observational (`:recovery :no-recovery`), never a throw, and dev-only —
@@ -31,6 +32,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.reply :as rf.reply]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace.tooling :as rf.trace.tooling]))
 
@@ -96,6 +98,56 @@
             (is (string? (:reason t)))
             (is (= :no-recovery (:recovery w))
                 ":recovery is hoisted to the top-level trace event, not nested under :tags")))))))
+
+(def ^:private an-instant #inst "2024-01-02T03:04:05.000-00:00")
+
+(deftest silent-on-instant-payload
+  (testing "an instant is EDN (#inst) and round-trips through pr-str /
+   read-string, so neither host spelling of one fires the lint"
+    (rf/reg-event :payload-lint/noop
+      (fn [{:keys [db]} [_ payload]] {:db (assoc db :seen payload)}))
+    (let [recorded (record-traces! ::lint)
+          payload  {:at      an-instant
+                    :instant (java.time.Instant/parse "2024-01-02T03:04:05Z")
+                    :nested  [{:when an-instant}]}]
+      (is (= an-instant (read-string (pr-str an-instant)))
+          "the premise: #inst round-trips through pr-str / read-string")
+      (rf/dispatch-sync [:payload-lint/noop payload])
+      ;; ALWAYS-ON WITNESS: the dispatch really committed.
+      (is (= payload (:seen (rf/app-db-value :rf/default)))
+          "the instant-bearing payload reached the handler intact")
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
+      (when rf.interop/debug-enabled?
+        (is (empty? (payload-warnings recorded))
+            "an instant never fires :rf.warning/non-serialisable-event-payload")))))
+
+(deftest fires-on-host-object-payload-beside-an-instant
+  (testing "a host object that is not an instant still fires, and an instant
+   beside it is skipped: the one warning names the host object's path"
+    (rf/reg-event :payload-lint/noop
+      (fn [{:keys [db]} [_ payload]] {:db (assoc db :seen payload)}))
+    (let [recorded (record-traces! ::lint)]
+      (rf/dispatch-sync [:payload-lint/noop {:at an-instant :pattern #"x"}])
+      ;; ALWAYS-ON WITNESS: the host object is carried through unaltered.
+      (is (instance? java.util.regex.Pattern
+                     (:pattern (:seen (rf/app-db-value :rf/default))))
+          "the host object reached the handler untouched — the lint is observational")
+      ;; Dev-instrumentation arm (see ns docstring §Posture split).
+      (when rf.interop/debug-enabled?
+        (let [warns (payload-warnings recorded)]
+          (is (= 1 (count warns)))
+          (is (= [1 :pattern] (:path (:tags (first warns))))
+              "the warning names the regex Pattern, not the instant beside it"))))))
+
+(deftest reply-invariant-still-refuses-an-instant
+  (testing "the reply-map / reply-target invariant uses host-handle? whole: the
+   instant the payload lint accepts is still a host handle there"
+    (is (true? (rf.reply/host-handle? an-instant)))
+    (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
+              (rf.reply/validate-reply {:status :ok :value {:settled-at an-instant}}))
+        "a Date in a data-only reply map is refused — a durable reply timestamp is an epoch-ms long")
+    (is (= [:value :settled-at]
+           (rf.reply/walk-find-host-handle {:value {:settled-at an-instant}})))))
 
 (deftest dispatch-proceeds-unchanged-despite-the-warning
   (testing "the warning is observational only — the dispatch still commits"

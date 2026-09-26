@@ -425,22 +425,33 @@
   ADVISORY surface (see `re-frame.reply/walk-find-host-handle-bounded`)."
   500)
 
+(defn- payload-host-handle?
+  "The lint's detection set: `re-frame.reply/host-handle?` minus an instant.
+  An instant (`#inst`, read as a `java.util.Date` / `js/Date`) is EDN and
+  round-trips through `pr-str` / `read-string`, so an event carrying one is
+  recordable data. `host-handle?` itself keeps refusing a `Date`, because a
+  durable reply timestamp is an epoch-millisecond long."
+  [v]
+  (and (rf.reply/host-handle? v)
+       (not (inst? v))))
+
 (defn find-non-serialisable-payload-path
   "Dev-only. Walk `event` (the full dispatched event vector) for a host
-  handle — fn / Promise / AbortController / DOM node / Date / RegExp, the
-  SAME closed set `re-frame.reply/host-handle?` detects for the reply-map /
-  reply-target data-only invariant — via the budget-bounded walker
-  `re-frame.reply/walk-find-host-handle-bounded`. Returns the path to the
-  first offending value, or nil when the payload is clean (or the walk
-  budget was exhausted first — a false negative, the safe direction for an
-  advisory lint). The leading event-id keyword never matches (`host-handle?`
-  is false for a keyword), so walking the whole vector rather than just its
-  args is harmless.
+  handle — fn / Promise / AbortController / DOM node / RegExp: the set
+  `re-frame.reply/host-handle?` detects for the reply-map / reply-target
+  data-only invariant, minus instants (`payload-host-handle?`) — via the
+  budget-bounded walker `re-frame.reply/walk-find-host-handle-bounded`.
+  Returns the path to the first offending value, or nil when the payload is
+  clean (or the walk budget was exhausted first — a false negative, the safe
+  direction for an advisory lint). The leading event-id keyword never
+  matches (`host-handle?` is false for a keyword), so walking the whole
+  vector rather than just its args is harmless.
 
   The sole caller (`re-frame.router/build-envelope`) gates this call on
   `rf.interop/debug-enabled?`, so production never walks the payload."
   [event]
-  (rf.reply/walk-find-host-handle-bounded event payload-lint-node-budget))
+  (rf.reply/walk-find-host-handle-bounded event payload-lint-node-budget
+                                          payload-host-handle?))
 
 (defn emit-non-serialisable-event-payload-warning!
   "Emit `:rf.warning/non-serialisable-event-payload` (Conventions §Event
@@ -458,7 +469,7 @@
     (let [event-id (first event)
           reason   (str "Dispatch of `" event-id "` carries a non-"
                         "serialisable value (fn / Promise / AbortController / "
-                        "DOM node / Date / RegExp) in its payload at "
+                        "DOM node / RegExp) in its payload at "
                         (pr-str path) ". Event vectors SHOULD contain "
                         "recordable, serialisable data (Conventions §Event "
                         "payloads SHOULD be serialisable data) — replay, SSR "

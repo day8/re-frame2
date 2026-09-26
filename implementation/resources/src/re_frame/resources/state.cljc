@@ -370,13 +370,13 @@
     (str "resource " resource-id " " (name kind)
          " is not a portable CEDN-1 EDN identity — "
          "host / opaque values (functions, promises, "
-         "dates, DOM nodes, AbortControllers, JS "
-         "objects) and non-portable numbers (floats, "
-         "ratios, decimals, NaN/infinities, integers "
-         "outside the safe range) are rejected at the "
-         "cache-key boundary. Put every value that "
-         "affects remote identity in params as plain "
-         "portable EDN. Per Spec 016 §Resource "
+         "DOM nodes, AbortControllers, JS objects) and "
+         "non-portable numbers (floats, ratios, decimals, "
+         "NaN/infinities, integers outside the safe range) "
+         "are rejected at the cache-key boundary; instants "
+         "are accepted. Put every value that affects remote "
+         "identity in params as plain portable EDN, and encode "
+         "a float as a fixed-point integer or a string. Per Spec 016 §Resource "
          "identity / Conventions §Canonical EDN identity.")
     {:recovery :fix-params
      :extra    {:resource-id resource-id
@@ -386,9 +386,9 @@
 (defn reject-non-edn!
   "Throw `:rf.error/resource-non-edn-params` when `value` (a params or
   scope map) is not a portable CEDN-1 identity — a host / opaque value (fn,
-  promise, date, DOM node, AbortController, JS object) OR a non-portable
+  promise, DOM node, AbortController, JS object) OR a non-portable
   number (float, ratio, decimal, NaN / infinity, out-of-safe-range integer)
-  reached the cache-key boundary. Per Spec 016 §Resource identity (host
+  reached the cache-key boundary. An instant is in-domain and passes. Per Spec 016 §Resource identity (host
   values are rejected) / §Canonicalization rule / Conventions §Canonical EDN
   identity. `where` / `kind` (`:params` | `:scope`) name the offending
   boundary. Returns `value` unchanged when it conforms.
