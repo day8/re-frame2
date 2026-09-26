@@ -71,7 +71,7 @@ Register views by Var, the React idiom, or with `rf/reg-view*` when the call sit
   (use-sub query-v {:frame target})  → current sub value, from `target`
   ```
 - **Description**: Returns the current value of the subscription `query-v` and re-renders the component when that value changes. Where `subscribe` returns a subscription, this returns its value. [`re-frame.fresco.native`](re-frame.fresco.native.md#use-sub) publishes the same hook under the same name for React islands under Fresco.
-    - The 1-arity reads the frame from React context only: the nearest `frame-provider` or `frame-root` above the component. With no boundary above it, it raises `:rf.error/no-frame-context`; there is no fallback to `:rf/default`.
+    - The 1-arity reads the frame from React context only: the nearest `frame-provider` (SCOPE) / `frame-root` (ENSURE) above the component. With no boundary above it, it raises `:rf.error/no-frame-context`; there is no fallback to `:rf/default`.
     - A `with-frame` or `bind-fn` scope around a synchronous render does not reach a hook, whether the render runs under `act()`, `flushSync` or a server render. A hook runs when React renders, after that scope has exited, and the same tree must resolve the same frame however the render was driven. `re-frame.fresco.native`'s hooks follow the same rule.
     - To set the frame explicitly, wrap the component in a `frame-provider`, or use the opts form. The opts form, `{:frame target}`, reads that one value from `target` and bypasses context; `target` is a frame-id keyword or a live frame value, as for `subscribe`, and `:frame` is required. When a whole subtree shares a frame, scope it with `frame-provider {:frame target}` and use the 1-arity.
 - **Example**:
