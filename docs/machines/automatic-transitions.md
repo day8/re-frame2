@@ -276,11 +276,14 @@ Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are subscri
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Registration throws `:rf.error/machine-always-self-loop` | `:always` targets its own declaring state | Use a targetless `:always` with an action that flips the guard, or target a different state |
-| Macrostep fails `:rf.error/machine-always-depth-exceeded` | Eventless loop did not settle within 16 steps | Break the cycle; a targetless drain-until-false is the safe loop |
 | Registration throws `:rf.error/machine-bad-choice` | `:choice` is a function, empty, or otherwise not a candidate vector | Declarative non-empty vector of candidate maps |
 | Registration throws `:rf.error/machine-choice-no-default` | Every `:choice` candidate is guarded | End the vector with an unguarded candidate |
 | A choice or `:always` candidate read `nil` where the payload should be | An eventless step runs with no event | Read the payload on the event-driven transition and store it in `:data` |
 | A retry limit trips one failure early after the count moved into a choice | The entering action already incremented the count the choice's guard reads | Compare against the post-action number |
 | Timer fired but the snapshot did not move | Guard was false at expiry, or the state had already been left | Expected. A late timer is stale; a false guard discards that firing |
 | Registration throws `:rf.error/machine-bad-timeout-duration` | `"5s"` shorthand, or a non-positive / malformed duration | Integer milliseconds or ISO-8601 (`"PT5S"`) |
-| Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on a spawn spec | Use `:timeout` + `:on-timeout`, or `:after` on the parent state |
+| Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on a `:spawn` or `:spawn-all` | Use `:timeout` + `:on-timeout`, or `:after` on the parent state |
+
+An `:always` loop that never settles fails with
+`:rf.error/machine-always-depth-exceeded`; see
+[The table → Troubleshooting](concepts.md#troubleshooting).

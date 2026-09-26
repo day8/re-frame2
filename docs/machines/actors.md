@@ -516,7 +516,6 @@ N separate `:spawn`s, not a non-cancelling join.
 | Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Choose an explicit `:fixed-actor-id`, store it in `:data`, or use a declarative `:spawn` |
 | No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
 | Spawn refused with `:rf.error/machine-spawn-all-duplicate-id` | Two parent machines spawn one type, so both mint `<type>#1` | Give each parent's spawn its own `:id-prefix` |
-| Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on `:spawn` / `:spawn-all` | Use `:timeout` / `:on-timeout`, or `:after` on the parent state |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. For quorum, count in each child's `:on-done` and decide in a guarded `:after` |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | the `:spawn-all` block names an event for its children to dispatch | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
 | Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
@@ -525,3 +524,6 @@ N separate `:spawn`s, not a non-cancelling join.
 | Socket / interval / Worker still open after destroy | not a framework-managed resource | Close it in the child's `:exit` |
 | A self-addressed `:on-failure` never fires when the actor is destroyed | the reply target names the actor being torn down, so it is obsolete | Expect no reply — it is suppressed as `:status :stale`. Clean up in the child's `:exit`, or address the reply to an event outside the actor |
 | Children torn down (or respawned) on a progress event | the parent's `:on` had a `:target` | Omit `:target` so the transition is targetless |
+
+`:rf.error/spawn-timeout-ms-removed` is covered in
+[Automatic transitions → Troubleshooting](automatic-transitions.md#troubleshooting).
