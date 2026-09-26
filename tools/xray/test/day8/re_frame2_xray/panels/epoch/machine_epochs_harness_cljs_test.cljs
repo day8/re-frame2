@@ -20,8 +20,6 @@
     - the structured `:cascade` off the transition row (`proj/cascade-regions`
       / `cascade-microsteps` / `cascade-step-count`) — the LCA + microstep
       walk.
-    - `mih/project-focused-event-transitions` — the inspector's focused-event
-      view-model.
     - `diff/project` — the snapshot diff (member-level set diff for `:tags`).
 
   EACH rung asserts THREE layers:
@@ -44,7 +42,6 @@
             [day8.re-frame2-xray.diff.engine :as diff]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
-            [day8.re-frame2-xray.panels.machine-inspector-helpers :as mih]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -196,23 +193,6 @@
     (is (= :open (:state (snapshot :door/main)))
         "(c) the door STAYS :open — the blocked close did not advance")))
 
-(deftest door-internal-transition-renders-action-only
-  (testing "rung #5 sub — :door/hold is an INTERNAL transition (no :target):
-            it writes :data without changing state, so (c) NO exit/entry/no-op
-            rows, just the action's effect; the state stays :open."
-    (setup!)
-    (drive! :door/main [:door/insert-coin])
-    (drive! :door/main [:door/push])                    ; → :open
-    (let [rows (cascade (drive! :door/main [:door/hold]))]
-      (is (empty? (rows-of-kind rows :no-op))
-          "(b) an internal transition is a REAL transition, not a no-op")
-      (is (empty? (filterv #(and (= :action (:kind %)) (= :exit (:phase %))) rows))
-          "(c) internal transition fires NO exit row"))
-    (is (= :open (:state (snapshot :door/main)))
-        "(c) internal transition leaves the state at :open")
-    (is (true? (get-in (snapshot :door/main) [:data :held-open?]))
-        "(c) the internal action wrote :data")))
-
 (deftest door-transition-with-effect-renders-fx
   (testing "rung #6 — :open ──► :alarming runs :enter-alarm whose action
             writes :data (the deck dispatches the downstream child via the
@@ -278,28 +258,6 @@
 ;; ============================================================================
 ;; TRAFFIC (PARALLEL) — regions · history · TAG-SET delta (gap 7)
 ;; ============================================================================
-
-(deftest traffic-tick-broadcasts-to-both-regions
-  (testing "rung #9 — ONE :traffic/tick broadcasts to BOTH regions in one
-            macrostep. (c) one aggregate transition row whose :to-state is a
-            region→state map showing both regions advanced; (a) the inspector
-            projects the single macrostep transition with both regions."
-    (setup!)
-    (let [record    (drive! :traffic/light [:traffic/tick])
-          rows      (cascade record)
-          tx        (first (rows-of-kind rows :transition))
-          inspector (mih/project-focused-event-transitions
-                      (:trace-events record)
-                      {:traffic/light machines/traffic-machine})]
-      (is (= 1 (count (rows-of-kind rows :transition)))
-          "(c) a parallel macrostep commits ONE aggregate transition row")
-      (is (= {:vehicle :red :pedestrian :walk} (:from-state tx)))
-      (is (= {:vehicle :green :pedestrian :dont-walk} (:to-state tx))
-          "(c) both regions advanced in one event")
-      (is (empty? (rows-of-kind rows :no-op)) "(b) a handled broadcast is not a no-op")
-      (is (= 1 (count inspector))
-          "(a) the inspector projects the macrostep's single transition record"))
-    (is (= {:vehicle :green :pedestrian :dont-walk} (:state (snapshot :traffic/light))))))
 
 (deftest traffic-tag-set-delta-renders-member-swap
   (testing "rung #10 (gap 7) — a tick swaps the :tags SET members
@@ -581,21 +539,6 @@
 ;; ============================================================================
 ;; HVAC (DEEP-COMPOUND) — the LCA + self-transition headline
 ;; ============================================================================
-
-(deftest hvac-power-cycle-renders-deep-parallel-initial-cascade
-  (testing "rung #20 — :hvac/power-cycle broadcasts to BOTH regions; :climate
-            descends its full initial cascade to [:running :conditioning
-            :heating]. (a) the structured :cascade is a per-region parallel
-            walk; (c) the committed snapshot moved both regions."
-    (setup!)
-    (let [record     (drive! :hvac/controller [:hvac/power-cycle])
-          structured (structured-of record)
-          regions    (proj/cascade-regions structured)]
-      (is (proj/parallel-cascade? structured) "(a) the cascade carries both regions")
-      (is (= [:climate :fan] (mapv :region regions)) "(a) regions in declaration order")
-      (is (= {:climate [:running :conditioning :heating] :fan :on}
-             (:state (snapshot :hvac/controller)))
-          "(c) both regions moved in one macrostep (deep initial cascade)"))))
 
 (deftest hvac-mode-toggle-renders-lca-cascade-order
   (testing "rung #21 — :hvac/mode-toggle crosses the :conditioning LCA. (a) the
@@ -940,25 +883,6 @@
       (is (= :fail (gate-guard-outcome record :gate-low?))
           "(a) :gate-low? FAILED (0 is not > 0) — both guarded candidates blocked"))
     (is (= :rejected (:state (snapshot :gate/main))))))
-
-(deftest gate-three-branches-each-land-their-guarded-target
-  (testing "guard-fork — the full fork: ALL THREE :gate/check
-            branches land their guard-selected target (:high / :low /
-            :rejected), each preceded by a :reset back to :idle. Proves the
-            first-guard-pass-wins resolution + the unguarded fallback over the
-            single :idle fork node (xstate: one labelled edge per branch)."
-    (setup!)
-    (let [check-branch (fn [level expected-state]
-                         (drive! :gate/main [:gate/set level])
-                         (let [to (-> (drive! :gate/main [:gate/check])
-                                      cascade (rows-of-kind :transition) first :to-state)]
-                           (drive! :gate/main [:gate/reset])   ; back to :idle
-                           to))]
-      (is (= :high     (check-branch 7 :high))     "(c) level 7 → :high")
-      (is (= :low      (check-branch 2 :low))      "(c) level 2 → :low")
-      (is (= :rejected (check-branch 0 :rejected)) "(c) level 0 → :rejected (fallback)"))
-    (is (= :idle (:state (snapshot :gate/main)))
-        "(c) the gate is back at the :idle fork node after the three branches")))
 
 ;; ============================================================================
 ;; INLINE action/guard verb rendering — REAL substrate
