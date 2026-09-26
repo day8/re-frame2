@@ -82,6 +82,9 @@
   (let [tree  (subject-tree {:shown "Login page hangs" :revision 2})
         attrs (rf.fresco.test/attrs (tagged tree :input))]
     (is (= "Login page hangs" (:value attrs)))
+    (is (= 2 (::rf.fresco/revision attrs))
+        "the reset trigger is the subject-revision read, carried on the
+         field the view renders")
     (is (= [rf.fresco.examples.forms.db/subject-draft ticket ::rf.fresco/value] (:on-input attrs))
         "typing writes h/reg-state's own setter, keyed by the ticket —
          POSITIONAL, because a marker inside a payload map is substituted
@@ -139,6 +142,19 @@
     (is (= [::rf.fresco.examples.forms.events/edit :notes ::rf.fresco/value] (:on-input (rf.fresco.test/attrs (tagged tree :textarea))))
         "one props map serves both spellings, so a change to the contract
          cannot reach one field and miss the other")))
+
+(deftest the-two-form-fields-carry-no-reset-trigger
+  ;; An absence, read off the view. Nothing in this application asks
+  ;; either field to abandon an edit in place, so a revision there would
+  ;; be a prop a reader reasons about for nothing. The subject field's row
+  ;; reads a PRESENT trigger through this same projection, which is what
+  ;; makes these two nils a finding rather than a blind spot.
+  (doseq [[tag opts] [[:input    {:field :assignee :label "Assignee" :text "ada"}]
+                      [:textarea {:field :notes :label "Notes" :multiline? true :text "note"}]]]
+    (let [control (tagged (field-tree (assoc opts :problem nil)) tag)]
+      (is (some? control) (str "premise: the view rendered the " (name (:field opts)) " control"))
+      (is (nil? (::rf.fresco/revision (rf.fresco.test/attrs control)))
+          (str "the " (name (:field opts)) " field carries no `::h/revision`")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 3 — the status the write owns
