@@ -72,36 +72,6 @@ of the tree, that region can move to native React or UIx while staying on the
 same frame and app-db. [Performance](19-performance.md) describes how to
 measure, and [Islands](10-native-tier.md) how to move a region.
 
-## Fresco, Reagent, and UIx
-
-Reagent and UIx remain supported view layers.
-
-**Reagent** suits an existing application whose view layer already works and
-where migration cost dominates. Fresco looks familiar because both use Hiccup,
-but Fresco has no ratoms, reactions or Form-2 components.
-[Migrating from Reagent](20-migration-from-reagent.md) covers the differences.
-
-**UIx** is usually better when React organises the view layer: hooks are
-common, a React design system dominates the tree, and the team thinks in React
-component lifecycles. Fresco can host foreign React components through
-[`h/defhost`](09-interop.md), but it does not try to replace a React-first
-authoring model.
-
-Choose Fresco when the application is primarily a re-frame2 application and you
-want markup, reads, and ordinary interactions to stay inspectable data.
-
-## Costs and limits
-
-Interpreting Hiccup has a runtime cost. Cold mount can be slower than a
-hand-written UIx equivalent, and each Fresco view pays a small fixed cost for
-tracking its reads. Measure before moving code: a React island is for the part
-of a screen that profiling identifies, not the default authoring style.
-
-Fresco has no second reactive store inside the view layer. State that other
-views, tests, tools, routing, or SSR must observe belongs in app-db. The few
-cases for DOM-owned or local UI state are covered in
-[Ephemeral state](11-ephemeral-state.md).
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
