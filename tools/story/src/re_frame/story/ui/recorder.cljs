@@ -345,6 +345,14 @@
   [shell]
   (some? (:selected-variant shell)))
 
+(defn- captured-count
+  "How many steps the recording `rec` has captured: its dispatches, DOM
+  interactions and inserted assertions (`:entries`), without the timing
+  markers. A click the DOM rail records is one step, and the dispatch its
+  handler fires is not recorded beside it."
+  [rec]
+  (count (remove #(= :event/timer-child (:kind %)) (:entries rec))))
+
 (defn rec-chip
   "Toolbar chip rendered by the toolbar strip. Click toggles recording.
 
@@ -398,7 +406,7 @@
                       (not enabled?)
                       "Select a variant to record canvas interactions"
                       rec?
-                      (str "Recording " (count (:events rec))
+                      (str "Recording " (captured-count rec)
                            " events — click to stop and save as variant")
                       :else
                       "Record canvas dispatches as a :script body (Test Codegen)")
@@ -407,7 +415,7 @@
      "REC"
      (when rec?
        [:span {:style {:opacity "0.85"}}
-        (str "  " (count (:events rec)))])]))
+        (str "  " (captured-count rec))])]))
 
 ;; ---------------------------------------------------------------------------
 ;; Mid-recording assertion picker
@@ -694,7 +702,8 @@
   assertion insertion. The overlay also
   exposes a `DOM` toggle for opting in/out of DOM-event capture."
   []
-  (let [{:keys [recording? variant-id events]} @ui-state
+  (let [{:keys [recording? variant-id] :as rec} @ui-state
+        n       (captured-count rec)
         dom-on? @ui-dom-capture-enabled?]
     (when recording?
       [:div
@@ -707,7 +716,7 @@
        [:span {:style {:color "#fff"}}
         (pr-str variant-id)]
        [:span {:style {:color (:text-tertiary rf.story.theme.colors/tokens)}}
-        (str (count events) " event" (when (not= 1 (count events)) "s"))]
+        (str n " event" (when (not= 1 n) "s"))]
        [:button
         {:style       (if dom-on?
                         (assoc (:assert-btn styles) :background (:accent-amber rf.story.theme.colors/tokens))
