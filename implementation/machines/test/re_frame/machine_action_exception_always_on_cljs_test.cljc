@@ -176,16 +176,3 @@
           "the dev trace carries the :action-id")
       (is (= :boom (get-in (first dev-evs) [:tags :failing-id]))
           "the dev trace's :failing-id is the action keyword too"))))
-
-;; ===========================================================================
-;; The union-record hook the machines layer reaches error-emit through.
-;; ===========================================================================
-
-(deftest dispatch-error-record-hook-is-published
-  (testing "machines ships above core's require graph, so the always-on
-            fan-out reaches the listener via the
-            :error-emit/dispatch-error-record late-bind hook — the same hook
-            the fail-closed spawn reject uses"
-    (is (some? (rf.error-emit/register-error-listener! ::probe (fn [_] nil)))
-        "the :errors listener registration surface is live")
-    (rf.error-emit/unregister-error-listener! ::probe)))

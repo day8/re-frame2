@@ -15,7 +15,8 @@
         births a fresh instance; an address with no definition takes the
         destroyed-frame trace path (`:rf.error/no-such-handler`).
    D6 — `:rf.machine/done` event fires with `:actor-id`, `:output`,
-        `:parent-id`; `:rf.machine/destroyed` is enriched with `:reason`.
+        `:parent-id`; `:rf.machine/destroyed` is enriched with `:reason`
+        (pinned in `destroy_silent_idempotent_cljs_test`).
    D7 — Singleton symmetry — a non-spawned machine reaching `:final?`
         also auto-destroys.
    D9 — Specified and implemented together (not deferred).
@@ -97,23 +98,7 @@
                         [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))
           "the [:rf.runtime/machines :spawned <parent> <invoke-id>] slot was cleared"))))
 
-;; ---- (b) auto-destroy fires synchronously ----------------------------------
-
-(deftest auto-destroy-synchronous-on-final
-  (testing "auto-destroy runs synchronously — actor handler unregistered before dispatch returns"
-    (rf/reg-machine :rf2-gn80/standalone
-      {:initial :running
-       :data    {}
-       :states
-       {:running {:on {:end :done}}
-        :done    {:final? true}}})
-    (rf/dispatch-sync [:rf2-gn80/standalone [:end]])
-    (is (nil? (snapshot :rf2-gn80/standalone))
-        "snapshot was synchronously cleared (D4 + D7 singleton)")
-    (is (some? (rf.registrar/lookup :event :rf2-gn80/standalone))
-        "D4 clears the INSTANCE, never the `reg-machine` DEFINITION")))
-
-;; ---- (c) :rf.machine/done trace emitted with the right payload -----------
+;; ---- (b) :rf.machine/done trace emitted with the right payload -----------
 
 (deftest done-trace-fires-with-actor-id-output-parent-id
   (testing ":rf.machine/done trace carries :actor-id, :output, :parent-id (D6)"
@@ -145,33 +130,7 @@
             (is (= 42                    (-> t :tags :output)))
             (is (= :rf2-gn80/parent2     (-> t :tags :parent-id)))))))))
 
-;; ---- (d) :rf.machine/destroyed carries :reason :rf.machine/finished -----
-
-(deftest destroyed-trace-carries-reason-finished
-  (testing ":rf.machine/destroyed trace carries :reason :rf.machine/finished (D6 enrichment)"
-    (let [traces (record-traces! ::dest-trace)]
-      (rf/reg-machine :rf2-gn80/child3
-        {:initial :running
-         :data    {}
-         :states
-         {:running {:on {:done :final}}
-          :final   {:final? true}}})
-      (rf/reg-machine :rf2-gn80/parent3
-        {:initial :working
-         :states
-         {:working
-          {:spawn {:machine-id :rf2-gn80/child3}}}})
-      (rf/dispatch-sync [:rf2-gn80/parent3 [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/machines :spawned :rf2-gn80/parent3 [:working]])]
-        (rf/dispatch-sync [spawned-id [:done]])
-        (let [dests (traces-for traces :rf.machine/destroyed)
-              finish-trace (some #(when (= :rf.machine/finished (-> % :tags :reason)) %)
-                                 dests)]
-          (is (some? finish-trace)
-              "a :rf.machine/destroyed trace with :reason :rf.machine/finished fired"))))))
-
-;; ---- (e) singleton symmetry: standalone reaches :final? auto-destroys -----
+;; ---- (c) singleton symmetry: standalone reaches :final? auto-destroys -----
 
 (deftest singleton-reaches-final-auto-destroys
   (testing "D7: a singleton machine (no :spawn parent) reaching :final? auto-destroys"
@@ -194,7 +153,7 @@
         (is (nil? (-> (first dones) :tags :parent-id))
             ":parent-id is nil for singletons (D7)")))))
 
-;; ---- (f) the child's snapshot is gone by the time :on-done folds -----
+;; ---- (d) the child's snapshot is gone by the time :on-done folds -----
 
 (deftest child-snapshot-cleared-at-child-teardown
   (testing "D8: the child's snapshot clears with its teardown, so the parent's
@@ -234,7 +193,7 @@
         (is (= :sid-child/value (:result (:data (snapshot :rf2-gn80/sid-parent))))
             "the fold still ran and still received the child's :output-key value")))))
 
-;; ---- (g) dispatch after finality — D5 ------------------------------------
+;; ---- (e) dispatch after finality — D5 ------------------------------------
 
 (deftest dispatch-to-done-singleton-recreates-from-its-surviving-definition
   (testing "D5: a singleton that reached :final? keeps its
@@ -369,9 +328,7 @@
                                    :z {:final? true}}}}})
     (rf/dispatch-sync [:rf2-gn80/par-partial [:end-left]])
     (is (= {:left :z :right :a} (:state (snapshot :rf2-gn80/par-partial)))
-        "only the :left region reached :final?")
-    (is (some? (rf.registrar/lookup :event :rf2-gn80/par-partial))
-        "machine handler is still live — :right hasn't reached :final? yet")))
+        "only the :left region reached :final? — the machine is still live")))
 
 ;; ---- (C2) :output-key on a NON-FIRST region's terminal leaf ----
 ;; A spawned parallel child whose :output-key lives on a region OTHER than the

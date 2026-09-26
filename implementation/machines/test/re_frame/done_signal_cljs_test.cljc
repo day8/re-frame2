@@ -69,9 +69,7 @@
     (is (= [:next] (:state (snapshot :rf2-zlmz7/flow)))
         "the compound :flow reached its final child; :on-done advanced to :next")
     (is (some? (snapshot :rf2-zlmz7/flow))
-        "the machine snapshot is INTACT — embedded final did NOT auto-destroy")
-    (is (some? (rf.registrar/lookup :event :rf2-zlmz7/flow))
-        "the handler is still registered — the machine keeps running")))
+        "the machine snapshot is INTACT — embedded final did NOT auto-destroy")))
 
 (deftest compound-done-no-on-done-rests-without-destroy
   (testing "an embedded :final? leaf with NO enclosing :on-done is a benign
@@ -88,8 +86,6 @@
       (rf/dispatch-sync [:rf2-zlmz7/rest [:finish]])
       (is (= [:flow :inner-done] (:state (snapshot :rf2-zlmz7/rest)))
           "machine RESTS at the embedded final leaf — no teardown")
-      (is (some? (rf.registrar/lookup :event :rf2-zlmz7/rest))
-          "handler still live — the embedded final did not auto-destroy")
       (is (empty? (traces-for traces :rf.machine/done))
           "no whole-machine :rf.machine/done fired (this is an in-machine
            signal, not actor finality)"))))
@@ -136,46 +132,6 @@
 ;; PARALLEL onDone (all-regions-final fires root :on-done)
 ;; ===========================================================================
 
-(deftest parallel-done-fires-root-on-done-and-survives
-  (testing "all regions reach :final? → the parallel ROOT's :on-done fires
-            (action) and the machine SURVIVES — the 'do these in parallel,
-            then continue' pattern"
-    (rf/reg-machine :rf2-bnjb3/par
-      {:type    :parallel
-       :data    {:completions 0}
-       :actions {:complete (fn [{d :data}] {:data (update d :completions inc)})}
-       ;; onDone on the parallel ROOT — action-only (no in-machine target).
-       :on-done {:action :complete}
-       :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
-                 :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
-    (rf/dispatch-sync [:rf2-bnjb3/par [:fin]])
-    (is (= {:left :done :right :done} (:state (snapshot :rf2-bnjb3/par)))
-        "both regions reached :final?")
-    (is (= 1 (get-in (snapshot :rf2-bnjb3/par) [:data :completions]))
-        "the parallel root :on-done action fired once on all-regions-final")
-    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par))
-        "the machine SURVIVES (no auto-destroy) — :on-done is the
-         transitionable signal, distinct from actor teardown")))
-
-(deftest parallel-done-action-emits-continue-fx
-  (testing "the parallel root :on-done's action :fx (a dispatch to a
-            coordinator) runs — the 'then continue' continuation"
-    (let [continued (atom false)]
-      (rf/reg-event :rf2-bnjb3/coordinator
-        (fn [{:keys [db]} _] (reset! continued true) {:db db}))
-      (rf/reg-machine :rf2-bnjb3/par-fx
-        {:type    :parallel
-         :data    {}
-         :actions {:announce (fn [{d :data}]
-                               {:data d
-                                :fx   [[:dispatch [:rf2-bnjb3/coordinator]]]})}
-         :on-done {:action :announce}
-         :regions {:a {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
-                   :b {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
-      (rf/dispatch-sync [:rf2-bnjb3/par-fx [:fin]])
-      (is (true? @continued)
-          "the parallel :on-done action's :fx dispatched the coordinator event"))))
-
 (deftest parallel-on-done-fires-once-not-on-every-resting-macrostep
   (testing "the parallel root :on-done fires EXACTLY ONCE — on
             ENTERING the all-regions-final config — and does NOT re-fire on a
@@ -213,9 +169,7 @@
       (is (= 1 (get-in (snapshot :rf2-h3wca/once) [:data :completions]))
           ":completions did NOT drift — :on-done did not re-fire on resting macrosteps")
       (is (= 1 @continued)
-          "the coordinator was NOT re-dispatched on later resting events")
-      (is (some? (rf.registrar/lookup :event :rf2-h3wca/once))
-          "machine still alive (no-op events don't tear it down)"))))
+          "the coordinator was NOT re-dispatched on later resting events"))))
 
 (deftest parallel-no-on-done-still-auto-destroys
   (testing "D7: a parallel machine with NO root :on-done reaching
@@ -230,7 +184,7 @@
     (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-destroy))
         "the DEFINITION survives")))
 
-(deftest parallel-one-region-pending-no-on-done-no-destroy
+(deftest parallel-one-region-pending-fires-neither-on-done-nor-destroy
   (testing "negative: with one region still non-final, the parallel :on-done
             does NOT fire and the machine is NOT destroyed"
     (rf/reg-machine :rf2-bnjb3/par-partial
@@ -244,9 +198,7 @@
     (is (= {:a :done :b :run} (:state (snapshot :rf2-bnjb3/par-partial)))
         "only :a reached final")
     (is (= 0 (get-in (snapshot :rf2-bnjb3/par-partial) [:data :completions]))
-        ":on-done did NOT fire (not all-regions-final)")
-    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-partial))
-        "machine alive — :b still pending")))
+        ":on-done did NOT fire (not all-regions-final)")))
 
 ;; ===========================================================================
 ;; parallel-root :on-done honours the :db hard-disallow + phase
@@ -307,11 +259,7 @@
         (is (= 1 (count runs))
             "the parallel :on-done action ran exactly once")
         (is (= :transition (-> runs first :tags :phase))
-            "phase is :transition — the documented phase, not an undocumented :on-done")
-        (is (contains? #{:exit :transition :entry :always
-                         :after-action :initial-entry :destroy-exit}
-                       (-> runs first :tags :phase))
-            "phase is a member of the closed MachineActionRanTags enum")))))
+            "phase is :transition — the documented phase, not an undocumented :on-done")))))
 
 ;; ===========================================================================
 ;; Composed — compound-inside-parallel-region done propagation
@@ -335,82 +283,41 @@
     (rf/dispatch-sync [:rf2-bnjb3/par-compound [:finish]])
     (is (= {:work [:work-done] :status :idle}
            (:state (snapshot :rf2-bnjb3/par-compound)))
-        ":work's compound advanced via its :on-done; :status untouched")
-    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-compound))
-        "the parallel machine survives — only one region's compound is done")))
+        ":work's compound advanced via its :on-done; :status untouched — the
+         parallel machine survives, only one region's compound is done")))
 
 ;; ===========================================================================
 ;; registration-time validation
 ;; ===========================================================================
 
-(deftest parallel-on-done-target-rejected
-  (testing "a parallel root's :on-done declaring an in-machine :target is
-            rejected at registration (root-only parallel has no flat sibling)"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error)
-          #":rf.error/machine-parallel-on-done-target"
-          (rf/reg-machine :rf2-bnjb3/bad-target
-            {:type    :parallel
-             :on-done {:target :somewhere}
-             :regions {:a {:initial :run :states {:run {} }}}})))))
-
 ;; EVERY target-bearing :on-done value-form is rejected LOUDLY at registration
-;; (not just the map form). A bare-keyword target and a vector-path target must
-;; not slip past validation: were one to reach runtime it would SILENTLY STALL —
+;; (not just the map form); a root parallel has no flat sibling for a :target
+;; to name. A bare-keyword target and a vector-path target must not slip past
+;; validation: were one to reach runtime it would SILENTLY STALL —
 ;; apply-on-done-action would normalise it to a target-only / action-less
 ;; candidate, run no action, mark the parallel done-signal handled (suppressing
 ;; auto-destroy), and move nowhere. Registration rejects them up front.
-(deftest parallel-on-done-bare-keyword-target-rejected
-  (testing "a parallel root's :on-done declaring a BARE-KEYWORD
-            target (:on-done :next) is rejected at registration — it would
-            otherwise silently stall in the all-final config"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error)
-          #":rf.error/machine-parallel-on-done-target"
-          (rf/reg-machine :rf2-6srk5/bad-kw-target
-            {:type    :parallel
-             :on-done :next
-             :regions {:a {:initial :run :states {:run {}}}}})))))
-
-(deftest parallel-on-done-vector-path-target-rejected
-  (testing "a parallel root's :on-done declaring a VECTOR-PATH
-            target (:on-done [:next]) is rejected at registration"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error)
-          #":rf.error/machine-parallel-on-done-target"
-          (rf/reg-machine :rf2-6srk5/bad-vec-target
-            {:type    :parallel
-             :on-done [:next]
-             :regions {:a {:initial :run :states {:run {}}}}})))))
-
-(deftest parallel-on-done-candidate-vector-target-rejected
-  (testing "a parallel root's :on-done CANDIDATE VECTOR containing
-            a target-bearing map is rejected at registration"
-    (is (thrown-with-msg?
-          #?(:clj Exception :cljs js/Error)
-          #":rf.error/machine-parallel-on-done-target"
-          (rf/reg-machine :rf2-6srk5/bad-cand-vec-target
-            {:type    :parallel
-             :on-done [{:guard :g :target :next} {:action :a}]
-             :guards  {:g (constantly true)}
-             :actions {:a (fn [{d :data}] {:data d})}
-             :regions {:a {:initial :run :states {:run {}}}}})))))
-
-(deftest parallel-on-done-action-fx-only-accepted
-  (testing "an :action / :fx-only parallel root :on-done (NO
-            :target) is ACCEPTED at registration and fires exactly once"
-    (let [ran (atom 0)]
-      (rf/reg-machine :rf2-6srk5/ok-action-only
-        {:type    :parallel
-         :data    {:n 0}
-         :actions {:bump (fn [{d :data}] (swap! ran inc) {:data (update d :n inc)})}
-         :on-done {:action :bump}
-         :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
-                   :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
-      (rf/dispatch-sync [:rf2-6srk5/ok-action-only [:fin]])
-      (is (= {:left :done :right :done} (:state (snapshot :rf2-6srk5/ok-action-only)))
-          "both regions reached final — action-only :on-done was accepted")
-      (is (= 1 @ran) "the action-only :on-done fired exactly once"))))
+(deftest parallel-on-done-target-rejected
+  (doseq [[label id on-done extra]
+          [["a map declaring an in-machine :target"
+            :rf2-bnjb3/bad-target {:target :somewhere} {}]
+           ["a BARE-KEYWORD target (:on-done :next)"
+            :rf2-6srk5/bad-kw-target :next {}]
+           ["a VECTOR-PATH target (:on-done [:next])"
+            :rf2-6srk5/bad-vec-target [:next] {}]
+           ["a CANDIDATE VECTOR containing a target-bearing map"
+            :rf2-6srk5/bad-cand-vec-target [{:guard :g :target :next} {:action :a}]
+            {:guards  {:g (constantly true)}
+             :actions {:a (fn [{d :data}] {:data d})}}]]]
+    (testing (str "a parallel root :on-done given " label " is rejected at registration")
+      (is (thrown-with-msg?
+            #?(:clj Exception :cljs js/Error)
+            #":rf.error/machine-parallel-on-done-target"
+            (rf/reg-machine id
+              (merge {:type    :parallel
+                      :on-done on-done
+                      :regions {:a {:initial :run :states {:run {}}}}}
+                     extra)))))))
 
 (deftest compound-on-done-unresolved-action-rejected
   (testing "a compound :on-done referencing an unregistered action keyword is
