@@ -137,7 +137,7 @@ If a setup step fails (a handler throws, a required coeffect is missing), `make-
 
 ### Checking one path
 
-`re-frame.test-support` has a `clojure.test`-aware path assertion, `(ts/assert-path-equals path expected opts?)`. It reads a frame's app-db, compares the value at `path`, and reports a pass or fail through `clojure.test`. It looks the frame up by id, so give the frame an `:id` and pass that id, not the frame value:
+`re-frame.test-support` has a `clojure.test`-aware path assertion, `(ts/assert-path-equals path expected opts?)`. It reads a frame's app-db, compares the value at `path`, and reports a pass or fail through `clojure.test`. Like `dispatch-sync`, it works on the current frame, so inside `with-new-frame` it needs no `:frame`. A failure message names the frame by its id, so an `:id` makes that message readable:
 
 ```clojure
 (deftest toggle-committed
@@ -145,10 +145,10 @@ If a setup step fails (a handler throws, a required coeffect is missing), `make-
                                         :fx-overrides   {:todo.storage/save (fn [_ _] nil)}
                                         :initial-events [[:todo/add "Buy milk"]]})]
     (rf/dispatch-sync [:todo/toggle 1])
-    (ts/assert-path-equals [:todos 1 :done?] true {:frame :test/todos})))
+    (ts/assert-path-equals [:todos 1 :done?] true)))
 ```
 
-Without `:frame`, the helper reads the reset fixture's current frame (`:rf/default` when the fixture installs an adapter). For a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value f)))`.
+To check a different frame, pass `{:frame x}`, where `x` is the frame's id or the frame value `make-frame` returned. Outside `with-new-frame` and `with-frame`, the helper reads the reset fixture's current frame (`:rf/default` when the fixture installs an adapter). For a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value f)))`.
 
 ## 4. The trap: frames don't isolate registrations
 
