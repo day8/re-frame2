@@ -382,41 +382,33 @@
 ;; 2. The deterministic delta — the four surfaces
 ;; ---------------------------------------------------------------------------
 
-(deftest a-direct-return-does-not-enter-the-hiccup-walk
-  (seeded!)
-  (let [real rf.fresco.impl.codec/vec->element]
-    (walks-past
-      "the hiccup walk (codec/vec->element)"
-      (probes (fn [n] (set! rf.fresco.impl.codec/vec->element
+(deftest a-direct-return-enters-none-of-the-four-surfaces
+  ;; One row per surface in the namespace docstring's table. Each row wraps
+  ;; the shipping function with an entry counter, `probe` restores it in a
+  ;; `finally`, and `walks-past` names the surface in every failure.
+  (doseq [[surface install! restore!]
+          [(let [real rf.fresco.impl.codec/vec->element]
+             ["the hiccup walk (codec/vec->element)"
+              (fn [n] (set! rf.fresco.impl.codec/vec->element
                             (fn [form] (swap! n inc) (real form))))
-              (fn [] (set! rf.fresco.impl.codec/vec->element real))))))
-
-(deftest a-direct-return-does-not-enter-the-prop-pipeline
-  (seeded!)
-  (let [real rf.fresco.impl.codec/convert-props]
-    (walks-past
-      "the prop pipeline (codec/convert-props)"
-      (probes (fn [n] (set! rf.fresco.impl.codec/convert-props
+              (fn [] (set! rf.fresco.impl.codec/vec->element real))])
+           (let [real rf.fresco.impl.codec/convert-props]
+             ["the prop pipeline (codec/convert-props)"
+              (fn [n] (set! rf.fresco.impl.codec/convert-props
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.fresco.impl.codec/convert-props real))))))
-
-(deftest a-direct-return-does-not-enter-event-lowering
-  (seeded!)
-  (let [real rf.fresco.impl.intent/lower-prop]
-    (walks-past
-      "event lowering (intent/lower-prop)"
-      (probes (fn [n] (set! rf.fresco.impl.intent/lower-prop
+              (fn [] (set! rf.fresco.impl.codec/convert-props real))])
+           (let [real rf.fresco.impl.intent/lower-prop]
+             ["event lowering (intent/lower-prop)"
+              (fn [n] (set! rf.fresco.impl.intent/lower-prop
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.fresco.impl.intent/lower-prop real))))))
-
-(deftest a-direct-return-does-not-enter-controlled-repair
-  (seeded!)
-  (let [real rf.fresco.impl.controlled/install!]
-    (walks-past
-      "controlled repair (controlled/install!)"
-      (probes (fn [n] (set! rf.fresco.impl.controlled/install!
+              (fn [] (set! rf.fresco.impl.intent/lower-prop real))])
+           (let [real rf.fresco.impl.controlled/install!]
+             ["controlled repair (controlled/install!)"
+              (fn [n] (set! rf.fresco.impl.controlled/install!
                             (fn [& args] (swap! n inc) (apply real args))))
-              (fn [] (set! rf.fresco.impl.controlled/install! real))))))
+              (fn [] (set! rf.fresco.impl.controlled/install! real))])]]
+    (seeded!)
+    (walks-past surface (probes install! restore!))))
 
 (deftest a-direct-return-is-not-inspected-by-the-key-diagnostic
   (seeded!)
