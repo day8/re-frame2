@@ -544,10 +544,13 @@
 ;; shadow it. A framework DEFAULT is the framework's stand-in for a decision the
 ;; APPLICATION is invited to make: the framework seeds one so the feature is
 ;; safe when the app registers nothing, and an app registration of the same id
-;; is the documented, intended override. `:rf.route/entry-denied` and
-;; `:rf.route/navigation-blocked` (Spec 012 §Navigation blocking) are the
-;; members — the framework ships no-op handlers so a `:can-enter` denial /
-;; `:can-leave` block always resolves, and the auth recipe replaces them.
+;; is the documented, intended override. A registration is one when its owning
+;; framework registrar stamps `framework-default-key` on it. Today's members:
+;; the routing events `:rf.route/entry-denied` and `:rf.route/navigation-blocked`
+;; (Spec 012 §Navigation blocking), no-op handlers so a `:can-enter` denial /
+;; `:can-leave` block always resolves, which the auth recipe replaces; and the
+;; `:rf.http/managed` fx (Spec 014), which an app re-registers to declare its
+;; carriers.
 ;;
 ;; A framework default is seeded through the framework's own internal
 ;; registration path, so — like a standard's registrar copy — it lands in the
@@ -569,8 +572,9 @@
   REPLACEABLE DEFAULT — the framework's stand-in for an application decision,
   which an application registration of the same id supersedes (Conventions
   §Reserved registration metadata). Stamped by the owning framework registrar
-  (the routing façade, on `:rf.route/entry-denied` /
-  `:rf.route/navigation-blocked`); read here."
+  on the registration it seeds for an application to replace (today the
+  routing façade's `:rf.route/entry-denied` / `:rf.route/navigation-blocked`
+  and the HTTP artefact's `:rf.http/managed`); read here."
   :rf/framework-default?)
 
 (defn framework-default-descriptor?
