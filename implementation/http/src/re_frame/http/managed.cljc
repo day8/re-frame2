@@ -184,9 +184,21 @@
 ;; carry the handlers either — the registration site is the load-time
 ;; anchor. The two canned-stub fxs register from
 ;; `re-frame.http.test-support`.
+;;
+;; `:rf.http/managed` is a REPLACEABLE FRAMEWORK DEFAULT
+;; (`:rf/framework-default? true`): an app declares its carriers by
+;; re-registering it through the public `rf/reg-fx` macro (## HTTP carriers,
+;; above). The macro records the app's namespace while this fn-form
+;; registration records none, so without the marker the default image would
+;; hold two descriptors for the id and every `rf/make-frame {}` would fail
+;; `:rf.error/image-duplicate-id`. With it, image assembly stops projecting
+;; this copy once the app has registered its own — see
+;; `re-frame.image-assembly/superseded-framework-default-keys`. Two app
+;; registrations of the id still collide.
 
 (rf.fx/reg-fx :rf.http/managed
-           {:doc "Spec 014 — managed HTTP request."}
+           {:doc                   "Spec 014 — managed HTTP request."
+            :rf/framework-default? true}
            rf.http.handlers/managed-handler)
 
 (rf.fx/reg-fx :rf.http/managed-abort
