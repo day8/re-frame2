@@ -532,13 +532,15 @@ not to.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
 | Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
 | Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
 | Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
 | Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
 | Action reports `:rf.error/machine-action-wrote-db` | Returned `:db`, which is dropped | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
 | Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
-| `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
 | External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |
-| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; default bound is 16 |
+| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; a targetless `:always` whose action makes its guard false is the safe loop. The default bound is 16 |
+
+A missing artefact (`:rf.error/machines-artefact-missing`, or
+`:rf.error/no-such-fx` on `:rf.http/managed`) is covered in
+[First machine → Troubleshooting](tutorial.md#troubleshooting).

@@ -158,7 +158,9 @@ At runtime, the same failure aborts the macrostep atomically. The previous snaps
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `[:rf/machine id]` is `nil` | No event has addressed that singleton yet | Dispatch first, or fall back to the definition's `:initial` |
 | `machine-transition` is unresolved | Required from `re-frame.machines`, not `rf/` | `(:require [re-frame.machines :as rf.machines])` |
 | Guard threw and a later candidate did not run | Thrown guards abort the macrostep | Fix the guard; do not rely on fall-through after a throw |
 | Test expected `:rf.http/managed` and got none | `:entry` did not run, or the table under test is not the `defmachine` value | Import `login-flow`; start from `:idle` so `:submitting` entry fires |
+
+A `nil` snapshot from `[:rf/machine id]` is covered in
+[First machine → Troubleshooting](tutorial.md#troubleshooting).
