@@ -1124,7 +1124,7 @@
 ;; {…}]`.
 ;;
 ;;   - The handler returns `{:db new-db}`, so it replaces the APP-DB PARTITION
-;;     ONLY (it cannot touch runtime-db) and rides the NORMAL post-commit app-db
+;;     ONLY (it cannot touch runtime-db) and rides the NORMAL pre-commit app-db
 ;;     schema validation / rollback like any `:db` effect — no special-cased
 ;;     direct write.
 ;;   - It validates EXACTLY ONE MAP ARGUMENT: a missing, `nil`, non-map, or
@@ -1167,7 +1167,7 @@
   any extra trailing args (`[:rf/set-db {} :junk]`), raises
   `:rf.error/set-db-bad-value` through `rf.error/throw-error!` (so it THROWS — a
   setup-step failure per EP-0027 §Failure). A valid map (including `{}`)
-  returns `{:db new-db}` and rides the normal post-commit app-db schema
+  returns `{:db new-db}` and rides the normal pre-commit app-db schema
   validation / rollback. It REPLACES app-db (not a merge)."
   [_coeffects event]
   (let [new-db (second event)
@@ -1210,7 +1210,7 @@
   standard (default non-replaceable, no conformance invariant)."
   {:doc "Framework-standard app-db seeding event (EP-0027). `[:rf/set-db
         {…}]` REPLACES the whole app-db partition with the supplied map and
-        rides normal post-commit schema validation / rollback. Validates
+        rides normal pre-commit schema validation / rollback. Validates
         exactly one map argument (missing / nil / non-map / extra trailing args
         → throws :rf.error/set-db-bad-value). Use `[:rf/set-db {}]` to empty
         app-db."})

@@ -98,8 +98,9 @@
   handle: the IMPL tier's update path, and what a live client-root handle
   reaches on every render after its first. React reconciles
   against the tree on the page, so component state and scroll position
-  survive; calling `root!` again would `createRoot` a second time and
-  replace the tree. The root hiccup goes through `codec/root-element`
+  survive wherever the component types are unchanged (a hot-reloaded
+  `defview` is a new type, and React remounts it); calling `root!` again
+  would `createRoot` a second time and replace the tree. The root hiccup goes through `codec/root-element`
   rather than `as-element` because the root is the one creator with no
   ancestor body to inherit the frame from. Takes a hydrated handle
   unchanged — `tree` is what makes that true."
@@ -560,11 +561,14 @@
 (defn render-client-root!
   "`h/render!`. The first call through `handle` creates (or, with
   `{:hydrate? true}`, adopts) one Root at `mount-point`; every later call
-  UPDATES that same Root with `render-tree`, inside `flushSync`, so
-  component state, scroll position and the hydration adoption survive and
-  no second constructor ever runs. `mount-point` and `opts` are read on
-  the first call only — a later `{:hydrate? true}` is ignored rather than
-  hydrating twice. Answers nil."
+  UPDATES that same Root with `render-tree`, inside `flushSync`, so the
+  hydration adoption survives and no second constructor ever runs.
+  Component state survives an update whose component types are unchanged;
+  a hot reload re-evaluates each `defview` into a new component type,
+  which React remounts with everything beneath it. `mount-point` and
+  `opts` take effect on the first call only — a later `{:hydrate? true}`
+  is ignored rather than hydrating twice — though `opts` is checked on
+  every call. Answers nil."
   ([handle render-tree mount-point]
    (render-client-root! handle render-tree mount-point nil))
   ([handle render-tree mount-point opts]

@@ -1,9 +1,10 @@
 (ns re-frame.substrate.spine
-  "Shared substrate-spine helpers for React-shaped adapters that lack a
-  native reactive-atom primitive (UIx and any future minimal-
-  React-wrapper substrate). Per-adapter wiring goes through
-  `make-react-spine`, so an adapter supplies only its hook ns and
-  substrate-name strings rather than a copy of this body.
+  "Shared substrate-spine helpers for every React-shaped adapter. Two
+  factories serve the two families: `make-react-spine` for adapters that
+  lack a native reactive-atom primitive (UIx), and `make-ratom-spine` for
+  the ratom family (Reagent, reagent-slim), which injects its own
+  reactive-atom ops. An adapter supplies only its hook fns or ratom ops
+  and substrate-name strings rather than a copy of this body.
 
   Scope. This ns provides:
 
@@ -14,7 +15,7 @@
       reifies the re-frame-owned `re-frame.disposable/IDisposable`, and —
       because its fan-out is `rf=`-gated — the optional re-frame-owned
       `re-frame.movement/IMovementWitness`).
-    * React 18+ root renderer (createRoot + render, hydrateRoot for
+    * React root renderer (createRoot + render, hydrateRoot for
       hydrate).
     * Late-bind hiccup-emitter atom + `render-to-string` thrower.
     * The chained source-coord wrapper (`format-source-coord`,
@@ -27,11 +28,12 @@
       hook-based surfaces (`use-current-frame`, `use-subscribe`,
       `frame-provider`, `register-context-provider`) given the
       substrate's hook fns.
-
-  Reagent and reagent-slim do NOT use this ns: they have a native
-  reactive-atom primitive (`r/atom` + `ratom/make-reaction`) and a
-  Reagent-component-shaped frame-provider in `re-frame.views`, so the
-  shapes diverge from the React-hook-shaped contract here.
+    * A factory `make-ratom-spine` for Reagent and reagent-slim. They keep
+      their native reactive-atom primitive (`r/atom` +
+      `ratom/make-reaction`), injected as bare fns so this ns never
+      requires either ratom namespace, and a Reagent-component-shaped
+      frame-provider in `re-frame.views`; the containers, root lifecycle
+      and teardown drain are shared.
 
   Per Spec 006 §CLJS reference — adapters using this spine remain
   shape-compliant with the ten-fn substrate contract (six required +

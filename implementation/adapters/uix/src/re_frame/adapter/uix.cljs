@@ -5,8 +5,8 @@
   the Reagent and reagent-slim adapters, not a transition path off any of
   them.
 
-  The React machinery lives in `re-frame.substrate.spine`, shared with any
-  future React-wrapper adapter.
+  The React machinery lives in `re-frame.substrate.spine`, which the
+  Reagent and reagent-slim adapters build on too.
   This namespace supplies UIx's hooks and native `defui` `frame-provider`
   (SCOPE) + `frame-root` (ENSURE) components; keeping them native preserves
   UIx's CLJS prop and trailing-child marshalling."
@@ -180,9 +180,11 @@
   no boundary above raises `:rf.error/no-frame-context`. The returned map is
   reference-stable across re-renders for the same resolved frame
   INCARNATION (safe in effect deps / child props); a provider swap
-  re-renders the caller and yields a map locked to the new frame, and so
-  does destroying the resolved frame and creating another under the same
-  id — a frame keyword is an address, and the bundle is pinned to the
+  re-renders the caller and yields a map locked to the new frame.
+  Destroying the resolved frame and creating another under the same id
+  does NOT re-render the caller: its next render yields a map for the new
+  frame, and until then the old map's ops emit `:rf.error/frame-destroyed`
+  — a frame keyword is an address, and the bundle is pinned to the
   incarnation it was captured against. No options map, no
   variants — for an explicit frame call `(rf/capture-frame frame-id)`
   directly."
@@ -245,9 +247,13 @@
   hydration. That is what makes the one call both the boot path and the
   `^:dev/after-load` hook. `mount-point` is read on the first call only.
 
-  `opts` is the map the substrate `render` slot takes — `:hydrate?`, and
-  `:on-recoverable-error`, over which the hydration-mismatch reporter is
-  composed. There are no UIx-only keys.
+  `opts` is the map the substrate `render` slot takes, read on the first
+  call only — `:hydrate?`, and `:on-recoverable-error`, which only a
+  hydrating Root uses. A development build composes the hydration-mismatch
+  reporter over it: a mismatch React recovers from during hydration emits
+  `:rf.ssr/hydration-mismatch` before reaching the callback (or React's
+  default report), and a recoverable error after the hydration commit
+  skips the emit. There are no UIx-only keys.
 
   CLJS data in the element slot — a hiccup vector, seq or map — raises
   `:rf.error/hiccup-on-element-render-slot`, on the first render and on

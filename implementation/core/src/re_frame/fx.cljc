@@ -128,6 +128,8 @@
                         addressing). The fx may capture the originating
                         `event-id` to address replies back without a
                         separate cofx-injection step.
+             `:envelope` — the parent dispatch envelope, from which the
+                        fx can read `:trace-id`, `:origin` and `:source`.
     `args` is the second element of the `[id args]` pair as emitted by
            the event handler (any value — map, vector, scalar).
 

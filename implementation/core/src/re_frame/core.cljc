@@ -1407,9 +1407,14 @@
 #?(:clj
    (defmacro dispatch-sync
      "Run `event-vec` end-to-end synchronously; the router drains to
-     fixed point. For tests / REPL / bootstrap only — never call from
-     inside a running event handler (raises `:rf.error/dispatch-sync-
-     in-handler`). Captures call-site coords. For HoF /
+     fixed point, then returns nil. For tests / REPL / bootstrap only.
+     A call that targets a frame while that frame is draining (from one of
+     its handlers, interceptors or effects) is rejected: the event does
+     not run, and development builds emit
+     `:rf.error/dispatch-sync-in-handler` — return a `[:dispatch …]`
+     effect instead. A call that targets ANOTHER frame mid-drain runs,
+     with the dev warning `:rf.warning/cross-frame-dispatch-sync-during-drain`.
+     Captures call-site coords. For HoF /
      programmatic use (no call-site capture) use the value-position
      `dispatch-sync` alias (CLJS) or `re-frame.router/dispatch-sync!`
      directly (JVM). Per Spec 002 §dispatch-sync.
@@ -2773,9 +2778,10 @@
   policy that installs silently only surfaces as a dropped record at the first
   sink fire.
 
-  The argument MUST be a map. A non-map argument — the RETIRED keyed
-  form `(configure! :trace-buffer {…})`, a vector, `nil` — throws
-  `:rf.error/configure-bad-arg`. That check is ALWAYS-ON: it is a plain
+  The argument MUST be a map. A non-map argument — a vector, `nil` —
+  throws `:rf.error/configure-bad-arg`. The keyed form
+  `(configure! :trace-buffer {…})` throws it on CLJS, and is an
+  `ArityException` on the JVM. That check is ALWAYS-ON: it is a plain
   runtime guard, not an `assert`, so it survives a host build compiled
   with assertions elided (CLJS `:elide-asserts true`, JVM `*assert*`
   false) rather than degrading to a silent no-op there. A missing

@@ -104,9 +104,11 @@
 
   The returned map is reference-stable across re-renders for the same
   resolved frame INCARNATION; a surrounding provider swapping frames
-  re-renders the caller and yields a map locked to the new frame, and so
-  does destroying the resolved frame and creating another under the same
-  id — the bundle is pinned to the incarnation it was captured against,
+  re-renders the caller and yields a map locked to the new frame.
+  Destroying the resolved frame and creating another under the same id
+  does NOT re-render the caller: its next render yields a map for the new
+  frame, and until then the old map's ops emit `:rf.error/frame-destroyed`
+  — the bundle is pinned to the incarnation it was captured against,
   never to the address.
 
   No options map and no explicit-frame arity — this is capture-frame in

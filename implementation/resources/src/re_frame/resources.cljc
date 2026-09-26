@@ -148,13 +148,16 @@
   to a runtime-db lookup that returns nil — a nil that is INDISTINGUISHABLE
   from a genuinely absent entry. Resolves the scoped key the same way a
   subscription does (canonical scope + params, sub-side scope precedence,
-  fail-closed).
+  fail-closed). `:frame` is a frame id or a live frame value.
 
   Frame existence is NOT a precondition: an explicit but unknown / destroyed
   `:frame` reads as `nil` runtime-db and returns `nil` (no entry) — the same
   result as a live frame with no entry for the key. The fail-closed boundary
   is the MISSING explicit target, not a vanished one; a valid explicit frame
-  lookup returns `nil` only for a genuinely absent entry."
+  lookup returns `nil` only for a genuinely absent entry. A `{:from-db …}`
+  scope resolves against that frame's app-db, which reads as `nil` too, so a
+  resolver that returns `nil` for it raises
+  `:rf.error/resource-sub-unresolved-scope` rather than returning `nil`."
   [{:keys [frame] :as opts}]
   (when (nil? frame)
     (rf.error/throw-error!

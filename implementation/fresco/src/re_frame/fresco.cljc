@@ -47,7 +47,8 @@
   `::motion/unmounting`, i.e. `:re-frame.fresco.motion/…` (naming-ledger
   row 31). They are not `::h/…`
   keywords and are not in the marker set above; the codec recognises
-  them, and refuses one written out of a presence tray's reach."
+  them, and drops one written out of a presence tray's reach, so it never
+  reaches the DOM or a component as a prop."
   ;; The macro side reaches core's `re-frame.source-coords` for the one
   ;; thing a defining macro cannot do portably by hand: pick the right
   ;; `:file` for the coordinate it captures. Under CLJS the analyzer never
@@ -377,9 +378,11 @@
   which is dropped rather than merged. A policy set and never applied is
   the defect every one of these refusals exists to delete. The date-picker
   callback above is an `event` rather than a vector because
-  react-datepicker calls `onChange(date, event)`, VALUE-first; the vector
-  spelling is EVENT-first and would raise
-  `:rf.error/fresco-intent-needs-the-event`. Like `defview` this is
+  react-datepicker calls `onChange(date, event)`, VALUE-first; a vector
+  carrying `::h/value` reads the target of an event it expects as the
+  first argument, so it would raise
+  `:rf.error/fresco-intent-needs-the-event` (a plain vector with no
+  marker dispatches at any prop). Like `defview` this is
   not a compiler: it expands to a `def` of the head
   `re-frame.fresco.impl.codec/mint-host!` mints. Argument in
   docs/design/fresco/decisions.md, HD-011.
@@ -721,10 +724,10 @@
   a live handle updates the Root it already owns, so `{:hydrate? true}` on
   a later call is ignored rather than hydrating twice.
 
-  **`node` and `opts` are read on the first call only.** Later calls take
-  them and use neither — pass them or don't, whichever reads better where
-  you are calling from; the three-arity form is the whole of the hot
-  reload.
+  **`node` and `opts` take effect on the first call only.** Later calls
+  take them and use neither, though `opts` is still checked on every call
+  — pass them or don't, whichever reads better where you are calling
+  from; the three-arity form is the whole of the hot reload.
 
   **`tree` is Fresco hiccup whose root is a frame boundary head** —
   `[h/frame-root {:id …} …]` to ENSURE, `[h/frame-provider {:frame …} …]`

@@ -1228,10 +1228,10 @@
                `:by-op` — atom holds a map keyed by `(:operation ev)`,
                each value a vector of matching events. Equivalent to
                hand-rolled `record-by-op!` / `record-op!` helpers.
-       :key    listener key (any value). Default: a freshly-gensym'd
-               keyword unique to this expansion site, so two
-               `with-trace-recorder!` brackets in the same deftest do
-               not collide on the trace-tooling listener registry.
+       :key    listener key (any value). Default: a keyword gensym'd
+               afresh each time the bracket runs, so `with-trace-recorder!`
+               brackets never collide on the trace-tooling listener
+               registry, nested ones included.
 
      Returns the value of `body`'s final form.
 
@@ -1332,9 +1332,9 @@
        :pred   1-arg fn `(fn [record] truthy?)` — only records for which
                `(pred record)` is truthy are conj'd. Default: every
                record accepted.
-       :key    listener key (any value). Default: a freshly-gensym'd
-               keyword unique to this expansion site, so two brackets in
-               one deftest do not collide in the registry.
+       :key    listener key (any value). Default: a keyword gensym'd
+               afresh each time the bracket runs, so brackets never
+               collide in the registry, nested ones included.
 
      Returns the value of `body`'s final form.
 
@@ -1351,11 +1351,13 @@
            (rf/dispatch-sync [:boom])
            (is (= [:rf.error/handler-exception] (mapv :error @errs))))
 
-     Example — the event stream, filtered to one frame:
+     Example — the event stream, filtered to one frame (`:app/main`
+     made with `rf/make-frame`):
 
          (with-emit-recorder! [seen {:stream :events
                                      :pred   #(= :app/main (:frame %))}]
-           (rf/dispatch-sync [:tick])
+           (rf/dispatch-sync [:tick] {:frame :app/main})
+           (rf/dispatch-sync [:tick])   ;; lands in :rf/default, filtered out
            (is (= 1 (count @seen))))"
      {:arglists '([[recs-sym opts?] body+])}
      [bindings & body]

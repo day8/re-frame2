@@ -217,7 +217,7 @@
           "only records matching :pred are conj'd"))))
 
 (deftest two-brackets-in-one-test-do-not-collide
-  (testing "the default key is gensym'd per expansion site, so nesting or
+  (testing "the default key is gensym'd each time a bracket runs, so nesting or
             sequencing two brackets does not have the second replace the
             first's registration."
     (rf/make-frame {:id :bracket/two})

@@ -4556,9 +4556,10 @@
   immediately, then normally drain synchronously-enqueued events to fixed
   point. A depth halt or exact-incarnation destroy claim terminates that
   ordinary drain without inserting a render. Per Spec 002 §dispatch-sync: this is for outside-the-runtime
-  callers (test setup, REPL). Calling from inside a handler raises
-  :rf.error/dispatch-sync-in-handler — handler bodies should use
-  dispatch (the queued form) instead.
+  callers (test setup, REPL). A call into a frame that is mid-drain (from
+  inside one of its handlers) is rejected: the event does not run, and
+  development builds emit :rf.error/dispatch-sync-in-handler — handler
+  bodies should use dispatch (the queued form) instead.
 
   Implementation: the seed event is pushed at the FRONT of the queue
   and then the drain loop runs. Because the scheduled? flag is set to
