@@ -150,6 +150,11 @@ self-transition. Click into the cell and press **`Ctrl-Enter`**
 | `:data` | Machine-private memory |
 | `:tags` | Runtime-projected union of active states' tags |
 
+A live snapshot also carries framework-owned `:rf/*` keys, at its root and
+inside `:data`. The snapshots printed in this guide show only those a page is
+about, so compare the slots you care about rather than a whole `:data` map,
+and never write one of those keys yourself.
+
 `[:rf/machine id]` is `nil` until the first event. A view that renders earlier
 should fall back to the definition's `:initial` and `:data`. To boot a
 singleton eagerly instead, dispatch the reserved start marker at startup:
@@ -166,9 +171,10 @@ objects. That is what lets a snapshot persist. Save the machines from
 `frame-state-value` and hand them back at boot with `:rf/install-frame-state`,
 which restores spawned children and re-arms `:after` timers without re-running
 `:entry` ([Persist and restore](coming-from-xstate.md#persist-and-restore)).
-A hot reload keeps the live snapshot and applies the new table from the next
-event. If the reload removed the current state, the machine restarts from
-`:initial` before handling that event, and reports
+In every frame that has an `:id`, a hot reload keeps the live snapshot and
+applies the new table from the next event; a frame made without an `:id` keeps
+the table it was made with. If the reload removed the current state, the
+machine restarts from `:initial` before handling that event, and reports
 `:rf.error/machine-state-not-in-definition`.
 
 ## Transition forms
@@ -179,7 +185,8 @@ An `:on` entry can be written in three forms.
 :on {:auth.login/submit :submitting}
 ```
 
-A bare keyword is sugar for `{:target :submitting}`.
+A bare keyword is sugar for `{:target :submitting}`, and a vector of keywords
+is the same sugar for a [path target](hierarchical-states.md#target-forms).
 
 ```clojure
 :on {:auth.login/submit {:target :submitting
@@ -197,7 +204,7 @@ A map gives the transition a guard, an action, and other options.
                            :action :record-error}]}
 ```
 
-A vector is a first-match-wins **candidate list**. The runtime tries each
+A vector of maps is a first-match-wins **candidate list**. The runtime tries each
 candidate in order and takes the first whose guard passes. Put an unguarded
 default last when the event must be handled. The lockout candidate also runs
 `:record-error`, so the terminal failure is counted.
@@ -275,11 +282,12 @@ target shape are in the [first machine](tutorial.md#step-4--talk-to-a-real-serve
 
 | Key | Meaning |
 | --- | --- |
-| `:data` | **Merged** into the snapshot's current `:data` (not replaced). Explicit `nil` sets a key to nil; it does not remove keys. |
-| `:fx` | Ordinary effects vector (`:dispatch`, `:rf.http/managed`, …). Machine-only ids: `:raise`, `:rf.machine/spawn`, `:rf.machine/destroy`. |
+| `:data` | **Merged** into the snapshot's current `:data`, top-level keys only: a nested map you return replaces the one there. Explicit `nil` sets a key to nil; it does not remove keys. |
+| `:fx` | Ordinary effects vector (`:dispatch`, `:rf.http/managed`, `:rf.machine/spawn`, …), plus the machine-only `:raise`. |
 
-Both keys are optional; `nil` / `{}` means no effects. Returning `:db` is
-`:rf.error/machine-action-wrote-db`.
+Both keys are optional; `nil` / `{}` means no effects. A returned `:db` is
+dropped with `:rf.error/machine-action-wrote-db`, and the rest of the
+transition commits.
 
 !!! warning "`:fx` cannot read this action's own `:data` write"
 
@@ -476,8 +484,10 @@ reaches runtime-db (`:where :machine-data`).
 
 A schema does not hide a value from traces. To redact a secret in `:data`,
 name its path on the machine, starting from the snapshot:
-`{:sensitive [[:data :token]]}`. Every instance redacts that slot, spawned ones
-included — see [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem).
+`{:sensitive [[:data :token]]}`. Machine traces redact that slot for every
+instance, spawned ones included — see [Keep secrets out of traces](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem).
+The `:rf.sub/run` trace of a `[:rf/machine id]` subscription is not a machine
+trace, and it carries the value unredacted.
 
 ## Testing
 
@@ -498,7 +508,7 @@ full surface.
 | Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
 | Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
 | Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
-| Action fails `:rf.error/machine-action-wrote-db` | Returned `:db` | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
+| Action reports `:rf.error/machine-action-wrote-db` | Returned `:db`, which is dropped | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
 | Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
 | `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
 | External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |

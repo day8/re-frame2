@@ -87,7 +87,7 @@ an event handler. The id you register is the event id you dispatch to.
 
 (rf/reg-machine :auth.login/flow login-flow)
 
-(rf/dispatch [:auth.login/flow [:auth.login/submit]])
+(rf/dispatch-sync [:auth.login/flow [:auth.login/submit]])
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {}}
 ```

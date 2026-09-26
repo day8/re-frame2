@@ -48,8 +48,9 @@ Weak tags repeat the state's identity:
 ```
 
 Use a per-axis namespace (`:data/…`, `:form/…`, `:mode/…`) so one question can
-span several states. The `:rf/*` and `:rf.*/*` namespaces are reserved; tag with
-your own feature prefix. Dotted forms such as `:ui.state/loading` are fine.
+span several states. The `:rf/*` and `:rf.*/*` namespaces are reserved, and a
+tag in them is `:rf.error/machine-bad-tags` too; tag with your own feature
+prefix. Dotted forms such as `:ui.state/loading` are fine.
 
 If a tag will only ever match one state, skip it and read `:state` directly.
 
@@ -255,6 +256,6 @@ The frozen-snapshot selection rules live in
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Registration throws `:rf.error/machine-bad-tags` | `:tags` is a vector or a lone keyword | Write a set: `#{:data/in-flight}` |
+| Registration throws `:rf.error/machine-bad-tags` | `:tags` is a vector or a lone keyword, or a tag is in `:rf/*` / `:rf.*/*` | Write a set of your own tags: `#{:data/in-flight}` |
 | Snapshot has no `:tags` key | No active state declares tags; the empty union is elided | Omit the key; `(contains? (:tags snap) x)` is still false |
 | Guard ctx has no `:tags` / `:all-state` | The machine is flat or compound | Those keys exist only inside a parallel region |

@@ -59,7 +59,7 @@ under `:authenticated`:
      :on      {:auth.logout [:unauthenticated]}  ;; inherited by descendants
      :states
      {:dashboard {:on {:open-settings :settings}}
-      :settings  {:on {:close :dashboard}}}}}}})
+      :settings  {:on {:close :dashboard}}}}}})
 
 (rf/reg-machine :auth.login/flow session)
 ```

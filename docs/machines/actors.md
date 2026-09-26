@@ -8,7 +8,7 @@ instance in the frame. `[:rf/machine :auth.login/flow]` is that instance, or
 `nil` before the first event.
 
 A **spawned** actor is another live instance of a machine **type**, created
-at run time. It gets an allocated id (`:auth/request#0`). Use one when you
+at run time. It gets an allocated id (`:auth/request#1`). Use one when you
 need many concurrent instances, or a child whose lifetime is bound to a
 parent state.
 
@@ -46,11 +46,7 @@ The singleton login machine spawns a request actor on `:submitting`:
 
     :keep-token
     (fn [{data :data [_ {:keys [value]}] :event}]
-      {:data (assoc data :token (:token value))})
-
-    :report-success
-    (fn [{data :data}]
-      {:fx [[:dispatch [(:rf/parent-id data) [:auth.login/success]]]]})}
+      {:data (assoc data :token (:token value))})}
 
    :states
    {:running
@@ -58,7 +54,7 @@ The singleton login machine spawns a request actor on `:submitting`:
      :on    {:server-ok {:target :done
                          :action :keep-token}
              :server-err :failed}}
-    :done   {:entry :report-success :final? true :output-key :token}
+    :done   {:final? true :output-key :token}
     :failed {:final? true :error? true}}})
 
 :submitting
@@ -66,23 +62,21 @@ The singleton login machine spawns a request actor on `:submitting`:
  :spawn {:machine-id :auth/request
          :data       (fn [{:keys [event]}]
                        {:credentials (second event)})
-         :on-done    (fn [{:keys [data result]}]
-                       (assoc data :token result))
+         :on-done    {:target :authed
+                      :action (fn [{data :data ev :event}]
+                                {:data (assoc data :token (:result (nth ev 2)))})}
          :on-error   {:target :error-shown}}
- :on    {:auth.login/success :authed
-         :auth.login/cancel  :idle}}
+ :on    {:auth.login/cancel :idle}}
 ```
 
 `:auth.login/flow` is still the singleton. `:auth/request` is the **type**.
 Each visit to `:submitting` allocates a new spawned id. Leaving
 `:submitting` — success, error, cancel, timeout — destroys that actor.
 
-The two success halves do different jobs. `:on-done` folds the child's token
-into the parent's `:data` and stops there; a fn `:on-done` is not a transition,
-so on its own the parent would sit in `:submitting` wearing `:auth/busy` with the child
-already gone. The move is an ordinary trigger: the child's final state
-dispatches `[:auth.login/success]` to `:rf/parent-id`, and `:submitting`
-handles it. Failure needs no counterpart — `:on-error` **is** a transition.
+The child reports by finishing, and sends its parent nothing. `:done` names
+`:token` as its `:output-key`; the parent's `:on-done` is a transition to
+`:authed` whose action reads that value at `(:result (nth ev 2))`. `:failed`
+routes the parent through `:on-error` the same way.
 
 A larger shipped case binds one socket actor to a parent that spans several
 children:
@@ -141,7 +135,7 @@ Supply `:machine-id` or `:definition`, not both.
 | `:machine-id` | registered machine type to spawn |
 | `:definition` | inline machine definition instead of a registered id |
 | `:data` | child's initial data — a map, or `(fn [{:keys [snapshot event]}] …)` evaluated on entry against the **post-action** snapshot |
-| `:id-prefix` | base for the allocated id (`:websocket/socket#0`); defaults to `:machine-id`, so a `:definition` spawn needs it or `:fixed-actor-id`. Ids are counters, never `gensym` |
+| `:id-prefix` | base for the allocated id (`:websocket/socket#1`); defaults to `:machine-id`, so a `:definition` spawn needs it or `:fixed-actor-id`. Ids are counters, never `gensym`, and each parent keeps its own: two parent machines spawning one type need distinct prefixes |
 | `:start` | first event sent to the newborn |
 | `:on-done` | transition when the child reaches a successful final state — or, as a fn, a `:data` fold |
 | `:on-error` | transition when the child reaches an error final state or fails |
@@ -285,16 +279,15 @@ up with `:output-key`. The parent folds that value in `:on-done`:
     An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too,
     and fires only on a success: a failed child arrives as
     `:rf.machine.spawn/error` instead.
-    This is what a child would once have needed a hand-rolled dispatch back to
-    its parent for. `:on-done` is applied on the parent's **next** macrostep, not
+    `:on-done` is applied on the parent's **next** macrostep, not
     inside the child's teardown cascade.
 
 - **`:on-error` is a transition.** A child that fails — a `:final?` leaf
     flagged `:error? true`, or a thrown action — routes the parent through that
     `:on`-shaped spec.
 
-- Entering a root-level `:final?` destroys the child after the parent is
-    notified. A nested `:final?` only tells the compound "this sub-flow is
+- Entering a root-level `:final?` destroys the child; only then is the
+    parent notified. A nested `:final?` only tells the compound "this sub-flow is
     done"; see [Hierarchical states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
 
 ## Imperative spawn and destroy
@@ -420,7 +413,8 @@ destroyed. Durations are a positive integer (ms) or an ISO-8601 string
 
 Use `:spawn-all` when one state starts **N children in parallel** and
 resumes on a join. The `:children` vector is part of the definition, so N is
-fixed there. For a list known only at run time, emit one `[:rf.machine/spawn …]`
+fixed there; a fn in its place is refused (`:rf.error/machine-spawn-all-bad-shape`).
+For a list known only at run time, emit one `[:rf.machine/spawn …]`
 per item from an action ([Imperative spawn and destroy](#imperative-spawn-and-destroy));
 those children have no parent, so pass each an address to report to in its
 `:data`.
@@ -446,8 +440,8 @@ those children have no parent, so pass each an address to report to in its
   :cancel          {:target :cancelled}}}
 ```
 
-Each child is an ordinary machine, and it carries **no parent vocabulary at
-all**. It completes exactly the way it would under a single `:spawn` — by
+Each child is an ordinary machine, and it **completes without any parent
+vocabulary**, exactly the way it would under a single `:spawn` — by
 entering a root-level `:final?` leaf, naming its result slot with
 `:output-key`:
 
@@ -457,8 +451,8 @@ entering a root-level `:final?` leaf, naming its result slot with
 ```
 
 So one child machine composes unchanged under `:spawn` and under
-`:spawn-all`. It needs no action that dispatches to its parent, and
-`:meta {:terminal? true}` on such a leaf is redundant with `:final?`.
+`:spawn-all`. `:meta {:terminal? true}` on such a leaf is redundant with
+`:final?`.
 
 The runtime owns the join bookkeeping. When the join resolves it fires the
 parent event **and** destroys any siblings still in flight. The event carries
@@ -484,8 +478,7 @@ Rules:
   under a join is the block's `:on-any-failed`, which decides for the whole
   fan-out.
 - **`:join` is only `:all` or `:any`.** There is no `{:n n}` and no
-  predicate. Quorum ("N of M") is `:after` / `:always` plus a
-  `:done-guard` that reads the join's done count — not a `:join` mode.
+  predicate. Quorum ("N of M") is the idiom below, not a `:join` mode.
 - **`:on-all-complete` is required for `:all`.** **`:on-some-complete` is
   required for `:any`.** Missing either is
   `:rf.error/machine-spawn-all-bad-shape`.
@@ -494,6 +487,33 @@ Rules:
   runs (`:rf.error/machine-spawn-unregistered-type`).
 - A wall-clock bound on the join is the same as single `:spawn`: `:after`
   or `:timeout` / `:on-timeout` on the spawn-all-bearing state.
+
+Quorum counts successes in the parent's `:data` and decides at a deadline.
+Each child's `:on-done` bumps the count, and the state's `:after` is a guarded
+candidate vector that reads it:
+
+```clojure
+(defn count-done [{:keys [data]}]
+  (update data :done-count (fnil inc 0)))
+
+:guards {:quorum? (fn [{:keys [data]}] (>= (:done-count data 0) 2))}
+
+:working
+{:entry     (fn [_] {:data {:done-count 0}})
+ :spawn-all {:children        [{:id :a :machine-id :work/fetch :on-done count-done}
+                               {:id :b :machine-id :work/fetch :on-done count-done}
+                               {:id :c :machine-id :work/fetch :on-done count-done}]
+             :join            :all
+             :on-all-complete [:work/all-done]}
+ :after     {5000 [{:guard :quorum? :target :degraded}   ;; 2 of 3 by the deadline
+                   {:target :failed}]}
+ :on        {:work/all-done :complete}}
+```
+
+An `:always` guard cannot make this decision: a join child's completion folds
+into the join without a parent macrostep, so `:always` is not re-checked as
+each child finishes. The count lives in `:data`, which outlives the state, so
+`:entry` resets it. Leaving the state destroys any child still running.
 
 Independently valuable children — fire-and-forget, no cancel-the-rest — are
 N separate `:spawn`s, not a non-cancelling join.
@@ -504,8 +524,9 @@ N separate `:spawn`s, not a non-cancelling join.
 |---|---|---|
 | Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Choose an explicit `:fixed-actor-id`, store it in `:data`, or use a declarative `:spawn` |
 | No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
+| Spawn refused with `:rf.error/machine-spawn-all-duplicate-id` | Two parent machines spawn one type, so both mint `<type>#1` | Give each parent's spawn its own `:id-prefix` |
 | Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on `:spawn` / `:spawn-all` | Use `:timeout` / `:on-timeout`, or `:after` on the parent state |
-| Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. Quorum is `:after` / `:always` + `:done-guard` |
+| Registration throws `:rf.error/machine-spawn-all-bad-shape` on `:join` | `:join` was `{:n n}`, a predicate, or another non-enum | `:join` is only `:all` or `:any`. For quorum, count in each child's `:on-done` and decide in a guarded `:after` |
 | Registration throws `:rf.error/machine-spawn-all-bad-shape` naming a child-event key | a retired child-vocabulary key on the `:spawn-all` block | Delete it. The child completes by reaching a `:final?` leaf; read the result off the resolution event or a child `:on-done` |
 | Registration throws `:rf.error/machine-unknown-spawn-key` on a `:spawn-all` child | the child spec declared `:on-error` | Route failure through the block's `:on-any-failed` — a join has no per-child error transition |
 | `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
