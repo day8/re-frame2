@@ -1,23 +1,26 @@
-;; Conformance fixture: rf.http.managed/default-reply-addressing
+;; Conformance fixture: rf.http.managed/split-reply-addressing
 ;;
-;; Per Spec 014 §Reply addressing — default (omitted) form. The fx captures
-;; the originating event id and re-dispatches `[<orig-id> (assoc orig-msg
-;; :rf/reply {:status :ok :value v})]`. The same handler branches on
-;; `(:rf/reply msg)` to handle both initial-dispatch and reply paths.
+;; Per Spec 014 §Reply addressing — the split form. Every request addresses
+;; its reply; here the success branch names its target with `:on-success`,
+;; and the runtime appends the canonical `{:status :ok :value v}` envelope
+;; as that target event's last argument. Nothing routes a reply back to the
+;; originating event implicitly: a request that supplies none of
+;; `:reply-to`, `:on-success` and `:on-failure` fails at fx-call time with
+;; `:rf.error/http-no-reply-target`.
 ;;
 ;; This fixture mirrors the contract — `:rf.http/managed` is redirected to
 ;; a canned-success stub (`:rf.http/managed-canned-success`) whose body
 ;; synthesises the canonical reply shape per Spec 014 §Testing.
 
-{:fixture/id           :rf.http.managed/default-reply-addressing
+{:fixture/id           :rf.http.managed/split-reply-addressing
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/sub :core/fx
                          :rf.http/managed}
- :fixture/doc          "The :rf.http/managed fx, redirected via :fx-overrides to :rf.http/managed-canned-success, dispatches a {:status :ok :value {:stubbed true}} reply back to the originating event-id with :rf/reply merged into the original message map."
+ :fixture/doc          "The :rf.http/managed fx, redirected via :fx-overrides to :rf.http/managed-canned-success, dispatches a {:status :ok :value {:stubbed true}} reply to the :on-success target :article/load-reply, appended as that event's last argument."
 
  :fixture/registry
  {:event {:article/load          {:doc "Initial-dispatch path — issues the managed request."}
-          :article/load-reply    {:doc "Reply-receiving path — receives :rf/reply via merged message and stores under [:article]."}}
+          :article/load-reply    {:doc "The :on-success target — receives the canonical reply envelope as its last argument and stores it under [:article]."}}
   :sub   {:article {:doc "The currently-loaded article."}}
   :fx    {:rf.http/managed                {:doc "Spec 014 — managed HTTP request."
                                            :platforms #{:client :server}}
@@ -26,14 +29,13 @@
 
  :fixture/handlers
  {:event
-  {;; The initial-dispatch path issues the fx; in the real framework,
-   ;; the same id receives the reply. The DSL has no native if/else
-   ;; on (:rf/reply msg); we model the contract by splitting the
-   ;; receiver into :article/load-reply and pointing :on-success at
-   ;; it. The default-reply-addressing assertion (:rf/reply merged
-   ;; into the original msg under the same id) is exercised by the
-   ;; JVM smoke test re-frame.http-managed-test/canned-success-default-reply-addressing
-   ;; and by the explicit-on-success fixture below.
+  {;; The initial-dispatch path issues the fx and addresses its reply
+   ;; with :on-success, so the reply is dispatched to that target only.
+   ;; The unified :reply-to form (one target for both branches) is
+   ;; exercised by the JVM test
+   ;; re-frame.http-managed-test/canned-success-reply-to-addressing, and
+   ;; the unaddressed request by
+   ;; re-frame.http-managed-test/no-reply-target-fails-loud.
    :article/load
    [[:fx [[:rf.http/managed
            {:request {:method :get :url "/articles/hello"}
