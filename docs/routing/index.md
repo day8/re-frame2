@@ -7,15 +7,18 @@ subscription, and **navigation is an event**. Traceable, time-travelling, and
 testable like everything else.
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.routing])   ;; day8/re-frame2-routing — forget this → :rf.error/routing-artefact-missing
+(ns app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]))  ;; day8/re-frame2-routing — forget this → :rf.error/routing-artefact-missing
 
 (rf/reg-route :app/article
   {:params [:map [:slug :string]]}
   "/articles/:slug")                  ;; path is the third slot, not a metadata key
 
-@(rf/subscribe [:rf.route/params])    ;; => {:slug "hello"}
-(rf/dispatch [:rf.route/navigate {:to :app/article :params {:slug "hello"}}])
+;; Outside a view, name the frame (here the app's :app frame).
+(rf/dispatch-sync [:rf.route/navigate {:to :app/article :params {:slug "hello"}}]
+                  {:frame :app})
+@(rf/subscribe [:rf.route/params] {:frame :app})   ;; => {:slug "hello"}
 ```
 
 Route [loaders](glossary.md#loader) run on the server too — one data-fetch story

@@ -11,7 +11,9 @@ Change the route by dispatching navigation. The active [route](#route) is a
 navigation is an event, it is traceable, interceptable, and rewound by time-travel.
 
 ```clojure
-(rf/dispatch [:rf.route/navigate {:to :app/article :params {:id "abc"}}])
+;; inside a reg-view, where `dispatch` is bound to the view's frame;
+;; from an event handler, return it as [:dispatch …] in :fx instead
+(dispatch [:rf.route/navigate {:to :app/article :params {:id "abc"}}])
 ```
 
 Related: [The model](concepts.md).
@@ -31,9 +33,12 @@ A URL pattern registered with `reg-route` under an id, paired with match behavio
 
 ### **route params**
 
-The active URL as state: read `:rf.route/id`, `:rf.route/params`, and
-`:rf.route/query` through subscriptions. Path params and `?query=` values (coerced
-and defaulted) drive handlers and views; `?page=2` survives Back for free.
+The values captured by a route's path segments — the `:id` in `/articles/:id` —
+declared with the route's `:params` schema and read with
+`@(subscribe [:rf.route/params])`. Query-string values are a separate map, declared
+with `:query` (and `:query-defaults`) and read with `@(subscribe [:rf.route/query])`;
+the two never merge. Both are coerced by their schemas, so `?page=2` arrives as the
+integer `2`, and validated when `re-frame.schemas` is loaded.
 
 ### **route slice**
 
@@ -131,7 +136,8 @@ interceptor.
 A navigation parked by a `:can-leave` [guard](#route-guard) returning `false`, read
 with `@(subscribe [:rf/pending-navigation])` (`nil` when nothing is waiting). The
 value carries an `:id`, the replayable [destination](#destination), the resolved
-target, the cause, and the `:replace?` / `:scroll` policy you asked for.
+target, the requested URL, the cause, and the `:replace?` / `:scroll` policy you
+asked for.
 `[:rf.route/continue <id>]` replays it; `[:rf.route/cancel <id>]` drops it. A refused
 `:can-enter` never creates one.
 
@@ -146,16 +152,16 @@ naturally. Under SSR the same refusal renders the shell under a `403`.
 ### **destination**
 
 The address a navigation resolved to, in a form you can dispatch again: `{:to
-<route-id>}` plus any non-empty `:params`, `:query`, and `:fragment`, or `{:url …}`
-for a raw URL. It is a valid `:rf.route/navigate` request as it stands, which is why
+<route-id>}` plus any non-empty `:params` and `:query` and a non-nil `:fragment`, or
+`{:url …}` when the URL matched no registered route. It is a valid `:rf.route/navigate` request as it stands, which is why
 `:rf.route/entry-denied` and a [pending navigation](#pending-navigation) both carry
 one — dispatch it after sign-in, or let `:rf.route/continue` replay it.
 
 ### **not-found**
 
 Reserved [route](#route) id `:rf.route/not-found`. The runtime activates it when no
-pattern matches — or when URL params fail their schema — with the offending URL in
-params. Ordinary route you register and design; skip it and unmatched URLs get a bare
+pattern matches — or, with `re-frame.schemas` loaded, when URL params fail their
+schema — with the offending URL in params. Ordinary route you register and design; skip it and unmatched URLs get a bare
 placeholder.
 
 ### **url-bound?**

@@ -20,6 +20,7 @@ per-process routing state the fixture knows how to reset:
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.routing :as rf.routing]
+            [re-frame.schemas]                               ;; turns on route schema validation
             [re-frame.substrate.plain-atom :as plain-atom]   ;; the JVM substrate a frame needs
             [re-frame.test-support :as ts]
             [my-app.routes]))    ;; loading the ns registers the routes
@@ -46,14 +47,19 @@ grammar of the whole route table unit-tests as plain function calls:
   (is (= "/articles/intro" (rf.routing/route-url {:to :app/article :params {:id "intro"}})))
   (is (= "/search?page=2&q=clojure#results"
          (rf.routing/route-url {:to :app/search :query {:q "clojure" :page 2} :fragment "results"})))
-  ;; URL → route — schemas validate AND coerce, so :page comes back an int
+  ;; URL → route — the schema coerces, so :page comes back an int
   (let [m (rf.routing/match-url "/search?q=clojure&page=2")]
     (is (= :app/search (:route-id m)))
     (is (= 2 (get-in m [:query :page]))))
   ;; misses are values, not exceptions
   (is (nil? (rf.routing/match-url "/no/such/page")))
+  ;; a value the schema rejects is flagged — this needs re-frame.schemas loaded
   (is (:validation-failed? (rf.routing/match-url "/search?q=x&page=abc"))))
 ```
+
+Coercion always runs. Validation runs only when `re-frame.schemas` is loaded, which
+is why the test namespace requires it: without it, `page=abc` matches with no
+`:validation-failed?` flag.
 
 !!! warning "Nil-policy asymmetry"
 
@@ -208,7 +214,7 @@ omits an empty `:params` / `:query` and a `nil` `:fragment`, so compare it again
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; params failing the route's schema raise `:rf.error/schema-validation-failure`), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial as in section 4 |
+| `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; a URL that cannot be built — a missing path param, or with `re-frame.schemas` loaded a value the schema rejects — raises `:rf.error/schema-validation-failure`), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial as in section 4 |
 | A spy for `:rf.route/entry-denied` is never called | It was registered inside `with-new-frame`, after the frame was made | Register it before `make-frame` |
 | A Back/Forward or link test sees the `:restore` scroll default | The `handle-url-change` dispatch carries no `:rf.route/cause` rider, so it resolves as `:initial` | Add the rider, as in [Say which door you meant](#say-which-door-you-meant) |
 | Handlers registered in one test are visible in the next | The reset fixture is missing | Add `ts/make-reset-runtime-fixture`; it rolls back registrations made during each test |

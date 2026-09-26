@@ -14,6 +14,10 @@ Full auth system (form, token, logout): [Add authentication](../../core/how-to/a
 ## 1. Declare the guard on the route
 
 ```clojure
+(ns app.auth
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]))   ;; loads the routing artefact
+
 (rf/reg-route :app/login    {} "/login")
 
 (rf/reg-route :app/settings
@@ -200,11 +204,16 @@ An interceptor must cover all three navigation entry events itself, or it fails
 | `:rf.route/url-requested` | A `route-link` click |
 | `:rf.route/handle-url-change` | URL bar, reload, Back/Forward (popstate) |
 
-Normalise all three to one `{:id <route-id> :params <map>}` target (or `nil`), then
+Their payloads differ: `:rf.route/navigate` carries the request map (`:to`, `:url`,
+or an in-place edit), `:rf.route/url-requested` carries `{:url …}`, and
+`:rf.route/handle-url-change` carries the URL string itself. Normalise all three to
+one `{:id <route-id> :params <map>}` target (or `nil`), then
 decide once:
 
 ```clojure
-(:require [re-frame.routing :as rf.routing])   ;; match-url lives here, not on rf/
+(ns app.auth-guard
+  (:require [re-frame.core :as rf]
+            [re-frame.routing :as rf.routing]))   ;; match-url lives here, not on rf/
 
 (defn- matched-id
   "match-url → {:id :params}, or nil for non-match / schema-invalid match
@@ -234,11 +243,7 @@ decide once:
 
         :else nil))   ;; malformed → router rejects with :rf.error/navigate-bad-request
 
-    :rf.route/url-requested
-    (let [{:keys [to params]} a]
-      (cond
-        to  {:id to :params (or params {})}
-        (:url a) (matched-id (:url a))))
+    :rf.route/url-requested (matched-id (:url a))   ;; a route-link click carries {:url …}
 
     :rf.route/handle-url-change (matched-id a)
 

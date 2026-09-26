@@ -15,6 +15,10 @@ means leaving is fine.** Here, leaving is fine when the draft matches what was l
 saved:
 
 ```clojure
+(ns app.editor
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]))   ;; loads the routing artefact
+
 (rf/reg-sub :editor/can-leave?
   (fn [db _]
     (= (get-in db [:editor :draft])
@@ -112,15 +116,16 @@ pairing is a `beforeunload` listener reading the *same* dirty state the guard re
 (defn install-unload-warning!
   "Ask the browser to confirm a hard exit while the draft is dirty.
    Same source of truth as :editor/can-leave? — one dirty flag, two exits."
-  []
+  [frame-id]
   (.addEventListener js/window "beforeunload"
     (fn [e]
-      (when-not @(rf/subscribe [:editor/can-leave?])
+      ;; A DOM listener runs outside any frame scope, so name the frame.
+      (when-not (rf/subscribe-once [:editor/can-leave?] {:frame frame-id})
         (.preventDefault e)
         (set! (.-returnValue e) "")))))   ;; the browser owns the wording
 ```
 
-Call it once at boot. Routing deliberately does not wrap this: the browser shows its
+Call it once at boot with the url-bound frame's id. Routing deliberately does not wrap this: the browser shows its
 own non-customisable dialog, only when the user has interacted with the page, and
 only on a real unload — a second confirmation API pretending otherwise would be
 lying. Deriving both exits from one sub is what keeps them from disagreeing.
