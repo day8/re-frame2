@@ -129,9 +129,8 @@
 ;; ---- (3) post-action parent data + ordering combined (EP A7 §1 + ordering) ----
 ;;
 ;; The headline EP A7 invariant: a spawn's `:data` fn sees the parent's
-;; POST-ACTION `:data` (the transition's `:action` has already run). This is
-;; covered for a single spawn in spawn_data_fn_form_test.clj; here we lock that
-;; it ALSO holds when MULTIPLE spawns fire in the same cascade — each child's
+;; POST-ACTION `:data` (the transition's `:action` has already run), and it
+;; holds when MULTIPLE spawns fire in the same cascade — each child's
 ;; `:data` fn sees the same post-action parent snapshot, and the allocation is
 ;; still deterministic. This guards against a future refactor evaluating a
 ;; later child's `:data` against a pre-action snapshot or in a non-deterministic

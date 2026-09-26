@@ -14,7 +14,8 @@
 
    3. **fn-form sees the post-action snapshot.** A transition's
       `:action` writes to `:data`; the fn-form sees those writes.
-      Per Spec 005 line 1511.
+      Per Spec 005 line 1511 — pinned, for one spawn and for two in one
+      cascade, in `spawn_ordering_ep0029_cljs_test`.
 
    4. **fn-form throw routes to :rf.error/machine-action-exception.**
       Per Spec 005 §Errors line 1597 — same category as any
@@ -81,32 +82,6 @@
         ;; materialised map is the BASE the runtime then augments.
         (is (= :worker/proc#1 (:rf/self-id child-data))
             "the runtime stamped :rf/self-id over the materialised map")))))
-
-;; ---- (3) fn-form sees post-action snapshot --------------------------------
-
-(deftest fn-form-data-sees-post-action-snapshot
-  (testing "fn-form `:data` sees `:data` writes the transition's `:action` made (post-action snapshot per Spec 005:1511)"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :data    {:base-url "http://api.example.com"}
-                  :actions {:assemble-endpoint
-                            (fn [{data :data}]
-                              ;; The action writes :endpoint into :data;
-                              ;; the :spawn :data fn must see it.
-                              {:data (assoc data :endpoint
-                                            (str (:base-url data) "/v1/me"))})}
-                  :states
-                  {:idle    {:on {:start {:target :working
-                                          :action :assemble-endpoint}}}
-                   :working {:spawn {:machine-id :worker/proc
-                                      :data       (fn [{snap :snapshot}]
-                                                    {:url (-> snap :data :endpoint)})}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/post-action parent)
-      (rf/dispatch-sync [:sup/post-action [:start]])
-      (is (= "http://api.example.com/v1/me"
-             (:url (:data (snapshot :worker/proc#1))))
-          "fn-form saw :data after :assemble-endpoint ran"))))
 
 ;; ---- (3b) fn-form sees the triggering event -------------------------------
 

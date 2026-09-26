@@ -37,11 +37,13 @@
    2. A type re-registration between the preflight and the install cannot omit
       the child's snapshot — the install consumes the prepared v1, never the
       re-registered v2 — so the join is never child-bearing-but-snapshotless.
-   3. An all-valid invoke seeds a live join, and the ephemeral prepared
-      scratch is consumed + dropped: the durable join state retains none.
-   4. A partial-reject batch (one schema-invalid child among valid siblings)
+   3. A partial-reject batch (one schema-invalid child among valid siblings)
       rejects atomically — one childless sentinel, no sibling installed,
-      exactly one spawn-phase failure, and no prepared scratch."
+      exactly one spawn-phase failure, and no prepared scratch.
+
+  That an all-valid invoke seeds a live join is pinned in
+  `spawn_all_address_collision_cljs_test`, and that its prepared scratch is
+  dropped once consumed in `spawn_all_prepared_unregister_cljs_test`."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
@@ -204,32 +206,7 @@
         "the installed snapshot is v1's (state :running) — the prepared result was consumed verbatim, not re-derived from v2")))
 
 ;; ===========================================================================
-;; (3) All-valid keeps the live join AND retains no prepared scratch.
-;; ===========================================================================
-
-(deftest all-valid-seeds-a-live-join-and-retains-no-prepared-scratch
-  (testing "an all-valid :spawn-all seeds a LIVE child-bearing join and every
-            child installs; the authoritative :rf/prepared scratch the preflight
-            retained is CONSUMED and dropped by the installs, so the durable
-            join state carries none once the drain completes."
-    (rf/reg-machine :sa/plain plain-child)
-    (rf/reg-machine :sup/clean (parent-over [{:id :a :machine-id :sa/plain}
-                                             {:id :b :machine-id :sa/plain}]))
-    (rf/dispatch-sync [:sup/clean [:start]])
-    (let [slot (join-slot :sup/clean)
-          ids  (vals (:children slot))]
-      (is (contains? slot :children)
-          "a live child-bearing join — no false reject")
-      (is (= 2 (count ids))
-          "the join names both children")
-      (is (not (contains? slot :rf/prepared))
-          "the ephemeral prepared scratch was consumed + dropped — the durable join retains none")
-      (doseq [id ids]
-        (is (some? (snap-of id))
-            (str "child " id " installed its snapshot"))))))
-
-;; ===========================================================================
-;; (4) Adversarial: a partial-reject batch rejects atomically and retains
+;; (3) Adversarial: a partial-reject batch rejects atomically and retains
 ;;     no prepared scratch.
 ;; ===========================================================================
 

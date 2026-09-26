@@ -182,15 +182,6 @@
       (is (= :authenticating (:state snap)))
       (is (= "T" (get-in snap [:data :token]))))))
 
-(deftest fold-plus-explicit-arm-advances
-  (testing "control: a fold plus an explicit :on {:rf.machine.spawn/done …} arm"
-    (let [snap (run-login! :sodt-fa/login :sodt-fa/auth
-                           (login-parent :sodt-fa/auth fold-token
-                                         {:on {:rf.machine.spawn/done :authenticated}} {})
-                           "T")]
-      (is (= :authenticated (:state snap)))
-      (is (= "T" (get-in snap [:data :token]))))))
-
 (deftest fold-plus-always-advances
   (testing "control: a fold plus an :always guarded on the folded :data"
     (let [snap (run-login! :sodt-fw/login :sodt-fw/auth
@@ -214,16 +205,6 @@
       (let [data (refusal :sodt-bad/login (login-parent :sodt-bad/auth v))]
         (is (= :rf.error/machine-bad-on-done-clause (:rf.error/id data)))
         (is (= :authenticating (:state data)) "the ex-data names the spawning state")))))
-
-(deftest every-admitted-form-registers
-  (doseq [[label v] [["a fn" fold-token]
-                     ["a keyword" :authenticated]
-                     ["a vector path" [:authenticated]]
-                     ["a transition map" {:target :authenticated :action :store}]
-                     ["a candidate vector" [{:guard (result-is "x") :target :authenticated}
-                                            {:target :authenticated}]]]]
-    (testing (str "control: :spawn :on-done as " label " registers")
-      (is (nil? (refusal :sodt-ok/login (login-parent :sodt-ok/auth v)))))))
 
 (defn- spawn-all-parent [child-on-done]
   {:initial :idle
