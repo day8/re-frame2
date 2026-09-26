@@ -35,7 +35,7 @@ For handler- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-
 **Risk**: "global" meant "every frame" in v1 because there was only one frame. In v2 the right scope depends on intent:
 
 - If the interceptor was meant to **apply to every frame** (genuinely cross-frame behaviour modification): replicate in each frame config's `:interceptors` vector. Usually an architectural smell.
-- If the interceptor was **observer-shaped** (audit, telemetry, schema-validation-via-trace): wrong tool; convert to `register-listener!`.
+- If the interceptor was **observer-shaped** (audit, telemetry, schema-validation-via-trace): wrong tool. Dev-only observation → `(rf/register-listener! :trace id f)`, which is elided from production builds; production audit / telemetry → an `:observability` sink (`register-observability-sink!` — see [`error-events.md`](error-events.md)).
 - If "global" really meant **"the default frame's events"** (a common single-frame habit that shouldn't apply to story/test/SSR frames): scope to `:rf/default` `:interceptors` only.
 
 `clear-global-interceptor` has no v2 replacement: re-register the frame with an updated `:interceptors` vector.
