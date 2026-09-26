@@ -102,8 +102,9 @@ A pasted link, a reload, Back/Forward and a server-rendered request all arrive a
 ```
 
 Not-found params also carry a `:reason`: absent for a plain miss, `:validation` when
-the params failed their schema, `:malformed-url` for bad percent-encoding. Add a case
-for each one your not-found page treats differently.
+the params failed their schema, `:malformed-url` for bad percent-encoding, and
+`:match-error` when matching the URL threw. Add a case for each one your not-found
+page treats differently.
 
 Server rendering uses the same event on a server frame,
 `(rf/make-frame {:platform :server})`, so it needs no separate route tests; see
