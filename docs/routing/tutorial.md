@@ -1,78 +1,69 @@
 # Tutorial: build a routed app
 
-Build a small articles app — **home**, **articles list**, **article detail** — then add
-per-page activation work, a 404, the Back button, a shared layout, navigation from an
-event, a query-string filter, a signed-in-only settings page, and an editor that warns
-about unsaved changes. One idea the whole way: the URL is application state (read via a
-sub, change via dispatch).
+This tutorial builds a small articles app: a home page, an articles list and an
+article page, then a 404, the Back button, a shared layout, navigation from an event,
+a query-string filter, a settings page for signed-in readers, and an editor that warns
+about unsaved changes. Each step adds one idea and ends with code you can run.
 
-Vocabulary after this walk-through: [The model](concepts.md). From React Router:
-[the mapping](coming-from-react-router.md).
+Throughout, the URL is application state: you read the active route with a
+subscription and change it by dispatching an event.
 
 ## Step 0 — turn routing on
 
-Routing ships as its own package, `day8/re-frame2-routing`, so an app with no
-shareable URLs pays nothing for it. Add the dependency, then require the namespace
-once at boot:
+Routing ships as its own package, `day8/re-frame2-routing`, so an app without
+shareable URLs doesn't carry it. Add the dependency, then require the namespace once:
 
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing]                              ;; ← turns routing on
+            [re-frame.routing]                              ;; turns routing on
             [re-frame.adapter.reagent :as reagent-adapter]))
 ```
 
-That bare `[re-frame.routing]` require has a side effect: it wires up `reg-route`,
-the route subscriptions, and `route-link`. Forget it and the first `reg-route` throws
-`:rf.error/routing-artefact-missing` — a loud error that names exactly what to
-require, not a silent no-op.
+Requiring `re-frame.routing` registers `reg-route`, the route subscriptions and
+`route-link`. Without it, the first `reg-route` throws
+`:rf.error/routing-artefact-missing`, and the message names the namespace to require.
 
-Every snippet below goes in this one namespace.
+Every snippet below goes in this namespace.
 
 ## Step 1 — your first route, on screen
 
-A route is one row in a table: an **id**, a **metadata map**, and a **path**.
-Register the home page, give the root view a `case` over the active route, and mount
-so you can watch every step from here on:
+A route has an id, a metadata map and a path. Register the home page, render a page
+based on the active route, and mount the app:
 
 ```clojure
-;; 1. Register the route: id, metadata, path.
 (rf/reg-route :app/home {} "/")
 
-;; 2. The root view reads the active route id and picks a page.
-;;    Inside reg-view you call `subscribe` unprefixed — the macro binds it
-;;    to this view's frame. (Outside a view, name the frame:
-;;    `(rf/dispatch event {:frame :app})`.)
+;; Inside reg-view, `subscribe` and `dispatch` are bound to the view's frame.
+;; Outside a view, name the frame: `(rf/dispatch event {:frame :app})`.
 (rf/reg-view root-view []
   (case @(subscribe [:rf.route/id])
     :app/home [:h1 "Home"]
-    [:h1 "Nothing here yet"]))   ;; any URL we haven't routed — Step 5 retires this
+    [:h1 "Nothing here yet"]))   ;; any URL without a route yet
 
-;; 3. Mount — standard Quickstart mount, plus one routing flag Step 6 explains.
 (defonce app-root (reagent-adapter/client-root))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
   (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app :url-bound? true}  ;; ← this flag
+    [rf/frame-root {:id :app :url-bound? true}
      [root-view]]
     (js/document.getElementById "app")))
 ```
 
-`@(subscribe [:rf.route/id])` is the id of the route that matches the current URL.
-The root view is a plain `case` over that id — pick a page, render it. That's the
-entire "router": no `<Routes>`, no `<Switch>`, no nesting.
+`:rf.route/id` is the id of the route that matches the current URL, and the root view
+is a `case` over it. There is no router component to configure.
 
-`:url-bound? true` says this frame owns the browser address bar. Take it on faith
-for now — Step 6 comes back when we wire the Back button.
+`:url-bound? true` makes the `:app` frame the owner of the browser address bar. At
+startup the frame reads the current URL into its route state, and when the route
+changes, the address bar follows.
 
-**What you see:** at `/`, the page shows **Home**. Any other URL shows the
-placeholder — for now.
+**What you see:** at `/`, the page shows **Home**. Any other URL shows
+**Nothing here yet**.
 
 ## Step 2 — a second page, and a link between them
 
-Add an articles page and a link. `route-link` renders a real `<a href>` and turns a
-plain click into navigation:
+Add an articles page and link to it with `route-link`:
 
 ```clojure
 (rf/reg-route :app/home     {} "/")
@@ -93,20 +84,17 @@ plain click into navigation:
     [:h1 "Nothing here yet"]))
 ```
 
-`route-link` builds the URL from the route id — you never hand-write
-`href="/articles"`. Change the path later and every link follows.
+`route-link` builds the `href` from the route id, so changing a route's path later
+updates every link to it. It renders a real `<a>`: a plain left-click navigates
+without a page reload, while cmd/ctrl-click, middle-click, hover preview and copy-link
+behave as they do for any link.
 
-**What you see:** Home shows a link; clicking it swaps to **Articles** with no
-full-page reload, and the address bar reads `/articles`.
-
-> **Why a real `<a>`?** Hover-preview, copy-link, and cmd/ctrl/middle-click-to-open
-> in a new tab keep working. `route-link` intercepts only the plain left-click;
-> modifier clicks defer to the browser. A hand-rolled `[:div {:on-click …}]` quietly
-> breaks all of that.
+**What you see:** clicking the link on Home shows **Articles** without a page reload,
+and the address bar reads `/articles`.
 
 ## Step 3 — a page per item: dynamic segments
 
-A detail page needs the article's slug *in the URL*. A colon segment captures it:
+The article page needs the article's slug in the URL. A colon segment captures it:
 
 ```clojure
 (rf/reg-route :app/article
@@ -114,12 +102,13 @@ A detail page needs the article's slug *in the URL*. A colon segment captures it
   "/articles/:slug")
 ```
 
-The `:slug` in `/articles/:slug` is a hole the matcher fills. The `:params`
+The matcher fills `:slug` from the URL. The `:params`
 [schema](../core/how-to/validate-with-schemas.md) always coerces — declare
 `[:id :int]` on an `/items/:id` route and `/items/42` arrives as the number `42`, not
 `"42"`. It also validates, but only in an app that requires `re-frame.schemas`;
-without that require, a value the schema rejects passes through unchecked. Read
-captured params with a subscription:
+without that require, a value the schema rejects passes through unchecked.
+
+Read the captured params with a subscription:
 
 ```clojure
 (rf/reg-view article-page []
@@ -127,8 +116,7 @@ captured params with a subscription:
     [:h1 (str "Article " slug)]))
 ```
 
-Link by passing `:params`. Give the list page some articles to link to — a plain map
-stands in for your server:
+To link to an article, pass `:params`. A plain map stands in for your server:
 
 ```clojure
 (def sample-articles
@@ -146,13 +134,13 @@ stands in for your server:
 
 Add `:app/article [article-page]` to the root `case`.
 
-**What you see:** the list shows two links; clicking **Intro to re-frame2** lands on
+**What you see:** the list shows two links. Clicking **Intro to re-frame2** opens
 `/articles/intro`, and the page reads **Article intro**.
 
 ## Step 4 — give a page its data
 
-Most pages need something to happen when they open. Declare it next to the route with
-`:on-match` — events the runtime **fires and forgets** whenever the route activates:
+To run work when a page opens, list events under `:on-match`. The runtime dispatches
+them each time the route activates:
 
 ```clojure
 (rf/reg-route :app/article
@@ -161,63 +149,41 @@ Most pages need something to happen when they open. Declare it next to the route
   "/articles/:slug")
 ```
 
-The activation event is a normal event handler. It needs the article `:slug`, which
-lives in the **route slice** in [runtime-db](../core/glossary.md#runtime-db) — the
-framework partition beside app-db. Handlers receive that partition under
-`:rf.db/runtime`, next to `:db`:
+`:app/load-article` is an ordinary event handler. It reads the slug from the route
+state, which lives in [runtime-db](../core/glossary.md#runtime-db), the framework's
+partition beside app-db. Handlers receive it under `:rf.db/runtime`:
 
 ```clojure
 (rf/reg-event :app/load-article
   (fn [{:keys [db] rt :rf.db/runtime} _]
     (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
-      ;; A real app starts an HTTP fetch here and lets a later event write the
-      ;; reply — see Managed HTTP (../async/http.md). If you hand-roll the fetch,
-      ;; capture the nav-token so a slow reply can't overwrite a newer page
-      ;; (concepts.md#a-hand-rolled-async-loader). We'll "load" locally.
       {:db (assoc db :article/current (get sample-articles slug))})))
 
 (rf/reg-sub :article/current (fn [db _] (:article/current db)))
-```
 
-Detail page from Step 3 now reads the loaded article like any other state:
-
-```clojure
 (rf/reg-view article-page []
   (let [article @(subscribe [:article/current])]
     [:h1 (or (:title article) "Loading…")]))
 ```
 
-No special "loader data" hook — the handler wrote to [app-db](../core/app-db.md) like
-every other event. `:on-match` re-fires when `:slug` changes, not when you re-navigate
-to the same route with identical params — no accidental double-load.
+The handler writes to [app-db](../core/app-db.md) like any other event, and the page
+reads the result with a subscription. `:on-match` fires again when `:slug` changes, but
+not when you navigate to the same route with the same params.
 
-> **`:on-match` is activation work, not the loader.** The runtime dispatches these
-> events and moves on. It never waits for async work they start, never moves
-> `:rf.route/transition` or `:rf.route/error`, and never turns a handler's failure
-> into a route error — a throw surfaces on the ordinary event error channel. Data the
-> page cannot honestly render without is a *different* declaration: `:resources`,
-> which the runtime does await and does project onto the transition subs.
-> [The model → Activation work and page data](concepts.md#loaders-declaring-a-pages-data).
+The runtime dispatches `:on-match` events and moves on: it does not wait for work they
+start, and an exception in the handler is reported like any other event error. A real
+app would start an [HTTP request](../async/http.md) here. For data the page cannot
+render without, see [Loading real data](#loading-real-data).
 
-**What you see:** click through to `/articles/intro` and the title appears. Navigate
-to another article and `:on-match` fires again; re-navigate to the *same* one and it
-doesn't. Open [Xray](../xray/index.md) and you'll see those dispatches on the wire.
-
-> **Activation work as data.** `:on-match` is a vector of event vectors, not a
-> function — you can read it, test it, and draw a data-dependency graph without
-> running it: `(rf/handler-meta {:source :store :kind :route :id :app/article})`. The same events run on the
-> server during [SSR](../ssr/concepts.md). For cached server state — a real page
-> load, awaited and reported — declare `:resources` instead:
-> [The model → Declaring the data a page needs](concepts.md#declaring-resources-instead).
-> Hand-rolling your own async fetch inside `:on-match` means owning the click-away
-> race yourself: capture the navigation token and gate delivery, or a slow reply
-> overwrites the page you navigated to next —
-> [hand-rolled async loader](concepts.md#a-hand-rolled-async-loader).
+**What you see:** open `/articles/intro` and the title appears. Open another article
+and `:on-match` fires again; open the same one again and it doesn't.
+[Xray](../xray/index.md) shows each dispatch.
 
 ## Step 5 — when nothing matches: the 404
 
-When no route matches, the runtime activates reserved id `:rf.route/not-found`, with
-the missed URL in its params. Register it like any other route:
+When no route matches, the runtime activates the reserved route
+`:rf.route/not-found`, with the requested URL in its params. Register it like any other
+route:
 
 ```clojure
 (rf/reg-route :rf.route/not-found {} "/_404")
@@ -237,76 +203,56 @@ the missed URL in its params. Register it like any other route:
     :rf.route/not-found [not-found-page]))
 ```
 
-The "Nothing here yet" arm is gone. Every URL lands on a real route id, so the `case`
-always has a page.
+Every URL now lands on a registered route, so the `case` no longer needs a default.
 
-**What you see:** visit `/nonsense` and your own 404 renders, with `/nonsense` shown
-back.
+If you skip this registration, an unmatched URL still activates `:rf.route/not-found`,
+but the runtime emits `:rf.warning/no-not-found-route`. The not-found params can also
+carry a `:reason` that separates a plain miss from a malformed URL or a failed schema;
+see [Not found is a route you register](concepts.md#not-found-is-a-route-you-register).
 
-> Register it. Skip it and an unmatched URL still activates `:rf.route/not-found`,
-> but the runtime emits `:rf.warning/no-not-found-route`. Not-found params also carry a `:reason` so you
-> can tell a plain miss from a malformed URL from a failed schema; see
-> [The model → Not found](concepts.md#not-found-is-a-route-you-register).
+**What you see:** visit `/nonsense` and your 404 page shows `/nonsense`.
 
 ## Step 6 — the Back button and deep links
 
-Step 1's mount flag is what makes Back, refreshes, and shared links work:
+Nothing to add: `:url-bound? true` from Step 1 already provides this. Because the
+`:app` frame owns the address bar:
 
-```clojure
-(defn run []
-  (rf/init! reagent-adapter/adapter)
-  (reagent-adapter/render! app-root
-    [rf/frame-root {:id         :app
-                    :url-bound? true}  ;; ← this frame owns the address bar
-     [root-view]]
-    (js/document.getElementById "app")))
-```
+- at startup it reads the current URL, so a deep link or a refresh opens the right page;
+- each navigation updates the address bar;
+- Back and Forward dispatch an ordinary route-change event to the frame.
 
-`:url-bound? true` says *this* [frame](../core/frames.md) owns the browser URL. When
-it navigates, the address bar updates; a frame without the flag routes purely in
-memory — what a test frame wants.
+A frame without `:url-bound?` routes in memory only, which is what a test frame wants.
 
-At startup it syncs the current URL into state — deep link or refresh lands on the
-right page. From then on every Back/Forward press is an ordinary dispatch. Idempotent,
-so hot-reload is safe.
+`frame-root` creates the frame if it doesn't exist. In a larger app you can create it
+with `rf/make-frame` and scope views to it with `rf/frame-provider`; the routing
+behaviour is the same.
 
-**What you see:** paste `/articles/intro` into the address bar and the app boots onto
-that article. Navigate Home → Articles → an article and press Back twice — each press
-steps the page back, because Back is a dispatch.
-
-> **One mount shape, two spellings.** `frame-root {:id …}` *creates* the frame if it
-> doesn't exist — handy for a small app. Elsewhere: `make-frame` first, then
-> `frame-provider {:frame …}` to scope it. Same frame, same result.
-
-> **The inversion.** Most routers treat the URL as truth and the app as a reaction.
-> Here the frame's state is truth and the URL is a *print-out* — which is why
-> [time-travel](../xray/index.md) rewinds the URL for free. [The model → The browser is just another event source](concepts.md#the-browser-is-just-another-event-source).
+**What you see:** paste `/articles/intro` into the address bar and the app opens on that
+article. Go Home → Articles → an article, then press Back twice: each press returns to
+the previous page.
 
 ## Step 7 — a shared layout
 
-Article pages should sit inside a shell — section header, "back to all articles" —
-without each page repeating it. Nesting is **data**: a child route names a
-`:parent`, and a subscription hands you the chain so you compose the shells yourself.
+Article pages should sit inside a shared section shell with a "back to all articles"
+nav. Give a route a `:parent`, and `:rf.route/chain` returns the active route with its
+ancestors, which you use to wrap the page in each ancestor's shell.
 
-Point the detail page at a parent — and **carry the whole metadata map forward**.
-`reg-route` is full replacement, not a merge: re-registering `:app/article` with only
-`:parent` and `:params` would drop Step 4's `:on-match` entry. Keep every key
-you still want:
+`reg-route` replaces a route's whole metadata map, so when you add `:parent`, keep the
+keys from Step 4:
 
 ```clojure
 (rf/reg-route :app/articles {} "/articles")
 (rf/reg-route :app/article  {:parent   :app/articles
                              :params   [:map [:slug :string]]
-                             :on-match [[:app/load-article]]}   ;; kept from Step 4
+                             :on-match [[:app/load-article]]}
   "/articles/:slug")
 ```
 
-`@(subscribe [:rf.route/chain])` returns the active route's ancestry, **root-most
-first** — on `/articles/intro` it's `[:app/articles :app/article]`. Two jobs fall out
-of that vector:
+`:rf.route/chain` lists the root-most route first: on `/articles/intro` it is
+`[:app/articles :app/article]`. The last id picks the page, and each id before it may
+wrap the page in a shell:
 
 ```clojure
-;; The LEAF of the chain is the page you're on.
 (defn page-for [route-id]
   (case route-id
     :app/home           [home-page]
@@ -314,54 +260,40 @@ of that vector:
     :app/article        [article-page]
     :rf.route/not-found [not-found-page]))
 
-;; Each ANCESTOR contributes a shell that wraps whatever is inside it.
 (defn ancestor-shell [route-id inner]
   (case route-id
     :app/articles [:div.articles-section [:nav "← All articles"] inner]
-    inner))                                  ;; ancestor with no chrome: pass through
+    inner))                                  ;; no shell: return the page unchanged
 
 (rf/reg-view root-view []
   [:div.site
    [:header "My Site"]                       ;; site-wide chrome needs no routing
    (let [chain @(subscribe [:rf.route/chain])]
-     ;; Fold from the leaf outward: page becomes child of parent's shell, etc.
      (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
-             (page-for (last chain))         ;; start: the leaf page
-             (reverse (butlast chain))))])   ;; wrap: ancestors, innermost first
+             (page-for (last chain))         ;; the page itself
+             (reverse (butlast chain))))])   ;; ancestors, innermost first
 ```
 
-If the fold feels abstract, trace it once. On `/articles/intro` the chain is
-`[:app/articles :app/article]`, so the `reduce` computes:
+On `/articles/intro` the `reduce` computes:
 
 ```clojure
 (ancestor-shell :app/articles (page-for :app/article))
 ;; ⇒ [:div.articles-section [:nav "← All articles"] [article-page]]
 ```
 
-One wrap, from the inside out. A deeper chain wraps more times.
+A deeper chain wraps the page once per ancestor. This does the job of React Router's
+`<Outlet/>` with a plain `reduce`; see the
+[React Router mapping](coming-from-react-router.md).
 
-**What you see:** on `/articles/intro`, the article renders inside the
-`← All articles` section nav, under the site header — every article detail page
-shares that frame with no copy-paste. Plain `/articles` shows the bare list; `/`
-shows home. Global chrome (the `My Site` header) is just rendered in the root view —
-reach for the chain only when a shell wraps a *subtree*.
-
-> **Coming from React Router?** This is the job `<Outlet/>` does there. The trade is
-> deliberate: instead of a routing-specific render slot, you compose plain Clojure
-> with the `case`/`reduce` you'd write for any conditional view. The only
-> routing-specific piece is the one `:rf.route/chain` read. [The model → Nested layouts](concepts.md#nested-layouts).
-
-> **`:parent` does one more thing.** Once you start declaring a page's data with
-> `:resources`, a child inherits its ancestors' declarations automatically — so a
-> shell read is written once on the parent instead of restated in every child.
-> Nothing else is inherited; `:on-match`, `:scroll`, and the guards stay per-route.
-> [The model → Parent resources compose to the child](concepts.md#parent-resources-compose-to-the-child).
+**What you see:** `/articles/intro` renders the article inside the
+**← All articles** nav, under the site header. `/articles` shows the list without the
+nav, and `/` shows Home.
 
 ## Step 8 — navigate from an event
 
-Links cover clicks. When navigation is the *result* of something — signing in,
-saving, deleting — dispatch `:rf.route/navigate` from the event handler. Add a login
-page whose button signs the reader in and sends them to the articles:
+When navigation follows from something the user did — signing in, saving, deleting —
+dispatch `:rf.route/navigate` from the event handler. Add a login page that signs the
+reader in and opens the articles:
 
 ```clojure
 (rf/reg-route :app/login {} "/login")
@@ -381,28 +313,25 @@ page whose button signs the reader in and sends them to the articles:
     "Sign in as Ada"]])
 ```
 
-Add `:app/login [login-page]` to `page-for`, and a
+Add `:app/login [login-page]` to `page-for`, and
 `[rf/route-link {:to :app/login} "Sign in"]` to the header.
 
-`:rf.route/navigate` takes **one request map**: `:to` and `:params` name the
-destination exactly as `route-link` does, `:query` sets the query string (Step 9), and
-`:replace? true` replaces the current history entry instead of pushing one — here it
-keeps `/login` out of the back stack, so Back from the articles list doesn't return
-to a sign-in form. Any other shape, such as `[:rf.route/navigate :app/articles]`,
+`:rf.route/navigate` takes one request map. `:to` and `:params` name the destination as
+they do for `route-link`, `:query` sets the query string, and `:replace? true` replaces
+the current history entry instead of adding one, so Back from the articles list skips
+the login form. Any other payload shape, such as `[:rf.route/navigate :app/articles]`,
 is rejected with `:rf.error/navigate-bad-request`.
 
-Navigation stays inside the event pipeline: the handler returns the navigation as an
-`:fx` entry, and the runtime dispatches it to the same frame. A view can dispatch it
-directly too — `#(dispatch [:rf.route/navigate {:to :app/home}])`.
+The `:dispatch` effect sends the navigation to the same frame as the handler. A view can
+also dispatch it directly: `#(dispatch [:rf.route/navigate {:to :app/home}])`.
 
-**What you see:** click **Sign in as Ada** and the app lands on `/articles`. Press
-Back and you go to the page before the login form, not to the form.
+**What you see:** click **Sign in as Ada** and the app opens `/articles`. Back returns
+to the page before the login form.
 
 ## Step 9 — query strings: filter the list
 
-A filter belongs in the URL so it survives refresh and can be shared. Query-string
-values (`?tag=ssr`) are a separate map from path params. Declare them on the route
-with `:query`:
+Put the list's tag filter in the URL so it survives a refresh and can be shared.
+Query-string values are a separate map from path params. Declare them with `:query`:
 
 ```clojure
 (rf/reg-route :app/articles
@@ -429,13 +358,12 @@ Read them with `:rf.route/query`, and link with `:query`:
         [:li [rf/route-link {:to :app/article :params {:slug slug}} title]])]]))
 ```
 
-Declaring the key matters. A query key the route's `:query` schema names arrives as a
+Declare every query key you read. A key named in the `:query` schema arrives as a
 keyword (`:tag`); an undeclared one stays a string key (`"tag"`), so `(:tag query)`
-would read `nil`.
+would return `nil`.
 
-To change the query without leaving the page, navigate **in place** — no `:to`, just
-the edit. `:query-merge` folds changes into the current query, and a `nil` value
-removes a key:
+To change the query without leaving the page, navigate in place: omit `:to` and pass
+`:query-merge`, which merges into the current query. A `nil` value removes a key:
 
 ```clojure
 ;; inside a view, where `dispatch` is bound to the view's frame
@@ -443,13 +371,13 @@ removes a key:
  "Clear filter"]
 ```
 
-**What you see:** click **#ssr** and the address bar reads `/articles?tag=ssr` with
-one article listed. Refresh, and the filter is still applied.
+**What you see:** click **#ssr** and the address bar reads `/articles?tag=ssr`, with one
+article listed. Refresh, and the filter stays.
 
 ## Step 10 — keep signed-out readers out
 
-Settings is only for signed-in readers. Put a `:can-enter` guard on the route — a
-subscription that returns `true` to allow entry and `false` to refuse it:
+Settings is for signed-in readers only. Give the route a `:can-enter` guard: a
+subscription that returns `true` to allow entry and `false` to refuse it.
 
 ```clojure
 (rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
@@ -465,14 +393,14 @@ subscription that returns `true` to allow entry and `false` to refuse it:
 
 Add `:app/settings [settings-page]` to `page-for`, and a link to it in the header.
 
-The runtime checks the guard on every way into the route — a link, a navigate, a
-typed URL, a refresh, Back/Forward. A refused entry commits nothing: the current page
-stays, the URL stays, and `:on-match` does not run. The guard must return `true` or
-`false`; anything else refuses and raises `:rf.error/can-enter-non-boolean`, which is
-why the sub wraps the user in `some?`.
+The runtime checks the guard on every way into the route: a link, a navigate, a typed
+URL, a refresh, Back or Forward. A refused entry changes nothing — the current page and
+URL stay, and `:on-match` does not run. The guard must return `true` or `false`;
+anything else refuses and raises `:rf.error/can-enter-non-boolean`, which is why the
+sub wraps the user in `some?`.
 
-A refusal dispatches `:rf.route/entry-denied`. Its built-in handler does nothing, so
-the click is simply ignored. Register your own to send the reader to sign in:
+A refusal dispatches `:rf.route/entry-denied`. The built-in handler does nothing, so the
+click is ignored. Register your own handler to send the reader to the login page:
 
 ```clojure
 (rf/reg-event :rf.route/entry-denied
@@ -480,16 +408,14 @@ the click is simply ignored. Register your own to send the reader to sign in:
     {:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
 ```
 
-**What you see:** signed out, clicking **Settings** takes you to `/login`. Sign in,
-then click **Settings** again and the page opens. To send the reader back to the page
-they asked for after signing in, use the recipe in
-[Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
+**What you see:** signed out, clicking **Settings** opens `/login`. After signing in,
+**Settings** opens the settings page. To return the reader to the page they asked for
+after signing in, see [Require sign-in on a route](how-to/require-sign-in-on-a-route.md).
 
 ## Step 11 — warn before losing unsaved changes
 
-Add an editor for an article. Leaving it with unsaved edits should ask first. That is
-a `:can-leave` guard — the mirror of `:can-enter`, checked on the route you are
-leaving:
+Add an article editor that asks before the reader leaves with unsaved edits. Give its
+route a `:can-leave` guard, which the runtime checks on the route being left:
 
 ```clojure
 (rf/reg-route :app/article-editor
@@ -526,10 +452,10 @@ leaving:
    [:button {:on-click #(dispatch [:editor/save])} "Save"]])
 ```
 
-When `:editor/can-leave?` returns `false`, the navigation does not happen. Instead the
-runtime parks it in `:rf/pending-navigation`, a subscription that is `nil` until
-something is waiting. Render a prompt from it, and answer with `:rf.route/continue` or
-`:rf.route/cancel`, passing the pending navigation's `:id`:
+When `:editor/can-leave?` returns `false`, the navigation waits in
+`:rf/pending-navigation`, a subscription that is `nil` when nothing is waiting. Render a
+prompt from it, and answer with `:rf.route/continue` or `:rf.route/cancel`, passing the
+pending navigation's `:id`:
 
 ```clojure
 (rf/reg-view leave-prompt []
@@ -540,26 +466,26 @@ something is waiting. Render a prompt from it, and answer with `:rf.route/contin
      [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
 ```
 
-Wire it up: add `:app/article-editor [editor-page]` to `page-for`, render
-`[leave-prompt]` once in the root view, and give the article page an **Edit** link —
-`[rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]`, reading
-`slug` from `:rf.route/params` as in Step 3.
+Add `:app/article-editor [editor-page]` to `page-for`, render `[leave-prompt]` once in
+the root view, and give the article page an **Edit** link:
+`[rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]`, with `slug`
+read from `:rf.route/params` as in Step 3.
 
-`:rf.route/continue` finishes the navigation the reader started; `:rf.route/cancel`
-drops it and leaves them in the editor. Like `:can-enter`, the guard must return a
-boolean — anything else blocks and raises `:rf.error/can-leave-non-boolean`.
+`:rf.route/continue` completes the waiting navigation; `:rf.route/cancel` drops it. As
+with `:can-enter`, the guard must return a boolean — anything else blocks and raises
+`:rf.error/can-leave-non-boolean`.
 
-**What you see:** open **Edit**, change the title, and click **Home** — the prompt
-appears and the URL stays put. **Stay** keeps your draft; **Leave** goes home. Save
-first and **Home** goes straight through.
+**What you see:** open **Edit**, change the title and click **Home**: the prompt
+appears and the URL doesn't change. **Stay** keeps your draft; **Leave** goes home.
+After **Save**, **Home** navigates straight away.
 
-The guard covers navigation inside the app. Closing the tab or reloading is the
-browser's business; [Guard against unsaved changes](how-to/guard-unsaved-changes.md)
-covers that, plus a "save and leave" button.
+The guard covers navigation inside the app, not closing the tab or reloading. For
+those, and for a "save and leave" button, see
+[Guard against unsaved changes](how-to/guard-unsaved-changes.md).
 
 ## The complete app
 
-Every step assembled into one namespace:
+All the steps in one namespace:
 
 ```clojure
 (ns app.core
@@ -743,26 +669,13 @@ Every step assembled into one namespace:
     (js/document.getElementById "app")))
 ```
 
-## The complete shape
-
-| Piece | Surface | You supply |
-|---|---|---|
-| Artefact | `(:require [re-frame.routing])` | Once at boot |
-| Table | `reg-route` id / metadata / **path** | Including `:rf.route/not-found` |
-| Change | `[:rf.route/navigate {…}]` or `route-link` | One request map (`:to` / `:params` / `:query` / …) |
-| Read | `[:rf.route/id]` / `params` / `query` / `chain` | Ordinary subs |
-| Browser | `:url-bound? true` on the frame | One owner of the address bar |
-| Activation | `:on-match` | Fire-and-forget event vectors |
-| Guards | `:can-enter` / `:can-leave` | Boolean subs |
-| Page data | `:resources` | Awaited reads, reported on `:rf.route/transition` |
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | First `reg-route` throws `:rf.error/routing-artefact-missing` | `re-frame.routing` is not required | Add `[re-frame.routing]` to the `ns` requires |
 | Clicking a link reloads the whole page | The link is a hand-written `[:a {:href …}]` | Use `rf/route-link` |
-| The address bar never changes, and Back does nothing | The frame has no `:url-bound? true` | Add it to `frame-root` (Step 6) |
+| The address bar never changes, and Back does nothing | The frame has no `:url-bound? true` | Add it to `frame-root` (Step 1) |
 | Root view throws `No matching clause` | A registered route has no arm in the `case` | Add the route's arm |
 | `:rf.warning/no-not-found-route` on an unmatched URL | `:rf.route/not-found` is not registered | Register it (Step 5) |
 | `:on-match` stopped firing after adding `:parent` | `reg-route` replaces the whole metadata map | Re-register with every key you still want (Step 7) |
@@ -771,5 +684,21 @@ Every step assembled into one namespace:
 | A guarded route can never be entered or left, with `:rf.error/can-enter-non-boolean` or `:rf.error/can-leave-non-boolean` | The guard sub returned something other than `true` / `false` | Wrap the value in `boolean`, `some?` or `not` |
 | Nothing happens when a signed-out reader clicks a guarded link | The built-in `:rf.route/entry-denied` handler does nothing | Register your own (Step 10) |
 
-Growth: [unsaved changes](how-to/guard-unsaved-changes.md),
-[sign-in](how-to/require-sign-in-on-a-route.md), [testing](testing.md).
+## Advanced
+
+### Loading real data
+
+`:on-match` suits work the page can render without, because the runtime doesn't wait
+for it. For data the page needs before it can render, declare `:resources` on the
+route instead: the runtime waits for those reads and reports progress on
+`:rf.route/transition`. A child route also receives the `:resources` declared on its
+`:parent` routes, so a read the section shell needs is declared once. See
+[Declaring the data a page needs](concepts.md#declaring-resources-instead) and
+[Parent resources compose to the child](concepts.md#parent-resources-compose-to-the-child).
+
+If you start your own async request from an `:on-match` handler, a slow reply can
+arrive after the reader has moved to another page and overwrite it. Capture the
+navigation token when the request starts and check it when the reply arrives; see
+[A hand-rolled async loader](concepts.md#a-hand-rolled-async-loader).
+
+`:on-match` events also run during [server rendering](../ssr/concepts.md).
