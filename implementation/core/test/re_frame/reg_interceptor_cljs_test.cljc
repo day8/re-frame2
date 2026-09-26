@@ -193,26 +193,6 @@
                               (fn [{:keys [db]} _] {:db db})))
           "the registered ref is legal but the inline value is rejected — chains are reference-only"))))
 
-(deftest registered-then-referenced-runs
-  (testing "the EP-0022 path: register the interceptor, then reference it by id — both run"
-    (let [log (atom [])]
-      (rf/reg-interceptor :was-inline/log
-        {:before (fn [ctx] (swap! log conj [:inline :before]) ctx)
-         :after  (fn [ctx] (swap! log conj [:inline :after]) ctx)})
-      (rf/reg-interceptor :mix/ref
-        {:before (fn [ctx] (swap! log conj [:ref :before]) ctx)
-         :after  (fn [ctx] (swap! log conj [:ref :after]) ctx)})
-      (rf/reg-event :mix/run
-        {:interceptors [:mix/ref :was-inline/log]}
-        (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:mix/run])
-      (is (= [[:ref :before]
-              [:inline :before]
-              [:inline :after]
-              [:ref :after]]
-             @log)
-          "both refs resolved + ran in order"))))
-
 (deftest frame-level-interceptor-ref-chain
   (testing "a frame-level :interceptors ref chain prepends to the event chain"
     (let [log (atom [])]

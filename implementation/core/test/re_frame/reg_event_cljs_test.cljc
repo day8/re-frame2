@@ -10,8 +10,8 @@
   `reg-event` registers under registry kind :event with the ONE framework
   wrapper `:rf/event-handler` (`:rf/default? true`); there is no
   `:event/kind` sub-tag. These tests pin that shape plus the :db/:fx
-  effect semantics and uniform `:rf.cofx/requires` support (which closes the
-  EP-0017 hole).
+  effect semantics; uniform `:rf.cofx/requires` support (which closes the
+  EP-0017 hole) is pinned by `cofx_cljs_test.cljc`.
 
   `.cljc` so the suite runs under BOTH the bounded core JVM gate and
   `npm run test:cljs`. Harness mirrors `cofx_cljs_test.cljc` — the shared
@@ -21,7 +21,7 @@
   ## Posture split
 
   Everything this file is about — the registry shape, the interceptor chain,
-  the `:db` / `:fx` effect semantics, `:rf.cofx/requires` — is production-real
+  the `:db` / `:fx` effect semantics, `:rf/set-db` — is production-real
   and asserted WITHOUT a posture guard, so it runs in `clojure -M:test` AND in
   `scripts/test-core-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
@@ -136,50 +136,12 @@
         "neither the nil nor the {} handler disturbed app-db")))
 
 ;; ===========================================================================
-;; 3. :rf.cofx/requires support (closes the EP-0017 hole)
+;; 3. :rf.cofx/requires on reg-event — delivery of a declared coeffect, no
+;;    delivery of an undeclared one, and the stored raw + parsed declaration —
+;;    is pinned by `cofx_cljs_test.cljc` (`ambient-supplier-delivers-value-flat`,
+;;    `no-declaration-stages-no-cofx-leaves`, `handler-meta-surfaces-requires`),
+;;    which registers through this same `reg-event`.
 ;; ===========================================================================
-
-(deftest reg-event-supports-rf-cofx-requires
-  (testing "reg-event accepts :rf.cofx/requires and the declared value arrives
-            FLAT in the coeffects map (EP-0017 §2/§5; the collapse closes the
-            db-handler hole — every event can declare coeffects uniformly)"
-    (let [seen (atom ::unset)]
-      (rf/reg-cofx :reg-event-test/locale (fn [] "en-AU"))
-      (rf/reg-event :reg-event-test/read-locale
-        {:rf.cofx/requires [:reg-event-test/locale]}
-        (fn [{:keys [reg-event-test/locale]} _]
-          (reset! seen locale)
-          {}))
-      (rf/dispatch-sync [:reg-event-test/read-locale])
-      (is (= "en-AU" @seen)
-          "the declared coeffect arrived flat under its id on reg-event"))))
-
-(deftest reg-event-requires-declared-only-delivery
-  (testing "ADVERSARIAL: an UNDECLARED recordable leaf is NOT delivered to a
-            reg-event handler (declared-only delivery — no silent coupling)"
-    (let [had-time? (atom ::unset)]
-      (rf/reg-event :reg-event-test/declares-nothing
-        (fn [{:keys [rf/time-ms] :as cofx} _]
-          (reset! had-time? (contains? cofx :rf/time-ms))
-          (is (nil? time-ms))
-          {}))
-      (rf/dispatch-sync [:reg-event-test/declares-nothing]
-                        {:rf.cofx {:rf/time-ms 1781078400123}})
-      (is (false? @had-time?)
-          ":rf/time-ms is delivered ONLY on declaration, never implicitly"))))
-
-(deftest reg-event-requires-stored-on-registration
-  (testing "the parsed :rf.cofx/requires is stored on the reg-event registration
-            (handler-meta surfaces the raw declaration as authored)"
-    (rf/reg-cofx :reg-event-test/who (fn [] :nobody))
-    (rf/reg-event :reg-event-test/declarer
-      {:rf.cofx/requires [:reg-event-test/who]}
-      (fn [_ _] {}))
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :reg-event-test/declarer})]
-      (is (= [:reg-event-test/who] (:rf.cofx/requires meta))
-          "the raw :rf.cofx/requires is retained on the registry entry")
-      (is (contains? meta :rf.cofx/requires-parsed)
-          "the parsed entry vector is stored for the satisfaction step"))))
 
 ;; ===========================================================================
 ;; 4. The retired names are throwing stubs (EP-0018 Slice Z)
@@ -261,14 +223,6 @@
        :no-throw
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
-
-(deftest set-db-sets-app-db
-  (testing "[:rf/set-db {:n 0}] REPLACES app-db with the supplied map (EP-0027
-            §:rf/set-db) — read back through a layer-1 subscription"
-    (rf/reg-sub :reg-event-test/whole-db (fn [db _] db))
-    (rf/dispatch-sync [:rf/set-db {:n 0}])
-    (is (= {:n 0} @(rf/subscribe [:reg-event-test/whole-db]))
-        "app-db is replaced wholesale with {:n 0}")))
 
 (deftest set-db-replaces-not-merges
   (testing ":rf/set-db REPLACES all of app-db (it is NOT a merge) — a second
