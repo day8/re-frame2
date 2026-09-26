@@ -14,6 +14,34 @@ platform gating.
 
 ## 1. Render a request to a string
 
+The tests on this page exercise one small app: an article page, routed by URL, whose server boot seeds the articles and routes the request:
+
+```clojure
+(ns my-app.views
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]))
+
+(rf/reg-route :app/article {:params [:map [:id :string]]} "/articles/:id")
+
+(rf/reg-event :rf/server-init
+  {:platforms        #{:server}
+   :rf.cofx/requires [:rf.server/request]}
+  (fn [{:keys [db rf.server/request]} _]
+    {:db (assoc db :articles {"intro" {:title "Welcome"}})
+     :fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
+
+(rf/reg-sub :article/by-id (fn [db [_ id]] (get-in db [:articles id])))
+
+;; The root returns the page's markup itself rather than [(rf/view :pages/article)]:
+;; the render hash covers the tree the root returns, and a root that only wraps
+;; another view hashes to the same constant for every page, so it carries none.
+(rf/reg-view ^{:rf/id :app/root} app-root []
+  (let [{:keys [id]} @(subscribe [:rf.route/params])
+        article      @(subscribe [:article/by-id id])]
+    [:main
+     [:h1 (:title article)]]))
+```
+
 `render-to-string` is a pure function — hiccup in, HTML string out — and the test shape is the request lifecycle in miniature: a fresh frame booted through `:initial-events`, render, assert on the markup. `:initial-events` is the *same key* `ssr-handler` uses to seed every per-request frame, so a test frame built this way boots through the same path a production request's frame does:
 
 ```clojure
@@ -72,7 +100,7 @@ The body also carries the payload, as EDN inside `<script id="__rf_payload" type
 (deftest only-the-allowlist-ships
   (let [payload (read-payload (:body (handler {:request-method :get :uri "/articles/intro"})))]
     (is (every? #{:articles} (keys (:rf/app-db payload))))   ;; nothing off the allowlist
-    (is (string? (:rf/render-hash payload)))))   ;; present because :root-view is the fn form
+    (is (string? (:rf/render-hash payload)))))   ;; present: a fn-form :root-view whose view returns an element
 ```
 
 The payload's escaping only rewrites `<` inside strings as `\u003c`, which the EDN reader decodes, so the round trip is exact.
@@ -174,11 +202,11 @@ opts at construction, so a malformed endpoint, entry, build id or timeout throws
 `:rf.error/ssr-node-renderer-opt-invalid` at boot — pinned by the discriminator,
 exactly as in §3 above.
 
-What genuinely needs both runtimes is the crossing itself, and the repo carries
-it rather than asking you to: the `jvm-node-crossing` CI job launches the real
-sidecar against a plain fixture render module and drives one `JVM → Node → JVM`
-request end to end, covering a refusal and a deadline arm as well as the success
-arm. Your own suite is better spent on the stub above.
+What genuinely needs both runtimes is the crossing itself, and re-frame2's own
+test suite covers it rather than asking you to: it launches the real sidecar
+against a plain fixture render module and drives `JVM → Node → JVM` requests end
+to end, through the refusal and deadline arms as well as the success arm. Your
+own suite is better spent on the stub above.
 
 ## 6. A streaming handler returns a stream
 
@@ -204,7 +232,7 @@ A redirect set during the drain still comes back as a plain bodiless response, b
 
 ## 7. Replay the hydration on the JVM
 
-`hydrate!` runs on the JVM too, given the payload explicitly. Feed it the payload your handler actually shipped, into a client frame in strict mode, and the test checks that the payload is enough to reproduce the server's render: a view that reads a key the allowlist left out, or reads the clock, renders differently and throws.
+`hydrate!` runs on the JVM too, given the payload explicitly. Feed it the payload your handler actually shipped, into a client frame in strict mode, and the test checks that the payload is enough to reproduce the server's render: a root whose markup reads a key the allowlist left out, or reads the clock, renders differently and throws.
 
 ```clojure
 (deftest the-payload-rebuilds-the-page
@@ -216,7 +244,7 @@ A redirect set during the drain still comes back as a plain bodiless response, b
     (is (= "Welcome" (get-in (rf/app-db-value :app) [:articles "intro" :title])))))
 ```
 
-The comparison needs the payload's `:rf/render-hash`, which the handler writes only for the fn form of `:root-view`; with the vector form this test passes without checking anything. It applies to views that return hiccup (Reagent, reagent-slim) — a UIx or Fresco root reports mismatches through React's hydration instead.
+The comparison needs the payload's `:rf/render-hash`, which the handler writes only for the fn form of `:root-view`, and only when the root view returns an element: with the vector form, or a root whose body is just another view, this test passes without checking anything. The hash covers the markup the root spells out and the arguments it passes to child views, not what those child views render, so a difference inside a child view goes unseen. It applies to views that return hiccup (Reagent, reagent-slim) — a UIx or Fresco root reports mismatches through React's hydration instead.
 
 ## What stays in the browser
 

@@ -17,8 +17,8 @@ To *build* the lifecycle by hand (REPL → frame → payload → hydrate → Rin
 !!! note "Optional artefact"
 
     Require `re-frame.ssr` once at boot (Maven `day8/re-frame2-ssr`; Ring adapter
-    `day8/re-frame2-ssr-ring`). Forget the require and the first `render-to-string` /
-    `reg-head` / related call throws `:rf.error/ssr-artefact-missing`.
+    `day8/re-frame2-ssr-ring`). Forget the require and the first `rf/reg-head` or
+    `rf/reg-error-projector` call throws `:rf.error/ssr-artefact-missing`.
 
 ## Why the same code runs on a JVM
 
@@ -45,7 +45,7 @@ sequenceDiagram
     participant F as Per-request frame (JVM)
     B->>H: GET /articles/intro
     H->>F: create frame · stash the request
-    F->>F: :initial-events fire — drain to a settled app-db
+    F->>F: :initial-events fire — drain, then wait for blocking resources
     F->>H: render-to-string → HTML + state payload
     H->>B: HTML + <script id="__rf_payload">
     H->>F: destroy the frame (finally)
@@ -55,8 +55,8 @@ sequenceDiagram
 In words:
 
 1. An HTTP request arrives. The host adapter creates a **frame for this request** and stashes the request map where handlers can read it.
-2. The frame's `:initial-events` fire in order: read the session, set the route, start data fetches.
-3. The runtime **drains**: it keeps processing events — and every event those events dispatch — until the queue settles and app-db stops changing (the [run-to-completion](../core/glossary.md#drain--run-to-completion) guarantee). The settled state is what gets rendered, never a half-loaded intermediate.
+2. The frame's `:initial-events` fire in order: read the session, set the route. Entering the route starts its [resource](../resources/glossary.md#resource) loads.
+3. The runtime **drains**: it keeps processing events — and every event those events dispatch — until the queue settles (the [run-to-completion](../core/glossary.md#drain--run-to-completion) guarantee). Then it waits for the route's **blocking** resources to load. A fetch is asynchronous, so this wait is the only one: data you need in the first render comes from a blocking resource.
 4. The root view renders to hiccup; `render-to-string` turns it into HTML.
 5. The server ships the HTML **plus** a serialised state payload.
 6. The client boots: `ssr/hydrate!` installs the payload (dispatches `:rf/hydrate`) *before* the first render, then the substrate **hydrates** the existing DOM (React's `hydrateRoot`, via the adapter). Because the first render matches the server's HTML, the DOM is adopted, not replaced.
@@ -92,7 +92,7 @@ Wire the Ring adapter once. It owns the whole lifecycle above — frame create, 
 Three opts do the work:
 
 - **`:initial-events`** — the per-request setup vector, lowered verbatim into the per-request frame's `:initial-events` (step 2 of the lifecycle). It accepts a vector of events, or a `(fn [request] → initial-events-vector)` when the setup must be derived from the Ring request.
-- **`:root-view`** — the render tree the adapter renders once the frame settles (step 4). Its head is a **callable** view reference — the Var `rf/reg-view` defs, or `(rf/view :id)`. A bare keyword head is an HTML element, never a view. Prefer the fn form shown: it calls the view, so the handler can hash what it rendered and the client can [check its first render](#when-the-renders-disagree) against it. The vector form `[(rf/view :app/root)]` renders the same HTML but carries no hash.
+- **`:root-view`** — the render tree the adapter renders once the frame settles (step 4). Its head is a **callable** view reference — the Var `rf/reg-view` defs, or `(rf/view :id)`. A bare keyword head is an HTML element, never a view. Prefer the fn form shown: it calls the view, so the handler can hash what it rendered and the client can [check its first render](#when-the-renders-disagree) against it. The vector form `[(rf/view :app/root)]` renders the same HTML but carries no hash. The hash covers the hiccup the root view *returns*, so have the root return an element holding the page, such as `[:main …]`: a root whose body is only another view, `[(rf/view :pages/articles)]`, carries no hash either.
 - **`:payload`** — the allowlist of top-level app-db keys to serialise for the client (step 5). It's a security boundary with its [own section below](#payload--the-fail-closed-allowlist).
 
 That's a working SSR server. The other options have defaults you rarely change:
@@ -152,15 +152,11 @@ Handlers read the request the way they read any outside fact — through a decla
 (rf/reg-event :rf/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
-  (fn [{:keys [db rf.server/request]} _]
-    {:db db
-     :fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]
-          [:rf.http/managed {:request    {:method :get :url "/api/articles"}
-                             :decode     :json
-                             :on-success [:articles/loaded]}]]}))
+  (fn [{:keys [rf.server/request]} _]
+    {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
 ```
 
-Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arrives flat under `:rf.server/request` — `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params`, `:session`, `:cookies`, as far as [your middleware](#mounting-in-a-ring-app) added them. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) machinery the client uses, so the route resolves through the code you already trust.
+Declare `:rf.cofx/requires [:rf.server/request]` once, and the request map arrives flat under `:rf.server/request` — `:uri`, `:request-method`, `:headers`, `:query-params`, `:form-params`, `:session`, `:cookies`, as far as [your middleware](#mounting-in-a-ring-app) added them. The `[:rf.route/handle-url-change ...]` dispatch hands the URL to the same [routing](../routing/concepts.md) machinery the client uses, so the route resolves through the code you already trust. The page's data comes from the route too, as [blocking resources](#the-client-side-hydrate-then-verify) the handler waits for; an `:rf.http/managed` request fired from here would still be in flight when the page renders.
 
 !!! note "`:rf/server-init` is a reserved name you fill in"
 
@@ -415,7 +411,7 @@ Be clear about what the hash buys you: it proves *that* the renders diverged —
 
 ??? note "The hash is structural, not textual"
 
-    Byte-for-byte HTML equality is *not* required: different serialisers emit semantically-equivalent strings that differ in attribute order or whitespace. The contract is structural — the FNV-1a hash runs over a canonical-EDN traversal of the render-tree (depth-first, attribute maps in sorted-key order, nil pruned). FNV-1a is fast and carries zero platform dependencies (no `crypto`). The hash is a tamper-evident structural marker between *one* server and *one* client of the same build, not a security primitive.
+    Byte-for-byte HTML equality is *not* required: different serialisers emit semantically-equivalent strings that differ in attribute order or whitespace. The contract is structural — the FNV-1a hash runs over a canonical-EDN traversal of the render-tree (depth-first, attribute maps in sorted-key order, nil pruned). The walk never calls a view: a view reference inside the tree, `[(rf/view :pages/articles)]` or a component fn, hashes as one fixed token whatever it renders. So the hash sees the hiccup your root view returns and not the views it nests — a mismatch inside a nested view goes undetected — and a root that returns only a view reference hashes to a constant, which the Ring handler doesn't ship. FNV-1a is fast and carries zero platform dependencies (no `crypto`). The hash is a tamper-evident structural marker between *one* server and *one* client of the same build, not a security primitive.
 
 ## `:platforms` — one handler, gated per runtime
 
@@ -482,7 +478,7 @@ The wiring facts, one at a time:
 - **The projector is named per frame** — `:ssr {:public-error-id :myapp/public-error}` on the frame's metadata — so a server-rendering frame and a dev-tooling frame in one process can run different ones.
 - **4xx keeps your app; 5xx gets the error page.** Classification is by the *projected status*. A projected **4xx** (a routing miss, an auth `401`/`403`, a `400` your own handler produced) is the app *working correctly* — it renders your own not-found / bad-request UI and ships the hydration payload, so the client hydrates into a working SPA. A projected **5xx** means the app broke mid-drain and app-db is in a partial state — so the framework discards the half-drained body and hydration payload and renders your `:error-view` (or the default template) instead of presenting a half-populated page as if real. An app-set `500` with no error projected stays on your own page (status alone isn't a projected error).
 - **The error page cannot leak.** It's a registered view that receives the *public* shape only; the internal trace never reaches it, so there's nothing to leak. Only exactly the four public keys cross the boundary — a projector that returns an out-of-range status or any extra key (even its own `:details`) takes the locked generic-500 fallback.
-- **What reaches the projector in a release build.** Both of the specific arms above do. The `404` rides `:rf.error/no-such-handler` — an unroutable URL — and that category is always-on. The `400` rides `:rf.error/schema-validation-failure` from the boundary check a handler turns on with `:boundary? true`: an ordinary registration diagnostic is a development-build assertion ([Spec 010 §Production builds](../../spec/010-Schemas.md#production-builds)), but a check the framework relies on to keep a promise of its own is ungated in every build — the boundary check is one of those, and the one whose failures reach the projector — and since the rejection also fans an always-on record the projector really is handed something to map. Note that the boundary check validates against the handler's *own* `:schema`, the same declaration that elides at step 1: what survives is the check the framework runs at the ingress it promised to guard, not a separate framework-authored schema. So a handler registered `{:schema … :boundary? true}` answers a malformed request body with `400` under `-Dre-frame.debug=false`, not a silent `200` — which is what [RFC 9110 §15.5.1](https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1) asks of a refused payload. Two categories do *not* reach the projector on a release server: `:rf.error/no-such-route` (handing `route-url` a route id nobody registered — caller misuse, not hostile input, so it stays on the dev-gated trace stream), and every *other* `:where` surface of `:rf.error/schema-validation-failure`, which are the elided development assertions. A validation rule that needs to shape the *response* — field-level errors, submitted values preserved — still belongs in the handler body with `[:rf.server/set-status 400]`; the projector's arm gives you the status, not the page. [Pattern-FormAction §Validation is the handler's job](../../spec/Pattern-FormAction.md#validation-is-the-handlers-job) has the worked shape.
+- **What reaches the projector in a release build.** Both of the specific arms above do. The `404` rides `:rf.error/no-such-handler` — an unroutable URL — and that category is always-on. The `400` rides `:rf.error/schema-validation-failure` from the boundary check a handler turns on with `:boundary? true`: an ordinary registration diagnostic is a development-build assertion ([Validate with schemas](../core/how-to/validate-with-schemas.md#in-production-what-goes-what-stays)), but a check the framework relies on to keep a promise of its own is ungated in every build — the boundary check is one of those, and the one whose failures reach the projector — and since the rejection also fans an always-on record the projector really is handed something to map. Note that the boundary check validates against the handler's *own* `:schema`, the same declaration a release build otherwise stops checking: what survives is the check the framework runs at the ingress it promised to guard, not a separate framework-authored schema. So a handler registered `{:schema … :boundary? true}` answers a malformed request body with `400` under `-Dre-frame.debug=false`, not a silent `200` — which is what [RFC 9110 §15.5.1](https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1) asks of a refused payload. Two categories do *not* reach the projector on a release server: `:rf.error/no-such-route` (handing `route-url` a route id nobody registered — caller misuse, not hostile input, so it stays on the dev-gated trace stream), and every *other* `:where` surface of `:rf.error/schema-validation-failure`, which are the elided development assertions. A validation rule that needs to shape the *response* — field-level errors, submitted values preserved — still belongs in the handler body with `[:rf.server/set-status 400]`; the projector's arm gives you the status, not the page. [The form action](#two-patterns-in-brief) below has the worked shape.
 - **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent. This knob governs how much a projected error *says*; it is the bullet above, not this one, that governs whether an error gets projected at all. To see a render-time view exception raw while developing instead of as an error page, set `:ssr {:on-view-exception :throw}`.
 - **Monitoring keeps the rich trace.** Projection governs the HTTP boundary only — the full trace still flows unchanged to your sinks and the always-on [error records](../core/glossary.md#error-record) your listeners depend on.
 
@@ -606,7 +602,7 @@ A few things change between your REPL and a production server:
 
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
-| First `render-to-string` / `reg-head` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
+| First `rf/reg-head` / `rf/reg-error-projector` throws at boot | `:rf.error/ssr-artefact-missing` | Require `re-frame.ssr` (`day8/re-frame2-ssr`) |
 | `ssr-handler` construction throws | `:rf.error/ssr-missing-payload-policy` (also empty `[]`) | Set `:payload` allowlist, or `:rf.ssr.payload/whole-app-db` |
 | Unknown / string allowlist entries | `:rf.error/ssr-unknown-payload-policy` or `:rf.error/ssr-malformed-payload-allowlist` | Keywords only; sequential, not a set |
 | Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back | Send ids as strings, money as integer cents, or drop the key from `:payload` |
@@ -622,36 +618,70 @@ A few things change between your REPL and a production server:
 
 ## A complete loop (server + client)
 
-Copy-paste shape. The adapter owns create / drain / render / payload / teardown;
-the client installs the payload before the first paint, then `hydrate-root` adopts
-the server's DOM.
+Copy-paste shape. The adapter owns create / drain / render / payload / teardown,
+and waits for the route's blocking resource before it renders; the client installs
+the payload before the first paint, then `render!` with `:hydrate? true` adopts the
+server's DOM.
 
 ```clojure
+;; cf. examples/capabilities/ssr/resources_ssr/core.cljc
 (ns app.ssr
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
-            [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.routing]
+            [re-frame.resources]
             [re-frame.http.managed]
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
-            #?(:clj  [ring.adapter.jetty :as jetty])))
+            #?(:clj  [re-frame.ssr.ring :as ssr-ring])
+            #?(:clj  [ring.adapter.jetty :as jetty])
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
+
+(rf/reg-resource :articles/list
+  {:params-schema [:map]
+   :scope         :rf.scope/global}
+  (fn [_params _ctx]
+    {:request {:method :get :url "/api/articles"}
+     :decode  :json}))
+
+(rf/reg-route :articles/index
+  {:resources [{:resource  :articles/list
+                :params    (fn [_route] {})
+                :blocking? true}]}                   ;; the server waits for it
+  "/")
 
 (rf/reg-event :rf/server-init
   {:platforms        #{:server}
    :rf.cofx/requires [:rf.server/request]}
-  (fn [{:keys [db rf.server/request]} _]
-    {:db db
-     :fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]
-          [:rf.http/managed
-           {:request    {:method :get :url "/api/articles"}
-            :decode     :json
-            :on-success [:articles/loaded]}]]}))
+  (fn [{:keys [rf.server/request]} _]
+    {:fx [[:dispatch [:rf.route/handle-url-change (:uri request)]]]}))
+
+(rf/reg-event :app/client-bootstrap                  ;; a page nobody server-rendered
+  (fn [_ [_ path]]
+    {:fx [[:dispatch [:rf.route/handle-url-change path]]]}))
+
+;; The root returns an element holding the page, so the render hash covers it.
+(rf/reg-view ^{:rf/id :app/root} root-view []
+  (let [state @(subscribe [:rf/resource {:resource :articles/list
+                                         :scope    :rf.scope/global
+                                         :params   {}}])]
+    [:main
+     [:h1 "Recent articles"]
+     (cond
+       (:loading? state) [:p "Loading…"]
+       (:error state)    [:p "Could not load articles."]
+       :else             (into [:ul]
+                               (for [{:keys [slug title]} (:data state)]
+                                 ^{:key slug} [:li title])))]))
 
 #?(:clj
-   (def handler
-     (ssr-ring/ssr-handler
-       {:initial-events [[:rf/server-init]]
-        :root-view      [(rf/view :app/root)]                 ;; hiccup vector or 0-arity fn
-        :payload        [:articles :session-user]})))  ;; required allowlist
+   (do
+     (rf/init! ssr/adapter)
+     (def handler
+       (ssr-ring/ssr-handler
+         {:initial-events [[:rf/server-init]]
+          :root-view      (fn [] ((rf/view :app/root)))   ;; the fn form carries the hash
+          :payload        [:session-user]}))              ;; required allowlist
+     (defn -main []
+       (jetty/run-jetty handler {:port 3000 :join? false}))))
 
 #?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
@@ -664,12 +694,14 @@ the server's DOM.
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
            tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
        (when-not payload                                 ;; client-only: seed first
-         (rf/dispatch-sync [:app/client-bootstrap] {:frame :app}))
+         (rf/dispatch-sync [:app/client-bootstrap (.-pathname js/location)]
+                           {:frame :app}))
        ;; payload ⇒ adopt the server's DOM; no payload ⇒ fresh root
        (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)}))))
 ```
 
-Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
+The route's resource entries ride the payload with the route, so the hydrated
+client renders the list without fetching it again. Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
 [tutorial](tutorial.md). APIs: [re-frame.ssr](../api/re-frame.ssr.md),
 [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
 
@@ -692,18 +724,7 @@ The worked example is
 [`substrates/fresco/login`](../../examples/substrates/fresco/login), and both
 halves of it run. `server.cljs` is a real render module and `host.clj` is a real
 Ring handler — the shared `login.model` is `.cljc`, so the JVM holds the
-application's state the same way the browser does. Two suites drive them:
-`re-frame.fresco.login-server-crossing-ssr-dom-cljs-test` renders the real
-views and registrations through the published entry table, and
-`re-frame.ssr.ring.login-host-crossing-test` spawns the real launcher on an
-ephemeral port and drives the handler across it.
-
-One leg is covered by neither on its own: the compiled server bundle running
-under the sidecar in a single process. The JVM suite stands a fixture render
-module in for it, deliberately — compiling the bundle inside a JVM test would
-put shadow-cljs on that lane for nothing the ClojureScript suite does not
-already hold. Read the two together and every step below has a witness behind
-it; read either alone and it does not.
+application's state the same way the browser does.
 
 ### 1. Build both bundles
 
@@ -866,7 +887,7 @@ dispatches at the machine nor subscribes to it sends the partition across
 empty, and a self-seeding machine then materialises its initial state in the
 render's own per-request frame, which is the right page. Name the key either
 way: the list is the deployment's ceiling, not a promise that something fills
-it. Both directions are measured in the login example's crossing suite.
+it.
 
 Both policies are fail-closed allowlists of top-level keys. The render-state
 wire refuses the same JVM-only numbers the hydration payload refuses (a Long
@@ -879,8 +900,7 @@ it crosses. Where the allowlist vocabulary cannot express a projection,
 ### 5. Start the sidecar, and mind the skew
 
 **Where the sidecar comes from.** There is no published artefact. The
-sidecar is not on npm, it has no Clojars coordinate, and none is planned as
-of this writing — this repository publishes JVM artefacts only, and its
+sidecar is not on npm and has no Clojars coordinate — this repository publishes JVM artefacts only, and its
 package manifest is marked private, so there is nothing to `npm install` by
 name. You obtain it from a checkout of the repository, and that is the
 supported route rather than a stopgap: the package is `implementation/ssr-node`,
@@ -1005,8 +1025,7 @@ partial page. Four ids tell them apart in the trace stream:
 `:rf.error/ssr-node-refused` (any other non-200, carrying the sidecar's own
 refusal code) and `:rf.error/ssr-node-build-skew`.
 
-Full normative contract: [Spec 011](../../spec/011-SSR.md). The sidecar's own
-guarantees, protocol and refusal codes:
+The sidecar's own guarantees, protocol and refusal codes:
 [`implementation/ssr-node/README.md`](../../implementation/ssr-node/README.md).
 
 ## Advanced

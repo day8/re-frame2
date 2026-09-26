@@ -45,7 +45,9 @@ app-db.
 - **One head per route, shared by id.** No parent/child composition in v1 — routes
   that want the same metadata name the same head id.
 - **No `:head` is fine.** Default: `<title>` from the frame's `:doc` (none when it
-  has no `:doc`) plus the `viewport` meta. The page shell always writes
+  has no `:doc`) plus the `viewport` meta. `ssr-handler`'s per-request frame has no
+  `:doc`, so under the handler the default head has no `<title>` — register a head
+  to get one. The page shell always writes
   `<meta charset="utf-8">` itself, so never put a charset in a head model. A head you
   register replaces the default, so include the `viewport` meta in it if you want one.
 - **`:script` entries are attributes only** (`{:src "/js/widget.js"}`).
@@ -56,9 +58,10 @@ app-db.
   `data-rf-head-hash` on `<head>`), omitted when the head can't be recomputed — an
   explicit `:head` string, or a degraded head. The bundled runtime compares only the
   body hash; it ships **no** automatic head comparison. The head *model* is
-  reconstructible, so a host that wants the check recomputes `(ssr/head-model
-  frame-id)` from the hydrated app-db + route slice and compares it to `:rf/head-hash`
-  itself — that wiring is the host's, not automatic.
+  reconstructible, so a host that wants the check recomputes
+  `(ssr/render-tree-hash (ssr/head-model frame-id))` from the hydrated app-db + route
+  slice and compares it to `:rf/head-hash` itself — that wiring is the host's, not
+  automatic.
 - **Keeping the document head current is the app's job.** There is no DOM-head
   reconciler in v1. The first byte carries the server-rendered head; refreshing
   `<title>` / `<meta>` on an SPA route change needs an app- or host-level head
@@ -103,9 +106,9 @@ Two handler options change where the head comes from, and both need care:
 | `ssr/head-model` throws when you call it directly | `:rf.error/no-such-head` — the `:head-id` or the route's `:head` names nothing registered | Register the head, or fix the id |
 | Path put in route metadata | `:rf.error/route-bad-metadata` — throws at registration, so the route never registers | Path is the **third** positional arg of `reg-route`, not a metadata key |
 | SPA route change leaves stale `<title>` | No automatic DOM-head reconciler in v1 | App- or host-level head manager after hydrate |
-| Expecting automatic head-hash compare | Runtime compares body `:rf/render-hash` only | Host recomputes `(ssr/head-model frame-id)` vs `:rf/head-hash` if wanted |
+| Expecting automatic head-hash compare | Runtime compares body `:rf/render-hash` only | Host compares `(ssr/render-tree-hash (ssr/head-model frame-id))` with `:rf/head-hash` if wanted |
 
 ## See also
 
 - [Routing concepts](../routing/concepts.md) — route metadata including `:head`
-- [API: reg-head](../api/re-frame.ssr.md) / head accessors on `re-frame.core`
+- [API: reg-head](../api/re-frame.ssr.md) — `reg-head` is on `re-frame.core`; `head-model` and `head-model->html` are on `re-frame.ssr`
