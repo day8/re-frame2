@@ -4,7 +4,8 @@
   EP-0017:386 — a recordable coeffect value rides the durable causal record
   (epoch ledger, replay, SSR payload, Xray export) and so MUST be ordinary EDN
   data that reads back unchanged. A host handle (DOM node, `Promise`, function,
-  atom, `Date`, any JS / Java object) folded in corrupts durable state SILENTLY:
+  atom, any other JS / Java object — but not a `Date`, which reads back as
+  `#inst`) folded in corrupts durable state SILENTLY:
   the failure surfaces far away, at replay / Xray / SSR time, not at the bad
   coeffect. The structural-EDN floor catches it at the source — ALWAYS-ON, a
   hard error in production as well as dev.
@@ -110,7 +111,7 @@
              "` is not recordable EDN data: the value "
              "at path " (pr-str path) " is a `"
              bad-type "` (a host object — DOM node, "
-             "Promise, function, atom, Date, or other "
+             "Promise, function, atom, or other "
              "JS / Java handle). " durable-clause)
         ;; The structured sub-kind that distinguishes a structural-EDN failure
         ;; from a declared-`:schema` miss rides its own `:rf.cofx/value-error`

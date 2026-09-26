@@ -1345,8 +1345,14 @@
 
   ## What it refuses
 
-  - **A `h/defhost` crossing, a raw React element, an unforced `delay`**,
-    anywhere in the tree — opaque, with a pointer to L3.
+  - **A `h/defhost` crossing, a raw React element**, anywhere in the
+    tree — opaque, with a pointer to L3.
+  - **A `delay` in child position, or an unforced one reachable from a
+    boundary's props** — with the runtime's own
+    `:rf.error/fresco-deferred-read-at-boundary` and its reason: hand a
+    function, or deref the delay in the body that wrote it. At a native
+    attribute the runtime refuses nothing, so a delay there takes the
+    generic `:rf.error/ui-tree-malformed`.
   - **A read no fixture answers** — see `:subs` above.
   - **Options that are not a map, or carry a key outside `#{:subs}`** —
     see the closed roster above.

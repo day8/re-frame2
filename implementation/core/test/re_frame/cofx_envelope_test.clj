@@ -253,7 +253,7 @@
 ;;
 ;; EP-0017:386 — a recordable coeffect value rides the durable causal record
 ;; (epoch ledger, replay, SSR payload, Xray) and MUST be ordinary EDN data. A
-;; host handle (DOM node, Promise, function, atom, Date, JS / Java object)
+;; host handle (DOM node, Promise, function, atom, JS / Java object)
 ;; supplied as a recordable coeffect breaks that contract silently. The
 ;; supplied-value check runs at the dispatch boundary, AFTER the map-shape
 ;; check and BEFORE the per-supplier `:schema` validation, and raises

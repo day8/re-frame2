@@ -14,7 +14,7 @@
 
   ## The subject: presence, because it is the reason the door exists
 
-  `h/presence` retains a dismissed child for `:timeout-ms` and drops it when
+  `motion/presence` retains a dismissed child for `:timeout-ms` and drops it when
   the deadline passes. It is the shipped feature whose next step is a
   `setTimeout`. Two facts about it decide the shape of the whole control,
   and both are asserted below rather than assumed:
