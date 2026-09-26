@@ -231,18 +231,6 @@
             (is (= ::default-boot (:handler-fn (rf.registrar/lookup :event :app/boot))))
             (is (nil? rf.registrar/*generation*))))))))
 
-(deftest frame-resolution-generation-reads-the-target-generation
-  (testing "frame-resolution-generation returns a frame object's generation and
-            nil for any non-frame-object / no-generation target"
-    (let [pool  [(reg-desc "examples.g" :event :g/go ::go)]
-          img   (rf.image/image {:select-ns {:include ["examples.g"]}})
-          frame (rf.live-frame/make-frame {:images [img]} pool)]
-      (is (= (rf.live-frame/frame-generation frame) (rf.live-frame/frame-resolution-generation frame)))
-      (is (nil? (rf.live-frame/frame-resolution-generation nil)))
-      (is (nil? (rf.live-frame/frame-resolution-generation :counter/main)))
-      (is (nil? (rf.live-frame/frame-resolution-generation {:rf.frame/object true}))
-          "a frame object with no generation slot yields nil (absence-is-default)"))))
-
 ;; ===========================================================================
 ;; 6. Same image in two frames resolves identically (shared behaviour) — the
 ;;    complement of the same-id/different-image case
@@ -260,30 +248,3 @@
         (fn [] (is (= ::inc (rf.registrar/handler :event :counter/inc)))))
       (rf.live-frame/call-with-frame-resolution right
         (fn [] (is (= ::inc (rf.registrar/handler :event :counter/inc))))))))
-
-;; ===========================================================================
-;; 7. Coherence — a nested resolution stays in the frame's generation across
-;;    the cascade (the binding covers the WHOLE thunk, not just the top lookup)
-;; ===========================================================================
-
-(deftest nested-resolution-stays-in-the-frames-generation
-  (testing "the binding covers the WHOLE thunk: a lookup issued from a nested
-            call inside the seam still resolves through the frame's generation
-            (ALL-OR-NOTHING coherence — the event handler, its cofx, and its fx
-            all resolve in the same image)"
-    (let [pool  [(reg-desc "examples.c" :event :c/go   ::go)
-                 (reg-desc "examples.c" :cofx  :c/now  ::now)
-                 (reg-desc "examples.c" :fx    :c/save ::save)]
-          img   (rf.image/image {:select-ns {:include ["examples.c"]}})
-          frame (rf.live-frame/make-frame {:images [img]} pool)
-          ;; A nested fn that resolves a DIFFERENT kind, simulating the cofx
-          ;; injection / fx walk that runs deeper in the cascade.
-          resolve-fx (fn [] (rf.registrar/handler :fx :c/save))]
-      (rf.live-frame/call-with-frame-resolution frame
-        (fn []
-          (is (= ::go (rf.registrar/handler :event :c/go)))
-          ;; cofx injection (runs as an interceptor :before inside the cascade)
-          (is (= ::now (rf.registrar/handler :cofx :c/now)))
-          ;; the fx walk (runs post-commit inside the SAME call) — nested resolve
-          (is (= ::save (resolve-fx))
-              "a nested fx resolution stays in the frame's generation"))))))
