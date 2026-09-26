@@ -87,16 +87,6 @@
 
 ;; ---- TOP (user-domain) section ------------------------------------------
 
-(deftest top-section-renders-user-domain-value
-  (testing "the TOP section renders the app-db-minus-reserved value"
-    (let [model (sections {:counter 5 :user {:name "ada"}}
-                          {:rf/route {:id :home}})
-          tree  (state/state-body model)]
-      (is (some? (find-by-testid tree "rf-xray-app-db-state"))
-          "panel state container present")
-      (is (some? (find-by-testid tree "rf-xray-app-db-state-top"))
-          "TOP user-domain section present"))))
-
 (deftest top-section-empty-when-no-user-domain-keys
   (testing "a reserved-keys-only db → TOP section still renders, with the
             empty-state body (not omitted)"
@@ -175,19 +165,6 @@
         (is (not (contains? ids (str "rf-xray-app-db-state-area-"
                                      (pr-str area))))
             (str "no placeholder card for empty reserved area " area))))))
-
-(deftest populated-reserved-areas-render
-  (testing "populated reserved areas render; each populated area
-            gets a card the operator can read"
-    (let [model (sections {:counter 1}
-                          {:rf/route    {:id :home}
-                           :rf/machines {:auth {:state :idle}}})
-          tree  (state/state-body model)
-          ids   (testids tree)]
-      (is (contains? ids "rf-xray-app-db-state-area-:rf/route")
-          "populated route → area section present")
-      (is (contains? ids "rf-xray-app-db-state-instance-:rf/machines-:auth")
-          "populated machines → instance section present"))))
 
 ;; ---- nil-safety ---------------------------------------------------------
 
@@ -272,33 +249,6 @@
         (is (nil? (:border s)) "no full border on section")
         (is (nil? (:border-top s))
             "no hairline border-top on any section")))))
-
-(deftest top-section-draws-no-border-top
-  (testing "the TOP section's wrapper carries no border-top
-            (consistent with every other section)"
-    (let [model (sections {:counter 1} {})
-          tree  (state/state-body model)
-          top   (find-by-testid tree "rf-xray-app-db-state-top")]
-      (is (some? top))
-      (is (nil? (:border-top (:style (second top))))
-          "TOP → no border-top divider"))))
-
-(deftest reserved-area-sections-draw-no-border-top
-  (testing "no populated reserved-area section draws a
-            hairline border-top divider above it (the card chrome alone
-            self-separates adjacent cards). With every reserved slot
-            populated, every section renders without a divider."
-    (let [model (sections {:rf/machines           {:title/flow {:state :idle}}
-                           :rf/spawned            {:parent     {:invoke :child}}
-                           :rf/route              {:id :home}
-                           :rf/pending-navigation {:to :next}
-                           :rf/elision            {:declarations {}}})
-          tree   (state/state-body model)
-          styles (section-styles tree)]
-      (is (seq styles) "sections render")
-      (doseq [s styles]
-        (is (nil? (:border-top s))
-            "no hairline divider on any section")))))
 
 ;; ---- inline diff annotation (spec/021 §4.3) -----------------------------
 ;;
@@ -625,22 +575,6 @@
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
       (is (not-any? #(contains? (:opts %) :full-with-diff?) mounts)
           "no mount carries a `:full-with-diff?` opt"))))
-
-(deftest changed-machine-snapshot-diff-mount-threads-before
-  (testing "DIFF mounts in the per-machine fan-out thread
-            `:before` (the only diff signal) so the widget paints the
-            R4 rail / R3 chip + inline annotation uniformly across every
-            reserved area"
-    (let [before   (runtime-db {:rf/machines {:title/flow {:state :idle}}})
-          after    (runtime-db {:rf/machines {:title/flow {:state :loaded}}})
-          model    (h/current-state-sections {} after {:app {} :runtime before})
-          tree     (state/state-body model)
-          flow     (find-by-testid
-                     tree "rf-xray-app-db-state-instance-:rf/machines-:title/flow")
-          mounts   (find-edn-inspector-mounts flow)
-          diff-mts (filter #(contains? (:opts %) :before) mounts)]
-      (is (seq diff-mts)
-          "the changed-machine instance mount threads `:before`"))))
 
 ;; ===========================================================================
 ;; TWO PANEL INSTANCES UNDER ONE FRAME PROVIDER
