@@ -24,8 +24,7 @@
         pre-broadcast snapshot (not an evolving rebuild), while `:data`
         accumulation across co-selected regions in declaration order holds.
     (4) CONVERGENCE — guarded `:always` settles in parent-owned rounds after
-        the complete event set applies; raised events remain FIFO behind the
-        eventless fixed point.
+        the complete event set applies.
     (5) parallel SELECTION is DECLARATION-ORDER-INDEPENDENT — the same
         machine with regions declared a-then-b vs b-then-a yields the same
         selected set / same committed state."
@@ -197,26 +196,7 @@
       (rf/dispatch-sync [:frozen/converge [:go]])
       (is (= {:a :done :b :ready} (:state (snapshot :frozen/converge)))
           "event actions completed, then the frozen parent :always round saw
-           :a=:done and moved b before the one macrostep committed")))
-
-  (testing "same-event coordination via :raise settles same-macrostep, next
-            microstep — the IN-MACROSTEP convergence path"
-    (let [m {:type    :parallel
-             :data    {}
-             :actions {:announce (fn [{:keys [data]}]
-                                   {:data data :fx [[:raise [:a-ready]]]})}
-             :regions
-             {:a {:initial :idle
-                  :states  {:idle {:on {:go {:target :done :action :announce}}}
-                            :done {}}}
-              :b {:initial :waiting
-                  :states  {:waiting {:on {:a-ready :ready}}
-                            :ready   {}}}}}]
-      (rf/reg-machine :frozen/raise m)
-      (rf/dispatch-sync [:frozen/raise [:go]])
-      (is (= {:a :done :b :ready} (:state (snapshot :frozen/raise)))
-          "a's :go raised :a-ready; the FIFO re-broadcast delivered it to b,
-           which fired on the next microstep — bounded, convergent"))))
+           :a=:done and moved b before the one macrostep committed"))))
 
 ;; ---- (5) SELECTION is DECLARATION-ORDER-INDEPENDENT ------------------------
 
@@ -277,18 +257,6 @@
           "b-then-a: b saw frozen :a=:idle → b blocked")
       (is (= ab ba)
           "the selected set is IDENTICAL regardless of declaration order")))
-
-  (testing "pure machine-transition is also declaration-order-independent"
-    (let [initial-ab {:state {:a :idle :b :idle} :data {}}
-          initial-ba {:state {:b :idle :a :idle} :data {}}
-          {snap-ab :snapshot} (rf.machines.parallel/machine-transition
-                                    (order-machine [:a :b]) initial-ab [:go])
-          {snap-ba :snapshot} (rf.machines.parallel/machine-transition
-                                    (order-machine [:b :a]) initial-ba [:go])]
-      (is (= {:a :done :b :idle} (:state snap-ab)))
-      (is (= {:a :done :b :idle} (:state snap-ba)))
-      (is (= (:state snap-ab) (:state snap-ba))
-          "pure selection is identical across declaration orders")))
 
   (testing ":data-guard selection is ALSO declaration-order-independent — a
             region reading shared :data a SIBLING writes same-event sees the

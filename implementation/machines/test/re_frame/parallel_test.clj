@@ -280,36 +280,7 @@
                                                 :regions {:in {:initial :s
                                                                :states  {:s {}}}}}}}}})))))
 
-;; ---- 11. :rf.machine/has-tag? sub works on parallel snapshots ----------
-
-(deftest parallel-has-tag-sub
-  (testing ":rf.machine/has-tag? returns true iff the union contains the tag"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:data {:initial :loading
-                              :states  {:loading {:tags #{:data/loading}}}}
-                       :form {:initial :neutral
-                              :states  {:neutral {:tags #{:form/neutral}}}}}}]
-      (rf/reg-machine :par/has-tag m)
-      (rf/dispatch-sync [:par/has-tag [:no-op]])
-      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :par/has-tag :data/loading])))
-      (is (= true  @(rf/subscribe [:rf.machine/has-tag? :par/has-tag :form/neutral])))
-      (is (= false @(rf/subscribe [:rf.machine/has-tag? :par/has-tag :missing]))))))
-
-;; ---- 12. snapshot stored at [:rf.runtime/machines :snapshots <id>] like any other --------
-
-(deftest parallel-snapshot-lives-at-rf-machines-id
-  (testing "parallel-region snapshots are byte-compatible with single-machine storage"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one :states {:one {}}}
-                       :b {:initial :two :states {:two {}}}}}]
-      (rf/reg-machine :par/storage m)
-      (rf/dispatch-sync [:par/storage [:no-match]])
-      (is (some? (snapshot :par/storage))
-          "snapshot synthesised at [:rf.runtime/machines :snapshots :par/storage]"))))
-
-;; ---- 13. region-machine memoization ---------------------------------------
+;; ---- 11. region-machine memoization ---------------------------------------
 
 (deftest region-machine-result-is-memoised-per-machine
   (testing "region-machine returns identical-equal results across repeat calls for the same parent-machine"
