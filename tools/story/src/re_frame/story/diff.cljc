@@ -39,8 +39,13 @@
   - `:warnings`          — warning records present in one run and not the other;
   - `:trace-ops`         — the trace `:operation` sequence (the causal op
                            spine), as an ordered alignment of the two;
-  - `:sub-overrides`     — the `{query-vector data}` sub-override map delta;
-  - `:fidelity`          — the `#{fidelity-token …}` set delta.
+  - `:sub-overrides`     — a delta over a result's `:sub-overrides` slot;
+  - `:fidelity`          — a set delta over a result's `:fidelity` slot.
+
+  A run result carries neither of those last two slots (both live on the
+  plan, at `[:world :render :sub-overrides]` and `[:world :fidelity]`), so
+  between two runs those two facets never fire: runs whose overrides or
+  fidelity differ differ by `:plan-hash`, which sits outside the run slice.
 
   The facet set is EXACTLY the canonical run-slice
   (`rf.story.fingerprint/run-hash-input-keys`) the `:same?` judgement compares —
@@ -443,17 +448,19 @@
 ;; SUB-OVERRIDES DELTA  (the resolved render-path override map)
 ;; ===========================================================================
 ;;
-;; `:sub-overrides` is the resolved `{query-vector value}` map (spec/017
-;; §View-state subscription overrides) — the third, lower-fidelity rung the
-;; render path consults. A semantic difference is an override one run carried
-;; and the other did not, or one whose pinned VALUE differs. The query vector
-;; is the identity (each override key is an exact query vector), so the delta
-;; is keyed by query vector with added / removed / changed buckets.
+;; The facet reads a result's `:sub-overrides` slot as a resolved
+;; `{query-vector value}` map (spec/017 §View-state subscription overrides).
+;; The query vector is the identity (each override key is an exact query
+;; vector), so the delta is keyed by query vector with added / removed /
+;; changed buckets. A run result carries no `:sub-overrides` slot — the
+;; resolved map lives on the plan, at `[:world :render :sub-overrides]` — so
+;; between two runs both sides read `{}` and the facet never fires.
 
 (defn diff-sub-overrides
-  "Delta between two runs' resolved `:sub-overrides` maps (spec/017
-  §View-state subscription overrides), keyed by the override's query vector.
-  Pure data → data; `nil` when the override maps are `=`, else:
+  "Delta between two results' `:sub-overrides` maps (spec/017 §View-state
+  subscription overrides), keyed by the override's query vector. A run
+  result carries no `:sub-overrides` slot, so between two runs this is
+  `nil`. Pure data → data; `nil` when the override maps are `=`, else:
 
       {:added   [{:query … :current  v} …]   ; override only in current
        :removed [{:query … :baseline v} …]   ; override only in baseline
@@ -471,19 +478,22 @@
 ;; FIDELITY DELTA  (the fidelity-ladder rung set)
 ;; ===========================================================================
 ;;
-;; `:fidelity` is a SET of the rungs a resolved plan rests on
-;; (`#{:real-setup :db-seed :sub-overrides}`, spec/017 §View-state
-;; subscription overrides — fidelity ladder). A semantic difference is a rung
-;; one run rested on and the other did not, so the delta is a set delta
-;; naming the rungs each side carried uniquely.
+;; The facet reads a result's `:fidelity` slot as a SET of fidelity-ladder
+;; rungs (`#{:real-setup :db-seed :sub-overrides}`, spec/017 §View-state
+;; subscription overrides — fidelity ladder), and the delta is a set delta
+;; naming the rungs each side carried uniquely. A run result carries no
+;; `:fidelity` slot — the fidelity set lives on the plan, at
+;; `[:world :fidelity]` — so between two runs both sides read `#{}` and the
+;; facet never fires.
 
 (defn diff-fidelity
-  "Set delta over the two runs' `:fidelity` rung sets (spec/017 §View-state
-  subscription overrides — fidelity ladder). Pure data → data; `nil` when the
-  rung sets match, else `{:only-baseline #{rung …} :only-current #{rung …}}`
-  — the fidelity rungs one run rested on and the other did not (e.g. a
-  baseline that used `:real-setup` vs a current that fell back to
-  `:sub-overrides`)."
+  "Set delta over two results' `:fidelity` rung sets (spec/017 §View-state
+  subscription overrides — fidelity ladder). A run result carries no
+  `:fidelity` slot, so between two runs this is `nil`. Pure data → data;
+  `nil` when the rung sets match, else
+  `{:only-baseline #{rung …} :only-current #{rung …}}` — the rungs one side
+  carried and the other did not (e.g. a baseline carrying `:real-setup` vs a
+  current carrying `:sub-overrides`)."
   [baseline current]
   (let [base (set (:fidelity baseline))
         cur  (set (:fidelity current))]
