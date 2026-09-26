@@ -158,7 +158,7 @@ Singletons supporting `:reset` back to `:idle` must NOT use `:final?` (auto-dest
 
 ## Pointers
 
-Full rationale — `:spawn-all` runtime, join-state layout, the `:join` enum (`:all` / `:any`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states. (`:any` requires `:on-some-complete`; `:all` requires `:on-all-complete`, per `re-frame.machines.lifecycle-fx.validation`. A quorum "N of M" join uses the data-only `:after` + `:done-guard` idiom, not a `:join` mode.)
+Full rationale — `:spawn-all` runtime, join-state layout, the `:join` enum (`:all` / `:any`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states. (`:any` requires `:on-some-complete`; `:all` requires `:on-all-complete`, per `re-frame.machines.lifecycle-fx.validation`. A quorum "N of M" join is not a `:join` mode: each child spec's `:on-done` counts completions in the parent's `:data`, and a guard on the state's `:after` entry reads that count at the deadline.)
 
 ---
 
