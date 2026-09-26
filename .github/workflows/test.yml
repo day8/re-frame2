@@ -5585,6 +5585,22 @@ jobs:
       - name: Compile re-frame2-pair-mcp server bundle (shadow-cljs :server)
         run: npm run build
 
+      # Hand-rolled JSON-RPC wire probe against the same shipped bundle:
+      #
+      #   - test/stdio-roundtrip.js — spawns out/server.js with no resolvable
+      #     nREPL port, walks initialize → tools/list (pinned to
+      #     test/fixtures/tool-names.json plus the snapshot / get-path input
+      #     schemas) → tools/call, asserts the degraded
+      #     `:rf.error/pair-mcp-nrepl-port-not-found` envelope for eval-cljs,
+      #     snapshot and get-path, and the pre-connection `:unknown-tool`
+      #     refusal.
+      #
+      # It is the first spawn of the freshly compiled bundle, so its wait for
+      # the server's `ready` banner meets the job's cold start; the harness
+      # logs how long that wait took.
+      - name: Run stdio-roundtrip integration test (tools/re-frame2-pair-mcp artefact)
+        run: node test/stdio-roundtrip.js
+
       - name: Run stdin-EOF shutdown regression (tools/re-frame2-pair-mcp artefact)
         run: npm run test:stdin-eof-shutdown
 
