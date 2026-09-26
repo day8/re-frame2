@@ -326,7 +326,7 @@ nav:
   - Machines:
     # Section label IS the landing page (navigation.indexes). Flat list —
     # titles match each page H1. Numbered pages grow one login machine.
-    # Examples / migrate / glossary stay unnumbered.
+    # The how-to / examples / migrate / glossary stay unnumbered.
     - machines/index.md
     - "1. First machine": machines/tutorial.md
     - "2. The table": machines/concepts.md
@@ -337,6 +337,7 @@ nav:
     - "7. History": machines/history.md
     - "8. Actors": machines/actors.md
     - "9. Inspecting and testing": machines/inspecting-machines.md
+    - Persist and restore: machines/persist-and-restore.md
     - Examples: machines/examples.md
     - Coming from XState: machines/coming-from-xstate.md
     - Glossary: machines/glossary.md
