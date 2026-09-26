@@ -3200,7 +3200,8 @@
 ;;                            Returns the post-cascade Result (snap+fx).
 ;;
 ;;   commit-snapshot        — stamp `:state` (denormalised to match the
-;;                            input shape) and bump the `:after` epoch when
+;;                            target's shape, and a keyword in a flat
+;;                            machine) and bump the `:after` epoch when
 ;;                            any exited/entered node carries `:after`.
 ;;
 ;;   run-spawn-phase        — reduce over `entered-pairs` dispatching to
@@ -3707,6 +3708,15 @@
             after-fx (build-after-fx machine [[[] machine]] internal? snap')]
         [snap' (vec after-fx)]))))
 
+(defn- flat-machine?
+  "True for a standalone machine whose states are all leaves — the flat arm
+  of Spec 005 §Snapshot shape, whose `:state` is a single keyword. A
+  parallel region's synthetic spec (`:rf/region`) is excluded, so a
+  region-local vector target keeps its vector."
+  [machine]
+  (and (nil? (:rf/region machine))
+       (not-any? :states (vals (:states machine)))))
+
 (defn- commit-snapshot
   "Phase 3 — write the new `:state` onto the post-cascade snapshot and
   bump the per-path `:after` epoch for each exited/entered `:after`-
@@ -3716,15 +3726,19 @@
   [machine snapshot snap-after geometry]
   ;; The `cond` has three arms — `internal?` (raw-target
   ;; is nil; preserve current state), vector target (use the cascade-
-  ;; descended leaf as a vector), keyword target (collapse a single-
-  ;; element leaf to a keyword, else vectorise). No `:else` arm is needed:
-  ;; `internal?` already covers the nil-raw-target case,
-  ;; and `:target` validation upstream rejects anything other than
-  ;; keyword/vector/nil.
+  ;; descended leaf as a vector, except that a flat machine's single-
+  ;; element leaf collapses to its keyword, per Spec 005 §Snapshot shape),
+  ;; keyword target (collapse a single-element leaf to a keyword, else
+  ;; vectorise). No `:else` arm is needed: `internal?` already covers the
+  ;; nil-raw-target case, and `:target` validation upstream rejects
+  ;; anything other than keyword/vector/nil.
   (let [{:keys [internal? raw-target target-leaf after-bump-paths]} geometry
         new-state (cond
                     internal?             (:state snapshot)
-                    (vector? raw-target)  (vec target-leaf)
+                    (vector? raw-target)  (if (and (= 1 (count target-leaf))
+                                                   (flat-machine? machine))
+                                            (first target-leaf)
+                                            (vec target-leaf))
                     (keyword? raw-target) (if (= 1 (count target-leaf))
                                             (first target-leaf)
                                             (vec target-leaf)))]
