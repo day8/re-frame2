@@ -1059,11 +1059,14 @@ Both canned-stub fxs accept an optional `:after-ms` arg. It is a **parameter of 
 
 ```clojure
 ;; Immediate (default): reply lands in the same dispatch-sync drain.
-{:fx [[:rf.http/managed-canned-success {:value {:user {...}}}]]}
+{:fx [[:rf.http/managed-canned-success {:value    {:user {...}}
+                                         :reply-to [:user/loaded]}]]}
 
 ;; Deferred: reply lands 50 ms later, so a `:loading` / `:submitting`
 ;; UI state is observable before it resolves.
-{:fx [[:rf.http/managed-canned-success {:value {:user {...}} :after-ms 50}]]}
+{:fx [[:rf.http/managed-canned-success {:value    {:user {...}}
+                                         :reply-to [:user/loaded]
+                                         :after-ms 50}]]}
 ```
 
 The delay rides the framework-native `:dispatch-later` timer — it is **observable in the tape** (the deferred dispatch self-tags `:source :fx-dispatch-later` with `:source-detail {:ms N}`) and time-travel-safe (Tool-Pair time-travel and the documented `:dispatch-later` nil-override seam both apply). It is **not** raw `js/setTimeout` / `interop/set-timeout!`. Reply addressing is identical to the immediate path — the `:reply-to` target (or the explicit `:on-success` / `:on-failure`) receives the canonical reply envelope after the delay. `:after-ms` is the single mechanism a demo stub uses to simulate latency: one arg on the canned effect, rather than a per-app three-hop chain (stub-fx → schedule-reply → `:dispatch-later` → deliver-reply → canned reply).
