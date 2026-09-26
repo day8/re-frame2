@@ -93,17 +93,8 @@
        (catch Throwable e
          (:reason (ex-data-in-chain e)))))
 
-(deftest reg-view-rejects-var-ref-body
-  (testing "(reg-view sym some-fn) — a symbol where the args vector should be
-            — throws at macroexpand"
-    (let [reason (reg-view-error-reason
-                   (fn [] (eval `(rf/reg-view bad-var ~'some-fn-ref))))]
-      (is (some? reason)
-          "macroexpand throws when the second arg is a symbol")
-      (is (re-find #"args vector" reason)
-          ":reason points at the missing args vector")
-      (is (re-find #"reg-view\*" reason)
-          ":reason points the user at the reg-view* escape hatch"))))
+;; A bare symbol where the args vector should be — `(reg-view sym some-fn)` —
+;; is the input `reg-view-error-message-matches-template` below throws on.
 
 (deftest reg-view-rejects-create-class-body
   (testing "(reg-view sym (reagent.core/create-class …)) — a list where the
