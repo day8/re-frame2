@@ -110,7 +110,7 @@ Register a route under the reserved id `:rf.route/not-found` to render a page fo
 | `{:url url :reason :malformed-url}` | The URL has malformed percent-encoding. |
 | `{:url url :reason :match-error}` | Matching the URL threw. |
 
-A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on the always-on `:errors` stream, which SSR answers with a 404. When no `:rf.route/not-found` route is registered, the slice still takes that id and the runtime emits `:rf.warning/no-not-found-route`. A `{:to …}` navigation never lands here: an unregistered route or a failing param rejects it instead (see [Events](#events)).
+A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on the always-on `:errors` stream, which SSR answers with a 404. A malformed URL, or one whose matching threw, also emits `:rf.warning/malformed-url` on the development trace stream, from a URL-driven change and from `[:rf.route/navigate {:url …}]` alike. Its tags carry the URL under `:url`, with query and fragment values redacted, and `:reason :match-error` when matching threw. When no `:rf.route/not-found` route is registered, the slice still takes that id and the runtime emits `:rf.warning/no-not-found-route`. A `{:to …}` navigation never lands here: an unregistered route or a failing param rejects it instead (see [`:rf.route/navigate`](#rfroutenavigate-request)).
 
 ```clojure
 (rf/reg-route :rf.route/not-found {} "/404")
@@ -141,14 +141,18 @@ A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on t
    & children]
   ```
 - **Description**: Renders an `<a href=...>` for a route and turns a plain left-click into navigation.
-    - `:to` is the only required key. `:params`, `:query` and `:fragment` are passed to `route-url` to build the href. `:replace?`, `:scroll` and `:bypass-leave?` apply to the navigation the click makes, as they do on [`:rf.route/navigate`](#events). Every other key except `:prefetch` passes through to the `<a>`, including `:class` and `:aria-current`. `route-link` computes no active state: to style the active link, compare `:to` with `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
+    - `:to` is the only required key. `:params`, `:query` and `:fragment` are passed to `route-url` to build the href. `:replace?`, `:scroll` and `:bypass-leave?` apply to the navigation the click makes, as they do on [`:rf.route/navigate`](#rfroutenavigate-request). Every other key except `:prefetch` passes through to the `<a>`, including `:class` and `:aria-current`. `route-link` computes no active state: to style the active link, compare `:to` with `:rf.route/id` (or `:rf.route/chain`) in your own view. See [Routing → Highlighting the active link](../routing/concepts.md#highlighting-the-active-link).
     - A plain primary-button click (no modifier keys, `defaultPrevented` false) is intercepted: the view calls `preventDefault`, then dispatches `[:rf.route/url-requested {:url ...}]` to the frame that rendered the link, with any of the link's `:replace?`, `:scroll` and `:bypass-leave?` beside `:url`. The URL is the whole address, and the handler derives the route from it.
     - Modifier-key and middle-button clicks, and anchors with `:target` other than `_self` or with `:download`, are left to the browser.
     - A caller-supplied `:on-click` runs first. If it calls `preventDefault`, the link does not intercept the click.
-    - `:prefetch :intent` dispatches [`:rf.route/prefetch`](#events) with the link's own address on hover, focus or touch. The address leaves out `:fragment`, which is never a resource input. Caller-supplied `:on-mouse-enter`, `:on-focus` and `:on-touch-start` handlers still run alongside.
-    - `:intent` is the only accepted `:prefetch` value, and leaving the key out is the only way to opt out: any other value, including `true`, `false` and `nil`, throws `:rf.error/route-link-bad-prefetch` at the render site. The intent handlers exist only in ClojureScript (SSR renders the anchor without them), but the value is validated on both hosts, so the server never accepts a value the client rejects.
+    - `:prefetch :intent` dispatches [`:rf.route/prefetch`](#rfrouteprefetch-address) with the link's own address on hover, focus or touch. The address leaves out `:fragment`, which is never a resource input. Caller-supplied `:on-mouse-enter`, `:on-focus` and `:on-touch-start` handlers still run alongside.
+    - `:intent` is the only accepted `:prefetch` value, and leaving the key out is the only way to opt out. The intent handlers exist only in ClojureScript (SSR renders the anchor without them), but the value is validated on both hosts, so the server never accepts a value the client rejects.
     - `re-frame.fresco/route-link` accepts the same `:prefetch` key, but throws `:rf.error/fresco-route-link-claimed-intent-position` if the link also supplies one of those three handlers. See [Fresco → Prefetch on user intent](../core/fresco/07-routing-and-navigation.md#prefetch-on-user-intent).
     - The href is encoded through the rendering frame's `:url-strategy` on both hosts, so the server-rendered link and the hydrated client agree. On the JVM the view renders with [`route-link-render-ssr`](#route-link-render-ssr).
+- **Errors**: each is thrown at the render site, in this order.
+    - `:rf.error/no-frame-context`: in ClojureScript, the link renders outside any frame. It captures its frame at render so the click dispatches there, so render it under a `frame-root` or `frame-provider`. On the JVM the link reads the frame without requiring one, and outside any frame it renders the history-strategy href.
+    - `:rf.error/route-link-bad-prefetch`: `:prefetch` is present with any value other than `:intent`, including `true`, `false` and `nil`. It is checked before the route lookup, so a mistyped `:to` does not hide it.
+    - `route-url`'s errors, from building the href: `:rf.error/no-such-route`, `:rf.error/missing-route-param`, `:rf.error/route-url-validation` and `:rf.error/route-url-non-edn-value`. See [`route-url`](#route-url).
 - **Example**:
   ```clojure
   [rf/route-link {:to :user/show :params {:id 42} :class "nav-item"}
@@ -157,63 +161,158 @@ A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on t
 
 ## Keyword surfaces
 
-Loading `re-frame.routing` registers these events, subscriptions, effects and coeffects. It also registers some internal ones that apps and tools never use directly, which the tables leave out: the `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation` coeffects and the `:rf.route/commit-nav-counter` effect. The `:rf.route.internal/*` event namespace is reserved for the runtime and has no members.
+Loading `re-frame.routing` registers these events, subscriptions, effects and coeffects. It also registers some internal ones that apps and tools never use directly, which this section leaves out: the `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation` coeffects and the `:rf.route/commit-nav-counter` effect. The `:rf.route.internal/*` event namespace is reserved for the runtime and has no members.
 
 ### Events
 
-| Event | Notes |
-|---|---|
-| `:rf.route/navigate` | Navigates, taking one request map: `[:rf.route/navigate {request}]`. Address keys: `:to` (route id), `:url` (a raw URL), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`. Give `:to` or `:url`, not both; `:url` excludes `:params`, `:query` and `:query-merge`. Omit both for an in-place request that patches the current location (`:query-merge`, or a `:query` or `:fragment` key). A structurally invalid request is rejected with `:rf.error/navigate-bad-request` before any guard runs ([the rules](#navigate-request-rules)). |
-| `:rf.route/handle-url-change` | Handles every URL change: a link click, popstate, the initial load, or SSR. The cause is `:rf.route/cause` on the trailing opts map (`:link`, `:popstate`, `:initial` or `:ssr`); when omitted it is `:initial` on a client frame and `:ssr` on a `:platform :server` frame. Default scroll is `:top` for `:link` and `:restore` for every other cause. The runtime dispatches this; you can override it for custom URL-change handling. |
-| `:rf.route/url-requested` | The user clicked a framework link: `[:rf.route/url-requested {:url "/cart"}]`, optionally with the policy keys `:replace?`, `:scroll` and `:bypass-leave?`. `route-link` dispatches it; you normally leave it to the default handler. |
-| `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending-navigation slot holds the rejected attempt as `{:id :destination :target :cause :policy :requested-url :rejecting-route :rejecting-guard :url-restored?}`. The slot only ever holds a leave rejection, so it has no direction field. |
-| `:rf.route/entry-denied` | A `:can-enter` guard rejected a navigation. This is final: nothing commits and no pending value is created. Dispatched once per attempt with `{:destination :target :cause :requested-url :guard}`. Register a handler to redirect, for example to login; the default handler does nothing. |
-| `:rf.route/continue` | Dispatch to go ahead with a blocked navigation ("yes, leave the page"): `[:rf.route/continue pending-nav-id]`. Replays the pending value's `:destination` and `:policy` through the normal navigation with a one-shot `:bypass-leave? true`, so the target's `:can-enter` still runs. |
-| `:rf.route/cancel` | Dispatch to abandon a blocked navigation and drop the pending value ("stay here"): `[:rf.route/cancel pending-nav-id]`. |
-| `:rf.route/prefetch` | Warms a destination's resource plan without navigating: `[:rf.route/prefetch {:to :route/article :params {:slug "x"}}]`. Takes a named address only, never `:url`; an invalid one is rejected before planning with `:rf.error/prefetch-bad-address`. Runs a navigation's parent-to-leaf plan in warm mode: every ensure is ownerless, `:blocking?` has no effect, and no route state, guards or `:on-match` run. Frame-scoped. Without the resources artefact, or with an empty plan, it only emits its `:rf.route/prefetched` summary trace. `route-link`'s `:prefetch :intent` dispatches it. |
-| `:rf.route/replan-resources` | Reruns the active route's resource plan against the current `app-db` without navigating: `[:rf.route/replan-resources {:cause [:session-restore]}]`. Details below the table. |
+Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/cancel`, `:rf.route/prefetch` and `:rf.route/replan-resources`. `route-link` dispatches `:rf.route/url-requested`, and the runtime dispatches the other three; an SSR app also dispatches `:rf.route/handle-url-change` with the request URL.
 
-The common `:rf.route/navigate` requests:
+`:rf.route/navigation-blocked` and `:rf.route/entry-denied` are the two events an application registers its own handler for. Registering a handler under any other routing event id makes frame creation throw `:rf.error/image-duplicate-id`.
 
-```clojure
-[:rf.route/navigate {:to :app/article :params {:id "intro"}}]   ;; a named route
-[:rf.route/navigate {:to :app/home :replace? true}]             ;; no new history entry
-[:rf.route/navigate {:url "/articles/intro?tab=comments"}]      ;; a URL, e.g. from a notification
-[:rf.route/navigate {:query-merge {:page 2 :filter nil}}]       ;; same route, edit the query
-```
+#### `[:rf.route/navigate {request}]`
 
-- `:replace? true` replaces the current history entry instead of pushing one.
-- `:scroll` overrides the target route's [`:scroll`](#reg-route) for this navigation.
-- `:bypass-leave? true` skips the current route's `:can-leave` guard once; the target's `:can-enter` still runs.
-- `:query-merge` merges into the current query, and a `nil` value removes that key. In an in-place request, `:query` replaces the whole query.
-- `:url` takes an address inside the app. An external URL is never followed: the request does nothing and emits the `:rf.route/external-url-requested` trace.
-- A request whose target `route-url` cannot build (an unregistered `:to` route, a missing path param, or params or query the route's schemas reject) changes nothing and emits `:rf.error/schema-validation-failure` with `:where :event`, carrying `route-url`'s error under `:error`.
-- A request identical to the current location does nothing, and runs no guards.
+- **Kind**: event
+- **Payload**: one request map. Address keys: `:to` (a route id), `:url` (a URL inside the app), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`.
+- **Description**: Navigates the frame the event is dispatched to.
+    - With `:to`, the target is built from `:params`, `:query` and `:fragment` alone, and the route's `:query-defaults` fill absent query keys. Nothing carries over from the current route.
+    - With `:url`, the URL is matched as a link click's would be, which suits a URL from a notification or a server redirect. `:fragment` beside it replaces the URL's own. A URL no route matches commits the [not-found route](#not-found-route). An external URL is never followed: the request does nothing and emits the `:rf.route/external-url-requested` trace.
+    - With neither, the request edits the current location in place. `:query` replaces the whole query, `:query-merge` merges into it (a `nil` value removes that key), and `:fragment` replaces the fragment. Path params cannot change in place, because new params are a new destination.
+    - `:replace? true` replaces the current history entry instead of pushing one. `:scroll` overrides the target route's [`:scroll`](#reg-route) for this navigation. `:bypass-leave? true` skips the current route's `:can-leave` guard once; the target's `:can-enter` still runs.
+    - A request identical to the current location does nothing and runs no guards. Any other request runs the current route's `:can-leave` guard, then the target's `:can-enter`, and a `false` from either ends it (see [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending) and [`:rf.route/entry-denied`](#rfrouteentry-denied-denial)).
+    - A request that changes only the fragment then updates `:fragment`, pushes the URL and scrolls. It keeps the navigation token and does not re-run `:on-match` or the resource plan.
+    - Any other allowed request commits: the route slice is written, the URL pushed or replaced, `:on-match` dispatched, the resource plan run and the scroll applied.
+- **Errors**: both leave the route slice unchanged and push nothing.
+    - `:rf.error/schema-validation-failure` (`:where :event`): `route-url` cannot build the target, because `:to` is not registered, a path param is missing, or the route's schemas reject the params or query. `route-url`'s error is under `:error`, elided when the route's schema marks a slot `:sensitive?`.
+    - `:rf.error/navigate-bad-request`: the request breaks one of the rules below, checked before any guard runs. `:reason` names the rule, and `:keys` the offending keys.
 
-<a id="navigate-request-rules"></a>
+    <a id="navigate-request-rules"></a>
 
-A request that breaks one of these rules is rejected with `:rf.error/navigate-bad-request` before any guard runs: the route slice is unchanged and nothing is pushed. The error's `:reason` names the rule, and `:keys` the offending keys.
+    | `:reason` | Rule |
+    |---|---|
+    | `:bad-event-arity` | The event is exactly `[:rf.route/navigate {request}]`, with no third element such as a separate opts map. |
+    | `:request-not-a-map` | The request is a map. |
+    | `:unknown-keys` | Every key is one of the address, policy and edit keys above. A namespaced key is refused too. |
+    | `:to-url-exclusive` | `:to` or `:url`, not both. |
+    | `:url-excludes-address` | `:url` takes no `:params`, `:query` or `:query-merge`. `:fragment` is allowed and replaces the URL's own. |
+    | `:params-requires-destination` | `:params` needs `:to`: changing path params is a new destination, never an in-place edit. |
+    | `:query-exclusive` | `:query` or `:query-merge`, not both. |
+    | `:query-merge-in-place-only` | `:query-merge` needs a request with no `:to` or `:url`. |
+    | `:query-merge-not-map` | `:query-merge` is a map. `{}` is a no-op and a `nil` inside it removes a key, but a `nil` or other non-map value for `:query-merge` itself is refused. |
+    | `:no-destination-or-change` | The request names a destination or an in-place change. `{}` and a policy-only map such as `{:replace? true}` are refused; `{:query {}}` and `{:fragment nil}` are valid. |
+    | `:no-current-route` | An in-place request needs a current route to edit. |
+- **Example**:
+  ```clojure
+  [:rf.route/navigate {:to :app/article :params {:id "intro"}}]   ;; a named route
+  [:rf.route/navigate {:to :app/home :replace? true}]             ;; no new history entry
+  [:rf.route/navigate {:url "/articles/intro?tab=comments"}]      ;; a URL, e.g. from a notification
+  [:rf.route/navigate {:query-merge {:page 2 :filter nil}}]       ;; same route, edit the query
+  ```
 
-| `:reason` | Rule |
-|---|---|
-| `:bad-event-arity` | The event is exactly `[:rf.route/navigate {request}]`, with no third element such as a separate opts map. |
-| `:request-not-a-map` | The request is a map. |
-| `:unknown-keys` | Every key is one of the address, policy and edit keys above. A namespaced key is refused too. |
-| `:to-url-exclusive` | `:to` or `:url`, not both. |
-| `:url-excludes-address` | `:url` takes no `:params`, `:query` or `:query-merge`. `:fragment` is allowed and replaces the URL's own. |
-| `:params-requires-destination` | `:params` needs `:to`: changing path params is a new destination, never an in-place edit. |
-| `:query-exclusive` | `:query` or `:query-merge`, not both. |
-| `:query-merge-in-place-only` | `:query-merge` needs a request with no `:to` or `:url`. |
-| `:query-merge-not-map` | `:query-merge` is a map. `{}` is a no-op and a `nil` inside it removes a key, but a `nil` or other non-map value for `:query-merge` itself is refused. |
-| `:no-destination-or-change` | The request names a destination or an in-place change. `{}` and a policy-only map such as `{:replace? true}` are refused; `{:query {}}` and `{:fragment nil}` are valid. |
-| `:no-current-route` | An in-place request needs a current route to edit. |
+#### `[:rf.route/url-requested {:url url}]`
 
-`:rf.route/replan-resources` is for an identity input (principal, tenant, locale) that changed with no route change. A `{:from-db …}` subscription re-keys on its own but stays `:idle` until something ensures the new key.
+- **Kind**: event
+- **Payload**: `{:url url}`, plus any of the policy keys `:replace?`, `:scroll` and `:bypass-leave?`, with the meanings they have on `:rf.route/navigate`.
+- **Description**: A click on a framework link. [`route-link`](#route-link) dispatches it with the link's URL, and the default handler is the one to keep.
+    - An external URL does nothing here and emits the `:rf.route/external-url-requested` trace.
+    - A URL that resolves to the current location does nothing and runs no guards.
+    - Otherwise the guards run before the address bar moves, so a blocked or denied click adds no history entry. When both allow, the handler pushes the URL (or replaces it, for `:replace? true`) and dispatches `:rf.route/handle-url-change` with cause `:link`, which commits the route.
 
-- It keeps the same navigation token, owner and planner. Kept identities are adopted with no fetch, added ones are ensured under the route owner with your `:cause`, and dropped ones lose the owner. The plan, the blocking facts and readiness are replaced, so a successful replan clears an earlier `:rf.error/resource-route-plan`.
-- A planning failure commits as a failed replan: nothing is partly ensured, and the owner is released from every earlier identity.
-- `:cause` is required and must not be `nil`. A malformed payload, or a dispatch with no active route, is rejected before planning with `:rf.error/replan-bad-request`.
-- It is not a reload: unchanged data is never refetched, and no guards, `:on-match`, URL, history or scroll work runs. Without the resources artefact it does nothing.
+#### `[:rf.route/handle-url-change url opts?]`
+
+- **Kind**: event
+- **Payload**: `url`, an app URL such as `"/articles/intro?tab=comments"`, and an optional opts map.
+- **Description**: Commits the route for a URL the address bar already shows. The runtime dispatches it after a link click, on Back and Forward, and for the current URL when a `:url-bound? true` frame takes ownership. On the server, dispatch it with the request URL, as in [SSR → Reading the request](../ssr/concepts.md#reading-the-request).
+    - The opts map's `:rf.route/cause` says why the URL changed: `:link`, `:popstate`, `:initial` or `:ssr`. The runtime sets it on its own dispatches. Without it the cause is `:ssr` on a `:platform :server` frame and `:initial` otherwise. Scroll defaults to `:top` for `:link` and `:restore` for every other cause.
+    - `:bypass-leave? true` on the opts map skips the current route's `:can-leave` guard once.
+    - This event never rejects a URL. One that no route matches, whose values fail the route's schemas, or with malformed percent-encoding commits the [not-found route](#not-found-route).
+    - A URL identical to the current location does nothing. Otherwise the guards run as for `:rf.route/navigate`. The address bar has already moved, so a blocked or denied change puts the current route's URL back by replacing it.
+    - A change to the fragment alone updates `:fragment` without a new navigation token or a re-run of `:on-match`.
+- **Example**:
+  ```clojure
+  ;; The server's per-request setup event hands the request URL to routing.
+  [:rf.route/handle-url-change "/articles/intro"]
+
+  ;; A test standing in for the Back button.
+  (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro" {:rf.route/cause :popstate}])
+  ```
+
+#### `[:rf.route/navigation-blocked pending]`
+
+- **Kind**: event, dispatched by the runtime
+- **Payload**: `pending`, the value the runtime stores in the pending-navigation slot:
+
+    | Key | Value |
+    |---|---|
+    | `:id` | The pending-navigation id that `:rf.route/continue` and `:rf.route/cancel` take. |
+    | `:destination` | Where the user was going, as a request `:rf.route/navigate` accepts: `{:to :params :query :fragment}` for a registered route, `{:url …}` for a URL no route matches. |
+    | `:target` | The resolved target, `{:route-id :params :query :fragment :url}`. |
+    | `:cause` | `:link`, `:navigate`, `:popstate`, `:initial` or `:ssr`. |
+    | `:policy` | The request's `:replace?` and `:scroll`, or `{}`. |
+    | `:requested-url` | The URL that was requested. |
+    | `:rejecting-route` | The current route's id. |
+    | `:rejecting-guard` | The id of the `:can-leave` subscription that returned `false`. |
+    | `:url-restored?` | Present and `true` when the runtime put the address bar back, after a URL-driven change. |
+
+- **Description**: Dispatched once when the current route's `:can-leave` guard returns `false`. The route stays where it is, and the pending value is readable from [`:rf/pending-navigation`](#subscriptions) until `:rf.route/continue` or `:rf.route/cancel` clears it. The slot holds one value, and a later block replaces it. The default handler does nothing; register your own to react, for example by opening a confirm dialog. The payload's `:requested-url`, `:destination` and `:target` are redacted in traces, with or without your handler.
+- **Example**:
+  ```clojure
+  (rf/reg-event :rf.route/navigation-blocked
+    (fn [{:keys [db]} [_ pending]]
+      {:db (assoc db :ui/confirm-leave (:id pending))}))
+  ```
+
+#### `[:rf.route/entry-denied denial]`
+
+- **Kind**: event, dispatched by the runtime
+- **Payload**: `denial`, `{:destination :target :cause :requested-url :guard}`. The first four are as in [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending); `:guard` is the id of the target's `:can-enter` subscription.
+- **Description**: Dispatched once when the target route's `:can-enter` guard returns `false`. The denial is final: nothing commits, nothing is stored and there is nothing to continue.
+    - After a URL-driven change the runtime puts the current route's URL back.
+    - On a server frame the runtime sets the response status to 403 before dispatching, and your handler can replace it with `:rf.server/redirect` or `:rf.server/set-status`.
+    - The default handler does nothing. Register your own to redirect, for example to a sign-in page. After sign-in, dispatch a fresh `[:rf.route/navigate destination]`, and the guard runs again. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter).
+- **Example**:
+  ```clojure
+  (rf/reg-event :rf.route/entry-denied
+    (fn [{:keys [db]} [_ {:keys [destination]}]]
+      {:db (assoc db :auth/return-to destination)
+       :fx [[:dispatch [:rf.route/navigate {:to :app/sign-in :replace? true}]]]}))
+  ```
+
+#### `[:rf.route/continue pending-nav-id]`
+
+- **Kind**: event
+- **Payload**: `pending-nav-id`, the pending value's `:id`.
+- **Description**: Goes ahead with a blocked navigation ("yes, leave the page"). Clears the pending slot and replays its `:destination` and `:policy` through `:rf.route/navigate` with a one-shot `:bypass-leave? true`, so the target's `:can-enter` still runs. When the address bar was put back (`:url-restored?`), the replay replaces the history entry instead of pushing one. An id that does not match the pending value does nothing.
+
+#### `[:rf.route/cancel pending-nav-id]`
+
+- **Kind**: event
+- **Payload**: `pending-nav-id`, the pending value's `:id`.
+- **Description**: Abandons a blocked navigation ("stay here") and clears the pending slot. The route and the URL stay as they are. An id that does not match the pending value does nothing.
+
+#### `[:rf.route/prefetch {address}]`
+
+- **Kind**: event
+- **Payload**: a named address, `{:to :params :query}`. `:fragment` is accepted and plays no part, because it is never a resource input; `:url` is refused.
+- **Description**: Warms a destination's resource plan without navigating. It runs the parent-to-leaf plan a navigation would, in warm mode: every ensure is ownerless and `:blocking?` has no effect. No route state, guards or `:on-match` run, and the warm-up stays in the frame that dispatched it. Without the resources artefact, or with an empty plan, it only emits its `:rf.route/prefetched` summary trace. `route-link`'s `:prefetch :intent` dispatches it.
+- **Errors**: `:rf.error/prefetch-bad-address`, before planning, when the address is malformed or does not resolve (an unregistered `:to`, a missing path param, or values the route's schemas reject). `:reason` names the failure, such as `:no-such-route` or `:missing-route-param`.
+- **Example**:
+  ```clojure
+  [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
+  ```
+
+#### `[:rf.route/replan-resources {:cause cause}]`
+
+- **Kind**: event
+- **Payload**: `{:cause cause}`. `:cause` is required and must not be `nil`.
+- **Description**: Reruns the active route's resource plan against the current `app-db` without navigating. Use it when an identity input (principal, tenant, locale) changed with no route change: a `{:from-db …}` subscription re-keys on its own but stays `:idle` until something ensures the new key.
+    - It keeps the same navigation token, owner and planner. Kept identities are adopted with no fetch, added ones are ensured under the route owner with your `:cause`, and dropped ones lose the owner. The plan, the blocking facts and readiness are replaced, so a successful replan clears an earlier `:rf.error/resource-route-plan`.
+    - A planning failure commits as a failed replan: nothing is partly ensured, and the owner is released from every earlier identity.
+    - It is not a reload: unchanged data is never refetched, and no guards, `:on-match`, URL, history or scroll work runs. Without the resources artefact it does nothing.
+- **Errors**: `:rf.error/replan-bad-request`, before planning, for a malformed payload or a dispatch with no active route.
+- **Example**:
+  ```clojure
+  [:rf.route/replan-resources {:cause [:session-restore]}]
+  ```
 
 ### Subscriptions
 
@@ -302,9 +401,14 @@ Declare these on a handler with `:rf.cofx/requires`. Each value is delivered und
     - It takes an address only, and there is no in-place form, because a pure function cannot read the current route.
 - **Errors**:
     - `:rf.error/no-such-route`: the `:to` route is not registered.
-    - `:rf.error/missing-route-param`: a required path segment's param is `nil` or absent.
-    - `:rf.error/route-url-validation`: `:params` or `:query` fail the route's schemas; the map carries a non-address key such as `:url`, `:query-merge`, `:replace?`, `:scroll`, `:bypass-leave?` or an unknown key (`:reason :bad-address-keys`); or `:params` carries a key the route's pattern does not capture (`:reason :uncaptured-params`).
-    - `:rf.error/route-url-non-edn-value`: a param or query value is not EDN, or the fragment is not a string.
+    - `:rf.error/missing-route-param`: a required path segment's param is `nil`, absent or `""`. An empty segment would be dropped when the URL is matched, so it cannot round-trip.
+    - `:rf.error/route-url-validation`, for any of these:
+        - the address is not a map (`:reason :not-a-map`), or has no `:to` (`:reason :missing-to`);
+        - the map carries a non-address key such as `:url`, `:query-merge`, `:replace?`, `:scroll`, `:bypass-leave?` or an unknown key (`:reason :bad-address-keys`);
+        - `:params` carries a key the route's pattern does not capture (`:reason :uncaptured-params`);
+        - `:params` or `:query` fail the route's schemas;
+        - `:params` fills a later optional group while an earlier one is left out. Sequential optional groups are filled in order, or `match-url` would read the value into the earlier group.
+    - `:rf.error/route-url-non-edn-value`: a param or query value has no portable EDN form (a function, atom or other host object, a fractional number, or an integer too large for both hosts to hold exactly), or is an instant or `Date`; or the fragment is neither a string nor `nil`.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
@@ -349,7 +453,7 @@ Choosing one:
 - Use `hash-url-strategy` when it cannot, as on a static host without rewrite rules: the route lives after the `#`, so the server only ever serves the page itself.
 - Wrap either with `with-base-path` when the app is not served from the site root, for example under `/realworld/`.
 
-A strategy is a map `{:encode :decode :push! :replace! :install-listener!}`. It is consulted at four points: the two history effects, the `route-link` href, and decoding an incoming URL (the URL listener, and a `{:url …}` or `:rf.route/url-requested` URL that carries an origin). `route-url`, `match-url` and navigation itself always work in path form.
+A strategy is a map of five functions, `{:encode :decode :push! :replace! :install-listener!}`; [A custom strategy](#a-custom-strategy) gives each one's contract. It is consulted at four points: the two history effects, the `route-link` href, and decoding an incoming URL (the URL listener, and a `{:url …}` or `:rf.route/url-requested` URL that carries an origin). `route-url`, `match-url` and navigation itself always work in path form.
 
 `:push!`, `:replace!` and `:install-listener!` exist only in ClojureScript. SSR runs none of them, because the server reads the request URL through `:rf.route/handle-url-change` and has no history. It does apply `:encode`, so a server-rendered `route-link` has the same href as the hydrated client: `/demos/active` for a `with-base-path` frame, `#/active` for a hash frame.
 
@@ -404,6 +508,22 @@ A strategy is a map `{:encode :decode :push! :replace! :install-listener!}`. It 
                                   rf.routing/history-url-strategy
                                   "/realworld")})
   ```
+
+### A custom strategy
+
+Any map carrying these five functions is a strategy, and extra keys are kept.
+
+| Key | Signature | Contract |
+|---|---|---|
+| `:encode` | `(fn [path] href)` | Turns an app URL (`/active?q=milk`) into the href the address bar and `route-link` show. Pure; runs on both hosts. |
+| `:decode` | `(fn [href] path)` | The inverse: takes the origin-relative browser address (`pathname + search + hash`) and returns the app URL. Pure, and reads no `window`. For every app URL `p`, `(decode (encode p))` is `p`. |
+| `:push!` | `(fn [href])` | Adds a history entry for `href`, which `:encode` has already produced. It must not encode again. ClojureScript only. |
+| `:replace!` | `(fn [href])` | Replaces the current history entry, taking `href` as `:push!` does. ClojureScript only. |
+| `:install-listener!` | `(fn [on-change] teardown)` | Installs the browser's URL-change listener and returns a zero-argument teardown function. Calls `on-change` with the decoded app URL on each browser-driven change. The runtime syncs the current URL itself when it installs the listener, so this function does not. ClojureScript only. |
+
+`make-frame` checks a declared `:url-strategy`. In ClojureScript every one of the five keys must hold a function; on the JVM, `:encode` and `:decode`. Anything else, an explicit `nil` included, throws `:rf.error/invalid-url-strategy`, naming the keys that are missing or not functions. A new frame is then not created, and a re-registered one keeps its previous config.
+
+`with-base-path` treats a strategy as fragment-form when `(encode "/")` returns a string starting with `#`, so a custom hash-style strategy takes a base path the way `hash-url-strategy` does.
 
 ## Multi-frame URL ownership
 
