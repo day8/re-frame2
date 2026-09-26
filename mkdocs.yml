@@ -372,8 +372,6 @@ nav:
     - "Advanced":
       - "Your own async effect": async/custom-effects.md
       - "Why no await": async/continuations-are-data.md
-    - "Coming from Promises": async/coming-from-promises.md
-    - "Examples": async/examples.md
 
   - Routing:
     # Tutorial first, then the model, then task recipes; React Router last.

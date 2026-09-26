@@ -53,12 +53,12 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
         - `:headers` — header name to a string, or to a vector of strings for a repeated header. Names are case-insensitive. A header the platform rejects is left out, with a `:rf.warning/http-header-invalid` trace.
         - `:params` — a query-param map, encoded onto the URL before any `#fragment`. A vector value repeats the key (`{:tag ["a" "b"]}` → `tag=a&tag=b`), an empty vector adds nothing, and a keyword key is written by its name.
         - `:body` — a Clojure collection, a string, a `FormData`, `Blob` or `ArrayBuffer`, or a no-argument fn returning one. The fn is called before each attempt, so a retry gets a fresh body. A fn that throws, or a body the encoder rejects, fails the request as `:rf.http/transport` with `:stage :request-prep`.
-        - `:request-content-type` — `:json`, `:form`, `:text` or a MIME string: serialises `:body` and sets `Content-Type`, unless `:headers` already sets one. Without it, a Clojure map, sequence or set is sent as JSON, and anything else is sent as it is with no `Content-Type`. JSON writes a keyword with its namespace and no colon (`:user/id` → `"user/id"`).
+        - `:request-content-type` — `:json`, `:form`, `:text` or a MIME string: serialises `:body` and sets `Content-Type`, unless `:headers` already sets one. Without it, a Clojure map, sequence or set is sent as JSON, and anything else is sent as it is with no `Content-Type`. JSON writes a keyword with its namespace and no colon (`:user/id` → `"user/id"`) and a UUID as its string.
         - `:credentials` (`:omit`, `:same-origin` (default) or `:include`), `:mode`, `:cache`, `:referrer`, `:integrity` — passed to Fetch; CLJS only.
         - `:redirect` — `:follow` (default), `:error` or `:manual`. With `:error` or `:manual`, a redirect response fails the request instead of being followed.
         - `:sensitive?` — the same as the top-level `:sensitive?`.
     - `:decode` — how to read a 2xx body. Absent or `:auto` picks from the response `Content-Type`: a `json` or `+json` type decodes as JSON, `text/*` as a string, and anything else, including a missing `Content-Type`, as a binary body (a `Blob` in the browser, a `byte[]` on the JVM); `:json`, `:text`, `:blob`, `:array-buffer` and `:form-data` force one; a Malli schema parses JSON and validates it; a fn `(fn [body-text headers] → value)` does it all. A schema needs Malli at run time, and `day8/re-frame2-http` does not bring it: add `day8/re-frame2-schemas` and require `re-frame.schemas` at boot. Without Malli the schema is skipped: the parsed JSON goes on to `:accept` and the success reply with no coercion or validation, and a dev build emits `:rf.warning/http-malli-absent` once per process. JSON object keys decode to keywords. A schema decodes only a response whose `Content-Type` is JSON or absent; any other type fails as `:rf.http/decode-failure`. A decoder fn receives the raw body text (`""` for an empty body), and a throw from it fails as `:rf.http/decode-failure`. See also [Response-body classification](#response-body-classification).
-    - `:accept` — `(fn [decoded] → {:ok value} | {:failure user-map})`, a domain check after decoding. `{:ok value}` makes `value` the success `:value`; `{:failure user-map}` fails the request as `:rf.http/accept-failure`.
+    - `:accept` — `(fn [decoded] → {:ok value} | {:failure user-map})`, a domain check after decoding. `{:ok value}` makes `value` the success `:value`; `{:failure user-map}` fails the request as `:rf.http/accept-failure`. Without it, every decoded 2xx body is a success.
     - `:retry` — `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable kinds `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`; `#{}` or `nil` retries nothing. `:max-attempts` counts the first attempt, so `3` means up to two retries; without it nothing is retried. `:backoff` defaults to `{:base-ms 250 :factor 2 :max-ms 5000}`, and `:jitter true` adds ±25%. Only the final failure reaches your reply target.
     - `:timeout-ms` — per-attempt timeout, default 30000. An explicit `nil` or `0` turns it off.
     - `:rf.http/max-decoded-keys` — the most unique JSON object keys the decoder will intern for this request, default 10000. Exceeding it fails the request as `:rf.http/decode-failure` with `:reason :too-many-keys`.
@@ -164,19 +164,19 @@ A failure's `:kind` is one of eight values, all reserved under `:rf.http/*`. The
 |---|---|---|
 | `:rf.http/transport` | Network, DNS or connection error before any HTTP response (in the browser, against a same-origin URL; see `:rf.http/cors`), or a `:body` that could not be prepared. | `:message`, `:cause`; `:stage :request-prep` for a body failure |
 | `:rf.http/cors` | A Fetch network rejection (a `TypeError`) against a cross-origin URL (CLJS only). The browser reports a CORS rejection and a network failure the same way, so a dropped connection to a cross-origin host also reads as `:rf.http/cors`. | `:message`, `:url` |
-| `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms` |
+| `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms`; on the JVM also `:message` |
 | `:rf.http/http-4xx` | A 4xx response, or any other non-2xx status below 500 (a 1xx, or a 3xx that was not followed). | `:status`, `:status-text`, `:body` (raw text), `:headers` |
 | `:rf.http/http-5xx` | A 5xx response. | `:status`, `:status-text`, `:body` (raw text), `:headers` |
 | `:rf.http/decode-failure` | A 2xx response whose body the decoder rejected. | `:body-text`, `:cause` (the message), `:schema-validation-failure?`; `:reason :too-many-keys` and `:limit` when the key cap was exceeded |
 | `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`, threw, or returned anything but a map with exactly one of `:ok` / `:failure`. | `:decoded` (the body before `:accept`); `:detail` is `user-map`, `{:rf.http/bad-accept :threw :message …}` or `{:rf.http/bad-accept :malformed-return :returned …}` |
-| `:rf.http/aborted` | Aborted via `:request-id`, `:abort-signal`, or the destruction of the actor or frame that issued it. | `:reason`, `:actor-id` |
+| `:rf.http/aborted` | Aborted via `:request-id`, `:abort-signal`, or the destruction of the actor or frame that issued it. | `:reason`, `:actor-id`; `:message` on some paths |
 
 - The status is classified before the body is decoded, so a 4xx or 5xx response is never decoded: its raw body is on the failure map's `:body`. An empty 2xx JSON body decodes to `nil` rather than failing.
 - The first five kinds are the ones `:retry :on` accepts. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
 - Every failure map also names the request it came from: `:request {:method :url}` (the method sent, `:get` when the request set none), `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
 - Resources and mutations store this same map as their `:error` (and a resource's `:refresh-error`), so one `case` on `:kind` serves both.
 
-[Failures are a closed set](../async/http.md#failures-are-a-closed-set) lists the tags each kind carries.
+[Failures are a closed set](../async/http.md#failures-are-a-closed-set) explains the kinds in the guide.
 
 ## Request interceptors
 
