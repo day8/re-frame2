@@ -48,7 +48,7 @@
                      :settings  {:on {:close :dashboard}}}
                     :on {:logout :idle}}
                    :session-timeout {}}}
-   :snapshot     {:state :idle :data {}}
+   :snapshot     {:state [:idle] :data {}}
    :event        [:login]
    :expect-next-snapshot {:state [:authenticated :dashboard]
                           :data  {:rf/after-epoch {[:authenticated] 1}}}
@@ -63,7 +63,7 @@
    [{:operation :rf.machine.timer/scheduled
      :tags      {:state :authenticated :delay 30000 :epoch 1 :delay-source :literal}}
     {:operation :rf.machine/transition
-     :tags      {:from :idle :to [:authenticated :dashboard]}}]}
+     :tags      {:from [:idle] :to [:authenticated :dashboard]}}]}
 
   ;; Step 2: Sibling-leaf transition :dashboard → :settings inside the parent.
   ;; The LCA is :authenticated; the parent is NOT exited. The parent's :after
@@ -101,7 +101,7 @@
      :tags      {:from [:authenticated :dashboard]
                  :to   [:authenticated :settings]}}]}
 
-  ;; Step 3: Exit the parent compound via :logout. Snapshot lands at :idle;
+  ;; Step 3: Exit the parent compound via :logout. Snapshot lands at [:idle];
   ;; epoch advances to 2; the parent's in-flight timer (epoch 1) is now stale.
   {:call         :machine-transition
    :definition   {:initial :idle
@@ -118,17 +118,17 @@
                    :session-timeout {}}}
    :snapshot     {:state [:authenticated :settings] :data {:rf/after-epoch {[:authenticated] 1}}}
    :event        [:logout]
-   :expect-next-snapshot {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
+   :expect-next-snapshot {:state [:idle] :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects [[:rf.machine/after-cancel
                      {:rf/parent-id :rf/transition-pure
                       :rf/invoke-id [:authenticated]}]]
    :expect-trace
    [{:operation :rf.machine/transition
-     :tags      {:from [:authenticated :settings] :to :idle}}]}
+     :tags      {:from [:authenticated :settings] :to [:idle]}}]}
 
   ;; Step 4: The parent-level :after timer (still in flight from step 1) fires
   ;; with its captured epoch (1). The current epoch is 2; the handler ignores
-  ;; the firing and emits :rf.machine.timer/stale-after. Snapshot stays at :idle.
+  ;; the firing and emits :rf.machine.timer/stale-after. Snapshot stays at [:idle].
   {:call         :machine-transition
    :definition   {:initial :idle
                   :data    {:rf/after-epoch {[:authenticated] 2}}
@@ -142,11 +142,11 @@
                      :settings  {:on {:close :dashboard}}}
                     :on {:logout :idle}}
                    :session-timeout {}}}
-   :snapshot     {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
+   :snapshot     {:state [:idle] :data {:rf/after-epoch {[:authenticated] 2}}}
    ;; The synthetic timer-elapsed event carries (delay, epoch, decl-path):
    ;; the parent-level timer scheduled at epoch 1 for [:authenticated].
    :event        [:rf.machine.timer/after-elapsed 30000 1 [:authenticated]]
-   :expect-next-snapshot {:state :idle :data {:rf/after-epoch {[:authenticated] 2}}}
+   :expect-next-snapshot {:state [:idle] :data {:rf/after-epoch {[:authenticated] 2}}}
    :expect-effects       []
    :expect-trace
    [{:operation :rf.machine.timer/stale-after

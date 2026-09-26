@@ -416,7 +416,7 @@
         ;; and drive the transition to :timed-out.
         (rf/dispatch-sync [:a/hier [:rf.machine.timer/after-elapsed
                                     30000 parent-epoch [:p]]])
-        (is (= :timed-out (:state (snapshot :a/hier)))
+        (is (= [:timed-out] (:state (snapshot :a/hier)))
             "parent :after fires (NOT stale) after a child-only transition")))))
 
 (deftest after-stale-child-timer-after-sibling-transition

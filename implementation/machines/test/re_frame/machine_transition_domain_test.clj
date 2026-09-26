@@ -251,7 +251,7 @@
            (step deep (at [:p :q]) [:root-to-s]))))
   (testing "J control: root -> :z (a disjoint top-level sibling) from [:p :q]"
     (is (= {:status :ok
-            :state  :z
+            :state  [:z]
             :log    [:exit-q :exit-p :enter-z]
             :fx     [[:rf.machine/after-cancel [:p :q]]
                      [:rf.machine/destroy [:p :q]]]

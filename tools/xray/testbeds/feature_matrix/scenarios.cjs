@@ -1692,13 +1692,14 @@ async function runMultiFrame(page, state) {
 }
 
 async function runDeepMachine(page, state) {
+  // `:work` is a compound region, so its value is a vector path (Spec 005
+  // §Parallel regions §Snapshot shape): it boots at `[:idle]`, and
+  // `:work/go` descends five compound levels to `:leaf-a`.
+  const workState = page.locator('[data-testid="work-state"]');
+  await expectTextEquals(workState, '[:idle]', 5000);
   await clickTestId(page, 'work-go');
   await expectTextEquals(page.locator('[data-testid="tick-count"]'), '1', 5000);
-  await waitForValue(
-    async () => ((await page.locator('[data-testid="work-state"]').textContent()) || '').trim(),
-    (s) => s.length > 0 && s !== ':idle',
-    { timeoutMs: 5000, description: 'deep machine transition off :idle' },
-  );
+  await expectTextEquals(workState, '[:phase-a :sub-a :nested-a :deep-a :leaf-a]', 5000);
   await openXray(page);
   await waitForTraceMatch(page, /:rf\.machine\/transition|:rf\.machine\/spawned|:helper\/tick/, 'machine transition trace');
   await clickSidebar(page, 'machines', 'rf-xray-machine-inspector');

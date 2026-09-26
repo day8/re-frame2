@@ -283,7 +283,7 @@
                           :soft-stop {}}}
           snap (snap-at [:p :a] {[:p] 1 [:p :a] 1} {:hard? true})
           [state] (fire spec snap (after-event 30000 1 [:p]))]
-      (is (= :timed-out state)
+      (is (= [:timed-out] state)
           "parent guarded-vector :after resolves at the parent decl-path
            (first guard passes → :timed-out)"))))
 

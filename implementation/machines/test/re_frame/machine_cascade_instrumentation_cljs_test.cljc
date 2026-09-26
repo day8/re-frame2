@@ -519,7 +519,7 @@
                    (fn [] (rf/dispatch-sync [:casc/done [:go]])))
           raised (raised-steps (cascade-of evs))
           w      (first raised)]
-      (is (= :wrapped (:state (rf.machines.test-support/snapshot :casc/done)))
+      (is (= [:wrapped] (:state (rf.machines.test-support/snapshot :casc/done)))
           "the done signal advanced the enclosing compound")
       (is (= 1 (count raised))
           "the synthetic done signal rides the same raised-transition boundary")

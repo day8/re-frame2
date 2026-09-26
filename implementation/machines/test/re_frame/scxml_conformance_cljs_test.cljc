@@ -519,7 +519,7 @@
           ;; engine raises [:rf.machine/done [:flow]] → :flow's :on-done fires
           ;; :flow → :next, all within the one macrostep.
           r (step m {:state [:flow :step] :data {}} [:finish])]
-      (is (= :next (:state r))
+      (is (= [:next] (:state r))
           "the compound :flow reached its :final? child, its :on-done fired,
            and the machine advanced to the sibling :next — same macrostep"))))
 
@@ -536,7 +536,7 @@
                                :inner-done {:final? true}}}
               :next {}}}
           r (step m {:state [:flow :step] :data {:done-count 0}} [:finish])]
-      (is (= :next (:state r)) "advanced to :next via :on-done")
+      (is (= [:next] (:state r)) "advanced to :next via :on-done")
       (is (= 1 (get-in r [:data :done-count]))
           "the :on-done action's :data write committed in the same macrostep"))))
 
@@ -676,7 +676,7 @@
           ;; done → region-local [:rf.machine/done [:flow]] raise → re-broadcast
           ;; → :work's :on-done fires :flow → :work-done. :status untouched.
           r (step m {:state {:work [:flow :step] :status :idle} :data {}} [:finish])]
-      (is (= {:work :work-done :status :idle} (:state r))
+      (is (= {:work [:work-done] :status :idle} (:state r))
           ":work's compound :flow reached final, its :on-done advanced the
            region to :work-done; :status stayed :idle"))))
 
@@ -720,7 +720,7 @@
           ;; :other) even though :other ALSO has a :flow.
           r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
                   [:finish])]
-      (is (= {:work :work-done :other [:flow :wait]} (:state r))
+      (is (= {:work [:work-done] :other [:flow :wait]} (:state r))
           ":work caught its own region-local done via its explicit `:on`
            escape hatch → :work-done; :other's UNGUARDED `:on {:rf.machine/done}`
            did NOT catch :work's done (no cross-region leak) despite sharing the
@@ -763,7 +763,7 @@
                                :hijacked {}}}}}
           r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
                   [:finish])]
-      (is (= {:work :work-done :other [:flow :wait]} (:state r))
+      (is (= {:work [:work-done] :other [:flow :wait]} (:state r))
           ":work caught its OWN region-local done → :work-done; :other shares
            the leading state-name :flow but its UNGUARDED `:on {:rf.machine/done}`
            must NOT catch :work's done (region IDENTITY, not name shape) →
@@ -799,7 +799,7 @@
                                :hijacked {}}}}}
           r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
                   [:finish])]
-      (is (= {:work :work-done :other [:flow :wait]} (:state r))
+      (is (= {:work [:work-done] :other [:flow :wait]} (:state r))
           ":work's compound :flow reached final, its `:on-done` advanced :work →
            :work-done; :other's same-shaped :flow `:on-done` must NOT fire on
            :work's done (region IDENTITY) → :other stayed [:flow :wait]"))))
@@ -831,7 +831,7 @@
           ;; its OWN `:on-done`. No leak, no over-decline.
           r (step m {:state {:work [:flow :step] :other [:flow :step]} :data {}}
                   [:finish])]
-      (is (= {:work :work-done :other :other-done} (:state r))
+      (is (= {:work [:work-done] :other [:other-done]} (:state r))
           "each region's own compound-done fired its OWN `:on-done` even though
            both share the leading state-name :flow — region scoping declines a
            FOREIGN region's done, never the OWN region's"))))

@@ -159,7 +159,7 @@
     (is (= {:mode [:phase :done] :work :live} (state-of :hu69/anc-always))
         ":mode is final; the :always guard is still false")
     (rf/dispatch-sync [:hu69/anc-always [:arm]])
-    (is (= {:mode :escaped :work :armed} (state-of :hu69/anc-always))
+    (is (= {:mode [:escaped] :work :armed} (state-of :hu69/anc-always))
         ":work armed, and the eventless round then moved the FINAL :mode region
          off its final leaf — the :always route is open")))
 

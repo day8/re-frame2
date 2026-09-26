@@ -45,7 +45,7 @@
               :away {:on {:return [:s0 :hist]}}}}
    :snapshot     {:state [:s0 :s01 :s012] :data {}}
    :event        [:leave]
-   :expect-next-snapshot {:state :away :data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
+   :expect-next-snapshot {:state [:away]:data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
    :expect-effects       []}
 
   ;; (2d) Restore deep: re-enter via [:s0 :hist] → the EXACT recorded leaf s012.
@@ -58,7 +58,7 @@
                                :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
                                :hist {:type :history :deep? true :default-target :s022}}}
               :away {:on {:return [:s0 :hist]}}}}
-   :snapshot     {:state :away :data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
+   :snapshot     {:state [:away]:data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
    :event        [:return]
    :expect-next-snapshot {:state [:s0 :s01 :s012] :data {} :rf/history {[:s0] [:s0 :s01 :s012]}}
    :expect-effects       []}
@@ -77,7 +77,7 @@
               :away {:on {:return [:s0 :hist]}}}}
    :snapshot     {:state [:s0 :s01 :s012] :data {}}
    :event        [:leave]
-   :expect-next-snapshot {:state :away :data {} :rf/history {[:s0] :s01}}
+   :expect-next-snapshot {:state [:away]:data {} :rf/history {[:s0] :s01}}
    :expect-effects       []}
 
   ;; (2s) Restore shallow: re-enter via [:s0 :hist] → the recorded child :s01
@@ -91,7 +91,7 @@
                                :s02  {:initial :s021 :states {:s021 {} :s022 {}}}
                                :hist {:type :history :default-target :s02}}}
               :away {:on {:return [:s0 :hist]}}}}
-   :snapshot     {:state :away :data {} :rf/history {[:s0] :s01}}
+   :snapshot     {:state [:away]:data {} :rf/history {[:s0] :s01}}
    :event        [:return]
    :expect-next-snapshot {:state [:s0 :s01 :s011] :data {} :rf/history {[:s0] :s01}}
    :expect-effects       []}]}

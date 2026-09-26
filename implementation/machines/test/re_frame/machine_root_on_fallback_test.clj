@@ -53,8 +53,8 @@
                  {:initial :dashboard
                   :states  {:dashboard {}}}}})  ;; no :logout anywhere on the path
     (rf/dispatch-sync [:rem/root-kw [:logout]])
-    (is (= :idle (snap-of :rem/root-kw))
-        "root :on :logout drove [:authenticated :dashboard] → :idle")))
+    (is (= [:idle] (snap-of :rem/root-kw))
+        "root :on :logout drove [:authenticated :dashboard] → [:idle]")))
 
 (deftest root-on-vector-target-is-absolute
   (testing "a root `:on` vector target is an absolute path from root"

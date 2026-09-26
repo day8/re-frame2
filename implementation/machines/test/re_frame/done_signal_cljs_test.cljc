@@ -66,7 +66,7 @@
                          :inner-done {:final? true}}}
         :next {}}})
     (rf/dispatch-sync [:rf2-zlmz7/flow [:finish]])
-    (is (= :next (:state (snapshot :rf2-zlmz7/flow)))
+    (is (= [:next] (:state (snapshot :rf2-zlmz7/flow)))
         "the compound :flow reached its final child; :on-done advanced to :next")
     (is (some? (snapshot :rf2-zlmz7/flow))
         "the machine snapshot is INTACT — embedded final did NOT auto-destroy")
@@ -107,7 +107,7 @@
                          :inner-done {:final? true}}}
         :next {}}})
     (rf/dispatch-sync [:rf2-zlmz7/act [:finish]])
-    (is (= :next (:state (snapshot :rf2-zlmz7/act))))
+    (is (= [:next] (:state (snapshot :rf2-zlmz7/act))))
     (is (= 1 (get-in (snapshot :rf2-zlmz7/act) [:data :hits]))
         ":on-done action ran once in the same macrostep")))
 
@@ -333,7 +333,7 @@
                           :work-done {}}}
         :status {:initial :idle :states {:idle {}}}}})
     (rf/dispatch-sync [:rf2-bnjb3/par-compound [:finish]])
-    (is (= {:work :work-done :status :idle}
+    (is (= {:work [:work-done] :status :idle}
            (:state (snapshot :rf2-bnjb3/par-compound)))
         ":work's compound advanced via its :on-done; :status untouched")
     (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-compound))

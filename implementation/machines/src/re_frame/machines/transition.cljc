@@ -672,12 +672,25 @@
                     :slot :state
                     :rf/recovery :no-recovery}))))
 
+(defn- flat-machine?
+  "True for a machine whose states are all leaves — the flat arm of Spec
+  005 §Snapshot shape, whose `:state` is a single keyword. A parallel
+  region's body (or its synthetic spec, `:rf/region`) qualifies on the same
+  test, because a flat region's value in the region map is a keyword too
+  (Spec 005 §Parallel regions §Snapshot shape)."
+  [machine]
+  (not-any? :states (vals (:states machine))))
+
 (defn denormalise-state
-  "Re-shape a vector path back to the same form as the input snapshot's
-  :state. If `original` was a keyword and the path is length-1, return
-  the keyword; otherwise return the vector."
-  [path original]
-  (if (and (keyword? original) (= 1 (count path)))
+  "Shape the leaf `path` as `machine`'s `:state`. The MACHINE decides the
+  shape, never the spelling of the target or `:initial` that reached the
+  leaf (Spec 005 §Snapshot shape): a flat machine's `:state` is the leaf's
+  keyword, and a compound machine's is the vector path from the root — a
+  root-level leaf included (`[:out]`) — so one state has one
+  representation. `machine` may be a parallel region's body or synthetic
+  spec, whose value in the region map follows the same two arms."
+  [machine path]
+  (if (and (= 1 (count path)) (flat-machine? machine))
     (first path)
     (vec path)))
 
@@ -3199,10 +3212,11 @@
 ;;                            action at LCA → entry shallowest-first.
 ;;                            Returns the post-cascade Result (snap+fx).
 ;;
-;;   commit-snapshot        — stamp `:state` (denormalised to match the
-;;                            target's shape, and a keyword in a flat
-;;                            machine or region) and bump the `:after` epoch when
-;;                            any exited/entered node carries `:after`.
+;;   commit-snapshot        — stamp `:state` (in the machine's own shape:
+;;                            a keyword in a flat machine or region, a
+;;                            vector path in a compound one) and bump the
+;;                            `:after` epoch when any exited/entered node
+;;                            carries `:after`.
 ;;
 ;;   run-spawn-phase        — reduce over `entered-pairs` dispatching to
 ;;                            `handle-spawn-decl` / `handle-spawn-all-decl`.
@@ -3637,7 +3651,6 @@
                                 vec))]
     {:src-path      src-path
      :decl-path     decl-path
-     :raw-target    raw-target
      :target-leaf   target-leaf
      :internal?     internal?
      :lca-len       lca-len
@@ -3708,15 +3721,6 @@
             after-fx (build-after-fx machine [[[] machine]] internal? snap')]
         [snap' (vec after-fx)]))))
 
-(defn- flat-machine?
-  "True for a machine whose states are all leaves — the flat arm of Spec
-  005 §Snapshot shape, whose `:state` is a single keyword. A parallel
-  region's synthetic spec (`:rf/region`) qualifies on the same test,
-  because a flat region's value in the region map is a keyword too (Spec
-  005 §Parallel regions §Snapshot shape)."
-  [machine]
-  (not-any? :states (vals (:states machine))))
-
 (defn- commit-snapshot
   "Phase 3 — write the new `:state` onto the post-cascade snapshot and
   bump the per-path `:after` epoch for each exited/entered `:after`-
@@ -3724,25 +3728,14 @@
   interaction. Internal transitions preserve the input snapshot's
   `:state` unchanged."
   [machine snapshot snap-after geometry]
-  ;; The `cond` has three arms — `internal?` (raw-target
-  ;; is nil; preserve current state), vector target (use the cascade-
-  ;; descended leaf as a vector, except that a flat machine's or flat
-  ;; region's single-element leaf collapses to its keyword, per Spec 005
-  ;; §Snapshot shape),
-  ;; keyword target (collapse a single-element leaf to a keyword, else
-  ;; vectorise). No `:else` arm is needed: `internal?` already covers the
-  ;; nil-raw-target case, and `:target` validation upstream rejects
-  ;; anything other than keyword/vector/nil.
-  (let [{:keys [internal? raw-target target-leaf after-bump-paths]} geometry
-        new-state (cond
-                    internal?             (:state snapshot)
-                    (vector? raw-target)  (if (and (= 1 (count target-leaf))
-                                                   (flat-machine? machine))
-                                            (first target-leaf)
-                                            (vec target-leaf))
-                    (keyword? raw-target) (if (= 1 (count target-leaf))
-                                            (first target-leaf)
-                                            (vec target-leaf)))]
+  ;; An `internal?` (targetless) transition preserves the current `:state`;
+  ;; every other transition commits the cascade-descended leaf in the
+  ;; machine's own shape (`denormalise-state`), so a keyword target and a
+  ;; vector target naming the same leaf commit the same value.
+  (let [{:keys [internal? target-leaf after-bump-paths]} geometry
+        new-state (if internal?
+                    (:state snapshot)
+                    (denormalise-state machine target-leaf))]
     (if internal?
       (assoc snap-after :state new-state)
       (bump-after-epochs machine
