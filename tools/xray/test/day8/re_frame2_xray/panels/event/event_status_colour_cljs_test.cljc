@@ -21,8 +21,8 @@
       `theme/tokens` (no inline hexes, one source of truth).
     - `event-bundle->state` projects the cascade + focus pair onto the
       input map consumed by the classifier."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
@@ -49,91 +49,42 @@
         (is (re-find #"^#[0-9A-Fa-f]+$" hex)
             (str status " hex " hex " starts with #"))))))
 
-;; ---- classifier — per-state coverage ------------------------------------
+;; ---- classifier — per-state coverage and precedence ---------------------
 
-(deftest classify-status-settled-success
-  (testing ":ok outcome with no other signals → :settled-success."
-    (is (= :settled-success
-           (event-status/classify-status {:outcome :ok})))))
-
-(deftest classify-status-settled-error
-  (testing ":error outcome → :settled-error regardless of any other
-            slot. Errors override RETRO mode, in-flight, paused — the
-            user MUST notice the red."
-    (is (= :settled-error (event-status/classify-status {:outcome :error})))
-    (is (= :settled-error (event-status/classify-status {:outcome :error :mode :retro})))
-    (is (= :settled-error (event-status/classify-status {:outcome :error :paused? true})))
-    (is (= :settled-error (event-status/classify-status {:outcome :error :stale? true})))
-    (is (= :settled-error (event-status/classify-status {:outcome :error :in-flight? true})))))
-
-(deftest classify-status-settled-warning-resolves-to-success
-  (testing ":warning outcome → :settled-success. The yellow glyph
-            ALREADY signals warning at the Event header; the row
-            status colour reads 'settled' rather than re-amplifying
-            the warning."
-    (is (= :settled-success (event-status/classify-status {:outcome :warning})))))
-
-(deftest classify-status-in-flight
-  (testing ":in-flight? true with no terminal outcome → :in-flight.
-            The LIVE-head cascade still building."
-    (is (= :in-flight (event-status/classify-status {:in-flight? true})))
-    (is (= :in-flight (event-status/classify-status {:in-flight? true :mode :live})))))
-
-(deftest classify-status-in-flight-clears-on-outcome
-  (testing "in-flight? + a settled outcome → the outcome wins. A
-            cascade in mid-build that has just landed its :event/
-            do-fx is logically settled."
-    (is (= :settled-success
-           (event-status/classify-status {:in-flight? true :outcome :ok})))
-    (is (= :settled-error
-           (event-status/classify-status {:in-flight? true :outcome :error})))))
-
-(deftest classify-status-paused-by-tool
-  (testing ":paused? true with no error → :paused-by-tool. A tool
-            (story, MCP, the user via the spine pause button) has
-            claimed the buffer; LIVE mode is paused."
-    (is (= :paused-by-tool (event-status/classify-status {:paused? true})))
-    (is (= :paused-by-tool (event-status/classify-status {:paused? true :mode :live})))))
-
-(deftest classify-status-stale-from-explicit-flag
-  (testing ":stale? true → :stale regardless of mode. Used for
-            cascades replayed via time-travel / dispatch-replay."
-    (is (= :stale (event-status/classify-status {:stale? true})))
-    (is (= :stale (event-status/classify-status {:stale? true :outcome :ok})))))
-
-(deftest classify-status-stale-from-retro-mode
-  (testing ":retro mode → :stale even without the explicit flag. A
-            user pinning a non-head cascade IS inspecting a stale
-            row; the colour reflects that."
-    (is (= :stale (event-status/classify-status {:mode :retro})))
-    (is (= :stale (event-status/classify-status {:mode :retro :outcome :ok})))))
-
-(deftest classify-status-error-wins-over-stale
-  (testing "error trumps stale — a RETRO-replayed errored cascade
-            still reads red so the user spots it among the yellow
-            history."
-    (is (= :settled-error
-           (event-status/classify-status {:mode :retro :outcome :error})))
-    (is (= :settled-error
-           (event-status/classify-status {:stale? true :outcome :error})))))
-
-(deftest classify-status-stale-wins-over-paused
-  (testing "stale wins over paused — if the user has scrubbed to a
-            historical cascade, the row is stale-by-virtue-of-mode
-            regardless of the paused? slot value the spine stamped
-            on the way past."
-    (is (= :stale
-           (event-status/classify-status {:mode :retro :paused? true})))
-    (is (= :stale
-           (event-status/classify-status {:stale? true :paused? true})))))
-
-(deftest classify-status-empty-input-defaults-to-in-flight
-  (testing "no signals at all → :in-flight. A cold-start row with
-            no outcome / mode / focus reads as still-in-progress —
-            the safest default (violet, the project's neutral
-            causal-chain colour) rather than a misleading green."
-    (is (= :in-flight (event-status/classify-status {})))
-    (is (= :in-flight (event-status/classify-status nil)))))
+(deftest classify-status-resolves-each-input-in-precedence-order
+  (are [input status] (= status (event-status/classify-status input))
+    ;; A settled :ok outcome is success, and so is :warning — the yellow
+    ;; glyph ALREADY signals the warning at the Event header, so the row
+    ;; colour reads 'settled' rather than re-amplifying it.
+    {:outcome :ok}                     :settled-success
+    {:outcome :warning}                :settled-success
+    ;; :error wins over every other slot — RETRO, pause, stale, in-flight:
+    ;; the user MUST notice the red, even among the yellow history.
+    {:outcome :error}                  :settled-error
+    {:outcome :error :mode :retro}     :settled-error
+    {:outcome :error :paused? true}    :settled-error
+    {:outcome :error :stale? true}     :settled-error
+    {:outcome :error :in-flight? true} :settled-error
+    ;; In flight with no terminal outcome is the LIVE-head cascade still
+    ;; building; a landed outcome settles it.
+    {:in-flight? true}                 :in-flight
+    {:in-flight? true :mode :live}     :in-flight
+    {:in-flight? true :outcome :ok}    :settled-success
+    ;; A tool (story, MCP, the spine pause button) has claimed the buffer.
+    {:paused? true}                    :paused-by-tool
+    {:paused? true :mode :live}        :paused-by-tool
+    ;; Stale by flag (time-travel / dispatch-replay) or by RETRO mode (a
+    ;; pinned non-head cascade), and stale wins over paused.
+    {:stale? true}                     :stale
+    {:stale? true :outcome :ok}        :stale
+    {:mode :retro}                     :stale
+    {:mode :retro :outcome :ok}        :stale
+    {:mode :retro :paused? true}       :stale
+    {:stale? true :paused? true}       :stale
+    ;; No signals at all reads as still in progress — the safe default
+    ;; (violet, the neutral causal-chain colour), never a misleading green.
+    {}                                 :in-flight
+    nil                                :in-flight))
 
 ;; ---- hex resolver --------------------------------------------------------
 
