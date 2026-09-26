@@ -908,8 +908,11 @@ hardcoded defaults  <  configure! overrides  <  persisted Settings overrides
 1. Xray's compiled-in defaults seed every knob.
 2. `configure!` writes overlay onto the process-global atoms. Hosts
    that want a non-default starting value for a Settings-shape key
-   (e.g. an embed that defaults to `:theme :dark`) MAY pass it
-   through `configure!`; the value lands as the new default for any
+   (e.g. an embed that defaults to the dark theme) MAY pass it
+   through `configure!`, nested under `:rf.xray/settings` —
+   `(configure! {:rf.xray/settings {:theme :dark}})`. `configure!`
+   reads only `:rf.xray/*` keys, so a top-level `:theme` is ignored.
+   The value lands as the new default for any
    user who has not yet mutated that key via the Settings popup.
    **This step's position in wall-clock boot order does not matter**
    — on the `:devtools/preloads` path the host's `configure!` call
