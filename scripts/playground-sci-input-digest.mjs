@@ -74,6 +74,9 @@ export const ROSTER = [
   // --- flows: re-frame.flows (Spec 007), :require'd at bundle init
   "implementation/flows/src",
   "implementation/flows/deps.edn",
+  // --- schemas: re-frame.schemas (Spec 010) + Malli, :require'd at bundle init
+  "implementation/schemas/src",
+  "implementation/schemas/deps.edn",
   // --- the SCI bundle source itself
   "docs/tools/playground/sci/src",
   // --- SCI / shadow-cljs build configuration
