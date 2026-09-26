@@ -448,7 +448,8 @@
 
      (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
   parametric subscription and one setter event under `[:ui ::concern ikey]`,
-  and nothing else. `re-frame.fresco.impl.state/reg-state`."}
+  and ensures the shared clear event `[::h/clear ::concern ikey]` is
+  registered. `re-frame.fresco.impl.state/reg-state`."}
        reg-state rf.fresco.impl.state/reg-state)
 
      (def ^{:doc "`h/portal` — **hiccup into `createPortal`**.
