@@ -24,9 +24,9 @@ you'd rather start from what you know.
 |---|---|---|
 | `createBrowserRouter([...])` / `<Route>` config | [`reg-route`](concepts.md#move-1-a-route-is-a-registry-entry) entries | Each route is one row in a process-global table, registered like any other handler — not a node in a JSX tree. |
 | Route object (`path`, `loader`, `errorElement`…) | The [route](glossary.md#route)'s metadata map | Same idea — behaviour declared as data — but a plain Clojure map, queryable from anywhere. |
-| `:slug` path param, `useParams()` | `:id` in the path + `@(subscribe [:rf.route/params])` | [Route params](glossary.md#route-params) are a [subscription](../core/glossary.md#subscription), validated *and coerced* by a schema. |
+| `:slug` path param, `useParams()` | `:id` in the path + `@(subscribe [:rf.route/params])` | [Route params](glossary.md#route-params) are a [subscription](../core/glossary.md#subscription), coerced by a schema — and validated by it when `re-frame.schemas` is loaded. |
 | `useSearchParams()` | `@(subscribe [:rf.route/query])` | Separate map from path params — never merged. `?page=2` arrives as integer `2`. |
-| `useLocation()` | `@(subscribe [:rf/route])` | The whole route slice — route id, params, query, fragment — as one map. |
+| `useLocation()` | `@(subscribe [:rf/route])` | The whole route slice — route id, params, query, fragment, and readiness — as one map. |
 | `generatePath()` / `matchPath()` | `rf.routing/route-url` / `rf.routing/match-url` | Pure functions and exact inverses, runnable on the JVM — [codec by hand](concepts.md#converting-routes--urls-by-hand). |
 | `loader` function | [`:resources`](concepts.md#declaring-resources-instead) (data a page needs) / [`:on-match`](concepts.md#loaders-declaring-a-pages-data) (activation work) | The [loader](glossary.md#loader) as *data* — resource declarations, or a vector of event vectors — not a function you call. The two jobs are separate keys here; see [below](#one-loader-splits-into-two-honest-keys). |
 | `useLoaderData()` | An ordinary [subscription](../core/glossary.md#subscription) | The loaded data lands in the resource cache or [app-db](../core/glossary.md#app-db); the [view](../core/glossary.md#view) reads it like any other state. No special hook. |
@@ -211,7 +211,8 @@ builds it step by step.)
   you'd ship to users — the reserved [`:rf.route/not-found`](glossary.md#not-found)
   is yours to design, and its `:params` carry a `:reason` so you can tell a plain miss
   from a schema failure from a malformed URL.
-- **Schema failures fail in opposite directions by entry point.** A bad URL from the
+- **Schema failures fail in opposite directions by entry point** (with
+  `re-frame.schemas` loaded — without it, values are coerced but not checked). A bad URL from the
   world (deep link, back-button) is *user input* → 404, never an exception. A bad
   `route-url`/`navigate` call is *your code* → it throws/rejects. Same schemas,
   opposite failure modes: the world 404s, your bugs are loud.
