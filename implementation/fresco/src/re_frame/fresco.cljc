@@ -703,10 +703,14 @@
   UPDATES it.** That is the whole of why one verb is enough: the boot path
   and the `^:dev/after-load` hook are the same line, and no application
   keeps a root in an atom of its own or branches on whether one exists.
-  React reconciles the new tree against the one on the page, so the
-  reloaded view code meets its own DOM and component state, scroll
-  position and focus survive. Every update commits inside `flushSync`, so
-  a witness may read the DOM on the next line.
+  On a hot reload the Root, its frame and that frame's app-db carry on,
+  so the application state is untouched. The views do not: each
+  `defview` evaluation mints a new component, as does each
+  `h/as-component` call, and React remounts a component whose type
+  changed, with everything beneath it. The DOM under a reloaded view is
+  rebuilt, and what that DOM owns — focus, the caret, scroll position —
+  starts over. Every update commits inside `flushSync`, so a witness may
+  read the DOM on the next line.
 
   **`{:hydrate? true}` makes that first call ADOPT** the server-rendered
   DOM already in `node` instead of replacing it — `hydrateRoot` rather
