@@ -433,9 +433,11 @@
   path below, rather than silently emitting a phantom
   `<error-page>` element as the error page.
 
-  Both paths render via `render-to-string` (no doctype, no hash — the
-  error body is the inner shell body). When no `:error-view` is supplied,
-  the default template is used directly.
+  Both paths render via `render-to-string` with `:doctype? true` and no
+  hash, as the default template does: the error body is the whole
+  response body, never wrapped in the html-shell, so without the doctype
+  a browser would lay the error page out in quirks mode. When no
+  `:error-view` is supplied, the default template is used directly.
 
   Containment is ONE-WAY — a buggy error view must not bypass the error
   boundary. Two failure modes fall back ONCE to the locked host default
@@ -484,7 +486,7 @@
             error-view-html
             (rf/with-frame frame-id
               (rf.ssr/render-to-string error-view-hiccup
-                                    {:doctype? false}))]
+                                    {:doctype? true}))]
         ;; Open-proof containment: a reactive sub inside the
         ;; error view that recovered-to-nil buffered a fail-closed projection
         ;; without throwing. Detect it (pure peek), fall back ONCE to the

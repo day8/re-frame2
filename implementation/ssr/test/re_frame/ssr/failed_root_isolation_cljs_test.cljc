@@ -504,6 +504,31 @@
              (set (map :root-id (root-boot-failures records)))))
       (is (hydrated? (nth frames 1)) "and the survivor still hydrated"))))
 
+(deftest hydrating-a-frame-that-is-not-live-returns-nil-and-reports-it
+  (testing "a seed that misses its frame applied nothing, so hydrate! returns
+            nil — the client-only answer — rather than handing back a payload
+            for a frame that is not live. The seed dispatch's own always-on
+            :rf.error/frame-destroyed record names the frame."
+    (doseq [[label fid] [["destroyed"  (let [fid (fresh-frame!)]
+                                         (rf/destroy-frame! fid)
+                                         fid)]
+                         ["never made" (keyword "rf.isolation"
+                                                (str "never" (swap! frame-counter inc)))]]]
+      (let [returned (atom ::not-called)
+            records  (capture-error-records!
+                      #(reset! returned
+                               (rf.ssr.boot/hydrate! {:frame   fid
+                                                      :payload (payload-for {:count 7})
+                                                      :root-id :page/a})))]
+        (is (nil? @returned)
+            (str label ": nothing was applied, so hydrate! returns nil"))
+        (is (some #(and (= :rf.error/frame-destroyed (:error %))
+                        (= fid (:frame %)))
+                  records)
+            (str label ": the dead-frame record names the frame"))
+        (is (nil? (rf.ssr.install/installed-payload fid))
+            (str label ": and the claim was released"))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Isolation is a PRODUCTION property
 ;; ---------------------------------------------------------------------------

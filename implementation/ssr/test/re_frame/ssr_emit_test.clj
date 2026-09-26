@@ -927,6 +927,54 @@
                             (rf.ssr.streaming/render-shell el))
           (str "streaming path must fail loud on malformed head: " (pr-str el))))))
 
+(deftest collection-heads-are-malformed-on-both-paths
+  (testing "A vector, map or set head is `ifn?` — a collection looks up its
+            argument — but it is not a component. Called as one, each of these
+            would emit its lookup result (`div`, `&lt;b&gt;`, `x`) as page
+            text. Both emitters raise :rf.error/invalid-hiccup-head instead."
+    (doseq [el [[[:div "x"] 0]
+                [{:a "<b>"} :a]
+                [#{"x"} "x"]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/invalid-hiccup-head"
+                            (rf.ssr.emit/render-to-string el {}))
+          (str "render-to-string refuses a collection head: " (pr-str el)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/invalid-hiccup-head"
+                            (rf.ssr.streaming/render-shell el))
+          (str "render-shell refuses a collection head: " (pr-str el))))))
+
+;; ===========================================================================
+;; `:dangerouslySetInnerHTML` renders as the element's raw body
+;;
+;; The client hands `{:__html s}` to React, which writes `s` unescaped as the
+;; element's body. Both body emitters do the same, in the order the peer
+;; serialiser `reagent2.dom.server` uses: a void element ignores the prop, and
+;; otherwise the raw body wins over any children.
+;; ===========================================================================
+
+(deftest dangerously-set-inner-html-renders-raw-on-both-paths
+  (doseq [[label tree expected]
+          [["the raw body, unescaped"
+            [:div {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
+            "<div><b>x</b></div>"]
+           ["the other attributes stay; the body is not re-escaped"
+            [:section [:p {:id "a" :dangerouslySetInnerHTML {:__html "a &amp; b"}}]]
+            "<section><p id=\"a\">a &amp; b</p></section>"]
+           ["the raw body wins over children"
+            [:div {:dangerouslySetInnerHTML {:__html "<i>raw</i>"}} "ignored"]
+            "<div><i>raw</i></div>"]
+           ["a nil __html is an empty body"
+            [:div {:dangerouslySetInnerHTML {:__html nil}} "ignored"]
+            "<div></div>"]
+           ["a void element ignores the prop"
+            [:br {:dangerouslySetInnerHTML {:__html "<b>x</b>"}}]
+            "<br>"]]]
+    (is (= expected (rf.ssr.emit/render-to-string tree {}))
+        (str "render-to-string — " label))
+    (is (= expected (:shell-html (rf.ssr.streaming/render-shell tree)))
+        (str "render-shell — " label))))
+
 ;; ===========================================================================
 ;; Form-2 raw-fn component renders (never leaks the inner fn's
 ;; .toString as page text)

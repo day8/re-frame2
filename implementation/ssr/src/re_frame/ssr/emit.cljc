@@ -564,6 +564,24 @@
 
       {:attrs (drop-defaults attrs)})))
 
+(defn- inner-html-body
+  "The raw element body a `:dangerouslySetInnerHTML` prop asks for, or nil
+  when the element carries none. Read from the CONVERTED attribute map, under
+  the exact name `attr-string` drops from the attribute stream, so the prop
+  that leaves the attributes is the prop rendered as content.
+
+  The body is the `__html` of a `{:__html …}` map, written RAW — no entity
+  escape — as react-dom writes it: the markup is the caller's to make safe,
+  exactly as on the client. A prop present with no `__html` (nil, or not a
+  map) gives an empty body, as it does in `reagent2.dom.server`."
+  [converted]
+  (when-let [channel (get converted "dangerouslySetInnerHTML")]
+    (let [html (when (map? channel) (:__html channel))]
+      (cond
+        (nil? html)    ""
+        (number? html) (rf.ssr.hash/canonical-number html)
+        :else          (str html)))))
+
 (defn dom-element-props
   "Everything both hiccup body walkers need to open a DOM element, computed
   once here so the two cannot drift. Joins the
@@ -572,14 +590,18 @@
   way the hydrating client does, then applies the form-control special forms
   on an ordinary element. -> `{:attrs <string-keyed map for attr-string>
   :text <a textarea's text body, or nil> :select <a select's value for its
-  options, or nil>}`."
+  options, or nil> :inner-html <the raw `:dangerouslySetInnerHTML` body, or
+  nil>}`. A walker emits a non-nil `:inner-html` as the whole body of a
+  non-void element, ahead of its children, as `reagent2.dom.server` does."
   [tag-name normalised-tag-name tag-attrs user-attrs root-attrs children]
-  (let [merged    (merge-class-attrs tag-attrs (normalise-class-attrs user-attrs))
-        merged    (if root-attrs (merge-root-attrs merged root-attrs) merged)
-        converted (convert-dom-attrs tag-name merged)]
-    (if (clojure.string/includes? tag-name "-")
-      {:attrs converted}
-      (form-control-props normalised-tag-name converted children))))
+  (let [merged     (merge-class-attrs tag-attrs (normalise-class-attrs user-attrs))
+        merged     (if root-attrs (merge-root-attrs merged root-attrs) merged)
+        converted  (convert-dom-attrs tag-name merged)
+        inner-html (inner-html-body converted)]
+    (cond-> (if (clojure.string/includes? tag-name "-")
+              {:attrs converted}
+              (form-control-props normalised-tag-name converted children))
+      (some? inner-html) (assoc :inner-html inner-html))))
 
 (defn with-select-value
   "Call `emit-children-fn` with `*select-value*` bound for a `<select>`'s
@@ -688,6 +710,17 @@
       {:recovery :use-a-keyword-or-callable-hiccup-head
        :extra    {:head    (first safe-element)
                   :element safe-element}})))
+
+(defn callable-head?
+  "True when a hiccup vector's `head` is a callable component: a fn or a
+  Var, the shapes a view is referenced by. A vector, map or set is `ifn?` on
+  both hosts because a collection looks up its argument, so `ifn?` alone
+  would call `[[:div] …]` with the element's children and emit whatever the
+  lookup returned. A collection head is malformed, and reaches
+  `reject-invalid-hiccup-head!` instead. Shared by the sync emitter and the
+  streaming shell walker."
+  [head]
+  (and (ifn? head) (not (coll? head))))
 
 #?(:clj
    (defn- declared-fixed-arities
@@ -1120,13 +1153,17 @@
                ;; Class join, root attrs, the
                ;; client's name/value conversion and the form-control special
                ;; forms, shared with the streaming walker.
-               {attrs :attrs text :text select-value :select}
+               {attrs :attrs text :text select-value :select inner-html :inner-html}
                (dom-element-props tag-name normalised-tag-name tag-attrs
                                   user-attrs root-attrs children)
                void?        (contains? void-elements (keyword normalised-tag-name))
                raw-text?    (contains? rf.ssr.html-helpers/raw-text-tags normalised-tag-name)]
            (cond
              void?     (str "<" tag-name (attr-string attrs) ">")
+             ;; `:dangerouslySetInnerHTML` is the element's whole body, raw,
+             ;; and wins over any children — see `inner-html-body`.
+             (some? inner-html)
+             (str "<" tag-name (attr-string attrs) ">" inner-html "</" tag-name ">")
              ;; An ordinary inline <script>/<style> with STRING
              ;; content is author content: emit it VERBATIM with only the
              ;; shared closing-sequence rewrite (`html/escape-raw-text`),
@@ -1186,7 +1223,11 @@
          ;; invoked once with the same args rather than left to fall through
          ;; to `escape-html`, which would stringify the fn's `.toString` as
          ;; visible page text.
-         (ifn? head)
+         ;;
+         ;; `callable-head?` rather than a bare `ifn?`: a vector, map or set
+         ;; is `ifn?` too, and calling one as a component would emit the
+         ;; result of a collection lookup.
+         (callable-head? head)
          (emit-element (resolve-component-head head (rest el)) root-attrs)
 
          ;; A vector whose head is not a keyword and not a

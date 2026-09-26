@@ -282,7 +282,10 @@
   Returns the payload that was applied (or `nil` on a client-only first
   load, and `nil` when `:rf/hydrate` refused a malformed payload — nothing
   was applied, so the frame IS client-only and no claim is made) so the caller can branch on \"was this server-rendered?\" without
-  re-reading the DOM. A no-op second install still returns the payload —
+  re-reading the DOM. A `:frame` that is not live (never made, or
+  destroyed) also returns `nil`: the seed dispatch recovers and emits the
+  router's always-on `:rf.error/frame-destroyed` record, and the claim is
+  released. A no-op second install still returns the payload —
   the page WAS server-rendered, whichever root got there first.
 
   Example (Reagent client boot):
@@ -339,7 +342,14 @@
         ;; payload here, before the ledger is touched. A nil payload is the
         ;; client-only first load, not a refusal.
         refusal (when payload
-                  (rf.ssr.hydrate/malformed-hydration-payload-reason payload))]
+                  (rf.ssr.hydrate/malformed-hydration-payload-reason payload))
+        ;; Set when this call claimed the payload and the seed then missed
+        ;; the frame (absent or destroyed). The router has already emitted
+        ;; its recover-but-emit `:rf.error/frame-destroyed` record for that
+        ;; dispatch; `hydrate!` then returns nil, because nothing was
+        ;; applied and a payload handed back for a frame that is not live
+        ;; would tell the host the page hydrated.
+        seed-missed (volatile! false)]
     (when payload
       ;; The payload's `:rf/frame-id` is metadata and validation
       ;; evidence, NOT a no-opts target resolver. Validate it against the
@@ -426,7 +436,8 @@
           (let [incarnation (rf.frame/frame-incarnation-token frame)]
             (rf.router/dispatch-sync! [:rf/hydrate payload] {:frame frame})
             (if-not (rf.frame/frame-incarnation-live? frame incarnation)
-              (rf.ssr.install/release-claim! frame claim)
+              (do (rf.ssr.install/release-claim! frame claim)
+                  (vreset! seed-missed true))
               ;; HOT PATH — post-render hash-mismatch detection. Symmetric with
               ;; the server's `:render-hash`-stamped `data-rf-render-hash` marker.
               ;; Runs only on a landed seed: verifying a client tree against a
@@ -445,7 +456,7 @@
               ;; its own scope (or ignores it — a plain-hiccup fn) is unaffected.
               (when render-tree-fn
                 (rf.ssr.hydrate/verify-hydration! frame ((rf.frame/bind-fn frame render-tree-fn)))))))))
-    (when-not refusal payload)))
+    (when-not (or refusal @seed-missed) payload)))
 
 ;; ---------------------------------------------------------------------------
 ;; Failed-root isolation (S5) — Spec 011 §Failed-root isolation

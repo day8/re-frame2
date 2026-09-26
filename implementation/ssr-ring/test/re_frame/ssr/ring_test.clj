@@ -701,6 +701,30 @@
       (is (str/includes? body "fn error view") "fn-form error view rendered")
       (is (str/includes? body "class=\"fn-error\"") "fn view markup on the wire"))))
 
+(deftest handler-error-view-body-carries-the-doctype
+  (testing "the error body is the whole response body — never wrapped in the
+            html-shell — so a caller's :error-view gets `<!DOCTYPE html>` exactly
+            as the default template does, in both its forms"
+    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/broken-doctype
+      (fn [] (throw (ex-info "boom" {}))))
+    (rf/reg-view* :myapp/doctype-error-page
+      (fn [{:keys [message]}] [:main.kw-error message]))
+    (doseq [[label error-view marker]
+            [["keyword :error-view" :myapp/doctype-error-page "class=\"kw-error\""]
+             ["fn :error-view"      (fn [{:keys [message]}] [:main.fn-error message])
+              "class=\"fn-error\""]
+             ["default template"    nil "<h1>"]]]
+      (let [handler (rf.ssr.ring/ssr-handler
+                      (cond-> {:initial-events [[:init/ok]]
+                               :root-view      [(rf/view :pages/broken-doctype)]
+                               :payload        :rf.ssr.payload/whole-app-db}
+                        error-view (assoc :error-view error-view)))
+            body    (:body (handler {:uri "/broken" :request-method :get}))]
+        (is (str/includes? body marker) (str label ": that error body rendered"))
+        (is (str/starts-with? body "<!DOCTYPE html>")
+            (str label ": the body opens with the doctype"))))))
+
 (deftest handler-error-view-throw-falls-back-to-default-template
   (testing "a buggy :error-view (itself throwing) MUST NOT
             bypass the error boundary — the host falls back to the
