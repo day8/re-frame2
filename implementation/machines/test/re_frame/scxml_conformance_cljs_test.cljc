@@ -680,52 +680,6 @@
           ":work's compound :flow reached final, its :on-done advanced the
            region to :work-done; :status stayed :idle"))))
 
-(deftest scxml-parallel-region-done-not-caught-by-sibling-unguarded-on
-  (testing "a region-local done.state is region-SCOPED —
-            a SIBLING region's UNGUARDED `:on {:rf.machine/done …}` escape hatch
-            must NOT catch another region's done signal, even though the parent
-            internal-event queue re-broadcasts the raise across every region
-            (the correct XState v5 / SCXML `:raise` rule). XState v5 / SCXML
-            scope `done.state.<id>` to the region that raised it BY IDENTITY.
-            `:other` SHARES the leading state-name `:flow` (a shape-match
-            would leak on exactly this collision; only region-NAME scoping
-            closes it). Spec 005
-            §Final states §The done-state signal × §Parallel regions; the
-            arm-2 escape-hatch region scoping in `pick-done-transition`."
-    (let [m {:type :parallel :data {}
-             :regions
-             ;; :work owns a compound :flow that goes done on :finish. It uses
-             ;; the lower-level explicit `:on {:rf.machine/done …}` escape hatch
-             ;; (NOT `:on-done`) so the resolution exercises arm 2.
-             {:work {:initial :flow
-                     :on {:rf.machine/done :work-done}
-                     :states {:flow {:initial :step
-                                     :states {:step {:on {:finish :inner-done}}
-                                              :inner-done {:final? true}}}
-                              :work-done {}}}
-              ;; :other carries an UNGUARDED escape hatch on the SAME reserved
-              ;; event-id AND shares the leading state-name `:flow`. A naive
-              ;; shape-match on the re-broadcast of :work's region-relative done
-              ;; [:flow] would be CAUGHT here, leaking :other → :hijacked.
-              ;; Region-name scoping keeps it put: :work's done is not :other's.
-              :other {:initial :flow
-                      :on {:rf.machine/done :hijacked}
-                      :states {:flow {:initial :wait
-                                      :states {:wait {}}}
-                               :hijacked {}}}}}
-          ;; :finish lands :work at [:flow :inner-done]; :flow is done →
-          ;; region-scoped [:rf.machine/done [:work :flow]] raise → re-broadcast
-          ;; across BOTH regions. :work catches its own done (region-name head
-          ;; matches) → :work-done. :other declines (head names :work, not
-          ;; :other) even though :other ALSO has a :flow.
-          r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
-                  [:finish])]
-      (is (= {:work [:work-done] :other [:flow :wait]} (:state r))
-          ":work caught its own region-local done via its explicit `:on`
-           escape hatch → :work-done; :other's UNGUARDED `:on {:rf.machine/done}`
-           did NOT catch :work's done (no cross-region leak) despite sharing the
-           `:flow` state-name → :other stayed [:flow :wait]"))))
-
 (deftest scxml-parallel-region-done-arm2-not-caught-by-sibling-shared-state-name
   (testing "arm 2 region scoping must be by region IDENTITY, not
             state-name SHAPE. A region-local done.state is region-SCOPED even
@@ -1573,30 +1527,18 @@
           "a stale :after timer (epoch mismatch) is a no-op; configuration unchanged"))))
 
 ;; ===========================================================================
-;; §12. Final states (done.state) — flat + compound
+;; §12. Final states (done.state) — compound
 ;;
 ;; SCXML §3.7 `<final>`: entering a `<final>` child of a compound state
 ;; raises done.state.<parent>; the final state itself is a leaf with no
 ;; outgoing transitions. re-frame2: `:final? true` marks the leaf; the
 ;; lifecycle recomputes finality at the macrostep boundary via the pure
 ;; `final-on-leaf?` predicate. Spec 005 §Final states.
-;; (Parallel done.state is §5; the `:on-done` parent-notification + auto-
-;; destroy LIVE-runtime wiring is covered by `final_state_cljs_test`.)
+;; (Parallel done.state is §5; the flat top-level final leaf is
+;; scxml_irp_semantic_core_cljs_test's test415 cases; the `:on-done`
+;; parent-notification + auto-destroy LIVE-runtime wiring is covered by
+;; `final_state_cljs_test`.)
 ;; ===========================================================================
-
-(deftest scxml-final-leaf-flat
-  (testing "SCXML §3.7 `<final>`: transitioning into a final state lands the
-            configuration there and the leaf is recognised as final
-            (done.state precondition). Spec 005 §Final states (`:final?`)."
-    (let [m {:initial :run :data {}
-             :states  {:run {:on {:finish :done}}
-                       :done {:final? true}}}
-          r (step m {:state :run :data {}} [:finish])]
-      (is (= :done (:state r)) "transition into the final leaf")
-      (is (true? (rf.machines.transition/final-on-leaf? m (:state r)))
-          "the active leaf is recognised as final (raises done.state)")
-      (is (false? (rf.machines.transition/final-on-leaf? m :run))
-          "a non-final leaf is not final"))))
 
 (deftest scxml-final-leaf-compound
   (testing "SCXML §3.7: a `<final>` nested inside a compound state raises

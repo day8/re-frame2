@@ -61,11 +61,11 @@
          per-region shallow                                COVERED (scxml-history-test580-*)
 
   Entry/exit handlers + ordering:
-    375  onentry handlers run in document order            HERE — onentry/onexit
-                                  re-frame2 collapses N <onentry> blocks to ONE
-                                  `:entry` action per node; the cross-NODE entry
-                                  cascade order IS the 375 rule re-frame2 expresses.
-                                  scxml-irp-test375-onentry-single-block-doc-order.
+    375  onentry handlers run in document order            COVERED — re-frame2
+                                  collapses N <onentry> blocks to ONE `:entry`
+                                  action per node; the cross-NODE entry cascade
+                                  order IS the 375 rule re-frame2 expresses
+                                  (scxml-initial-cascade-enters-every-level-shallowest-first).
     376  each onentry is an independent block (one throw
          doesn't kill the siblings)                        OUT-OF-SCOPE (divergence) —
                                   one `:entry` action per node, so there are no
@@ -73,8 +73,8 @@
                                   yields a failure Result (no partial commit).
                                   Asserted as the divergence in
                                   scxml-irp-test376-onentry-throw-is-failure-result.
-    377  onexit handlers run in document order             HERE (377 = exit twin of 375)
-                                  scxml-irp-test377-onexit-single-block-doc-order.
+    377  onexit handlers run in document order             COVERED (377 = exit twin of 375;
+                                  scxml-lca-cascade-exit-deepest-first-enter-shallowest-first).
     378  each onexit is an independent block               OUT-OF-SCOPE (divergence, as 376).
     407  run a state's onexit when it is exited            COVERED (scxml-lca-cascade-*)
     409  state removed from config after its onexit runs   COVERED (cascade order ⇒ membership timing)
@@ -103,38 +103,39 @@
     404  exit the exit set first                           COVERED (scxml-lca-cascade-*)
     405  transition content after exits, before entries    COVERED (scxml-lca-cascade-* — :ACTION at the boundary)
     406  enter the entry set after transition content      COVERED (scxml-lca-cascade-*)
-    503  targetless transition ⇒ EMPTY exit set           HERE — re-anchor: an action
-                                  fires, NO exit/entry, descendants preserved.
-                                  scxml-irp-test503-targetless-empty-exit-set.
+    503  targetless transition ⇒ EMPTY exit set           COVERED — an action fires,
+                                  NO exit/entry, descendants preserved
+                                  (scxml-internal-self-transition-fires-action-only,
+                                  scxml-targetless-on-compound-preserves-active-descendants).
     504  external transition exit set = LCCA descendants   COVERED (scxml-lca-cascade-*)
     505  internal transition (compound source): target's
-         descendants in the exit set                       HERE — re-frame2 / xstate v5
+         descendants in the exit set                       COVERED — re-frame2 / xstate v5
                                   FLIP the SCXML internal/external DEFAULT:
                                   an explicit on-path target is INTERNAL by
                                   default (re-resolves descendants); external
-                                  restart is opt-in `:reenter? true`.
-                                  scxml-irp-test505-internal-default-re-resolves-descendants.
-    506  internal treated as external when not applicable  HERE — disjoint-subtree target
-                                  is always external (exit/enter both leaves).
-                                  scxml-irp-test506-disjoint-target-is-external.
+                                  restart is opt-in `:reenter? true`
+                                  (scxml-explicit-current-compound-target-re-resolves-to-initial).
+    506  internal treated as external when not applicable  COVERED — disjoint-subtree
+                                  target is always external (exit/enter both leaves)
+                                  (scxml-ancestor-restart-regression-disjoint-targets-unchanged,
+                                  scxml-lca-cascade-exit-deepest-first-enter-shallowest-first).
     533  internal transition is external for a NON-compound
-         (atomic) source                                   HERE — an atomic leaf has no
+         (atomic) source                                   COVERED — an atomic leaf has no
                                   descendants to re-resolve, so an explicit
                                   self-target with no `:reenter?` is a config no-op
-                                  (xstate v5). scxml-irp-test533-atomic-source-self-target.
+                                  (xstate v5; scxml-default-self-transition-is-internal).
 
   Eventless / internal queue / microstep / macrostep / raise:
     144  raised events FIFO on the internal queue          COVERED (machine_raise_fifo_test;
                                   re-anchored here to the IRP id:
                                   scxml-irp-test144-internal-raise-fifo).
-    158  executable-content block runs in document order   HERE — a transition `:action`'s
-                                  side effects run in source order; the cascade
-                                  exit→action→entry is the cross-boundary order.
-                                  scxml-irp-test158-executable-content-doc-order.
+    158  executable-content block runs in document order   COVERED — the cascade
+                                  exit→action→entry is the cross-boundary order
+                                  (scxml-lca-flat-collapses-to-exit-action-entry).
     419  after a stable config, run the optimal NULL
-         (eventless) transition set                        HERE — re-anchor: eventless
-                                  fires only at a stable config, deepest-first.
-                                  scxml-irp-test419-eventless-optimal-set-at-quiescence.
+         (eventless) transition set                        COVERED — eventless fires
+                                  only at a stable config, within the same macrostep
+                                  (scxml-eventless-redirect-after-event-transition).
     421  process the internal queue (microstep) before the
          next external event                               HERE — raised +
                                   eventless work drains fully within ONE macrostep
@@ -178,14 +179,6 @@
      :fx       (vec (:fx r))
      :state    (:state (:snapshot r))
      :data     (:data (:snapshot r))}))
-
-(defn- order-recorder
-  "Return `[log-atom mk]` where `(mk tag)` is an action/entry/exit fn that
-  appends `tag` to `log-atom` in invocation order and returns nil. Used to
-  observe the concrete entry/exit/action invocation sequence."
-  []
-  (let [log (atom [])]
-    [log (fn [tag] (fn [_ctx] (swap! log conj tag) nil))]))
 
 ;; ===========================================================================
 ;; §A. Event-descriptor matching — W3C IRP test396 / test399 (SCXML §3.12.1)
@@ -254,119 +247,7 @@
           "the leaf's :mouse/* token-prefix wins over the parent's exact :mouse/down (deepest-wins)"))))
 
 ;; ===========================================================================
-;; §B. Targetless transition ⇒ EMPTY exit set — W3C IRP test503 (SCXML §3.13)
-;;
-;; SCXML §3.13 computeExitSet: a transition with NO `target` has an EMPTY
-;; exit set — no state is exited or re-entered; only the transition's
-;; executable content runs. xstate v5: "To preserve child states, omit
-;; target entirely." Spec 005 §Self-transitions (the targetless internal
-;; form). (The sibling file proves the compound-targetless case via
-;; scxml-targetless-on-compound-preserves-active-descendants; this re-anchors
-;; the EXIT-SET rule to the IRP id at the leaf and confirms the empty exit
-;; set with an order-recorder.)
-;; ===========================================================================
-
-(deftest scxml-irp-test503-targetless-empty-exit-set
-  (testing "W3C IRP test503 (SCXML §3.13 computeExitSet): a targetless
-            transition has an EMPTY exit set — the action fires but NO
-            onexit/onentry, and the configuration (including active
-            descendants) is preserved. Spec 005 §Self-transitions."
-    (let [[log mk] (order-recorder)
-          m {:initial :a :data {:n 0}
-             :actions {:bump (fn [{d :data}] (swap! log conj :ACTION)
-                               {:data (update d :n inc)})}
-             :states  {:a {:entry (mk :entry) :exit (mk :exit)
-                           :on {:tick {:action :bump}}}}}      ;; NO :target
-          r (step m {:state :a :data {:n 0}} [:tick])]
-      (is (= :a (:state r)) "targetless ⇒ configuration unchanged")
-      (is (= 1 (get-in r [:data :n])) "the transition action ran")
-      (is (= [:ACTION] @log)
-          "EMPTY exit set: only the action fired — no onexit, no onentry"))))
-
-;; ===========================================================================
-;; §C. Internal vs external transition exit set — W3C IRP test505/506/533
-;;      (SCXML §3.13; re-frame2 / xstate v5 FLIP the default)
-;;
-;; SCXML §3.13 distinguishes `type="internal"` (target's descendants in the
-;; exit set, source compound NOT exited) from `type="external"` (the source
-;; compound is in the exit set). SCXML's DEFAULT is EXTERNAL. xstate v5
-;; FLIPS the default — an explicit on-path target is INTERNAL by default
-;; (re-resolve descendants, do NOT re-enter the compound), and the external
-;; restart is the opt-in `reenter: true`. re-frame2 follows xstate v5.
-;; These cases assert the v5 behaviour and CITE the divergence from SCXML's
-;; external-default; the SCXML external semantics are still EXERCISED via
-;; `:reenter? true` in the sibling §10/§10b/§10c. Verified against
-;; xstate@5.32.0. Spec 005 §Self-transitions §The three explicit-target
-;; geometries.
-;; ===========================================================================
-
-(deftest scxml-irp-test505-internal-default-re-resolves-descendants
-  (testing "W3C IRP test505 (SCXML §3.13 internal-transition exit set) under
-            the xstate v5 DEFAULT FLIP: an explicit target naming
-            the CURRENT COMPOUND (no :reenter?) is INTERNAL — the source
-            compound is NOT in the exit set (no compound onexit/onentry), but
-            the target's ACTIVE DESCENDANTS ARE (xstate v5: an explicit target
-            re-resolves child states to their initial). DIVERGES from SCXML's
-            external default; the external restart is opt-in `:reenter? true`
-            (sibling §10c). Verified against xstate@5.32.0. Spec 005
-            §Self-transitions."
-    (let [[log mk] (order-recorder)
-          m {:initial :p :data {}
-             :states {:p {:entry (mk :entry-P) :exit (mk :exit-P)  ;; NOT in exit set
-                          :initial :s1
-                          :on {:re {:target :p :action (mk :ACTION)}}  ;; own kw, no reenter
-                          :states {:s1 {:entry (mk :entry-1) :exit (mk :exit-1)}
-                                   :s3 {:entry (mk :entry-3) :exit (mk :exit-3)}}}}}
-          ;; active at the non-initial child :s3; internal re-resolution exits
-          ;; the active descendant and re-descends :p's :initial (:s1).
-          r (step m {:state [:p :s3] :data {}} [:re])]
-      (is (= [:p :s1] (:state r))
-          "internal default re-resolves :p's descendants — active child resets to :initial (:s1)")
-      (is (= [:exit-3 :ACTION :entry-1] @log)
-          "exit set = the target's active descendant (:s3) only; :p itself NOT exited/entered (internal default, v5 flip)"))))
-
-(deftest scxml-irp-test506-disjoint-target-is-external
-  (testing "W3C IRP test506 (SCXML §3.13): a transition to a state that is
-            NOT on the active path (a disjoint sibling subtree) is treated as
-            EXTERNAL — both the source leaf and the target leaf cross the
-            cascade boundary (exit source, enter target), the common ancestor
-            untouched. This is the always-external case the internal default
-            does not apply to. Spec 005 §Entry/exit cascading along the LCCA."
-    (let [[log mk] (order-recorder)
-          m {:initial :p :data {}
-             :states {:p {:entry (mk :entry-P) :exit (mk :exit-P)  ;; LCCA — untouched
-                          :initial :a
-                          :states {:a {:entry (mk :entry-A) :exit (mk :exit-A)
-                                       :on {:go {:target :b :action (mk :ACTION)}}}
-                                   :b {:entry (mk :entry-B) :exit (mk :exit-B)}}}}}
-          r (step m {:state [:p :a] :data {}} [:go])]
-      (is (= [:p :b] (:state r)) "disjoint sibling target lands at :b")
-      (is (= [:exit-A :ACTION :entry-B] @log)
-          "external: exit source :a → action → enter target :b; LCCA :p untouched"))))
-
-(deftest scxml-irp-test533-atomic-source-self-target-is-noop
-  (testing "W3C IRP test533 (SCXML §3.13 — internal exit set defined as
-            external for a NON-COMPOUND source) under the v5 default flip: an
-            ATOMIC (leaf) state targeting ITSELF with no :reenter? has no
-            descendants to re-resolve, so the configuration is unchanged and
-            ONLY the action fires (a true internal no-op). The external
-            restart (onexit → action → onentry) requires `:reenter? true`
-            (sibling scxml-external-self-transition-*). Spec 005
-            §Self-transitions."
-    (let [[log mk] (order-recorder)
-          m {:initial :a :data {:n 0}
-             :actions {:bump (fn [{d :data}] (swap! log conj :ACTION)
-                               {:data (update d :n inc)})}
-             :states {:a {:entry (mk :entry) :exit (mk :exit)
-                          :on {:self {:target :a :action :bump}}}}}  ;; own kw, no reenter
-          r (step m {:state :a :data {:n 0}} [:self])]
-      (is (= :a (:state r)) "atomic self-target (no :reenter?) leaves the configuration unchanged")
-      (is (= 1 (get-in r [:data :n])) "the action ran")
-      (is (= [:ACTION] @log)
-          "no descendants to re-resolve ⇒ only the action fired — no onexit/onentry (internal no-op, v5)"))))
-
-;; ===========================================================================
-;; §D. onentry / onexit document order + the single-block divergence —
+;; §B. onentry / onexit document order + the single-block divergence —
 ;;      W3C IRP test375/376/377/378 (SCXML §3.8, §3.9)
 ;;
 ;; SCXML allows MULTIPLE `<onentry>` / `<onexit>` blocks per state, run in
@@ -376,52 +257,13 @@
 ;; 005 §Entry / exit actions). So:
 ;;   • 375/377 (document order) re-frame2 expresses as the CROSS-NODE entry /
 ;;     exit cascade order along the LCCA — the per-node single block fires
-;;     shallowest-first on entry, deepest-first on exit (asserted below; the
-;;     sibling file's scxml-lca-cascade-* proves the multi-level cascade).
+;;     shallowest-first on entry, deepest-first on exit (the sibling file's
+;;     scxml-initial-cascade-* and scxml-lca-cascade-* prove it).
 ;;   • 376/378 (independent blocks) do NOT apply — there are no sibling
 ;;     blocks within one node to isolate. The re-frame2 behaviour for a
 ;;     throwing boundary action is a FAILURE Result with no partial commit
 ;;     (transactional pre-commit; Spec 005). Asserted as the divergence.
 ;; ===========================================================================
-
-(deftest scxml-irp-test375-onentry-single-block-doc-order
-  (testing "W3C IRP test375 (SCXML §3.8 onentry document order), expressed via
-            re-frame2's single-block-per-node model: entering nested states
-            fires each node's ONE `:entry` action shallowest-first along the
-            entry cascade (re-frame2's document-order analogue). Spec 005
-            §Entry / exit actions §Cascade ordering. Divergence: re-frame2 has
-            one `:entry` per node, not N <onentry> blocks."
-    (let [[log mk] (order-recorder)
-          m {:initial :start :data {}
-             :states {:start {:on {:enter [:outer]}}
-                      :outer {:entry (mk :entry-outer)
-                              :initial :mid
-                              :states {:mid {:entry (mk :entry-mid)
-                                             :initial :leaf
-                                             :states {:leaf {:entry (mk :entry-leaf)}}}}}}}
-          r (step m {:state :start :data {}} [:enter])]
-      (is (= [:outer :mid :leaf] (:state r)))
-      (is (= [:entry-outer :entry-mid :entry-leaf] @log)
-          "onentry fires shallowest-first along the entry cascade (375 document-order analogue)"))))
-
-(deftest scxml-irp-test377-onexit-single-block-doc-order
-  (testing "W3C IRP test377 (SCXML §3.9 onexit document order), expressed via
-            re-frame2's single-block model: exiting nested states fires each
-            node's ONE `:exit` action DEEPEST-first along the exit cascade
-            (the SCXML reverse-document-order rule). Spec 005 §Entry / exit
-            actions §Cascade ordering."
-    (let [[log mk] (order-recorder)
-          m {:initial :p :data {}
-             :states {:p {:initial :a
-                          :on {:leave [:done]}     ;; absolute target out of :p
-                          :states {:a {:exit (mk :exit-a)
-                                       :initial :x
-                                       :states {:x {:exit (mk :exit-x)}}}}}
-                      :done {}}}
-          r (step m {:state [:p :a :x] :data {}} [:leave])]
-      (is (= [:done] (:state r)))
-      (is (= [:exit-x :exit-a] @log)
-          "onexit fires deepest-first (:x then :a) along the exit cascade (377 reverse-document-order)"))))
 
 (deftest scxml-irp-test376-378-onentry-throw-is-failure-result-divergence
   (testing "W3C IRP test376/378 (independent onentry/onexit blocks) DIVERGENCE:
@@ -439,7 +281,7 @@
           "a throwing :entry action produces a failure Result (no partial commit) — re-frame2's single-block divergence from SCXML 376/378 independent-block isolation"))))
 
 ;; ===========================================================================
-;; §E. Final child of the ROOT halts the machine — W3C IRP test415 (SCXML §3.7)
+;; §C. Final child of the ROOT halts the machine — W3C IRP test415 (SCXML §3.7)
 ;;
 ;; SCXML §3.7: entering a `<final>` child of the `<scxml>` ROOT terminates
 ;; processing (the whole machine is done). re-frame2 analogue: a top-level
@@ -502,15 +344,14 @@
            root-vs-embedded distinction test415 claims to prove)"))))
 
 ;; ===========================================================================
-;; §F. Internal queue + eventless macrostep — W3C IRP test144/158/419/421
+;; §D. Internal queue + macrostep — W3C IRP test144/421
 ;;
-;; SCXML §3.13 macrostep: raised internal events drain FIFO (144), executable
-;; content runs in document order (158), the optimal eventless transition set
-;; runs only at a stable config (419), and the WHOLE internal queue (raised +
-;; eventless) drains within one macrostep before the next external event
-;; (421). The sibling file proves the eventless fixed-point (§6) and
-;; machine_raise_fifo_test proves 144; these re-anchor the rules to their IRP
-;; ids and add the document-order + within-one-macrostep assertions. Spec 005
+;; SCXML §3.13 macrostep: raised internal events drain FIFO (144), and the
+;; WHOLE internal queue (raised + eventless) drains within one macrostep
+;; before the next external event (421). machine_raise_fifo_test proves 144;
+;; these re-anchor 144 and 421 to their IRP ids and add the
+;; within-one-macrostep assertion. The sibling file covers 158 (document
+;; order) and 419 (eventless at a stable config) — see the matrix. Spec 005
 ;; §Eventless `:always` transitions §Macrostep semantics; §`:raise` FIFO.
 ;; ===========================================================================
 
@@ -538,40 +379,6 @@
       (step m {:state :hub :data {}} [:go])
       (is (= [:go :b :c :d] @log)
           "FIFO: nested raise :d lands behind sibling :c — NOT depth-first [:go :b :d :c]"))))
-
-(deftest scxml-irp-test158-executable-content-document-order
-  (testing "W3C IRP test158 (SCXML §4 executable content runs in document
-            order): across a single transition the exit-action → transition
-            action → entry-action sequence fires in the SCXML
-            exit/content/entry order — the cross-boundary document order of
-            executable content. Spec 005 §Entry / exit actions §Cascade
-            ordering."
-    (let [[log mk] (order-recorder)
-          m {:initial :a :data {}
-             :states {:a {:exit (mk :exit-A)
-                          :on {:go {:target :b :action (mk :ACTION)}}}
-                      :b {:entry (mk :entry-B)}}}
-          r (step m {:state :a :data {}} [:go])]
-      (is (= :b (:state r)))
-      (is (= [:exit-A :ACTION :entry-B] @log)
-          "executable content in document order: onexit → transition content → onentry (158)"))))
-
-(deftest scxml-irp-test419-eventless-optimal-set-at-quiescence
-  (testing "W3C IRP test419 (SCXML §3.13: select the optimal NULL/eventless
-            transition set only AFTER the config is stable): an eventless
-            `:always` fires only once the config has settled, and is
-            evaluated deepest-first. Here the external :go lands at :pending,
-            whose :always (guard already true) immediately redirects to
-            :resolved within the SAME macrostep. Spec 005 §Eventless
-            transitions §Macrostep semantics."
-    (let [m {:initial :idle :data {:ready? true}
-             :guards  {:ready? (fn [{d :data}] (true? (:ready? d)))}
-             :states  {:idle    {:on {:go :pending}}
-                       :pending {:always [{:guard :ready? :target :resolved}]}
-                       :resolved {}}}
-          r (step m {:state :idle :data {:ready? true}} [:go])]
-      (is (= :resolved (:state r))
-          "the optimal eventless set ran at the post-:go stable config, settling :idle → :pending → :resolved in one macrostep"))))
 
 (deftest scxml-irp-test421-internal-queue-drains-before-return
   (testing "W3C IRP test421 (SCXML §3.13: the internal queue is fully
