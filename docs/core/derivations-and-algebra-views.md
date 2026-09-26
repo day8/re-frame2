@@ -40,29 +40,32 @@ node kinds plus rules for combining them into a graph, in the sense that relatio
 algebra is the set of operations you compose into a SQL query. One vocabulary
 describes every node.
 
-## The keystone: one function, two policies
+## One function, two policies
 
-A cart total, written twice with the same formula:
+The count of open todos, written twice with the same function:
 
 ```clojure
-;; Source form A — a subscription.
-(rf/reg-sub :cart/total
-  {:inputs [[:cart/items] [:pricing/discounts]]}
-  (fn [[items discounts] _] (sum-cart items discounts)))
+(defn count-remaining [todos]
+  (count (remove :done? todos)))
 
-;; Source form B — a flow. The same function.
-(rf/reg-flow :cart/materialized-total
-  {:inputs      [[:cart :items] [:pricing :discounts]]
-   :output-path [:cart :total]}
-  (fn [items discounts] (sum-cart items discounts)))
+;; Source form A: a subscription.
+(rf/reg-sub :todo/remaining-count
+  {:inputs [[:todo/all]]}
+  (fn [[todos] _] (count-remaining todos)))
+
+;; Source form B: a flow.
+(rf/reg-flow :todo/remaining-count
+  {:inputs      [[:todos]]
+   :output-path [:remaining-count]}
+  (fn [todos] (count-remaining (vals todos))))
 ```
 
-`sum-cart` is one function, used by both. What differs is the *policy*: where the
+`count-remaining` is one function, used by both. What differs is the *policy*: where the
 answer is kept and when it is recomputed:
 
 | | Subscription | Flow |
 |---|---|---|
-| Where the value lives | nowhere durable — recomputed on demand | in app-db, at `[:cart :total]` |
+| Where the value lives | nowhere durable; recomputed on demand | in app-db, at `[:remaining-count]` |
 | When it recomputes | when something reads it | after each event, in that event's commit |
 | Who keeps it alive | a subscription-cache entry | the frame |
 
@@ -85,7 +88,7 @@ below, add detail but no sixth question.
 | When does it run? | `:evaluation` | `:on-demand` · `:after-event` · `:on-reply` · `:on-route` · `:on-transition` · `:scheduled` · `:manual` |
 | Who keeps it alive? | `:lifecycle` | a cache entry · the frame · a route · a resource key · a machine instance |
 
-In this vocabulary the cart subscription is `:ephemeral` / `:on-demand` / cache
+In this vocabulary the subscription is `:ephemeral` / `:on-demand` / cache
 entry, and the flow is `:app-db` / `:after-event` / frame. The `:inputs` and the
 function are the same; three policy fields differ.
 
@@ -120,25 +123,24 @@ view**.
 
 ## One node, opened up
 
-Here is the complete algebra view of the cart subscription. It is the five questions
-plus labels and diagnostics:
+Here is the complete algebra view of the `:todo/remaining-count` subscription. It is
+the five questions plus labels and diagnostics:
 
 ```clojure
-{:id          :cart/total
+{:id          :todo/remaining-count
  :kind        :derivation                      ;; superkind: :derivation | :process
- :refinement  nil                              ;; informative colour; nil for a plain sub
- :source-form {:kind :reg-sub :id :cart/total} ;; what the author actually wrote
- :inputs      [[:sub [:cart/items]]
-               [:sub [:pricing/discounts]]]
- :output      [:fact :cart/total]
+ :refinement  nil                              ;; finer label; nil for a plain sub
+ :source-form {:kind :reg-sub :id :todo/remaining-count} ;; what the author wrote
+ :inputs      [[:sub [:todo/all]]]
+ :output      [:fact :todo/remaining-count]
  :storage     :ephemeral
- :authority   nil                              ;; the remote axis — present only when external
+ :authority   nil                              ;; present only when the fact is remote
  :evaluation  :on-demand
  :lifecycle   :subscription-cache-entry
  :materialized? false
- :derive      #'app.cart/sum-cart              ;; opaque token, never serialized code
- :schema      :app.money/amount               ;; the output's schema, when the registration carried one
- :source      {:ns "app.cart" :file "src/app/cart.cljs" :line 42}}
+ :derive      #'app.todos/count-remaining      ;; opaque token, never serialized code
+ :schema      :int                             ;; the output's schema, when registered
+ :source      {:ns "app.todos" :file "src/app/todos.cljs" :line 42}}
 ```
 
 Notes:
@@ -149,8 +151,8 @@ Notes:
    (`:resource-process`, `:route-fact`, `:machine-process`, `:machine-selector`). They
    never live in `:kind`, so a refinement always refines its node's superkind and
    never invents a third one.
-3. **`:derive`** is an opaque token. (`#'app.cart/sum-cart` is Clojure's var-quote —
-   a reference *to* the function named `sum-cart`, not the function's source code.)
+3. **`:derive`** is an opaque token. (`#'app.todos/count-remaining` is Clojure's
+   var-quote: a reference to the function, not its source code.)
    The graph contract is about dependencies, storage, evaluation, and ownership; it
    never requires serializing your functions.
 
@@ -162,23 +164,23 @@ unfamiliar app asks: where is this defined, and what shape does it produce?
 ### Parametric nodes and the don't-execute rule
 
 Some subscriptions compute their inputs from the [query vector](glossary.md#query-vector):
-`[:article/page "welcome"]` reads a different article than `[:article/page "intro"]`.
+`[:todo/row 1]` reads a different todo than `[:todo/row 2]`.
 The static graph can't know those edges before a concrete query exists, so it reports
 `:parametric` and names the function that produces the inputs. The live graph reports
 the actual edges for each query in use:
 
 ```clojure
 ;; STATIC — derived from registrations alone
-{:id             :article/page
+{:id             :todo/row
  :kind           :derivation
  :inputs         :parametric
- :input-producer #'app.article/article-page-inputs}
+ :input-producer #'app.todos/todo-row-inputs}
 
 ;; LIVE — one node per concrete query vector
-{:id        [:sub [:article/page "welcome"]]
+{:id        [:sub [:todo/row 1]]
  :kind      :derivation
- :inputs    [[:sub [:article/by-slug "welcome"]]
-             [:sub [:comments/for-article "welcome"]]]
+ :inputs    [[:sub [:todo/by-id 1]]
+             [:sub [:todo.ui/editing-id]]]
  :lifecycle :subscription-cache-entry}
 ```
 
@@ -207,11 +209,11 @@ ordinary on-demand derivation over that entry. Reading a selector never starts a
 fetch.
 
 ```clojure
-;; STATIC ALGEBRA VIEW of (rf/reg-resource :article/by-slug {…})
-{:id          :article/by-slug
+;; STATIC ALGEBRA VIEW of (rf/reg-resource :todo/list {…})
+{:id          :todo/list
  :kind        :process
  :refinement  :resource-process
- :inputs      [[:param :slug] [:scope {:from-db :app/session}]]
+ :inputs      [[:param :list-id] [:scope {:from-db :app/session}]]
  :output      [:runtime [:rf.runtime/resources :entries]]
  :storage     :runtime-db                     ;; the LOCAL cache lives here
  :authority   {:kind :remote :system :server  ;; the truth lives elsewhere
@@ -245,7 +247,7 @@ doesn't change where that copy is kept. So this resource's `:storage` is
     it is classed `:host-transient`: kept outside durable frame state and torn down at
     the end of its lifecycle. It is never the only copy of a fact; replay and restore
     use the durable `:runtime-db` entry. In a live resource view it appears as
-    `:host-transient [[:rf.http/in-flight :work/id-123]]` plus a `:work-ledger`
+    `:host-transient [[:rf.http/in-flight <request-id>]]` plus a `:work-ledger`
     summary (the in-flight attempt's identity, owners, causes and transport), present
     only while a fetch is in flight.
 
@@ -259,11 +261,11 @@ graph reads without running anything:
 
 ```clojure
 ;; STATIC ALGEBRA VIEW — named-resolver scope
-{:id          :article/by-slug
+{:id          :todo/list
  :kind        :process
  :refinement  :resource-process
- :inputs      [[:param :slug]
-               [:scope {:from-db :session/current-tenant}]]   ;; the reference, verbatim — static!
+ :inputs      [[:param :list-id]
+               [:scope {:from-db :session/current-tenant}]]   ;; the reference, verbatim
  :scope-resolver {:id     :session/current-tenant
                   :inputs [[:db [:session :tenant-id]]]}        ;; its declared inputs are static facts
  :params      :parametric}
@@ -281,21 +283,24 @@ state, written only by its own transitions. Here is its view, beside one of its
 selectors:
 
 ```clojure
-;; STATIC ALGEBRA VIEW of (rf/reg-machine :checkout/main {…})
-{:id          :checkout/main
+;; STATIC ALGEBRA VIEW of (rf/reg-machine :todo/sync {…})
+{:id          :todo/sync
  :kind        :process
  :refinement  :machine-process
- :inputs      [[:event :checkout/submit]      ;; the :on event keys across the state tree
-               [:event :checkout/succeeded]
-               [:event :checkout/failed]]
+ :inputs      [[:event :todo.sync/start]      ;; the :on event keys across the state tree
+               [:event :todo.sync/done]
+               [:event :todo.sync/conflict]
+               [:event :todo.sync/cancel]
+               [:event :todo.sync/resolve]
+               [:event :todo.sync/retry]]
  :storage     :runtime-db
- :evaluation  #{:on-transition}              ;; + :scheduled if it has :after; + :on-reply if it spawns
+ :evaluation  #{:on-transition :scheduled}   ;; :scheduled because it has an :after
  :lifecycle   :machine-instance}
 
-;; A selector — how a view reads the machine — is an ordinary subscription.
-(rf/reg-sub :checkout/progress
-  {:inputs [[:rf/machine :checkout/main]]}
-  (fn [[snapshot] _] (get-in snapshot [:data :progress] 0)))
+;; A selector, how a view reads the machine, is an ordinary subscription.
+(rf/reg-sub :todo/sync-state
+  {:inputs [[:rf/machine :todo/sync]]}
+  (fn [[snapshot] _] (:state snapshot)))
 ```
 
 A machine's `:inputs` are the event ids its transitions listen for: every `:on` key
@@ -306,7 +311,7 @@ wildcard) are not listed as edges. Its `:evaluation` is a set: always
 the machine declares an `:after` delayed transition, plus `:on-reply` when it spawns
 child actors.
 
-The `:checkout/progress` selector's view is an `:ephemeral`, `:on-demand` derivation
+The `:todo/sync-state` selector's view is an `:ephemeral`, `:on-demand` derivation
 like any other subscription, with the `:machine-selector` refinement and an edge to
 the machine it reads. The graph takes the machine id from the selector's static
 `[:rf/machine …]` input, so in an app with several machines each selector's edge
@@ -335,7 +340,7 @@ into each resource it ensures ([Routing](../routing/concepts.md)):
 ```clojure
 ;; one :resources entry → one route-owned activation edge under :resource-edges
 {:from   [:runtime [:rf.runtime/routing :current :params]]
- :to     [:resource :article/by-slug]
+ :to     [:resource :todo/list]
  :role   :param
  :target :parametric        ;; concrete scoped key needs a live match + scope
  :blocking? true}           ;; transition stays :loading until the resource settles
@@ -363,20 +368,20 @@ A tool combines the views into one value, a map of `:nodes` and a vector of `:ed
 
 ```clojure
 {:mode  :live
- :frame :main
+ :frame :app
  :nodes
- {[:sub [:article/page "welcome"]]  {:kind :derivation :storage :ephemeral :evaluation :on-demand}
+ {[:sub [:todo/shared-list "team"]] {:kind :derivation :storage :ephemeral :evaluation :on-demand}
   :rf/route                         {:kind :process :storage :runtime-db
                                      :output [:runtime [:rf.runtime/routing :current]]}
-  [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]
+  [:resource [[:rf.scope/global] :todo/list {:list-id "team"}]]
                                     {:kind :process :storage :runtime-db :status :loaded}}
  :edges
- [{:from [:runtime [:rf.runtime/routing :current :params :slug]]
-   :to   [:sub [:article/page "welcome"]] :role :input}
-  {:from [:runtime [:rf.runtime/routing :current :params :slug]]
-   :to   [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]] :role :param}
-  {:from [:resource [[:rf.scope/global] :article/by-slug {:slug "welcome"}]]
-   :to   [:sub [:article/page "welcome"]] :role :input}]}
+ [{:from [:runtime [:rf.runtime/routing :current :params :list-id]]
+   :to   [:sub [:todo/shared-list "team"]] :role :input}
+  {:from [:runtime [:rf.runtime/routing :current :params :list-id]]
+   :to   [:resource [[:rf.scope/global] :todo/list {:list-id "team"}]] :role :param}
+  {:from [:resource [[:rf.scope/global] :todo/list {:list-id "team"}]]
+   :to   [:sub [:todo/shared-list "team"]] :role :input}]}
 ```
 
 Four rules for reading it:
@@ -436,12 +441,12 @@ Core can't `:require` flows, resources, routing or machines without defeating th
 
 Every derivation must be correct when it recomputes its entire output. re-frame2 has no incremental (delta) evaluation today, but the model states the rule a delta path would have to follow, so that adding one later can't change observed values.
 
-A derivation could one day declare a `:step-delta` beside its `:derive`, computing a change in output from a change in input instead of rebuilding the whole value — useful for, say, a hundred-thousand-row grid where one cell changed:
+A derivation could one day declare a `:step-delta` beside its `:derive`, computing a change in output from a change in input instead of rebuilding the whole value. That would help with, say, a hundred thousand todos where one was toggled:
 
 ```clojure
-{:id         :large-grid/visible-rows
- :derive     #'app.grid/visible-rows        ;; whole-value: always correct
- :step-delta #'app.grid/visible-rows-delta} ;; delta: an optional fast path
+{:id         :todo/visible
+ :derive     #'app.todos/visible         ;; whole-value: always correct
+ :step-delta #'app.todos/visible-delta}  ;; delta: an optional fast path
 ```
 
 The delta path must **commute** with whole-value recomputation: applying the input change and then deriving must equal deriving and then applying the output change. If a `:step-delta` is absent, disabled or fails its conformance check, whole-value derivation remains correct; a delta is only ever a speed-up. The model reserves a seventh error category, **delta law check failed**, for a `:step-delta` that disagrees with whole-value recomputation. Nothing can raise it until delta evaluation exists.

@@ -88,7 +88,7 @@ README markets as a headline feature:
   else passes through.
 
 The example also registers a console-logging
-[`event-emit` listener](../../../../docs/core/observability.md#your-listener-in-eight-lines)
+[`event-emit` listener](../../../../docs/core/observability.md#write-a-listener)
 at boot via `rf/register-listener!` (the `:events` channel). Every dispatched
 event prints one tight record (`{:event :event-id :frame :time
 :outcome :elapsed-ms}`) — the same shape the chapter-22 Datadog

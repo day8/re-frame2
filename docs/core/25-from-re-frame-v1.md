@@ -31,14 +31,12 @@ The rest of this page explains the categories of change you will see at step 3; 
 
 ## Deps
 
-re-frame2 ships each capability as a separate artefact, so the ones you don't use are never bundled.
+re-frame2 ships each capability as a separate artefact, so the ones you don't use are never bundled. The skill makes these changes; the list tells you what to expect.
 
 1. **Swap the core coord.** Remove `re-frame/re-frame`. Add `day8/re-frame2`.
 2. **Add a substrate adapter** for your view library — `day8/re-frame2-reagent` if you're on Reagent (and bump Reagent to v2, which the reference targets), or `day8/re-frame2-uix` if you've already moved to UIx. ([Adapters](how-to/use-uix-or-slim.md) covers the [substrate](glossary.md#substrate).)
 3. **Add per-feature artefacts only for features you use.** Don't add them all "to be safe" — the skill reports which ones the codebase trips. Split: `day8/re-frame2-{machines, flows, routing, http, resources, ssr, schemas, epoch}`.
 4. **Don't bump anything else in the same change.** Keep React, shadow-cljs, and the rest on current versions until the migration settles. A migration that is also a dependency upgrade is two failure modes in one diff.
-
-The skill makes these changes; the list tells you what to expect.
 
 !!! warning "Gotcha"
 
@@ -136,23 +134,21 @@ Fix it at the root: create a frame and scope the view tree to it. The usual form
 ;;           [re-frame.adapter.reagent :as reagent-adapter])
 
 ;; Preferred: named seed event(s) on frame-root.
-;; `app-root` is the client-root handle; `main-view` is your root view.
+;; `app-root` is the client-root handle; `todo-app` is your root view.
 (defonce app-root (reagent-adapter/client-root))
 (def el (js/document.getElementById "app"))
 
 (reagent-adapter/render! app-root
-  [rf/frame-root {:id :app/main
-                  :initial-events [[:app/initialise]   ;; reg-event that returns {:db …}
-                                   [:boot]]}
-   [main-view]]
+  [rf/frame-root {:id             :app
+                  :initial-events [[:todo/initialise]]}   ;; a reg-event returning {:db …}
+   [todo-app]]
   el)
 
 ;; Also fine: create the frame first, then scope the tree to it
-(rf/make-frame {:id :app/main
-                :initial-events [[:app/initialise] [:boot]]})
+(rf/make-frame {:id :app :initial-events [[:todo/initialise]]})
 (reagent-adapter/render! app-root
-  [rf/frame-provider {:frame :app/main}
-   [main-view]]
+  [rf/frame-provider {:frame :app}
+   [todo-app]]
   el)
 ```
 
@@ -163,8 +159,8 @@ Inside that tree, a bare `dispatch` or `subscribe` finds the frame from the prov
     There is no `:initial-db` or `:db` frame option. **Every frame starts with `app-db = {}`**, and seeding is an event in `:initial-events`. Prefer a **named** seed handler:
 
     ```clojure
-    (rf/reg-event :app/initialise
-      (fn [_ _] {:db {:screen :home}}))
+    (rf/reg-event :todo/initialise
+      (fn [_ _] {:db {:todos {} :showing :all}}))
     ```
 
     To set app-db wholesale with no domain event, use the built-in `[:rf/set-db {…}]` as the first step. A v1 `(reg-event-db :initialise-db (fn [_ _] default-db))` becomes either that named event or `[:rf/set-db default-db]`. Setup is always events (there is no `:on-create`), so time-travel can rewind to the initial state like any other.
@@ -225,7 +221,7 @@ v1 let a handler read the outside world and write the result into state: `(js/Da
 The v2 rule: **a fact that decides a durable write must be one the runtime recorded**. Every outside fact a handler uses is declared with `:rf.cofx/requires` and delivered flat under its id. Whether a fact is [recordable or ambient](glossary.md#recordable-vs-ambient-coeffects) decides replay: a recordable fact is captured and fed back on replay, and an ambient one is read fresh each time ([Coeffects](coeffects.md)). The mapping:
 
 - **Clock reads that reach state** (`js/Date.now`, `(.now js/Date)`): add `:rf.cofx/requires [:rf/time-ms]` and read the flat `time-ms` key. The runtime stamps `:rf/time-ms` on every dispatch and records it; it is the framework's one built-in recordable fact.
-- **Generated ids** (`random-uuid` feeding durable state): preferably create the id at dispatch and pass it in the event, `[:cart/add-item {:id (random-uuid) :sku "BK-1"}]`; for an id created inside the handler, declare a recordable cofx with an app-registered supplier.
+- **Generated ids** (`random-uuid` feeding durable state): preferably create the id at dispatch and pass it in the event, `(dispatch [:todo/add {:id (random-uuid) :title "Buy milk"}])`; for an id created inside the handler, declare a recordable cofx with an app-registered supplier.
 - **Random choices** (`rand`, `rand-int`, `rand-nth` written to state): an app-registered recordable cofx, which records the values produced.
 - **Storage and location reads** that initialise durable state (`localStorage`, `sessionStorage`, `js/location`, `navigator`): router or host events, or a `{:recordable? true}` cofx, rather than a read at the write site.
 - **A v1 `:now` cofx**: `(inject-cofx :now)` becomes `:rf.cofx/requires [:rf/time-ms]`, so a scripted or replayed time comes back exactly. For an app-specific clock id, register a recordable supplier:
@@ -268,9 +264,7 @@ Effects change too: **`reg-fx` handlers take a context argument.** v1 handlers w
 
     A handler that reads `(js/Date.)` and writes it to state gives a different result on replay once the clock has moved. A fact that decides a durable write must come from a recorded coeffect; a diagnostic that never reaches durable state can stay ambient. Whether a read decides durable state is a question of intent, so the skill flags these for review rather than rewriting them.
 
-## Two changes worth depth
-
-Two changes involve more than a rename.
+## Changes that need a decision
 
 ### HTTP folds onto `:rf.http/managed`
 
@@ -286,15 +280,15 @@ There are **eight** failure categories. Five can be retried: `:rf.http/transport
 A v1 status-code `cond` becomes a `case` over named kinds:
 
 ```clojure
-(rf/reg-event :article/load-error
+(rf/reg-event :todo/load-failed
   (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (assoc-in db [:article :error]
+    {:db (assoc db :load-error
            (case (:kind error)
-             :rf.http/timeout        "The server took too long — try again."
-             :rf.http/http-4xx       "That article doesn't exist."
+             :rf.http/timeout        "The server took too long. Try again."
+             :rf.http/http-4xx       "That list doesn't exist."
              :rf.http/http-5xx       "Something broke on our end."
              :rf.http/decode-failure "The server sent something we couldn't read."
-             "Couldn't load the article."))}))
+             "Couldn't load your todos."))}))
 ```
 
 Where one handler should receive both outcomes, `:reply-to [:some/event]` replaces the `:on-success` / `:on-failure` pair, and the handler branches on the reply's `:status`. `:rf.http/managed` also handles retries, aborts, double-submit suppression, the default request timeout from [Configure dev and prod](how-to/configure-dev-and-prod.md) and the failure categories, so hand-written request-lifecycle code can be deleted.
@@ -308,12 +302,12 @@ Where one handler should receive both outcomes, `:reply-to [:some/event]` replac
 v1's `on-changes` interceptor said "when these input paths change, compute a value and write it to that output path." v2's [**flows**](glossary.md#flow) do the same, but instead of adding `on-changes` to each event's interceptor chain, you register a flow once and it runs after every event handler, before the new `:db` is committed. Flows can also be added and removed at runtime.
 
 ```clojure
-(rf/reg-flow :editor/word-count
-  {:inputs [[:editor :title] [:editor :body]]
-   :output-path [:editor :word-count]
-   :doc    "Live word count of the article being edited."}
-  (fn [title body]
-    (count (re-seq #"\S+" (str title " " body)))))
+(rf/reg-flow :todo/remaining-count
+  {:inputs      [[:todos]]
+   :output-path [:remaining-count]
+   :doc         "Open todos, for handlers that need the count."}
+  (fn [todos]
+    (count (remove :done? (vals todos)))))
 ```
 
 Flows don't replace subscriptions. Use a flow for a derived value that is part of application state: read by other event handlers, carried through SSR hydration, covered by registered schemas, visible in the app-db inspector. If only views use the value, use a [subscription](glossary.md#subscription), which involves no `app-db` write. A typical app has dozens of subscriptions and a handful of flows.

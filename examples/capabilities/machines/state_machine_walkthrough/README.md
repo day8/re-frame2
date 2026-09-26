@@ -87,7 +87,7 @@ at it, poke here.
   inner event and dispatches it straight back into the machine. That is
   [the uniform reply](../../../../docs/core/glossary.md#the-uniform-reply), and
   it's why the async boundary needs no glue code. The network is swapped out via
-  the [`:fx-overrides`](../../../../docs/core/testing/pipeline-runs.md#redirect-anything-fx-overrides)
+  the [`:fx-overrides`](../../../../docs/core/testing/pipeline-runs.md#redirect-any-effect-fx-overrides)
   seam: the browser demo redirects `:rf.http/managed` to
   `:walkthrough.login/canned-failure`, and the headless tests pick
   `:walkthrough.login/canned-failure` or `:walkthrough.login/canned-success` per scenario —

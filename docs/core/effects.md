@@ -34,7 +34,7 @@ That write costs you three things:
 Instead, the handler describes the write, and one registered
 [effect handler](glossary.md#effect-handler) performs it:
 
-```cljs-rf2
+```clojure
 (require '[re-frame.core :as rf])
 
 ;; the new idea: the one place in the app that writes to localStorage
@@ -81,8 +81,8 @@ Instead, the handler describes the write, and one registered
  [todo-list]]
 ```
 
-Add a todo, then open your browser's storage inspector: the `todos` key changes on
-every add and toggle.
+Mount it in your app, add a todo, then open your browser's storage inspector: the
+`todos` key changes on every add and toggle.
 
 The handlers never touch storage. Each returns an extra key, `:fx`, holding a row
 `[:todo.storage/save todos]` that *describes* the write. The runtime commits `:db`,
