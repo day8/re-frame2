@@ -60,7 +60,7 @@
    :event        [:logout]
    ;; Walk: :dashboard (miss) → :authenticated (miss) → root :on :logout
    ;; (match). Keyword :idle resolves at top level → [:idle].
-   :expect-next-snapshot {:state :idle :data {}}
+   :expect-next-snapshot {:state [:idle] :data {}}
    :expect-effects       []}
 
   ;; Case 2: root `:on` vector target — absolute path from root.

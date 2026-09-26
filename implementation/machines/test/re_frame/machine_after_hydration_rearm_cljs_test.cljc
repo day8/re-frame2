@@ -275,7 +275,7 @@
 
         ;; Fire the ANCESTOR's timer — the one an entry-shaped re-arm would miss.
         (fire! (get @thunks 9000))
-        (is (= :outer-fired (rf.machines.test-support/machine-state cfid :hyd/compound))
+        (is (= [:outer-fired] (rf.machines.test-support/machine-state cfid :hyd/compound))
             "the hydrated ANCESTOR timer fired and transitioned")))))
 
 ;; ---------------------------------------------------------------------------

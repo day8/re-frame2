@@ -354,7 +354,7 @@
         ;; `region-body` already carries `:states` — `initial-cascade`
         ;; reads it through `node-at`, so pass it directly.
         full-path (rf.machines.transition/initial-cascade region-body (rf.machines.transition/state-path decl))]
-    (rf.machines.transition/denormalise-state full-path decl)))
+    (rf.machines.transition/denormalise-state region-body full-path)))
 
 (defn- compute-tags-parallel
   "Per Spec 005 §Tags compose across regions: union the machine root's
@@ -419,10 +419,11 @@
                                      [rn (region-initial-state
                                            (get-in machine [:regions rn]))]))
                               (region-order machine))
-                        (let [decl (:initial machine)]
-                          (rf.machines.transition/denormalise-state
-                            (rf.machines.transition/initial-cascade machine (rf.machines.transition/state-path decl))
-                            decl)))
+                        (rf.machines.transition/denormalise-state
+                          machine
+                          (rf.machines.transition/initial-cascade
+                            machine
+                            (rf.machines.transition/state-path (:initial machine)))))
         base          (cond-> {:state            initial-state
                                :data             (or (:data machine) {})
                                :rf/spawn-counter {}}
@@ -1177,16 +1178,12 @@
                         (assoc :rf/history (:rf/history acc))
                         (some? (:rf/spawn-attempts acc))
                         (assoc :rf/spawn-attempts (:rf/spawn-attempts acc)))
-          ;; Root-relative target WITHIN the region (`:decl-path []` → a
-          ;; keyword/vector target resolves against the region root, exactly
-          ;; like a region-root `:on` target). A single-element in-region path
-          ;; is passed as a KEYWORD so `commit-snapshot` collapses the region's
-          ;; new `:state` to a keyword (matching a flat region's snapshot
-          ;; shape); a deeper path stays a vector (a compound region's path).
-          in-region   (vec in-region-path)
-          synthetic   {:target    (if (= 1 (count in-region))
-                                    (first in-region)
-                                    in-region)
+          ;; Root-relative target WITHIN the region (`:decl-path []` → the
+          ;; vector target resolves against the region root, exactly like a
+          ;; region-root `:on` target). `commit-snapshot` shapes the region's
+          ;; new `:state` by the region itself: a keyword for a flat region, a
+          ;; vector path for a compound one.
+          synthetic   {:target    (vec in-region-path)
                        :decl-path []}
           step        (rf.machines.transition/apply-transition-once
                         region-spec region-snap event synthetic :transition)]

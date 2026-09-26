@@ -122,7 +122,7 @@
     ;; is genuinely exited (the SCXML test388 external-sibling shape), so its
     ;; shallow history records the direct child (:playing).
     (let [after-eject (step shallow-player (seed [:player :playing :mid-track]) [:eject])]
-      (is (= :tray (:state after-eject)) "ejected to the :tray sibling")
+      (is (= [:tray] (:state after-eject)) "ejected to the :tray sibling")
       (is (= :playing (get-in after-eject [:rf/history [:player]]))
           "shallow history recorded the direct child keyword (:playing)")
       (let [restored (step shallow-player after-eject [:insert])]

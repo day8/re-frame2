@@ -43,7 +43,7 @@
               :tray   {:on {:insert [:player :hist]}}}}
    :snapshot     {:state [:player :playing :mid-track] :data {}}
    :event        [:eject]
-   :expect-next-snapshot {:state    :tray
+   :expect-next-snapshot {:state    [:tray]
                           :data     {}
                           :rf/history {[:player] :playing}}
    :expect-effects       []}
@@ -63,7 +63,7 @@
                                            :states  {:at-start  {:on {:seek :mid-track}}
                                                      :mid-track {}}}}}
               :tray   {:on {:insert [:player :hist]}}}}
-   :snapshot     {:state    :tray
+   :snapshot     {:state    [:tray]
                   :data     {}
                   :rf/history {[:player] :playing}}
    :event        [:insert]

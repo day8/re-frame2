@@ -259,7 +259,7 @@
       (is (= 6 @seen)
           "the synthetic :on-done raised-done guard read the GENERATED fact —
            ensured for the raised done signal")
-      (is (= :done (rf.machines.test-support/machine-state :raise/compound-done))
+      (is (= [:done] (rf.machines.test-support/machine-state :raise/compound-done))
           "the :on-done fired on the ensured value"))))
 
 (deftest parallel-region-raise-guard-fact-ensured

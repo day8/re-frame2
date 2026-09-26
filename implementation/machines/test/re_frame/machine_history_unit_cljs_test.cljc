@@ -154,7 +154,7 @@
 (deftest deep-nesting-records-each-compound-independently
   (testing "exiting :outer records BOTH the outer and the nested-inner compound, keyed independently"
     (let [away (step nested (seed [:outer :b :b2]) [:leave])]
-      (is (= :away (:state away)) "left the whole :outer subtree")
+      (is (= [:away] (:state away)) "left the whole :outer subtree")
       ;; Two independent recordings, each keyed by its own declaration path.
       (is (= [:outer :b :b2] (get-in away [:rf/history [:outer]]))
           "the outer compound recorded its full deep leaf")
