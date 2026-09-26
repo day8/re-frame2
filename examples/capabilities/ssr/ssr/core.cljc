@@ -242,7 +242,7 @@
 ;; A couple of things `reg-view` is doing for us here. It auto-`def`s the
 ;; symbol and registers the view under `(keyword *ns* sym)` — so by default the
 ;; id tracks the var name. The `^{:rf/id …}` metadata overrides that, pinning
-;; ids the callers below already expect (`:pages/articles`, `:app/root`).
+;; the id both entry points below already expect (`:app/root`).
 ;;
 ;; The other gift is `subscribe`: `reg-view` injects it, and it resolves to the
 ;; frame-bound subscribe fn at *runtime*. That single detail is what lets one
@@ -251,7 +251,15 @@
 ;; a reaction, so the view re-renders whenever app-db changes underneath it.
 ;; Same code, two behaviours, picked up from the context. See
 ;; ../../../../docs/core/glossary.md#view.
-(rf/reg-view ^{:rf/id :pages/articles} articles-page []
+;;
+;; Notice, too, that the root view returns the page's elements itself rather
+;; than handing off to another view. That is what gives the render hash
+;; something to check. The hash walks the tree the root returns, as data, and
+;; never calls a view it finds inside: `[(rf/view :some/page)]` hashes as one
+;; fixed token, whatever that page would render. A root whose whole body is
+;; another view would hash the same for every app state, and the client's
+;; check would pass whatever either side rendered.
+(rf/reg-view ^{:rf/id :app/root} root-view []
   (let [arts         @(subscribe [:articles/slice])
         show-bodies? @(subscribe [:articles/show-bodies?])]
     [:div.page
@@ -267,9 +275,6 @@
                [:li [:h3 title]
                 (when show-bodies? [:p.body {:data-testid "article-body"} body])]))
        [:p "No articles."])]))
-
-(rf/reg-view ^{:rf/id :app/root} root-view []
-  [(rf/view :pages/articles)])
 
 ;; ============================================================================
 ;; WAITING FOR THE PAGE LOAD
