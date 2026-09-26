@@ -246,6 +246,19 @@
                             {:interceptors [:nope/absent]}
                             (fn [{:keys [db]} _] {:db db}))))))
 
+(deftest unknown-frame-ref-rejected-at-make-frame
+  (testing "make-frame referencing an unregistered interceptor throws at creation, and builds nothing"
+    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
+                          #":rf.error/unregistered-interceptor"
+                          (rf/make-frame {:id :test/bad-frame :interceptors [:nope/absent]})))
+    (is (not (contains? (set (rf/frame-ids)) :test/bad-frame))
+        "no half-created frame is left registered"))
+  (testing "a frame chain of registered refs, a factory ref among them, constructs"
+    (rf/reg-interceptor :frame/ok {:before identity})
+    (rf/make-frame {:id :test/good-frame
+                    :interceptors [:frame/ok [:rf.interceptor/path [:slice]]]})
+    (is (contains? (set (rf/frame-ids)) :test/good-frame))))
+
 (deftest bare-ref-to-factory-rejected
   (testing "a bare-keyword ref to a :factory interceptor is :rf.error/interceptor-factory-arity"
     (rf/reg-interceptor :fac/only {:factory (fn [_] {:before identity})})

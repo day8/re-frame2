@@ -101,6 +101,22 @@
             "off-box default omits the :event args slot — the sink never
              sees the raw event payload")))))
 
+(deftest handled-event-sink-honours-no-emit
+  (testing "a handler registered with :rf.trace/no-emit? true routes no
+            :handled-events record, as it emits no trace and no event-emit
+            record (Spec 009 §Trace-emission opt-out)"
+    (let [seen (atom [])]
+      (rf/register-observability-sink! :test.sinks/no-emit
+                                       (fn [record] (swap! seen conj (:event-id record))))
+      (rf/make-frame {:id :obs/quiet :observability
+                      {:handled-events [{:sink :test.sinks/no-emit}]}})
+      (rf/reg-event :bookkeeping/tick {:rf.trace/no-emit? true} (fn [_ _] {}))
+      (rf/reg-event :app/tick (fn [_ _] {}))
+      (rf/dispatch-sync [:bookkeeping/tick] {:frame :obs/quiet})
+      (rf/dispatch-sync [:app/tick] {:frame :obs/quiet})
+      (is (= [:app/tick] @seen)
+          "only the observable handler's record reached the sink"))))
+
 (deftest handled-event-sink-receives-already-projected-event-under-raw-profile
   (testing "a trusted-local profile keeps the :event slot, PROJECTED through
             the frame's classification — the sink never re-implements

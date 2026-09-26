@@ -164,11 +164,14 @@ machinery.
 
 ### Failure
 
-**Construction-time `:initial-events` is STRICT** (Mike-ruled (a), 2026-06-23):
-**any** setup-step failure tears the partially created frame down (no half-created frame is
-left live) and raises `:rf.error/initial-events-step-failed`. The runtime's traced-and-recover
-leniency is a **runtime** concern and does **not** apply during construction. Setup failures
-fall into three categories:
+**Construction-time `:initial-events` is STRICT** (Mike-ruled (a), 2026-06-23): a setup
+step that throws — out of `dispatch-sync`, or inside the chain as a handler, interceptor,
+coeffect-supplier or flow error — tears the partially created frame down (no half-created
+frame is left live) and raises `:rf.error/initial-events-step-failed`. The runtime's
+traced-and-recover leniency is a **runtime** concern and does **not** apply to those
+failures during construction. A step whose event has **no registered handler** is not a
+setup-step failure: it reports `:rf.error/no-such-handler`, exactly as any dispatch does,
+and construction continues. Setup failures fall into three categories:
 
 - **Preflight validation** — an invalid `:initial-events` shape, an invalid step, a step
   `:opts` violation, or a supplied `:on-create` / `:initial-db`. Caught **before any step
