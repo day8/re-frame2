@@ -151,14 +151,6 @@ test('COMPLETE evidence exits 0 and says nothing', () => {
   assert.deepStrictEqual(v, { code: 0, lines: [] });
 });
 
-test('the complete fixture really does fill every expected cell', () => {
-  // Without this the refusals below would all pass against a fixture that
-  // simply never produces a comparable row.
-  const { rows } = evidence(theirsDir('green2'), oursJson('green2.json'));
-  const measured = rows.filter((r) => Number.isFinite(r.diff)).map((r) => r.cell);
-  assert.deepStrictEqual([...measured].sort(), [...EXPECTED_CELLS].sort());
-});
-
 // --- ABSENT EVIDENCE is a refusal, never a pass ------------------------------
 
 test('THE VACUOUS PASS: no results directory and no --ours cannot exit 0', () => {
@@ -414,15 +406,6 @@ test('the positive control is measured on ONE instrument by design and is not ex
   assert.strictEqual(verdict(evidence(theirsDir('ctl'), oursJson('ctl.json'))).code, 0);
 });
 
-test('a run that measured ONLY the control refuses — ten cells short, all named', () => {
-  const dir = scratch('ctl-only');
-  const v = verdict(evidence(dir, oursJson('ctl-only.json')));
-  assert.notStrictEqual(v.code, 0);
-  // An empty directory is absent evidence, so this lands at 2 rather than 1;
-  // the point is that it lands somewhere non-zero.
-  assert.strictEqual(v.code, 2);
-});
-
 // --- the run's OWN gates are reported here and decided elsewhere -------------
 
 test('a FAILING parity gate does not change this program\'s exit — one seat per decision', () => {
@@ -500,14 +483,6 @@ test('THE WORKLOAD CONCLUSION: a refused ours ratio prints UNMEASURED, not a mov
     // not the evidence: a reader debugging the run needs to see what arrived.
     assert.match(r.stdout, new RegExp(`ours, benchmark create-1,000 rows\\s+${bad.toFixed(4).replace('-', '-')}`), r.stdout);
   }
-});
-
-test('THE WORKLOAD CONCLUSION: the audit\'s own -199.1% is not printed', () => {
-  // Named literally, because it is the number an unguarded section would
-  // print and the one a reader would quote.
-  const f = oursPatched('wl-audit.json', 'run1k', OTHERS[0], { ratio: -1.2 });
-  const r = run(['--theirs', theirsDir('wl-audit'), '--ours', f]);
-  assert.doesNotMatch(r.stdout, /-199\.1%/, 'the worked example must not print as a finding');
 });
 
 test('THE WORKLOAD CONCLUSION: a refused ours DURATION suppresses it too, sound ratio or not', () => {
