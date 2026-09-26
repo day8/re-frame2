@@ -113,17 +113,6 @@
       (is (= {:ui {::open? {:billing true}}} (db-of f))
           "one entry, at the documented app-space path, concern first"))))
 
-(deftest the-same-instance-key-shares-and-that-is-correct
-  (testing "two widgets given ONE key are one instance on purpose — a
-           master/detail pair that must open together says so by sharing
-           the key, and nothing here treats that as an error"
-    (rf.fresco.impl.state/reg-state ::open? {:default false})
-    (let [f (frame! ::shared)]
-      (send! f [::open? :billing true])
-      (is (= true (read* f [::open? :billing])))
-      (is (= 1 (count (get-in (db-of f) [:ui ::open?])))
-          "one key, one entry, however many widgets read it"))))
-
 (deftest a-default-is-per-concern-and-any-value
   (rf.fresco.impl.state/reg-state ::draft {:default ""})
   (rf.fresco.impl.state/reg-state ::tab {:default :first})

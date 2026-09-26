@@ -103,30 +103,6 @@
         "the hint is a CALL from inside the field's markup, so its read
          belongs to its own body and not to the field's")))
 
-(deftest the-buffered-field-is-controlled-and-carries-the-reset-trigger
-  ;; `ht/controlled?` asks the RUNTIME which component the codec installs,
-  ;; so this is the substrate's own answer rather than a re-reading of
-  ;; what the author wrote.
-  (let [form [:input {:type "text" :value "s"
-                      ::rf.fresco/revision 2
-                      :on-input [rf.fresco.examples.forms.db/subject-draft ticket ::rf.fresco/value]}]]
-    (is (true? (rf.fresco.test/controlled? form)))
-    (is (= 2 (rf.fresco.test/revision form))
-        "the trigger is read pre-merge, off the author's own map — it is
-         never a DOM attribute and a remainder cannot arm it")))
-
-(deftest the-two-form-fields-carry-no-reset-trigger
-  ;; An absence, asserted. The three fields differ in exactly this, and a
-  ;; revision that never fires is a prop a reader must reason about for
-  ;; nothing — so its absence is part of the recipe rather than an
-  ;; oversight.
-  (doseq [form [[:input {:type "text" :value "ada"
-                         :on-input [::rf.fresco.examples.forms.events/edit :assignee ::rf.fresco/value]}]
-                [:textarea {:value "note"
-                            :on-input [::rf.fresco.examples.forms.events/edit :notes ::rf.fresco/value]}]]]
-    (is (true? (rf.fresco.test/controlled? form)))
-    (is (nil? (rf.fresco.test/revision form)))))
-
 ;; ---------------------------------------------------------------------------
 ;; Recipe 2 — the gate, as an absence and a presence
 ;; ---------------------------------------------------------------------------

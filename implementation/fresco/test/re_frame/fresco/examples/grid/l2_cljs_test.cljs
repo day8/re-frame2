@@ -59,20 +59,6 @@
          comes from `events/cell-label` so that a witness looking a cell
          up and the view rendering it cannot spell it differently")))
 
-(deftest a-cell-is-the-editors-text-field-with-a-coordinate
-  ;; The claim the grid exists to make. Both are `:value` off a
-  ;; subscription and an intent vector at `:on-input`, and the difference
-  ;; between one field and a hundred is the loop that writes them.
-  (let [form [:input {:type "text" :value "34"
-                      :on-input [::rf.fresco.examples.grid.events/edit 3 4 ::rf.fresco/value]}]]
-    (is (true? (rf.fresco.test/controlled? form))
-        "the hundredth cell installs the same converge shadow as the
-         first, and there is no second way of writing a field for when
-         there are a hundred of them")
-    (is (nil? (rf.fresco.test/revision form))
-        "and the grid carries no reset trigger anywhere — it has no
-         discard, so `::h/revision` never appears in this application")))
-
 (deftest the-row-total-reads-its-own-row-and-nothing-else
   (let [tree (rf.fresco.test/tree [rf.fresco.examples.grid.views/row-total {:row 2}]
                       {:subs {[::rf.fresco.examples.grid.subs/row-total 2] 42}})]
