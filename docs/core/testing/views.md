@@ -273,7 +273,7 @@ Run it in a browser build. In re-frame2's tree the `-dom-cljs-test` suffix puts 
 
 - **Rendered markup.** When the assertion is about the HTML string a view produces (attribute serialisation, SSR output), use `render-to-string`; see [`re-frame.ssr`](../../api/re-frame.ssr.md).
 - **A real DOM.** When a Reagent view needs React mounted (a ref, a portal, an imperative child), use the loop from [section 4](#4-uix-hook-components-mount-it-for-real) with your adapter's `flush-views!` in place of UIx's. For a Reagent view this is the exception.
-- **A view's states.** "Show this view empty, loading, failed and loaded" is a job for [Story](../observability.md#the-tools-four-presentations-zero-second-truths): named variants in isolated frames, which can be promoted into tests.
+- **A view's states.** "Show this view empty, loading, failed and loaded" is a job for [Story](../observability.md#tools-that-read-the-trace-stream): named variants in isolated frames, which can be promoted into tests.
 
 ## When not to test a view
 

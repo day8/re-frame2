@@ -310,7 +310,7 @@ still settles `:ok`: nothing was committed, and the error is in the record's
 Both streams are dev-only. Production observation uses an `:observability` sink,
 described next.
 
-## Production: the wire disappears — errors don't
+## In production builds
 
 Everything above is development machinery, and none of it ships. The trace and epoch
 streams, the buffers, the epoch history and the listener registries are all
@@ -437,7 +437,7 @@ it wraps the four hot paths (event dispatch, sub recompute, fx processing, rende
 separate from `goog.DEBUG`, so you can ship timing without the trace stream.
 [Find and fix a slow view](how-to/fix-a-slow-view.md) shows the entries in use.
 
-## The tools: four presentations, zero second truths
+## Tools that read the trace stream
 
 In many ecosystems the state tool keeps its own action log, the profiler its own
 timeline and the error reporter its own breadcrumbs, and they disagree. re-frame2's
