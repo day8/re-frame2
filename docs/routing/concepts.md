@@ -65,14 +65,16 @@ case-sensitive, so `/Articles` matches nothing.
 ### Params and query
 
 `:params` and `:query` take [schemas](../core/how-to/validate-with-schemas.md) that
-validate and coerce: declare `[:page :int]` and `?page=2` arrives as the number `2`.
-Path params and query params stay separate maps. A route can also fill in defaults.
-Here is a paginated version of the tutorial's `:app/articles`:
+coerce the URL's strings: declare `[:page :int]` and `?page=2` arrives as the number
+`2`. With `re-frame.schemas` loaded they also validate. Path params and query params
+stay separate maps. A route can also fill in defaults. Here is a paginated version of
+the tutorial's `:app/articles`, with a sort order too:
 
 ```clojure
 (rf/reg-route :app/articles
   {:query          [:map [:tag {:optional true} :string]
-                         [:page {:optional true} :int]]
+                         [:page {:optional true} :int]
+                         [:sort {:optional true} [:enum :new :top]]]
    :query-defaults {:page 1}}
   "/articles")
 ```
@@ -95,7 +97,7 @@ receives the string.
 A slot type must survive the trip URL → value → URL. `reg-route` throws
 `:rf.error/route-decimal-unsupported` for a `:double` slot and
 `:rf.error/route-keyword-unbounded-unsupported` for a bare `:keyword` slot. For a
-keyword value, list the allowed ones: `[:sort {:optional true} [:enum :new :top]]`.
+keyword value, list the allowed ones in an `[:enum …]`, as `:sort` does above.
 
 ### Carrying global state through the URL
 
@@ -129,8 +131,13 @@ Two details. The helper tolerates a missing `:query`, because `{:to …}` usuall
 none and a destination replayed from a pending navigation omits an empty one. And a
 carried value has already been coerced by the *current* route's schema (an
 `[:enum :light :dark]` key is `:dark`, not `"dark"`); the helper doesn't re-parse it.
-With the schemas artefact loaded, a mismatch is caught at the call site: `route-link`
-throws `:rf.error/route-url-validation` and a navigate is rejected.
+
+So declare each carried key on every destination as well. A destination that doesn't
+declare `:theme` writes `:dark` as `?theme=%3Adark`, which comes back as the string
+key `"theme"` with the value `":dark"`, and the next page's helper no longer finds it.
+With the schemas artefact loaded, a declared key whose value doesn't fit is caught at
+the call site: `route-link` throws `:rf.error/route-url-validation` and a navigate is
+rejected.
 
 To change the *current* route's query, use an [in-place request](#staying-on-the-page)
 instead.
@@ -224,7 +231,7 @@ its params stay; `:query-merge` folds into the query, `:query` replaces it, and
 [:rf.route/navigate {:query {}}]
 
 ;; Change a view option without adding a Back step.
-[:rf.route/navigate {:query-merge {:sort "top"} :replace? true}]
+[:rf.route/navigate {:query-merge {:sort :top} :replace? true}]
 ```
 
 `@(subscribe [:rf.route/query])` reads the result, already coerced, so `:page` is `2`
@@ -536,12 +543,12 @@ nothing on the server.
 | `:rf.warning/route-shadowed-by-equal-score` at registration | Same shape as an existing route that matches the same URLs | The earlier route wins; make one pattern more specific |
 | `:rf.warning/route-classification-query-key-unpromoted` | A `[:query k]` classification names an undeclared key, which stays a string and is never redacted | Declare `k` in `:query` or `:query-defaults` |
 | `route-link` or `route-url` throws `:rf.error/no-such-route` | The route id isn't registered (often a typo) | Fix the id |
-| `route-url` throws `:rf.error/missing-route-param` | A path param is missing, `nil` or `""` | Supply it (a `nil` query value is simply left out) |
-| `route-url` throws `:rf.error/route-url-validation` | Params or query fail the schema, name a param the path doesn't capture, or the address carries a key that isn't an address key, such as `:replace?` | Fix the address |
+| `route-url` throws `:rf.error/missing-route-param` | A path param is `""`, or is missing or `nil` with no `:params` schema to reject it first | Supply it (a `nil` query value is simply left out) |
+| `route-url` throws `:rf.error/route-url-validation` | Params or query fail the schema (a missing path param included), name a param the path doesn't capture, or the address carries a key that isn't an address key, such as `:replace?` | Fix the address |
 | `route-url` throws `:rf.error/route-url-non-edn-value` | A float, `Date` or other value with no URL form | Encode it as a string first |
 | `route-link` throws `:rf.error/route-link-bad-prefetch` | `:prefetch` is something other than `:intent` | Use `:intent`, or leave the key off |
 | Navigation rejected with `:rf.error/navigate-bad-request` | The payload is not one request map, or the map breaks a [request rule](#navigating-to-a-raw-url-string) | Write `[:rf.route/navigate {:to …}]`; the error's `:reason` names the rule |
-| A navigate does nothing; `:rf.error/schema-validation-failure` in traces | Unknown route id, or params that fail the schema | Fix the address; the route slice is unchanged |
+| A navigate does nothing; `:rf.error/schema-validation-failure` in traces | Unknown route id, a missing path param, or params that fail the schema | Fix the address; the route slice is unchanged |
 | A navigate from a callback throws `:rf.error/no-frame-context` | Bare `rf/dispatch` in a timeout or promise | Navigate from an event handler's `:fx` |
 | `[:rf.route/prefetch …]` does nothing; `:rf.error/prefetch-bad-address` | Malformed address or unknown destination | Fix the address |
 | A guard always refuses, with `:rf.error/can-leave-non-boolean` / `:rf.error/can-enter-non-boolean` | The guard sub returned something other than `true` / `false` | Wrap it in `boolean`, `some?` or `not` |

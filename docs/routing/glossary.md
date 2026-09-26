@@ -152,8 +152,9 @@ one — dispatch it after sign-in, or let `:rf.route/continue` replay it.
 
 The reserved [route](#route) id `:rf.route/not-found`. The runtime activates it when no
 pattern matches — or, with `re-frame.schemas` loaded, when URL params fail their
-schema — with the offending URL in params. You register and render it like any other route;
-without it, unmatched URLs get a bare placeholder and a warning.
+schema — with the offending URL in params. You register and render it like any other route.
+Without it the route slice still switches to that id, there is no built-in page, and
+each unmatched URL emits `:rf.warning/no-not-found-route`.
 
 ### **url-bound?**
 

@@ -45,9 +45,11 @@ articles app.
   (is (nil? (rf.routing/match-url "/no/such/page"))))   ;; a miss is nil, not an exception
 ```
 
-A `nil` path param makes `route-url` throw `:rf.error/missing-route-param`. A `nil`
-query value is dropped instead, which is what lets a filter link leave `?tag=` out
-when no tag is chosen. If the app relies on that, pin it:
+A missing or `nil` path param makes `route-url` throw. Here that is
+`:rf.error/route-url-validation`, because the route's `:params` schema rejects it
+first; on a route with no `:params` schema it is `:rf.error/missing-route-param`. A
+`nil` query value is dropped instead, which is what lets a filter link leave `?tag=`
+out when no tag is chosen. If the app relies on that, pin it:
 
 ```clojure
 (is (= "/articles" (rf.routing/route-url {:to :app/articles :query {:tag nil}})))
@@ -113,7 +115,8 @@ Server rendering uses the same event on a server frame,
 ### Simulating a link click or Back/Forward
 
 The runtime records how a navigation arrived, its cause, and uses it to pick the
-default scroll: `:top` for a link click, `:restore` for everything else. The cause
+default scroll: `:top` for a link click or a `:rf.route/navigate`, `:restore` for Back,
+Forward and the first load. The cause
 also appears in entry denials and blocked navigations. A bare dispatch on a client
 frame is recorded as `:initial`, the cause for a deep link or reload. To stand in for
 a link click or Back/Forward, pass the cause the framework would have attached:
@@ -155,29 +158,32 @@ The frame below starts on the editor with unsaved changes, set up through
 Dispatching `[:rf.route/cancel <id>]` instead clears the pending navigation and leaves
 the route unchanged. Navigating with `:bypass-leave? true` is never blocked.
 
-A `:can-enter` refusal parks nothing, so there is no pending value to check. Instead,
-register a spy for `:rf.route/entry-denied`, navigate while signed out, and check that
-the route did not change and the denial arrived once. Register the spy **before**
-making the frame: a frame made without an `:id` keeps the registrations that existed
-when it was made, so a spy registered inside `with-new-frame` is never called.
+A `:can-enter` refusal parks nothing, so there is no pending value to check. Assert on
+what your `:rf.route/entry-denied` handler does instead. The tutorial's sends the
+reader to `/login`:
 
 ```clojure
-(deftest settings-refuses-a-signed-out-reader
-  (let [denials (atom [])]
-    (rf/reg-event :rf.route/entry-denied
-      (fn [_ [_ denial]] (swap! denials conj denial) {}))
-    (rf/with-new-frame [f (rf/make-frame {})]
-      (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
-      (is (not= :app/settings @(rf/subscribe [:rf.route/id])))
-      (is (nil? @(rf/subscribe [:rf/pending-navigation])))
-      (is (= 1 (count @denials)))
-      (is (= {:to :app/settings} (:destination (first @denials)))))))
+(deftest settings-sends-a-signed-out-reader-to-login
+  (rf/with-new-frame [f (rf/make-frame {})]
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
+    (is (= :app/login @(rf/subscribe [:rf.route/id])))
+    (is (nil? @(rf/subscribe [:rf/pending-navigation])))
+
+    (rf/dispatch-sync [:auth/sign-in {:name "Ada"}])
+    (rf/dispatch-sync [:rf.route/navigate {:to :app/settings}])
+    (is (= :app/settings @(rf/subscribe [:rf.route/id])))))
 ```
 
-The destination leaves out an empty `:params` and `:query` and a `nil` `:fragment`,
-so compare it with `{:to :app/settings}`. To test the return after sign-in, sign in
-and dispatch `[:rf.route/navigate destination]`: it is an ordinary new navigation,
-and the guard now allows it.
+`dispatch-sync` also runs the events the handler dispatches, so the redirect to login
+has happened by the first assertion. The second navigation is an ordinary new one,
+and with a user present the guard allows it.
+
+A spy registered under `:rf.route/entry-denied` doesn't work here: the app registers
+that id too, and `make-frame` refuses one id registered by two namespaces with
+`:rf.error/image-duplicate-id`. If your handler stores the denied `:destination`, as
+the [sign-in recipe](how-to/require-sign-in-on-a-route.md) does, read it from app-db.
+It leaves out an empty `:params` and `:query` and a `nil` `:fragment`, so a refused
+`/settings` stores `{:to :app/settings}`.
 
 A frame interceptor that guards navigations, as in
 [Require sign-in on a route](how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes),
@@ -188,7 +194,8 @@ is tested like [any other interceptor](../core/interceptors.md#testing-an-interc
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `@(rf/subscribe [:rf.route/id])` is still the old route after a navigate | The request was rejected (a bad request map raises `:rf.error/navigate-bad-request`; a URL that cannot be built — a missing path param, or with `re-frame.schemas` loaded a value the schema rejects — raises `:rf.error/schema-validation-failure`), or a `:can-enter` guard refused it | Fix the request, or for a guarded route assert on the denial |
-| A spy for `:rf.route/entry-denied` is never called | It was registered inside `with-new-frame`, after the frame was made | Register it before `make-frame` |
+| `make-frame` throws `:rf.error/image-duplicate-id` | The test registers an id the app already registers, such as `:rf.route/entry-denied` | Assert on what the app's handler does, or register the test's handler under an id of its own |
+| A spy registered in the test is never called | It was registered inside `with-new-frame`, after the frame was made | Register it before `make-frame` |
 | A link-click or Back/Forward test sees the `:restore` scroll default | The dispatch has no `:rf.route/cause`, so it counts as `:initial` | Pass the cause, as in [Simulating a link click or Back/Forward](#simulating-a-link-click-or-backforward) |
 | Handlers registered in one test are visible in the next | The reset fixture is missing | Add `ts/make-reset-runtime-fixture`; it rolls back registrations made during each test |
 | There is no browser URL to assert on | Test frames are not `:url-bound?`, so nothing writes the address bar | Assert on the route subs, or on `route-url` of the expected address |
