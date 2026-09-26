@@ -14,14 +14,15 @@
       :rf.error/machine-unresolved-target (not later, at dispatch);
    2. an unresolved VECTOR root :on target fails the same way;
    3. a malformed-shape root :on target (neither keyword nor vector) fails
-      with :rf.error/machine-bad-target;
-   4. a VALID root :on target registers cleanly AND fires correctly at
-      runtime (the ancestor-fallback semantics are unaffected);
-   5. a :type :parallel root's :on is NOT double-validated here — its
-      region-qualified shape is `validate-parallel!`'s job."
+      with :rf.error/machine-bad-target.
+
+  A valid root :on target registering and firing as the ancestor fallback is
+  pinned in `machine_root_on_fallback_test.clj`; a :type :parallel root's
+  region-qualified :on is `validate-parallel!`'s job, pinned in
+  `parallel_root_on_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as rf.machines]
+            [re-frame.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -73,35 +74,3 @@
       (is (some? thrown))
       (is (= :rf.error/machine-bad-target (:rf.error/id (ex-data thrown)))
           "a non-keyword/non-vector target is malformed shape, not unresolved"))))
-
-;; ---- (4) a VALID root :on target registers AND fires -----------------------
-
-(deftest root-on-valid-target-registers-and-fires
-  (testing "a root :on target naming a real top-level state registers cleanly and fires as the ancestor fallback"
-    (let [m {:initial :a
-             ;; :logout is declared on NEITHER :a nor :b — only the root
-             ;; :on fallback handles it, the documented "common transition
-             ;; every state inherits" use case (Spec 005 §Transition
-             ;; resolution).
-             :on      {:logout :signed-out}
-             :states  {:a         {:on {:next :b}}
-                       :b         {}
-                       :signed-out {}}}]
-      (rf/reg-machine :rf.root-on-tv/valid m)
-      (rf/dispatch-sync [:rf.root-on-tv/valid [:next]])
-      (is (= :b (:state (rf.machines.test-support/snapshot :rf.root-on-tv/valid)))
-          "(precondition) local :on transition works")
-      (rf/dispatch-sync [:rf.root-on-tv/valid [:logout]])
-      (is (= :signed-out (:state (rf.machines.test-support/snapshot :rf.root-on-tv/valid)))
-          "the root :on ancestor fallback fired from ANY state, landing on the top-level target"))))
-
-;; ---- (5) a parallel root's :on is unaffected (validate-parallel!'s job) ---
-
-(deftest parallel-root-on-unaffected-by-this-check
-  (testing "a :type :parallel root's region-qualified :on validates via validate-parallel!, not the non-parallel root check"
-    (is (nil? (rf.machines/validate-machine!
-                {:type    :parallel
-                 :on      {:go-all {:target [[:a :two] [:b :two]]}}
-                 :regions {:a {:initial :one :states {:one {} :two {}}}
-                           :b {:initial :one :states {:one {} :two {}}}}}))
-        "a valid region-qualified root :on validates cleanly (unaffected by the non-parallel root check)")))

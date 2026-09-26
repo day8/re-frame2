@@ -43,21 +43,7 @@
 ;; ---- 1. a region STATE's :on cross-region target ---------------------------
 
 (deftest region-state-cross-region-target-rejected-with-a-region-aware-message
-  (testing "the rejection names the sibling region and the root ancestor fallback"
-    (let [m {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one
-                           :states  {:one {:on {:go {:target [:b :two]}}}
-                                     :two {}}}
-                       :b {:initial :one
-                           :states  {:one {} :two {}}}}}
-          e (is (thrown-with-msg?
-                  clojure.lang.ExceptionInfo
-                  #":rf.error/machine-unresolved-target"
-                  (rf.machines/make-machine-handler m)))]
-      (is (string? (ex-message e)))))
-
-  (testing "the message says WHY — :b is a sibling REGION, not a state of :a"
+  (testing "the rejection says WHY — :b is a sibling REGION, not a state of :a"
     (let [m {:type    :parallel
              :data    {}
              :regions {:a {:initial :one
@@ -70,6 +56,7 @@
         (is false "registration must reject a region-sourced cross-region target")
         (catch clojure.lang.ExceptionInfo e
           (let [msg (ex-message e)]
+            (is (= :rf.error/machine-unresolved-target (:rf.error/id (ex-data e))))
             (is (re-find #"SIBLING REGION" msg)
                 "the message must say the head names a sibling region")
             (is (re-find #"\[:b :two\]" msg)
@@ -83,49 +70,26 @@
 
 ;; ---- 2. the region BODY's own root :on ------------------------------------
 
-(deftest region-root-on-cross-region-target-rejected
-  (testing "a cross-region target on the REGION ROOT's :on fails registration"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-unresolved-target"
-          (rf.machines/make-machine-handler
-            {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one
-                           :on      {:go {:target [:b :two]}}
-                           :states  {:one {} :two {}}}
-                       :b {:initial :one
-                           :states  {:one {} :two {}}}}}))
-        "the region ancestor fallback resolves within its own region")))
-
-(deftest region-root-on-unresolved-target-rejected
-  (testing "a plainly unresolved target on the REGION ROOT's :on fails registration"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-unresolved-target"
-          (rf.machines/make-machine-handler
-            {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one
-                           :on      {:go {:target [:nowhere]}}
-                           :states  {:one {} :two {}}}
-                       :b {:initial :one
-                           :states  {:one {} :two {}}}}}))
-        "the region root :on is walked — unwalked, it would register any target cleanly")))
-
-(deftest region-root-on-bare-keyword-unresolved-target-rejected
-  (testing "a bare-keyword region-root :on target that names no state is rejected"
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf.error/machine-unresolved-target"
-          (rf.machines/make-machine-handler
-            {:type    :parallel
-             :data    {}
-             :regions {:a {:initial :one
-                           :on      {:go :nowhere}
-                           :states  {:one {} :two {}}}
-                       :b {:initial :one
-                           :states  {:one {}}}}})))))
+(deftest region-root-on-bad-targets-rejected
+  ;; The region ancestor fallback resolves within its own region, and the
+  ;; region root :on is walked at registration — unwalked, it would register
+  ;; any target cleanly.
+  (doseq [[label on-go]
+          [["a cross-region target"             {:target [:b :two]}]
+           ["a plainly unresolved vector target" {:target [:nowhere]}]
+           ["a bare-keyword target naming no state" :nowhere]]]
+    (testing (str label " on the REGION ROOT's :on fails registration")
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf.error/machine-unresolved-target"
+            (rf.machines/make-machine-handler
+              {:type    :parallel
+               :data    {}
+               :regions {:a {:initial :one
+                             :on      {:go on-go}
+                             :states  {:one {} :two {}}}
+                         :b {:initial :one
+                             :states  {:one {} :two {}}}}}))))))
 
 ;; ---- 3. CONTROLS — the rejection must not be too broad --------------------
 

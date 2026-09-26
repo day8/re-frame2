@@ -8,17 +8,17 @@
   `:default-target`. Refused on a flat root only: `:on-done` (a parallel
   root's action-only `:on-done` is its supported completion signal).
 
-  Controls: the honoured root `:entry` / `:exit` / `:tags` / `:spawn`
-  register; a parallel
-  root's `:after`, `:timeout` / `:on-timeout` and action-only `:on-done`
-  register; a flat root's `:after` / `:timeout` keep their own
-  `:rf.error/machine-non-parallel-root-after-not-supported`; a child's
-  `:invoke` typo keeps `:rf.error/machine-unknown-node-key`. Root `:entry` /
-  `:exit` refs are held to the same action-form and resolution checks a
-  state's are."
+  Controls: a parallel root's `:after`, `:timeout` / `:on-timeout` and
+  action-only `:on-done` register; a child's `:invoke` typo keeps
+  `:rf.error/machine-unknown-node-key`. Root `:entry` / `:exit` refs are held
+  to the same action-form and resolution checks a state's are. The honoured
+  root `:entry` / `:exit` / `:tags` / `:spawn` register throughout
+  `root_lifecycle_test.clj` and `root_spawn_test.clj`, and a flat root's
+  `:after` / `:timeout` keep their own
+  `:rf.error/machine-non-parallel-root-after-not-supported`, pinned in
+  `root_after_non_parallel_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.core :as rf]
             [re-frame.machines :as rf.machines]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
@@ -73,11 +73,6 @@
         (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id d)))
         (is (= [k] (:offending-keys d)))))))
 
-(deftest refusal-names-every-offending-key
-  (let [d (refusal (assoc flat-root :final? true :spawn-all (:spawn-all refused-everywhere)))]
-    (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id d)))
-    (is (= [:final? :spawn-all] (:offending-keys d)))))
-
 (deftest refusal-message-names-the-substitute
   (testing "a flat root :spawn-all names the root :spawn and the compound wrapper"
     (let [msg (::message (refusal (assoc flat-root :spawn-all (:spawn-all refused-everywhere))))]
@@ -89,19 +84,7 @@
       (is (str/includes? msg "declare :spawn on the root"))
       (is (str/includes? msg "region")))))
 
-(deftest reg-machine-throws-the-refusal
-  (let [e (try (rf/reg-machine :rs/live (assoc flat-root :always {:action (fn [_] nil)})) nil
-               (catch clojure.lang.ExceptionInfo ex ex))]
-    (is (= :rf.error/machine-root-slot-not-supported (:rf.error/id (ex-data e))))))
-
 ;; ---- controls: the slots the root reads register ---------------------------
-
-(deftest honoured-root-slots-register
-  (is (nil? (refusal (assoc flat-root :entry (fn [_] nil) :exit (fn [_] nil) :tags #{:whole}))))
-  (is (nil? (refusal (assoc parallel-root :entry (fn [_] nil) :exit (fn [_] nil) :tags #{:whole}))))
-  (is (nil? (refusal (assoc flat-root :spawn {:machine-id :rs/worker})))
-      "a root :spawn is the machine-lifetime child")
-  (is (nil? (refusal (assoc parallel-root :spawn {:machine-id :rs/worker})))))
 
 (deftest parallel-root-completion-and-deadline-slots-register
   (is (nil? (refusal (assoc parallel-root :on-done {:action (fn [_] nil)})))
@@ -110,12 +93,6 @@
       "a parallel root's :after is the supported machine-lifetime timer")
   (is (nil? (refusal (assoc parallel-root :timeout 1000 :on-timeout {:target [:x :x2]})))
       "a parallel root's :timeout lowers onto that :after"))
-
-(deftest flat-root-after-keeps-its-own-refusal
-  (is (= :rf.error/machine-non-parallel-root-after-not-supported
-         (:rf.error/id (refusal (assoc flat-root :after {1000 :b})))))
-  (is (= :rf.error/machine-non-parallel-root-after-not-supported
-         (:rf.error/id (refusal (assoc flat-root :timeout 1000 :on-timeout :b))))))
 
 (deftest child-typo-keeps-the-unknown-node-key-refusal
   (is (= :rf.error/machine-unknown-node-key
