@@ -91,7 +91,9 @@ subprocess and drive it through stdin/stdout JSON-RPC frames.
 
 #### `stdio-roundtrip.js` — handshake + tool catalogue
 
-No external dependencies. Runs in CI by default. Boots the server
+No external dependencies. CI runs it in `test.yml`'s
+`node-test-tools-re-frame2-pair-mcp` job, straight after `npm run build`,
+on every change that arms the MCP surface. Boots the server
 with the nREPL port intentionally unresolvable so the degraded path
 runs deterministically. Exercises:
 
