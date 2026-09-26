@@ -387,6 +387,24 @@
                                              :on-all-complete [:done]}}}}))
         "an inline-definition :spawn-all child (no :machine-id) registers cleanly")))
 
+;; A fn in :children, the natural spelling for a runtime-sized fan-out, is
+;; refused with the grammar's own error rather than a host exception.
+(deftest registration-time-rejects-fn-valued-children
+  (testing ":spawn-all whose :children is a fn — rejected by the :children
+            shape check, not by a host exception"
+    (let [e (try
+              (rf/reg-machine :bad/fn-children
+                              {:initial :s
+                               :states
+                               {:s {:spawn-all {:children        (fn [_] [{:id :x :machine-id :foo}])
+                                                 :on-all-complete [:done]}}}})
+              nil
+              (catch Throwable t t))]
+      (is (= :rf.error/machine-spawn-all-bad-shape (:rf.error/id (ex-data e)))
+          (str "a structured rejection, not a host throw: " (pr-str (type e))))
+      (is (re-find #":children must be a non-empty vector" (str (ex-message e)))
+          "the refusal names the :children slot"))))
+
 ;; ---- single :spawn :machine-id xor :definition ---------------------------
 ;;
 ;; `validate-machine!` enforces a single-:spawn XOR check at registration: a
