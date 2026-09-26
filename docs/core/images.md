@@ -484,11 +484,14 @@ whether your registration of the same id is an error or the documented recipe.
   `:rf.error/image-standard-replacement-forbidden`. There is no opt-in.
 - A **replaceable framework default** is the framework's placeholder for a decision
   your application makes, registered so the feature works when you register nothing.
-  There are two: `:rf.route/entry-denied` and `:rf.route/navigation-blocked`. Both are
-  no-ops, so a `:can-enter` denial or a `:can-leave` block always has a handler, and
-  the [auth recipe](../routing/how-to/require-sign-in-on-a-route.md) has you register
-  your own. The framework marks them with the reserved `:rf/framework-default?`
-  metadata key.
+  The framework marks each one with the reserved `:rf/framework-default?` metadata
+  key. Today there are three. The routing events `:rf.route/entry-denied` and
+  `:rf.route/navigation-blocked` are no-ops, so a `:can-enter` denial or a
+  `:can-leave` block always has a handler, and the
+  [auth recipe](../routing/how-to/require-sign-in-on-a-route.md) has you register
+  your own. The `:rf.http/managed` effect is the managed-HTTP handler, which an app
+  re-registers to declare its
+  [HTTP carriers](how-to/keep-secrets-out-of-traces.md#http-carriers-redact-by-header-and-query-param-name).
 
 So `(rf/reg-event :rf.route/entry-denied …)` in your own namespace is not a
 duplicate-id collision. Once your registration exists, assembly drops the framework's
