@@ -4,9 +4,11 @@
 
 ## What it does
 
-The `re-frame2-setup` skill bootstraps a greenfield re-frame2 project. You start with an empty directory, or close to it: a `deps.edn` you mean to fill in, an empty `package.json`, no source. You finish with a project that compiles under `shadow-cljs watch` and mounts a working counter in the browser, ready for the [`re-frame2`](re-frame2.md) skill.
+You start with an empty directory, or close to it: a `deps.edn` you mean to fill in, an empty `package.json`, no source. You finish with a project that compiles under `shadow-cljs watch` and mounts a working counter in the browser, ready for the [`re-frame2`](re-frame2.md) skill.
 
-It covers only the re-frame2-specific wiring: which artefacts to add, the canonical `(rf/init! rf.adapter.reagent/adapter)` entry namespace, and a counter that exercises every layer (event → handler → app-db change → sub recompute → view re-render). Every `day8/re-frame2*` framework artefact ships at one version, and the skill keeps them in lockstep; mixing versions is unsupported. Xray and Story are tools and ship on their own `xray-v*` / `story-v*` tags. It assumes you know `deps.edn`, npm and shadow-cljs themselves.
+It covers only the re-frame2-specific wiring: which artefacts to add, the canonical `(rf/init! rf.adapter.reagent/adapter)` entry namespace, and a counter that exercises every layer (event → handler → app-db change → sub recompute → view re-render). It assumes you know `deps.edn`, npm and shadow-cljs themselves.
+
+Every `day8/re-frame2*` framework artefact ships at one version, and the skill keeps them in lockstep; mixing versions is unsupported. Xray and Story are tools and ship on their own `xray-v*` / `story-v*` tags.
 
 ## When to reach for it
 
@@ -28,17 +30,17 @@ Use a different skill for:
 
 Ask in your own words — *"scaffold a re-frame2 app for me"* — or type `/re-frame2-setup`.
 
-An unqualified request needs no clarification round. You get project `acme/my-app` (namespace `acme.my-app`, build `:app`, dev port `8280`) on the Reagent adapter, at the generator template's reviewed pins. Name the project, a version pin, "latest", UIx, or the deps-new generator in your request to override the matching default. A name with no `/` is doubled: `my-app` becomes `my-app/my-app`, namespace `my-app.my-app`.
+An unqualified request needs no clarification round. You get project `acme/my-app` (namespace `acme.my-app`, build `:app`, dev port `8280`) on the Reagent adapter, at the versions the project template pins. Name the project, a version, "latest", UIx, or the deps-new generator in your request to override the matching default. A name with no `/` is doubled: `my-app` becomes `my-app/my-app`, namespace `my-app.my-app`.
 
 The skill runs every command itself:
 
-1. Writes the scaffold straight from the generator template's own output, pointing the framework coordinates at the reviewed checkout while re-frame2 is unpublished (or at a `:git/sha` when there is no checkout).
+1. Writes the scaffold from the project template. re-frame2 is not on Clojars yet, so it points the re-frame2 dependencies at the re-frame2 checkout the skill was installed from, or at a `:git/sha` when there is no checkout.
 2. Installs, then runs a terminating `npx shadow-cljs compile app`.
 3. Starts the watch and reports the URL it printed. If 8280 is taken, it moves the port and reports the one the watch actually used.
 
 You open the URL and click `+1` to confirm the count advances. Story, the component playground, comes wired at `#/stories`. Nothing else is set up on day one — schemas, Xray and the rest attach later, on request. Writing tests, schemas or further features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request.
 
-Both setup routes need **Java 21+ and the Clojure CLI**: the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even when launched through npm. The skill checks `java -version` and `clojure -Sdescribe` before writing anything. The deps-new tool is needed only for the generator route.
+Both routes — writing the files directly or running the deps-new generator — need **Java 21+ and the Clojure CLI**: the scaffold uses shadow-cljs's `:deps` mode, which delegates to the CLI even when launched through npm. The skill checks `java -version` and `clojure -Sdescribe` before writing anything. The deps-new tool is needed only for the generator route.
 
 ## When it stops
 

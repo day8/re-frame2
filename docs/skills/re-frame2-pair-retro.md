@@ -4,7 +4,7 @@
 
 ## What it does
 
-The `re-frame2-pair-retro` skill reviews the current or just-finished [re-frame2-pair](re-frame2-pair.md) session (or a recap you give it) and returns a retrospective in the same turn: what you were trying to do, where the workflow dragged or confused you, which problems were one-off environment issues and which are recurring product gaps, and the improvements that would matter most, highest leverage first. It backs each point with concrete moments from the session — retries, clarifications, stale output, manual workarounds. One dominant finding gets one thorough treatment; there is no fixed set of sections or quota of ideas.
+The skill reviews the current or just-finished [re-frame2-pair](re-frame2-pair.md) session (or a recap you give it) and returns a retrospective in the same turn: what you were trying to do, where the workflow dragged or confused you, which problems were one-off environment issues and which are recurring product gaps, and the improvements that would matter most, highest leverage first. It backs each point with concrete moments from the session — retries, clarifications, stale output, manual workarounds. One dominant finding gets one thorough treatment; there is no fixed set of sections or quota of ideas.
 
 It routes each improvement to the right owner:
 

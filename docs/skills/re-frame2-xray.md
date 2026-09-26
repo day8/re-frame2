@@ -4,7 +4,7 @@
 
 ## What it does
 
-The `re-frame2-xray` skill answers questions about [Xray](../xray/index.md), the devtools panel for humans that ships with re-frame2. It answers three kinds of question:
+The skill answers three kinds of question about [Xray](../xray/index.md), the devtools panel for humans that ships with re-frame2:
 
 1. **How do I launch Xray?** — the inline panel, the overlay fallback (`(xray/open-overlay!)`, for hosts that can't give Xray a layout column), the pop-out (`(xray/popout!)`), the programmatic `(xray/init! opts)` path, the hotkeys, and the Dynamic ↔ Static mode toggle.
 2. **Which tab shows X?** — from the evidence you want (one dispatch, changed state, renders, raw ordering, machines and routes, server state, structure, registered definitions) to the one place to look first.
@@ -14,7 +14,7 @@ An answer names the mode and tab to open first, why, and the first thing to clic
 
 ## Two modes
 
-Xray runs in one of two modes, switched by the mode pill or a hotkey. **Dynamic** is for inspecting a single dispatch — though some of its tabs browse live structure and do not change when you pick an epoch. **Static** browses what is *registered* rather than what just happened. The full tab inventory is in [`references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md), and the hotkeys in [`references/launch-lifecycle.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-lifecycle.md).
+Xray runs in one of two modes, switched by the mode pill or a hotkey. **Dynamic** is for inspecting a single dispatch, though some of its tabs browse live structure and do not change when you pick a different event. **Static** browses what is *registered* rather than what just happened. The full tab inventory is in [`references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md), and the hotkeys in [`references/launch-lifecycle.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-lifecycle.md).
 
 Xray is loaded into dev builds through shadow-cljs `:preloads` and renders inline on the right of the host app. It stays out of release builds because `:preloads` is dev build configuration — the manual `init!` / mount path has no `goog.DEBUG` check of its own. So if you install Xray from app code instead, keep the `:require` and the calls in a dev-only namespace.
 
