@@ -58,7 +58,7 @@ When the response lands — milliseconds or seconds later — the runtime dispat
 [:article/load-error {:status :error :error <failure-map> …}]    ;; failure
 ```
 
-That's the one canonical reply envelope — the same `:status`-keyed map every async surface delivers. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you (JSON by default, sniffed from the Content-Type), and JSON object keys arrive as keywords.
+That's the one canonical reply envelope — the same `:status`-keyed map every async surface delivers. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
 
 **What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map.
 
@@ -120,7 +120,7 @@ By default the body is parsed by sniffing the Content-Type (`:decode :auto`). Bu
 
 ```clojure
 (def ArticleResponse
-  "Validates and coerces the JSON body of GET /api/articles/:slug."
+  "Validates the JSON body of GET /api/articles/:slug."
   [:map
    [:slug  :string]
    [:title :string]
@@ -133,7 +133,7 @@ By default the body is parsed by sniffing the Content-Type (`:decode :auto`). Bu
         :on-failure [:article/load-error]}]]}
 ```
 
-Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`, which loads it. Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
+Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`, which loads `malli.core`: that is enough to validate. Coercing JSON into the schema's types (a string into a keyword or a UUID) also needs `malli.transform`, so a ClojureScript build requires it too; the JVM loads it for you. Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
 
 **Notice:** decode runs **only on 2xx responses** — status is classified first. A 404 that answers with an HTML error page is `:rf.http/http-4xx` with the raw HTML at `:body`, *not* a decode failure, because the decoder never ran. "The server said no" matters more than what shape the no was.
 
@@ -213,7 +213,7 @@ The request goes out as data and the reply comes back as data, so a test needs n
         (is (= :error (get-in (rf/app-db-value f) [:article :status])))))))
 ```
 
-The stubbed reply has the exact envelope a live request produces, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe.
+The stubbed reply has the same `:status` / `:value` / `:error` shape a live request delivers, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe.
 
 !!! note "Do, observe"
 
