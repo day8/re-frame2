@@ -73,7 +73,9 @@ Each visit to `:submitting` allocates a new spawned id. Leaving
 The child reports by finishing, and sends its parent nothing. `:done` names
 `:token` as its `:output-key`; the parent's `:on-done` is a transition to
 `:authed` whose action reads that value at `(:result (nth ev 2))`. `:failed`
-routes the parent through `:on-error` the same way.
+routes the parent through `:on-error` instead, and there `(nth ev 2)` is the
+failure payload itself: the error leaf's `:output-key` slot (`nil` here, since
+`:failed` names none), or the exception details when a child action threw.
 
 A larger shipped case binds one socket actor to a parent that spans several
 children:
@@ -162,6 +164,24 @@ A **declaratively** spawned child gets three reserved keys in its `:data`:
 A hand-emitted `[:rf.machine/spawn …]` stamps only `:rf/self-id`. There is no
 structural parent, so pass a correspondent address through `:data` yourself.
 
+## Recording the spawned id
+
+On every declarative `:spawn` / `:spawn-all`, the runtime writes the
+new id into the **parent's** `:data` under `:rf/spawned`, keyed by the
+`:spawn`-bearing state's path:
+
+```clojure
+;; cf. examples/patterns/websocket
+:authenticating
+{:entry (fn [{data :data}]
+          (let [socket (get-in data [:rf/spawned [:active]])]
+            {:fx [[:dispatch [socket [:send {:type :auth}]]]]}))}
+```
+
+The slot clears itself when the actor is destroyed. A later read returns `nil`,
+not a dead id. Outside a machine, read the same slot off the parent's snapshot:
+`(get-in @(rf/subscribe [:rf/machine :ws/connection]) [:data :rf/spawned [:active]])`.
+
 ## Starting the child
 
 The child always runs its initial `:entry` cascade first. Prefer putting startup
@@ -210,47 +230,22 @@ Re-entering the spawning state creates a new incarnation of the child at the
 same address. A dispatch to that address reaches whichever incarnation currently
 holds it; the runtime tells incarnations apart itself.
 
-## Recording the spawned id
-
-On every declarative `:spawn` / `:spawn-all`, the runtime writes the
-new id into the **parent's** `:data` under `:rf/spawned`, keyed by the
-`:spawn`-bearing state's path:
-
-```clojure
-;; cf. examples/patterns/websocket
-:authenticating
-{:entry (fn [{data :data}]
-          (let [socket (get-in data [:rf/spawned [:active]])]
-            {:fx [[:dispatch [socket [:send {:type :auth}]]]]}))}
-```
-
-The slot clears itself when the actor is destroyed. A later read returns `nil`,
-not a dead id. Outside a machine, read the same slot off the parent's snapshot:
-`(get-in @(rf/subscribe [:rf/machine :ws/connection]) [:data :rf/spawned [:active]])`.
-
 ## When a child finishes
 
 A one-shot child reports success by entering a **root-level**
 [`:final?`](concepts.md#final-states) leaf and naming the `:data` slot to hand
-up with `:output-key`. The parent folds that value in `:on-done`:
+up with `:output-key`, as `:auth/request`'s `:done` does above. Instead of
+moving, the parent can fold that value into its own `:data`:
 
 ```clojure
-(rf/reg-machine :auth/request
-  {:initial :running
-   :data    {}
-   :states
-   {:running {:on {:server-ok {:target :done
-                               :action (fn [{data :data [_ token] :event}]
-                                         {:data (assoc data :token token)})}}}
-    :done    {:final?     true
-              :output-key :token}}})
-
-:authenticating
+:submitting
 {:spawn {:machine-id :auth/request
+         :data       (fn [{:keys [event]}]
+                       {:credentials (second event)})
          :on-done    (fn [{:keys [data result]}]
                        (assoc data :token result))
-         :on-error   :idle}
- :on    {:cancel :idle}}
+         :on-error   :error-shown}
+ :on    {:auth.login/cancel :idle}}
 ```
 
 - **`:on-done` is a transition or a data-fold, chosen by its value.** An

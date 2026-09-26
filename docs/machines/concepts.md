@@ -4,6 +4,10 @@
 <a id="the-model"></a>
 <a id="state-machines"></a>
 
+The [first machine](tutorial.md) used a handful of keys. This page explains
+each part of the table and the rules the runtime follows when a transition
+runs.
+
 ## The idea
 
 <a id="a-machine-at-a-glance"></a>
@@ -138,6 +142,7 @@ objects. That is what lets a snapshot persist. Save the machines from
 `frame-state-value` and hand them back at boot with `:rf/install-frame-state`,
 which restores spawned children and re-arms `:after` timers without re-running
 `:entry` ([Persist and restore](coming-from-xstate.md#persist-and-restore)).
+
 In every frame that has an `:id`, a hot reload keeps the live snapshot and
 applies the new table from the next event; a frame made without an `:id` keeps
 the table it was made with. If the reload removed the current state, the
@@ -212,12 +217,9 @@ ordinary Clojure:
                       (and (seq (:email creds)) (seq (:password creds))))}
 ```
 
-A guard sees the snapshot *before* the transition's action runs. On a
-three-attempt lockout, `:under-retry-limit` therefore reads the count from
-failures already recorded, and the boundary sits one below the total you
-want — `< 2` for three attempts. The first two failures pass and land in
-`:error-shown`; the third fails the guard and the fallback candidate locks
-out.
+A guard sees the snapshot *before* the transition's action runs, so
+`:under-retry-limit` counts only the failures already recorded: `< 2`
+allows three attempts.
 
 <a id="name-them-or-inline-them"></a>
 
@@ -243,9 +245,9 @@ Return **descriptions**, the same idea as `reg-event`:
            :on-failure [:auth.login/flow [:auth.login/failure]]}]]})}
 ```
 
-Require `[re-frame.http.managed]` wherever `:rf.http/managed` appears, or the
-effect is `:rf.error/no-such-fx`. The reply envelope and the one-element-short
-target shape are in the [first machine](tutorial.md#step-4--talk-to-a-real-server).
+The [first machine](tutorial.md#step-4--talk-to-a-real-server) explains the
+artefact this effect needs, the reply envelope, and the one-element-short
+target shape.
 
 ### The effect map `{:data :fx}`
 
@@ -266,11 +268,6 @@ transition commits.
     Both keys are returned together. Bind fresh values in a `let` and use the
     local in both places, or write in the transition action and read in the
     target's `:entry`.
-
-Unresolved `:guard` / `:action` / `:target` names throw at `reg-machine`
-(`:rf.error/machine-unresolved-guard`,
-`:rf.error/machine-unresolved-action`,
-`:rf.error/machine-unresolved-target`), not on first dispatch.
 
 ### Entry, exit, and transition actions
 
@@ -353,10 +350,11 @@ If the current state has no transition for an event, the machine ignores it.
 The snapshot does not move. A benign `:rf.machine.event/unhandled-no-op`
 trace records the drop.
 
-That does not hide mistakes. Broken definitions fail at registration: missing
-targets, undefined guards or actions, invalid timeout shapes, illegal
-`:final?` combinations. The unhandled event is the one intentionally quiet
-case.
+That does not hide mistakes. Broken definitions throw at `reg-machine`, not
+on first dispatch: a missing target, guard or action name
+(`:rf.error/machine-unresolved-target`, `-unresolved-guard`,
+`-unresolved-action`), an invalid timeout shape, an illegal `:final?`
+combination. The unhandled event is the one intentionally quiet case.
 
 Keys are checked too. A state or transition map takes a closed set of bare
 keys, so a typo or an XState spelling (`:invoke`, `:cond`) throws
