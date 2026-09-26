@@ -578,7 +578,7 @@ That's the whole gate.
 
 !!! note "Why a route guard rather than an event interceptor"
 
-    Navigations arrive by several doors — `:rf.route/navigate` (in several shapes, including `{:url …}` and in-place query edits that name no route id), link clicks, and the URL bar or Back button. An interceptor on one navigation event has to handle every shape itself, and the one it misses lets a signed-out visitor in. `:can-enter` runs in the single planning step all of them pass through, so it can't be bypassed. A frame interceptor is still right for policies that aren't about routes, such as a maintenance-mode lockout — see [Require sign-in on a route](../../routing/how-to/require-sign-in-on-a-route.md#appendix--when-the-policy-is-not-about-routes).
+    Navigations arrive by several doors — `:rf.route/navigate` (in several shapes, including `{:url …}` and in-place query edits that name no route id), link clicks, and the URL bar or Back button. An interceptor on one navigation event has to handle every shape itself, and the one it misses lets a signed-out visitor in. `:can-enter` runs in the single planning step all of them pass through, so it can't be bypassed. A frame interceptor is still right for policies that aren't about routes, such as a maintenance-mode lockout — see [Require sign-in on a route](../../routing/how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
 
 ### What a refusal does, and the login bounce
 
