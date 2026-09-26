@@ -96,7 +96,7 @@ Wire the Ring adapter once. It runs the whole lifecycle above — frame create, 
 Three options do the work:
 
 - **`:initial-events`** — the per-request setup, passed as the per-request frame's `:initial-events` (step 2). It takes a vector of events, or a `(fn [request] → initial-events-vector)` when the setup depends on the Ring request.
-- **`:root-view`** — what the adapter renders once the frame settles (step 4). Use the fn form shown: it calls the view, so the handler can hash what it rendered and the client can [check its first render](#when-the-renders-disagree) against it. The vector form `[(rf/view :app/root)]` renders the same HTML but carries no hash. The hash covers the hiccup the root view *returns*, so have the root return an element holding the page, such as `[:main …]`; a root whose body is only another view, `[(rf/view :pages/articles)]`, carries no hash either. The head of the tree must be a callable view reference — the Var `rf/reg-view` defines, or `(rf/view :id)`. A bare keyword head is an HTML element.
+- **`:root-view`** — what the adapter renders once the frame settles (step 4). Use the fn form shown, with a root view that returns an element such as `[:main …]`: that is what lets the client [check its first render](#what-the-hash-covers) against the server's. The vector form `[(rf/view :app/root)]` renders the same HTML but ships no hash. The head of the tree must be a callable view reference — the Var `rf/reg-view` defines, or `(rf/view :id)`. A bare keyword head is an HTML element.
 - **`:payload`** — the allowlist of top-level app-db keys to send to the client (step 5). It is a security boundary, covered [below](#payload--the-fail-closed-allowlist).
 
 That is a working SSR server. The other options have defaults you rarely change; they are summarised under [Other handler options](#other-handler-options), and the [`ssr-handler`](../api/re-frame.ssr.ring.md#ssr-handler) reference lists every option with its errors. The [tutorial](tutorial.md) builds the same lifecycle by hand first — `set-request!`, `make-frame`, `render-to-string`, `destroy-frame!` — if you would rather see each step before the adapter runs them.
@@ -151,7 +151,7 @@ Declare `:rf.cofx/requires [:rf.server/request]` and the request map arrives und
 
 `:rf/server-init` is a name the framework reserves and you supply the body for. It does not license registering your own events under the `:rf/*` root.
 
-Use the request for decisions. When a request-derived fact must live in app-db, put it on an event's payload instead of copying it from the request. The handler above does that: the URI it reads lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The shortcut to avoid is `(assoc db :session-user (-> request :session :user))`:
+Use the request for decisions. When a request-derived fact must live in app-db, put it on an event's payload instead of copying it from the request. The handler above does that: the URI it reads lands on the `[:rf.route/handle-url-change …]` event, so the value is recorded with the dispatch. The shortcut to avoid is `(assoc db :session-user (-> request :session :user))`, for the reason below.
 
 ??? note "Why a durable write must be recorded, and how to fix it"
 
@@ -292,7 +292,7 @@ Two rules:
 
 Sometimes the client's first render doesn't match the server's HTML — a [hydration mismatch](glossary.md#hydration-mismatch). The causes are usually mundane: a date rendered in two timezones, state the server set but the client never read, an unordered map that serialises in two different orders.
 
-The server embeds a structural hash of its render tree (the `:rf/render-hash` in the payload). The client computes the same hash on its own first render and compares. When they differ, a structured [trace event](../core/glossary.md#trace-event) fires:
+The server hashes its render tree and ships the result as `:rf/render-hash` in the payload (and as a `data-rf-render-hash` attribute on the root element). The client hashes its own first render and compares. When they differ, a structured [trace event](../core/glossary.md#trace-event) fires:
 
 ```clojure
 {:operation :rf.ssr/hydration-mismatch
@@ -305,6 +305,20 @@ The server embeds a structural hash of its render tree (the `:rf/render-hash` in
 ```
 
 The default recovery is **warn and replace**: log it and render the client's view, so the user sees a working page. Per-frame strict mode, `:ssr {:on-mismatch :hard-error}`, throws a structured exception instead, for dev and CI. The [tutorial's Step 5](tutorial.md) triggers a mismatch on purpose.
+
+### What the hash covers
+
+The hash is computed over the hiccup, not the HTML, and the walk that computes it never calls a view: a view reference in the tree — `[(rf/view :pages/articles)]`, or a component fn — is not expanded, so it hashes the same whatever it renders (its arguments still count). Three rules follow:
+
+- **Pass `:root-view` in the fn form**, `(fn [] ((rf/view :app/root)))`. The fn calls the root view, so the handler has its hiccup to hash. The vector form `[(rf/view :app/root)]` is a view reference, renders the same HTML, and ships no hash.
+- **Have the root view return an element**, such as `[:main …]`. A root whose body is only another view, `[(rf/view :pages/articles)]`, would hash to the same constant for every app, so the Ring handler ships no hash for it either.
+- **Only the root view's own markup is compared.** Views nested inside it are not expanded, so a mismatch inside a nested view goes undetected by the hash.
+
+On the client, `:render-tree-fn (fn [] ((rf/view :app/root)))` is the matching call ([hydrate, then verify](#the-client-side-hydrate-then-verify)). When no hash ships, `hydrate!` has nothing to compare, and no mismatch is ever reported.
+
+Byte-for-byte HTML equality is not the test, because serialisers can emit equivalent HTML with different attribute order or whitespace. The hash is FNV-1a over a canonical-EDN walk of the tree (depth-first, attribute maps in sorted-key order, nil pruned): fast, and needing no platform crypto. It compares one server and one client of the same build; it is not a security primitive.
+
+### Which node, and which substrate
 
 The hash tells you *that* the renders diverged, on which frame, and what the runtime did about it. It does not tell you *which node*. The trace has an optional `:first-diff-path` tag (a path into the render tree, such as `[:body 0 :children 0]`) that a host running its own tree diff supplies through [`verify-hydration!`](../api/re-frame.ssr.md)'s opts; the bundled runtime emits the hashes and leaves that tag empty.
 
@@ -320,10 +334,6 @@ A native UIx app must hydrate through `(re-frame.substrate.adapter/render tree e
 !!! note "In production, the mismatch arrives as an error record"
 
     The trace is part of the dev trace stream, so it is [elided](../core/glossary.md#elide) from production client builds. The hash comparison still runs (turn it off with `:ssr {:detect-mismatch? false}` to save the first-render work), and a mismatch also emits an always-on error record under the same id — the hashes, `:frame`, `:failing-id` and `:recovery`, no markup or state — which reaches the frame's `:observability :errors` sinks. Declare a sink and production mismatches reach your monitoring ([Deploying](#deploying)).
-
-??? note "What the hash covers"
-
-    Byte-for-byte HTML equality is not required, because serialisers can emit equivalent HTML with different attribute order or whitespace. The FNV-1a hash runs over a canonical-EDN walk of the render tree (depth-first, attribute maps in sorted-key order, nil pruned). The walk never calls a view: a view reference inside the tree, `[(rf/view :pages/articles)]` or a component fn, hashes as one fixed token whatever it renders. So the hash sees the hiccup your root view returns and not the views it nests — a mismatch inside a nested view goes undetected — and a root that returns only a view reference hashes to a constant, which the Ring handler doesn't ship. FNV-1a is fast and needs no platform crypto. The hash compares one server and one client of the same build; it is not a security primitive.
 
 ## `:platforms` — one handler, gated per runtime
 
@@ -440,7 +450,7 @@ Code that renders on the server follows a few rules:
 - **Browser-only work waits for hydration.** Focus traps and observers go in `:platforms #{:client}` effects.
 - **Machine timers start in the browser.** A [machine](../machines/glossary.md#machine)'s `:after` timers aren't armed on the server; the server renders the current state and ships the snapshot. After hydration the client arms each active timer for its **full** delay, counted from then, without re-running entry actions. A machine also can't wait for network I/O during the render; that is what blocking resources are for.
 
-The platform gate enforces the third rule, and the render hash catches a view that renders differently on the two sides.
+The platform gate enforces the third rule, and the [render hash](#what-the-hash-covers) catches a root view that renders differently on the two sides.
 
 ## A complete loop (server + client)
 
@@ -544,7 +554,7 @@ A few things change between your REPL and a production server:
 | Request fails naming a payload path | `:rf.error/ssr-hydration-payload-invalid` — a number the browser can't read back | Send ids as strings, money as integer cents, or drop the key from `:payload` |
 | Server HTML is missing data fetched at boot | Only blocking route resources are waited for | Declare the read as a route resource with `:blocking? true` |
 | `:form-params` / `:session` is `nil` on the server | The Ring middleware didn't run before the SSR handler | Wrap with `wrap-params` / `wrap-session` outside it |
-| A mismatch is never reported | `:root-view` is a vector, or the root view returns only another view, so no render hash ships | Use `(fn [] ((rf/view :app/root)))` and have the root return an element such as `[:main …]` |
+| A mismatch is never reported | `:root-view` is a vector, or the root view returns only another view, so no render hash ships | Use `(fn [] ((rf/view :app/root)))` and have the root return an element such as `[:main …]` ([What the hash covers](#what-the-hash-covers)) |
 | `hydrate!` without `:frame` | `:rf.error/no-frame-context` | Pass the same `:frame` as `frame-provider` |
 | Bad payload shape | `:rf.error/malformed-hydration-payload` — client state left untouched | Fix the server payload; never ship a non-map |
 | Payload frame id disagrees | `:rf.error/hydration-frame-id-mismatch` | Set `:client-frame-id` only to an id the client hydrates |

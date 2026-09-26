@@ -22,7 +22,7 @@ the effect with `:platforms`.
 | `await`ing data in a Server Component before it renders | A route resource declared `:blocking? true`. The Ring handler waits for it, within a 5-second budget, before rendering. A fetch your `:initial-events` start themselves is not waited for. See [blocking resource](glossary.md#blocking-resource). |
 | `Promise.all` of N fetches | [The SSR loader pattern](concepts.md#two-patterns-in-brief): several `:blocking? true` entries in the route's `:resources`. They load in parallel, so the wait is the slowest fetch, and the same declaration drives the fetch on client navigation. |
 | Server Action (form `action={fn}`) | [The form-action pattern](concepts.md#two-patterns-in-brief): a real `method="POST"` form routes to the same [event](../core/glossary.md#event) the client's `:on-submit` dispatches. |
-| `hydrateRoot` | [`ssr/hydrate!`](glossary.md#hydration), which installs the server's state from the payload by dispatching `:rf/hydrate` before the first render, then the adapter's `render!` with `{:hydrate? true}` to adopt the DOM. |
+| `hydrateRoot` | Two calls. [`ssr/hydrate!`](glossary.md#hydration) installs the server's state from the payload before the first render; the adapter's `render!` with `{:hydrate? true}` then adopts the DOM. |
 | Several `hydrateRoot` calls on one page (islands) | [`ssr/hydrate-page!`](glossary.md#several-roots-on-one-page): each root hydrates and mounts inside its own failure boundary, usually into one shared frame. |
 | Reading `cookies()` / `headers()` | A declared [coeffect](../core/glossary.md#coeffect): `:rf.cofx/requires [:rf.server/request]`, with the value in the handler's coeffects. The value is the Ring request, so `:cookies` is there only when Ring's `wrap-cookies` runs in front. |
 | `cookies().set(...)` | The `:rf.server/set-cookie` effect, which takes a map. See [Controlling the response](response.md). |
@@ -48,11 +48,9 @@ blocking resources, and then renders.
 **The client receives the server's state as well as its HTML.** `hydrate!` installs
 the server's [app-db](../core/glossary.md#app-db) and the serialisable
 [runtime-db](../core/glossary.md#runtime-db) slice before the first render, so the
-client does not fetch again to catch up. For views that return hiccup, the server
-embeds a hash of the render tree and the client compares it with its own first
-render. A mismatch emits a [trace event](../core/glossary.md#trace-event) carrying
-both hashes; by default the client's render replaces the server's, and strict mode
-throws instead.
+client does not fetch again to catch up. For views that return hiccup, the client
+also checks its first render against a hash of the server's; see
+[When the renders disagree](concepts.md#when-the-renders-disagree).
 
 **What reaches the client is an allowlist.** Next.js serialises whatever props your
 loader returns. re-frame2's [`:payload`](concepts.md#payload--the-fail-closed-allowlist)

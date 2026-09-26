@@ -219,12 +219,9 @@ returns a Ring response:
 - **`:rf/render-hash` is a structural fingerprint of the render tree.** You compute
   it once with `render-tree-hash` and use it twice: `:render-hash` stamps it on the
   root element as a `data-rf-render-hash` attribute, and the payload carries the same
-  string. Computing it once keeps the emitter from walking the tree a second time.
-  The hash walks the called tree as given and does not expand view references inside
-  it: a nested `[(rf/view :some/view)]` hashes as a fixed placeholder whatever it
-  renders. That is why this root view returns its markup directly. A root whose body
-  was only `[(rf/view :pages/articles)]` would hash to the same constant on every
-  page.
+  string, so the tree is walked only once. The hash covers only the root view's own
+  markup, not the views it nests, which is why this root view returns its markup
+  directly ([what the hash covers](concepts.md#what-the-hash-covers)).
 
 This handler writes its own `<!DOCTYPE html>` envelope around a fragment. When your
 root view renders the whole `[:html …]` document instead, pass `:doctype? true` to
@@ -379,13 +376,11 @@ render the client's view. The trace stream carries a structured error:
              :recovery    :warned-and-replaced}}
 ```
 
-The trace does not say which node diverged. The hash fingerprints the whole tree, so
-it is cheap enough to leave on, but locating the node needs a tree diff. A host that
-runs its own diff can attach an optional `:first-diff-path` tag through
-[`verify-hydration!`](../api/re-frame.ssr.md). Otherwise, look for the
-non-determinism: clocks, locales, unordered collections.
+The trace does not say which node diverged
+([why](concepts.md#which-node-and-which-substrate)), so look for the non-determinism:
+clocks, locales, unordered collections.
 
-For CI, register the frame with `:ssr {:on-mismatch :hard-error}` and a mismatch
+For CI, create the client frame with `:ssr {:on-mismatch :hard-error}` and a mismatch
 throws a structured exception, so it fails the build. The real fix is to put the
 timestamp in app-db at init: it rides the payload and both sides render the same
 value.
@@ -455,9 +450,10 @@ Ordinary Ring middleware supplies the rest: `wrap-resource` serves `/main.js`, w
 the handler's page shell loads by default, and `wrap-params` parses `?limit=1` into
 the `:query-params` that `:rf/server-init` reads.
 
-`:root-view` is a fn that calls the root view, as in Step 2, so the handler hashes the
-page. The vector form `[(rf/view :app/root)]` renders the same HTML but hashes only a
-reference to the view, so the handler ships no hash and Step 5's check never runs.
+`:root-view` is a fn that calls the root view, as in Step 2, so the handler can hash
+the page. The vector form `[(rf/view :app/root)]` renders the same HTML, but the
+handler ships no hash for it and Step 5's check never runs
+([why](concepts.md#what-the-hash-covers)).
 
 **`:payload` is required, and it is an allowlist.** Name the top-level app-db keys
 that may ship; every other key stays on the server, including keys added later. Omit
@@ -471,7 +467,7 @@ hydrates it unchanged.
 The handler renders once the boot events' synchronous work settles. It does not wait
 for an `:rf.http/managed` fetch those events start, so a page that loads its data over
 HTTP declares it as a route resource with `:blocking? true`, which the handler does
-wait for ([The model](concepts.md) covers it).
+wait for ([Data the first render needs](concepts.md#data-the-first-render-needs)).
 
 ## Step 8 — shape the response
 
@@ -509,23 +505,14 @@ model to reason with when something misbehaves. Both halves in one listing:
 
 ## Advanced
 
-### Which substrates hash
-
-The render hash needs a render tree made of data, so how a mismatch is caught depends
-on the view substrate:
-
-| Substrate | Mismatch detection | On the client |
-|---|---|---|
-| Reagent, reagent-slim | Render-tree hash: the server stamps it, `hydrate!` compares | Pass `:render-tree-fn`, calling the root view |
-| Native UIx, Fresco | React's own hydration (adoption); no hash on either side | Omit `:render-tree-fn` |
-
 ### Native UIx — adopt through the shared render path
 
 Reagent views return a data render tree, so the server and client each hash it. A
 native UIx app, whose views compile straight to React elements, has no such tree and
-is verified by React adoption instead.
+is verified by React adoption instead: on the client, call `hydrate!` without
+`:render-tree-fn` ([which substrates hash](concepts.md#which-node-and-which-substrate)).
 
-Hydrate through re-frame2's client mount entry,
+Hydrate the DOM through re-frame2's client mount entry,
 `(re-frame.substrate.adapter/render tree el {:hydrate? true})` (the adapter's
 `:render` slot), and not through `uix.dom/hydrate-root` or react-dom `hydrateRoot`
 directly. Only that path installs the framework `onRecoverableError` reporter,

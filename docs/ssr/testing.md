@@ -16,7 +16,8 @@ subscription, the `:app/root` view and a `:rf/server-init` that seeds
 ## Render a view to a string
 
 `render-to-string` is a pure function from hiccup to an HTML string. Make a frame,
-seed it through `:initial-events`, render, and assert on the markup:
+seed it through `:initial-events`, call the root view inside the frame's scope, and
+assert on the markup:
 
 ```clojure
 (ns app.ssr-test
@@ -36,12 +37,12 @@ seed it through `:initial-events`, render, and assert on the markup:
 (deftest the-root-view-renders-the-articles
   (rf/with-new-frame [f (rf/make-frame
                           {:initial-events [[:articles/seed [{:id "1" :title "Hello, server"}]]]})]
-    (let [html (ssr/render-to-string [(rf/view :app/root)] {})]   ;; renders against the with-new-frame scope
+    (let [html (ssr/render-to-string ((rf/view :app/root)) {})]   ;; the view runs under f
       (is (str/includes? html "Hello, server")))))
 ```
 
-`:initial-events` is the same key `ssr-handler` uses to boot each per-request frame,
-so the test frame boots the way a request's frame does.
+`:initial-events` is the key `ssr-handler` uses to boot each per-request frame, so
+the test frame boots the way a request's frame does.
 
 When the assertion is about structure rather than the serialised string, walk the
 hiccup as in [Test a view](../core/testing/views.md). Use `render-to-string` when
@@ -50,8 +51,9 @@ head.
 
 ## Call the Ring handler
 
-`ssr-handler` returns a plain Ring handler, so an end-to-end server test calls it
-with a request map. No Jetty, no port:
+`ssr-handler` returns a plain Ring handler, so an end-to-end server test builds one
+with the tutorial's `app.server` options and calls it with a request map, with no
+Jetty and no port:
 
 ```clojure
 (def handler
@@ -163,14 +165,11 @@ throws.
     (is (= "Hello, server" (get-in (rf/app-db-value :app) [:articles 0 :title])))))
 ```
 
-The comparison needs the payload's `:rf/render-hash`. Without one, this test passes
-without checking anything, and the handler writes one only under the conditions in
-[render hash](glossary.md#render-hash): a fn-form `:root-view` whose root view
-returns an element. The `string?` assertion in `only-the-allowlist-ships` guards
-that. The hash covers the markup the root spells out and the arguments it passes to
-child views, so a difference inside a child view goes unseen. It applies to views
-that return hiccup (Reagent, reagent-slim); a UIx or Fresco root reports mismatches
-through React's hydration instead.
+The comparison needs the payload's `:rf/render-hash`; without one this test passes
+without checking anything, which is why `only-the-allowlist-ships` asserts the hash
+is a string. A hash ships only for a fn-form `:root-view` whose root view returns an
+element, and it compares only the root's own markup
+([what the hash covers](concepts.md#what-the-hash-covers)).
 
 ## Test the boot guards and the error projector
 
@@ -239,7 +238,7 @@ trips one on purpose.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| The hydration replay passes even after you break the view | The payload has no `:rf/render-hash`, so nothing was compared | Use the fn form `:root-view (fn [] ((rf/view :app/root)))`, with a root view that returns its own markup; assert `(string? (:rf/render-hash payload))` |
+| The hydration replay passes even after you break the view | The payload has no `:rf/render-hash`, so nothing was compared | Use the fn form `:root-view (fn [] ((rf/view :app/root)))`, with a root view that returns an element; assert `(string? (:rf/render-hash payload))` ([what the hash covers](concepts.md#what-the-hash-covers)) |
 | The rendered body lacks data that a fetch loads | The fetch was started from `:initial-events`, and the handler does not wait for it | Declare the data as a route resource with `:blocking? true`, or stub the fetch with `:fx-overrides` |
 | Constructing the handler throws `:rf.error/ssr-missing-payload-policy` | No `:payload` option | Name the app-db keys that may ship, or `:rf.ssr.payload/whole-app-db` |
 

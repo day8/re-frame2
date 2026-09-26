@@ -1,8 +1,9 @@
 # Server-Side Rendering
 
 Server-side rendering sends a page's HTML before its JavaScript loads, then lets the
-client take over that page. In re-frame2 the same events, subscriptions and views run
-on the JVM and in the browser, so you do not write a second, server-only version of
+client take over that page. In re-frame2 the same
+[events, subscriptions and views](../core/introduction.md) run on the JVM and in the
+browser, so you do not write a second, server-only version of
 the app. Code that belongs to one side is marked: effects and events with
 `:platforms`, and the server and client entry points with reader conditionals.
 
@@ -19,18 +20,18 @@ the app. Code that belongs to one side is marked: effects and events with
 (ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})
 ```
 
-SSR works with the [events](../core/introduction.md), app-db, views and frames you
-already have. This guide shows how to render your app on the JVM (or on a Node
-sidecar), ship its state to the browser and hydrate it there, and serve the pages from
-any Ring server with the `day8/re-frame2-ssr-ring` artefact.
+This guide shows how to render your app on the JVM (or on a Node sidecar), ship its
+state to the browser and hydrate it there, and serve the pages from any Ring server
+with the `day8/re-frame2-ssr-ring` artefact.
 
 ## When *not* to use SSR
+
+Use SSR when the first response must already contain your app's HTML: for crawlers,
+link previews, or a fast first paint. Otherwise it only adds a server to run and
+deploy:
 
 | Situation | Prefer |
 |---|---|
 | Fully authenticated SPA with no SEO or first-paint need | Client-only render |
 | Static marketing pages only | Static HTML or a site generator |
 | A one-off JVM report, such as a PDF | A reporting library; SSR renders your app's pages |
-
-Use SSR when the first response must already contain your app's HTML: for crawlers,
-link previews, or a fast first paint.
