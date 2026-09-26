@@ -63,8 +63,7 @@
 ;; installed adapter, which this adapter-less validate-direct suite has not
 ;; got (it would raise `:rf.error/no-adapter-installed`).
 (use-fixtures :each
-  (rf.test-support/make-reset-runtime-fixture
-    {:clear-app-schemas? true})
+  (rf.test-support/make-reset-runtime-fixture)
   (fn [test-fn]
     (binding [rf.frame/*current-frame* :rf/default]
       (test-fn))))

@@ -34,7 +34,7 @@ The prompt mentions: a **mutation** that updates cached reads, "navigate / show 
 
 `:patches` / `:populates` (optional) transform / seed resource entries before the success-time invalidation. For a write whose effect should show *immediately* — before the reply lands — declare an **optimistic plan** (`:optimistic` / `:optimistic-tags`); the runtime records the inverse and commits / rolls back / reconciles on settle (see [§Optimistic mutations](#optimistic-mutations-apply-before-the-reply)). Do **not** hand-roll optimistic rollback against the reserved cache keys.
 
-A mutation's request fn obeys the same contract as a resource's — no `:request-id` / `:on-success` / `:on-failure`, and cross-cutting transport concerns in the decoration seam: [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-retry-the-managed-http-seam).
+A mutation's request fn obeys the same contract as a resource's — no `:request-id` / `:on-success` / `:on-failure`, and cross-cutting transport concerns in the decoration seam: [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-the-managed-http-seam).
 
 ### Two axes a mutation carries: cache consequences vs workflow
 
