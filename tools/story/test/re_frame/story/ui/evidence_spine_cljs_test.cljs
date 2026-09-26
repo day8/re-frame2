@@ -298,6 +298,21 @@
       (is (= :story.evidence/basic (:variant/id (:source result))))
       (is (= 3 (:beat-idx (:source result)))))))
 
+(deftest focus-beat-moves-the-embed-chip-to-the-focused-panel
+  (testing "an 'Xray: App-db' / 'Xray: Trace' link leaves the RHS embed on
+            the lens it named, not on Epoch — the shell's :xray-panel
+            override follows the focus, as a chip click would"
+    (xray-preload/reset-for-test!)
+    (xray-registry/reset-for-test!)
+    (xray-trace-collector/reset-for-test!)
+    (xray-registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (let [beat {:epoch-id 100 :dispatch-id 100 :beat-idx 0 :span-idx 0}]
+      (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)
+      (is (= :app-db (:xray-panel (rf.story.ui.state/get-state))))
+      (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :trace)
+      (is (= :trace (:xray-panel (rf.story.ui.state/get-state)))))))
+
 ;; ===========================================================================
 ;; STATIC EXPORT — the evidence focus boundary
 ;; ===========================================================================

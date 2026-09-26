@@ -91,6 +91,39 @@
         (is (= :machines (rf.story.ui.xray-embed/resolve-panel :story.routing/override))
             "variant slot beats story slot")))))
 
+;; ---- the :xray preset's :panel reaches the embed chip ------------------
+
+(deftest xray-preset-panel-reaches-the-embed-chip
+  (testing "an `:xray {:panel …}` preset selects the RHS embed panel, as
+            the XrayPreset schema says; the `:xray-panel` slot still wins
+            on the same body, and a variant beats its story"
+    (rf.story.test-helpers.e2e-multi-frame/with-story-and-xray-frames
+      {:register-stories
+       (fn []
+         (rf.story/reg-story :story.preset
+           {:xray {:panel :routing}})
+         (rf.story/reg-variant :story.preset/inherits
+           {:setup []})
+         (rf.story/reg-variant :story.preset/own
+           {:xray {:panel :app-db}
+            :setup []})
+         (rf.story/reg-variant :story.preset/slot-wins
+           {:xray       {:panel :app-db}
+            :xray-panel :machines
+            :setup      []}))}
+      (fn []
+        (is (= :routing (rf.story.ui.xray-embed/resolve-panel :story.preset/inherits))
+            "the story's preset panel reaches its variant")
+        (is (= :app-db (rf.story.ui.xray-embed/resolve-panel :story.preset/own))
+            "the variant's preset panel beats the story's")
+        (is (= :machines (rf.story.ui.xray-embed/resolve-panel :story.preset/slot-wins))
+            "the `:xray-panel` slot beats the preset on the same body")
+        (rf.story.test-helpers.e2e-multi-frame/select-variant! :story.preset/own)
+        (is (= :app-db
+               (rf.story.ui.xray-embed/effective-panel
+                 (rf.story.ui.state/get-state) :story.preset/own))
+            "effective-panel routes the preset panel to the chip")))))
+
 ;; ---- unknown slot falls back to default --------------------------------
 
 (deftest unknown-slot-falls-back-to-default

@@ -73,9 +73,17 @@
   the SAME profile the dispatch rail honours.
 
   `<select>` is NOT treated as sensitive (a choice from visible options
-  is not a typed secret); only typed `<input>` fields are scrubbed."
+  is not a typed secret); only typed `<input>` fields are scrubbed.
+
+  ## The DOM step or its dispatch, never both
+
+  While this rail records an interaction as a step, the recorder skips the
+  dispatches that interaction's handlers fire, because replaying the step
+  fires them again; and a dispatch it does record has any value typed into
+  a sensitive field redacted as the `:type` step is. See §DOM-step window."
   (:require [clojure.set                     :as set]
             [clojure.string                  :as str]
+            [clojure.walk                    :as walk]
             [re-frame.story.config           :as rf.story.config]
             [re-frame.story.late-bind        :as rf.story.late-bind]
             [re-frame.story.recorder         :as rf.story.recorder]
@@ -122,6 +130,17 @@
   ;; with its capture-time `:t` even when the flush fires AFTER the recording
   ;; was stopped.
   (atom {}))
+
+(defonce ^:private dom-step-window
+  ;; A token while this rail is handling an interaction it records as a
+  ;; step (see §DOM-step window), nil otherwise.
+  (atom nil))
+
+(defonce ^:private typed-secrets
+  ;; The values typed into sensitive fields during this recording, so a
+  ;; recorded dispatch payload carrying one is redacted (see §DOM-step
+  ;; window). Cleared at every recording boundary.
+  (atom #{}))
 
 (defn- now-ms []
   (.now js/Date))
@@ -233,7 +252,9 @@
   that ended, and dropping it is correct. The final keystroke of a STOPPED
   recording survives into that same recording because its pending timer
   fires while the buffer is intact (stop-recording! does NOT drain the
-  buffer); only start/clear drain here.
+  buffer); only start/clear drain here. The typed secrets and any open
+  DOM-step window belong to the recording that ended too, so they go with
+  it.
 
   Registered as the `:recorder/reset-dom-buffer` late-bind hook (below) so
   the cljc recorder — which cannot `:require` this cljs ns — can invoke it."
@@ -241,6 +262,8 @@
   (doseq [entry (vals @type-buffer)]
     (clear-buffer-timer! entry))
   (reset! type-buffer {})
+  (reset! typed-secrets #{})
+  (reset! dom-step-window nil)
   nil)
 
 ;; Register the buffer-drain seam so `rf.story.recorder/start-recording!` + `clear!`
@@ -355,6 +378,85 @@
        (rf.story.recorder/recording?)
        (enabled?)))
 
+;; ---- DOM-step window + typed secrets ------------------------------------
+;;
+;; A click / input / change / submit this rail records as a step runs the
+;; app's handlers synchronously, and their dispatches reach the recorder's
+;; trace listener before this rail's bubble-phase handler records the step.
+;; Replaying the step runs those handlers again, so recording their
+;; dispatches as well would replay them twice (a login submitted twice). A
+;; capture-phase listener therefore opens a window for the rest of the event
+;; and the recorder skips root dispatches inside it. A zero-delay timeout
+;; closes it, after the event and its default action (a submit button's form
+;; submission included).
+;;
+;; The same listener notes each value typed into a sensitive field. A
+;; dispatch the recorder does keep (DOM capture off, or one the app fires
+;; later) has every string equal to such a value replaced with
+;; `redacted-type-text`, so its payload is redacted exactly as the `:type`
+;; step is.
+
+(defn inside-dom-step?
+  "True while this rail is handling an interaction it records as a step.
+  Published as the recorder's `:recorder/inside-dom-step?` hook."
+  []
+  (some? @dom-step-window))
+
+(defn- records-step?
+  "True iff this rail will record DOM event `ev` on `el` as a step: capture
+  is on, `el` has a selector, and an input / change targets a typeable
+  field."
+  [ev el]
+  (and (should-capture?)
+       (or (not (contains? #{"input" "change"} (.-type ev)))
+           (typeable-element? el))
+       (some? (rf.story.recorder.selector/pick-for-element el))))
+
+(defn- note-typed-secret!
+  "Remember `el`'s value when `el` is a sensitive field the egress profile
+  redacts for the recording's variant."
+  [el]
+  (when (and (sensitive-element? el)
+             (not (rf.story.config/include-sensitive?
+                    (rf.story.recorder/recording-variant))))
+    (let [v (target-value el)]
+      (when (seq v)
+        (swap! typed-secrets conj v)))))
+
+(defn- open-dom-step-window!
+  "Capture-phase listener: note a typed secret, and open the DOM-step
+  window when this event will be recorded as a step."
+  [ev]
+  (when (and rf.story.config/enabled? (rf.story.recorder/recording?))
+    (when-let [el (.-target ev)]
+      (note-typed-secret! el)
+      (when (records-step? ev el)
+        (let [token #js {}]
+          (reset! dom-step-window token)
+          (js/setTimeout #(compare-and-set! dom-step-window token nil) 0))))))
+
+(defn redact-typed-secrets
+  "`event` with every string equal to a value typed into a sensitive field
+  this recording replaced by `redacted-type-text`, bumping the recording
+  variant's suppressed counter when any was. Published as the recorder's
+  `:recorder/redact-typed-secrets` hook."
+  [event]
+  (let [secrets @typed-secrets]
+    (if (empty? secrets)
+      event
+      (let [hit? (volatile! false)
+            out  (walk/postwalk (fn [x]
+                                  (if (and (string? x) (contains? secrets x))
+                                    (do (vreset! hit? true) redacted-type-text)
+                                    x))
+                                event)]
+        (when @hit?
+          (rf.story.config/note-suppressed! (rf.story.recorder/recording-variant)))
+        out))))
+
+(rf.story.late-bind/set-fn! :recorder/inside-dom-step? inside-dom-step?)
+(rf.story.late-bind/set-fn! :recorder/redact-typed-secrets redact-typed-secrets)
+
 ;; ---- listener handlers --------------------------------------------------
 
 (defn- handle-click!
@@ -443,13 +545,19 @@
   (.addEventListener root "click"  handle-click!  false)
   (.addEventListener root "input"  handle-input!  false)
   (.addEventListener root "change" handle-change! false)
-  (.addEventListener root "submit" handle-submit! false))
+  (.addEventListener root "submit" handle-submit! false)
+  ;; Capture phase: the DOM-step window opens BEFORE the variant's handlers
+  ;; dispatch (see §DOM-step window).
+  (doseq [t ["click" "input" "change" "submit"]]
+    (.addEventListener root t open-dom-step-window! true)))
 
 (defn- detach-listeners! [root]
   (.removeEventListener root "click"  handle-click!  false)
   (.removeEventListener root "input"  handle-input!  false)
   (.removeEventListener root "change" handle-change! false)
-  (.removeEventListener root "submit" handle-submit! false))
+  (.removeEventListener root "submit" handle-submit! false)
+  (doseq [t ["click" "input" "change" "submit"]]
+    (.removeEventListener root t open-dom-step-window! true)))
 
 (def ^:private lifecycle
   (rf.story.ui.canvas-listeners/make-lifecycle installed-root attach-listeners! detach-listeners!))

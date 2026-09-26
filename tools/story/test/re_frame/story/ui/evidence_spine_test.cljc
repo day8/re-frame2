@@ -214,6 +214,14 @@
            (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))
     (is (contains? rf.story.ui.evidence-spine/focus-panels (:panel (rf.story.ui.evidence-spine/build-focus-command :app-bd {} {:kind :x}))))))
 
+(deftest embed-panel-for-names-the-chip-that-shows-the-focus
+  (testing "each focus panel maps to an RHS embed chip id; only the routes
+            lens is spelled differently (:routes → :routing)"
+    (is (= :app-db (rf.story.ui.evidence-spine/embed-panel-for :app-db)))
+    (is (= :trace (rf.story.ui.evidence-spine/embed-panel-for :trace)))
+    (is (= :epoch (rf.story.ui.evidence-spine/embed-panel-for :epoch)))
+    (is (= :routing (rf.story.ui.evidence-spine/embed-panel-for :routes)))))
+
 (deftest submit-beat-focus-command-carries-its-coordinates
   (testing "the failure-to-cause leg's submit beat. A script of
             assertions puts every setup epoch in the leading span, and the

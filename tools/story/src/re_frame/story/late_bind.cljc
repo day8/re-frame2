@@ -97,7 +97,26 @@
                                      JVM), where there is no buffer to drain.
                                      Signature: `(f) → nil`.
 
-  - `:render-host`                 — story (via the canonical
+  - `:recorder/inside-dom-step?`   — dom-capture → recorder. True while
+                                     the DOM rail is handling an interaction
+                                     it records as a step, so the recorder's
+                                     trace listener skips the dispatches that
+                                     interaction's handlers fire (replaying
+                                     the step fires them again). Absent
+                                     without DOM capture (bare JVM), where
+                                     every dispatch is recorded.
+                                     Signature: `(f) → boolean`.
+
+  - `:recorder/redact-typed-secrets` — dom-capture → recorder. Replaces,
+                                     in a recorded event, every string the
+                                     user typed into a sensitive field this
+                                     recording with the DOM rail's
+                                     placeholder, so a dispatch payload is
+                                     redacted exactly as the `:type` step
+                                     is. Absent without DOM capture (bare
+                                     JVM). Signature: `(f event) → event`.
+
+  - `:render-host`                — story (via the canonical
                                      `install-render-host!`) → render. The
                                      CLJS host's view-render seam, consumed
                                      by `render-variant` to paint the active
