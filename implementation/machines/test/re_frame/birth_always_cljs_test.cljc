@@ -332,6 +332,11 @@
 ;; ===========================================================================
 ;; LIVE — eager `[:rf.machine/start]` and lazy first-event birth
 ;; ===========================================================================
+;;
+;; `maybe-boot` calls the same `apply-initial-entry-cascade` the PURE layer
+;; drives, so the live layer pins what the pure layer cannot see: the two
+;; birth triggers, a REGISTERED parallel machine, and auto-destroy at birth.
+;; Cases (c), (d) and (f) are pure-only.
 
 (use-fixtures :each
   (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
@@ -373,32 +378,6 @@
         (is (true? (get-in s [:data :noted?]))
             ":note resolved at :ready — proving the birth `:always` settled before the user event")))))
 
-(deftest live-birth-always-stays-when-guard-false
-  (testing "(c) eager start with a FALSE `:always` guard stays in the initial leaf"
-    (let [m {:initial :booting
-             :data    {:ready? false}
-             :guards  {:ready? (fn [{data :data}] (:ready? data))}
-             :states  {:booting {:always [{:guard :ready? :target :ready}]}
-                       :ready   {}}}]
-      (rf/reg-machine :rf2-505ic/false-guard m)
-      (rf/dispatch-sync [:rf2-505ic/false-guard [:rf.machine/start]])
-      (is (= :booting (:state (snapshot :rf2-505ic/false-guard)))
-          "guard false — eager start stays at :booting, no spurious birth transition"))))
-
-(deftest live-eager-start-deep-compound-initial-always
-  (testing "(d) eager start on a compound initial cascade whose deep leaf
-            carries an `:always` settles past it"
-    (let [m {:initial :outer
-             :data    {:go? true}
-             :guards  {:go? (fn [{data :data}] (:go? data))}
-             :states  {:outer {:initial :inner
-                               :states  {:inner    {:always [{:guard :go? :target :resolved}]}
-                                         :resolved {}}}}}]
-      (rf/reg-machine :rf2-505ic/compound m)
-      (rf/dispatch-sync [:rf2-505ic/compound [:rf.machine/start]])
-      (is (= [:outer :resolved] (:state (snapshot :rf2-505ic/compound)))
-          "birth cascaded :outer→:inner then settled :inner's `:always` to [:outer :resolved]"))))
-
 (deftest live-eager-start-parallel-regions-settle-in-parent-round
   (testing "(e) eager start on a parallel machine — every region's enabled
             birth `:always` is selected in the PARENT's frozen birth round
@@ -420,18 +399,6 @@
             "region :left settled its birth `:always`")
         (is (= :r-boot (get-in s [:state :right]))
             "region :right's guard false — stayed at its initial leaf")))))
-
-(deftest live-eager-start-no-always-unaffected
-  (testing "(f) eager start on a no-`:always` machine installs the plain
-            initial state"
-    (let [m {:initial :idle
-             :data    {:seeded? true}
-             :states  {:idle {:on {:go :next}} :next {}}}]
-      (rf/reg-machine :rf2-505ic/plain m)
-      (rf/dispatch-sync [:rf2-505ic/plain [:rf.machine/start]])
-      (let [s (snapshot :rf2-505ic/plain)]
-        (is (= :idle (:state s)) "lands on the plain initial state")
-        (is (= {:seeded? true} (:data s)) ":data unchanged")))))
 
 (deftest live-eager-start-settling-onto-final-auto-destroys
   (testing "an eager `[:rf.machine/start]` whose birth `:always` settles onto

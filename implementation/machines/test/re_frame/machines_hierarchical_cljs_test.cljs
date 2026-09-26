@@ -11,9 +11,15 @@
     - Compound state: sibling-leaf transition fires only the leaf
       exit/entry (LCA cascade).
     - Deepest-wins: leaf overrides parent for the same event id.
-    - Wildcard precedence: leaf `:*` shadows parent's explicit
-      handler at the same event; parent fallthrough works when the
-      leaf declares neither explicit nor `:*`.
+    - Wildcard precedence: parent fallthrough works when the leaf
+      declares neither explicit nor `:*`, and explicit beats `:*` at the
+      matching level.
+    - The compound DEFAULT self-transition (`:same-state`, no `:reenter?`)
+      re-resolves its descendants.
+
+  The pure SCXML corpus (`scxml_conformance_cljs_test`, both hosts) pins
+  the leaf-`:*`-shadows-parent-explicit rule, the flat and compound
+  external/internal self-transitions and the proper-ancestor restarts.
 
   Counterpart to the non-hierarchical coverage in the sibling
   `machines_*_cljs_test` namespaces."
@@ -125,33 +131,9 @@
 ;; level, explicit-event match beats `:*`; only if neither matches does the
 ;; runtime walk up to the parent. So a leaf's `:*` SHADOWS a parent's
 ;; explicit handler for the same event — wildcard wins at the deeper level
-;; before parent fallthrough kicks in.
+;; before parent fallthrough kicks in (pinned on both hosts by the SCXML
+;; corpus's `scxml-leaf-wildcard-shadows-parent-explicit`).
 (deftest machine-hierarchical-wildcard-precedence-cljs
-  (testing "leaf :* shadows parent's explicit handler for the same event"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :authenticated
-           :data    {}
-           :actions {:parent-explicit (tag :parent-explicit)
-                     :leaf-wildcard   (tag :leaf-wildcard)}
-           :states
-           {:authenticated
-            {:initial :dashboard
-             :on      {:help {:action :parent-explicit}}    ;; explicit at parent
-             :states
-             {:dashboard
-              {:on {:* {:action :leaf-wildcard}}}}}}}]      ;; :* at leaf
-      (rf/reg-machine :rf2-fhb9/precedence machine)
-      (reset! log [])
-      (rf/dispatch-sync [:rf2-fhb9/precedence [:help]])
-      ;; At leaf [:authenticated :dashboard]: explicit miss → :* hit. The
-      ;; runtime stops walking; parent's explicit :help is shadowed.
-      (is (= [:leaf-wildcard] @log)
-          "leaf-level :* fired, parent's explicit :help shadowed (per-level rule)")
-      (is (not (some #{:parent-explicit} @log))
-          "parent's explicit handler must NOT fire when leaf :* matched")))
-
   (testing "parent fallthrough works when leaf has neither explicit nor :*"
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
@@ -184,142 +166,13 @@
 ;; DEFAULT — the action fires, `:exit`/`:entry` do NOT, the configuration is
 ;; unchanged (XState-v5 semantics). The EXTERNAL self-transition — `:exit`
 ;; then the transition's `:action` then `:entry`, re-descending a compound's
-;; `:initial` chain — is the opt-in `:reenter? true`. This ns exercises
-;; the live runtime; the pure-engine ordering is pinned in the SCXML
-;; conformance corpus (`scxml-external-self-transition-*` /
-;; `scxml-internal-self-transition-*`).
+;; `:initial` chain — is the opt-in `:reenter? true`. The SCXML
+;; conformance corpus pins the flat and compound geometries on both hosts
+;; (`scxml-external-self-transition-*`, `scxml-internal-self-transition-*`,
+;; `scxml-default-self-transition-is-internal`,
+;; `scxml-external-transition-to-ancestor-via-same-state-on-ancestor`); this
+;; ns keeps the live compound DEFAULT case.
 (deftest machine-self-transition-cljs
-  (testing "EXTERNAL self-transition (:target :same-state + :reenter? true) on
-            a flat leaf — exit → action → entry, state unchanged"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :idle
-           :data    {}
-           :actions {:enter-idle (tag :enter-idle)
-                     :exit-idle  (tag :exit-idle)
-                     :poke       (tag :poke)}
-           :states
-           {:idle {:entry :enter-idle
-                   :exit  :exit-idle
-                   :on    {:refresh {:target :same-state :reenter? true :action :poke}}}}}]
-      (rf/reg-machine :self/flat-same-state machine)
-      ;; Prime: the first dispatch fires the bootstrap initial-cascade
-      ;; entry. A benign unhandled event drives that bootstrap without
-      ;; touching :idle, so the reset below leaves only the
-      ;; self-transition's own exit/action/entry in the log.
-      (rf/dispatch-sync [:self/flat-same-state [:rf2-46ban/prime]])
-      (reset! log [])
-      (rf/dispatch-sync [:self/flat-same-state [:refresh]])
-      (is (= :idle (:state (snapshot :self/flat-same-state)))
-          "external self-transition leaves the configuration at the source")
-      (is (= [:exit-idle :poke :enter-idle] @log)
-          "exit → action → entry — the state is re-entered (external semantics)")))
-
-  (testing "EXTERNAL self-transition naming the state's OWN keyword (+ :reenter?
-            true) — identical exit → action → entry as :same-state"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :idle
-           :data    {}
-           :actions {:enter-idle (tag :enter-idle)
-                     :exit-idle  (tag :exit-idle)
-                     :poke       (tag :poke)}
-           :states
-           {:idle {:entry :enter-idle
-                   :exit  :exit-idle
-                   :on    {:refresh {:target :idle :reenter? true :action :poke}}}}}]
-      (rf/reg-machine :self/flat-own-keyword machine)
-      (rf/dispatch-sync [:self/flat-own-keyword [:rf2-46ban/prime]])  ;; consume bootstrap entry
-      (reset! log [])
-      (rf/dispatch-sync [:self/flat-own-keyword [:refresh]])
-      (is (= :idle (:state (snapshot :self/flat-own-keyword)))
-          "a self-naming keyword target stays at the source state")
-      (is (= [:exit-idle :poke :enter-idle] @log)
-          "exit → action → entry — same as the :same-state sentinel")))
-
-  (testing "INTERNAL self-transition (omit :target) — action ONLY, no
-            exit/entry, state unchanged"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :idle
-           :data    {}
-           :actions {:enter-idle (tag :enter-idle)
-                     :exit-idle  (tag :exit-idle)
-                     :poke       (tag :poke)}
-           :states
-           {:idle {:entry :enter-idle
-                   :exit  :exit-idle
-                   :on    {:refresh {:action :poke}}}}}]    ;; no :target
-      (rf/reg-machine :self/flat-internal machine)
-      (rf/dispatch-sync [:self/flat-internal [:rf2-46ban/prime]])    ;; consume bootstrap entry
-      (reset! log [])
-      (rf/dispatch-sync [:self/flat-internal [:refresh]])
-      (is (= :idle (:state (snapshot :self/flat-internal)))
-          "internal self-transition leaves the configuration unchanged")
-      (is (= [:poke] @log)
-          "ONLY the action fired — no exit, no entry (internal semantics)")))
-
-  ;; ---- the v5 internal-default --------------------------------------------
-  ;; A self/own-keyword `:target` WITHOUT `:reenter?` is INTERNAL: a
-  ;; `:target :same-state` with no `:reenter?` must NOT fire exit/entry.
-  (testing "DEFAULT-INTERNAL self-transition (:target :same-state, NO
-            :reenter?) — action ONLY, no exit/entry (XState-v5 semantics)"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :idle
-           :data    {}
-           :actions {:enter-idle (tag :enter-idle)
-                     :exit-idle  (tag :exit-idle)
-                     :poke       (tag :poke)}
-           :states
-           {:idle {:entry :enter-idle
-                   :exit  :exit-idle
-                   ;; :target :same-state but NO :reenter? — internal by default
-                   :on    {:refresh {:target :same-state :action :poke}}}}}]
-      (rf/reg-machine :self/flat-default-internal machine)
-      (rf/dispatch-sync [:self/flat-default-internal [:rf2-eicq0/prime]])
-      (reset! log [])
-      (rf/dispatch-sync [:self/flat-default-internal [:refresh]])
-      (is (= :idle (:state (snapshot :self/flat-default-internal)))
-          "default self-target leaves the configuration unchanged")
-      (is (= [:poke] @log)
-          "ONLY the action fired — :target :same-state is INTERNAL by default (XState v5)")))
-
-  (testing "EXTERNAL self-transition on a COMPOUND state (:same-state +
-            :reenter? true) — re-runs the state's :entry AND its :initial-child
-            entry cascade"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :session
-           :data    {}
-           :actions {:enter-session (tag :enter-session)
-                     :exit-session  (tag :exit-session)
-                     :enter-active  (tag :enter-active)
-                     :exit-active   (tag :exit-active)
-                     :renew         (tag :renew)}
-           :states
-           {:session
-            {:initial :active
-             :entry   :enter-session
-             :exit    :exit-session
-             ;; declared ON the compound — :same-state + :reenter? re-enters :session
-             :on      {:reauth {:target :same-state :reenter? true :action :renew}}
-             :states
-             {:active {:entry :enter-active :exit :exit-active}}}}}]
-      (rf/reg-machine :self/compound-same-state machine)
-      (rf/dispatch-sync [:self/compound-same-state [:rf2-46ban/prime]])  ;; consume bootstrap entries
-      (reset! log [])
-      (rf/dispatch-sync [:self/compound-same-state [:reauth]])
-      (is (= [:session :active] (:state (snapshot :self/compound-same-state)))
-          "compound external self-transition re-descends the :initial child")
-      (is (= [:exit-active :exit-session :renew :enter-session :enter-active] @log)
-          "exit cascade leaf→root → action → entry cascade root→leaf (re-runs :initial)")))
-
   (testing "DEFAULT self-transition on a COMPOUND state (:same-state, NO
             :reenter?) RE-RESOLVES its descendants — the compound itself is NOT
             exited/re-entered, but its active child is exited and the compound's
@@ -360,125 +213,3 @@
           "compound self-target re-resolves descendants — re-descends :session's :initial (:active)")
       (is (= [:exit-idle :renew :enter-active] @log)
           "exit the active child :idle → action at the LCCA (:session) → re-enter :initial (:active); :session itself NOT exited/entered (no :reenter?)"))))
-
-;; ---- transition to a PROPER ANCESTOR (LCCA ancestor-restart geometry) -----
-;;
-;; Per Spec 005 §Entry/exit cascading along the LCCA + XState v5 / SCXML
-;; §3.13: a transition from a descendant leaf to one of its PROPER ANCESTORS
-;; A restarts A — A's active subtree (including A) exits, the transition
-;; action fires at the LCCA (A's parent), then A re-enters and re-descends
-;; its `:initial` chain. The restart does not depend on `:reenter?`: the
-;; transition is declared BELOW A, so the LCCA is A's parent either way.
-;; This ns exercises the LIVE runtime (`reg-machine` / `dispatch-sync`);
-;; the pure-engine geometry + ordering is pinned in the SCXML conformance
-;; corpus (`scxml-external-transition-to-proper-ancestor-*`,
-;; `scxml-child-declared-ancestor-target-*`).
-(deftest machine-ancestor-restart-cljs
-  (testing ":reenter? true transition to a proper ANCESTOR restarts that
-            ancestor — exit subtree (incl. ancestor) → action → re-enter
-            ancestor → re-init its :initial child; configuration restored to
-            the leaf"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :p
-           :data    {}
-           :actions {:enter-p (tag :enter-p) :exit-p (tag :exit-p)
-                     :enter-a (tag :enter-a) :exit-a (tag :exit-a)
-                     :enter-x (tag :enter-x) :exit-x (tag :exit-x)
-                     :restart (tag :restart)}
-           :states
-           {:p {:entry :enter-p :exit :exit-p          ;; LCCA — neither re-fires
-                :initial :a
-                :states
-                {:a {:entry :enter-a :exit :exit-a
-                     :initial :x
-                     :states
-                     ;; :x targets its grandparent :a (a proper ancestor) by
-                     ;; absolute vector + :reenter?; :a's :initial re-descends
-                     ;; back to :x.
-                     {:x {:entry :enter-x :exit :exit-x
-                          :on {:restart {:target [:p :a] :reenter? true :action :restart}}}}}}}}}]
-      (rf/reg-machine :ancestor/restart machine)
-      ;; Drive the bootstrap initial-cascade with a benign unhandled event,
-      ;; then reset the log so only the :restart transition is observed.
-      (rf/dispatch-sync [:ancestor/restart [:rf2-emz8l/prime]])
-      (reset! log [])
-      (rf/dispatch-sync [:ancestor/restart [:restart]])
-      (is (= [:p :a :x] (:state (snapshot :ancestor/restart)))
-          "restarting :a re-descends its :initial back to [:p :a :x]")
-      (is (= [:exit-x :exit-a :restart :enter-a :enter-x] @log)
-          "exit :x then :a (deepest-first, incl. the ancestor) → action → re-enter :a → re-init :x; :p (the LCCA) does NOT re-fire")))
-
-  (testing ":reenter? true ancestor target re-INITIALISES to the ancestor's
-            :initial child even when a non-initial child was active at restart
-            time"
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :p
-           :data    {}
-           :actions {:enter-a (tag :enter-a)   :exit-a (tag :exit-a)
-                     :enter-one (tag :enter-1) :exit-one (tag :exit-1)
-                     :enter-two (tag :enter-2) :exit-two (tag :exit-2)}
-           :states
-           {:p {:initial :a
-                :states
-                {:a {:entry :enter-a :exit :exit-a
-                     :initial :one
-                     :states
-                     {:one {:entry :enter-one :exit :exit-one
-                            :on {:to-two :two}}
-                      :two {:entry :enter-two :exit :exit-two
-                            ;; restart the ancestor from the NON-initial child
-                            :on {:restart {:target [:p :a] :reenter? true}}}}}}}}}]
-      (rf/reg-machine :ancestor/reinit machine)
-      ;; Bootstrap to [:p :a :one], then advance to the non-initial child :two.
-      (rf/dispatch-sync [:ancestor/reinit [:rf2-emz8l/prime]])
-      (rf/dispatch-sync [:ancestor/reinit [:to-two]])
-      (is (= [:p :a :two] (:state (snapshot :ancestor/reinit)))
-          "now resting at the non-initial child :two")
-      (reset! log [])
-      (rf/dispatch-sync [:ancestor/reinit [:restart]])
-      (is (= [:p :a :one] (:state (snapshot :ancestor/reinit)))
-          "restart re-initialises :a to its :initial child :one (not back to :two)")
-      (is (= [:exit-2 :exit-a :enter-a :enter-1] @log)
-          "exit :two then :a → re-enter :a → re-init :one")))
-
-  ;; ---- ancestor target WITHOUT :reenter? restarts the ancestor too ---------
-  (testing "a child-declared ancestor target WITHOUT :reenter? restarts the
-            ancestor exactly as the :reenter? form does — the LCCA of {:two,
-            :a} is :a's parent, so :a exits and re-enters, then re-descends
-            its :initial (:one). This is the SCXML LCCA rule, and XState's
-            `reenter` is a no-op on this shape."
-    (let [log (atom [])
-          tag (fn [k] (fn [_] (swap! log conj k) {}))
-          machine
-          {:initial :p
-           :data    {}
-           :actions {:enter-a (tag :enter-a)   :exit-a (tag :exit-a)
-                     :enter-one (tag :enter-1) :exit-one (tag :exit-1)
-                     :enter-two (tag :enter-2) :exit-two (tag :exit-2)
-                     :touch     (tag :touch)}
-           :states
-           {:p {:initial :a
-                :states
-                {:a {:entry :enter-a :exit :exit-a   ;; the target — exits and re-enters
-                     :initial :one
-                     :states
-                     {:one {:entry :enter-one :exit :exit-one
-                            :on {:to-two :two}}
-                      :two {:entry :enter-two :exit :exit-two
-                            ;; declared on :two, targeting its proper ancestor :a, NO :reenter?
-                            :on {:touch {:target [:p :a] :action :touch}}}}}}}}}]
-      (rf/reg-machine :ancestor/default-internal machine)
-      (rf/dispatch-sync [:ancestor/default-internal [:rf2-eicq0/prime]])
-      (rf/dispatch-sync [:ancestor/default-internal [:to-two]])
-      (is (= [:p :a :two] (:state (snapshot :ancestor/default-internal)))
-          "resting at the non-initial child :two")
-      (reset! log [])
-      (rf/dispatch-sync [:ancestor/default-internal [:touch]])
-      (is (= [:p :a :one] (:state (snapshot :ancestor/default-internal)))
-          "restarting :a re-descends its :initial (:one)")
-      (is (= [:exit-2 :exit-a :touch :enter-a :enter-1] @log)
-          "exit :two then :a → action at the LCCA (:p) → re-enter :a → re-descend :a's :initial (:one)"))))
