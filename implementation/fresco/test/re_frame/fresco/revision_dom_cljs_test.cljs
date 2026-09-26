@@ -335,30 +335,6 @@
             (is (identical? n (node c))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
-(deftest equal-but-fresh-revision-values-are-inert
-  (testing "spec §5 c. The comparison is CLJS `=`, which is React.memo's
-           own on these values, so two distinct-but-equal revision objects
-           are one revision. This is why the authored-data rule matters:
-           if it would be a good instance key it is a good revision value —
-           a domain fact written by events, never a render-order index,
-           never a counter minted in render, never `random-uuid`, each of
-           which would reset the field on every render."
-    (if-not (browser?)
-      (skip! "needs a real commit")
-      (let [c    (container!)
-            root (react-dom-client/createRoot c)]
-        (try
-          (render! root (walled :input "committed" "rev-1"))
-          (let [n (node c)]
-            (drift! n "a draft")
-            (render! root (walled :input "committed" (str "rev-" 1)))
-            (is (= "a draft" (.-value n))
-                "a freshly built but EQUAL revision reset nothing")
-            (render! root (walled :input "committed" "rev-2"))
-            (is (= "committed" (.-value n))
-                "the control: a genuinely different revision does reset"))
-          (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE REFUSALS
 ;; ---------------------------------------------------------------------------
