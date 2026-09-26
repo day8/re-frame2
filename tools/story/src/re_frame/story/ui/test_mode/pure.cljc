@@ -42,7 +42,7 @@
 (defn variant-has-tests?
   "True iff `variant-id`'s registered body has something to run, as
   `rf.story.ui.state.tests/variant-body-has-tests?` defines it. Used by the
-  pane to gate between the run-and-render path and the empty-state
+  pane to gate between the result sections and the empty-state
   placeholder.
 
   That is the SAME predicate `testable-variant-ids` (sidebar dots, Run all)
@@ -337,9 +337,9 @@
 ;; UNIFIED RUN-RESULT PROJECTION  (tools/story/spec/021 §1)
 ;; ===========================================================================
 ;;
-;; The `:test` pane consumes the ONE unified run-result `run-variant` /
-;; `reset-variant` return (the `re-frame.story.result/run-result` shape
-;; merged with the lifecycle slots — runtime.cljc `record-result-map`).
+;; The `:test` pane consumes the ONE unified run-result a run of the variant
+;; settles with (the `re-frame.story.result/run-result` shape merged with
+;; the lifecycle slots — runtime.cljc `record-result-map`).
 ;; These helpers project that result into the per-section render data the
 ;; view renders (spec/021 §1 carries the result-reading contract):
 ;;

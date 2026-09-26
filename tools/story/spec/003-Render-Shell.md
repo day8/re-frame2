@@ -250,6 +250,14 @@ React commits. The shell therefore drives each variant's run through
   mount-time block also call it for the same generation. The generation
   guard collapses every such call to **one** execution.
 
+Both preparers of the canvas's run — the canvas and the selection edge,
+whichever goes first — pass the same opts (`ui.canvas/run-opts`): the
+run-key's modes, cell overrides and substrate, the run-key itself, and
+`:runner :auto`. The canvas renders the variant, so the run selects the
+cheapest runner covering every step and assertion, and a DOM step runs
+against the mounted view instead of being refused by the `:headless`
+default.
+
 A resume **superseded** by a newer prepare (a rapid re-selection /
 cell-override change while a prior run's async play is mid-flight)
 settles as an explicit superseded result — never `:pass`, and it never
@@ -273,7 +281,13 @@ dropdown rows read IDLE after a single-play run. Nothing re-drives the live
 frame: a correct variant never grades against the previous run's app-db,
 and a tape assertion never reads the previous run's epochs.
 
-The headless `run-variant` (Test mode / MCP / sidebar Run-all) composes
+The Tests pane renders the framed canvas inside itself, so the canvas's run
+is the pane's run, and its Re-run is the same in-place PREPARE (with
+`ui.canvas/run-opts`, the canvas's own opts) then RESUME of the auto-plays.
+The pane never destroys the frame; it stores every settled run of the
+variant it shows, whoever started it, through `runtime/listen-runs!`.
+
+The headless `run-variant` (MCP / sidebar Run-all) composes
 prepare + resume in one call — one generation claimed and immediately
 resumed — so it runs the full four-phase lifecycle exactly once with no
 render boundary to span. Ownership is per variant/frame (one registry

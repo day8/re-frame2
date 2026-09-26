@@ -9,9 +9,10 @@
   row is gated on a capturable artifact, so a capture that needed dispatched
   events would never render the row and the demo could not be promoted from
   Test mode. Whether the row renders is a React commit fact, so this mounts
-  the real pane. The same row must survive a checkpoint that reads an input
-  only the run's `:cell-overrides` supply: the gate compiles the source with
-  the inputs the run received.
+  the real pane with its canvas, whose run fills the pane, after preparing
+  the variant the way the shell's selection edge does. The same row must
+  survive a checkpoint that reads an input only the run's `:cell-overrides`
+  supply: the gate compiles the source with the inputs the run received.
 
   The fixture mirrors `login-form.stories-cljs-test`: the source-store
   baseline is captured ONCE at ns load, so the variant frames' `login-form.**`
@@ -32,6 +33,8 @@
             [re-frame.story :as rf.story]
             [re-frame.story.loaders :as rf.story.loaders]
             [re-frame.story.registrar :as rf.story.registrar]
+            [re-frame.story.runtime :as rf.story.runtime]
+            [re-frame.story.ui.canvas :as rf.story.ui.canvas]
             [re-frame.story.ui.state :as rf.story.ui.state]
             [re-frame.story.ui.test-mode.state :as rf.story.ui.test-mode.state]
             [re-frame.story.ui.test-mode.view :as rf.story.ui.test-mode.view]
@@ -57,6 +60,7 @@
   (rf.story/clear-all!)
   (reset! rf.source-store/kind->id->ns->descriptor source-store-baseline)
   (rf.machines/install-machine-runtime!)
+  (rf.story.runtime/reset-run-owner!)
   (reset! rf.story.ui.test-mode.state/results-atom {})
   (rf.story.ui.state/reset-shell-state!)
   (lf-stories/register-all!))
@@ -90,6 +94,19 @@
                   :else                       (js/setTimeout poll 25))))]
       (poll))))
 
+(defn- render-pane!
+  "Select `vid`, prepare its run the way the shell's selection edge does,
+  and render the pane with its canvas into `root`. The canvas resumes the
+  run once it has mounted, and the pane stores the result."
+  [root vid]
+  (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant vid)
+  (rf.story.runtime/prepare-run!
+    vid (rf.story.ui.canvas/run-opts
+          (rf.story.ui.canvas/run-key (rf.story.ui.state/get-state) vid)))
+  (react-dom/flushSync
+    (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view vid
+                             [rf.story.ui.canvas/canvas]]))))
+
 ;; ---- the acceptance -------------------------------------------------------
 
 (deftest checkpoint-only-variant-offers-promotion
@@ -106,13 +123,12 @@
                        (try (.unmount root) (catch :default _ nil))
                        (.remove node)
                        (done))]
-          (react-dom/flushSync
-            (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view variant-id])))
+          (render-pane! root variant-id)
           (poll-until
             #(:result (get @rf.story.ui.test-mode.state/results-atom variant-id))
             10000
             (fn [result]
-              (is (some? result) "precondition: the pane's auto-run stored a result")
+              (is (some? result) "precondition: the canvas's run reached the pane")
               (is (= [] (get-in @rf.story.ui.test-mode.state/results-atom
                                 [variant-id :play-events]))
                   "precondition: the script dispatches nothing, so the run's
@@ -146,14 +162,13 @@
                        (try (.unmount root) (catch :default _ nil))
                        (.remove node)
                        (done))]
-          (react-dom/flushSync
-            (fn [] (rdc/render root [rf.story.ui.test-mode.view/test-view run-input-variant-id])))
+          (render-pane! root run-input-variant-id)
           (poll-until
             #(:result (get @rf.story.ui.test-mode.state/results-atom run-input-variant-id))
             10000
             (fn [result]
               (is (= :pass (:status result))
-                  "precondition: the pane's auto-run received its input")
+                  "precondition: the canvas's run received its input")
               (is (= [] (get-in @rf.story.ui.test-mode.state/results-atom
                                 [run-input-variant-id :play-events]))
                   "precondition: the script dispatches nothing")

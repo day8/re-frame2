@@ -3,12 +3,14 @@
   Per spec/009, presents the unified run-result UX per
   tools/story/spec/021-Story-UI-Test-And-Evidence.md §1.
 
-  The pane runs the variant's `:script` sequence via `run-variant`,
-  consumes the ONE unified run-result the runtime returns
-  (`re-frame.story.result/run-result` merged with the lifecycle slots),
-  and renders the result/proof surface inside the canvas:
+  The pane renders the variant's framed canvas, consumes the ONE unified
+  run-result each run of it settles with (`re-frame.story.result/run-result`
+  merged with the lifecycle slots), and renders the result/proof surface
+  beneath it:
 
       ┌──────────────────────────────────────────────────────┐
+      │  View — the variant's framed canvas, which runs it    │
+      ├──────────────────────────────────────────────────────┤
       │  Header — variant id · parent story · Re-run button   │
       │           · last-run timestamp + elapsed              │
       │           · runner selected vs required               │
@@ -43,21 +45,21 @@
   Slots the substrate does not populate render an honest empty/dash
   state — never a fabricated row.
 
-  When the variant body's `:script` slot is empty / absent the pane
-  short-circuits and renders an empty-state placeholder pointing at
-  the canonical testing-recipes leaf (Story doesn't auto-allocate a
-  frame in this branch).
+  When the variant has nothing to judge (`variant-has-tests?` false) the
+  pane renders the canvas above an empty-state placeholder pointing at
+  the canonical testing-recipes leaf.
 
   Read-only — no input mutates args / overrides / modes. The Re-run
-  button mutates **runtime state** (re-allocates the variant frame)
-  but not the variant's authoring shape. Switching from `:test` back
-  to `:dev` restores the canvas exactly as the user left it.
+  button mutates **runtime state** (re-prepares the variant frame in
+  place) but not the variant's authoring shape. Switching from `:test`
+  back to `:dev` restores the canvas with the same args, overrides and
+  modes.
 
   ## Layout
 
   This namespace owns the per-section renderers
-  (`header` / `summary-section` / `scrubber-section` / `rows-section` /
-  `empty-state`), and the top-level `test-view` component. Companion
+  (`view-section` / `header` / `summary-section` / `scrubber-section` /
+  `rows-section` / `empty-state`), and the top-level `test-view` component. Companion
   namespaces:
 
   - `re-frame.story.ui.test-mode.pure`  — JVM-testable pure data → data
@@ -65,9 +67,9 @@
     `epoch-id-slice`, `format-elapsed-ms`, `format-timestamp-ms`). The
     `aggregate-summary` fold lives in `re-frame.story.ui.state` so the
     sidebar / chrome-level test widget can share it.
-  - `re-frame.story.ui.test-mode.state` — CLJS-only `results-atom` +
-    the `begin-run!` / `store-result!` / `select-step!` /
-    `toggle-expanded!` / `run-variant-pane!` mutators.
+  - `re-frame.story.ui.test-mode.state` — CLJS-only `results-atom`, the
+    run-owner listener that fills it, and the `show-variant!` /
+    `select-step!` / `toggle-expanded!` / `run-variant-pane!` mutators.
 
   ## Elision
 
@@ -658,36 +660,43 @@
 
 ;; ---- top-level component -------------------------------------------------
 
-(defn test-view
-  "Top-level `:test` mode pane for `variant-id`.
+(defn- view-section
+  "The variant's framed canvas, at the top of the pane. The canvas owns the
+  variant's run, so the view is mounted while the script runs and a DOM
+  step resolves against it. Renders nothing when no `canvas` is supplied."
+  [canvas]
+  (when canvas
+    [:div {:style     (:view-section styles)
+           :data-test "story-test-canvas"}
+     canvas]))
 
-  On first encounter of a variant the pane auto-runs it once so the
-  user lands on the result; subsequent visits to the tab show the most
-  recent result until the Re-run button is clicked.
+(defn test-view
+  "Top-level `:test` mode pane for `variant-id`, with `canvas` — the shell's
+  framed canvas — rendered at its top.
+
+  The pane runs nothing of its own. The canvas it renders runs the variant
+  (on mount, and again on every run-key change), and the pane shows the
+  latest settled run of the variant it shows, whoever started it:
+  `rf.story.ui.test-mode.state/follow-run!` stores each one. Re-run goes
+  through the same run owner (`run-variant-pane!`).
 
   Returns nil when given no variant id (the shell already gates
   this, but the helper guards itself too).
 
   Per spec/009 the pane is read-only — no inputs mutate args /
   overrides / modes. The Re-run button mutates **runtime state**
-  (re-allocates the variant frame via `reset-variant`) but not
-  the variant's authoring shape.
+  (re-prepares the variant frame in place) but not the variant's
+  authoring shape.
 
-  shell.cljs mounts this component with NO React
-  key (`[test-mode-view/test-view variant-id]`), and `:active-mode-tab`
-  is per-variant persisted, so switching `:selected-variant` between two
-  variants BOTH already on the `:test` tab reconciles as a PROP UPDATE
-  at this component's tree position — React reuses the same instance
-  rather than unmounting/remounting it. A `:component-did-mount`-only
-  auto-run would never re-fire on a prop update, so the newly-focused
-  variant's pane would render blank until a manual Re-run. `r/with-let`'s body runs on EVERY render (mount AND
-  reconciled update alike), so tracking the last-seen `variant-id` here
-  and re-checking the auto-run condition on a change catches a
-  reconciled swap the same way a fresh mount would — the same pattern
-  `variant-cell` (workspace.cljc) uses to
-  pre-allocate a variant's frame from inside a render body rather than a
-  lifecycle hook."
-  [variant-id]
+  shell.cljs mounts this component with NO React key, and
+  `:active-mode-tab` is per-variant persisted, so switching
+  `:selected-variant` between two variants BOTH already on the `:test` tab
+  reconciles as a PROP UPDATE at this component's tree position — React
+  reuses the same instance rather than unmounting/remounting it.
+  `r/with-let`'s body runs on EVERY render (mount AND reconciled update
+  alike), so the shown variant is recorded here on a change, where a
+  `:component-did-mount`-only hook would miss the swap."
+  [variant-id & [canvas]]
   (when variant-id
     (r/with-let [last-variant (atom nil)]
       ;; `variant-has-tests?` below reads the registrar, which no
@@ -697,24 +706,20 @@
       @(r/cursor rf.story.ui.state/shell-state-atom [:registry-tick])
       (when (not= variant-id @last-variant)
         (reset! last-variant variant-id)
-        ;; Auto-run on first encounter of this variant (a fresh mount OR
-        ;; a reconciled prop swap). If a slot already exists (returning
-        ;; to the tab without a variant change) we don't re-fire — the
-        ;; user clicks Re-run to refresh.
-        (when (and (rf.story.ui.test-mode.pure/variant-has-tests? variant-id)
-                   (not (get @rf.story.ui.test-mode.state/results-atom variant-id)))
-          (rf.story.ui.test-mode.state/run-variant-pane! variant-id)))
+        (rf.story.ui.test-mode.state/show-variant! variant-id))
       (cond
         (not (rf.story.ui.test-mode.pure/variant-has-tests? variant-id))
         [:section {:style     (:wrap styles)
                    :data-test "story-test-view"
                    :aria-label "Variant tests"}
+         [view-section canvas]
          [empty-state variant-id]]
 
         :else
         [:section {:style     (:wrap styles)
                    :data-test "story-test-view"
                    :aria-label "Variant tests"}
+         [view-section canvas]
          [header variant-id]
          [summary-section variant-id]
          ;; the unified run-result surfaces (spec/021 §1):

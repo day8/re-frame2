@@ -28,9 +28,13 @@ can be inspected with Xray. Same artifact, different faces.
 
 ## Test mode
 
-The **Tests** tab runs the selected variant the first time you open it. After
-that it shows the last run until you press **Re-run**. From the top, it shows:
+The **Tests** tab shows the selected variant's canvas at its top, and the
+canvas runs the variant with its view mounted, so a `:click` or `:assert-dom`
+step runs against the rendered view. The tab runs the variant each time you
+open it, and shows the latest run: a Controls edit, a mode or substrate
+change, a hot reload and **Re-run** each run it again. From the top, it shows:
 
+- the variant's canvas, as the Canvas tab renders it;
 - the variant, its parent story, **Re-run**, when the run happened and how long
   it took, and the runner that ran it beside the runner the variant requires;
 - a summary: the verdict, and the passed, failed and cannot-run counts;

@@ -33,14 +33,16 @@ equivalent.
 The pane is deliberately a *reader* of the existing runtime — it
 does not introduce a parallel test framework, a parallel assertion
 vocabulary, or a parallel result schema. Every record it renders
-came out of `run-variant`'s `:assertions` slot exactly as it was
-recorded by `re-frame.story.assertions` (spec/004 §Canonical
+came out of the unified run result's `:assertions` slot exactly as it
+was recorded by `re-frame.story.assertions` (spec/004 §Canonical
 assertion vocabulary). The pane's job is to:
 
-1. Trigger a `run-variant` against the active variant.
-2. Read the `:assertions` vector off the result map.
+1. Render the variant's framed canvas, which runs the variant through
+   its one run owner with the view mounted.
+2. Read the `:assertions` vector off each run's result map.
 3. Render the records as a scannable summary + per-row table.
-4. Offer a re-run button that re-fires the lifecycle.
+4. Offer a re-run button that runs the variant again through the same
+   run owner.
 
 ## Surface
 
@@ -52,7 +54,8 @@ step-debugger trio `stepper_pure.cljc` / `stepper_state.cljs` /
 `visual_a11y_view.cljs` (spec/021 §4):
 
 ```clojure
-(re-frame.story.ui.test-mode.view/test-view variant-id)   ; CLJS Reagent component
+(re-frame.story.ui.test-mode.view/test-view variant-id canvas)   ; CLJS Reagent component;
+                                                                 ; `canvas` = the shell's framed canvas
 
 ;; pure data → data (JVM-testable) — under re-frame.story.ui.state:
 (aggregate-summary assertions)
@@ -78,12 +81,14 @@ step-debugger trio `stepper_pure.cljc` / `stepper_state.cljs` /
 ```
 
 The render shell's `main-pane` calls `test-mode.view/test-view` when
-the per-variant mode-tab is `:test`. Selection is owned by the
-mode-tabs primitive; this spec does not touch the chip strip.
+the per-variant mode-tab is `:test`, passing the same framed canvas
+(viewport + background framing included) the `:dev` tab renders.
+Selection is owned by the mode-tabs primitive; this spec does not touch
+the chip strip.
 
 ## Section composition
 
-The result-reading core of the pane is four sections, top-to-bottom
+The result-reading core of the pane is five sections, top-to-bottom
 (the shipped pane interleaves further sections owned elsewhere: checks,
 the step-debugger and scrubber (§Play step-debugger), schema
 expectations, cannot-run detail, visual / a11y findings, the evidence
@@ -91,10 +96,22 @@ excerpt and the promotion row — spec/021 §1–§4):
 
 | # | Section          | Content                                                                  | Rendered when                                  |
 |---|------------------|--------------------------------------------------------------------------|------------------------------------------------|
-| 1 | Header           | variant id + parent-story id + run/elapsed status                        | always                                         |
+| 0 | View             | the variant's framed canvas, which runs the variant                      | always                                         |
+| 1 | Header           | variant id + parent-story id + run/elapsed status                        | the variant has tests                          |
 | 2 | Summary badge    | overall pass/fail/skip count + "all passed" / "<n> failed" status pill  | a run has executed                             |
 | 3 | Per-test rows    | one row per `:assertions` record — green/red/grey + collapsible detail   | a run has executed AND `:assertions` non-empty |
 | 4 | Empty state      | "No tests registered for this variant" + link to testing recipes         | `variant-has-tests?` is false (§Testable variants) |
+
+### 0. View
+
+The variant's framed canvas, exactly as the `:dev` tab renders it. The
+canvas is the variant's run owner (spec/003 §Shell lifecycle): it runs
+the variant when it mounts and again on every change to its run inputs
+(selection, active modes, cell overrides, substrate, hot-reload tick),
+with `:runner :auto`. So the variant's view is mounted while its script
+runs, and a DOM step (`:click`, `:type`, `:focus`, `:assert-dom`) or a
+DOM assertion runs against it under the cheapest runner that covers it,
+rather than being refused as `:cannot-run` by the `:headless` default.
 
 ### 1. Header
 
@@ -106,12 +123,10 @@ parent story: :story.counter
 
 - Variant id as the page `<h1>`.
 - Parent story id below.
-- A **Re-run** button on the left dispatches a fresh
-  `run-variant` call against the variant, re-allocates the frame, and
-  swaps the result into the pane's local state. On first mount the
-  pane auto-runs the variant once so the user lands on the result;
-  subsequent visits to the `:test` tab show the most recent result
-  until Re-run is clicked.
+- A **Re-run** button on the left runs the variant again through its
+  one run owner (§Run semantics): the canvas's frame is re-prepared in
+  place to the variant's declared start and the auto-plays run against
+  the mounted view.
 - A last-run timestamp + elapsed duration on the right, both pulled
   from the result map's `:elapsed-ms` slot and the pane's own
   capture of `(interop/now-ms)` at run completion.
@@ -180,37 +195,46 @@ embedded preview alike — a relative path would resolve relative to
 whichever hash route the playground is on (`#/stories/...`), which
 isn't the repository root.
 
-The pane MUST NOT call `run-variant` in this branch — the runtime
-is happy to short-circuit on an empty `:script`, but skipping the
-call also skips frame allocation, which keeps the pane cheap for
-"browse-only" sessions.
+The pane runs nothing itself in this branch; the canvas above the
+placeholder renders and runs the variant as it does on the `:dev` tab.
 
-## Run-on-mount + re-run semantics
+## Run semantics
 
-- **First mount.** The pane records a single run on first mount per
-  variant (per pane lifecycle, not per page-lifecycle — re-mounting
-  the `:test` pane fires a fresh run). The runtime's
-  `:passed-through?` semantics (per spec/004 §Record-don't-throw)
-  guarantee a run never throws; failures land in the assertions
-  vector and the pane renders them.
-- **Re-run.** Re-run dispatches `reset-variant` (per
-  spec/002 §Programmatic API) — the existing runtime entry that
-  tears down + re-allocates the variant frame and re-runs the four-
-  phase lifecycle. Re-run is debounced via a `:running?` flag on the
-  pane's local state so a fast double-click can't fire two parallel
-  runs.
-- **Switching variants.** Switching to a different variant's `:test`
-  tab re-runs (each variant carries its own result slot in the
-  pane's local state, keyed by variant id).
+The pane owns no run. The variant's one run owner (spec/003 §One run
+owner) owns it, and the pane follows it:
+
+- **Opening the tab.** Opening the `:test` tab mounts the canvas inside
+  the pane, which runs the variant once with its view mounted, so the
+  pane lands on a fresh result. The runtime's `:passed-through?`
+  semantics (per spec/004 §Record-don't-throw) guarantee a run never
+  throws; failures land in the assertions vector and the pane renders
+  them.
+- **Following every run.** The pane stores every settled run of the
+  variant it shows, whoever started it — the canvas's own runs (a
+  Controls edit, a mode or substrate change, a hot-reload tick), its
+  Re-run, the play chip's Re-run — through `runtime/listen-runs!`. A
+  run a newer one superseded is dropped; the newer one settles.
+- **Re-run.** Re-run re-prepares the canvas's frame IN PLACE with the
+  canvas's own run opts (including `:runner :auto`) and resumes the
+  auto-plays against the mounted view. It never destroys the frame, so
+  the canvas keeps its view and reads the Re-run's own verdict. Re-run
+  is debounced via a `:running?` flag on the pane's local state, which
+  disables the button while a run is in flight.
+- **Switching variants.** Each variant carries its own result slot in
+  the pane's local state, keyed by variant id; switching the selected
+  variant on the `:test` tab switches which variant's runs the pane
+  follows. Closing the tab does not stop it following the variant it
+  last showed, so that variant's slot holds its latest run when the tab
+  opens again.
 
 ## Read-only contract — same as the docs pane
 
 The pane MUST NOT carry any input elements that mutate args /
 overrides / modes. Switching `:test` → `:dev` MUST restore the
-canvas as the user left it — same args, same overrides, same modes.
+canvas with the same args, the same overrides and the same modes.
 
-The Re-run button mutates **runtime state** (re-allocates the
-variant frame) but not the variant's authoring shape. The shell's
+The Re-run button mutates **runtime state** (re-prepares the variant
+frame in place) but not the variant's authoring shape. The shell's
 controls / sidebar / mode picker / panel-visibility state is
 untouched.
 
@@ -222,6 +246,7 @@ selectors so visible labels can be reworded without breaking tests:
 | Selector                                              | What                                       |
 |-------------------------------------------------------|--------------------------------------------|
 | `[data-test="story-test-view"]`                       | The pane root (`<section>` landmark).      |
+| `[data-test="story-test-canvas"]`                     | The view section holding the framed canvas. |
 | `[data-test="story-test-parent-story"]`               | Parent-story sub-header.                   |
 | `[data-test="story-test-rerun"]`                      | The Re-run button.                         |
 | `[data-test="story-test-status-pill"]`                | The pass/fail status pill.                 |
@@ -253,14 +278,12 @@ strip sits above it (owned by the mode-tabs primitive).
 - **Coverage / pass-rate trending.** The pane shows the latest run
   only. A "last N runs" rollup is a separate surface and would
   hang off the trace panel, not the `:test` mode.
-- **Hot-reload re-fire on the per-variant pane.** If the variant's
-  `:script` slot changes on hot-reload, the **per-variant `:test` pane**
-  keeps the previous run's record until the user clicks Re-run. The
-  mode-tabs primitive's `:hot-reload-tick` watcher is intentionally
-  not wired through the per-variant pane — re-run is an explicit
-  action there. The **chrome-level test widget** carries the watch-
-  mode toggle (rf2-z1h0f, below) — that surface IS wired to a drift
-  detector and auto-re-runs the testable set as a whole.
+- **Re-running the whole testable set on a change.** The per-variant
+  pane follows its variant's runs, including the canvas's re-run on a
+  hot-reload tick, but re-runs no other variant. The **chrome-level
+  test widget** carries the watch-mode toggle (below) — that
+  surface is wired to a drift detector and re-runs the testable set as
+  a whole.
 
 ## Chrome-level test widget + sidebar status dots (rf2-q0irb)
 
@@ -526,9 +549,8 @@ rf2-k6y2, and it was deterministic rather than racy — `reset-variant`'s
 promise settles only once phase 4 has drained, so the loss was the WHOLE
 script every time, not a variable prefix.
 
-`reset-variant` keeps its full-run meaning for the `:test` pane's Re-run
-button, and the ordinary shell auto-run keeps owning phase 4 through
-`runtime/resume-run!` (see
+The `:test` pane's Re-run and the ordinary shell auto-run keep owning
+phase 4 through `runtime/resume-run!` (see
 [`003-Render-Shell.md`](003-Render-Shell.md) §One run owner). Start
 additionally drops the one-run-owner attempt for the variant, so a
 generation that was prepared but not yet resumed cannot later run the
@@ -718,7 +740,7 @@ Each step row carries:
 ### Read-only contract
 
 Same as the Re-run button (§Read-only contract above): the stepper
-mutates **runtime state** (re-allocates + drives the variant frame)
+mutates **runtime state** (re-prepares + drives the variant frame)
 but not the variant's authoring shape. Switching `:test` → `:dev`
 restores the canvas as the user left it (modulo the canvas reflecting
 the current stepper epoch — Stop or Rewind first to return to the
