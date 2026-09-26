@@ -24,10 +24,29 @@ Every step is a tagged vector. The runner iterates the script in order, settles 
 | `[:wait-until predicate]` | settle on a condition (`[:db path expected]` / `[:db path :pred fn]` / `[:queue-empty]`); deterministic; times out readably. | depends on predicate |
 | `[:wait ms]` | bounded wall-clock sleep — the explicit determinism opt-out; the determinism gate refuses a script containing one with `:cannot-run`. | runner-dependent |
 | `[:assert assertion-vec]` | checkpoint assertion at this point in the script. **Illegal in `:setup`.** | depends on assertion |
+| `[:assert-db path value]` | checkpoint: the app-db value at `path` equals `value`. `[:assert-db path :pred f]` tests it with a predicate instead. | `:headless` |
+| `[:flush-presence]` / `[:flush-presence ms]` | advance the presence clock the host installed for enter and exit transitions, to quiescence or by `ms`. With no clock installed the step is `:cannot-run`. | `:headless` |
 | `[:click selector]` | DOM click. | `:dom` |
 | `[:type selector text]` | DOM text input. | `:dom` |
 | `[:focus selector]` | DOM focus. | `:dom` |
-| `[:assert-dom selector :visible \| :hidden \| :text txt]` | DOM-shape assertion. | `:dom` |
+| `[:assert-dom selector :visible \| :hidden \| :text txt]` | DOM-shape assertion: the element is present, is absent or hidden, or has that text. | `:dom` |
+
+A `:dispatch` or `:dispatch-sync` step takes an optional third element, `{:rf.cofx {...}}`, the coeffects to present to the handler; the recorder writes the clock reading this way, as `{:rf.cofx {:rf/time-ms 1790412881152}}`. A step whose tag is known but whose arguments are the wrong shape fails as an unknown or malformed step.
+
+## Script shapes and plays
+
+`:script` takes a step vector or a map around one:
+
+```clojure
+:script {:name      "happy path"   ; optional
+         :auto-run? true           ; optional; true unless set false
+         :script    [[:dispatch [:counter/inc]]
+                     [:assert-db [:count] 1]]}
+```
+
+The map is closed: a misspelt key such as `:autorun?` throws at registration. `:auto-run? false` stops the script from running on mount and keeps `run`, `is` and the Tests tab from running it; the toolbar's **Re-run** still runs it.
+
+`:plays` holds several named scripts instead, each `{:name "..." :script [...] :auto-run? bool}` with a required, unique `:name`. The first play auto-runs unless it sets `:auto-run? false`; the others run only when they set `:auto-run? true` or when you pick them from the toolbar's play dropdown. A variant declares `:script` or `:plays`, never both.
 
 A bare event vector (`[:my/event …]`) is accepted only as a transitional migration lift to `[:dispatch …]`; the P1 public grammar is uniformly tagged, so an app event genuinely named `:dispatch` or `:click` is never silently un-dispatchable.
 
@@ -46,6 +65,19 @@ The assertion vocabulary auto-registers at Story load (from the first `reg-*` ca
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | the fx was emitted; the optional `pred` is a unary fn over the matched fx-id keyword. |
 
 Plus the tape-evaluated `:rf.assert/schema-error` (minted by the result boundary against the epoch tape, not dispatched), which requires the `:schema` capability and fails the run on a tape schema violation.
+
+### Further assertion ids
+
+These ids are evaluated by the runner or against the epoch tape rather than dispatched as events, so they belong in `:assertions`, a check or an `[:assert …]` step. An assertion id outside this page's two tables fails plan construction with `:rf.error/story-unknown-assertion`.
+
+| Id | Checks | Needs |
+|---|---|---|
+| `:rf.assert/dom-visible`, `:rf.assert/dom-hidden`, `:rf.assert/dom-text` | The element is present, absent, or has the text. `[:assert-dom sel :text "0"]` is shorthand for `[:assert [:rf.assert/dom-text sel "0"]]`. | `:dom` |
+| `:rf.assert/a11y-structural` | Structural accessibility over the rendered hiccup. | `:hiccup-structure` |
+| `:rf.assert/a11y` | An axe-style accessibility scan. | `:a11y-engine` |
+| `:rf.assert/visual-snapshot` | The rendered pixels. | `:pixels` |
+| `:rf.assert/caused` | `[:rf.assert/caused {:event id :sub sub-id :min n :max n}]`: the event caused at least `:min` (default 1) recomputes of the sub, or renders of a `:view`. | `:reactive-counts` |
+| `:rf.assert/no-cascade-rerender` | The same spec, with `:max` defaulting to 0: the event caused no further recompute or render. | `:reactive-counts` |
 
 ## Terminal vs checkpoint
 

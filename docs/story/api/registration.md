@@ -84,6 +84,34 @@ All under `re-frame.story`. All paired with a `*`-suffix runtime fn for programm
   ```
 - **Description**: Register a mode — a saved tuple of args the chrome toggles into (light/dark theme, en/fr locale, desktop/mobile viewport). Layer 3 of the five-layer args precedence chain.
 
+### `reg-fragment`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-fragment id metadata)
+  ```
+- **Description**: Register a fragment — reusable setup, script and world context that a variant pulls in by naming its id in `:compose`. A fragment is flat: it carries no `:compose` or `:extends`, and no `:checks` or `:assertions`. See [Fragment and check bodies](#fragment-and-check-bodies).
+- **Example**:
+  ```clojure
+  (rf.story/reg-fragment :fragment.login/submitted-wrong-password
+    {:setup [[:login/flow [:login/submit {:email "ada@example.com" :password "wrong"}]]]})
+  ```
+
+### `reg-check`
+
+- **Kind**: macro
+- **Signature**:
+  ```clojure
+  (reg-check id metadata)
+  ```
+- **Description**: Register a check — a named, reusable pack of assertions. A variant takes a check through `:checks` or `:compose`, and checks inherit through `:extends`, where a variant's own `:assertions` do not. A failed check shows its id and the assertion records inside it.
+- **Example**:
+  ```clojure
+  (rf.story/reg-check :check/no-runtime-warnings
+    {:assertions [[:rf.assert/no-warnings]]})
+  ```
+
 The macros expand to their `*`-suffix runtime fns — `reg-story` expands to `(reg-story* id body)` — so the canonical-vocabulary auto-install (see below) fires from the macro form, programmatic-form, or fixture-load form alike.
 
 ### Combined `reg-story` Form B
@@ -141,6 +169,24 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
   ```
 - **Description**: Programmatic mode registration.
 
+### `reg-fragment*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-fragment* id body)
+  ```
+- **Description**: Programmatic fragment registration.
+
+### `reg-check*`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (reg-check* id body)
+  ```
+- **Description**: Programmatic check registration.
+
 ### `reg-story-panel*`
 
 - **Kind**: function
@@ -169,6 +215,131 @@ All under `re-frame.story`. The `*`-suffix helpers are the programmatic write pa
 - **Description**: Programmatic tag registration.
 
 Reach for the `*` forms when authoring inside a higher-order fn, a fixture loader, an MCP write tool, or a hot-reload pipeline that synthesises registrations from another data source. Authoring-site registrations use the macros above; both paths land on the same registrar side-table and fire the same auto-install gate.
+
+## Ids and bodies
+
+### Id shapes
+
+Each kind checks its id at registration and throws `:rf.error/<kind>-id-shape` (such as `:rf.error/variant-id-shape`) on a miss:
+
+| Kind | Id shape | Example |
+|---|---|---|
+| story | unqualified, name starting `story.` | `:story.login` |
+| variant | namespace starting `story.` | `:story.login/error` |
+| workspace | namespace `Workspace` or starting `Workspace.` | `:Workspace.login/all-states` |
+| mode | namespace `Mode` or starting `Mode.` | `:Mode.app/dark` |
+| fragment, check, decorator, story-panel, tag | any keyword | `:fragment.login/filled`, `:check/no-warnings` |
+
+### Closed bodies
+
+Every body is a closed map. An unknown or misspelt key throws `:rf.error/<kind>-shape`, such as `:rf.error/variant-shape`, and the message names the key and the nearest valid one. A value of the wrong shape throws the same error. The tables below list every key each kind accepts.
+
+### Story body
+
+| Key | Value |
+|---|---|
+| `:doc` | A string. |
+| `:component` | The view id every variant renders, unless it names its own. |
+| `:args` | Default args for every variant. |
+| `:argtypes` | Control choices, keyed by arg: `{:heading {:control :textarea}}`. The controls are `:text`, `:textarea`, `:number`, `:boolean`, `:select`, `:radio`, `:date` and `:color`; `:select` and `:radio` take `:options`. |
+| `:decorators` | Decorator references, `[[decorator-id & args] ...]`, applied inside the global decorators. |
+| `:tags` | The default tags for variants that declare none. |
+| `:substrates` | The default substrates, from `#{:reagent :uix :fresco}`. |
+| `:platforms` | A subset of `#{:client :server}`; `#{:client}` by default. Shown in Explain and Docs mode. |
+| `:modes` | Mode ids. Shown in Docs mode; the shell applies the modes chosen in the toolbar. |
+| `:viewport` | A viewport preset id (`:full`, `:mobile-portrait`, `:mobile-landscape`, `:tablet`, `:desktop`, `:desktop-wide`) or `{:width w :height h}`. |
+| `:background` | A background preset id (`:light`, `:dark`, `:paper`, `:midnight`, `:transparent`) or a CSS colour string. |
+| `:xray-panel` | The Xray panel the right rail opens on: `:epoch` (default), `:app-db`, `:views`, `:trace`, `:machines` or `:routing`. |
+| `:xray` | A preset for the full Xray shell: `{:open? bool :panel panel-id :filters {:out [event-id ...] :in [event-id ...]}}`. |
+| `:dispatch-console?` | `true` opens the Dispatch console by default. |
+| `:images` | `rf/image` values the variants' frames resolve behaviour through. |
+| `:variants` | A map of variant name to variant body, each registered as `:<story-id>/<name>` (the combined form above). |
+
+### Variant body
+
+A variant renders its story's `:component` unless it names its own. Its args, argtypes and decorators layer over the story's, and its tags, substrates, viewport, background and Xray settings fall back to the story's when it declares none.
+
+| Key | Value |
+|---|---|
+| `:doc` | A string. |
+| `:component` | The view id, when the variant renders a different view from its story. |
+| `:extends` | Another variant id to inherit from (see the tutorial's chapter 7). |
+| `:compose` | Fragment and check ids, applied in order. |
+| `:setup` | Event vectors dispatched before the script. Only dispatch steps may appear here. |
+| `:script` | A step vector, or `{:script [...] :auto-run? bool :name "..."}`. See [Scripts](script.md). |
+| `:plays` | Named scripts, `[{:name "..." :script [...] :auto-run? bool} ...]`, instead of `:script`. Declaring both throws. |
+| `:args` | Args, deep-merged over the story's. |
+| `:argtypes` | Control choices, as on the story; the variant's win. |
+| `:db-seed` | App-db slices, keyed by top-level key or path vector, merged in and schema-checked before the script. Marks the variant `:db-seed` fidelity. |
+| `:sub-overrides` | Subscription query vector to pinned value, for rendering only. Marks the variant `:sub-overrides` fidelity. |
+| `:network` | Managed-HTTP stubs, `{[method url] {:reply {:ok data}}}` or `{:reply {:failure {:kind ...}}}`. `method` is one of `:get`, `:post`, `:put`, `:patch`, `:delete`, `:head` and `:options`. |
+| `:fx-overrides` | Effect id to a replacement effect handler, installed on the variant's frame. |
+| `:interceptor-overrides` | Interceptor reference to a replacement, or to `nil` to remove it, on the variant's frame. |
+| `:assertions` | Assertions run after the script settles. Not inherited. |
+| `:checks` | Check ids. Inherited through `:extends`. |
+| `:tags` | Tags; a `:!tag` entry removes an inherited tag. |
+| `:decorators` | Decorator references, applied inside the story's. |
+| `:loaders` | Event vectors dispatched while the variant loads, before `:setup`. |
+| `:loaders-complete-when` | A registered event id, or event vectors, that decide when loading is done. |
+| `:loaders-teardown` | Event vectors dispatched when the variant's frame is destroyed. |
+| `:args->events` | Arg key to event id. Carried into the plan and snapshot identity; nothing acts on it yet. |
+| `:substrates` | The substrates to render under, from `#{:reagent :uix :fresco}`. |
+| `:platforms` | A subset of `#{:client :server}`. |
+| `:modes` | Mode ids, as on the story. |
+| `:viewport`, `:background` | As on the story; the variant's win, and both beat the toolbar. |
+| `:xray-panel`, `:xray`, `:dispatch-console?` | As on the story; the variant's win. |
+| `:frame-binding` | `:fresh` (default) or `:attached`, shown on the sidebar's frame chip. |
+| `:mcp-bound` | `true` marks the frame chip as bound to an MCP session. |
+| `:sensitive`, `:large` | `{:app-db [path ...]}`: app-db paths to redact, or to replace with a size marker, when observed. See [Privacy](#privacy--variant-body-classification). |
+| `:images` | `rf/image` values the variant's frame resolves behaviour through. |
+| `:source`, `:origin`, `:run-artifact` | Written by Story: the source location, the tool that registered the variant, and the run a promoted variant came from. |
+
+`:resolve-conflicts` is rejected: a variant resolves a `:compose` conflict by stating the value itself.
+
+### Fragment and check bodies
+
+A fragment accepts `:doc`, `:args`, `:argtypes`, `:setup`, `:script`, `:network`, `:sub-overrides`, `:db-seed`, `:fx-overrides`, `:interceptor-overrides`, `:loaders`, `:loaders-teardown` and `:decorators`, with the variant meanings above. It rejects `:compose` and `:extends`, so fragments never nest, and `:checks` and `:assertions`, which belong to checks.
+
+A check accepts `:doc` and a required `:assertions` vector.
+
+### Workspace body
+
+| Key | Value |
+|---|---|
+| `:doc` | A string. |
+| `:layout` | Required: `:grid`, `:variants-grid`, `:tabs`, `:prose` or `:custom`. |
+| `:variants` | Variant ids, in order. Required by `:grid` and `:tabs`. |
+| `:for` | The story a `:variants-grid` enumerates. Without it, the workspace id names the story. |
+| `:columns` | A fixed column count for `:grid` and `:variants-grid`. |
+| `:content` | For `:prose`, required: `[{:type :prose :body "markdown"} {:type :variant :id variant-id} ...]`. |
+| `:render` | For `:custom`, required: a view id. |
+| `:isolation` | For `:variants-grid`: `:isolated` (default) mounts every cell at once; `:shared` mounts one at a time. |
+| `:tags` | Tags. |
+| `:modes` | Mode ids; accepted, not yet acted on. |
+
+A body whose slots do not match its `:layout` throws `:rf.error/workspace-shape`.
+
+### Mode body
+
+`:args` (required) is the map the mode adds to the args chain. `:axis` groups modes in the toolbar, one active per axis; modes without one can all be on together. `:doc` is a string.
+
+### Decorator body
+
+| `:kind` | Other keys |
+|---|---|
+| `:hiccup` | `:wrap`, a function of the rendered body and the effective args that returns hiccup. |
+| `:frame-setup` | At least one of `:init` (event vectors dispatched before render), `:app-db-patch` (a map merged into app-db) and `:teardown` (event vectors dispatched when the frame is destroyed). |
+| `:fx-override` | `:fx-id` and `:response`, or `:ref-args? true` to take both from the reference, as `force-fx-stub-id` does. |
+
+Every decorator body also accepts `:doc`.
+
+### Story-panel body
+
+`:title` (a string), `:placement` (`:right`, `:left`, `:bottom`, `:top` or `:modal`) and `:render` (a view id, rendered with the selected variant id) are required. `:for` optionally limits the panel to a set of variant and story ids; the panel shows when the selected variant, or its story, is in the set. `:doc` is a string.
+
+### Tag body
+
+`:doc` is a string. `:axis` groups the tag in the sidebar's tag filter. `:default-filter` is `:include` or `:exclude`.
 
 ## Unregister + reset
 

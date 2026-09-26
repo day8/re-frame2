@@ -40,18 +40,68 @@ two tools that can disagree about the same run, and then everyone gets to spend
 an afternoon saying "interesting" in a meeting. Story brings the run into focus;
 Xray handles the detailed runtime inspection.
 
+The embedded Xray watches the selected variant's frame, because each variant's
+frame is registered under the variant's own id. Select another variant and
+Xray follows it. With no variant selected, the panel reads "Select a variant to
+inspect via Xray."
+
+The rail shows one Xray panel at a time, below a strip of the variant's recent
+events. It opens on Epoch. A story or variant can choose a different starting
+panel with `:xray-panel`, one of `:epoch`, `:app-db`, `:views`, `:trace`,
+`:machines` or `:routing`, and the variant's choice beats its story's:
+
+```clojure
+(rf.story/reg-story :story.login
+  {:component  :my-app.views/login-card
+   :xray-panel :machines})
+```
+
+Clicking a chip overrides that for the rest of the session, across every
+variant. **Pop out** opens the full Xray shell in a second window, with room
+for every panel at once.
+
+A body can also carry an `:xray` map that configures that full shell when the
+variant is selected: `:open? true` opens it, `:panel` selects its panel, and
+`:filters` pre-loads its event filters, as in `{:out [:my-app/tick]}` to hide a
+noisy event. Neither slot has any effect in a published static build, which
+carries no Xray.
+
 ## The failure path
 
-A good failure flow looks like this:
+Take a variant that expects the wrong state:
 
-1. Test mode shows the failing assertion.
-2. The assertion row names the expected and actual value.
-3. The evidence/narrative points at the relevant script span.
-4. The span points at the epoch beats produced by that step.
-5. The Xray link opens the right panel at the right runtime fact.
+```clojure
+(rf.story/reg-variant :story.login/wrong-expectation
+  {:extends :story.login/error
+   :script  [[:assert [:rf.assert/state-is :login/flow :idle]]]
+   :tags    #{:dev :test}})
+```
 
-Not every visual refinement of this path is final, but the boundary is: Story
-owns the author-facing run narrative, and Xray owns runtime diagnosis.
+1. Open the **Tests** tab. The summary reads "1 failed of 1", and the row names
+   `:rf.assert/state-is`.
+2. Press **show detail**. It names the expected `:idle`, the actual `:error`,
+   and the reason.
+3. Press **open in Evidence →**. The Evidence panel in the right rail opens on
+   the run's narrative, with the failing assertion's beat selected.
+4. The narrative has one span per setup and script step. Under each span are
+   the beats it produced: the event, its epoch number, and counts of what it
+   changed, such as `db Δ 1`, `effects 1`, `trace 14` and `sub-runs 2`. A step
+   that dispatches nothing, such as an `[:assert …]` checkpoint, is marked
+   "non-dispatch step — committed no epoch".
+5. Each beat carries **Xray: Epoch**, **Xray: App-db** and **Xray: Trace**.
+   Pressing one focuses the Xray panel on that beat's epoch, so you can walk
+   back from the failed assertion to the setup event that put the machine in
+   `:error`.
+
+Each beat is labelled with how Story knows it. "direct epoch evidence" was
+recorded as the event ran: the app-db before and after, the effects, the trace.
+"attributed (post-settle)" marks subscription runs and renders that were
+matched to the event afterwards, which is useful but not the same proof.
+**Copy narrative EDN** copies the whole narrative for a bug report or an agent.
+
+Story owns the author-facing run narrative, and Xray owns runtime diagnosis.
+Docs mode shows the same beats in its Evidence section, each with an **Inspect
+in Xray** button.
 
 ## What the epoch tape buys you
 

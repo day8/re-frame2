@@ -33,6 +33,76 @@ For every variant mount, strict order, drain to completion between phases:
 
 Phase 1 and 4 are async-safe; phases 2 and 3 are sync. Loader failure modes are deterministic — handler-throw, typed `:loader-rejection`, and never-complete-predicate all surface as recorded assertions on `:rf.story/assertions` and park the lifecycle machine at `:error` / `:loading`. The play sequence never runs in a failed-loader case; `(run-variant)` resolves with `assertions-passing?` false.
 
+## The execution verbs
+
+All under `re-frame.story`. These are the verbs a test calls. The [tutorial's chapter 4](../04-the-variant-is-a-test.md) shows them in a test namespace.
+
+A test namespace that runs variants needs a substrate adapter installed and `re-frame.epoch` loaded, because the runner reads each run's evidence from the epoch tape. `re-frame.test-support/make-reset-runtime-fixture` with `{:adapter re-frame.substrate.plain-atom/adapter}` installs the adapter; add `:async? true` for `cljs.test` async tests.
+
+### `run`
+
+- **Signature**:
+  ```clojure
+  (run target) → promise
+  (run target opts) → promise
+  ```
+- **Description**: Run `target` and resolve with the unified run result. A keyword `target` is a registered variant; a map is an inline plan, a variant body that is compiled, run in a fresh anonymous frame and torn down, and never registered. On the JVM the promise is a `CompletableFuture`, so `@(run id)` blocks for the result; in CLJS it is a `js/Promise`. It never rejects: an unknown variant, a failed setup or a thrown handler resolves with `:status :error`.
+- **Options**:
+
+  | Key | Value |
+  |---|---|
+  | `:runner` | `:headless` (default), `:hiccup`, `:cljs-reactive`, `:dom` or `:browser` to fix the runner; `:auto` to take the cheapest one whose capabilities cover the plan. An unknown value falls back to `:headless`. |
+  | `:escalate` | `true` means the same as `:runner :auto`. |
+  | `:active-modes` | Mode ids whose args join the args chain, in order. |
+  | `:cell-overrides` | Arg overrides, as the Controls panel makes them. |
+  | `:substrate` | The substrate to render under. |
+
+  `run` executes the plays that run on mount: a `:script` unless it sets `:auto-run? false`, and the first of `:plays` plus any other play that sets `:auto-run? true`.
+
+### `is`
+
+- **Signature**:
+  ```clojure
+  (is target) → result | promise
+  (is target opts) → result | promise
+  ```
+- **Description**: Run `target` as `run` does and report the result to `clojure.test` or `cljs.test`: one report per assertion record, plus a failing report when the run is `:cannot-run`, `:error`, or `:fail` from the tape floor without a failing assertion to carry it. A run that passes with no assertions reports one pass. On the JVM `is` blocks and returns the result; `opts` also takes `:timeout-ms` (default `30000`), past which it throws a `TimeoutException` rather than hanging the test run. In CLJS it returns a promise that resolves with the result once it has reported, for use inside `cljs.test/async`. A `target` that is already a run result is reported as it is.
+
+### `report-result!`
+
+- **Signature**:
+  ```clojure
+  (report-result! result) → result
+  ```
+- **Description**: Report an already-resolved run result through `clojure.test` or `cljs.test`, exactly as `is` does.
+
+### `explain`
+
+- **Signature**:
+  ```clojure
+  (explain target) → map
+  (explain target opts) → map
+  ```
+- **Description**: Compile `target` without running it and return how it was assembled. The map carries `:source`, `:source-chain` and `:parent-chain`; `:compose` and `:strict-conflicts`; `:merge`, the strategy applied to each field; `:args`, `:substitutions`, `:effective-args`, `:view-args-schema` and `:view-args-validation`; `:network`, `:sub-overrides`, `:db-seed` and `:fidelity`; `:setup-order`, `:script-order`, `:checks` and `:assertions`; `:required-runner`; `:platforms`; and `:tags`. `opts` takes `:active-modes` and `:cell-overrides`, so the args match a run under them. It throws when the target cannot compile, for example `:rf.error/story-unknown-variant` for an unregistered id or `:rf.error/story-compose-conflict` for a `:compose` conflict.
+
+### `variant-plan`
+
+- **Signature**:
+  ```clojure
+  (variant-plan target) → plan
+  (variant-plan target opts) → plan
+  ```
+- **Description**: The compiled plan that `run` executes and the canvas renders: `:variant/id`, `:story/id`, `:world` (setup, scripts, args, decorators, fidelity and the other world inputs), `:expect` (checks and assertions), `:required-runner`, `:tags`, `:source`, `:source-chain` and `:explain`. `explain` returns this plan's `:explain` with the run-time args folded in.
+
+### `render-variant`
+
+- **Signature**:
+  ```clojure
+  (render-variant target) → map
+  (render-variant target opts) → map
+  ```
+- **Description**: Render `target`'s view from its plan without running `:script` or assertions. `opts` takes `:control-overrides`, arg overrides applied on top of the plan's args. The result carries `:status` (`:rendered`, `:invalid-args`, `:cannot-run` or `:error`), `:plan`, `:plan-hash`, `:frame`, `:effective-args`, `:validation` and `:rendered`. An override that breaks the view's `:rf/props` schema stops before the view is called, with `:invalid-args`. On the JVM, with no host renderer, the status is `:cannot-run`.
+
 ## Programmatic runtime
 
 All under `re-frame.story`. Reach for these from a custom shell, a test fixture, a `cljs.test` adapter, an MCP-tool body, or any host that wants to materialise a variant outside the standard Story chrome.

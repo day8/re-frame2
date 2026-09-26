@@ -62,13 +62,35 @@ gate every Reagent deck does.
 
 Story installs the `:reagent` render fn itself and leaves `:uix` and
 `:fresco` to the host application, because each one's only dependency is
-the host's — five lines at boot, and Story core never names them. The design
-reason is still worth understanding: a variant should describe a state and
-behaviour, not smuggle a renderer-specific render function into the artifact.
+the host's — five lines at boot, and Story core never names them. For UIx:
 
-When a substrate cannot render a variant, Story should say that. This is the
-same honesty rule as `:cannot-run`: do not pretend the tool proved or displayed
-something it could not actually run.
+```clojure
+(ns my-app.stories
+  (:require [uix.core       :refer [$]]
+            [re-frame.core  :as rf]
+            [re-frame.story :as rf.story]))
+
+(rf.story/register-substrate! :uix
+  (fn [_variant-id view-id args]
+    ($ (rf/view view-id) args)))
+```
+
+The render fn receives the variant id, the view id and the effective args, and
+returns what the shell mounts inside the variant's frame. The `:fresco`
+version resolves the view the same way and mints the element with
+`re-frame.fresco/as-element`; the testbed above carries it.
+
+The design reason is still worth understanding: a variant should describe a
+state and behaviour, not smuggle a renderer-specific render function into the
+artifact.
+
+A variant whose `:substrates` set names more than one member renders once per
+substrate, side by side, each in a cell headed with its name. A variant
+without `:substrates` takes its story's. When a substrate cannot render a
+variant, Story says so: a substrate nobody registered paints a red cell naming
+the `register-substrate!` call it needs. This is the same honesty rule as
+`:cannot-run`: do not pretend the tool proved or displayed something it could
+not actually run.
 
 ## Story-MCP
 

@@ -39,6 +39,23 @@ Story-MCP does not own — and must not imply — a live-app connection. There i
 
 The consequence is visible in the tool surface. CLJS-only state — registered browser substrates, the a11y-violations atom, and above all the registry of a running browser app — is not reachable from the JVM server. `list-substrates` and `read-a11y-violations` therefore return an explicit capability-unavailable error (`isError true`, `:rf.error/story-mcp-capability-unavailable`) rather than a false-empty `[]`. **The host reports that it cannot look; it never reports that the answer is empty.**
 
+## Running the server
+
+The server is `re-frame.story-mcp.server`, a stdio process an agent host launches. It reads only the stories loaded into its own JVM, so launch it through an alias in your project's `deps.edn` that requires your stories namespace first:
+
+```clojure
+;; deps.edn
+{:aliases
+ {:story-mcp
+  {:extra-deps {day8/re-frame2-story-mcp {:local/root "../re-frame2/tools/story-mcp"}}
+   :main-opts  ["-e" "(require 'app.stories)"
+                "-m" "re-frame.story-mcp.server"]}}}
+```
+
+The stories namespace must load on the JVM, so `.cljs` story files stay with the browser host. To run variants rather than only read them, that namespace also installs a substrate, as `(rf/init! re-frame.substrate.plain-atom/adapter)`; without one, `run-variant` and `preview-variant` refuse with `:rf.error/no-adapter-installed`. Keep load-time printing off stdout, which carries the JSON-RPC frames.
+
+The write tools are closed by default. Open them with the `--allow-writes` flag, the JVM property `-Drf.story-mcp.allow-writes=true`, or the environment variable `RF_STORY_MCP_ALLOW_WRITES=true`; the flag beats the property, which beats the variable. The [story-mcp README](https://github.com/day8/re-frame2/blob/main/tools/story-mcp/README.md#loading-your-projects-stories) shows the host entries for VS Code, Claude Code and Cursor.
+
 ## The tool registry at a glance
 
 The jar exposes **19 tools** across four categories. This is the orientation map only — the per-tool wire shape, input schema and result contract are the registry spec's, and the canonical name list ships as the shared fixture `tools/story-mcp/test/fixtures/tool-names.json`, which the JVM and Node test corpora both compare against so spec text and running registry cannot drift.

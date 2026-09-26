@@ -48,6 +48,27 @@ The setup is real behaviour: submit, then receive a failure event. The HTTP
 effect is stubbed at the effect boundary, not by editing the view. The variant
 therefore gets the error state through the same machine path the app uses.
 
+To reach the error through the HTTP reply itself, rather than a hand-fired
+failure event, stub the request with `:network`. Each key is a `[method url]`
+route and each value says how to reply:
+
+```clojure
+(rf.story/reg-variant :story.login/error-from-401
+  {:doc     "The server answers 401, and the reply drives the form to :error."
+   :setup   [[:login/flow [:login/submit {:email    "ada@example.com"
+                                          :password "wrong"}]]]
+   :network {[:post "/api/login"] {:reply {:failure {:kind :rf.http/http-4xx
+                                                     :tags {:status 401}}}}}
+   :script  [[:assert [:rf.assert/state-is :login/flow :error]]]
+   :tags    #{:dev :docs :test}})
+```
+
+`{:reply {:ok data}}` answers with a decoded success value instead. `:network`
+stubs `:rf.http/managed` requests, and a request that matches no route fails as
+a transport error instead of reaching the network. `rf.story/force-fx-stub-id`
+is the coarser tool: it takes over every call to one effect and answers nothing,
+which is what the submitting variant wants, a request frozen in flight.
+
 ## Workspaces
 
 A workspace arranges variants together. The simplest useful form is an explicit
@@ -101,7 +122,14 @@ story:
 
 Use an explicit grid when the order is part of the story you want to tell. Use
 `:variants-grid` when you want every variant under a parent to appear without
-maintaining the list by hand.
+maintaining the list by hand. The cells come in variant-id order. `:for` names
+the story; without it, the workspace id does, so `:Workspace.login/auto-grid`
+enumerates `:story.login`.
+
+A `:variants-grid` mounts every cell at once, each in its own frame. A view
+that creates its own frame provider internally defeats that, because its cells
+end up sharing state. For such a view, `:isolation :shared` mounts one cell at
+a time, with previous and next buttons to move between them.
 
 ## The bigger wall
 
@@ -143,7 +171,15 @@ Story has two different "make this permanent" gestures, and they solve
 different problems.
 
 **Save current state as variant** is an authoring gesture. You have edited
-controls or selected a useful state and want a named variant in source.
+controls or selected a useful state and want a named variant in source. Press
+**save as new variant…** under Controls. The dialog shows a `reg-variant` form
+that extends the selected variant with the current args, under an id you can
+edit. Below the form it lists each part of the state it could not take from the
+live canvas, such as sub-overrides, db seed, route, network, effect overrides
+or viewport. Each is marked "captured as declared" when the new variant
+inherits it from the source, or "not yet projectable" when the form leaves it
+out. Story never writes your source; copy the form into your stories
+namespace.
 
 **Promote a run to a regression variant** is a testing gesture. A generated or
 recorded run exposed a failure and you want to turn that evidence into a

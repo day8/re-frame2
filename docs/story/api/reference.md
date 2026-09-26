@@ -21,6 +21,8 @@ The canonical facade. Every user-callable surface lives here.
 | `reg-story-panel` | `(reg-story-panel id metadata)` | Register a custom panel in the Story chrome. Five placement slots. |
 | `reg-tag` | `(reg-tag id metadata)` | Register a tag. The seven canonical tags auto-install. |
 | `reg-mode` | `(reg-mode id metadata)` | Register a mode — a saved tuple of args the chrome toggles into. |
+| `reg-fragment` | `(reg-fragment id metadata)` | Register a fragment — reusable setup, script and world context for `:compose`. |
+| `reg-check` | `(reg-check id metadata)` | Register a check — a named pack of assertions, inherited through `:extends`. |
 
 ### Registration — `*`-suffix runtime helpers
 
@@ -33,6 +35,9 @@ The canonical facade. Every user-callable surface lives here.
 | `reg-story-panel*` | `(reg-story-panel* id body)` | Programmatic panel registration. |
 | `reg-decorator*` | `(reg-decorator* id body)` | Programmatic decorator registration. |
 | `reg-tag*` | `(reg-tag* id body)` | Programmatic tag registration. |
+| `reg-fragment*` | `(reg-fragment* id body)` | Programmatic fragment registration. |
+| `reg-check*` | `(reg-check* id body)` | Programmatic check registration. |
+| `valid-variant-id?` | `(valid-variant-id? decomposed-id)` → bool | Whether a decomposed variant id matches the variant id shape, before a keyword is interned. |
 | `unregister!` | `(unregister! kind id)` | Remove a single id under `kind`. |
 | `clear-kind!` | `(clear-kind! kind)` | Remove every registration of `kind`. |
 | `clear-all!` | `(clear-all!)` | Reset every Story registration. Resets the auto-install gate. |
@@ -55,6 +60,65 @@ The canonical facade. Every user-callable surface lives here.
 | `layout-debug-measure-id` | Storybook-style layout measure overlay. |
 | `layout-debug-outline-id` | Pesticide-style coloured outlines. |
 | `layout-debug-pseudo-id` | Pseudo-state forcing (`:hover` / `:focus` / `:active` / `:visited`). |
+
+### Execution verbs
+
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `run` | `(run target)` / `(run target opts)` → promise | Run a registered variant or an inline plan; resolves with the unified run result and never rejects. |
+| `is` | `(is target)` / `(is target opts)` → result (JVM) / promise (CLJS) | Run and report per assertion to `clojure.test` / `cljs.test`. |
+| `report-result!` | `(report-result! result)` → result | Report an already-resolved run result as `is` does. |
+| `explain` | `(explain target)` / `(explain target opts)` → map | How the plan was assembled, without running it. Throws when it cannot compile. |
+| `variant-plan` | `(variant-plan target)` / `(variant-plan target opts)` → plan | The compiled plan `run` executes. |
+| `render-variant` | `(render-variant target)` / `(render-variant target opts)` → map | Render the view from its plan without running the script. |
+
+### Run results
+
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `result-status` | `(result-status result)` → keyword | The verdict: `:pass`, `:fail`, `:cannot-run` or `:error`. |
+| `result-passed?` | `(result-passed? result)` → bool | True iff the verdict is `:pass`. |
+| `valid-run-result?` | `(valid-run-result? result)` → bool | Whether a map conforms to `run-result-schema`. |
+| `explain-run-result` | `(explain-run-result result)` → explanation | The Malli explanation of why a map does not conform. |
+| `run-result-schema` | Var | The Malli schema of the unified run result. |
+| `run-result` | `(run-result parts)` → result | Assemble a run result from its parts; the runner's own constructor. |
+| `assertion-record` | `(assertion-record raw)` → map | Normalize one raw assertion record. |
+| `assertion-records` | `(assertion-records raw-assertions)` → vec | Normalize a vector of them. |
+| `aggregate-verdict` | `(aggregate-verdict records unmet)` → keyword | The verdict over records and `:cannot-run` refusals: `:error` over `:fail` over `:cannot-run` over `:pass`. |
+| `result->reports` | `(result->reports result)` → vec | The `clojure.test` report maps `is` fires for a result. |
+
+### Evidence and hashing
+
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `project-evidence` | `(project-evidence epoch-tape)` / `(project-evidence epoch-tape opts)` → map | Project a retained epoch tape into the run result's evidence slots. |
+| `tape-shows-failure?` | `(tape-shows-failure? epoch-tape)` / `(tape-shows-failure? epoch-tape consumed-selectors)` → bool | Whether the tape carries failure evidence: a schema violation, a halted epoch or an error effect. |
+| `narrative-beats` | `(narrative-beats narrative)` → vec | Flatten a run's two-level narrative into its beats. |
+| `beat-count` | `(beat-count narrative)` → int | The number of beats. |
+| `beat-at` | `(beat-at narrative idx)` → map | The beat at a 0-based index. |
+| `beat-epoch-ids` | `(beat-epoch-ids narrative)` → vec | The beats' epoch ids, in order. |
+| `canonicalize` | `(canonicalize x)` → value | Strip per-run noise, such as frame ids, timestamps and trace ids, for comparison and hashing. |
+| `canonical-hash` | `(canonical-hash x)` → string | An 8-hex-digit hash of the canonicalized value. |
+| `content-hash` | `(content-hash x)` → string | An 8-hex-digit hash of the exact value. |
+| `plan-hash` | `(plan-hash plan)` → string | The `:plan-hash` of a compiled plan. |
+| `run-hash` | `(run-hash result)` → string | The `:run-hash` of a run result. |
+
+### Testing primitives
+
+| Symbol | Signature | Intuition |
+| --- | --- | --- |
+| `make-run-artifact` | `(make-run-artifact parts)` → artifact | Build a `:rf.test/run-artifact` from an event program, or from `:setup` and `:script`. |
+| `run-artifact?` | `(run-artifact? x)` → bool | Whether `x` is a run artifact. |
+| `replay-run-artifact` | `(replay-run-artifact art)` / `(replay-run-artifact art opts)` → result | Replay an artifact into a fresh frame and return its run result. |
+| `assert-deterministic` | `(assert-deterministic artifact-or-program)` / `(assert-deterministic artifact-or-program opts)` → map | Replay into several fresh frames (2 by default) and compare; `:deterministic`, `:non-deterministic` with the first divergence, or `:cannot-run` for a program carrying `[:wait ms]`. |
+| `materialize-variant-plan` | `(materialize-variant-plan artifact)` / `(materialize-variant-plan artifact opts)` → plan | The variant plan a promotion would produce, without registering it. |
+| `promote-run-artifact!` | `(promote-run-artifact! artifact opts)` → variant-id | Register an artifact as a named variant; `opts` must carry `:variant/id`. |
+| `check-property!` | `(check-property! gen-fn opts)` → map | Run a property over generated event programs; on failure, returns the shrunk, seed-bearing artifact. |
+| `sweep-faults!` | `(sweep-faults! base-program fault-lattice opts)` → map | Replay one program across effect-fault cells and collect an artifact per cell. |
+| `diff-run-artifacts` | `(diff-run-artifacts baseline current)` / `(diff-run-artifacts baseline current opts)` → map | A semantic diff of two runs or artifacts, with the per-run noise stripped. |
+| `capture-golden` | `(capture-golden target)` / `(capture-golden target opts)` → golden | Freeze a run's canonicalized behaviour as a golden slice. |
+| `golden-match?` | `(golden-match? golden run)` / `(golden-match? golden run opts)` → bool | Whether a later run matches the golden slice. |
+| `compare-golden` | `(compare-golden golden run)` / `(compare-golden golden run opts)` → map | The same comparison, as a readable report with a diff on mismatch. |
 
 ### Programmatic runtime
 
@@ -95,6 +159,8 @@ The canonical facade. Every user-callable surface lives here.
 | `canonical-axes` | Var | The four canonical axes (audience / lifecycle / quality / status). |
 | `canonical-status-values` | Var | Status-axis tag values. |
 | `canonical-role-values` | Var | Role-axis tag values. |
+| `canonical-state-values` | Var | State-axis values: `#{:empty :small :medium :large :special}`. |
+| `canonical-state-tags` | Var | The five `:state/*` tags registered at boot. |
 | `tags-by-axis` | `(tags-by-axis)` → map | Tags keyed by axis. |
 | `tags-without-axis` | `(tags-without-axis)` → seq | Tags not registered against any axis. |
 | `tags-default-excluded` | `(tags-default-excluded)` → set | Sidebar tag-filter default exclusions. |
@@ -108,6 +174,7 @@ The canonical facade. Every user-callable surface lives here.
 | `read-assertions` | `(read-assertions variant-id)` → vec | Current `:rf.story/assertions` vector. |
 | `assertions-passing?` | `(assertions-passing? result)` → bool | Project assertions vector → single boolean. |
 | `canonical-assertion-ids` | `(canonical-assertion-ids)` → set | The seven canonical `:rf.assert/*` event-ids. |
+| `known-assertion-ids` | `(known-assertion-ids)` → set | Every assertion id a plan accepts, including the DOM, browser and causal ids. |
 
 ### Recorder
 
@@ -119,6 +186,7 @@ The canonical facade. Every user-callable surface lives here.
 | `recording?` | `(recording?)` → bool | Predicate. |
 | `recorder-state` | `(recorder-state)` → map | Read-only view of recorder state. |
 | `gen-play-snippet` | `(gen-play-snippet events opts)` → string | Render captured events as a `(reg-variant ...)` EDN snippet. |
+| `recording->script-body` | `(recording->script-body events)` / `(recording->script-body events opts)` → map | Translate a recording into a `:script` body map. |
 
 ### Privacy — variant-body classification
 
