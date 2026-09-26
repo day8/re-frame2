@@ -129,26 +129,12 @@ A secret carried positionally (`[:auth/login "alice" "hunter2"]`) has **no stabl
 
 ## Choosing where observations go: frame `:observability`
 
-Sink policy is the other thing you declare. Production observability — the always-on handled-event / error records that survive a release build — is routed by frame `:observability`:
+Sink routing — `:handled-events` / `:errors` entries on a frame's `:observability` or once per process with `(rf/configure! {:observability …})`, the sink fn registered with `rf/register-observability-sink!`, per-stream inheritance and fail-closed routing — is [`production-observability.md`](production-observability.md)'s. The privacy half is this leaf's:
 
-```clojure
-(rf/make-frame
-  {:id :app/main
-   :observability
-   {:handled-events [{:sink :my-app.sinks/datadog
-                      :rf.egress/profile :rf.egress/off-box-observability}]
-    :errors         [{:sink :my-app.sinks/sentry
-                      :rf.egress/profile :rf.egress/off-box-observability}]}
-   :initial-events [[:app/init]]})        ;; :app/init classifies [:auth :token] via the :sensitive effect
-
-(rf/register-observability-sink! :my-app.sinks/datadog
-  (let [tags {:service "checkout-spa" :env "prod"}]     ;; vendor config lives here
-    (fn [record]
-      ;; Already projected. No sink-local redaction.
-      (datadog/send record tags))))
-```
-
-The framework ships no Datadog / Sentry client — the sink id lives outside the framework namespace (`:my-app.sinks/datadog`, not `:rf.sink/datadog`), and the entry is a **closed map** of `:sink` plus the optional `:rf.egress/profile`: vendor options are not a frame-config slot at all, they are closed over by the fn you register (an unrecognised entry key fails loud at `make-frame`). The sink fn receives an **already-projected** record. The same policy can be declared once per process with `(rf/configure! {:observability …})` and inherited PER STREAM — a frame declaring `:errors` still inherits the default's `:handled-events`, `{:errors []}` opts that frame out, and exactly one source is consulted per record. Inheritance moves the sink list, never the redaction authority. Routing is **fail-closed**: with no policy in reach nothing routes, no frame's policy is ever borrowed and `:rf/default` is never synthesized; a throwing sink is isolated. Records with no frame authority (frameless producers, a `:frame` that no longer resolves) reach the process default ALONE, projected with the governing frame explicitly nil — tree slots `:rf/redacted`, summary ids intact, a stale id kept as a diagnostic and never re-resolved into a same-id successor's sink. Under the default `:rf.egress/off-box-observability` profile a handled-event record carries frame, event id, status, elapsed, effect keys, and correlation ids — and **omits the `:event` args slot entirely**. There is no second door: the corpus-wide `register-listener!` `:events` / `:errors` streams were retired (that verb now takes only the dev-only `:trace` / `:epoch` streams, and any other stream throws `:rf.error/unknown-listener-stream`).
+- **A sink receives an already-projected record.** The framework composes the owning frame's classification with the entry's `:rf.egress/profile` before the sink runs, so the sink fn does no redaction of its own. Under the default `:rf.egress/off-box-observability` profile a handled-event record carries frame, event id, status, elapsed, effect keys and correlation ids, and **omits the `:event` args slot entirely**; an entry that opts into `:rf.egress/local-raw` is asking for classified values in the clear.
+- **Inheritance moves the sink list, never the redaction authority.** A frame inheriting the process default's sinks still projects its records under its own classification.
+- **A record with no frame authority is projected with the governing frame explicitly nil.** Frameless producers, and a `:frame` that no longer resolves, reach the process default alone: tree slots `:rf/redacted`, summary ids intact, a stale id kept as a diagnostic and never re-resolved into a same-id successor's sink.
+- **There is no unprojected second door.** `register-listener!` takes only the dev-only `:trace` / `:epoch` streams; an `:events` or `:errors` stream throws `:rf.error/unknown-listener-stream`.
 
 ## Projection profiles: which boundary is this?
 

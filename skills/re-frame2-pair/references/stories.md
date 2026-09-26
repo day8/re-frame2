@@ -34,9 +34,9 @@ Per [`spec/007-Stories.md` §Relationship with frames](https://github.com/day8/r
 
 This identity is the single most important thing on this page. Once you have it, the rest is ordinary Pair work with a different operating frame.
 
-## Enumerate, run, operate
+## Drive a Story variant — enumerate, run, operate
 
-The `re-frame.story` namespace is loaded in any Story-enabled build. Reference it by its full name in an `eval-cljs` form — there is no `rf.story` alias in the browser unless the app made one.
+**Setup.** A Story-enabled build is running with some variants registered; the variant is either already mounted in the canvas, or you mount it below. The `re-frame.story` namespace is loaded in any Story-enabled build. Reference it by its full name in an `eval-cljs` form — there is no `rf.story` alias in the browser unless the app made one.
 
 **1. Enumerate the registry.** `ids` takes a registrar kind — `:story` for the parent stories, `:variant` for every concrete variant; `variants-of` returns one story's variants:
 
@@ -82,6 +82,8 @@ mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.login/success"}}
 ```
 
 Use the pin for a long session inside one variant, the per-call arg for cross-variant work. A fresh `run-variant` calls Story's `reset-frame!` (in `re-frame.story.frames`) and wipes anything you injected between runs — bake durable setup into the variant's `:loaders` / `:setup`, not a REPL dispatch.
+
+**Expected output shape.** Same as any re-frame2-pair op, scoped to the variant's frame. `snapshot` returns whatever the variant's loaders + events seeded; `(re-frame2-pair.runtime/last-epoch)` returns the last dispatch (often the last `:script` step if the variant just mounted).
 
 ### Verified transcript (condensed)
 
@@ -138,6 +140,49 @@ mcp__re-frame2-pair__eval-cljs {
 
 `gen-play-snippet` renders the bare `:events` stream — **dispatched events only**. Canvas clicks, typed input and form submits are captured too, but into `:entries`, and this snippet is blind to them: for those, `(re-frame.story/recording->script-body entries opts)` returns the live `{:script [...] :auto-run? …}` body, and the shell's own REC save dialog renders the rich pasteable form. What is captured at all is not free-form either: the trace-bus listener only offers `:rf.event/dispatched` events whose `:frame` matches the recording target, and `re-frame.story.recorder/recordable-event?` then drops Story's internal namespaces (`:rf.assert/*`, `:rf.story/*`, `re-frame.story.*`).
 
+## Refine a variant interactively
+
+**Why this works:** the variant body is ordinary source, and the app you are attached to is running under `shadow-cljs watch`. So the refine loop is the skill's **normal source-edit protocol** (SKILL.md §Cardinal rule) with a `run-variant` at the end of it: edit the body, wait for the reload with `tail-build`, re-run the variant in the browser, read the assertions. Everything stays in one runtime, and you can intervene mid-loop — dispatch a probe, read an epoch — without leaving it.
+
+**Setup.** A Story-enabled build is running and the variant exists in source. You want to iterate on its `:script` body until an assertion passes.
+
+**Procedure:**
+
+1. Capture the pre-edit `baseline` **before** touching the file — a probe whose value must change once the new body loads, e.g. the variant's own registration line:
+   ```
+   mcp__re-frame2-pair__eval-cljs {
+     form: "(pr-str (:script (re-frame.story/variant->edn :story.counter/loaded)))"
+   }
+   ```
+   Keep the returned `:value` verbatim.
+2. Note the variant frame's current epoch head, so the post-run poll returns only the play-runner's dispatches:
+   ```
+   mcp__re-frame2-pair__watch-epochs {pred: {"frame": ":story.counter/loaded"}}
+   ```
+   Keep the response's `:head-id` — it is the `since-id` for the post-run read.
+3. Edit the variant body in source with `Edit` / `Write` (e.g. set `:setup [[:counter/initialise 7]]`, set `:script` to drive `[:counter/inc]` then assert `[:rf.assert/path-equals [:count] 8]`).
+4. Wait for the browser to pick up the new code — the strict protocol, with the probe **and** the step-1 baseline:
+   ```
+   mcp__re-frame2-pair__tail-build {probe: "...", baseline: "..."}
+   ```
+   Only proceed on `{:ok? true :soft? false}`. See [ops.md §Hot-reload coordination](ops.md#hot-reload-coordination) for the failure branches — a `:timed-out` usually means the probe can't discriminate this edit, not a compile error.
+5. Re-run the variant, projecting the verdict before egress:
+   ```
+   mcp__re-frame2-pair__eval-cljs {
+     form: "(.then (re-frame.story/run-variant :story.counter/loaded)
+                   (fn [res] {:status (re-frame.story/result-status res)
+                              :failures (filterv #(not= :pass (:status %))
+                                                 (:assertions res))}))",
+     await: true, timeout-ms: 10000
+   }
+   ```
+   Then poll `watch-epochs {since-id: <head-id>, pred: {"frame": ":story.counter/loaded"}}` — each `:script` step the play-runner drove is one returned epoch. Narrate them in order. To re-read the assertion accumulator later without re-running, `(re-frame.story/read-assertions :story.counter/loaded)`.
+6. If `:status :fail` (`result-passed?` is false), repeat from step 1 with a refined body. A `:status :cannot-run` is the distinct third verdict — the runner could not attempt the plan; fix the runner/environment rather than the body. Carry the newest `:head-id` forward as the next iteration's `since-id`.
+
+**Expected output shape.** A `watch-epochs` pull of epoch records (one per play event), plus a `:status` verdict (`:pass`/`:fail`/`:cannot-run`/`:error`, read via `result-status`/`result-passed?`) and the failing assertion records. A successful loop ends with `:status :pass`.
+
+**Gotcha.** Hot-reloading a variant calls Story's `reset-frame!` (in `re-frame.story.frames`) on its frame, wiping any REPL-only state you injected (e.g. a `replace-app-db` from a prior iteration setting up a corner case). Bake the corner-case setup into `:setup` or `:loaders` instead — the play-runner re-runs them each iteration, so it is durable across refinements.
+
 ## Three recipes, in the browser
 
 The same three recipes, with their host-neutral wording, are in the `re-frame2` skill's [`story-mcp-loop.md` §Three recipes](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/story-mcp-loop.md#three-recipes); these are their browser forms. Each registration made through `eval-cljs` lives in the heap only, so the user lands the result in source — `(re-frame.story/variant->edn id)` returns the body.
@@ -184,20 +229,35 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 
 **Registrations are NOT per-variant.** A frame resolves behaviour against its resolved image generation (SKILL.md §Multi-frame model). In a single-installation app — the Story case — `reg-event`, `reg-sub`, `reg-machine`, `reg-view`, `reg-decorator` register into one shared set every variant sees. So a hot-swap through `eval-cljs` affects **every** variant sharing that set: useful for the experiment loop, occasionally surprising. If you need a change scoped to one variant, dispatch different args into different variants rather than reaching for the per-frame `:interceptor-overrides` slot (Spec 002 §Per-frame overrides), which Story's variant-mount does not expose.
 
-## Diffing two variants
+## Diff two variants of the same component
 
-Per-variant isolation is what makes *"why does state diverge in scenario A vs scenario B?"* a two-frame read. Snapshot both, then compute the difference in one round-trip:
+**Why this works:** per-variant frame isolation (Story spec 007) means each variant carries its own `app-db`. For *"why does state diverge in scenario A vs scenario B?"*, compare the two frames' app-db values directly.
 
-```
-mcp__re-frame2-pair__snapshot {frames: [":story.counter/empty", ":story.counter/loaded"]}
+**Setup.** Both variants mounted (canvas or `run-variant`). Both belong to the same parent story, so they share `:component`, `:args` defaults, decorators — only the variant body diverges.
 
-mcp__re-frame2-pair__eval-cljs {
-  form: "(re-frame2-pair.runtime/frame-diff :story.counter/empty :story.counter/loaded)"
-}
-;; => {:only-in-a … :only-in-b … :common …}
-```
+**Procedure:**
 
-`frame-diff` matches `epoch-diff`'s semantics but across two frames instead of one epoch's before/after. Cross-check the cascades with `(re-frame.core/epoch-history <id>)` on each: variants that ran the same events but ended in different states usually diverge in their loaders. Full recipe: [`recipes.md` §Diff two variants of the same component](recipes.md#diff-two-variants-of-the-same-component).
+1. Snapshot each variant's `app-db`. `snapshot` selects frames via the **plural `frames`** arg (an array of frame-id strings or `"all"`) — it has no singular `frame` arg, unlike `dispatch` / `get-path` / `read-sub`:
+   ```
+   mcp__re-frame2-pair__snapshot {frames: [":story.counter/empty"]}
+   mcp__re-frame2-pair__snapshot {frames: [":story.counter/loaded"]}
+   ```
+   (Or snapshot both in one round-trip — `snapshot {frames: [":story.counter/empty", ":story.counter/loaded"]}` — and diff the two entries.) With the MCP `:summary` default, each result returns top-level keys + counts — drill into divergent keys with `get-path`.
+2. Compute the diff. If both are small, return them inline and let the model narrate. If they're large, drive `clojure.data/diff` directly:
+   ```
+   mcp__re-frame2-pair__eval-cljs {
+     form: "(let [a (re-frame.core/app-db-value :story.counter/empty)
+                  b (re-frame.core/app-db-value :story.counter/loaded)]
+              (clojure.data/diff a b))"
+   }
+   ```
+   The runtime helper `(re-frame2-pair.runtime/frame-diff :a-id :b-id)` returns `{:only-in-a :only-in-b :common}` — semantics match `epoch-diff` but across frames instead of across one epoch's before/after.
+3. Cross-check the cascade: `(re-frame.core/epoch-history :story.counter/empty)` and `(re-frame.core/epoch-history :story.counter/loaded)`. If the variants ran the same events but ended in different states, look at the loaders — they often seed divergent fixtures.
+4. Narrate the divergence in terms the user can act on: *"variant `:loaded` carries `[:items]` with 7 entries from its `:counter/initialise 7` event; variant `:empty` has no `:items` key because its events list is empty."*
+
+**Expected output shape.** A compact `{:only-in-a ... :only-in-b ... :common ...}` map (or the model's prose summary), keyed off paths that actually differ. Common subtree omitted unless the user asks for it.
+
+**Gotcha.** A variant that hasn't been mounted yet returns `:rf.error/no-such-handler` (kind `:frame`) — the frame doesn't exist until `run-variant` or canvas-mount allocates it. Mount both before diffing.
 
 ## Common gotchas
 
@@ -216,7 +276,7 @@ The reason is a capability boundary, not a preference. That host has no nREPL, s
 
 ## Cross-references
 
-- Recipes driving variants end-to-end — [`recipes.md`](recipes.md) §Drive a Story variant, §Diff two variants, §Refine a variant interactively.
+- Every other named procedure — [`recipes.md`](recipes.md).
 - Authoring variant bodies (no runtime in the loop) — [`skills/re-frame2/references/tooling/stories.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/stories.md).
 - The frame primitive itself — [`spec/002-Frames.md`](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md).
 - Story runtime spec — [`tools/story/spec/002-Runtime.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/002-Runtime.md); run-result contract — [`tools/story/spec/017-Testing-Story.md`](https://github.com/day8/re-frame2/blob/main/tools/story/spec/017-Testing-Story.md).

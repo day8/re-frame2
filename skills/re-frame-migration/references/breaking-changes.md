@@ -118,7 +118,7 @@ This surface is keyed off dep-/application-level triggers (Maven coords + fx ids
 
 ## Compile-only façade removals — public `re-frame.core` symbols that no longer resolve
 
-A short register of **public v1 `re-frame.core` symbols that simply do not exist on the v2 façade**. They are a pure **compile-only** class: the var does not resolve, so the call site is an *unresolved-symbol compile error* — never a runtime surprise. This is the **loud-fail / march-the-wall** shape (the compiler names the missing symbol; swap it, recompile, repeat — the opposite of the silent-fail register further down). They get their own register because each is a *public* surface an author would not expect to have moved — unlike the off-contract **private**-namespace requires of M-1 — and because the M-rule table is keyed by trigger *surface*, so grepping it does not surface the bare symbol names below.
+A short register of **public v1 `re-frame.core` symbols that simply do not exist on the v2 façade**. They are a pure **compile-only** class: the var does not resolve, so the call site is an *unresolved-symbol compile error* — never a runtime surprise. This is the **loud-fail / march-the-wall** shape (the compiler names the missing symbol; swap it, recompile, repeat — the opposite of the compile-clean register further down). They get their own register because each is a *public* surface an author would not expect to have moved — unlike the off-contract **private**-namespace requires of M-1 — and because the M-rule table is keyed by trigger *surface*, so grepping it does not surface the bare symbol names below.
 
 | Removed public symbol (v1) | What happens in v2 | Replacement | Rule |
 |---|---|---|---|
@@ -204,7 +204,7 @@ Type A/B answers *"auto-apply or ask?"*. This second axis answers a **different*
 - **LOUD-fail rules** surface at **compile or first-run** — removed namespaces, `console`/`unwrap` add-on refs, undefined vars, unresolved renamed symbols. **March-the-wall works**: swap the coord, compile, fix the error the compiler points at, recompile, repeat. The compile *is* the to-do list. The default M-rule population is loud.
 - **SILENT-fail rules** compile **clean** and misbehave only when a specific runtime path executes. March-the-wall **cannot find them** — the compile never gives you a wall to hit. Evidence: a real migration compiled with zero errors then had five-plus runtime breaks, most silent (see [`silent-runtime-failures.md`](silent-runtime-failures.md)).
 
-**The silent-fail register (the planning column — these are the rules that need different handling):**
+**The compile-clean register (the planning column — rules a clean compile does not catch, whether the miss then stays silent or fails loudly at load or first use):**
 
 | Rule | Silent because | The miss looks like |
 |---|---|---|

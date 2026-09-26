@@ -80,8 +80,11 @@
 ;;
 ;; :id stable identifier, printed in each row's failure context
 ;; :prompt the user-spoken request
-;; :recipe-anchor a substring expected in references/recipes.md's
+;; :recipe-anchor a substring expected in the recipe leaf's
 ;; heading — proves the recipe exists
+;; :leaf optional; :stories reads references/stories.md (the one
+;; Story leaf, which carries the Story-variant recipes). Default
+;; is references/recipes.md
 ;; :must-mention ops the recipe is expected to name. Each is an
 ;; alternation of phrasings; the test passes if AT
 ;; LEAST ONE alternative appears in recipes.md.
@@ -141,6 +144,7 @@
  {:id :story-in-the-open-app
  :prompt "Run this variant in the app I have open"
  :recipe-anchor "Drive a Story variant"
+ :leaf :stories
  :must-mention [["mcp__re-frame2-pair__eval-cljs"]
  ["re-frame.story/run-variant"]
  ["await"]
@@ -168,11 +172,14 @@
  (let [pat (re-pattern (str "(?ms)## .*" (java.util.regex.Pattern/quote anchor) ".*?(?=^## |\\z)"))]
  (or (some-> (re-find pat md)) "")))
 
-(defn- assert-row [{:keys [id prompt recipe-anchor must-mention]}]
+(defn- assert-row [{:keys [id prompt recipe-anchor must-mention leaf]}]
  (testing (str id " — " prompt)
- (let [section (recipe-section @recipes-md recipe-anchor)]
+ (let [[leaf-name md] (if (= :stories leaf)
+ ["stories.md" @stories-md]
+ ["recipes.md" @recipes-md])
+ section (recipe-section md recipe-anchor)]
  (is (seq section)
- (str "recipes.md missing the `" recipe-anchor "` heading — "
+ (str leaf-name " missing the `" recipe-anchor "` heading — "
  "did the recipe get renamed? Update either the recipe or "
  "the canonical-prompts table together (drift detector)."))
  (doseq [alts must-mention]
@@ -608,9 +615,9 @@
 
 (deftest snapshot-recipe-uses-plural-frames-not-singular-frame
   (testing "the variant-diff recipe selects frames via plural `frames`, not singular `frame`"
-    (let [section (recipe-section @recipes-md "Diff two variants")]
+    (let [section (recipe-section @stories-md "Diff two variants")]
       (is (seq section)
-          "recipes.md missing the 'Diff two variants' heading.")
+          "stories.md missing the 'Diff two variants' heading.")
       (is (str/includes? section "snapshot {frames:")
           (str "the variant-diff recipe does not call `snapshot "
                "{frames: [...]}` (plural). snapshot has no singular "
