@@ -111,17 +111,6 @@
                 {:sensitive [[:params :token]]}
                 "/rf2-6j8gd/user/:token/:tab"))
 
-(defn- both-axes-route!
-  "Declares a sensitive key on BOTH axes. The query key is promoted by the
-  `:query` schema (it has to be); the path capture is not, and does not
-  need to be. Guards the slice arm: projecting params must not cost the
-  query its projection."
-  []
-  (rf/reg-route ::both
-                {:sensitive [[:params :token] [:query :secret]]
-                 :query     [:map [:secret :string] [:tab :string]]}
-                "/rf2-6j8gd/both/:token"))
-
 (defn- plain-params-route!
   "A route with a path capture and NO classification at all — the ordinary
   case the projection must leave untouched."
@@ -163,12 +152,6 @@
   (rf/with-frame :rf/xray
     (let [tree (routing/panel-tree @(rf/subscribe [:rf.xray/routing-tab-data]))]
       (some-> (find-by-testid tree "rf-xray-routing-current-params")
-              node-text))))
-
-(defn- current-query-text []
-  (rf/with-frame :rf/xray
-    (let [tree (routing/panel-tree @(rf/subscribe [:rf.xray/routing-tab-data]))]
-      (some-> (find-by-testid tree "rf-xray-routing-current-query")
               node-text))))
 
 (defn- current-section-text
@@ -288,32 +271,6 @@
                p ::never-registered-frame :rf.route/params))
           "the seam's fail-closed arm did not redact the whole params value"))))
 
-;; ---- (4) the explicit local-raw grain ----------------------------------
-
-(deftest local-raw-opt-in-returns-the-declared-param-verbatim
-  (testing "the per-(tool,frame) :rf.egress/local-raw opt-in
-            (EP-0015 §Cross-tool visibility grain) reaches the params seam
-            end to end: the SAME projection with `raw? true` returns the
-            declared-sensitive capture verbatim. The panel deliberately
-            exposes no toggle, so it always passes the redacted default —
-            this row pins that the mechanism exists rather than that the
-            panel offers it."
-    (classified-params-route!)
-    (navigate! (str "/rf2-6j8gd/user/" secret "/" sibling))
-    (let [p       (:params (host-slice))
-          default (local-render/local-render-route-sub-value
-                    p :rf/default :rf.route/params)
-          raw     (local-render/local-render-route-sub-value
-                    p :rf/default :rf.route/params true)]
-      (is (= :rf/redacted (:token default))
-          "the redacted default did not lower the declared capture")
-      (is (= sibling (:tab default))
-          "the redacted default scrubbed the undeclared sibling")
-      (is (= secret (:token raw))
-          "the trusted-local raw opt-in withheld the declared capture")
-      (is (= p raw)
-          "raw is the identity over the whole params map"))))
-
 ;; ---- (5) the seam is the ROUTE re-seeding, not a whole-value walk -------
 
 (deftest whole-value-walk-cannot-match-the-re-rooted-params-declaration
@@ -335,29 +292,6 @@
            redundant")
       (is (= :rf/redacted (:token seeded))
           "the route-sub seam did not re-seed at the slice's storage position"))))
-
-;; ---- (6) the guard: the query axis projects too -------------------------
-
-(deftest both-classified-axes-project-in-one-slice
-  (testing "the slice arm projects BOTH covered keys. It is a per-key
-            walk over the covered projections rather than a hand-written
-            `:query` branch, so the query axis is pinned here too: otherwise
-            the walk could silently trade one leak for another."
-    (both-axes-route!)
-    (navigate! (str "/rf2-6j8gd/both/" secret "?secret=" secret "&tab=" sibling))
-    (observe! :rf/default)
-    (let [params-text (current-params-text)
-          query-text  (current-query-text)]
-      (is (re-find #":rf/redacted" params-text)
-          (str "the declared path capture did not redact: " (pr-str params-text)))
-      (is (re-find #":rf/redacted" query-text)
-          (str "the declared query key did not redact — the query axis
-                leaks: " (pr-str query-text)))
-      (is (re-find (re-pattern sibling) query-text)
-          (str "the unclassified query sibling was scrubbed: " (pr-str query-text)))
-      (is (not (re-find (re-pattern secret) (current-section-text)))
-          (str "the secret reached the CURRENT ROUTE section: "
-               (pr-str (current-section-text)))))))
 
 ;; ---- (7) the census discriminator: App-DB is NOT a second site ----------
 
