@@ -82,10 +82,12 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 
 ## Reference files (all one level deep)
 
-- [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries.
-- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — the port profile: defaults, spec pin, template.
-- [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — the EP loop + the EP index.
-- [`references/conformance.md`](references/conformance.md) — harness, capability derivation, scoring, diagnosis.
+Load each on demand, when its trigger arises:
+
+- [`references/phase-1-decisions.md`](references/phase-1-decisions.md) — the port profile: defaults, spec pin, template. **Read first**, at the start of a port or when a choice or the pin changes.
+- [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) — the EP loop + the EP index. Read when starting or resuming an EP slice.
+- [`references/conformance.md`](references/conformance.md) — harness, capability derivation, scoring, diagnosis. Read when building the harness, deriving the claim, running an acceptance gate, or a fixture fails.
+- [`references/cardinal-rules.md`](references/cardinal-rules.md) — the eleven rules in prose + anti-pattern corollaries. Read for the pin-verification commands (rule 1) and before drafting or filing a spec-gap issue (rules 8–9).
 
 ---
 
