@@ -1,20 +1,20 @@
 ---
 name: re-frame2-pair-retro
 description: >
-  Retrospect on a `re-frame2-pair` session and turn it into prioritised
-  improvement ideas for the pair skill, preload runtime, MCP surface, or upstream
-  `re-frame2` Tool-Pair contract; optionally drafts a GitHub issue the user
-  can file. **Not** for ordinary `re-frame2-pair` operation, nor for the
-  code/spec/framework work the body's routing matrix sends elsewhere. Requires
-  evidence: a concrete `re-frame2-pair` session in this conversation (turns
-  where the user attached, dispatched, walked traces/epochs, hot-swapped, or
-  time-travelled), **or** a user-supplied recap — vocabulary alone
-  ("retro", "what went wrong", "any improvements?") does not justify
-  activation. Two triggers: (a) **explicit pull** — "retro on this pair
-  session", "review my re-frame2-pair session", "draft an issue about that";
-  or (b) **post-error inside a pair session** — after a stack trace, a pair
-  tool returning `{:ok? false :reason :error-kind}`, or an `:rf.error/*` or
-  `:rf.epoch/restore-*` trace during live pair work.
+  Retrospective on a re-frame2-pair session: finds where the pair workflow
+  dragged (retries, stale or empty results, refusals, workarounds, hidden
+  prerequisites) and proposes prioritised fixes for the pair skill, preload
+  runtime, MCP tools, or re-frame2's Tool-Pair contract, plus a
+  copy-pasteable GitHub issue draft on request. Read-only; never files
+  issues. Use when the user asks to retro, review, or post-mortem a
+  re-frame2-pair session ("retro on this pair session", "what took longer
+  than it should have?", "draft an issue about that") or supplies a recap
+  of one; and, once a pair tool error, stack trace, or `:rf.error/*` /
+  `:rf.epoch/restore-*` trace from live pair work has been dealt with, to
+  offer a retro in one line. Needs a real pair session or recap: "retro" or
+  "what went wrong" alone is not enough. Not for fixing the live bug or
+  driving the app (re-frame2-pair), static code critique
+  (re-frame2-improver), or writing app code (re-frame2).
 allowed-tools:
  - Read
  - Grep
