@@ -118,7 +118,6 @@
             [re-frame.http.machine-wrapper :as rf.http.machine-wrapper]
             [re-frame.http.middleware      :as rf.http.middleware]
             [re-frame.http.privacy         :as rf.http.privacy]
-            [re-frame.http.privacy-headers :as rf.http.privacy-headers]
             [re-frame.http.registry        :as rf.http.registry]
             [re-frame.late-bind            :as rf.late-bind]))
 
@@ -158,9 +157,8 @@
 ;; App carrier names are declared on the `:rf.http/managed`
 ;; `reg-fx` registration metadata via the `:carriers {:headers [..]
 ;; :query-params [..]}` block (the transient-payload case — see the
-;; ## HTTP carriers section in the ns docstring). The immutable built-in
-;; default denylist is re-exported for tests.
-(def default-header-denylist    rf.http.privacy-headers/default-header-denylist)
+;; ## HTTP carriers section in the ns docstring). Tests read the immutable
+;; built-in denylist from `re-frame.http.privacy-headers` directly.
 
 ;; The `:rf.http/managed` fx handler body — re-exported so an app can
 ;; RE-REGISTER `:rf.http/managed` to declare its `:carriers` block without
