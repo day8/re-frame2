@@ -50,10 +50,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
     - The macro walks the literal spec at expansion time. It attaches source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` and `:actions` entry, and a reference-site `:source-coords` to each state node and transition map under `:states`. Xray uses these to go from a snapshot to the guard, action or state definition. The call site's own coordinates are on `handler-meta`.
     - Pass either a literal spec or a value defined with [`defmachine`](#defmachine). A value bound with plain `def` carries no source.
     - The snapshot lives in the frame's `runtime-db` (not `app-db`) at `[:rf.runtime/machines :snapshots machine-id]`. Its shape is `{:state … :data …}` plus framework-managed slots for `:after` timer epochs and tags. Read it with the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription, or once with `subscribe-once`.
-- **Errors**:
-    - `:rf.error/invalid-machine-opts`: `opts` is not a map.
-    - `:rf.error/machine-reserved-meta-in-opts`: `opts` carries `:rf/machine?` or `:rf/machine`, which the registration sets itself.
-    - A grammar violation in the spec throws one of the ids listed under [`validate-machine!`](#re-framemachinesvalidate-machine).
+- **Errors**: every refusal throws at registration, not on first dispatch; [Registration errors](#registration-errors) below lists them.
 - **Example**:
   ```clojure
   (rf/reg-machine :session
@@ -90,6 +87,76 @@ The machines guide teaches the model, starting from [The table](../machines/conc
   (rf/dispatch [:session [:login {:user "alice" :pass "correct-horse"}]])
   ```
 
+#### Registration errors
+
+`reg-machine` and `reg-machine*` check the whole spec before anything is registered, most of it through [`validate-machine!`](#re-framemachinesvalidate-machine). Each refusal is an `ex-info` whose `ex-data` carries the id under `:rf.error/id`, and whose message says what to write instead. The machines guide explains each one on the page that teaches the feature, in that page's Troubleshooting table.
+
+| Error id | Thrown when |
+|---|---|
+| `:rf.error/machines-artefact-missing` | `rf/reg-machine` runs without `re-frame.machines` loaded. |
+| `:rf.error/invalid-machine-opts` | `opts` is not a map. |
+| `:rf.error/machine-reserved-meta-in-opts` | `opts` carries `:rf/machine?` or `:rf/machine`, which the registration sets itself. |
+| `:rf.error/machine-bad-structure` | `:states` is not a map, or a state node is not a map. |
+| `:rf.error/machine-unknown-node-key` | A state or transition map carries an unknown bare key, such as the XState spellings `:invoke` and `:cond`; a root-only key sits below the root; or a leaf declares `:on-done`. |
+| `:rf.error/machine-root-slot-not-supported` | The root carries a key only a state takes (`:always`, `:choice`, `:final?`, `:spawn-all` …), or `:regions` without `:type :parallel`. |
+| `:rf.error/machine-compound-state-missing-initial` | A state with `:states` has no `:initial`. |
+| `:rf.error/machine-bad-on-clause` | `:on` is not a map, or a transition in it is not a keyword, path, map, candidate vector or `nil`. |
+| `:rf.error/machine-bad-always` | `:always` is not a transition or a candidate vector. |
+| `:rf.error/machine-bad-target` | A `:target` is not a keyword or a path vector. |
+| `:rf.error/machine-unresolved-target` | A target names no declared state. |
+| `:rf.error/machine-unresolved-guard` | A guard id has no entry in `:guards`. |
+| `:rf.error/machine-unresolved-action` | An action id has no entry in `:actions`. |
+| `:rf.error/machine-bad-guard-form` | A `:guard` is neither an id nor a fn. |
+| `:rf.error/machine-bad-action-form` | An `:entry`, `:exit` or `:action` is not one id or one fn, a vector of them say. |
+| `:rf.error/machine-always-self-loop` | An `:always` candidate targets its own declaring state. |
+| `:rf.error/machine-always-unguarded-targetless` | An `:always` candidate has neither `:guard` nor `:target`, so it could never settle. |
+| `:rf.error/machine-bad-after-spec` | `:after` is not a map of delay to transition. |
+| `:rf.error/machine-bad-after-delay` | A literal `:after` delay is not a positive integer or an ISO-8601 duration string (`"5s"`, `0` and `-1` are refused). |
+| `:rf.error/machine-bad-timeout-duration` | A `:timeout` is not a positive integer or an ISO-8601 duration string. |
+| `:rf.error/machine-timeout-without-on-timeout` | A state or spawn spec has `:timeout` but no `:on-timeout`. |
+| `:rf.error/machine-on-timeout-without-timeout` | A state or spawn spec has `:on-timeout` but no `:timeout`. |
+| `:rf.error/machine-timeout-after-collision` | A `:timeout` resolves to the same delay as an `:after` key on the same state. |
+| `:rf.error/machine-non-parallel-root-after-not-supported` | `:after` or `:timeout` sits on a flat or compound root, or on a parallel region body. |
+| `:rf.error/machine-bad-choice` | `:choice` is a fn, empty, or otherwise not a candidate vector. |
+| `:rf.error/machine-choice-missing-choice` | A state has `:type :choice` but no `:choice`. |
+| `:rf.error/machine-choice-without-type` | A state has `:choice` but not `:type :choice`. |
+| `:rf.error/machine-choice-no-default` | Every `:choice` candidate is guarded. |
+| `:rf.error/machine-choice-self-loop` | A `:choice` candidate targets the choice state itself. |
+| `:rf.error/machine-choice-extra-keys` | A choice state also declares waiting-state keys such as `:on`, `:entry` or `:after`. |
+| `:rf.error/machine-final-state-has-transitions` | A `:final?` state declares `:on`, `:always`, `:after`, `:spawn` or `:spawn-all`. |
+| `:rf.error/machine-final-state-compound` | A `:final?` state has child `:states`. |
+| `:rf.error/machine-output-key-without-final` | A state without `:final?` declares `:output-key`. |
+| `:rf.error/machine-error-flag-without-final` | A state without `:final?` declares `:error?`. |
+| `:rf.error/machine-history-misplaced` | A history node has no enclosing compound state. |
+| `:rf.error/machine-history-extra-keys` | A history node carries a key other than `:type`, `:deep?` and `:default-target`. |
+| `:rf.error/machine-history-duplicate` | One compound declares two history nodes. |
+| `:rf.error/machine-history-bad-default-target` | A history node's `:default-target` does not resolve. |
+| `:rf.error/machine-parallel-bad-shape` | A parallel root also has `:initial` or `:states`, a region has no `:initial`, or two regions declare a spawn at the same in-region path. |
+| `:rf.error/machine-parallel-nested-not-supported` | A region declares `:type :parallel`. |
+| `:rf.error/machine-parallel-root-on-bad-target` | A parallel root's `:on` uses a bare keyword target instead of a region-qualified path. |
+| `:rf.error/machine-parallel-on-done-target` | A parallel root's `:on-done` has a `:target`. |
+| `:rf.error/machine-parallel-region-order-required` | `:regions` has more than eight entries and there is no `:region-order`. |
+| `:rf.error/machine-parallel-region-order-mismatch` | `:region-order` does not name every region exactly once. |
+| `:rf.error/machine-spawn-bad-shape` | A spawn spec does not have exactly one of `:machine-id` and `:definition`, or an inline `:definition` has neither `:id-prefix` nor `:fixed-actor-id`. |
+| `:rf.error/machine-unknown-spawn-key` | A spawn spec carries an unknown bare key, or a `:spawn-all` child declares `:on-error`. |
+| `:rf.error/machine-bad-on-done-clause` | An `:on-done` has the wrong form: a spawn's must be a fn or a transition, and a `:spawn-all` child's must be a fn. |
+| `:rf.error/machine-bad-on-error-clause` | A spawn's `:on-error` is not a transition. |
+| `:rf.error/machine-spawn-all-bad-shape` | A `:spawn-all` block has an unknown key, a `:join` other than `:all` or `:any`, no `:on-all-complete` for `:all` or `:on-some-complete` for `:any`, or `:children` that is not a vector of specs. |
+| `:rf.error/machine-spawn-all-duplicate-id` | Two `:spawn-all` children share an `:id`. |
+| `:rf.error/machine-spawn-all-with-spawn` | One state declares both `:spawn` and `:spawn-all`. |
+| `:rf.error/spawn-timeout-ms-removed` | A `:spawn` or `:spawn-all` carries `:timeout-ms`. |
+| `:rf.error/machine-bad-tags` | `:tags` is not a set of keywords, or a tag is in the reserved `:rf/*` or `:rf.*/*` namespaces. |
+| `:rf.error/machine-bad-schemas` | `:schemas` is not a map. |
+| `:rf.error/machine-bad-schemas-key` | `:schemas` carries a key other than `:data`, `:output`, `:events`, `:tags` and `:meta`, `:input` included. |
+| `:rf.error/machine-bad-internal-events` | `:internal-events` is not a set of keywords, or has a wildcard member. |
+| `:rf.error/machine-internal-event-reserved` | An `:internal-events` member is a reserved `:rf/*` id. |
+| `:rf.error/machine-cofx-requires-inline` | `:rf.cofx/requires` appears anywhere but a named `:guards` or `:actions` entry map. |
+| `:rf.error/cofx-request-invalid` | An entry in a `:rf.cofx/requires` vector is malformed. |
+| `:rf.error/cofx-name-collision` | Two `:rf.cofx/requires` entries on one callback use the same `:as` name. |
+| `:rf.error/invalid-machine-classification` | `:sensitive` or `:large` is not a vector of paths into the snapshot. |
+
+Two development-only warnings are also raised at registration: `:rf.warning/machine-source-unstamped`, when the spec carries no source (see [`defmachine`](#defmachine)), and `:rf.warning/machine-cofx-consume-undeclared`, when a named callback reads a `:rf.cofx` key it does not declare.
+
 ### `defmachine`
 
 - **Kind**: macro
@@ -115,12 +182,19 @@ The machines guide teaches the model, starting from [The table](../machines/conc
   (rf/reg-machine :door/main door-machine)
   ```
 
-### Machine-root keys
+### Machine spec
 
-Beside `:initial`, `:states`, `:data`, `:guards` and `:actions`, a machine spec's root takes the keys below. The runtime reads them only at the root: on a nested state they throw `:rf.error/machine-unknown-node-key`. The keys every state takes, the root included, are listed in [State node keys](../machines/concepts.md#state-node-keys) in the machines guide.
+A machine spec is one map: the root state node plus the machine's own blocks. Every map in it takes a closed set of bare keys. An unknown bare key throws `:rf.error/machine-unknown-node-key`, and the message names the valid keys; namespaced keys pass, so put your own annotations under a namespaced key or under `:meta`. Spawn specs are described under [`:rf.machine/spawn`](#rfmachinespawn-spawn-spec), a `:spawn-all` block in [Fan-out and join](../machines/fan-out-and-join.md#rules), and the snapshot a machine produces under [`[:rf/machine machine-id]`](#rfmachine-machine-id). The machines guide teaches the grammar, starting from [The table](../machines/concepts.md).
+
+#### Machine-root keys
+
+Beside `:initial` and `:states`, a machine spec's root takes the keys below. The runtime reads them only at the root: on a nested state they throw `:rf.error/machine-unknown-node-key`. The root is a state node too, so it also takes the [state node keys](#state-node-keys), apart from those it refuses with `:rf.error/machine-root-slot-not-supported`.
 
 | Root key | What it takes and does |
 |---|---|
+| `:data` | The machine's initial private data, a map. It must survive `pr-str` and `read-string`, so it holds no functions, atoms or host objects. |
+| `:guards`, `:actions` | Maps from an id to a callback: a fn, or an entry map `{:fn f :rf.cofx/requires […]}` that declares coeffects. A parallel machine's regions use the root's maps. See [Callbacks](#callbacks). |
+| `:regions` | With `:type :parallel`, a map from region name to region body. It makes a parallel machine, whose root takes no `:initial` or `:states`. See [Parallel regions](../machines/parallel-states.md). |
 | `:schemas` | A map whose keys are among `:data`, `:output`, `:events`, `:tags` and `:meta`, each a schema. `:data` validates the snapshot's `:data`; see [`validate-machine-data!`](#re-framemachinesvalidate-machine-data). `:output` is the next row. `:events`, `:tags` and `:meta` are accepted and not checked. Any other key, `:input` included, throws `:rf.error/machine-bad-schemas-key`, and a non-map throws `:rf.error/machine-bad-schemas`. |
 | `[:schemas :output]` | A schema for the value a root-level `:final?` leaf reports through `:output-key`, which is `nil` when the leaf has none. It is checked once, as the machine finishes, in development builds only. A failing value emits `:rf.error/schema-validation-failure` with `:where :machine-output`, `:phase :completion` and `:rollback? false`, and nothing is rolled back: the machine has already finished, so it is still destroyed and a parent's `:on-done` still receives the value. A schema the validator throws on emits `:rf.error/malformed-schema` with `:where :machine-output`, and completion proceeds the same way. See [Schemas](../machines/concepts.md#schemas) in the machines guide. |
 | `:sensitive`, `:large` | A vector of paths into the snapshot, such as `[[:data :payment :token]]`. They classify those slots of every instance: each actor's paths are registered when it is spawned, first boots or is restored, and removed when it is destroyed. Traces and the SSR hydration payload then show `:rf/redacted` for a sensitive slot and the `:rf.size/large-elided` marker for a large one; the snapshot itself is unchanged. A malformed declaration throws `:rf.error/invalid-machine-classification` at registration. A `:sensitive?` prop inside `[:schemas :data]` does not classify the snapshot; it only redacts a failed validation's trace. See [Classify subsystem data on the subsystem](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem). |
@@ -128,6 +202,71 @@ Beside `:initial`, `:states`, `:data`, `:guards` and `:actions`, a machine spec'
 | `:region-order` | A vector naming a `:type :parallel` machine's regions in the order their actions run. It is required when `:regions` has more than eight entries, which a map does not keep in written order; without it registration throws `:rf.error/machine-parallel-region-order-required`, and an order that does not name every region exactly once throws `:rf.error/machine-parallel-region-order-mismatch`. See [Parallel regions](../machines/parallel-states.md#limitations) in the machines guide. |
 | `:always-depth-limit` | An integer, 16 by default. It bounds the `:always` transitions the machine takes while it settles after an event. Exceeding it aborts the whole macrostep with `:rf.error/machine-always-depth-exceeded`, and no snapshot or effects commit. |
 | `:raise-depth-limit` | An integer, 16 by default. It bounds the raised events one macrostep handles; [`[:raise event-vec]`](#raise-event-vec) has the rule. See [Run to completion](../machines/automatic-transitions.md#run-to-completion) in the machines guide. |
+
+#### State node keys
+
+These are the bare keys a state takes:
+
+| Key | Meaning | Taught in |
+| --- | --- | --- |
+| `:on` | Transitions taken on an event | [Transition forms](../machines/concepts.md#transition-forms) |
+| `:entry`, `:exit` | Action run on entering or leaving the state | [Entry, exit, and transition actions](../machines/concepts.md#entry-exit-and-transition-actions) |
+| `:initial`, `:states` | Child states, and the one entered first | [Hierarchical states](../machines/hierarchical-states.md) |
+| `:on-done` | Transition taken when a child `:final?` state is reached | [Nested final states](../machines/hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states) |
+| `:always` | Eventless transitions | [Automatic transitions](../machines/automatic-transitions.md#eventless-always) |
+| `:after` | Delayed transitions | [Delayed `:after`](../machines/automatic-transitions.md#delayed-after) |
+| `:timeout`, `:on-timeout` | A deadline and the transition it takes | [`:timeout` and `:on-timeout`](../machines/automatic-transitions.md#timeout-and-on-timeout) |
+| `:type` | `:choice` or `:history` on a state; `:parallel` on the root | [Choice states](../machines/automatic-transitions.md#choice-states), [History](../machines/history.md), [Parallel regions](../machines/parallel-states.md) |
+| `:choice` | A choice state's candidate vector | [Choice states](../machines/automatic-transitions.md#choice-states) |
+| `:deep?`, `:default-target` | A history pseudo-state's options | [History](../machines/history.md#the-keys) |
+| `:spawn`, `:spawn-all` | Child actors that live while the state is active | [Actors](../machines/actors.md), [Fan-out and join](../machines/fan-out-and-join.md) |
+| `:tags` | A set of labels projected onto the snapshot | [Tags](../machines/tags.md) |
+| `:final?`, `:output-key`, `:error?` | A finishing leaf and what it reports | [Final states](../machines/concepts.md#final-states) |
+| `:meta` | Your own static metadata, such as `{:terminal? true}` | [Final states](../machines/concepts.md#final-states) |
+
+A history pseudo-state takes only `:type`, `:deep?` and `:default-target`. A choice state only routes, so it refuses the keys of a state that waits (`:on`, `:entry`, `:after` and the rest). [Registration errors](#registration-errors) lists both refusals.
+
+#### Transitions
+
+Wherever the grammar takes a transition (an `:on` value, an `:after` value, `:always`, `:choice`, `:on-timeout`, an `:on-done`, a spawn's `:on-error`), it takes one of these forms:
+
+| Form | Meaning |
+|---|---|
+| `:settings` | A target keyword, sugar for `{:target :settings}`. It names a sibling of the declaring state. |
+| `[:authenticated :settings]` | A path target, absolute from the root. At a parallel root it is region-qualified, and a vector of such paths targets several regions. |
+| `{:target … :guard … :action …}` | A transition map, with the keys below. |
+| `[{…} {…}]` | A candidate vector: the first candidate whose guard passes is taken. `:choice` always takes this form. |
+| `{}` or `nil` | As an `:on` value, a forbidden transition: it consumes the event, so no ancestor's transition for it runs. |
+
+| Transition key | Meaning |
+|---|---|
+| `:target` | Where to go: a keyword or a path. Without it the transition is targetless and runs only its action, with no exit or entry. |
+| `:guard` | A guard id from `:guards`, or an inline fn. The transition is taken only when it returns truthy. |
+| `:action` | One action id from `:actions`, or one inline fn. |
+| `:reenter?` | `true` makes a transition to the same state exit and re-enter it. |
+| `:meta` | Your own static metadata. |
+
+#### Callbacks
+
+Every guard and action, `:entry` and `:exit` included, receives one context map:
+
+| Key | Value |
+|---|---|
+| `:data` | The machine's `:data`. A guard sees it before the transition's actions run; each action sees the writes of the action slots that ran before it. |
+| `:event` | The trigger vector. It is `nil` in an `:always` step, and `[:rf.machine/start]` for the initial `:entry`. |
+| `:state` | The state the machine was in before this transition, in every slot. |
+| `:meta` | The snapshot's `:meta`, which starts as the root's `:meta`. |
+| `:tags`, `:all-state` | Inside a parallel region only: the machine-wide tag union and the region-to-active-state map, frozen for each selection round. |
+| `:rf.cofx` | The coeffects a named callback declares in `:rf.cofx/requires`. |
+
+An action returns a map, or `nil` for no effects:
+
+| Key | Meaning |
+|---|---|
+| `:data` | Merged into the snapshot's `:data`, top-level keys only. |
+| `:fx` | An ordinary effects vector, plus the machine-only [`:raise`](#raise-event-vec). |
+
+A returned `:db` is dropped with `:rf.error/machine-action-wrote-db`. An `:after` delay fn is the one callback with a different context: it receives `{:snapshot …}`. [Guards and actions](../machines/concepts.md#guards-and-actions) in the guide teaches callbacks.
 
 ## Keyword surfaces
 
@@ -452,9 +591,9 @@ These run the registration-time checks and the `:data` schema checks. The three 
   (re-frame.machines/validate-machine! machine)
   ```
 - **Description**: Runs every registration-time check on a machine definition and throws on a violation. `make-machine-handler` calls it first, so every registration runs it.
-    - It checks history-state placement, the closed key set, the at-most-one-per-compound rule, `:default-target` resolution, the region shape of `:type :parallel`, and top-level dispatch plus guard and action ref resolution.
+    - It checks the whole [machine spec](#machine-spec): the closed key sets, transition shapes and targets, guard and action refs, timers, choice, final, history, parallel and spawn rules.
     - `:regions` is accepted only on a `:type :parallel` node, because regions only run on a `:type :parallel` root. On a flat or compound root it throws `:rf.error/machine-root-slot-not-supported` before any other check reads the root; the error's `:offending-keys` lists every root key the runtime does not read there. On a state it throws `:rf.error/machine-unknown-node-key`.
-    - Errors include `:rf.error/machine-history-misplaced`, `-history-extra-keys`, `-history-duplicate` and `-history-bad-default-target`, `:rf.error/machine-unknown-node-key`, `:rf.error/machine-root-slot-not-supported`, and `:rf.error/machine-unresolved-guard` / `-unresolved-action`.
+    - It throws the grammar ids listed under [Registration errors](#registration-errors). The `opts`, artefact, `:region-order`, `:rf.cofx/requires` and `:sensitive` / `:large` checks run in `reg-machine` around it, so this function alone does not throw those.
     - The conformance corpus tests its registration errors against this function.
 
 #### `re-frame.machines/validate-machine-data!`

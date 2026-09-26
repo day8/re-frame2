@@ -361,33 +361,18 @@ keys, so a typo or an XState spelling (`:invoke`, `:cond`) throws
 `:rf.error/machine-unknown-node-key`, and the message names the valid keys.
 Put your own annotations under a namespaced key (`:my.app/note`) or `:meta`.
 Every refusal is an `ex-info` carrying `:rf.error/id` in its `ex-data`
-([Errors that throw](../core/errors.md#the-errors-that-throw-not-trace)).
+([Errors that throw](../core/errors.md#the-errors-that-throw-not-trace)), and
+[Registration errors](../api/re-frame.machines.md#registration-errors) lists
+every id.
 
 ## State node keys
 
-These are the bare keys a state takes:
-
-| Key | Meaning | Taught in |
-| --- | --- | --- |
-| `:on` | Transitions taken on an event | [Transition forms](#transition-forms) |
-| `:entry`, `:exit` | Action run on entering or leaving the state | [Entry, exit, and transition actions](#entry-exit-and-transition-actions) |
-| `:initial`, `:states` | Child states, and the one entered first | [Hierarchical states](hierarchical-states.md) |
-| `:on-done` | Transition taken when a child `:final?` state is reached | [Nested final states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states) |
-| `:always` | Eventless transitions | [Automatic transitions](automatic-transitions.md#eventless-always) |
-| `:after` | Delayed transitions | [Delayed `:after`](automatic-transitions.md#delayed-after) |
-| `:timeout`, `:on-timeout` | A deadline and the transition it takes | [`:timeout` and `:on-timeout`](automatic-transitions.md#timeout-and-on-timeout) |
-| `:type` | `:choice` or `:history` on a state; `:parallel` on the root | [Choice states](automatic-transitions.md#choice-states), [History](history.md), [Parallel regions](parallel-states.md) |
-| `:choice` | A choice state's candidate vector | [Choice states](automatic-transitions.md#choice-states) |
-| `:deep?`, `:default-target` | A history pseudo-state's options | [History](history.md#the-keys) |
-| `:spawn`, `:spawn-all` | Child actors that live while the state is active | [Actors](actors.md) |
-| `:tags` | A set of labels projected onto the snapshot | [Tags](tags.md) |
-| `:final?`, `:output-key`, `:error?` | A finishing leaf and what it reports | [Final states](#final-states) |
-| `:meta` | Your own static metadata, such as `{:terminal? true}` | [Final states](#final-states) |
-
-The root also takes `:data`, `:guards`, `:actions`, `:schemas`,
-`:internal-events` and the two depth limits, and a parallel root takes
-`:regions` and `:region-order`; the
-[API reference](../api/re-frame.machines.md#machine-root-keys) lists them.
+Besides `:on`, `:entry` and `:exit`, a state takes keys that later pages
+teach: child states, eventless and delayed transitions, deadlines, history,
+parallel regions, actors, tags and final states. The root is a state too, and
+also holds the machine's own blocks, such as `:data`, `:guards` and `:actions`.
+[Machine spec](../api/re-frame.machines.md#machine-spec) in the API reference
+lists every key and the page that teaches it.
 
 ## Self-transitions and wildcards
 
