@@ -7,8 +7,8 @@ The short answer: in re-frame2 a continuation is data, not a closure.
 
 !!! tip "Just want the `.then` / `.catch` / `.finally` map?"
 
-    [Coming from Promises](coming-from-promises.md) is the quick table; this page is
-    the *why*.
+    [Coming from Promises](#coming-from-promises), at the end of this page, is the
+    quick table; the rest of the page is the *why*.
 
 ## Start with the one move
 
@@ -160,3 +160,42 @@ What you buy with the ceremony: the continuation is **on the record** — visibl
 ??? info "Coming from redux-saga?"
 
     You've already accepted half this idea: saga *effects* are descriptions the middleware interprets, not direct calls. re-frame2 makes the *continuation* data too — the thing a saga keeps as a suspended generator (a closure that dies with the process) becomes a named event vector that doesn't. So you keep saga's "effects are data" win and lose its "the rest of the flow lives in an un-serializable, un-inspectable generator" cost.
+
+## Coming from Promises
+
+A managed effect never hands you a promise. It dispatches an ordinary event carrying a reply map, so each Promise job becomes a question of which handler receives that map and how it reads it:
+
+| JS Promise | re-frame2 |
+|---|---|
+| `.then(onFulfilled)` | `:on-success [:ev]` (HTTP sugar), or the `:ok` branch of `(:status reply)` in one [`:reply-to`](http.md#one-handler-with-reply-to) handler |
+| `.catch(onRejected)` | `:on-failure [:ev]` ([split sugar](http.md#two-handlers-with-on-success--on-failure)), or the `:error` branch of `(:status reply)` |
+| `.finally(onFinally)` | shared code in **one** `:reply-to` handler: a `let` above the `case` ([example](#the-finally-job)) |
+| `AbortController` cancellation | a status you read, `:cancelled`, rather than an exception type ([cancellation](http.md#cancellation-supersession-and-abort)) |
+| a superseded or raced settlement | `:stale`, which is never delivered ([why](#why-there-is-no-on-finally)) |
+| `Promise.all([…])` | a state machine's `:spawn-all` of `:rf.http/managed` children with `:join :all` ([from a state machine](http.md#from-a-state-machine)) |
+
+A promise has no cancelled outcome of its own (you catch a thrown `AbortError`) and no stale one at all: a superseded `fetch` still resolves and still runs your `.then`, overwriting fresher data. Here both are statuses in the closed set, and the stale one is suppressed before it reaches your handler. `async/await` maps the same way: the code after the `await` is the success path and the `catch` block is the failure path.
+
+### The `.finally` job
+
+Cleanup that runs whichever way the work settled needs no dedicated key. The settlement arrives as one value in one handler, so a `let` above the `case` already sees every branch:
+
+```clojure
+(rf/reg-event :articles/replied
+  (fn [{:keys [db]} [_ reply]]
+    (let [db (assoc db :loading? false)]                     ;; runs for every outcome — this is your `finally`
+      (case (:status reply)
+        :ok        {:db (assoc db :articles (:value reply))}  ;; `.then`
+        :error     {:db (assoc db :error    (:error reply))}  ;; `.catch`
+        :cancelled {:db db}))))
+```
+
+The handler cannot see the locals of the code that issued the request. Anything the reply branch needs, such as a slug, rides on the reply vector ahead of the appended reply map: `:reply-to [:articles/replied slug]` delivers `[:articles/replied slug <reply-map>]`. The split form carries context the same way, as in `:on-success [:articles/loaded slug]`. That is the [stale-world trap](#the-bug-this-kills-the-stale-world-trap) avoided on purpose: the value is data on the record, not a snapshot captured at issue time.
+
+### Why there is no `:on-finally`
+
+A Promise needs `finally` because settlement splits into two closures, the `.then` and the `.catch`, with no shared scope. When settlement is one value delivered to one handler, the handler body is that shared scope.
+
+`finally` also promises to always run, and re-frame2 breaks that promise on purpose. A `:stale` reply is never delivered, because superseded work must not touch state, so its "finally" must not fire either. Cleanup such as clearing a loading flag belongs to the newer request, not to the one it superseded.
+
+**Rule of thumb:** use two handlers (`:on-success` / `:on-failure`) when the branches share nothing, and one `:reply-to` handler once they share cleanup.

@@ -580,11 +580,9 @@ HANDBOOK_COMPAT_ANCHORS = {
         "one-handler",
         "the-search-box-race-cured",
     ),
-    "docs/async/examples.md": (
-        "async-http-examples",
-    ),
     "docs/async/index.md": (
         "in-this-section",
+        "async-http-examples",
     ),
     # API reference.
     "docs/api/re-frame.core.md": (

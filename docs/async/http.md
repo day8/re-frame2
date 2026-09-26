@@ -16,7 +16,7 @@ retries, and cancels; the reply arrives as an ordinary [event](../core/glossary.
 
 ## The args map
 
-Every key you can hand `:rf.http/managed`. `:request` (with a `:url`) and a reply target — `:reply-to`, or `:on-success` / `:on-failure` — are required; everything else has a sane default, which is why the common case stays short:
+`:rf.http/managed` takes one args map. Two things in it are required: the `:request`, with a `:url`, and a reply target, which is `:reply-to` or the `:on-success` / `:on-failure` pair. Everything else has a default, so the common case stays short:
 
 ```clojure
 {:fx [[:rf.http/managed
@@ -25,20 +25,7 @@ Every key you can hand `:rf.http/managed`. `:request` (with a `:url`) and a repl
         :on-failure [:article/load-error]}]]}
 ```
 
-| Key | What it does | Default |
-|---|---|---|
-| `:request` | The wire request as data — `:method` / `:url` / `:headers` / `:params` / `:body` and the [rest of the request map](#the-request-is-a-map). | **required** |
-| `:reply-to` | Event vector for **both** the success and the failure reply — the [unified spelling](#one-handler-with-reply-to); the handler branches on `:status`. | none |
-| `:on-success` | Event vector for success replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) success replies. | none |
-| `:on-failure` | Event vector for failure replies — the [split sugar](#two-handlers-with-on-success--on-failure). Set it to `nil` to [silence](#silencing-a-reply) failure replies. | none |
-| `:decode` | Parse and [validate the 2xx body](#validating-the-body-with-decode) — a [schema](../core/glossary.md#schema), a keyword, or a fn. | `:auto` |
-| `:accept` | A [post-decode domain check](#a-valid-200-can-still-be-a-failure-accept) — a 200 can still be a failure. | `{:ok decoded}` |
-| `:retry` | A [transport-retry policy](#retry-transport-retry-as-data) — `:on` set, `:max-attempts`, `:backoff`. | none |
-| `:request-id` | A stable id; a new request with the same id [supersedes the old](#cancellation-supersession-and-abort). | none |
-| `:abort-signal` | An external `AbortController` `.signal` to [cancel through](#cancel-through-an-external-signal-abort-signal). Browser-only. | none |
-| `:timeout-ms` | Per-attempt [timeout](#timeouts); `nil` or `0` opts out. | `30000` |
-| `:sensitive?` | Redact body, params, and all URL values in traces — see [keeping secrets](http-going-further.md#keeping-secrets-out-of-the-trace). | `false` |
-| `:rf.http/max-decoded-keys` | Caps how many unique JSON object keys the decoder may intern. Raise it only for unusually large trusted payloads. | `10000` |
+The other keys each get a section below: `:decode` [validates the body](#validating-the-body-with-decode), `:retry` [retries a failed attempt](#retry-transport-retry-as-data), `:request-id` [supersedes or cancels a request](#cancellation-supersession-and-abort), `:timeout-ms` [sets the timeout](#timeouts), `:accept` [turns a valid 200 into a failure](#a-valid-200-can-still-be-a-failure-accept), `:abort-signal` [cancels through a browser signal](#cancel-through-an-external-signal-abort-signal), and `:sensitive?` [keeps the request out of traces](http-going-further.md#keeping-secrets-out-of-the-trace). The [API reference](../api/re-frame.http.md#rfhttpmanaged-args-map) lists every key with its default.
 
 ## The request is a map
 
@@ -57,23 +44,15 @@ Every key you can hand `:rf.http/managed`. `:request` (with a `:url`) and a repl
         :on-failure [:comment/create-error]}]]}
 ```
 
-Every `:request` key:
+The keys in that sample are the ones most requests use:
 
-| Key | Default | Notes |
-|---|---|---|
-| `:method` | `:get` | `:get` / `:head` / `:post` / `:put` / `:patch` / `:delete` / `:options`. |
-| `:url` | **required** | A string. Validated at dispatch time *after* the interceptor chain runs, so a base-URL interceptor is honoured. |
-| `:headers` | none | Map of string → string (or string → vector for multi-valued). Names are case-insensitive. |
-| `:params` | none | Map of query-string params. URL-encoded and merged onto `:url` for you. A vector value repeats the key: `{:tag ["a" "b"]}` sends `tag=a&tag=b`. |
-| `:body` | none | A Clojure collection, string, `FormData`, `Blob`, `ArrayBuffer`, or a **thunk** `(fn [] body)` invoked at send-time. A map, sequential or set body with no `:request-content-type` is sent as JSON, where keywords become their qualified names (`:user/id` → `"user/id"`) and UUIDs become strings. |
-| `:request-content-type` | none | `:json` (`application/json`) / `:form` (URL-encoded) / `:text` / an explicit MIME. Sugar that both sets `Content-Type` and serialises `:body`. |
-| `:credentials` | `:same-origin` | `:omit` / `:same-origin` / `:include`. CLJS-only; the JVM transport ignores it. |
-| `:mode` | host default | Fetch passthrough. CLJS-only; ignored on the JVM. |
-| `:redirect` | `:follow` | `:follow` / `:error` / `:manual`. Honoured by browser Fetch; on the JVM, `:error` and `:manual` both mean "do not auto-follow". |
-| `:cache` | host default | Fetch cache mode. CLJS-only; ignored on the JVM. |
-| `:referrer` | host default | Fetch referrer value. CLJS-only; ignored on the JVM. |
-| `:integrity` | none | Fetch subresource-integrity value. CLJS-only; ignored on the JVM. |
-| `:sensitive?` | `false` | Request-local privacy flag. Same effect as top-level `:sensitive?`: request and response values are redacted from traces. |
+- `:method` defaults to `:get`.
+- `:params` is URL-encoded onto `:url` for you. A vector value repeats the key: `{:tag ["a" "b"]}` sends `tag=a&tag=b`.
+- `:headers` maps names to strings. Names are case-insensitive.
+- `:body` takes a Clojure collection, a string, or a browser `FormData`, `Blob` or `ArrayBuffer`. A map, sequence or set with no `:request-content-type` is sent as JSON.
+- `:request-content-type` (`:json`, `:form`, `:text` or a MIME string) both serialises `:body` and sets `Content-Type`.
+
+The rest are Fetch options (`:credentials`, `:mode`, `:cache`, `:referrer`, `:integrity`), which only the browser honours, and `:redirect`. The [API reference](../api/re-frame.http.md#rfhttpmanaged-args-map) lists every `:request` key with its default.
 
 - **A file upload needs no content type.** Hand a `js/FormData` straight in as `:body` and leave `:request-content-type` off — the platform sets the multipart boundary itself.
 - **A bad `:url` fails loud, not silent.** A blank, nil, or non-string `:url` is rejected at dispatch with `:rf.error/http-bad-request` rather than falling through to the transport as an opaque failure.
@@ -91,13 +70,13 @@ Every reply is a **reply map**: a plain map with a closed `:status`. The framewo
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:cancelled? true` and `:rf.reply/cancel-reason` (the abort's `:reason`) alongside. |
 | `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
-A failure's inner `:error` map carries its own `:kind`, the category. Everyday requests read only `:status` / `:value` / `:error`. A live reply also carries bookkeeping: `:attempt` (which try produced it), `:rf.reply/work-status` (`:completed`, `:failed`, `:timed-out` or `:cancelled`), `:correlation {:request-id …}` when the request had one, `:rf.frame/id`, `:completed-at`, `:rf.reply/work-id` and `:rf.reply/work-kind :http`. [Why no await](continuations-are-data.md#one-reply-map-under-every-async-surface) covers the reply map every async surface shares.
+A failure's inner `:error` map carries its own `:kind`, the category. Everyday requests read only `:status` / `:value` / `:error`. A live reply also carries bookkeeping keys, such as `:attempt` (which try produced it) and `:completed-at`; the [API reference](../api/re-frame.http.md#reply-addressing) lists them all. [Why no await](continuations-are-data.md#one-reply-map-under-every-async-surface) covers the reply map every async surface shares.
 
 There are two ways to name the reply target. Neither is more correct; pick the one that fits the handler.
 
 ??? info "Coming from Promises?"
 
-    `:on-success` / `:on-failure` are `.then` / `.catch`; a single `:reply-to` handler that branches on `:status` is the `.finally`-plus-both-branches shape (a `let` above a `case`). [Coming from Promises](coming-from-promises.md) maps the whole triad — including why there is no `:on-finally`.
+    `:on-success` / `:on-failure` are `.then` / `.catch`; a single `:reply-to` handler that branches on `:status` is the `.finally`-plus-both-branches shape (a `let` above a `case`). [Coming from Promises](continuations-are-data.md#coming-from-promises) maps the whole triad, including why there is no `:on-finally`.
 
 ### Two handlers with :on-success / :on-failure
 
@@ -170,18 +149,14 @@ Write `:reply-to nil` and the whole reply is dropped — fire-and-forget, useful
 
 ## Failures are a closed set
 
-The failure map always carries a `:kind` from a fixed, framework-reserved list. Not a string — a keyword from a known set:
+The failure map always carries a `:kind`: a keyword from a fixed list of eight, never a string.
 
-| `:kind` | When it fires | Extra keys on the failure map |
-|---|---|---|
-| `:rf.http/transport` | Network, DNS, connection error, or request-preparation error before the HTTP transaction completed. | `:message`, `:cause`; request-preparation failures also carry `:stage :request-prep`. |
-| `:rf.http/cors` | A cross-origin request the browser refused. Fetch reports a CORS rejection and a dropped connection to a cross-origin URL the same way, so both land here. Browser-only. | `:message`, `:url`. |
-| `:rf.http/timeout` | The per-attempt timeout fired. | `:elapsed-ms`, `:limit-ms`; JVM failures may also carry `:message`. |
-| `:rf.http/http-4xx` | A 4xx response, plus rare non-2xx responses that are not 5xx. Decode is skipped. | `:status`, `:status-text`, `:body`, `:headers`. |
-| `:rf.http/http-5xx` | A 5xx response. Decode is skipped. | `:status`, `:status-text`, `:body`, `:headers`. |
-| `:rf.http/decode-failure` | A 2xx response whose body the decode pipeline rejected. | `:body-text`, `:cause`, `:schema-validation-failure?`; keyword-cap failures also carry `:reason :too-many-keys` and `:limit`. |
-| `:rf.http/accept-failure` | Your `:accept` fn returned `{:failure ...}`, threw, or returned a malformed shape. | `:detail`, `:decoded`, `:request-id`. |
-| `:rf.http/aborted` | Aborted by `:rf.http/managed-abort` or the `:abort-signal` (`:reason :user`), or by the destroy of the machine actor that issued it (`:reason :actor-destroyed`). Supersession, frame teardown and epoch restore abort too, but deliver no reply. | `:request-id`, `:reason`; some paths also carry `:actor-id` or `:message`. |
+- **No response at all.** `:rf.http/transport` is a network, DNS or connection error, or a `:body` that could not be prepared. In the browser, the same trouble against a cross-origin URL reads as `:rf.http/cors`, because Fetch reports a CORS refusal and a dropped connection the same way. `:rf.http/timeout` means the per-attempt timeout fired.
+- **An error status.** `:rf.http/http-4xx` and `:rf.http/http-5xx` carry the `:status`, `:headers` and the raw `:body`.
+- **A 2xx the app rejected.** `:rf.http/decode-failure` means your `:decode` rejected the body; `:rf.http/accept-failure` means your [`:accept`](#a-valid-200-can-still-be-a-failure-accept) did.
+- **Cancelled.** `:rf.http/aborted`, with a `:reason` saying who cancelled: `:user` for a manual abort or `:abort-signal`, `:actor-destroyed` for a machine actor's destroy. A supersession, a frame's teardown and an epoch restore abort too, but deliver no reply.
+
+The API reference's [failure categories](../api/re-frame.http.md#failure-categories-closed-set) table lists the extra keys each kind carries.
 
 The set is closed for v1; adding a category is a versioned framework change, so `:rf.http/timeout` means the same thing in every codebase and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — the same discipline you'd use on any framework [error record](../core/glossary.md#error-record).
 
