@@ -1,7 +1,7 @@
 # Your own async effect
 
 To call a non-HTTP async host API (a promise SDK, a callback, IndexedDB, a worker) and
-get its result back as a named [event](../core/introduction.md), register an effect.
+get its result back as a named [event](../core/events.md), register an effect.
 The [event handler](../core/effects.md) stays pure, with no `.then` and no `await`: it
 asks for the effect and names the reply event. The effect does the host work and
 dispatches that event ([Why no await](continuations-are-data.md) explains the design).

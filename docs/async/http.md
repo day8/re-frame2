@@ -82,7 +82,7 @@ To put the same header on every request (auth, say), register one [HTTP intercep
 
 ## Handling the reply
 
-Every reply is a **reply map**: a plain map with a closed `:status`. The framework-wide set has [five members](continuations-are-data.md#one-envelope-under-every-async-surface); managed HTTP produces four of them (`:partial` belongs to protocols that return data *and* problems in one response — plain HTTP never emits it):
+Every reply is a **reply map**: a plain map with a closed `:status`. The framework-wide set has [five members](continuations-are-data.md#one-reply-map-under-every-async-surface); managed HTTP produces four of them (`:partial` belongs to protocols that return data *and* problems in one response — plain HTTP never emits it):
 
 | `:status` | Shape | Notes |
 |---|---|---|
@@ -91,9 +91,9 @@ Every reply is a **reply map**: a plain map with a closed `:status`. The framewo
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:cancelled? true` and `:rf.reply/cancel-reason` (the abort's `:reason`) alongside. |
 | `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
-A failure's inner `:error` map carries its own `:kind`, the category. Everyday requests read only `:status` / `:value` / `:error`. A live reply also carries bookkeeping: `:attempt` (which try produced it), `:rf.reply/work-status` (`:completed`, `:failed`, `:timed-out` or `:cancelled`), `:correlation {:request-id …}` when the request had one, `:rf.frame/id`, `:completed-at`, `:rf.reply/work-id` and `:rf.reply/work-kind :http`. [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface) covers the reply map every async surface shares.
+A failure's inner `:error` map carries its own `:kind`, the category. Everyday requests read only `:status` / `:value` / `:error`. A live reply also carries bookkeeping: `:attempt` (which try produced it), `:rf.reply/work-status` (`:completed`, `:failed`, `:timed-out` or `:cancelled`), `:correlation {:request-id …}` when the request had one, `:rf.frame/id`, `:completed-at`, `:rf.reply/work-id` and `:rf.reply/work-kind :http`. [Why no await](continuations-are-data.md#one-reply-map-under-every-async-surface) covers the reply map every async surface shares.
 
-There are two **equal** ways to name the reply target — pick by fit, not correctness.
+There are two ways to name the reply target. Neither is more correct; pick the one that fits the handler.
 
 ??? info "Coming from Promises?"
 
@@ -101,7 +101,7 @@ There are two **equal** ways to name the reply target — pick by fit, not corre
 
 ### Two handlers with :on-success / :on-failure
 
-Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply map appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. `:on-success` / `:on-failure` are pure routing sugar; both receive the identical reply map, they just route it to two named handlers:
+Name `:on-success` and `:on-failure` and each outcome lands in its own handler, with the reply map appended as the last event argument — `[:article/loaded {:status :ok :value <decoded> …}]`. Both handlers receive the same reply map; the two keys only choose which handler it goes to:
 
 ```clojure
 (rf/reg-event :article/load
@@ -115,7 +115,7 @@ Name `:on-success` and `:on-failure` and each outcome lands in its own handler, 
 (rf/reg-event :article/load-error (fn [{:keys [db]} [_ {:keys [error]}]] …))   ;; failure — :error
 ```
 
-Three small handlers, each doing one thing. This is the shape to prefer when the success and failure paths are substantial or diverge — each reads and tests on its own.
+Prefer this shape when the success and failure paths are substantial or diverge: each handler reads and tests on its own.
 
 ??? info "From re-frame v1"
 
@@ -210,10 +210,7 @@ Only the final exhausted failure dispatches your failure handler; intermediate a
 
 `:on` is a **closed set**, drawn only from the retryable categories: `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. A category is in the set when re-issuing the *same* request could plausibly change the outcome. The first three are the obvious transient cases; 4xx and CORS are admitted because a real slice of them is transient too (`429 Too Many Requests`, `408`, a just-deploying CORS edge) — but most aren't, so they're opt-in and want a narrow `:max-attempts`.
 
-Two guards keep a malformed `:on` from silently doing nothing:
-
-- Put a non-retryable category — or anything outside the `:rf.http/*` namespace — in `:on` and the request is rejected at dispatch with `:rf.error/http-bad-retry-on`, rather than riding a useless policy for its lifetime.
-- `:on` must be an actual *set* (`#{…}`). A bare keyword or a vector is rejected the same way — and for a sharp reason: the membership test is `contains?`, and `contains?` over a vector tests *indices*, not values, so a vector `:on` would silently disable retry for every category.
+A malformed `:on` is rejected at dispatch with `:rf.error/http-bad-retry-on`, so a policy that could never fire cannot ride along unnoticed. That covers a non-retryable category, anything outside `:rf.http/*`, and an `:on` that is not a set (`#{…}`). A vector is refused too: the membership test is `contains?`, which checks a vector's indices rather than its values, so a vector `:on` would disable retry for every category.
 
 Retry reads, never writes ([tutorial step 4](tutorial.md#step-4--retry-reads-not-writes)): the RealWorld example's login, register, and settings requests carry no `:retry`.
 
@@ -233,7 +230,7 @@ Retry reads, never writes ([tutorial step 4](tutorial.md#step-4--retry-reads-not
 
 **Frame teardown.** A request issued from an ordinary event handler belongs to the frame that issued it. Destroying that frame, or restoring an earlier epoch in it, aborts every request it still has in flight, with or without a `:request-id`, and suppresses their replies; each leaves a `:rf.http/stale-suppressed` trace row whose `:recovery` (`:suppressed-on-frame-destroy` or `:suppressed-on-epoch-restore`) says which boundary it was. While the frame lives, `:request-id` is your app-level cancel handle.
 
-**Manual abort — `[:rf.http/managed-abort the-id]`.** Where a supersession quietly retires the previous request, a manual abort is an explicit "stop now." It aborts whichever request currently holds the id and *does* deliver a reply — a `:status :cancelled` reply carrying `{:kind :rf.http/aborted :reason :user}` under `:error` — so a deliberate user-cancel can clear the spinner. An id with nothing in flight (its reply has already landed, say) makes the abort a no-op. A supersession suppresses silently (the new request *is* the cleanup); a manual abort speaks up (someone clicked "cancel"). The `:reason` tells them apart.
+**Manual abort — `[:rf.http/managed-abort the-id]`.** A manual abort stops whichever request currently holds the id and, unlike a supersession, *does* deliver a reply: a `:status :cancelled` reply carrying `{:kind :rf.http/aborted :reason :user}` under `:error`, so the handler for a user's cancel can clear the spinner. An id with nothing in flight (its reply has already landed, say) makes the abort a no-op.
 
 !!! note "Requests that die with their machine"
 
@@ -310,7 +307,12 @@ The builder returns an args map, so it composes everywhere the args map is accep
 
 ## Testing without a network
 
-Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`) and the `with-request-stubs` route-stubbing helper — all reached by requiring the sibling `re-frame.http.test-support` namespace — synthesize replies with the `:status` / `:value` / `:error` shape a live request delivers, without the live reply's identity and timing fields (`:rf.reply/work-id`, `:completed-at`). `with-request-stubs` matches a request on its `:method` and on its `:url` as the `:before` interceptors leave it, before `:params` is merged in; a request that matches no route receives a `:rf.http/transport` failure whose `:message` is `"no stub matched"`. The [tutorial's test step](tutorial.md) shows the pattern; [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe; the [API reference](../api/re-frame.http.md) documents every stub surface.
+Tests need no network. Require `re-frame.http.test-support` from test code and use either of its two tools:
+
+- `with-request-stubs` answers requests from a route map while a function runs. It matches a request on its `:method` and on its `:url` as the `:before` interceptors leave it, before `:params` is merged in. A request that matches no route receives a `:rf.http/transport` failure whose `:message` is `"no stub matched"`.
+- The canned-stub effects, `:rf.http/managed-canned-success` and `:rf.http/managed-canned-failure`, deliver one reply inline from `:fx`.
+
+Both deliver the `:status` / `:value` / `:error` shape a live request does, without the live reply's identity and timing keys (`:rf.reply/work-id`, `:completed-at`). The [tutorial's test step](tutorial.md#step-6--test-it-without-a-network) shows the pattern, [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe, and the [API reference](../api/re-frame.http.md#testing-without-a-network) documents every stub surface.
 
 ## Troubleshooting
 
