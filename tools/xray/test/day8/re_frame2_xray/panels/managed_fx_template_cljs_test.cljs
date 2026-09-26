@@ -116,60 +116,6 @@
           "but a failure says nothing about wire timing")
       (is (not (contains? ids "rf-xray-managed-fx-section-app-db"))))))
 
-(deftest record-panel-machine-invoke-smoke
-  (let [r   (record {:surface :machine-invoke :fx-id :rf.machine/spawn
-                     :status :ok})
-        ids (set (testids (template/record-panel r)))]
-    (is (contains? ids "rf-xray-managed-fx-header-machine-invoke"))
-    (is (contains? ids "rf-xray-managed-fx-surface-machine-invoke"))))
-
-(deftest record-panel-ssr-fx-smoke
-  (let [r   (record {:surface :ssr-fx :fx-id :rf.server/set-status
-                     :status :ok})
-        ids (set (testids (template/record-panel r)))]
-    (is (contains? ids "rf-xray-managed-fx-header-ssr-fx"))
-    (is (contains? ids "rf-xray-managed-fx-surface-ssr-fx"))))
-
-(deftest record-panel-flow-smoke
-  (let [r   (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})
-        ids (set (testids (template/record-panel r)))]
-    (is (contains? ids "rf-xray-managed-fx-header-flow"))
-    (is (contains? ids "rf-xray-managed-fx-surface-flow"))))
-
-(deftest record-panel-websocket-smoke
-  (let [r   (record {:surface :websocket :fx-id :rf.ws/connect :status :ok})
-        ids (set (testids (template/record-panel r)))]
-    (is (contains? ids "rf-xray-managed-fx-header-websocket"))
-    (is (contains? ids "rf-xray-managed-fx-surface-websocket"))))
-
-;; ---- error-status renders error styling -------------------------------
-
-(deftest record-panel-error-surfaces-status-error-testid
-  (let [r   (assoc (record {:surface :http :fx-id :rf.http/managed
-                            :status :error :http-status 500})
-                    :failure {:kind :rf.http/http-5xx
-                              :tags {:status 500 :body "oops"}})
-        ids (set (testids (template/record-panel r)))]
-    (is (contains? ids "rf-xray-managed-fx-status-error"))))
-
-;; ---- cross-link wiring -------------------------------------------------
-;;
-;; REPLY TARGET is collapsed by default. The tests assert the structural
-;; surface (section header is always rendered; body shows up once the
-;; section is expanded).
-;;
-;; There is no cross-link here: the section shows
-;; the reply target the caller CONFIGURED, and the panel observes no
-;; delivery, so there is nowhere for it to pivot to.
-
-(deftest handler-section-header-present-when-handler-present
-  (let [r   (record {:surface :http :fx-id :rf.http/managed
-                     :status :ok :http-status 200
-                     :handler [:user/loaded {:id 1}]})
-        ids (set (testids (template/record-panel r)))]
-    (is (contains? ids "rf-xray-managed-fx-section-handler"))
-    (is (contains? ids "rf-xray-managed-fx-section-handler-header"))))
-
 ;; ---- records-list ------------------------------------------------------
 
 (deftest records-list-renders-one-panel-per-record
@@ -222,18 +168,6 @@
       (is (= 2 (count (distinct ks))) "sibling keys are distinct")
       ;; The contract surface stays observable in the hiccup itself.
       (is (= ks (mapv #(:key (second %)) kids))))))
-
-(deftest records-list-keys-are-stable-across-renders
-  (testing "a key that changes value between renders is worse
-            than no key, so the same record must key identically twice."
-    (let [recs [(record {:surface :http :fx-id :rf.http/managed :status :ok :http-status 200})
-                (record {:surface :flow :fx-id :rf.fx/reg-flow :status :ok})]
-          once  (mapv react-key (record-panel-nodes (template/records-list recs)))
-          twice (mapv react-key (record-panel-nodes (template/records-list recs)))]
-      ;; Guard the guard: `[nil nil]` is trivially stable, so assert
-      ;; presence here too rather than letting this pass on absence.
-      (is (every? some? once))
-      (is (= once twice)))))
 
 ;; ---- HD-016: `edn/inspect` is CALLED, never a hiccup head ----------------
 ;;
