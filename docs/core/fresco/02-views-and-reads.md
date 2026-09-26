@@ -87,7 +87,7 @@ syntax.
 ```clojure
 (h/defview todo-list [_]
   [:ul
-   (for [id (h/sub [:todo/visible-ids])]
+   (for [{:keys [id]} (h/sub [:todo/visible])]
      [todo-row {:key id :id id}])])
 ```
 
@@ -97,9 +97,9 @@ does not invent a key. A missing key normally produces React's own development
 warning. A map or other entity value at the `:key` of a view child produces
 `:rf.warning/fresco-entity-key`, naming the child.
 
-This page owns the spelling. [Lists and collections](06-lists-and-collections.md)
-explains key quality: use a stable domain identity, never an array index or the
-whole entity.
+Use a stable domain identity such as the todo's id, never an array index or
+the whole entity. [Lists and collections](06-lists-and-collections.md) explains
+why.
 
 ## Props, children, and fragments
 
@@ -250,12 +250,12 @@ read that will never update correctly.
 ```clojure
 ;; Don't — the read happens when the timer fires
 (js/setTimeout
-  #(export! (h/sub [:todo/rows]))
+  #(export! (h/sub [:todo/all]))
   1000)
 
 ;; Do — read now and retain the value
-(let [rows (h/sub [:todo/rows])]
-  (js/setTimeout #(export! rows) 1000))
+(let [todos (h/sub [:todo/all])]
+  (js/setTimeout #(export! todos) 1000))
 ```
 
 For work that needs current state later, move the work into the event layer and
@@ -270,7 +270,7 @@ an explicit state dependency instead of a deferred view read.
 
     ```clojure
     ;; Don't — whichever view invokes this thunk acquires the subscription
-    (reset! !later #(h/sub [:todo/rows]))
+    (reset! !later #(h/sub [:todo/all]))
     ```
 
     The runtime does not trace subscription ownership through mutable

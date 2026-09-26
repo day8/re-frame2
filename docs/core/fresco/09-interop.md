@@ -17,11 +17,11 @@ exactly as on a native tag.
   (:require [re-frame.fresco :as h]
             [app.hosts.date-picker :refer [date-picker]]))
 
-(h/defview due-field [_]
+(h/defview due-field [{:keys [id]}]
   [date-picker
-   {:selected  (h/sub [:task/due-date])
-    :on-change (h/event [date & _]
-                 [:task/set-due date])}])
+   {:selected  (h/sub [:todo/due-date id])
+    :on-change (h/event [date _event]
+                 [:todo/set-due id date])}])
 ```
 
 The declaration keeps npm requires in a `.cljs` host namespace, gives tools a
@@ -52,13 +52,12 @@ inside an options object, or a string where you hold a keyword, build that
 value yourself with `#js`, a string, or `(name value)`. Fresco does not guess a
 library's data model.
 
-The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`. A
-declaration outside that shape — an unknown option, a `:callbacks` value outside
-`:event` and `:render`, a malformed `:slots` set — fails with
-`:rf.error/fresco-bad-host-declaration`, the reason naming which; a component
-that resolved to `nil` — often a mistaken `:default` import — fails with
-`:rf.error/fresco-host-no-component`. These errors point to the declaration rather than a later
-mount.
+The declaration accepts `:callbacks`, `:slots`, `:server`, and `:fallback`.
+An unknown option, a `:callbacks` value other than `:event` or `:render`, or a
+malformed `:slots` set raises `:rf.error/fresco-bad-host-declaration`, with a
+reason naming the fault. A component that resolved to `nil`, often a mistaken
+`:default` import, raises `:rf.error/fresco-host-no-component`. Both errors are
+raised at the declaration, not at a later mount.
 
 ## Callback contracts
 
@@ -81,7 +80,7 @@ value-first callback such as `onChange(date)`:
 ```clojure
 [date-picker {:selected  due-date
               :on-change (h/event [date _event]
-                           [:task/set-due date])}]
+                           [:todo/set-due id date])}]
 ```
 
 A bare intent with no marker is valid even when no DOM event exists because it
@@ -96,12 +95,12 @@ It must be pure and must return a React element, not raw Hiccup:
 
 ```clojure
 [virtual-list
- {:item-count (count ids)
+ {:item-count (count todos)
   :render-row (h/event [i]
-                (h/as-element
-                 [:li.row
-                  {:on-click [:feed/open (nth ids i)]}
-                  (str (nth ids i))]))}]
+                (let [{:keys [id title]} (nth todos i)]
+                  (h/as-element
+                   [:li.row {:on-click [:todo/toggle id]}
+                    title])))}]
 ```
 
 `h/as-element` converts the Hiccup result. `h/event` captures the supplying
@@ -129,10 +128,8 @@ Declare the override once, on the host:
   {:callbacks {:on-render-item :render}})
 ```
 
-`:callbacks` takes `:event` or `:render` and nothing else, and a declared
-contract outranks the spelling. Any other value is refused at the declaration
-with `:rf.error/fresco-bad-host-declaration`. Write the override only
-where the spelling is wrong; the usual case needs none.
+A declared contract outranks the spelling. Write the override only where the
+spelling is wrong; the usual case needs none.
 
 ## ReactNode slots
 
@@ -143,10 +140,10 @@ Declare props whose values are markup positions:
   {:slots #{:title :footer}})
 
 [modal
- {:on-close [:dialog/cancel]
-  :title    [:h2 "Delete article?"]
+ {:on-close [:todo.ui/cancel-delete]
+  :title    [:h2 "Delete todo?"]
   :footer   [:button.danger
-             {:on-click [:article/delete id]}
+             {:on-click [:todo/delete id]}
              "Delete"]}]
 ```
 
@@ -168,8 +165,8 @@ A host has one of two policies:
 - **Render** — `{:server :render}` asserts deterministic output across server
   render, hydration, and fresh client mount.
 - **Client-only** — `{:server :client-only}`, the default. The server omits
-  the crossing. Optional
-  `:fallback` Hiccup appears at the crossing until the client adopts it.
+  the crossing. Optional `:fallback` Hiccup appears in its place until the
+  client mounts the component.
 
 A fallback must be inert markup. A `defview` or `defhost` head inside it raises
 `:rf.error/fresco-host-fallback-boundary-head`. Combining `:fallback` with
@@ -223,8 +220,9 @@ Portal behaviour:
 - Portals are Client-only because the server has no DOM target. An explicit
   fallback may emit placeholder markup at the portal's source-tree position.
 
-Use the [overlays module](13-overlays-and-focus.md) for product modals and
-popovers; it adds anchoring, dismissal, and focus policy. A portal is the lower-level container mechanism.
+A portal is the low-level container mechanism. For modals and popovers, use
+the [overlays module](13-overlays-and-focus.md), which adds anchoring,
+dismissal and focus handling.
 
 ## Raw `[:>]` escape
 
@@ -294,12 +292,12 @@ render.
 Reagent, UIx, raw React, JavaScript, or TypeScript parents:
 
 ```clojure
-(def article-card*
-  (h/as-component article-card))
+(def todo-card*
+  (h/as-component todo-card))
 ```
 
 React props return to the Fresco view as a normal props map with canonical
-names (`articleId` becomes `:article-id`) and identity-preserved values. The
+names (`todoId` becomes `:todo-id`) and identity-preserved values. The
 view retains its memoization, subscription reads, key identity, teardown, and
 frame from React context. It needs a frame above it, not a Fresco root:
 `h/frame-root`, `h/frame-provider` and their `rf/`-prefixed twins all write the
@@ -311,8 +309,8 @@ A Reagent parent converts the props before Fresco decodes them, exactly as it
 does for any other `[:>]` crossing: a keyword becomes its name, a map becomes a
 camel-cased JavaScript object, any other collection is deeply `clj->js`'d, and
 strings, numbers, booleans, `nil` and functions cross unchanged. Prop names
-survive the round trip (`:article-id` is camel-cased on the way out and read
-back as `:article-id`); values do not. Pass an id and read the rest with
+survive the round trip (`:todo-id` is camel-cased on the way out and read
+back as `:todo-id`); values do not. Pass an id and read the rest with
 `h/sub`, and the conversion never arises ([Views shared across the
 boundary](20-migration-from-reagent.md#views-shared-across-the-boundary)).
 
@@ -328,7 +326,7 @@ as a component.
 | Hiccup in a prop appears as array data | The prop was not declared as a ReactNode slot | Add it to `:slots` or convert that value with `h/as-element` |
 | React rejects an object returned by a render callback | Raw Hiccup crossed a render position | Return `h/as-element` |
 | A list renders nothing at an on*-named render prop | The spelling inferred the event contract, whose wrapper returns `nil` | Declare `{:callbacks {:on-render-item :render}}` on the host |
-| `:rf.error/fresco-bad-host-declaration` at declaration | A `:callbacks` value outside `:event` and `:render` — `:handler` included — or another declaration-shape fault the reason names | A plain function is the handler contract; declare `:event` or `:render` only where the spelling is wrong |
+| `:rf.error/fresco-bad-host-declaration` at declaration | A malformed option, often a `:callbacks` value such as `:handler` | Pass a plain function for a handler; declare `:event` or `:render` only where the spelling is wrong |
 | A raw callback runs and then raises `:rf.error/no-frame-context` | A plain function retained no rendering frame | Capture the frame in the Fresco body or use a declared event callback |
 | A shared namespace fails to load on the JVM | It contains a JavaScript require | Move the require and host declarations to a `.cljs` namespace |
 | `:rf.error/fresco-host-bad-ssr-policy` at declaration | Invalid policy or fallback attached to Render | Use Render or Client-only; fallback belongs only to Client-only |

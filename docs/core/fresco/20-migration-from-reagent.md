@@ -1,23 +1,21 @@
 # Migrating from Reagent
 
-This page covers the view-layer migration from Reagent to Fresco: component
-definitions, Hiccup differences, local state, and React interop.
+This page covers moving an application's views from Reagent to Fresco:
+component definitions, Hiccup differences, local state, and React interop. It
+assumes the application already uses re-frame2 events and subscriptions. If it
+still uses re-frame v1 shapes, migrate those first.
 
-It assumes the application already uses re-frame2 events and subscriptions. If
-it still uses re-frame v1 shapes, complete that migration first.
+The process has four steps:
 
-Use three migration tools in this order:
+1. **Generate the report.** A reporter lists every place the code needs a
+   decision or a rewrite.
+2. **Port one screen by hand.**
+3. **Prove the port.** Shadow comparison runs the Reagent original and the
+   Fresco port side by side and compares their DOM and dispatched events.
+4. **Apply the codemod.** It makes only the rewrites it can prove safe from
+   the source text, then you re-run the proof.
 
-1. **Reporter** — classify every foreign React crossing, and census every
-   rostered view-substrate API call site, as mechanical rewrites, human
-   decisions, and runtime blockers.
-2. **Shadow comparison** — run the Reagent original and Fresco port side by
-   side and compare canonical DOM and intent streams.
-3. **Codemod** — apply only source transformations whose behaviour is
-   decidable from the code.
-
-Do not start with the codemod. Read the report, port and prove a screen, then
-apply mechanical edits and run the proof again.
+Do not start with the codemod.
 
 ## 1. Generate the migration report
 
@@ -33,26 +31,22 @@ clojure -Srepro \
   -M -m re-frame.migration.fresco.codemod path/to/your/src/
 ```
 
-Run it from your own project. It needs no checkout of re-frame2: the coordinate
-fetches the reporter, and `--report out.edn` chooses where the report goes.
+Run it from your own project; it needs no checkout of re-frame2. The tool
+ships only as this git dependency, not in the published Fresco artefact. The
+`:git/sha` above is a known-good commit; `git ls-remote
+https://github.com/day8/re-frame2.git refs/heads/main` prints the current head
+if you want a newer one.
 
-The tool ships only as this git dependency; the published Fresco artefact does
-not include it. The `:git/sha` above is a known-good commit. To pin a newer
-one, `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main`
-prints the current head.
+Every run writes one EDN report. `--report out.edn` chooses the path; without
+it the report goes to `reagent-to-fresco-report.edn` in the parent of the first
+path scanned (scan `<repo>/src/` and it lands in `<repo>/`). The run prints the
+absolute path it used.
 
-Every run writes one EDN report, including a scan that changes no source.
-Without `--report` it goes to `reagent-to-fresco-report.edn` in the parent of
-the first path scanned (scan `<repo>/src/` and the report lands in `<repo>/`),
-and the run prints the absolute path it used.
-
-Reagent converted props crossing through `[:>]`. Among other behaviours, it
-camel-cased nested keys, converted keyword values to names, wrapped
-`r/partial`, and read metadata keys. Fresco does not perform that conversion.
-A `[:>]` form may therefore continue rendering while sending different values
-to the component.
-
-The reporter classifies every crossing:
+The report's first half covers `[:>]` crossings into React components.
+Reagent converted props on the way through: it camel-cased nested keys, turned
+keyword values into strings, wrapped `r/partial`, and read metadata keys.
+Fresco does none of that, so a `[:>]` form can keep rendering while sending
+different values to the component. The reporter classifies every crossing:
 
 | Category | Named classes | Meaning |
 | --- | --- | --- |
@@ -60,87 +54,32 @@ The reporter classifies every crossing:
 | Human decision | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error`, `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | The source does not contain enough information for a safe rewrite, or the change repairs previously broken behaviour that must be reviewed |
 | Runtime blocker | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | The site will raise or silently misrender until someone chooses the correct Fresco shape |
 
-The report is deterministic EDN. Each entry includes:
+Each entry gives the file, line and column, the source form, its
+classification, a sentence on how to fix it, and the component name where it
+can be found statically. The report also counts untouched sites, so a site
+missing from it was seen and needed nothing.
 
-- file, line, and column;
-- the source form as text;
-- its classification;
-- a recovery sentence;
-- the component name where it can be recovered statically.
+The final suggestions block drafts `h/defhost` declarations and callback
+contracts. Check each one against the component library's documentation. A
+prop named like an event may be a render prop whose return value the library
+uses; declaring it as `:event` replaces that return value and can blank the UI
+with no useful error.
 
-It is written even when no problematic sites exist and includes the count of
-untouched sites, so absence from the report is meaningful.
-
-The final suggestions block contains possible `h/defhost` declarations and
-possible callback contracts. Treat them as drafts. A prop named like an event
-may actually be a render prop whose return value the library consumes. For
-example, declaring a render prop as `:event` can replace its return value with
-a dispatch path and blank the UI without a useful runtime error. Confirm every
-contract against the component library's documentation.
-
-### The report's second half: the census
-
-Everything above describes the **fixer**, which only looks at `[:>]`-family
-crossings. Most Reagent code never crosses into React that way, so a codebase
-can produce zero fixer entries while still needing a lot of work.
-
-The same run therefore also emits a **census**, under `:census`, whose
-population is the view-substrate API **call site**: `r/atom`, `r/with-let`,
-`r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
-mounting, and the rest of the two rosters.
-
-There are two rosters, because a re-frame2 application on the Reagent adapter
-may call no Reagent API of its own. The first is Reagent's API — stock Reagent's namespaces, and the `reagent2.*`
-ones the reagent-slim adapter ships. The second is re-frame2's own substrate
-adapters: everything under `re-frame.adapter.`, matched as a prefix anchored at
-the start of the namespace, so adapters added later are counted too.
-
-A **call site is source that runs**. `#_(r/atom 0)`, `'(r/atom 0)` and
-`(comment (r/atom 0))` parse into the same nodes a live call does, and the
-census prunes all three rather than counting them. A syntax-quote is not
-pruned: a macro's template emits real call sites at every expansion.
-
-| Half | Population | Addressed at | Verdicts |
-| --- | --- | --- | --- |
-| fixer (`:entries`) | `[:>]`-family crossing sites | the site | rewrote, or refused in the classes above |
-| census (`:census`) | view-substrate API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
-
-The two halves measure different things and neither is a denominator for the
-other. §2's translation tables teach some of these shapes and not others; the
-census carries a recovery note for every class it emits:
-
-| Verdict | Named classes | Meaning |
-| --- | --- | --- |
-| Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Fresco translation exists, but which one depends on intent the source does not carry |
-| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Fresco has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
-| Mechanical | none | Always emitted as `:mechanical 0`. Every mechanical rewrite is a W-rule, and W-rules apply only at crossings |
-
-Two further classes report a resolution failure rather than a translation, both
-as runtime blockers. A namespace that spells a Reagent name without being
-Reagent's — a vendored inlined copy, for instance — is
-`:unresolved-reagent-require` at the `ns` form, and every roster-named call in
-that file is `:unresolved-alias`. The tool does not guess that such a copy is
-`reagent.core`, because a wrong binding rewrites working code.
-
-Every legal way of binding the Reagent name is read: an alias, a `:refer` list,
-`:refer :all`, a `:rename`, and any of them behind a reader conditional. A
-`:rename` reports under the roster name rather than the local spelling, and it
-releases the original — after `:refer [atom] :rename {atom ratom}`, `(ratom 0)`
-is Reagent's and a bare `(atom 0)` is `clojure.core`'s.
-
-What it cannot name it does not count, and says so. A Form-2 component is a
-`defn` returning a `fn` with nothing else marking it, so the census counts the
-`r/atom` that component closes over and reports nothing about the shape itself.
+The same run also counts every call to a view-library API, such as `r/atom`,
+`r/with-let`, `r/create-class` or `r/as-element`, under `:census` in the
+report. That half matters because most Reagent code never crosses into React
+through `[:>]`, so a codebase can have no crossing entries and still need a lot
+of work. [The census](#the-census) under Advanced describes it.
 
 ## 2. Port one screen by hand
 
-Migrate a complete screen rather than changing all component declarations,
-then all handlers, then all crossings across the repository. A screen-level
-port gives shadow comparison a useful unit.
+Port a complete screen, rather than changing every component declaration,
+then every handler, then every crossing across the repository. A whole screen
+is what shadow comparison can check.
 
 ### Two starting points
 
-"Reagent" names two codebases here, and they do not migrate the same way.
+"Reagent" can mean two kinds of codebase, and they migrate differently.
 
 A **Reagent application** writes views as `defn`s returning Hiccup, reads with
 `@(rf/subscribe [:q])`, and hands `#(rf/dispatch [:x])` closures to callbacks.
@@ -150,71 +89,64 @@ A **re-frame2 application on the Reagent adapter** writes views as `rf/reg-view`
 forms under a `[rf/frame-root {...}]` wrapper, and reads and dispatches through
 the lexical `subscribe` and `dispatch` that `reg-view` injects into every body.
 It may call no Reagent API anywhere. The second table below is its column, and
-it is the easier of the two ports: the reads and the dispatches are already
-data, and only the spellings move.
+it is the easier port: reads and dispatches are already data, and only the
+spellings change.
 
-§1's "absence from the report is meaningful" is a statement about the
-populations the report counts. The census reads re-frame2's own
-`re-frame.adapter.` surface as well as Reagent's, but `rf/reg-view` is
-re-frame.core's and sits on neither roster, so a screen written entirely in
-`reg-view` forms can still go unmentioned. Count your own `reg-view` forms and
-work the second table.
+The report does not count `rf/reg-view` forms, so a screen written entirely
+with them may not appear in it. Find your own `reg-view` forms and work
+through the second table.
 
 ### The half-migrated tree
 
-Porting a screen at a time means the two view layers share one page for the
-length of the migration. Three facts make that work, and none of them asks for
-a second root.
+While you port one screen at a time, Reagent and Fresco views share the same
+page. That needs no second root.
 
-**One frame serves both halves.** Every React-shaped adapter in re-frame2
-publishes the frame through one shared React context, and a Fresco boundary
-reads that same context. A shell already mounted under `[rf/frame-root {:id
-...}]` — or under `[rf/frame-provider {:frame ...}]` — therefore supplies the
-frame to any Fresco subtree beneath it. A ported screen needs no
-`h/client-root`, no second frame, and no second React root.
+**One frame serves both.** Every re-frame2 React adapter publishes the frame
+through one shared React context, and Fresco views read the same context. A
+shell mounted under `[rf/frame-root {:id ...}]` or
+`[rf/frame-provider {:frame ...}]` supplies the frame to any Fresco view
+beneath it. A ported screen needs no `h/client-root`, second frame, or second
+React root.
 
 **Keep the adapter you have.** `(rf/init! reagent-adapter/adapter)` stays as it
-is: installing a Reagent, reagent-slim or UIx adapter under a Fresco tree is
-supported. `re-frame.fresco.substrate/adapter` is what lets a *finished*
-application drop its view-library dependency; it is not a prerequisite for
-rendering a Fresco view.
+is; a Reagent, reagent-slim or UIx adapter can sit under a Fresco tree.
+`re-frame.fresco.substrate/adapter` is only needed once the application is
+finished and you want to drop the view-library dependency.
 
-**The unported shell reaches the ported screen through a bridge.** There are
-two doors, and the choice is about who owns the mount:
+**The Reagent shell renders the ported screen through a bridge.** There are
+two, and the choice depends on who owns the mount:
 
 ```clojure
 (ns app.views.shell
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as h]
-            [app.views.feed :as feed]))         ;; the ported screen
+            [app.views.todos :as todos]))       ;; the ported screen
 
-;; Door 1 — h/as-element, called inside the Reagent body. The props never
-;; cross React's prop channel, so they stay ClojureScript values.
+;; 1. h/as-element, called inside the Reagent body. The props stay
+;;    ClojureScript values because they never pass through React.
 (defn root-view []
   (case @(rf/subscribe [:app/page])
-    :feed    (h/as-element [feed/feed {:page 0}])
-    :profile [profile-page]                     ;; still Reagent
+    :todos    (h/as-element [todos/todo-page {}])
+    :settings [settings-page]                   ;; still Reagent
     [not-found]))
 
-;; Door 2 — h/as-component, created once at top level, beside the view it
-;; bridges. Reach for it when the Reagent parent must key, mount and
-;; re-render the screen as a component.
-(def feed-component (h/as-component feed/feed))
+;; 2. h/as-component, created once at top level. Use it when the Reagent
+;;    parent must key, mount and re-render the screen as a component.
+(def todo-page-component (h/as-component todos/todo-page))
 
 (defn root-view-2 []
-  [:> feed-component {:page 0}])
+  [:> todo-page-component {}])
 ```
 
-Calling `h/as-component` inside a render would create a new component type on
-every pass, and React would remount the subtree each time.
+Calling `h/as-component` inside a render creates a new component type on every
+pass, so React remounts the subtree each time.
 
-`h/client-root` + `h/render!` ([Installation](00-installation.md)) is the
-whole-application door. It is where the migration ends rather than where it
-starts: when the last screen is ported, the Reagent root gives way to one
-Fresco client-root handle — the same three-name grammar
-(`client-root` / `render!` / `unmount!`) the Reagent adapter already
-publishes — and the `frame-root` wrapper is respelled `h/frame-root` and stays
-exactly where it was.
+`h/client-root` and `h/render!` ([Installation](00-installation.md)) mount a
+whole Fresco application. That is where the migration ends: when the last
+screen is ported, the Reagent root is replaced by one Fresco client root, using
+the same `client-root` / `render!` / `unmount!` names the Reagent adapter
+already has, and the `frame-root` wrapper becomes `h/frame-root` in the same
+place.
 
 ### Common translations
 
@@ -239,7 +171,7 @@ The same table for the second starting point. Every row is a spelling change:
 | --- | --- |
 | `rf/reg-view` | `h/defview`. The view is no longer registered under an id; the var is the head |
 | `subscribe`, injected into a `reg-view` body | `h/sub`. A `h/defview` body binds nothing you did not write |
-| `dispatch`, injected into a `reg-view` body | the intent vector itself, or `h/event` when the event matters |
+| `dispatch`, injected into a `reg-view` body | the event vector itself, or `h/event` when the event matters |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
 | `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
 | `[rf/frame-root {:id :app ...}]` around the tree | `[h/frame-root {:id :app ...}]`, with the same options in the same place |
@@ -252,17 +184,15 @@ belong on the head, not on `h/render!`; passing `:frame` or `:initial-events` to
 shape, and a routed application needs `:url-bound? true`
 ([Routing and navigation](07-routing-and-navigation.md#boot-a-routed-application)).
 
-A `reg-view` body's `subscribe` and `dispatch` are lexical bindings the macro
-installs. `h/defview` installs none, so the same source text means something
-different under it: a bare `rf/subscribe` in a Fresco body throws rather than
-resolving. Translate every read and every dispatch in a body you move, not only
-the ones the compiler complains about.
+`reg-view` binds `subscribe` and `dispatch` inside its body; `h/defview` binds
+nothing, and a bare `rf/subscribe` in a Fresco body throws. Translate every
+read and dispatch in a body you move, not only the ones the compiler flags.
 
 Two common mistakes fail loudly:
 
 - A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
   browser invokes it later, so ambient dispatch raises
-  `:rf.error/no-frame-context`. Use an intent vector or `h/event`.
+  `:rf.error/no-frame-context`. Use an event vector or `h/event`.
 - An event vector at an `on*` prop of a `[:>]` crossing now dispatches. Under
   Reagent it crossed as an inert JavaScript array and never produced a working
   handler, so the migration turns a dead handler live; decide whether it was
@@ -272,155 +202,139 @@ Two common mistakes fail loudly:
 
 ### Views shared across the boundary
 
-In a real application at least one view is rendered by both a ported screen and
-an unported one — a card, a paginator, an avatar. "Port a complete screen"
-does not say what happens to it, and duplicating it is the one answer
-[§3](#3-prove-the-port-with-shadow-comparison) rules out.
+Some views are rendered by both a ported screen and an unported one: a card,
+a paginator, a todo item. Do not duplicate them; shadow comparison
+([step 3](#3-prove-the-port-with-shadow-comparison)) relies on one
+implementation per view.
 
 Port the shared view once, with the first screen that needs it, and bridge it
-back out to the callers that are still Reagent:
+back to the callers that are still Reagent:
 
 ```clojure
-;; app.views.article-preview — now Fresco
-(h/defview article-preview [{:keys [id]}]
-  (let [article (h/sub [:article id])]
-    [:article.preview
-     [:h2 (:title article)]
-     [:button {:on-click [:article/favourite id]} "Favourite"]]))
+;; app.views.todo-item, now Fresco
+(h/defview todo-item [{:keys [id]}]
+  (let [todo (h/sub [:todo/by-id id])]
+    [:li
+     [:input {:type      :checkbox
+              :checked   (:done? todo)
+              :on-change [:todo/toggle id]}]
+     (:title todo)]))
 
-;; Created once, beside the view, for the callers that have not moved.
-(def article-preview-component (h/as-component article-preview))
+;; Created once, beside the view, for callers that have not moved yet.
+(def todo-item-component (h/as-component todo-item))
 ```
 
 ```clojure
-;; app.views.profile — still Reagent, still a defn
-(defn profile-page []
-  [:div.profile
-   (for [id @(rf/subscribe [:profile/article-ids])]
-     ^{:key id} [:> article-preview-component {:id id}])])
+;; app.views.archive, still Reagent
+(defn archive-page []
+  [:ul.archive
+   (for [{:keys [id]} @(rf/subscribe [:todo/all])]
+     ^{:key id} [:> todo-item-component {:id id}])])
 ```
 
-The boundary lands on the **view**, so there is one implementation and nothing
-to keep in step. The unported caller changes by one line, and it changes again
-— back to an ordinary Hiccup head — on the day that screen is ported.
+The unported caller changes by one line, and changes back to an ordinary
+Hiccup head when its own screen is ported.
 
-**Cross an id, not a value.** Props on the `h/as-component` route travel through
-React, so the Reagent parent converts them on the way in exactly as it converts
-any other `[:>]` crossing: a keyword becomes its name, a map becomes a
-camel-cased JavaScript object, any other collection is deeply `clj->js`'d, and
-strings, numbers, booleans, `nil` and functions cross unchanged. Prop *names*
-survive the round trip — `:article-id` is camel-cased on the way out and read
-back as `:article-id` — but values do not. A ported view handed an id, reading
-the rest with `h/sub`, never meets the conversion at all, and that is the shape
-re-frame2 wants anyway.
+**Pass an id, not a value.** Props on the `h/as-component` route go through
+React, so the Reagent parent converts them like any other `[:>]` crossing: a
+keyword becomes its name, a map becomes a camel-cased JavaScript object, other
+collections go through `clj->js`, and strings, numbers, booleans, `nil` and
+functions pass unchanged. Prop names survive the round trip (`:todo-id` comes
+back as `:todo-id`), but values do not. A ported view that takes an id and
+reads the rest with `h/sub` never meets the conversion.
 
-`h/as-element` performs no such conversion, because the props stay inside
-ClojureScript. Prefer it wherever the Reagent caller is an ordinary body rather
-than something that must own the mount.
+`h/as-element` does no conversion, because the props stay in ClojureScript.
+Prefer it wherever the Reagent caller is an ordinary body rather than
+something that must own the mount.
 
 ## 3. Prove the port with shadow comparison
 
-`hm/shadow!` mounts the original and candidate against isolated copies of the
-same seeded frame. One interaction script drives both implementations. At
-each checkpoint it compares canonical DOM and the intent stream.
+`hm/shadow!` mounts the original and the port against separate copies of the
+same seeded frame, drives both with one interaction script, and compares their
+DOM and dispatched events at each checkpoint.
 
-### What this step needs first
+It lives in `re-frame.fresco.test.mounted`, so it needs the test kit and a
+build with real React and a real DOM (level L3 in [Testing](15-testing.md)). A
+project without such a test build has to set one up first. If that costs more
+than the screen is worth, see
+[When not to use the full process](#when-not-to-use-the-full-process).
 
-`hm/shadow!` lives in `re-frame.fresco.test.mounted`, so it is an L3 door: it
-needs the test kit on the classpath and a build target that gives it real React
-and a real DOM. [Testing](15-testing.md) carries the kit setup and the level
-ladder. A project with no L3 lane has to stand one up before this step, not as
-part of it — and if that is more than the screen is worth,
-[When not to use the full process](#when-not-to-use-the-full-process) says so.
+### Keep the original alongside the port
 
-### The intermediate state
+Shadow comparison needs the Reagent original to keep compiling. For one screen
+that means three namespaces:
 
-Shadow comparison needs the Reagent original still compiling and still
-mountable, which is a state the rest of this page does not show. For one screen
-it is three namespaces:
-
-| Namespace | What it holds | Who renders it |
+| Namespace | Holds | Rendered by |
 | --- | --- | --- |
-| `app.views.article-row-reagent` | the original, moved verbatim and otherwise untouched | the shadow test, as `:reference` |
-| `app.views.article-row` | the Fresco port | the shell, and the shadow test as `:candidate` |
+| `app.views.todo-row-reagent` | the original, moved unchanged | the shadow test, as `:reference` |
+| `app.views.todo-row` | the Fresco port | the shell, and the shadow test as `:candidate` |
 | `app.views.shell` | the unported shell | the Reagent root |
 
-Move the original into a namespace of its own rather than putting the port
-beside it under a second name. Every caller then points at one name, the port,
-and deleting the original at the end is deleting a file.
-
-Point the callers at the **port**, including the ones that have not been ported
-themselves — bridging them out is what
-[Views shared across the boundary](#views-shared-across-the-boundary) is for.
-The original exists for the comparator and for nothing else; a caller left
-pointing at it is a screen that never migrates.
+Move the original into its own namespace rather than giving the port a second
+name. Every caller then points at the port, including unported callers
+through a bridge ([Views shared across the boundary](#views-shared-across-the-boundary)),
+and removing the original at the end means deleting one file. A caller left
+pointing at the original is a screen that never migrates.
 
 ### The comparison
 
 ```clojure
-(ns app.migration.article-row-shadow
+(ns app.migration.todo-row-shadow
   (:require [reagent.core :as r]
             [re-frame.fresco.test.mounted :as hm]
-            [app.views.article-row-reagent :as old]
-            [app.views.article-row :as new]))
+            [app.views.todo-row-reagent :as old]
+            [app.views.todo-row :as new]))
 
-;; Once, at top level, for the same reason h/as-component is: a component
-;; allocated per render is a new element type and remounts the subtree.
-(def old-article-row (r/reactify-component old/article-row))
+;; Create once, at top level: a component created per render is a new
+;; element type and remounts the subtree.
+(def old-todo-row (r/reactify-component old/todo-row))
 
 (hm/shadow!
- {:reference      [:> old-article-row {:id 7}]
-  :candidate      [new/article-row {:id 7}]
-  :initial-events [[:demo/install-fixture]]
+ {:reference      [:> old-todo-row {:id 1}]
+  :candidate      [new/todo-row {:id 1}]
+  :initial-events [[:todo/initialise]]
   :script         [{:click "button.edit"}
-                   {:type  ["input.title" "Better title"]}
+                   {:type  ["input.title" "Buy oat milk"]}
                    {:click "button.save"}]})
 ;; => {:status :green :checkpoints 4}
 ```
 
-Both sides are mounted by Fresco, so the original arrives the way every
-foreign component arrives: through a `[:>]` crossing or a declared `h/defhost`,
-the same door the translation table above already sends it through. A Reagent
-`defn` written directly in head position is a loud refusal rather than a
-Reagent render, which is why `:reference` is a crossing and `:candidate` is a
-plain Hiccup head.
+Fresco mounts both sides, so the original enters the way any foreign React
+component does: through `[:>]` or a declared `h/defhost`. A Reagent `defn` in
+head position raises an error instead of rendering, which is why `:reference`
+is a `[:>]` crossing and `:candidate` is a plain Hiccup head.
 
-Two consequences of that crossing decide how the pair is written.
+That crossing shapes how you write the pair:
 
-- **Cross single-word props.** Fresco camel-cases the key on the way out and
-  a reactified Reagent component reads back the name React actually carried, so
-  `:article-id` reaches the original as `:articleId`. An id both sides agree on
-  — and a seeded frame both sides read — avoids the question and makes the
-  comparison worth taking.
-- **Hand the original its callbacks as intent vectors.** A declared callback
-  contract lowers them into functions closed over that mount's frame, which is
-  how a foreign original reaches the frame at all. The original's own
-  `#(rf/dispatch ...)` closures capture no frame, exactly as §2 says.
+- **Use single-word props.** Fresco camel-cases prop names on the way out, so
+  `:todo-id` reaches a reactified Reagent component as `:todoId`. An `:id`
+  both sides agree on, plus a seeded frame both sides read, avoids the
+  question.
+- **Give the original its callbacks as event vectors.** A declared callback
+  contract turns them into functions bound to that mount's frame, which is how
+  the original reaches its frame at all. Its own `#(rf/dispatch ...)` closures
+  capture no frame, as step 2 describes.
 
-Each side receives its own frame copy, so writes cannot leak between the two
-implementations. A different intent at the first checkpoint causes the states
-and later DOM to diverge independently, which makes the original cause visible.
+Each side has its own frame copy, so writes cannot leak between them. If the
+two dispatch different events at the first checkpoint, their state and DOM
+diverge from there, which points at the original cause.
 
-A red result identifies the checkpoint and the exact DOM node or intent that
-differs. When the difference follows a declared policy, such as a Client-only
-region, the report identifies the policy instead of presenting it as an
-unexplained DOM mismatch.
+A red result names the checkpoint and the DOM node or event that differs. When
+the difference comes from a declared policy, such as a Client-only region, the
+report names the policy.
 
-A green result means the implementations matched for the flows in the script.
-It does not prove untested paths. Script the real screen behaviour rather than
-a single happy click.
+A green result covers only the flows in the script, so script the screen's
+real behaviour rather than one happy click. Before trusting the comparator,
+break the candidate on purpose and confirm the run turns red at the expected
+checkpoint.
 
-Add a sabotage control before trusting the comparator: deliberately change a
-candidate prop and confirm the run turns red at the expected checkpoint.
-
-Omit `:script` for interactive development. Both mounts stay live and the call
-returns a handle rather than a verdict. Nothing is compared automatically: drive
-both mounts by hand, call `:checkpoint!` at each point you want compared, and
-`:stop!` when you are finished.
+Omit `:script` during interactive development. The call returns a handle, both
+mounts stay live, and nothing is compared until you ask: drive both by hand,
+call `:checkpoint!` at each point you want compared, and `:stop!` when done.
 
 ```clojure
-(let [s (hm/shadow! {:reference [:> old-article-row {:id 7}]
-                     :candidate [new/article-row {:id 7}]})]
+(let [s (hm/shadow! {:reference [:> old-todo-row {:id 1}]
+                     :candidate [new/todo-row {:id 1}]})]
   ;; drive the page by hand, then take a reading
   ((:checkpoint! s))   ;; => {:status :green :checkpoints 1}
   ((:stop! s)))
@@ -429,16 +343,13 @@ both mounts by hand, call `:checkpoint!` at each point you want compared, and
 Each `:checkpoint!` call settles both mounts, compares them, and numbers the
 reading; `:stop!` takes both mounts down.
 
-Shadow comparison covers canonical DOM and intent streams. It does not prove
-focus, caret, IME, layout, or paint behaviour. Use the browser levels from
-[Testing](15-testing.md) for those claims.
+Shadow comparison checks DOM and dispatched events. It does not check focus,
+caret, IME, layout, or paint; use the browser levels in
+[Testing](15-testing.md) for those.
 
 When the screen is green and its browser tests pass, delete
-`app.views.article-row-reagent` and the shadow test together: the comparator is
-the only thing the original was still for, and keeping both copies invites
-future divergence. Check first that no caller still points at the original —
-a shared view reaches its unported callers through the bridge, not through the
-Reagent copy.
+`app.views.todo-row-reagent` and the shadow test together. Check first that no
+caller still points at the original.
 
 ## 4. Apply the mechanical codemod
 
@@ -451,16 +362,15 @@ clojure -Srepro \
   -M -m re-frame.migration.fresco.codemod --rewrite src/
 ```
 
-The same coordinate as [step 1](#1-generate-the-migration-report), with
+This is the command from [step 1](#1-generate-the-migration-report) with
 `--rewrite` added. As written it is a dry run; add `--write` after `--rewrite`
-to write the files.
+to change the files.
 
-The codemod uses a lossless parser and preserves formatting, comments, and line
-endings, including CRLF. A completed run exits 0 even when the report contains
-human decisions; the tool is a migration assistant, not a permanent build
-lint.
+The codemod preserves formatting, comments, and line endings, including CRLF.
+A completed run exits 0 even when the report lists human decisions; it is a
+migration assistant, not a build lint.
 
-It applies six rewrite families:
+It applies six rewrites:
 
 | Rewrite | Input | Output | Behaviour preserved |
 | --- | --- | --- | --- |
@@ -471,22 +381,20 @@ It applies six rewrite families:
 | W5 | `[(r/adapt-react-class X) ...]` | `[:> X ...]` | Same native React element path in Fresco syntax |
 | W6 | `[:> "tag" ...]` for a plain HTML tag | `[:tag ...]` | Moves the native element onto Fresco's normal, controlled-element path |
 
-A transformation runs only when both old and new behaviour can be determined
-from the literal source. Event-like prop spelling never authorises a callback
-rewrite; it can only make the tool more conservative. Everything else remains
-in the report.
+A rewrite runs only when both the old and new behaviour can be read from the
+literal source. A prop that merely looks like an event never triggers a
+callback rewrite. Everything else stays in the report.
 
-The output of each rewrite is outside that rewrite's input language, so a
-second run should be byte-for-byte unchanged. Re-run shadow comparison on the
-screens touched by the diff.
+A second run leaves the files byte-for-byte unchanged. Re-run shadow
+comparison on the screens the diff touched.
 
 ## What remains manual
 
 ### Host declarations and callback contracts
 
-Only the component library defines whether a prop is an event, plain handler,
-render callback, or ReactNode slot. The codemod cannot infer that semantic
-contract safely. Review and approve every `h/defhost` declaration.
+Only the component library knows whether a prop is an event, a plain
+handler, a render callback, or a ReactNode slot, so the codemod cannot decide
+it. Review every `h/defhost` declaration yourself.
 
 ### Runtime blockers
 
@@ -503,24 +411,23 @@ Examples:
 
 ### Local state and lifecycle
 
-`r/atom`, cursors, Form-2, and Form-3 structures require a state-ownership
-decision. Use the homes in [Ephemeral state](11-ephemeral-state.md). No codemod
-should decide whether a fact belongs in app-db, a forms address, or native
-widget state.
+`r/atom`, cursors, Form-2, and Form-3 components need you to decide where the
+state lives: app-db, a forms address, or native widget state. See
+[Ephemeral state](11-ephemeral-state.md).
 
 ### Computed values
 
-A map produced by `merge`, a prop value reached through a symbol, or a key
-computed at runtime does not reveal the actual crossing shape to a source-only
-tool. The reporter records the site rather than guessing.
+A map built with `merge`, a prop value held in a symbol, or a key computed at
+runtime hides the real prop shape from a source-only tool. The reporter
+records the site instead of guessing.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Fresco passes values by identity | Run the reporter and apply the safe codemod rewrites |
-| A former Reagent crossing starts dispatching at an `on*` prop | An intent vector that crossed as inert data under Reagent is lowered by Fresco, exactly as on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
-| Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an intent vector or `h/event` |
+| A former Reagent crossing starts dispatching at an `on*` prop | An event vector that crossed as inert data under Reagent now dispatches, as it does on a native tag | Decide whether the handler was ever meant to run; if the prop is a vendor's on*-named render prop, declare the host with `{:callbacks {… :render}}` |
+| Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an event vector or `h/event` |
 | A keyed list remounts once immediately after migration | A key collision that Reagent normalised now becomes two distinct values | Accept the one-time transition when the new stable key is correct |
 | Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |
 | W2 camel-cases keys in what looks like application data | Reagent already sent that library a camel-cased object | Do not revert unless you intentionally want different library input |
@@ -534,11 +441,52 @@ tool. The reporter records the site rather than guessing.
   harness may cost more than reviewing a handful of screens.
 - Keep a React-first screen in raw React or UIx instead of converting it to
   Hiccup on principle ([Islands](10-native-tier.md)).
-- When a screen is being redesigned, shadow comparison cannot prove intended
-  behavioural change. Spend identity-proof effort on screens that must remain
-  unchanged.
+- When a screen is being redesigned, shadow comparison cannot check the
+  intended change. Spend that effort on screens that must behave the same.
 
 ## Advanced
+
+### The census
+
+The report's `:entries` cover `[:>]` crossings. Its `:census` counts every
+call to a view-library API: `r/atom`, `r/with-let`, `r/create-class`,
+`r/as-element`, `r/cursor`, `r/reactify-component`, root mounting, and the
+rest. The two halves measure different things, and neither is a denominator
+for the other.
+
+The census reads two lists of namespaces. The first is Reagent's: stock
+Reagent's namespaces and the `reagent2.*` ones the reagent-slim adapter
+ships. The second is re-frame2's own adapters, every namespace starting with
+`re-frame.adapter.`, which catches code on the Reagent adapter that calls no
+Reagent API itself.
+
+Only code that runs is counted. `#_(r/atom 0)`, `'(r/atom 0)` and
+`(comment (r/atom 0))` are skipped. A syntax-quote is counted, because a
+macro's template produces a real call at every expansion.
+
+Each census class carries a recovery note in the report:
+
+| Verdict | Named classes | Meaning |
+| --- | --- | --- |
+| Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Fresco translation exists, but which one depends on intent the source does not carry |
+| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Fresco has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
+| Mechanical | none | Always emitted as `:mechanical 0`. Every mechanical rewrite is a W-rule, and W-rules apply only at crossings |
+
+Two more runtime-blocker classes report a namespace the tool could not
+resolve. A namespace that uses a Reagent name without being Reagent, such as a
+vendored copy, is reported as `:unresolved-reagent-require` at its `ns` form,
+and each call through it as `:unresolved-alias`. The tool does not assume the
+copy is `reagent.core`, because a wrong guess would rewrite working code.
+
+The census follows every way of binding a Reagent name: an alias, `:refer`,
+`:refer :all`, `:rename`, and any of them inside a reader conditional. A
+renamed var is reported under its Reagent name. After
+`:refer [atom] :rename {atom ratom}`, `(ratom 0)` is Reagent's and a bare
+`(atom 0)` is `clojure.core`'s.
+
+The census cannot see shapes that have no marker. A Form-2 component is a
+`defn` returning a `fn`, so the census counts the `r/atom` it closes over but
+reports nothing about the Form-2 shape itself.
 
 ### Report entry shape
 
@@ -572,12 +520,12 @@ It re-evaluates `f` and `@snapshot` on each callback invocation. Reagent's
 The codemod therefore emits a capture:
 
 ```clojure
-[:> Btn {:on-pick (r/partial handler @cart)}]
+[:> Btn {:on-pick (r/partial handler @selection)}]
 ;; =>
 [:> Btn
  {:on-pick
   (let [f__rf2  handler
-        a0__rf2 @cart]
+        a0__rf2 @selection]
     (fn [& args__rf2]
       (apply f__rf2 a0__rf2 args__rf2)))}]
 ```

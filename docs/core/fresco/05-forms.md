@@ -13,16 +13,6 @@ A form has three kinds of state:
 
 All three remain ordinary data.
 
-## Problems the module avoids
-
-| Hand-written pattern | Failure it creates | Forms-module model |
-| --- | --- | --- |
-| External value plus local atom for each field | Two sources must be synchronized, usually during rendering | One addressed draft in app-db |
-| Detect reset by comparing values | Reasserting an equal committed value cannot make a rejected draft disappear | Reset is signalled separately with `::h/revision` |
-| Force a reset after every commit | Accepted async commits can flicker between stale and new values | Commit is decided against current state; stale commits become no-ops |
-| Inspect a callback's arity for a done function | Completion becomes an undocumented callback protocol | Mutation status is per-instance data |
-| Create draft state in a render closure | Re-render or remount destroys the edit | Draft and status live at stable addresses |
-
 Require the module where its views are used:
 
 ```clojure
@@ -46,11 +36,11 @@ candidate commit:
 ```clojure
 (rf/reg-sub :todo/title
   (fn [db [_ id]]
-    (get-in db [:todo id :title])))
+    (get-in db [:todos id :title])))
 
 (rf/reg-sub :todo/title-revision
   (fn [db [_ id]]
-    (get-in db [:todo id :title-revision] 0)))
+    (get-in db [:todos id :title-revision] 0)))
 
 (h/defview title-field [{:keys [id]}]
   [forms/buffered-field
@@ -95,11 +85,11 @@ When the handler rejects or rewrites, advance the revision as well:
     (let [title (str/trim candidate)]
       (if (str/blank? title)
         {:db (update-in db
-                        [:todo id :title-revision]
+                        [:todos id :title-revision]
                         (fnil inc 0))}
         {:db (-> db
-                 (assoc-in [:todo id :title] title)
-                 (update-in [:todo id :title-revision]
+                 (assoc-in [:todos id :title] title)
+                 (update-in [:todos id :title-revision]
                             (fnil inc 0)))}))))
 ```
 
@@ -354,3 +344,15 @@ DOM-local. This keeps the edit visible to tests and tools.
 For a dense grid where that cost is too high, use an explicitly uncontrolled
 input or a measured native island. The forms module is not a performance escape
 from controlled fields.
+
+### Problems the module avoids
+
+Each row is a hand-written pattern the module replaces:
+
+| Hand-written pattern | Failure it creates | Forms-module model |
+| --- | --- | --- |
+| External value plus local atom for each field | Two sources must be synchronized, usually during rendering | One addressed draft in app-db |
+| Detect reset by comparing values | Reasserting an equal committed value cannot make a rejected draft disappear | Reset is signalled separately with `::h/revision` |
+| Force a reset after every commit | Accepted async commits can flicker between stale and new values | Commit is decided against current state; stale commits become no-ops |
+| Inspect a callback's arity for a done function | Completion becomes an undocumented callback protocol | Mutation status is per-instance data |
+| Create draft state in a render closure | Re-render or remount destroys the edit | Draft and status live at stable addresses |

@@ -6,6 +6,10 @@ This recipe moves an app's views to UIx, for a team that writes React function c
 
     The [adapter](../glossary.md#adapter) plays react-redux's role (`frame-provider` is `<Provider>`, `use-sub` is `useSelector`), except that it is a value you pass explicitly at boot, and exactly one is installed per runtime.
 
+## Which substrate
+
+Reagent is the default. It has the full example set and is the notation used throughout this guide. Choose UIx when your team or host codebase already writes React function components; its examples are the counter and login (which mirror the Reagent versions) and an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)). Choose slim when you have measured that the bundle is too large and you won't need hydrated server rendering.
+
 ## Step 1 — The one line that changes
 
 In the boot shape from [Boot and mount an app](boot-and-mount-an-app.md), the substrate is chosen by the first line of `run`:
@@ -79,7 +83,7 @@ A UIx app needs three coordinates:
 
 ## Step 2 — Write a UIx view
 
-Your events, subs, and effects port without edits; only the views change. Here is the counter's button row in UIx:
+Your events, subs, and effects port without edits; only the views change. Here is the counter in UIx:
 
 ```clojure
 ;; cf. examples/substrates/uix/counter/core.cljs
@@ -87,13 +91,13 @@ Your events, subs, and effects port without edits; only the views change. Here i
   (:require [uix.core :refer [$ defui]]
             [re-frame.adapter.uix :as uix-adapter]))
 
-(defui counter-buttons []
-  (let [count              (uix-adapter/use-sub [:counter/value])
+(defui counter []
+  (let [value              (uix-adapter/use-sub [:value])
         {:keys [dispatch]} (uix-adapter/use-frame)]
     ($ :div
-       ($ :button {:on-click #(dispatch [:counter/dec])} "-")
-       ($ :span {:style #js {:margin "0 1em"}} count)
-       ($ :button {:on-click #(dispatch [:counter/inc])} "+"))))
+       ($ :button {:on-click #(dispatch [:dec])} "-")
+       ($ :span {:style #js {:margin "0 1em"}} value)
+       ($ :button {:on-click #(dispatch [:inc])} "+"))))
 ```
 
 Three rules for UIx components:
@@ -117,7 +121,7 @@ The frame api holds every frame-bound operation:
 ```clojure
 (use-frame)   ;; identical to (rf/capture-frame) for the ambient provider frame
 ;; =>
-{:frame         :rf/default
+{:frame         :app
  :dispatch      (fn ([event]) ([event opts]))   ;; async-dispatch into the captured frame
  :dispatch-sync (fn ([event]) ([event opts]))   ;; synchronous variant — drains before returning
  :subscribe     (fn [query-v])}                 ;; frame-locked reaction — deref it (see below)
@@ -135,8 +139,8 @@ Hooks run only during render. Outside any component (an async setup function, a 
 ```clojure
 ;; A WebSocket message arrives long after render, outside any component.
 ;; Capture the frame by name at setup time and dispatch through it.
-(let [{:keys [dispatch]} (rf/capture-frame :rf/default)]
-  (ws/on-message (fn [msg] (dispatch [:ws/incoming msg]))))
+(let [{:keys [dispatch]} (rf/capture-frame :app)]
+  (ws/on-message (fn [msg] (dispatch [:todo/synced msg]))))
 ```
 
 ??? info "From re-frame v1"
@@ -159,9 +163,9 @@ Mount the root inside a `frame-root`, which creates the frame on first mount and
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (uix-adapter/render! app-root
-      ($ uix-adapter/frame-root {:id             :rf/default
-                                 :initial-events [[:counter/initialise]]}
-         ($ counter-app))
+      ($ uix-adapter/frame-root {:id             :app
+                                 :initial-events [[:initialise 0]]}
+         ($ counter))
       el)))
 
 (defn run []
@@ -189,33 +193,15 @@ There are two frame components ([Frames — frame-provider and frame-root](../fr
 ```clojure
 ;; A panel that brings its own frame: created on first mount, reused on remount.
 ($ uix-adapter/frame-root
-   {:id :checkout
-    :images [checkout-image]            ;; your image for this frame
-    :initial-events [[:rf/set-db {}] [:checkout/initialise]]}
-   ($ checkout-app))
+   {:id :todos/work
+    :images [todo-image]                ;; your image for this frame
+    :initial-events [[:todo/initialise]]}
+   ($ todo-app))
 
 ;; A frame created elsewhere: scope only.
-($ uix-adapter/frame-provider {:frame :checkout}
-   ($ checkout-app))
+($ uix-adapter/frame-provider {:frame :todos/work}
+   ($ todo-app))
 ```
-
-Each component fails loud when given the other's key: a `frame-root` given `:frame` raises `:rf.error/frame-root-given-frame`, a `frame-provider` given `:id` raises `:rf.error/frame-provider-given-id`, and a `frame-root` without a keyword `:id` raises `:rf.error/frame-root-missing-id`. A `frame-provider`'s `:frame` must be a frame-id keyword or a frame value: `nil` raises `:rf.error/no-frame-context`, another type (a string, a number) raises `:rf.error/bad-frame-provider-arg`, and a frame that was never created or has been destroyed raises `:rf.error/frame-provider-frame-absent`.
-
-!!! note "frame-root creates its frame at commit"
-
-    `frame-root` creates the frame in a `useLayoutEffect`, not during render: its first render has no children, the frame is created after commit, and then the children render against it. A render React discards before commit, such as a Suspense abort, creates and seeds nothing.
-
-!!! note "Remounting is safe"
-
-    Remounting `frame-root` under the same `:id` (a hot reload, React StrictMode's double render in dev, a Story re-evaluation) doesn't destroy state or replay `:initial-events`: it refreshes the config and image and keeps app-db, the subscription cache, and the queue. Changing a mounted `frame-root`'s `:id` or options raises `:rf.error/frame-root-reconfigured`; to switch to a different frame, give the component a React `key` that changes with it.
-
-!!! note "Owning a frame's whole lifetime"
-
-    Since `frame-root` never destroys its frame, a component that should own a frame from birth to death (a modal whose state goes away on close) must do it explicitly: call `rf/make-frame` when it mounts and `rf/destroy-frame!` when it unmounts, and scope the frame to its children with `frame-provider`.
-
-!!! warning "Gotcha: a captured frame can outlive a destroyed frame"
-
-    After you `destroy-frame!` a frame, something that captured it earlier with `capture-frame` (a slow HTTP reply, a `setTimeout`, a late WebSocket message) can still call its `dispatch` or `subscribe`. Nothing is corrupted: the call raises `:rf.error/frame-destroyed`, and a commit that reaches the frame after it is gone is dropped and reported as `:rf.error/write-after-destroy` (recovery `:ignored`). Both are reported in production too. Cancel in-flight work when you destroy the frame, or keep data that must outlast the widget in a longer-lived frame.
 
 All the React adapters use the same React context for frames, so frame components compose across substrates: a Reagent `frame-root` above a UIx subtree works.
 
@@ -272,6 +258,24 @@ Reagent's lazy-seq warning (*"Reactive deref not supported in lazy seq, it shoul
 
 To confirm the port, run the app and open [Xray](../glossary.md#xray): the event rows and [epochs](../glossary.md#epoch) match the Reagent run, because the instrumentation reads the core, which doesn't know which substrate renders.
 
-## Which substrate, and what ships for it
+## Advanced
 
-Reagent is the default. It has the full example set and is the notation used throughout this guide. Choose UIx when your team or host codebase already writes React function components; its examples are the counter and login (which mirror the Reagent versions) and an analytics dashboard ([`examples/substrates/uix/dashboard/`](../../../examples/substrates/uix/dashboard)). Choose slim when you have measured that the bundle is too large and you won't need hydrated server rendering. Whichever you choose, the choice is the argument to `init!`, and the rest of the app is unchanged.
+### Frame components in detail
+
+Each component fails loud when given the other's key: a `frame-root` given `:frame` raises `:rf.error/frame-root-given-frame`, a `frame-provider` given `:id` raises `:rf.error/frame-provider-given-id`, and a `frame-root` without a keyword `:id` raises `:rf.error/frame-root-missing-id`. A `frame-provider`'s `:frame` must be a frame-id keyword or a frame value: `nil` raises `:rf.error/no-frame-context`, another type (a string, a number) raises `:rf.error/bad-frame-provider-arg`, and a frame that was never created or has been destroyed raises `:rf.error/frame-provider-frame-absent`.
+
+!!! note "frame-root creates its frame at commit"
+
+    `frame-root` creates the frame in a `useLayoutEffect`, not during render: its first render has no children, the frame is created after commit, and then the children render against it. A render React discards before commit, such as a Suspense abort, creates and seeds nothing.
+
+!!! note "Remounting is safe"
+
+    Remounting `frame-root` under the same `:id` (a hot reload, React StrictMode's double render in dev, a Story re-evaluation) doesn't destroy state or replay `:initial-events`: it refreshes the config and image and keeps app-db, the subscription cache, and the queue. Changing a mounted `frame-root`'s `:id` or options raises `:rf.error/frame-root-reconfigured`; to switch to a different frame, give the component a React `key` that changes with it.
+
+!!! note "Owning a frame's whole lifetime"
+
+    Since `frame-root` never destroys its frame, a component that should own a frame from birth to death (a modal whose state goes away on close) must do it explicitly: call `rf/make-frame` when it mounts and `rf/destroy-frame!` when it unmounts, and scope the frame to its children with `frame-provider`.
+
+!!! warning "Gotcha: a captured frame can outlive a destroyed frame"
+
+    After you `destroy-frame!` a frame, something that captured it earlier with `capture-frame` (a slow HTTP reply, a `setTimeout`, a late WebSocket message) can still call its `dispatch` or `subscribe`. Nothing is corrupted: the call raises `:rf.error/frame-destroyed`, and a commit that reaches the frame after it is gone is dropped and reported as `:rf.error/write-after-destroy` (recovery `:ignored`). Both are reported in production too. Cancel in-flight work when you destroy the frame, or keep data that must outlast the widget in a longer-lived frame.

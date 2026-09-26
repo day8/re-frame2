@@ -38,53 +38,54 @@ Use an explicit app-db address for state that affects what the application can
 do or what another part of the application can observe: open, expanded,
 selected, or the active tab.
 
-`h/reg-state` mints the pair every instance shares — one parameterised
-subscription and one setter event under `[:ui concern instance-key]` — and
-nothing else:
+`h/reg-state` registers one subscription and one setter event, stored under
+`[:ui concern instance-key]`, that every instance shares:
 
 ```clojure
-(ns app.panels
-  (:require [re-frame.core :as rf]
-            [re-frame.fresco :as h]))
+(ns app.todos.views
+  (:require [re-frame.fresco :as h]))
 
-(h/reg-state ::expanded? {:default false})
+(h/reg-state :todo.ui/expanded? {:default false})
 
-(h/defview panel [{:keys [id title children]}]
-  (let [expanded? (h/sub [::expanded? id])]
-    [:section
-     [:h3 {:on-click [::expanded? id (not expanded?)]} title]
+(h/defview todo-item [{:keys [id]}]
+  (let [{:keys [title notes]} (h/sub [:todo/by-id id])
+        expanded?             (h/sub [:todo.ui/expanded? id])]
+    [:li
+     [:span {:on-click [:todo.ui/expanded? id (not expanded?)]} title]
      (when expanded?
-       (into [:div.panel-body] children))]))
+       [:p.notes notes])]))
 ```
 
-`(h/sub [::expanded? id])` reads, `[::expanded? id value]` writes, and
-`[::h/clear ::expanded? id]` removes the entry so that instance reads its
-default again. The concern must be a namespace-qualified keyword, because it is
-a sub id, an event id and an app-db key at once. The instance key must be a
-keyword, string, number or vector of those; `nil` or anything else raises
-`:rf.error/fresco-state-bad-argument`, as do an unqualified concern and an
-option other than `:default`. Registering the concern again replaces the
-registration, so a namespace reload re-runs the same call and the last
-`:default` written wins. A hundred panels reuse the one pair, and the address
-gives you replay, frame isolation, Xray visibility, and direct test setup.
+`(h/sub [:todo.ui/expanded? id])` reads, `[:todo.ui/expanded? id value]`
+writes, and `[::h/clear :todo.ui/expanded? id]` removes the entry so that
+instance reads its default again. A hundred todo rows share the one
+registration, and because the state is at an app-db address you get replay,
+frame isolation, Xray visibility, and direct test setup.
 
-When a change means more than "this slot now holds that value" — something
-else must happen, or the change itself must be recorded — write a named event
-and its subscription by hand instead:
+The concern must be a namespace-qualified keyword, because it is a sub id, an
+event id and an app-db key at once. The instance key must be a keyword, string,
+number or vector of those. A `nil` or other instance key, an unqualified
+concern, or an option other than `:default` raises
+`:rf.error/fresco-state-bad-argument`. Registering the concern again replaces
+the registration, so a namespace reload is harmless.
+
+When a change means more than "this slot now holds that value" (something else
+must happen, or the change itself should be recorded), write a named event and
+its subscription by hand instead:
 
 ```clojure
-(rf/reg-sub :panel/expanded?
-  (fn [db [_ panel-id]]
-    (get-in db [:ui :panel/expanded panel-id] false)))
+(rf/reg-sub :todo/details-open?
+  (fn [db [_ id]]
+    (get-in db [:ui :todo/details-open id] false)))
 
-(rf/reg-event :panel/toggled
-  (fn [{:keys [db]} [_ panel-id]]
-    {:db (update-in db [:ui :panel/expanded panel-id] not)}))
+(rf/reg-event :todo/details-toggled
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:ui :todo/details-open id] not)}))
 ```
 
-`[:panel/toggled id]` records what happened and leaves room for effects or
-related state changes later; `[::expanded? id true]` records only the value.
-Either way, prefer a named event over a generic `[:ui/set path value]`.
+`[:todo/details-toggled id]` records what happened and leaves room for effects
+later; `[:todo.ui/expanded? id true]` records only the value. Either way, prefer
+a named event over a generic `[:ui/set path value]`.
 
 ## 2. Drafts and form state: the forms module
 
@@ -97,12 +98,12 @@ committed value, with a baseline, a commit protocol and the `::h/revision`
 reset, at an address you supply ([Forms](05-forms.md)). Validation gating and
 submit status are recipes on ordinary events and subscriptions, taught in the
 same chapter; there is no form object, validation DSL or submit orchestrator
-to require. For a smaller concern, ordinary events and an app-db slice are
-enough:
+to require. For a smaller concern, such as the new-todo input, ordinary events
+and an app-db slice are enough:
 
 ```clojure
-[:search/draft-changed q]
-[:search/cleared]
+[:todo.ui/set-draft text]
+[:todo.ui/clear-draft]
 ```
 
 Either way, the draft has one app-db address and no local copy.
@@ -122,10 +123,10 @@ outside the widget needs it. Keep it inside a React island or a declared host
 ([Islands](10-native-tier.md), [Interop](09-interop.md)).
 
 Keep the motion inside the island and dispatch one event when it produces a
-result:
+result. Here a todo is dragged to a new position in the list:
 
 ```clojure
-(ns app.board.drag
+(ns app.todos.drag
   (:require ["react" :as react]
             [re-frame.fresco :as h]))
 
@@ -145,26 +146,25 @@ result:
            (fn [_]
              (when xy
                ((.-onDrop props)
-                (js/Math.round (/ (aget xy 0) 240))))
+                (js/Math.round (/ (aget xy 1) 40))))
              (set-xy nil))}
       (.-label props))))
 
-(h/defhost drag-card drag-surface)
+(h/defhost drag-row drag-surface)
 
-(h/defview board-card [{:keys [id]}]
-  (let [title (h/sub [:card/title id])]
-    [drag-card {:label   title
-                :on-drop (h/event [col] [:card/dropped id col])}]))
+(h/defview todo-drag-row [{:keys [id]}]
+  (let [{:keys [title]} (h/sub [:todo/by-id id])]
+    [drag-row {:label   title
+               :on-drop (h/event [position] [:todo/moved id position])}]))
 ```
 
-Pointer movement remains local React state. The completed drop is an
-application event, so it enters app-db once: `:on-drop` is an `on*` prop, so
-`h/event` there is an event callback, and the island calls it with the column
-it computed.
+Pointer movement stays in local React state. The completed drop is an
+application event, so it reaches app-db once. `:on-drop` is an `on*` prop, so
+`h/event` there is an event callback, and the island calls it with the
+position it computed.
 
-Hooks belong in the island. A `defview` body may
-branch and loop dynamically, so putting hooks there makes hook order depend on
-data and moves the body outside Fresco's headless model.
+Hooks belong in the island. A `defview` body may branch and loop, so hooks
+there would make hook order depend on data.
 
 ## 4. Browser-owned state
 
@@ -186,14 +186,13 @@ app-db.
 
 ## 5. Exit retention: pixels that outlive data
 
-App-db records what is true. A dismissed toast should leave app-db immediately,
-but its DOM node may need a short exit animation. Keeping that node painted is
-a rendering concern, and app-db does not record it.
+App-db records what is true. A deleted todo should leave app-db immediately,
+but its row may need a short exit animation. Keeping that node painted is a
+rendering concern, and app-db does not record it.
 
-Use the optional [`re-frame.fresco.motion`](12-motion-and-presence.md) module
-and `motion/presence`. That chapter owns the API, the phase markers
-(`::motion/mounting` / `::motion/unmounting`, on elements and views alike), SSR
-behaviour, and accessibility attributes for exiting nodes.
+Use `motion/presence` from the optional
+[`re-frame.fresco.motion`](12-motion-and-presence.md) module, which keeps an
+exiting node painted until its animation finishes.
 
 ## Common state and its owner
 
@@ -217,10 +216,10 @@ and does not provide a durable app-db address.
 Use authored data: a keyword, string, number, or a vector of those values.
 
 1. **Start with a domain id.** Qualify ids when different entity types can
-   collide: `[:order/id 42]` and `[:invoice/id 42]`.
+   collide: `[:todo/id 42]` and `[:list/id 42]`.
 2. **Key placement state by placement and value state by entity.** Two panes
-   may share one order draft while keeping separate expanded/collapsed state.
-3. **Extend a parent key for nested instances.** `[panel-id :filter]` is often
+   may share one todo draft while keeping separate expanded/collapsed state.
+3. **Extend a parent key for nested instances.** `[list-id :filter]` is often
    enough.
 4. **Apply the same stability test as a React `:key`.** It must be derived from
    data, stable across renders, unique in its scope, and deterministic under
@@ -252,16 +251,16 @@ Everything else is application state and should have one app-db address.
 ```clojure
 ;; Don't: this atom is recreated whenever the body runs, and Fresco does not
 ;; track it as reactive state.
-(h/defview broken-panel [{:keys [title children]}]
+(h/defview broken-todo-item [{:keys [title notes]}]
   (let [expanded? (atom false)]
-    [:section
-     [:h3 {:on-click (fn [_] (swap! expanded? not))} title]
+    [:li
+     [:span {:on-click (fn [_] (swap! expanded? not))} title]
      (when @expanded?
-       (into [:div.panel-body] children))]))
+       [:p.notes notes])]))
 
 ;; Don't: one event, subscription pass, and paint for every pointer move.
 :on-pointer-move
-(h/event [e] [:card/drag-moved id (.-clientX e) (.-clientY e)])
+(h/event [e] [:todo/drag-moved id (.-clientX e) (.-clientY e)])
 ```
 
 ## Troubleshooting

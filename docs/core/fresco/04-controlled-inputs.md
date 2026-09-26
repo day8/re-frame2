@@ -41,14 +41,14 @@ four guarantees:
    composition Enter or Escape as application commands, and a model correction
    waits until the composition closes.
 
-A handler rejects an edit by returning `nil`; the view needs no special branch:
+A handler rejects an edit by returning `nil`; the view needs no special branch.
+This one refuses titles longer than 80 characters:
 
 ```clojure
-(rf/reg-event :todo.ui/set-qty
+(rf/reg-event :todo.ui/edit
   (fn [{:keys [db]} [_ id typed]]
-    (if (re-matches #"\d*" typed)
-      {:db (assoc-in db [:todo id :qty] typed)}
-      nil)))
+    (when (<= (count typed) 80)
+      {:db (assoc-in db [:todo.ui :draft id] typed)})))
 ```
 
 Controlled means the model owns the displayed value after every commit. If

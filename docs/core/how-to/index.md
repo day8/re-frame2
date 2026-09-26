@@ -1,6 +1,6 @@
 # How-to guides
 
-Each page here completes one task in an app you already have running: a form, login, a slow view, production error reporting. A recipe states the goal, shows the complete code, and links to the concept page for the *why* instead of re-teaching it. If you are still learning the [event pipeline](../glossary.md#event-pipeline), start with the [introduction](../introduction.md) and the pages from [events](../events.md) through [views](../views.md) first.
+Each page here completes one task in an app you already have running: a form, login, a slow view, production error reporting. A recipe states the goal, shows the complete code, and links to the concept page for the *why* instead of re-teaching it.
 
 Testing has [its own section](../testing/index.md).
 

@@ -9,31 +9,26 @@ is removed from production builds.
 
 ## Diagnose an interaction
 
-1. Load Xray through the development preload. [The coordinate, the host
-   element, and the preload namespace](#load-xray) are below.
+1. Load Xray through the development preload ([Load Xray](#load-xray)).
 2. Reproduce the click, keystroke, or update.
-3. Open Xray's **Fresco** tab and pick the view that asks your question —
+3. Open Xray's **Fresco** tab and pick the view that matches your question:
    Mounted, Reads, Intents, Why, Advisor, or Causal.
-4. Read the cause, fan-out, and attribution it reports.
+4. Read the cause, fan-out, and cost it reports.
 
-Everything below happens in Xray's **Fresco** tab, in Dynamic mode. Its rows
-are not selectable; the Causal view walks whichever dispatch the event spine is
-focused on. [The Fresco tab](../../xray/11-fresco-tab.md) is the reference for
-what each view asks and how to read an empty one. This chapter covers the same
-ground from the application side: which cause you are looking at, which
-pressure owns it, and what to change.
+Everything below happens in the Fresco tab, in Dynamic mode. The Causal view
+follows whichever dispatch is selected in Xray's event list.
+[The Fresco tab](../../xray/11-fresco-tab.md) documents each view and how to
+read an empty one. This chapter covers the application side: what the cause
+is and what to change.
 
 An **epoch** is one event pipeline run, from dispatch through its state commit.
 Xray organises its evidence around epochs.
 
 ### Load Xray
 
-Xray is a tool, not application code: the dependency belongs in a dev alias, and
-the preload belongs in the dev build, never in a release build.
-
-While re-frame2 is pre-alpha the dependency is a checkout-local one, resolved
-relative to your own `deps.edn`. It becomes an ordinary Maven coordinate once
-Xray is published.
+Put the dependency in a dev alias and the preload in the dev build, never in a
+release build. While re-frame2 is pre-alpha the dependency is a checkout-local
+one, relative to your own `deps.edn`.
 
 ```clojure
 ;; deps.edn
@@ -63,29 +58,26 @@ Xray renders into a host element your page reserves, marked
 </div>
 ```
 
-That is the whole setup. The preload registers the collectors, installs the
-browser API, and opens Xray into the host once the substrate adapter is ready,
-so you do not call `init!` yourself. `Ctrl+Shift+C` hides and shows the panel.
-
-[Xray's installation chapter](../../xray/01-installation.md) is the reference
-for the rest: styling the host, choosing a different selector, jump-to-source
-editor configuration, popping out to a second window, and production posture.
+That is the whole setup. The preload opens Xray into the host once the adapter
+is ready, so you do not call `init!` yourself. `Ctrl+Shift+C` hides and shows
+the panel. [Xray's installation chapter](../../xray/01-installation.md) covers
+styling the host, a different selector, jump-to-source, and popping out to a
+second window.
 
 ## Why did this view run?
 
-The Fresco tab's **Why** view answers this one boundary at a time, and it keeps
-what it proved apart from what it can only offer as a lead:
+The Fresco tab's **Why** view answers this for one view at a time. It separates
+what it can prove from what it can only suggest:
 
 | What the row says | Meaning | Typical response |
 | --- | --- | --- |
-| Its own reads moved | `:latest-reads` — the boundary's reads at its highest epoch, re-stamped by the commit that moved them | Check whether the read belongs lower in the tree or whether the subscription is too coarse |
-| Leads, not a cause | `:candidates` — retained dispatches that recomputed a subscription this boundary reads | Somewhere to look, nothing more: the commit seam records no cascade id, so none of them is joined to the re-run |
-| Nothing was searched | `:cap` — the retained window held no activity for this boundary at all | Raise `:rf.trace/events-retained`, reproduce, and read the view again |
-| The rest is React's | `:host-opaque` — whether the body then ran, retried, was abandoned, was bailed out by its memo comparator, committed, and painted | React DevTools Profiler for the run and the commit; browser performance tools for the paint |
+| Its own reads moved | `:latest-reads`: the view's subscriptions whose values changed most recently | Check whether the read belongs lower in the tree, or whether the subscription is too coarse |
+| Leads, not a cause | `:candidates`: recent dispatches that recomputed a subscription this view reads | Places to look; Fresco records no link from a commit to the dispatch that caused it |
+| Nothing was searched | `:cap`: the retained history held no activity for this view | Raise `:rf.trace/events-retained`, reproduce, and check again |
+| The rest is React's | `:host-opaque`: whether the body ran, was retried or abandoned, bailed out, committed and painted | React DevTools Profiler for the run and commit; browser performance tools for the paint |
 
-Props, context, a parent host, and a retried or discarded attempt are not causes
-this evidence can name, because Fresco does not record them. Use the React
-DevTools Profiler for those.
+Props, context, a parent host, and a retried or discarded render are not causes
+Fresco records. Use the React DevTools Profiler for those.
 
 When several views run for one event, fan-out distinguishes a topology problem
 from independent useful work. One changed subscription reaching hundreds of
@@ -149,27 +141,23 @@ and fan-out. It first identifies where the time is going:
 | --- | --- | --- |
 | Computation | View code or an expensive subscription chain | Move or reduce the computation; derive display values in subscriptions |
 | Topology | Too many invalidated views or unstable read sets | Move reads, split or combine views, or change collection read shape |
-| Hiccup lowering | Turning one hot view's Hiccup into React elements | Return a React element directly from that same view ([Islands](10-native-tier.md)) |
+| Hiccup conversion | Turning one hot view's Hiccup into React elements | Return a React element directly from that same view ([Islands](10-native-tier.md)) |
 | React | Reconciliation, hooks, or vendor internals | Use a React island, raw or UIx ([Islands](10-native-tier.md)) |
 | Layout and paint | Browser style, layout, and rendering | Reduce DOM, virtualise, or fix CSS; use browser tooling |
 
-Only the first two rows are measured. The advisor takes computation from the
-retained subscription timings, and topology from fan-out, read orders and
-recompute counts. It names the other three pressures but does not rank them:
-Chrome's timer has a 0.1 ms grain while a view body costs a few microseconds,
-so boundary self time would rank noise, and commit, paint and render outcome
-belong to React.
+The advisor measures only the first two rows: computation from subscription
+timings, and topology from fan-out, read order and recompute counts. It names
+the other three but does not rank them. Chrome's timer has a 0.1 ms grain while
+a view body costs a few microseconds, so per-view time would be noise, and
+commit and paint belong to React.
 
-As a result, the advisor never recommends a native escape, even for the hottest
-view on the page. Every native option addresses lowering, hooks or
-reconciliation, and the advisor's evidence cannot show that any of those owns
-the cost.
-
-Check the last three rows yourself, each with its own instrument: Fresco's
-User-Timing `:render` measures for lowering (a separate channel, off by
-default), the React DevTools Profiler for React, and browser performance tools
-for layout and paint. Xray does not change code for you, and any native escape
-must still pass the benefit thresholds in [Performance](19-performance.md).
+So the advisor never recommends a native escape, even for the hottest view on
+the page: its evidence cannot show that Hiccup conversion or React owns the
+cost. Check the last three rows yourself, each with its own tool: Fresco's
+User-Timing `:render` measures for Hiccup conversion (off by default), the
+React DevTools Profiler for React, and browser performance tools for layout and
+paint. Any native escape must still pass the thresholds in
+[Performance](19-performance.md).
 
 ## Incomplete evidence is reported explicitly
 
@@ -180,9 +168,9 @@ evidence is an empty result:
 | --- | --- | --- |
 | `:unknown` | No instrument covers the requested relationship | Ask a question the instruments can answer, or encode the claim in a test |
 | `:opaque` | The runtime does not record this fact, by design | Ask a question the instruments do hold |
-| `:host-opaque` | React owns this and does not publish it: commit and paint for *any* view, not only a foreign subtree | Use React DevTools and the browser performance tools |
+| `:host-opaque` | React owns this fact and does not publish it (commit and paint for every view) | Use React DevTools and the browser performance tools |
 | `:cap` | The bounded history has dropped older evidence | Reproduce and capture a fresh epoch |
-| `:uncorrelated` | The fact is real but joins to nothing — no id links the two sides | Structural, so a rerun does not fix it: read the leads it offers and confirm the link yourself |
+| `:uncorrelated` | The fact is real, but no id links it to a cause | A rerun does not change it; read the leads offered and confirm the link yourself |
 
 ## Complaint IDs
 
@@ -202,11 +190,11 @@ Examples from the guide:
 | `:rf.error/fresco-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
 | `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body or pass the realised value |
 | `:rf.error/fresco-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
-| `:rf.error/fresco-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
+| `:rf.error/fresco-intent-outside-boundary` | An event vector reached a position with no frame | Keep it inside a `defview`; use `h/event` for a foreign callback |
 | `:rf.error/fresco-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
 | `:rf.error/fresco-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
-| `:rf.warning/fresco-entity-key` | A boundary-headed sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
-| `:rf.warning/fresco-missing-key` | A boundary-headed sequence child carries no `:key`. React's own missing-key warning does not fire for these children, so without this warning the list would reconcile by index silently | Key on a stable identifier |
+| `:rf.warning/fresco-entity-key` | A view in a sequence has a map, collection, date or similar value as its `:key` | Key on a stable primitive id |
+| `:rf.warning/fresco-missing-key` | A view in a sequence has no `:key` (React's own warning does not fire for these) | Key on a stable id |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
 
 Follow the named recovery before changing unrelated code.
@@ -218,12 +206,12 @@ When testing a refusal, assert the stable id rather than the message:
   (:require [cljs.test :refer [deftest is]]
             [re-frame.fresco.test :as ht]))
 
-(defn badge [_]
-  [:span.badge "hi"])
+(defn todo-count [_]
+  [:span.todo-count "3 left"])
 
-(defn card [_]
-  [:div.card
-   [badge {}]])
+(defn footer [_]
+  [:footer
+   [todo-count {}]])
 
 (defn refusal-id [f]
   (try
@@ -235,23 +223,22 @@ When testing a refusal, assert the stable id rather than the message:
 (deftest plain-defn-child-head-refuses
   (is (= :rf.error/fresco-test-plain-fn-head
          (refusal-id
-          #(ht/tree [card {}] {:subs {}})))))
+          #(ht/tree [footer {}] {:subs {}})))))
 ```
 
-Error messages may improve between releases. IDs are part of the stable
-complaint contract.
+Messages may change between releases; ids do not.
 
-At L2, the test kit accepts a plain body function as the **root** because that
-is the function it is deliberately running. A plain function reached as a
-child head raises `:rf.error/fresco-test-plain-fn-head`. The equivalent
-mounted mistake raises the runtime's `:rf.error/fresco-bad-head`.
+The test kit accepts a plain function as the root of `ht/tree`, because that is
+the body it is running. A plain function as a child head raises
+`:rf.error/fresco-test-plain-fn-head`; the same mistake in a mounted tree
+raises `:rf.error/fresco-bad-head`.
 
 ## Verify production erasure
 
-Xray, its evidence producer, projections, advisor, development checks, source
-locations, and message strings are removed from a release build. Production
-evidence queries return `nil`. Performance instrumentation has a separate
-compile-time flag and is off by default.
+A release build removes Xray, Fresco's evidence collection, development
+checks, source locations and message strings. Evidence queries return `nil` in
+production. Performance instrumentation has a separate compile-time flag and is
+off by default.
 
 Verify erasure with a positive control:
 
@@ -263,9 +250,9 @@ npx shadow-cljs release app
 grep -c "rf.xray" public/js/main.js    # expect 0
 ```
 
-The development search must find the sentinel. Zero in both files means the
-search is ineffective, not that production erasure has been demonstrated.
-This is the sabotage-control principle from [Testing](15-testing.md).
+The development build must show a count above 0. Zero in both builds means the search is
+broken, not that erasure worked (the sabotage-twin idea from
+[Testing](15-testing.md)).
 
 Application behaviour must never depend on diagnostics. Do not branch on
 whether evidence exists, count warnings as product data, or read panel state
@@ -276,10 +263,10 @@ from application code.
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | A view you expected is absent from the epoch | Its props and reads allowed it to skip; a body that did not run emits no occurrence | Treat absence as work avoided. Inspect the parent occurrence when you expected different props |
-| Explain-render returns `:uncorrelated` | Fresco's commit records no cascade id, so nothing in the retained window joins to the re-run | Expected every time; a bigger history does not change it. Work from the `:candidates` leads |
+| Explain-render returns `:uncorrelated` | Fresco records no link from a commit to the dispatch that caused it | Expected; a bigger history does not change it. Work from the `:candidates` leads |
 | Every view reports `:host-opaque` after its body ran | React owns commit and paint for all views | Expected. Use React DevTools for the run and the commit, browser tools for the paint |
 | History ends with `:cap` | The bounded retention window discarded old epochs | Reproduce the issue and capture it again |
-| The advisor will not recommend a native island | Either the measured owner is not a cost native code fixes, or nothing it measures owns the boundary at all | Apply the smaller remedy where it names one; where it refuses, reach for the instrument it names first |
+| The advisor will not recommend a native island | It cannot measure the costs native code fixes | Apply the remedy it names, or measure with the tool it points to |
 | Repeated runs have different timings | Xray timing is diagnostic attribution, not a controlled benchmark | Use the cost classification; benchmark under [Performance](19-performance.md) |
 | A complaint id has no catalogue entry | The id belongs to another namespace, or application and test-kit versions differ | Check the namespace and align installed versions |
 | Panels are empty in a release build | Diagnostics were erased as designed | Diagnose with a development build |
@@ -301,33 +288,30 @@ When the question is correctness rather than cause, write a test
 
 ### Explain-render envelope
 
-The Fresco tab's **Why** view, tests, and an AI pair all read one versioned
-evidence envelope, produced by
+The **Why** view, tests, and an AI pair all read one versioned evidence map,
+produced by
 [`re-frame.fresco.tool/explain-render`](api-reference.md#re-framefrescotool).
-Read it through the Why view; calling the reader yourself is for scripted
-diagnosis, and every read on that door answers `nil` in a release build. A
-representative occurrence:
+Call it yourself only for scripted diagnosis; it returns `nil` in a release
+build. A representative entry:
 
 ```clojure
-{:boundary     {:parent nil :key [[:app/main :todo/by-id [:todo/by-id 7]]]}
+{:boundary     {:parent nil :key [[:app :todo/by-id [:todo/by-id 7]]]}
  :views        [{:view   "todo.views/todo-row"
                  :source {:ns todo.views :file "src/todo/views.cljs" :line 41 :column 1}}]
- :frame        :app/main
+ :frame        :app
  :instances    1
- :window       {:frames [:app/main] :retained-runs 12}
+ :window       {:frames [:app] :retained-runs 12}
  :snapshot     9
  :peak-epoch   5
- :latest-reads [{:sub-id :todo/by-id :query [:todo/by-id 7] :frame-id :app/main}]
+ :latest-reads [{:sub-id :todo/by-id :query [:todo/by-id 7] :frame-id :app}]
  :loss         {:reason :uncorrelated :dropped :unknown}
- :candidates   [{:dispatch-id 41 :event-id :todo/toggle :frame-id :app/main :sub-id :todo/by-id}]}
+ :candidates   [{:dispatch-id 41 :event-id :todo/toggle :frame-id :app :sub-id :todo/by-id}]}
 ```
 
-`:latest-reads` is the proven half — the reads whose values moved most
-recently, off the cells' own epoch stamps. `:candidates` are leads, never a
-cause: the commit seam records no cascade identity, which is what the row's
-`:loss` says. The enclosing envelope identifies its schema, producer and read,
-and states its own completeness and loss. Most developers do not need the raw
-map; it matters for scripted diagnosis and assertions.
+`:latest-reads` is proven: the reads whose values changed most recently.
+`:candidates` are leads, not a cause, because Fresco records no link from a
+commit to its dispatch; `:loss` says so. The enclosing map also names its
+schema version and states its own completeness.
 
 ### Privacy projection
 
@@ -348,6 +332,5 @@ An unused or uninstalled module contributes no projection.
 
 ### Bounded retention
 
-Xray owns a fixed history budget. The trace ring is the record, and named
-operations may retain bounded, commit-owned identity for correlation. There is
-no unbounded occurrence ledger. `:cap` is the visible boundary of that choice.
+Xray keeps a fixed-size trace history, and nothing grows without bound. When
+older evidence has been dropped, Xray reports `:cap`.

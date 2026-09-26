@@ -1,70 +1,68 @@
 # Motion and presence
 
-Fresco does not ship an animation system. CSS owns transitions and keyframes.
-The compositor interpolates them. A native host owns high-rate mechanics such as
-drag positions and spring integrators. What none of them handles is exit: React
-removes a node as soon as its data leaves app-db, and a node that is gone
-cannot finish an exit animation.
+Fresco does not ship an animation system. CSS handles transitions and
+keyframes, and a native host handles high-rate mechanics such as drag positions
+and springs. None of them handles exit: React removes a node as soon as its
+data leaves app-db, and a node that is gone cannot finish an exit animation.
 
-`re-frame.fresco.motion` closes that gap. It is an optional module. An
-application that never requires it carries none of its code.
+`re-frame.fresco.motion` fills that gap. It is an optional module; an
+application that never requires it includes none of its code.
 
 ```clojure
-(ns app.toasts
+(ns app.todos.list
   (:require [re-frame.fresco :as h]
             [re-frame.fresco.motion :as motion]))
 ```
 
-## The problem in one example
+## The problem
 
-A toast should leave app-db the moment the user dismisses it. Tests, Xray, and
-other views must see the toast as gone. The painted element may still need
-300 ms of CSS exit transition.
-
-If the view simply maps over the subscription, the DOM node disappears on the
-same turn as the event:
+A todo should leave app-db the moment the user deletes it, so tests, Xray and
+other views see it as gone. The painted row may still need 300 ms of CSS exit
+transition. If the view simply maps over the subscription, the DOM node
+disappears on the same turn as the event:
 
 ```clojure
-;; Don't — the node vanishes with the data; CSS has nothing left to animate.
-(h/defview toast-tray [_]
-  [:div.toast-tray
-   (for [t (h/sub [:toasts/visible])]
-     [:div.toast {:key (:id t)}
-      (:message t)
-      [:button {:on-click [:toasts/dismiss (:id t)]} "×"]])])
+;; Don't: the node vanishes with the data, so CSS has nothing left to animate.
+(h/defview todo-list [_]
+  [:ul.todo-list
+   (for [{:keys [id title]} (h/sub [:todo/visible])]
+     [:li.todo {:key id}
+      title
+      [:button {:on-click [:todo/delete id]} "×"]])])
 ```
-
-Presence keeps the exiting node for a stated timeout while app-db already
-records the dismissal.
 
 ## Retain the exiting node
 
+Wrap the keyed children in `motion/presence`:
+
 ```clojure
-(h/defview toast-tray [_]
-  [motion/presence {:timeout-ms 300}
-   (for [t (h/sub [:toasts/visible])]
-     [:div.toast
-      {:key                 (:id t)
-       ::motion/unmounting  {:class       "toast toast--exit"
+(h/defview todo-list [_]
+  [:ul.todo-list
+   [motion/presence {:timeout-ms 300}
+    (for [{:keys [id title]} (h/sub [:todo/visible])]
+      [:li.todo
+       {:key                id
+        ::motion/unmounting {:class       "todo todo--exit"
                              :inert       true
                              :aria-hidden true}}
-      (:message t)
-      [:button {:on-click [:toasts/dismiss (:id t)]} "×"]])])
+       title
+       [:button {:on-click [:todo/delete id]} "×"]])]])
 ```
 
 What happens:
 
-1. The user dismisses toast `7`. The handler removes it from app-db.
-2. Presence still has a child with key `7`. That child enters the **unmounting**
-   phase.
-3. Presence merges `::motion/unmounting` attributes onto the real element. The exit
-   class starts the CSS transition; `:inert` and `:aria-hidden` stop interaction
-   and hide the node from assistive tech while it is still painted.
-4. After 300 ms Presence removes the child. Removal is **timer-based**, not
-   `transitionend`. Disabled CSS cannot strand the node forever.
+1. The user deletes todo `7`. The handler removes it from app-db.
+2. Presence still has a child with key `7`, so that child enters the
+   **unmounting** phase.
+3. Presence merges the `::motion/unmounting` attributes onto the real element.
+   The exit class starts the CSS transition; `:inert` and `:aria-hidden` stop
+   interaction and hide the node from assistive technology while it is still
+   painted.
+4. After 300 ms Presence removes the child. Removal uses a timer rather than
+   `transitionend`, so disabled CSS cannot leave the node on the page.
 
-App-db never stores “still animating.” The retention is a paint concern owned
-by Presence.
+App-db never stores "still animating". Keeping the node painted is Presence's
+job.
 
 ## What Presence covers
 
@@ -77,9 +75,9 @@ Presence owns **retention and phase**, nothing else:
 | A hard `:timeout-ms` terminal bound | `transitionend` subscriptions |
 | Cancelling exit when a key re-enters | Gesture or drag state |
 
-High-rate motion stays in a React component or CSS. Host those mechanics in a
-foreign component or a [React island](10-native-tier.md) through
-[`h/defhost`](09-interop.md); do not route pointer-move events through app-db.
+High-rate motion stays in CSS or a React component, mounted as a foreign
+component or a [React island](10-native-tier.md) through
+[`h/defhost`](09-interop.md). Do not route pointer-move events through app-db.
 
 ## API
 
@@ -106,11 +104,11 @@ the author's node with the author's attributes merged for the active phase.
 On a native element child, write overrides with the motion markers:
 
 ```clojure
-[:div.card
+[:li.todo
  {:key                id
-  ::motion/mounting   {:class "card card--enter" :inert true}
-  ::motion/unmounting {:class "card card--exit"  :inert true :aria-hidden true}}
- body]
+  ::motion/mounting   {:class "todo todo--enter" :inert true}
+  ::motion/unmounting {:class "todo todo--exit"  :inert true :aria-hidden true}}
+ title]
 ```
 
 | Marker | When applied |
@@ -119,8 +117,8 @@ On a native element child, write overrides with the motion markers:
 | `::motion/unmounting` | While the child is retained after its key left the live set |
 
 These markers are keywords in the `re-frame.fresco.motion` namespace, so
-write them as `::motion/...` with the module aliased as `motion`. They are
-not `::h/...` keywords.
+write them as `::motion/...` with the module aliased as `motion`, not as
+`::h/...`.
 
 Prefer CSS insertion animations or `@starting-style` for simple entrances.
 Use `::motion/mounting` when the node must carry attributes such as `:inert`
@@ -128,33 +126,33 @@ until it settles.
 
 ### Phase overrides on views
 
-The same markers work on a [`h/defview`](glossary.md#defview) head, and mean the
-same thing: while the child is in that phase, Presence merges the map into the
-view's props. The view branches on whatever prop it declared:
+The same markers work on a [`h/defview`](glossary.md#defview) head. While the
+child is in that phase, Presence merges the map into the view's props, and the
+view branches on whatever prop it declared:
 
 ```clojure
-(h/defview toast-item [{:keys [id message exiting?]}]
-  [:div.toast
-   {:class (cond-> "toast" exiting? (str " toast--exit"))
-    :inert       exiting?
-    :aria-hidden exiting?}
-   message
-   (when-not exiting?
-     [:button {:on-click [:toasts/dismiss id]} "×"])])
+(h/defview todo-item [{:keys [id exiting?]}]
+  (let [{:keys [title]} (h/sub [:todo/by-id id])]
+    [:li
+     {:class       (cond-> "todo" exiting? (str " todo--exit"))
+      :inert       exiting?
+      :aria-hidden exiting?}
+     title
+     (when-not exiting?
+       [:button {:on-click [:todo/delete id]} "×"])]))
 
-(h/defview toast-tray [_]
-  [motion/presence {:timeout-ms 300}
-   (for [t (h/sub [:toasts/visible])]
-     [toast-item {:key                (:id t)
-                  :id                 (:id t)
-                  :message            (:message t)
-                  ::motion/unmounting {:exiting? true}}])])
+(h/defview todo-list [_]
+  [:ul.todo-list
+   [motion/presence {:timeout-ms 300}
+    (for [{:keys [id]} (h/sub [:todo/visible])]
+      [todo-item {:key                id
+                  :id                 id
+                  ::motion/unmounting {:exiting? true}}])]])
 ```
 
-A view never sees the phase as a value; it sees the props its author declared
-for that phase, under names the author chose. So a test renders the exiting
-shape by passing `{:exiting? true}` directly, with no timer armed and no
-reserved key to know about.
+The view sees the props its author chose for that phase, never a phase value.
+A test renders the exiting shape by passing `{:exiting? true}` directly, with
+no timer involved.
 
 ## Rules that matter in production
 
@@ -175,15 +173,6 @@ reserved key to know about.
   so a fading node does not keep focus or announce itself
   ([Accessibility](22-accessibility.md)).
 
-## What Presence does not do
-
-- It does not dispatch an event when a transition ends.
-- It does not keep the removed domain data in app-db.
-- It does not replace CSS, the Web Animations API, or a hosted animation
-  library.
-- It does not own open/closed UI truth. That is still app-db
-  ([Ephemeral state](11-ephemeral-state.md)).
-
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -192,22 +181,14 @@ reserved key to know about.
 | `:rf.error/fresco-presence-child-unkeyed` | A child has no `:key` | Give every child a stable domain `:key` |
 | `:rf.error/fresco-presence-timeout-required` | `:timeout-ms` is missing or not a positive number | Set it to at least the CSS exit duration |
 | Exiting node lingers after its animation ends | `:timeout-ms` is much longer than the CSS transition | Match `:timeout-ms` to the CSS duration |
-| Fading toast still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
+| Fading row still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
 | Override on a view head has no visible effect | The map was merged into the view's props, and the view's body does not read the prop it names | Destructure the prop in the view and branch on it |
 | Exit restarts on every parent re-render | Unstable keys | Key by domain id, not index |
 | Bundle still contains motion code when unused | Something required the module | Require `re-frame.fresco.motion` only where Presence is used |
 
 ## When not to use Presence
 
-- No exit animation — just remove the data; no module required.
-- The fact is application-visible (open, selected, draft) — store it in app-db,
-  not as a phase.
-- Continuous pointer or layout motion — use a native host or CSS, not Presence.
-
-## Advanced
-
-### Optional module reachability
-
-`re-frame.fresco` does not import `re-frame.fresco.motion`, so an application
-that never requires the module compiles none of its code. A check in the Fresco
-package fails if `re-frame.fresco` starts requiring it.
+- There is no exit animation: remove the data and skip the module.
+- The fact is application-visible (open, selected, draft): store it in app-db
+  ([Ephemeral state](11-ephemeral-state.md)).
+- The motion is continuous pointer or layout motion: use a native host or CSS.

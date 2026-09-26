@@ -7,23 +7,22 @@ the entire root and leave the user with a blank page.
 Wrap independently useful regions with `h/error-boundary`:
 
 ```clojure
-(ns app.articles
+(ns app.todos
   (:require [re-frame.fresco :as h]))
 
-(h/defview article-page [{:keys [id]}]
+(h/defview todo-page [_]
   [:main
-   [site-header {}]
+   [todo-header {}]
 
    [h/error-boundary
-    {:fallback
-     [:p.oops "We couldn't load this article."]}
-    [article-body {:id id}]]
+    {:fallback [:p.oops "We couldn't show your todos."]}
+    [todo-list {}]]
 
-   [site-footer {}]])
+   [todo-footer {}]])
 ```
 
-If `article-body` throws while rendering, the fallback replaces that region.
-The header and footer remain mounted.
+If `todo-list` throws while rendering, the fallback replaces that region.
+The header and footer stay mounted.
 
 `h/error-boundary` is the component that catches. A normal `defview` boundary
 only defines an independently re-rendering view; it is not an error boundary.
@@ -56,9 +55,9 @@ Or it may inspect the thrown value:
     [:pre (ex-message error)]])}
 ```
 
-Use detailed messages in development and user-safe copy in production. Hiccup
-returned by the fallback is rendered under the same frame as the boundary, so
-its event intents work normally.
+Show detailed messages in development and user-safe copy in production. The
+fallback renders under the same frame as the boundary, so event vectors in it
+dispatch normally.
 
 Keep fallbacks simple. A fallback that reads the same broken state or performs
 heavy work can throw itself. That second failure is caught only by the next
@@ -66,90 +65,76 @@ boundary above it.
 
 ### Retry with `:reset-key`
 
-A caught boundary remains in the failed state until its `:reset-key` changes.
-The change clears the failure and **remounts** the children. It does not
-re-render the surviving failed subtree.
+A caught boundary stays in the failed state until its `:reset-key` changes.
+The change clears the failure and remounts the children from scratch.
 
-Use an app-db counter or generation value when the user presses Retry.
+Keep the key in app-db and increment it when the user presses Retry. The next
+section shows the full pattern.
 
 ### Report with `:on-error`
 
 An event vector receives the thrown error as its final argument:
 
 ```clojure
-:on-error [:diagnostics/record-failure]
-```
-
-The handler receives:
-
-```clojure
-[:diagnostics/record-failure error]
+:on-error [:todo/record-failure]
+;; dispatched as [:todo/record-failure error]
 ```
 
 The event dispatches into the boundary's frame. A plain function is called
-with the error and does not dispatch anything.
+with the error instead and dispatches nothing.
 
-`on-error` runs once for each caught failure. Development StrictMode may run
-the failing render more than once, but one React catch produces one report.
+`:on-error` runs once per caught failure. StrictMode may run the failing render
+more than once in development, but one React catch produces one report.
 
 ## Nested boundaries and retry
 
 The nearest error boundary above the throw handles it:
 
 ```clojure
-(ns app.reports
+(ns app.todos
   (:require [re-frame.core :as rf]
             [re-frame.fresco :as h]))
 
-(rf/reg-sub :chart/attempt
+(rf/reg-sub :todo.ui/list-attempt
   (fn [db _query]
-    (:chart/attempt db 0)))
+    (:todo.ui/list-attempt db 0)))
 
-(rf/reg-event :chart/retry
+(rf/reg-event :todo/retry-list
   (fn [{:keys [db]} _event]
-    {:db (update db :chart/attempt (fnil inc 0))}))
+    {:db (update db :todo.ui/list-attempt (fnil inc 0))}))
 
-(rf/reg-event :diagnostics/record-failure
+(rf/reg-event :todo/record-failure
   (fn [{:keys [db]} [_ error]]
-    {:db (update db
-                 :diagnostics/failures
-                 (fnil conj [])
-                 (ex-message error))}))
+    {:db (update db :todo/failures (fnil conj []) (ex-message error))}))
 
-(h/defview reports-page [_]
+(h/defview todo-page [_]
   [:main
-   [report-header {}]
+   [todo-header {}]
 
    [h/error-boundary
-    {:fallback
-     [:p.oops "We couldn't show this report."]}
+    {:fallback [:p.oops "We couldn't show your todos."]}
 
-    [report-summary {}]
+    [todo-filters {}]
 
     [h/error-boundary
      {:fallback
       (fn [_error]
-        [:div.panel-oops
-         [:p "The live chart failed."]
-         [:button {:on-click [:chart/retry]}
-          "Try again"]])
-      :reset-key (h/sub [:chart/attempt])
-      :on-error  [:diagnostics/record-failure]}
-     [live-chart {}]]]])
+        [:div.oops
+         [:p "The list failed to render."]
+         [:button {:on-click [:todo/retry-list]} "Try again"]])
+      :reset-key (h/sub [:todo.ui/list-attempt])
+      :on-error  [:todo/record-failure]}
+     [todo-list {}]]]])
 ```
 
-If `live-chart` throws:
+If `todo-list` throws, the inner boundary catches it and shows its fallback.
+The filters and header stay, and the outer boundary sees nothing.
 
-- the inner boundary catches it;
-- the chart region shows its fallback;
-- the report summary and header remain;
-- the outer boundary does not report the failure.
+The Try again button increments `:todo.ui/list-attempt`, so the reset key
+changes and the list mounts from scratch. If it throws again, the boundary
+catches the new failure.
 
-The Retry button increments `:chart/attempt`. The reset key changes and the
-chart mounts from scratch. If it throws again, the boundary catches the new
-failure.
-
-A throw from `report-summary`, which is outside the inner boundary, reaches the
+A throw from `todo-filters`, which sits outside the inner boundary, reaches the
 outer boundary instead.
 
 ## What an error boundary catches
@@ -163,44 +148,40 @@ the descendant React tree.
 handlers, timers, and promise continuations.
 
 A re-frame2 event handler runs in the event pipeline. If it throws, the
-pipeline reports `:rf.error/handler-exception` with the event, frame, and
-recovery data, then keeps the application runtime alive. It does not render a
-view fallback.
+pipeline reports `:rf.error/handler-exception` with the event and frame, and
+the runtime keeps going. No view fallback renders.
 
-A raw JavaScript callback that throws reaches the browser's error channel.
-Again, the error boundary does not see it because no descendant failed during
-React rendering or lifecycle.
+A raw JavaScript callback that throws reaches the browser's error channel. The
+error boundary does not see it, because nothing failed during React rendering.
 
 ## Expected failures are state
 
-Use app-db status values for failures you can name in advance: a 404, invalid
+Use app-db values for failures you can name in advance: a 404, invalid
 input, an unavailable resource, or an expected permission denial.
 
 Do not throw to express ordinary control flow:
 
 ```clojure
-;; Don't: a missing article is an expected state.
-(h/defview article-body [{:keys [id]}]
-  (let [article (h/sub [:article/by-id id])]
-    (when (nil? article)
-      (throw (ex-info "article missing" {:id id})))
-    [:article (:title article)]))
+;; Don't do this: a missing todo is an expected state.
+(h/defview todo-detail [{:keys [id]}]
+  (let [todo (h/sub [:todo/by-id id])]
+    (when (nil? todo)
+      (throw (ex-info "todo missing" {:id id})))
+    [:h2 (:title todo)]))
 ```
 
-Render the status explicitly:
+Render the case explicitly:
 
 ```clojure
-(h/defview article-body [{:keys [id]}]
-  (case (h/sub [:article/status id])
-    :loading [loading-placeholder {}]
-    :failed  [load-failed {:id id}]
-    [:article
-     (:title (h/sub [:article/by-id id]))]))
+(h/defview todo-detail [{:keys [id]}]
+  (if-let [todo (h/sub [:todo/by-id id])]
+    [:h2 (:title todo)]
+    [:p "That todo no longer exists."]))
 ```
 
-The explicit version is easy to test, can show a precise message, and reserves
-the error boundary for failures the application did not plan for. Resource and
-mutation statuses are covered in [Async resources](08-async-resources.md).
+The explicit version is easy to test, shows a precise message, and leaves the
+error boundary for failures you did not plan for. Loading and failed statuses
+for remote data are covered in [Async resources](08-async-resources.md).
 
 ## Place boundaries at useful recovery regions
 
@@ -208,15 +189,10 @@ A single boundary around the root turns every failure into a whole-page
 fallback and may remove navigation along with the broken content. A boundary
 around every small view creates noise without useful recovery.
 
-Place a boundary around a region the user can continue without:
-
-- a dashboard panel;
-- a tab body;
-- a sidebar widget;
-- a route's main content while the surrounding shell remains usable.
-
-Ask what should stay available when this region fails. Put the boundary at the
-level that preserves it.
+Place a boundary around a region the user can continue without: a panel, a
+tab body, a sidebar widget, or a route's main content inside a shell that
+stays usable. Ask what should stay available when this region fails, and put
+the boundary at the level that preserves it.
 
 ## Troubleshooting
 
@@ -227,7 +203,7 @@ level that preserves it.
 | Fallback appears and never clears | There is no `:reset-key`, or its value never changes | Drive a generation value from app-db and change it on Retry |
 | An intent in the fallback, or a vector `:on-error`, raises `:rf.error/fresco-intent-outside-boundary` | No frame is mounted above the boundary, so there is nowhere to dispatch the event. A vector `:on-error` is checked on the boundary's first paint, not when it catches | Mount the region under `h/frame-root` or `h/frame-provider`, or give `:on-error` a function, which needs no frame |
 | The boundary raises `:rf.error/fresco-boundary-unknown-prop` | A prop other than `:fallback`, `:reset-key` or `:on-error`, usually a misspelling such as `:on-errors` | Fix the key; the boundary accepts only those three |
-| The boundary raises `:rf.error/fresco-boundary-bad-on-error` | `:on-error` is a bare keyword or another non-callable value | Use an event vector such as `[:diagnostics/record-failure]` or a function |
+| The boundary raises `:rf.error/fresco-boundary-bad-on-error` | `:on-error` is a bare keyword or another non-callable value | Use an event vector such as `[:todo/record-failure]` or a function |
 | A panel fallback throws and the larger page fallback appears | The fallback itself failed and the next outer boundary caught it | Keep fallbacks small and avoid re-reading the failed state |
 | `:on-error` appears to fire twice in development | Two distinct failures occurred; StrictMode alone still produces one report per catch | Inspect the two error records and their causes |
 | A server-render throw is not caught by the client boundary | Server rendering uses the server error channel; a client error boundary cannot handle server execution | Apply the surface's server policy and server error handling ([SSR and hydration](18-ssr-and-hydration.md)) |
@@ -236,6 +212,6 @@ level that preserves it.
 
 Do not use it:
 
-- for an expected failure such as a 404, validation error, or empty result;
-- around every small view without an independent recovery experience;
-- as loading UI. Pending is state, not a render exception.
+- for an expected failure such as a 404, a validation error, or an empty result;
+- around every small view that has no recovery of its own;
+- as loading UI. Pending data is state; render it explicitly.

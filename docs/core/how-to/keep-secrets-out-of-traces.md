@@ -31,7 +31,7 @@ Run `:auth/init` from the frame's `:initial-events`, so the classification is in
 
 ```clojure
 (rf/make-frame
-  {:id :app/main
+  {:id :app
    :initial-events [[:auth/init]]})
 ```
 
@@ -232,7 +232,7 @@ To send production records to Datadog, Sentry, or another monitor, declare them 
 
 ```clojure
 (rf/make-frame
-  {:id :app/main
+  {:id :app
    :observability {:handled-events
                    [{:sink :my-app.sinks/datadog
                      :rf.egress/profile :rf.egress/off-box-observability}]
@@ -245,7 +245,7 @@ To send production records to Datadog, Sentry, or another monitor, declare them 
 (rf/register-observability-sink! :my-app.sinks/datadog
   (fn [record]
     ;; Already projected: no redaction needed here.
-    (datadog/send record {:service "checkout-spa" :env "prod"})))
+    (datadog/send record {:service "todo-app" :env "prod"})))
 
 (rf/register-observability-sink! :my-app.sinks/sentry
   (fn [record] (sentry/capture record)))
@@ -274,13 +274,13 @@ A profile names who is about to see the data, instead of a combination of on/off
 
     Beneath the profiles are `:rf.egress/*` flags: `:rf.egress/include-sensitive?`, `:rf.egress/include-large?`, `:rf.egress/include-digests?`, and `:rf.egress/threshold-bytes`. A profile sets the defaults and an explicit flag overrides one of them. You rarely need them.
 
-### Two things to verify before the first record ships
+### Check these before the first record ships
 
 **Direct reads are not projected.** Reading live state directly, with `rf/app-db-value`, a sub-cache snapshot, or an MCP `get-path`, returns the raw value. If you send that off-box yourself, pass it through [`rf/project-egress`](../glossary.md#project-egress) first, naming the frame whose classifications apply:
 
 ```clojure
-(rf/project-egress (get-in (rf/app-db-value :app/main) [:auth])
-  {:frame :app/main :path [:auth] :rf.egress/profile :rf.egress/off-box-tool})
+(rf/project-egress (get-in (rf/app-db-value :app) [:auth])
+  {:frame :app :path [:auth] :rf.egress/profile :rf.egress/off-box-tool})
 ```
 
 **Omitting `:frame` is not the same as `:frame nil`.** Without the key, projection uses the frame in the current scope, and a frame that declares nothing redacts nothing, so a secret goes out as is; it redacts everything only when no live frame is in scope. With an explicit `:frame nil`, projection ignores the current scope and redacts the whole value. Use `:frame nil` when projecting one frame's data from code running in another frame, such as a tool showing the inspected app's data. (`re-frame.elision/elide-wire-value` is the lower-level walker `project-egress` uses for plain values; you rarely call it directly.)
@@ -290,11 +290,11 @@ A profile names who is about to see the data, instead of a combination of on/off
 ```clojure
 (rf/project-egress
   {:kind     :rf.observe/handled-event
-   :frame    :app/main
+   :frame    :app
    :event-id :auth/sign-in
    :event    [:auth/sign-in {:password "hunter2"}]}
   {:rf.egress/profile :rf.egress/off-box-observability})
-;; => {:kind :rf.observe/handled-event :frame :app/main
+;; => {:kind :rf.observe/handled-event :frame :app
 ;;     :event-id :auth/sign-in ...}   ;; no :event slot
 ```
 
@@ -316,6 +316,19 @@ A profile names who is about to see the data, instead of a combination of on/off
 
     The framework's own adapter and render diagnostics carry only a summary of a value's shape, never the value, so this applies only to your app's own `throw` sites.
 
+## Check the projection in Xray
+
+Dispatch `[:auth/sign-in {:email "a@b.c" :password "hunter2"}]` in a dev build and open Xray. The event row shows a redacted marker on its arg map, and the `:password` slot reads `:rf/redacted`, which can never be expanded. In the App-DB panel, `[:auth :token]` reads `:rf/redacted` too.
+
+Xray's panels render under the `:rf.egress/local-redacted` profile, so in development you see the same redactions your shipper relies on, and a missing declaration shows up there rather than in a production log.
+
+- `:rf/redacted` for a sensitive value: no type, no size, no way to reveal it. A path declared both sensitive and large also shows as `:rf/redacted`.
+- `{:rf.size/large-elided {:path … :bytes … :type … :reason … :handle …}}` for a large value. Xray's diff view shows this map; a tool may display it more compactly, for example as `:rf/large {:bytes N :head "…"}`. On the machine, a tool may offer to load the full value through its `:handle` after confirming the size.
+
+To see a sensitive value in a local tool, the tool uses the trusted-local `:rf.egress/local-raw` profile, and revealing a value is itself recorded in the trace. There is no process-wide "show sensitive values" switch.
+
+If a value you expected to be redacted shows raw, its path isn't classified: the declaration is missing, names the wrong path, or the secret was copied to a path you didn't classify. Classify the path where it actually lives, and Xray, the epoch history, and your sinks all pick up the change.
+
 ## Advanced
 
 ### SSR and hydration: another egress point
@@ -329,16 +342,3 @@ Sometimes the user's own browser must hold a classified value, such as a CSRF to
 ### Classification and time travel: epoch records stay raw
 
 Classification doesn't break [time travel](../glossary.md#time-travel). A stored [epoch](../glossary.md#epoch) keeps the raw value, so `restore-epoch!` puts the real value back. Redaction happens only when an epoch leaves the process: an exported epoch must go through `project-egress` with an off-box profile, like any other record. There is no hook to scrub epochs as they are stored.
-
-## Check the projection in Xray
-
-Dispatch `[:auth/sign-in {:email "a@b.c" :password "hunter2"}]` in a dev build and open Xray. The event row shows a redacted marker on its arg map, and the `:password` slot reads `:rf/redacted`, which can never be expanded. In the App-DB panel, `[:auth :token]` reads `:rf/redacted` too.
-
-Xray's panels render under the `:rf.egress/local-redacted` profile, so in development you see the same redactions your shipper relies on, and a missing declaration shows up there rather than in a production log.
-
-- `:rf/redacted` for a sensitive value: no type, no size, no way to reveal it. A path declared both sensitive and large also shows as `:rf/redacted`.
-- `{:rf.size/large-elided {:path … :bytes … :type … :reason … :handle …}}` for a large value. Xray's diff view shows this map; a tool may display it more compactly, for example as `:rf/large {:bytes N :head "…"}`. On the machine, a tool may offer to load the full value through its `:handle` after confirming the size.
-
-To see a sensitive value in a local tool, the tool uses the trusted-local `:rf.egress/local-raw` profile, and revealing a value is itself recorded in the trace. There is no process-wide "show sensitive values" switch.
-
-If a value you expected to be redacted shows raw, its path isn't classified: the declaration is missing, names the wrong path, or the secret was copied to a path you didn't classify. Classify the path where it actually lives, and Xray, the epoch history, and your sinks all pick up the change.

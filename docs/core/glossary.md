@@ -1,14 +1,16 @@
 # Glossary
 
-re-frame2 nouns, verbs, and concepts. One term, definition first; short code when the spelling matters; Related points at the teaching page.
+re-frame2 terms, one entry each: the definition first, a short example where the
+spelling matters, and a link to the page that teaches it.
 
 ## The Nouns
 
 ### **adapter**
 
-A map of functions that binds re-frame2 core to a view layer, the [substrate](#substrate). A *value*, not the library itself. Fresco's is `re-frame.fresco.substrate/adapter`; Reagent, UIx and reagent-slim each ship one too.
-
-Install once at boot via `init!`:
+The value that connects re-frame2 to a view layer (the [substrate](#substrate)). It
+is a map of functions, not the library itself. Fresco's is
+`re-frame.fresco.substrate/adapter`; Reagent, UIx and reagent-slim each ship one.
+Install it once at boot with [`init!`](#init):
 
 ```clojure
 (ns app.core
@@ -18,619 +20,610 @@ Install once at boot via `init!`:
 (rf/init! reagent-adapter/adapter)
 ```
 
-To switch substrate, change that require and pass its `adapter`. Events, subscriptions, and app-db stay the same.
+To switch view layer, require a different adapter. Events, subscriptions and app-db
+stay the same.
 
-Related: [Views](views.md), [Fresco installation](fresco/00-installation.md), [Reagent adapter](../api/re-frame.adapter.reagent.md). Substrate = the view layer; adapter = the value that binds re-frame2 to it.
+Related: [Views](views.md), [Fresco installation](fresco/00-installation.md),
+[Reagent adapter](../api/re-frame.adapter.reagent.md).
 
 ### **app-db**
 
-The single immutable map of application state — one per [frame](#frame), the state your code owns.
-
-You choose the shape; optionally guard it with a schema (Malli by default). You never mutate it in place: an [event handler](#event-handler) returns a *new* app-db, the runtime commits it atomically, and [subscriptions](#subscription) re-derive [views](#view) from that value. State enters through events and leaves through subscriptions — never the reverse.
+The single immutable map of application state, one per [frame](#frame). You choose
+its shape. An [event handler](#event-handler) returns a new app-db, the runtime
+commits it, and [subscriptions](#subscription) derive what [views](#view) show from
+it.
 
 ```clojure
-{:cart  {:items [{:sku "BK-1" :qty 2}]
-         :open? false}
- :user  {:name "Ada"}
- :route {:page :checkout}}
+{:todos   {1 {:id 1 :title "Buy milk" :done? false}}
+ :showing :all}
 ```
 
-Framework state lives separately in [runtime-db](#runtime-db) inside the same frame; see [the two partitions](#the-two-partitions).
+Framework state lives beside it in [runtime-db](#runtime-db); see
+[the two partitions](#the-two-partitions).
 
 Related: [app-db](app-db.md), [Validate with schemas](how-to/validate-with-schemas.md).
 
 ### **path**
 
-A vector of keys into [app-db](#app-db), with `get-in` / `assoc-in` semantics — `[:auth :token]` is the `:token` under `:auth`. Paths are the addressing form used by schemas, [data-classification](#data-classification), flow `:output-path`, and the `path` interceptor.
+A vector of keys into [app-db](#app-db), read and written like `get-in` and
+`assoc-in`: `[:todos 1 :done?]`. Schemas, [data classification](#data-classification),
+a flow's `:output-path` and the `path` interceptor all address app-db this way.
 
 Related: [app-db](app-db.md).
 
 ### **coeffect**
 
-A fact about the world (current time, fresh UUID, localStorage value, …) the runtime supplies to an [event handler](#event-handler) as data so the handler stays pure and never reaches out itself. Handler shape: coeffects in → [effect map](#effect-map) out.
-
-The first argument is always a coeffects map with `:db` (current [app-db](#app-db)). Any other fact must be listed under `:rf.cofx/requires`; the runtime fills it in. `:rf/time-ms`, the clock, is built in:
+A fact about the world (the time, a fresh id, a stored value) that the runtime hands
+to an [event handler](#event-handler) as data, so the handler never reaches out
+itself. The handler's first argument is the coeffects map: `:db` is always there, and
+any other fact is listed under `:rf.cofx/requires`. The clock, `:rf/time-ms`, is
+built in:
 
 ```clojure
-(rf/reg-event :order/place
+(rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
-  (fn [{:keys [db rf/time-ms]} _]
-    {:db (assoc db :order/placed-at time-ms)}))
+  (fn [{:keys [db rf/time-ms]} [_ title]]
+    {:db (assoc-in db [:todos 1] {:id 1 :title title :done? false :created time-ms})}))
 ```
 
-Register other suppliers with [`reg-cofx`](../api/re-frame.core.md#reg-cofx). A fact that feeds a durable write, as here, must be [recordable](#recordable-vs-ambient-coeffects).
+Register other suppliers with [`reg-cofx`](../api/re-frame.core.md#reg-cofx). A fact
+that feeds a durable write, as here, must be [recordable](#recordable-vs-ambient-coeffects).
 
-Declared input is what keeps events pure, testable, and replayable.
-
-Related: [Effects](effects.md), [Coeffects](coeffects.md).
+Related: [Coeffects](coeffects.md).
 
 ### **effect**
 
-One side effect described as data for the runtime — HTTP, navigation, delayed dispatch, localStorage write. Shape: `[effect-id config]`, listed in the `:fx` vector of an [effect map](#effect-map):
+One side effect, described as data: `[effect-id args]`, listed in the `:fx` vector of
+an [effect map](#effect-map). The event handler only describes it; the
+[effect handler](#effect-handler) registered for that id performs it.
 
 ```clojure
-[:dispatch-later {:ms 500 :event [:cart/saved]}]
+[:todo.storage/save todos]
 ```
 
-The [event handler](#event-handler) only *describes* the effect; the [effect handler](#effect-handler) registered with [`reg-fx`](../api/re-frame.core.md#reg-fx) performs it. Effects are the output dual of input [coeffects](#coeffect).
-
-Related: [Effects](effects.md), [Coeffects](coeffects.md).
+Related: [Effects](effects.md).
 
 ### **effect handler**
 
-The function registered with `reg-fx` for an `effect-id`. The runtime calls it once per matching entry in `:fx`, with that effect's config. Impure work lives here so the pure [event handler](#event-handler) stays data-only.
+The function registered with `reg-fx` for an effect id. The runtime calls it once per
+matching `:fx` entry, with a small context map and that entry's args. Impure work
+lives here, so event handlers stay pure.
 
 ```clojure
-(rf/reg-fx :cart/save
-  (fn [_ctx {:keys [items]}]
-    (save-to-server! items)))
+(rf/reg-fx :todo.storage/save
+  (fn [_ctx todos]
+    (.setItem js/localStorage "todos" (pr-str todos))))
 ```
 
-Built-ins cover common effects (`:dispatch`, `:dispatch-later`, `:rf.http/managed`, …); add your own with `reg-fx`.
+Built-ins include `:dispatch`, `:dispatch-later` and `:rf.http/managed`.
 
-Related: [Effects](effects.md), [Coeffects](coeffects.md).
+Related: [Effects](effects.md).
 
 ### **effect map**
 
-What an [event handler](#event-handler) — or a [machine](../machines/glossary.md#machine) action — returns: a *description* of change, not the change itself.
-
-Two everyday keys. `:db` is the new [app-db](#app-db):
-
-```clojure
-{:db new-db}
-```
-
-`:fx` is a vector of [effects](#effect) — each `[effect-id config]`:
+What an [event handler](#event-handler) (or a
+[machine](../machines/glossary.md#machine) action) returns: a description of the
+change. `:db` is the new [app-db](#app-db); `:fx` is a vector of
+[effects](#effect):
 
 ```clojure
 {:db new-db
- :fx [[:rf.http/managed {:request    {:method :post :url "/api/cart"}
-                         :on-success [:cart/saved]
-                         :on-failure [:cart/save-failed]}]
-      [:dispatch-later {:ms 500 :event [:cart/autosave]}]]}
+ :fx [[:rf.http/managed {:request    {:method :post :url "/api/todos"}
+                         :on-success [:todo/saved]
+                         :on-failure [:todo/save-failed]}]
+      [:todo.storage/save todos]]}
 ```
 
-The closed top level is seven keys: `:db` and `:fx` (the two an app handler writes), the framework-authority `:rf.db/runtime`, and the four commit-plane classification keys `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`. Any other top-level key fails loud — the event is refused before anything commits, so a well-formed `:db` beside it does not land either. Each effect runs through an [effect handler](#effect-handler) (`reg-fx`).
+The top level is closed. Besides `:db` and `:fx` it accepts `:rf.db/runtime` and the
+classification keys `:sensitive`, `:large`, `:clear-sensitive` and `:clear-large`.
+Any other key fails loud and nothing commits.
 
-Related: [Effects](effects.md), [Coeffects](coeffects.md). Casual name for the `:fx` key: "fx".
+Related: [Effects](effects.md).
 
 ### **error record**
 
-A failure the runtime surfaces as a structured map — [fails loud](#fail-loud-not-silent), as data. Every record carries a reserved **`:rf.error/*` category**: under `:operation` on a traced record, and as `:rf.error/id` in `ex-data` when the framework throws. **Branch on the category**, never on the human-readable `:reason` (prose; can change).
+The structured map the runtime produces when something fails. Its category, an
+`:rf.error/*` keyword, is under `:operation` on a traced record and under
+`:rf.error/id` in `ex-data` when the framework throws. Branch on the category, never
+on the human-readable `:reason`.
 
 ```clojure
 {:op-type   :error
  :operation :rf.error/no-such-fx
  :recovery  :no-recovery
- :tags      {:rf.fx/id :cart/sav :failing-id :cart/sav ,,,}}   ;; a typo'd fx id
+ :tags      {:rf.fx/id :todo.storage/sav :failing-id :todo.storage/sav ,,,}}   ;; a typo'd fx id
 ```
 
-The full record rides the dev-only [trace stream](#trace-stream). A tighter, projected record reaches the frame's `:observability` `:errors` [sink](#sink) and **survives production**.
+The full record is on the dev-only [trace stream](#trace-stream). A smaller,
+redacted record reaches the frame's `:errors` [sink](#sink) and survives production.
 
 Related: [Errors](errors.md).
 
 ### **event**
 
-An inert data vector: *something happened*. You [dispatch](#dispatch) it; a registered [event handler](#event-handler) decides the response. The event itself does nothing.
-
-Most events are user intent (click, drag, route change); timers, browser APIs, WebSockets, and loaders raise them too. First element is the id (namespaced keyword is the norm), then optional facts:
-
-```clojure
-[:event-id & facts]
-```
-
-Prefer one payload map over positional args:
+A data vector saying that something happened. You [dispatch](#dispatch) it, and the
+registered [event handler](#event-handler) decides what changes. The first element is
+the id; further elements are facts, a single value or a payload map when there are
+several:
 
 ```clojure
-[:cart/add-item {:sku "BK-1" :qty 1}]    ;; good
-[:cart/add-item "BK-1" 1]                ;; harder to read and extend
+[:inc]
+[:todo/add "Buy milk"]
+[:todo/toggle 1]
 ```
 
-Because an event is data, it can be logged, recorded, and replayed.
+Because an event is data, it can be logged, recorded and replayed.
 
 Related: [Events](events.md).
 
 <a id="event-cascade"></a>
 ### **event pipeline**
 
-The fixed stage sequence one dispatched [event](#event) runs through, in three **phases**:
+The fixed stages one dispatched [event](#event) goes through, in three phases:
 
-- [**update phase**](#update-phase) — compute a *description* of the change
-- [**commit phase**](#commit-phase) — run declared effects; `:db` write first, atomically
-- [**render phase**](#render-phase) — bring derivations and the screen up to date
+- [update phase](#update-phase): run the handler to describe the change
+- [commit phase](#commit-phase): apply it, `:db` first, then the other effects
+- [render phase](#render-phase): recompute subscriptions and re-render views
 
-Update and commit run per event — [assemble](#assemble) → [transform](#transform) → [commit](#commit) → [perform](#perform). Render runs once per [render batch](#render-batch) after the queue settles — [derive](#derive) → [render](#render).
+Update and commit run once per event ([assemble](#assemble) →
+[transform](#transform) → [commit](#commit) → [perform](#perform)). Render runs once
+per [render batch](#render-batch) after the queue settles ([derive](#derive) →
+[render](#render)).
 
-```clojure
-;; update + commit (per event):  assemble → transform → commit → perform
-;; render         (per batch):   derive → render
-```
+One pass through the pipeline is a [run](#run); the record it leaves is an
+[epoch](#epoch).
 
-`:db` is the anchor: transactional up to that write, best-effort after. The [view](#view) renders from committed state, never mid-run.
-
-One traversal is a [**run**](#run); the record it leaves is an [**epoch**](#epoch). Triple: **pipeline** (structure) / **run** (one trip) / **epoch** (record). Running the whole queue before render is a [**drain**](#drain--run-to-completion).
-
-Related: [Introduction](introduction.md). Say **event pipeline** / **pipeline run**, not "the loop" or "cascade" (a machine's *cancellation cascade* is a different thing).
+Related: [Introduction](introduction.md). Say "event pipeline" or "pipeline run",
+not "the loop".
 
 ### **run**
 
-One traversal of the [event pipeline](#event-pipeline) for a single dispatched [event](#event): update and commit for that event, then the shared render of the [render batch](#render-batch) it settles into. [**Pipeline**](#event-pipeline) = structure; **run** = one trip; [**epoch**](#epoch) = the record. One dispatch = one run = one epoch. A [drain](#drain--run-to-completion) is many runs, one render batch.
+One pass through the [event pipeline](#event-pipeline) for one dispatched
+[event](#event). One dispatch is one run is one [epoch](#epoch). A
+[drain](#drain--run-to-completion) is many runs sharing one render.
 
 Related: [Introduction](introduction.md).
 
 <a id="write-side"></a>
 ### **update phase**
 
-First phase of the [event pipeline](#event-pipeline) — [assemble](#assemble) → [transform](#transform). Pure work once per [event](#event): build the [world](#world), run the handler, produce a description of change (new value + declared effects). Nothing has executed yet. A throwing handler installs nothing.
+The first phase of the [event pipeline](#event-pipeline): [assemble](#assemble) the
+handler's inputs, then [transform](#transform) them by running the handler. It is
+pure and executes nothing, so a throwing handler installs nothing.
 
 Related: [Introduction](introduction.md).
 
 ### **commit phase**
 
-Second phase — [commit](#commit) → [perform](#perform). Declared effects **execute**, once per [event](#event). The `:db` write always runs *first*: new [app-db](#app-db) lands atomically before other effects; remaining effects then run in source order, best-effort. **Pre-commit** / **post-commit** are positions relative to that write. Only the committed value reaches the [render phase](#render-phase).
+The second phase: [commit](#commit) the new app-db, then [perform](#perform) the other
+effects in order. The `:db` write always comes first and is atomic; the effects after
+it are best-effort.
 
 Related: [Effects](effects.md), [Introduction](introduction.md).
 
 <a id="read-side"></a>
 ### **render phase**
 
-Final phase — [derive](#derive) → [render](#render). Brings the screen up to date after the queue settles. Once per [**render batch**](#render-batch), not once per event: reads only the committed value, never a half-written [app-db](#app-db). A [drain](#drain--run-to-completion) is never split across batches.
+The last phase: [derive](#derive) changed subscriptions, then [render](#render) the
+views that read them. It runs once per [render batch](#render-batch), not once per
+event, and only ever sees committed state.
 
 Related: [Subscriptions](subscriptions.md), [Introduction](introduction.md).
 
 ### **render batch**
 
-The window of pending reads and renders the [render phase](#render-phase) finishes in one go. Everything dirty since the last batch renders together. The batch closes at the host's next microtask checkpoint, or at an explicit flush in headless tests.
+The set of pending recomputes and renders the [render phase](#render-phase) handles
+in one go. It closes at the host's next microtask checkpoint, or at an explicit flush
+in headless tests. A [drain](#drain--run-to-completion) is never split across
+batches, and two drains that finish before the same checkpoint (two back-to-back
+`dispatch-sync` calls, say) may share one. In ordinary app code, "one render per
+drain" is a good working model.
 
-The boundary is the *host*'s, not the [drain](#drain--run-to-completion)'s: the UI scheduler does not observe the event queue or drain edges.
-
-- **A drain cannot split across batches.** Every event a drain settles renders together; no intermediate state hits the screen.
-- **Drains that finish before the same checkpoint may share a batch.** Two back-to-back `dispatch-sync` calls in one JS stack render once; drains separated by a real host yield render separately.
-
-In ordinary app code a yield falls between drains, so "one render per drain" is a fine working model for the common case, not a hard rule.
-
-Related: [render phase](#render-phase), [drain](#drain--run-to-completion), [Effects — run to completion](effects.md#run-to-completion).
+Related: [Effects: run to completion](effects.md#run-to-completion).
 
 ### **world**
 
-The map of declared facts assembled for an [event handler](#event-handler) — everything outside the handler is allowed to see, as data. [app-db](#app-db) is one entry (always present, under `:db`); clock, fresh id, storage reads are others declared via `:rf.cofx/requires`. The world is the handler's first argument — its [coeffects](#coeffect) map — built in the [assemble](#assemble) stage.
+The map of facts an [event handler](#event-handler) receives as its first argument:
+[app-db](#app-db) under `:db`, plus every [coeffect](#coeffect) it declared. It is
+built in the [assemble](#assemble) stage.
 
 ```clojure
-{:db {…}  :rf/time-ms 1781078400123  :new-id #uuid "…"}
+{:db {…}  :rf/time-ms 1781078400123}
 ```
 
-A [**frame**](#frame) is a *running* world: that map plus queue, caches, and lifecycle that re-assemble it per event.
-
-Related: [Effects](effects.md), [Coeffects](coeffects.md), [frame](#frame).
+Related: [Coeffects](coeffects.md).
 
 ### **event envelope**
 
-Runtime package created when an [event](#event) is dispatched. Low-level; mostly router-internal.
+The runtime's internal wrapper around a dispatched [event](#event): the event vector
+plus its target [frame](#frame), origin, tracing ids, per-dispatch options, and the
+recorded values of replayable coeffects such as `:rf/time-ms`. Handlers never see it;
+they get the event vector and the coeffects map. You meet it only in tools and
+low-level code.
 
-App code dispatches an event vector (optionally with dispatch opts). Before queueing, re-frame2 wraps those into an envelope: the event vector plus target [frame](#frame), origin, tracing ids, per-dispatch overrides, and the durable `:rf.cofx` record used for replayable coeffects such as `:rf/time-ms`.
-
-Handlers get the event vector as their second argument and an assembled [coeffects](#coeffect) map as their first — not the envelope itself.
-
-```clojure
-(rf/dispatch [:cart/add {:sku "BK-1"}]
-  {:frame :checkout
-   :source :ui
-   :trace-id :cart/add-click})
-
-;; Rough envelope shape:
-{:event    [:cart/add {:sku "BK-1"}]
- :frame    :checkout
- :source   :ui
- :origin   :app
- :trace-id :cart/add-click
- :rf.cofx  {:rf/time-ms 1781078400123}}
-```
-
-Related: [Introduction](introduction.md), [Frames](frames.md), [Effects](effects.md), [Coeffects](coeffects.md).
+Related: [Frames](frames.md).
 
 ### **event handler**
 
-A **pure** function that computes how a dispatched [event](#event) should change the world. Arguments: [coeffects](#coeffect) map (including `:db`) and the event vector; return: [effect map](#effect-map).
-
-```text
-(coeffects, event-vector) -> effect-map
-```
-
-It *describes* changes (`:db`, `:fx`); it does not perform them. No IO, no clock, no subscription reads inside — world arrives only through declared coeffects.
+The pure function registered with `reg-event`. It takes the [coeffects](#coeffect)
+map (including `:db`) and the event vector, and returns an
+[effect map](#effect-map). It describes changes; it does not perform them.
 
 ```clojure
-(rf/reg-event :cart/add
-  (fn [{:keys [db]} [_ item]]
-    {:db (update db :cart/items conj item)}))
+(rf/reg-event :todo/toggle
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:todos id :done?] not)}))
 ```
 
-Related: [Introduction](introduction.md).
+Related: [Events](events.md).
 
 ### **flow**
 
-A pure derivation re-frame2 keeps materialised at a path in [app-db](#app-db). Because the value lives *in* app-db, [event handlers](#event-handler) can read it as plain state — unlike a [subscription](#subscription), whose value is for [views](#view).
-
-Declare `:inputs` and an `:output-path` in the metadata map, with the pure derive fn as the third slot. When an input changes, the runtime re-runs that fn and writes the result in step with the [event pipeline](#event-pipeline):
+A derived value that re-frame2 keeps written at a path in [app-db](#app-db), so
+[event handlers](#event-handler) can read it as plain state. (A
+[subscription](#subscription)'s value is for views only.) You declare the input paths,
+the output path, and a pure function:
 
 ```clojure
-(rf/reg-flow :cart/total
-  {:inputs      [[:cart :items]]
-   :output-path [:cart :total]
-   :frame       :app}               ;; a flow belongs to one frame
-  (fn [items] (reduce + (map :price items))))
+(rf/reg-flow :todo/remaining
+  {:inputs      [[:todos]]
+   :output-path [:remaining]}
+  (fn [todos] (count (remove :done? (vals todos)))))
 ```
 
-A flow writes one frame's app-db, so `reg-flow` needs a frame: `:frame`, a frame scope, or the `:rf.fx/reg-flow` effect from a handler. Use a flow to collate many facts into one (e.g. several error flags → `:any-errors?`). Inputs may read framework state under `:rf.db/runtime`. Flows can be [added and removed dynamically](../api/re-frame.flows.md) via effects.
+A flow belongs to one frame. Flows can also be added and removed at run time through
+effects.
 
-Related: [Flows](flows.md), [toggling a derivation at runtime](flows.md#toggling-a-derivation-at-runtime).
+Related: [Flows](flows.md).
 
 ### **frame**
 
-An isolated running instance of an app. **A frame is a running [world](#world)** — declared facts ([app-db](#app-db) among them) plus runtime machinery: [runtime-db](#runtime-db), event queue, subscription cache, lifecycle.
-
-A frame supplies *state*; *behaviour* comes from an [image](#image). The [registrar](#registrar) is process-global, and most frames use the default image (all registrations), so by default the same handlers, subs, views and effects run in every frame, each against that frame's own state. An explicit image narrows which registrations a frame uses.
-
-Most apps create one frame at boot. Multiple frames on one page power tests, stories, per-request SSR, and tools like [Xray](#xray). [Identity is carried, not found](#frame-identity-is-carried-not-found) — each operation reads its frame from scope.
+One running instance of an app: its [app-db](#app-db), an event queue, and caches.
+Every frame uses the same registered handlers (unless an [image](#image) narrows
+them), each against its own state. Most apps have one frame, `:app`; tests, stories,
+SSR requests and tools like [Xray](#xray) use more.
 
 ```clojure
-(rf/make-frame
-  {:id :app
-   :initial-events [[:app/initialise]]
-   :images [image1 image2]})    ;; optional selected registrations
+[rf/frame-root {:id :app :initial-events [[:todo/initialise]]}
+ [todo-app]]
 ```
 
 Related: [Frames](frames.md).
 
 ### **capture-frame**
 
-`(rf/capture-frame)` returns a **frame api**: a small map with that frame's `:dispatch` / `:dispatch-sync` / `:subscribe` plus the captured `:frame` id. Carry it across async — grab while the frame is in scope so a later `setTimeout`, promise, or WebSocket callback can still target it instead of raising `:rf.error/no-frame-context`. (*capture-frame* = verb; *frame api* = value returned.)
+`(rf/capture-frame)` returns a map with the current frame's `:dispatch`,
+`:dispatch-sync` and `:subscribe`, plus its `:frame` id. Call it while the frame is in
+scope and use the result in a later `setTimeout`, promise or WebSocket callback, which
+would otherwise raise `:rf.error/no-frame-context`.
 
-Related: [Frames](frames.md).
+Related: [Frames](frames.md#the-async-boundary-capture-the-frame).
 
 ### **frame-provider**
 
-React component that *scopes* an existing [frame](#frame) to a view subtree so `dispatch`/`subscribe` resolve to it. SCOPE-only — **roots ensure; providers scope**: `{:frame existing-id}` provides an already-created id via React context; creates and destroys nothing; fails loud if the frame is missing. Given `:id` (ENSURE key) it fails loud naming sibling [`frame-root`](#frame-root). Everyday expression of [frame identity is carried, not found](#frame-identity-is-carried-not-found).
+A component that makes an existing [frame](#frame) current for a view subtree, so
+`dispatch` and `subscribe` inside it reach that frame. It creates and destroys
+nothing, and fails loud if the frame does not exist. Use
+[frame-root](#frame-root) to create one.
 
 Related: [Frames](frames.md).
 
 ### **frame-root**
 
-React component that *ensures* a named [frame](#frame) for a subtree's mounted lifetime — ENSURE sibling of [`frame-provider`](#frame-provider). Keyed by `{:id …}` (plus `make-frame` opts): creates if absent (at commit, in a client layout effect — discarded React renders create nothing), reuses without re-seeding if present (hot reload / StrictMode preserve app-db; never replay `:initial-events`), provides id to descendants. Does not destroy on unmount; ownership is explicit `make-frame` + `destroy-frame!`. Given `:frame` it fails loud naming `frame-provider`.
+A component that ensures a named [frame](#frame) exists and makes it current for its
+subtree. On first mount it creates the frame and runs `:initial-events`; on later
+mounts it reuses the live frame without re-seeding. It does not destroy the frame on
+unmount; call `destroy-frame!` for that.
 
 Related: [Frames](frames.md).
 
 ### **hiccup**
 
-Clojure data for UI: nested vectors — `[:div.card {:on-click f} "Hi"]` is a `<div>`. Markup as data; a [view](#view) returns it. Fresco interprets Hiccup itself and produces React elements; with the Reagent, UIx or reagent-slim adapters that library converts it. On the server it becomes an HTML string.
+UI written as Clojure data: `[:div.card "Hi"]` is a `<div class="card">`. A
+[view](#view) returns it, and the view layer turns it into React elements (or, on the
+server, an HTML string).
 
 ```clojure
-[:ul.cart (for [item items] [:li {:key (:sku item)} (:name item)])]
+[:ul (for [todo todos] ^{:key (:id todo)} [:li (:title todo)])]
 ```
 
-Related: [Views](views.md).
+Related: [Hiccup](hiccup.md).
 
 ### **image**
 
-The selected set of registrations a [frame](#frame) resolves behaviour against — [event handlers](#event-handler), [subscriptions](#subscription), [views](#view), [effect handlers](#effect-handler), [machines](../machines/glossary.md#machine), and the rest. ([Flows](#flow) belong to a frame, not an image.) An image is a *value*: no state, not a running app.
-
-Most apps use the **default image** — all registrations already loaded. Name an image when frames need different behaviour (fake effects in tests, two examples sharing event ids, [Xray](#xray) sidecar).
-
-**Image supplies behaviour; [frame](#frame) supplies state.** On start, the image resolves into a sealed registration set (*generation*).
+The set of registrations a [frame](#frame) uses. Most frames use the **default
+image**, every registration that is loaded. Name an image with `rf/image` when frames
+need different behaviour: fake effects in a test, two examples that share event ids,
+or a tool running beside the app. The image supplies behaviour; the frame supplies
+state.
 
 ```clojure
-(def checkout-image
-  (rf/image {:select-ns {:include ["app.checkout.*"]}}))
+(def todos-image
+  (rf/image {:select-ns {:include ["app.todos"]}}))
 
-(rf/make-frame
-  {:id :checkout/story
-   :images [checkout-image]})
+(rf/make-frame {:id :app :images [todos-image]})
 ```
 
 Related: [Images](images.md).
 
 ### **generation**
 
-The sealed registration set a [frame](#frame)'s [image](#image) resolves into at construction — the concrete "which handler answers this id" table, frozen as a value. Every `make-frame` frame carries one (default image included). Re-calling `make-frame` with the same `:id` and a new `:images` vector swaps the frame onto a newly resolved generation.
+The frozen table of registrations a frame's [image](#image) resolves into: for each
+kind and id, which handler answers. Every frame has one. Calling `make-frame` again
+with the same `:id` and new `:images` swaps the frame onto a new generation.
 
 Related: [Images](images.md).
 
 ### **interceptor**
 
-A named wrapper around an [event handler](#event-handler) — `:before` / `:after` functions for cross-cutting work (logging, validation, tracing, undo). Each is `context → context`:
-
-- `:before` runs before the handler; can read/adjust [coeffects](#coeffect)
-- `:after` runs after; can read/adjust the returned [effect map](#effect-map)
-
-Register by id with `reg-interceptor` (never inline). Events opt in by id:
+A registered wrapper around [event handlers](#event-handler) for cross-cutting work
+such as logging or undo. `:before` runs before the handler and can adjust its inputs;
+`:after` runs after and can adjust the [effect map](#effect-map). Events opt in by
+id:
 
 ```clojure
-(rf/reg-interceptor :my-app/logger
+(rf/reg-interceptor :app/logger
   {:before (fn [ctx] ctx)
    :after  (fn [ctx] ctx)})
 
-(rf/reg-event :cart/add
-  {:interceptors [:my-app/logger]}
-  (fn [{:keys [db]} [_ item]]
-    {:db (update db :cart/items conj item)}))
+(rf/reg-event :todo/add
+  {:interceptors [:app/logger]}
+  (fn [{:keys [db]} [_ title]] {:db db}))
 ```
 
 Related: [Interceptors](interceptors.md).
 
 ### **query vector**
 
-The vector passed to `subscribe` for a [subscription](#subscription): id plus optional args — `[:article/page "abc"]`. Id selects the sub; the whole vector keys the cache, so equal vectors share one cached value.
+The vector passed to `subscribe`: a sub id plus optional arguments. The whole vector
+is the cache key, so equal vectors share one cached value.
 
 ```clojure
-@(rf/subscribe [:cart/count])
-@(rf/subscribe [:article/by-id "BK-1"])
+@(rf/subscribe [:todo/all])
+@(rf/subscribe [:todo/by-id 1])
 ```
 
 Related: [Subscriptions](subscriptions.md).
 
 ### **registrar**
 
-The single process-wide table every `reg-*` writes, keyed by kind + id. Holds all [registrations](#registration). Every [frame](#frame) looks its handlers up in a selection from this one registrar: all of it by default, or the part its [image](#image) selects.
+The process-wide table that every `reg-*` call writes to, keyed by kind and id. A
+frame looks its handlers up in this table, through its [image](#image).
 
 Related: [Images](images.md).
 
 ### **registration**
 
-An app's behaviour is the set of registrations you provide.
+One entry in the [registrar](#registrar): an id mapped to a function or config that
+the runtime looks up later. An app's behaviour is the set of registrations it makes.
 
-One registration maps an `id` (usually a namespaced keyword) to a function or config the runtime looks up later.
+| Call | Registers |
+|---|---|
+| `reg-event` | an [event handler](#event-handler) |
+| `reg-sub` | a [subscription](#subscription) |
+| `reg-fx` | an [effect handler](#effect-handler) |
+| `reg-cofx` | a [coeffect](#coeffect) supplier |
+| `reg-interceptor` | an [interceptor](#interceptor) |
+| `reg-view` / `reg-view*` | a [view](#view) |
+| `reg-flow` | a [flow](#flow) |
 
-At runtime:
-
-- a [frame](#frame) supplies isolated state and execution context
-- an [image](#image) supplies the selected registrations
-- a stream of [events](#event) drives the runtime
-
-Example: event id `:cart/add` → this [event handler](#event-handler):
-
-```clojure
-(rf/reg-event :cart/add
-  (fn [{:keys [db]} [_ item]]
-    {:db (update db :cart/items conj item)}))
-```
-
-[Core](../api/re-frame.core.md) registration:
-
-- `reg-event` — [event handler](#event-handler)
-- `reg-sub` — [subscription](#subscription)
-- `reg-fx` — [effect handler](#effect-handler)
-- `reg-cofx` — [coeffect](#coeffect) supplier
-- `reg-interceptor` — event-handler wrapper
-- `reg-view` / `reg-view*` — [views](#view)
-
-Frame construction is not a `reg-*` member — a frame is a live runtime object. `make-frame` creates a named [frame](#frame); `frame-root` is the ENSURE mount recipe.
-
-Flows:
-
-- `reg-flow` — [flow](#flow)
-
-[Machines](../machines/concepts.md):
-
-- `reg-machine` / `reg-machine*` — [machines](../machines/glossary.md#machine)
-
-Routing:
-
-- `reg-route` — route
-
-Schema:
-
-- `reg-app-schema` / `reg-app-schemas` — Malli schemas for app-db paths
-
-SSR:
-
-- `reg-head` — SSR head producer
-- `reg-error-projector` — SSR error projector
-
-HTTP:
-
-- `reg-http-interceptor` — managed-HTTP middleware
-
-[Resource](../api/re-frame.resources.md):
-
-- `reg-resource` — [resource](../resources/glossary.md#resource)
-- `reg-mutation` — [mutation](../resources/glossary.md#mutation)
-- `reg-resource-scope` — named resource-scope resolver
+Other artefacts add their own: `reg-machine` ([machines](../machines/concepts.md)),
+`reg-route` (routing), `reg-app-schema` (schemas), `reg-resource` and `reg-mutation`
+([resources](../api/re-frame.resources.md)), `reg-http-interceptor` (managed HTTP),
+and `reg-head` and `reg-error-projector` (SSR). A frame is not a registration; you
+create one with `make-frame` or `frame-root`.
 
 ### **runtime-db**
 
-Framework-owned half of a [frame](#frame)'s state — beside [app-db](#app-db) you own; see [the two partitions](#the-two-partitions).
-
-Holds machine [snapshots](../machines/glossary.md#snapshot), current route, [resource](../resources/glossary.md#resource) caches, [mutation](../resources/glossary.md#mutation) status, and similar. App code reads via subscriptions or accessors — never by editing `:rf.db/runtime` paths directly.
+The framework's half of a [frame](#frame)'s state, beside the [app-db](#app-db) you
+own. It holds machine [snapshots](../machines/glossary.md#snapshot), the current
+route, [resource](../resources/glossary.md#resource) caches and similar. Read it
+through subscriptions and accessors; don't edit its paths directly.
 
 ```clojure
 [:rf.db/runtime :rf.runtime/machines :snapshots :auth.login/flow]
 ```
 
-Related: [app-db](#app-db), [frame](#frame). Paths: `:rf.db/runtime`, children `:rf.runtime/*`.
+Related: [the two partitions](#the-two-partitions).
 
 ### **schema**
 
-A data description of a value's shape — `[:map [:sku :string] [:qty :int]]` — in **Malli** (default). Attach to an [app-db](#app-db) path (`reg-app-schema`), an event, or an HTTP `:decode` step. Checks run at a named boundary, but whether one survives a production build depends on which boundary: `reg-app-schema`'s app-db check and the plain event check are development assertions and [elide](#elide), while an event handler registered `:boundary? true` and a managed-HTTP `:decode` schema are checked in **every** build. Schema-as-data supports validate, coerce, and tooling round-trips.
+A data description of a value's shape, in Malli by default:
+`[:map [:id :int] [:title :string] [:done? :boolean]]`. You attach one to an app-db
+path (`reg-app-schema`), an event, or an HTTP `:decode` step. App-db and ordinary
+event checks run only in dev; a `:boundary? true` event schema and an HTTP `:decode`
+schema are checked in every build.
 
-Related: [Validate with schemas](how-to/validate-with-schemas.md).
+Related: [Validate with schemas](how-to/validate-with-schemas.md),
+[Errors](errors.md#schema-validation-failures).
 
 ### **subscription**
 
-A named, registered, pure, **cached** derivation of state — how a [view](#view) reads what it needs. `reg-sub`; recomputes only when inputs change by `=`. Layers: some read [app-db](#app-db) directly; others combine other subscriptions.
+A registered, cached query that a [view](#view) reads. It either reads
+[app-db](#app-db) directly or derives from other subscriptions, and recomputes only
+when its inputs change by `=`.
 
 ```clojure
-(rf/reg-sub :cart/count (fn [db _] (count (:items (:cart db)))))
+(rf/reg-sub :todo/remaining-count {:inputs [[:todo/all]]}
+  (fn [[todos] _] (count (remove :done? todos))))
 ```
 
-Related: [Subscriptions](subscriptions.md). Casual "sub" is fine; not as a headword. Value inside an [event handler](#event-handler)? Materialise with a [flow](#flow).
+Casual "sub" is fine. To use a derived value inside an event handler, use a
+[flow](#flow).
+
+Related: [Subscriptions](subscriptions.md).
 
 ### **substrate**
 
-The view layer that renders to React: Fresco (`re-frame.fresco`, re-frame2's own view layer), or Reagent, UIx or reagent-slim. Wire re-frame2 to it with an [adapter](#adapter). Core is substrate-agnostic: events, subscriptions, and app-db stay the same; only how views are written and rendered differs.
+The view layer that renders to React: Fresco (re-frame2's own), Reagent, UIx or
+reagent-slim. An [adapter](#adapter) connects re-frame2 to it. Events, subscriptions
+and app-db are the same on every substrate; only how views are written differs.
 
 Related: [Fresco](fresco/index.md), [Use UIx or slim](how-to/use-uix-or-slim.md).
 
 ### **view**
 
-A pure render function from [subscription](#subscription) values to [hiccup](#hiccup). Reads derived state; [dispatches](#dispatch) [events](#event) on interaction; no business logic. It re-renders when a subscription it read changes.
-
-With the Reagent-family adapters a view is a `reg-view`, which injects a frame-bound `subscribe` and `dispatch`:
+A function from [subscription](#subscription) values to [hiccup](#hiccup). It reads
+state and [dispatches](#dispatch) events; it holds no business logic. It re-renders
+when a subscription it read changes. With the Reagent-family adapters a view is a
+`reg-view`, which provides a frame-bound `subscribe` and `dispatch`:
 
 ```clojure
-(rf/reg-view cart-badge []
-  [:span.badge @(subscribe [:cart/count])])
+(rf/reg-view todo-footer []
+  [:p @(subscribe [:todo/remaining-count]) " left to do"])
 ```
 
-In Fresco it is an `h/defview` that reads with `h/sub` and can put an event vector directly in `:on-click`:
+In Fresco a view is an `h/defview` that reads with `h/sub`:
 
 ```clojure
 ;; (:require [re-frame.fresco :as h])
-(h/defview cart-badge [_]
-  [:span.badge {:on-click [:cart/open]} (h/sub [:cart/count])])
+(h/defview todo-footer [_]
+  [:p (h/sub [:todo/remaining-count]) " left to do"])
 ```
 
-Related: [Views](views.md), [Fresco](fresco/01-getting-started.md). Use "component" only in React-analogy callouts.
+Related: [Views](views.md), [Fresco](fresco/01-getting-started.md).
 
 ## The Verbs
 
-The six pipeline stages — [**assemble → transform**](#update-phase) ([update phase](#update-phase), per event), [**commit → perform**](#commit-phase) ([commit phase](#commit-phase), per event), [**derive → render**](#render-phase) ([render phase](#render-phase), per [render batch](#render-batch)) — in pipeline order.
+The six pipeline stages, in order: [assemble](#assemble) and
+[transform](#transform) (update phase), [commit](#commit) and [perform](#perform)
+(commit phase), [derive](#derive) and [render](#render) (render phase).
 
 ### **assemble**
 
-First stage: gather the [**world**](#world) the [event handler](#event-handler) will read — [app-db](#app-db) (`:db`) plus every fact listed in `:rf.cofx/requires` — into one [coeffects](#coeffect) map before the handler runs.
+Build the [world](#world) the [event handler](#event-handler) will receive:
+[app-db](#app-db) under `:db` plus every fact listed in `:rf.cofx/requires`.
 
-Related: [Effects](effects.md), [Coeffects](coeffects.md), [world](#world).
+Related: [Coeffects](coeffects.md).
 
 ### **transform**
 
-Second stage: run the pure [event handler](#event-handler) — assembled [world](#world) and [event](#event) in, [effect map](#effect-map) out. Transforms world into a description (`{:db … :fx …}`); performs none of it. Later stages after [commit](#commit) execute that description.
+Run the pure [event handler](#event-handler): world and [event](#event) in,
+[effect map](#effect-map) out. Nothing is executed yet.
 
-Related: [Introduction](introduction.md), [event handler](#event-handler).
+Related: [Events](events.md).
 
 ### **commit**
 
-The single, deferred, all-or-nothing write of the new [app-db](#app-db) — **first effect of the [commit phase](#commit-phase)**, and its anchor. Special only in that it always runs first; it is the one point the committed value crosses to the [render phase](#render-phase). Before it (assemble, transform): transactional — the `:db` the handler returns is *staged* and lands once, after flows run; a throwing handler or flow installs *nothing*. After it ([perform](#perform)): best-effort. No observer sees a half-written app-db.
+Write the new [app-db](#app-db), once and atomically. It is the first step of the
+[commit phase](#commit-phase). Everything before it can be abandoned: a throwing
+handler or flow installs nothing. Everything after it is best-effort.
 
 Related: [Introduction](introduction.md).
 
 ### **perform**
 
-Fourth stage; rest of the [commit phase](#commit-phase): run `:fx` rows from [transform](#transform) in source order after [commit](#commit). Only place the system touches the outside world (HTTP, navigation, follow-up dispatch), via each id's [effect handler](#effect-handler). Past the `:db` write: best-effort — a throwing effect does not un-commit state.
+Run the `:fx` entries, in order, after the [commit](#commit), each through its
+[effect handler](#effect-handler). This is the only stage that touches the outside
+world. A throwing effect does not undo the commit.
 
-Related: [Effects](effects.md), [Coeffects](coeffects.md), [effect](#effect).
+Related: [Effects](effects.md).
 
 ### **derive**
 
-Fifth stage; first of the [render phase](#render-phase): recompute [subscriptions](#subscription) (and [the derivation graph](#the-derivation-graph)) that watch changed parts of committed [app-db](#app-db). Values equal by `=` to last time prune everything downstream. Once per [render batch](#render-batch), against settled state. Public verb: [`subscribe`](#subscribe--derive); *derive* names the stage.
+Recompute the [subscriptions](#subscription) whose inputs changed in the committed
+app-db. A result equal by `=` to the previous one stops recomputation downstream. The
+public call is [`subscribe`](#subscribe--derive); "derive" names the stage.
 
 Related: [Subscriptions](subscriptions.md).
 
 ### **render**
 
-Sixth stage: [views](#view) that read a *changed* [subscription](#subscription) re-run and produce fresh [hiccup](#hiccup); React, driven by the [substrate](#substrate), patches the DOM that moved. Once per [render batch](#render-batch) from settled state — a [drain](#drain--run-to-completion) is never split across batches — so the screen does not flash intermediate values.
+Re-run the [views](#view) that read a changed subscription, producing new
+[hiccup](#hiccup); React then patches the DOM. It happens once per
+[render batch](#render-batch), so the screen never shows intermediate values.
 
 Related: [Views](views.md).
 
 ### **dispatch**
 
-Enqueue an [event](#event) for a [frame](#frame).
-
-Wraps the event in an [event envelope](#event-envelope) and returns immediately; the [event handler](#event-handler) runs later in the [pipeline run](#event-pipeline) that event starts. Sibling `dispatch-sync` runs the pipeline *now* (tests, boot).
+Put an [event](#event) on a [frame](#frame)'s queue. `dispatch` returns immediately;
+the handler runs shortly after.
 
 ```clojure
-(rf/dispatch [:cart/add-item {:sku "BK-1"}]
-  {:frame :checkout})
+(rf/dispatch [:todo/toggle 1])
 ```
 
-Related: [event](#event), [event envelope](#event-envelope), [event pipeline](#event-pipeline).
+Inside a `reg-view`, use the injected `dispatch`, which already knows its frame.
+
+Related: [Events](events.md).
 
 ### **dispatch-sync**
 
-Like [`dispatch`](#dispatch), but runs the [event](#event) and drains the whole queue *before returning* (unless the drain stops early — see [drain](#drain--run-to-completion)). Use at boot, in tests, and at the REPL — never from inside a running handler (`:rf.error/dispatch-sync-in-handler`).
+Like [`dispatch`](#dispatch), but processes the event and drains the whole queue
+before returning. Use it at boot, in tests and at the REPL, never from inside a
+running handler (`:rf.error/dispatch-sync-in-handler`).
 
 ```clojure
-(rf/dispatch-sync [:app/initialise])   ;; app-db committed before the next line
+(rf/dispatch-sync [:todo/initialise])   ;; app-db is committed before the next line
 ```
 
-Related: [Introduction](introduction.md).
+Related: [Run to completion](run-to-completion.md).
 
 ### **drain / run-to-completion**
 
-The runtime normally drains the *whole* event queue to a fixed point — [update and commit](#update-phase) of every queued [event](#event) — before the [render phase](#render-phase). Update and commit run *per event*; everything the drain settles lands in one [render batch](#render-batch); the UI updates once from settled state. A drain is normally many [pipeline runs](#run) sharing one render phase.
+Processing every queued [event](#event) (update and commit for each) before the
+[render phase](#render-phase) runs once for all of them, so the UI updates once from
+settled state. A drain stops early if it hits the re-entrancy depth limit or its frame
+is destroyed.
 
-A drain stops early if it hits the re-entrancy depth limit or its frame is destroyed mid-drain. Callbacks already on the stack finish, but later queued events do not run, and a destroyed frame gets no render phase.
-
-```clojure
-;; every queued event's update + commit, THEN — at the host's next
-;; checkpoint, once — subs recompute and views render
-```
-
-Related: [Effects — run to completion](effects.md#run-to-completion) (idea + demo);
-[Run to completion (detail)](run-to-completion.md) (drain-depth, `dispatch-sync`).
-Hyphenate **run-to-completion** consistently.
+Related: [Effects: run to completion](effects.md#run-to-completion),
+[Run to completion (detail)](run-to-completion.md).
 
 ### **elide**
 
-Compile dev-only code out of production via one flag (`goog.DEBUG` or `-Dre-frame.debug`). Removes the dev trace surface, the [epoch](#epoch) buffer, and the *ordinary registration diagnostics* among the [schema](#schema) checks. What elides is settled by **what the check is for**, not by who declared the schema it reads: a check the framework relies on to keep a promise of its own — a `:boundary? true` handler's `:schema`, a recordable [coeffect](#coeffect)'s `:schema`, a declared route's shape — holds in every build, and those three all validate against a schema the programmer wrote. The always-on error and handled-event substrates behind the `:observability` sink routes survive.
+Compile dev-only code out of a production build, controlled by one flag (`goog.DEBUG`
+in ClojureScript, `-Dre-frame.debug` on the JVM). It removes the
+[trace stream](#trace-stream), the [epoch](#epoch) history and the schema checks you
+declared. The always-on error and handled-event records survive, and so do the
+framework's own boundary checks (a `:boundary? true` event schema, a recordable
+coeffect's schema, a declared route's shape).
 
-```clojure
-;; goog.DEBUG=false removes the dev trace surface and the schema
-;; checks you declared — not the framework's own boundary checks
-```
-
-Related: [Observability](observability.md), [Configure dev and production builds](how-to/configure-dev-and-prod.md), [schema](#schema). Name DCE once, then use **elide**.
+Related: [Observability](observability.md#in-production-builds),
+[Configure dev and production builds](how-to/configure-dev-and-prod.md).
 
 ### **init!**
 
-One-time boot call that installs a [substrate](#substrate) [adapter](#adapter) — `(rf/init! reagent-adapter/adapter)`. Calling it again with the same adapter does nothing; calling it with a different one throws `:rf.error/adapter-already-installed`. Does *not* create a default [frame](#frame) (identity is carried, not found); you establish the root frame explicitly.
+The boot call that installs an [adapter](#adapter): `(rf/init! reagent-adapter/adapter)`.
+Calling it again with the same adapter does nothing; a different adapter throws
+`:rf.error/adapter-already-installed`. It does not create a frame.
 
-Related: [Adapters](../api/re-frame.adapter.reagent.md), [Boot and mount an app](how-to/boot-and-mount-an-app.md).
+Related: [Boot and mount an app](how-to/boot-and-mount-an-app.md).
 
 ### **project (egress)**
 
-Run a value through redaction before it leaves the app via `project-egress`. Direct reads are not auto-projected.
+Redact a value under a frame's [data classification](#data-classification) before it
+leaves the app, with `project-egress`. Reads inside the app are never projected.
 
 ```clojure
-(rf/project-egress value {:frame :app/main :path [:auth]})
+(rf/project-egress value {:frame :app :path [:auth]})
 ```
 
 Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 
 ### **register**
 
-Name handlers and machinery at boot with [registration](#registration) forms — `reg-event`, `reg-sub`, and so on.
+Add a [registration](#registration) with a `reg-*` call.
 
 ```clojure
-(rf/reg-event :cart/clear (fn [{:keys [db]} _] {:db (dissoc db :cart)}))
+(rf/reg-event :todo/clear-done
+  (fn [{:keys [db]} _]
+    {:db (update db :todos #(into {} (remove (comp :done? val)) %))}))
 ```
 
-Related: [Introduction](introduction.md). There is **one** `reg-event`; v1's `reg-event-db` / `-fx` / `-ctx` do not exist.
+There is one `reg-event`; v1's `reg-event-db`, `reg-event-fx` and `reg-event-ctx`
+do not exist.
+
+Related: [Events](events.md).
 
 ### **subscribe / derive**
 
-Read derived state by name through a [subscription](#subscription). `@(subscribe …)` reads the current value *and* subscribes so the [view](#view) re-renders on change.
+Read a [subscription](#subscription) by its [query vector](#query-vector).
+Dereferencing the result in a view gives the current value and re-renders the view
+when it changes.
 
 ```clojure
-@(rf/subscribe [:cart/count])
+@(rf/subscribe [:todo/visible])
 ```
 
 Related: [Subscriptions](subscriptions.md).
@@ -639,142 +632,168 @@ Related: [Subscriptions](subscriptions.md).
 
 ### **Effects are data**
 
-An [event handler](#event-handler) returns a *description* of side effects — an [effect map](#effect-map) of data — and the runtime performs them. Pure handler + data effects enable replay, test, and trace.
+An [event handler](#event-handler) returns a description of its side effects, and the
+runtime performs them. Pure handlers with data effects can be replayed, tested and
+traced.
 
 ```clojure
-{:fx [[:rf.http/managed {:request {:url "/api/login"} :on-success [:auth/logged-in] :on-failure [:auth/failed]}]
-      [:dispatch [:ui/spinner true]]]}
+{:fx [[:todo.storage/save todos]
+      [:dispatch [:todo/set-showing :all]]]}
 ```
 
-Related: [Effects](effects.md), [Coeffects](coeffects.md).
+Related: [Effects](effects.md).
 
 ### **Fail loud, not silent**
 
-A recognised input that cannot be honoured raises a structured [error record](#error-record) (`:rf.error/*`), never a nil or no-op. **Fail-loud** = raise instead of swallow. **Fail-closed** = deny by default at a boundary. Keep them distinct.
-
-```clojure
-;; unregistered id, missing cofx, unknown fx → :rf.error/*, never nil
-```
+When the runtime cannot do what was asked (an unregistered id, a missing coeffect, an
+unknown effect), it raises a structured [error record](#error-record) rather than
+returning `nil` or doing nothing. Fail-loud (raise instead of swallow) is different
+from fail-closed (deny by default at a boundary).
 
 Related: [Errors](errors.md).
 
 ### **Frame identity is carried, not found**
 
-An operation reads its [frame](#frame) from scope (provider / running handler / captured handle). The runtime never invents one. A rootless call is `:rf.error/no-frame-context`.
-
-```clojure
-[rf/frame-provider {:frame :app} [app-root]]
-```
+Every operation gets its [frame](#frame) from the surrounding scope: a frame-root or
+provider, the running handler, or a captured frame. The runtime never falls back to a
+default, so a call with no frame in scope raises `:rf.error/no-frame-context`.
 
 Related: [Frames](frames.md).
 
 ### **The four homes (where state lives)**
 
-[Subscription](#subscription) → [flow](#flow) → [resource](../resources/glossary.md#resource) → [machine](../machines/glossary.md#machine): pick the cheapest that fits. Full router: [Where state lives](where-state-lives.md).
+The places derived and async state can live, cheapest first:
+[subscription](#subscription), [flow](#flow),
+[resource](../resources/glossary.md#resource),
+[machine](../machines/glossary.md#machine). Pick the cheapest that fits.
 
-```clojure
-;; cart total → sub (or flow); the article → resource; checkout → machine
-```
-
-Related: [Where state lives](where-state-lives.md).
+Related: [Where should this value live?](where-state-lives.md)
 
 ### **The two partitions**
 
-A [frame](#frame) holds [app-db](#app-db) (yours) and [runtime-db](#runtime-db) (framework), addressed by `:rf.db/app` and `:rf.db/runtime`; subsystems under `:rf.runtime/*`.
-
-```clojure
-[:rf.db/runtime :rf.runtime/resources]
-```
+A [frame](#frame)'s state has two parts: [app-db](#app-db), which you own, and
+[runtime-db](#runtime-db), which the framework owns. Their paths are `:rf.db/app`
+and `:rf.db/runtime`, with subsystems under `:rf.runtime/*`.
 
 Related: [app-db](app-db.md).
 
 ### **The uniform reply**
 
-Every managed async surface (HTTP, resources, mutations, route loaders, machine async) completes by [dispatching](#dispatch) an [event](#event) with one canonical reply map — never an awaited value. Discriminator is closed `:status`: `:ok` (value at `:value`), `:partial` (both `:value` and `:error`), `:error` (failure at `:error`), `:cancelled`, or `:stale`. Same envelope on every surface, HTTP included. Distinct from the resource *read sub*'s `:status` lifecycle (`:idle` / `:loading` / `:fetching` / `:loaded` / `:error`).
+Every managed async operation (HTTP, resources, mutations, route loaders, machine
+async) finishes by [dispatching](#dispatch) an event with one reply map, keyed by
+`:status`: `:ok` (value at `:value`), `:partial` (both `:value` and `:error`),
+`:error` (failure at `:error`), `:cancelled` or `:stale`. This is different from a
+resource read's `:status` (`:idle`, `:loading`, `:fetching`, `:loaded`, `:error`).
 
 ```clojure
-[:auth/login-reply {:status :ok :value {:token "…"}}]
+[:todo/fetched {:status :ok :value [{:id 1 :title "Buy milk" :done? false}]}]
 ```
 
 Related: [Managed HTTP](../async/http.md).
 
 ### **The derivation graph**
 
-Directed graph of pure derivations rooted at [app-db](#app-db), [views](#view) at the leaves. [Subscriptions](#subscription), [flows](#flow), resource reads, route facts, and machine selectors are nodes. The runtime recomputes only along edges whose value changed by `=`; unchanged input prunes everything downstream.
+The graph of pure derivations that starts at [app-db](#app-db) and ends at
+[views](#view). [Subscriptions](#subscription), [flows](#flow), resource reads, route
+facts and machine selectors are its nodes. The runtime recomputes only along edges
+whose value changed by `=`.
 
-Related: [Subscriptions](subscriptions.md).
+Related: [Subscriptions](subscriptions.md),
+[One graph](derivations-and-algebra-views.md).
 
 ### **Data classification**
 
-Marking an [app-db](#app-db) path (or payload slot) `:sensitive` or `:large` so the runtime swaps in a redaction/size sentinel wherever that value would cross an egress boundary (trace, [Xray](#xray), SSR payload, off-box log). On-box rendering still sees the real value. Hygiene at the boundary (see [project (egress)](#project-egress)), not security.
+Marking an [app-db](#app-db) path `:sensitive` or `:large`, so the runtime replaces
+its value with a redaction or size marker wherever it leaves the app (traces,
+[Xray](#xray), SSR payloads, off-box logs). Rendering in the app still sees the real
+value. It is hygiene at the boundary, not a security control.
 
 Related: [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 
 ### **Recordable vs ambient coeffects**
 
-Two grades of [coeffect](#coeffect). *Recordable* (clock, fresh id) is captured onto the [event envelope](#event-envelope) before the handler runs so durable results [replay](#time-travel) identically. *Ambient* is read live and not recorded — fine for a display hint, never for a durable write.
+A *recordable* [coeffect](#coeffect) (the clock, a fresh id) is captured when the
+event is dispatched, so a replay sees the same value. An *ambient* one is read live
+and not recorded: fine for a display hint, never for a durable write.
 
 ```clojure
-{:rf.cofx/requires [:rf/time-ms]}   ;; recordable; stamped on the envelope
+{:rf.cofx/requires [:rf/time-ms]}   ;; recordable
 ```
 
-Related: [Effects](effects.md), [Coeffects](coeffects.md).
+Related: [Coeffects](coeffects.md).
 
 ## Observability
 
-Tools read the pipeline through this surface. The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)); the always-on error and handled-event records reach `:observability` [sinks](#sink) and survive production. See [Observability](observability.md).
+The trace stream and [epoch](#epoch) history are dev-only (see [elide](#elide)). In
+production, error and handled-event records reach `:observability` [sinks](#sink).
 
 ### **trace stream**
 
-Live in-process feed of [trace events](#trace-event) at every pipeline stage — dispatch, handler, sub recompute, effect. Tools ([Xray](#xray), Story, pair MCP) are readers of it. Dev-only — [elided](#elide) from production.
-
-### **trace event**
-
-One immutable record on the [trace stream](#trace-stream): `:operation`, `:op-type`, timestamp, tags (including the id that correlates a whole [pipeline run](#event-pipeline)). Filter by `:op-type`. The always-on error and handled-event records are not trace events: they reach `:observability` sinks and survive production.
-
-### **listener**
-
-Callback registered with `register-listener!` on a named stream — `:trace` or `:epoch`, the only two — fired on each matching emit. Both streams are dev-only and [elide](#elide) out of a production build; production observation uses a [sink](#sink) instead. Listeners see data in the clear — [project](#project-egress) before sending off-box.
-
-### **sink**
-
-A function registered with `register-observability-sink!` and named in a frame's `:observability` config (or once for the process with `configure!`): `:errors` for [error records](#error-record), `:handled-events` for one record per handled event. The production observation route: always on, and each record arrives already [projected](#project-egress) under the frame's [data classification](#data-classification).
-
-```clojure
-(rf/configure! {:observability {:errors [{:sink :my-app/sentry}]}})
-(rf/register-observability-sink! :my-app/sentry (fn [record] (send-to-sentry! record)))
-```
-
-Related: [Observability](observability.md), [Report errors in production](how-to/report-errors-in-production.md).
-
-### **epoch**
-
-The record one [pipeline run](#event-pipeline) leaves — trigger event, before/after [app-db](#app-db), run's [trace events](#trace-event). Unit of time-travel: [Xray](#xray) rewinds, replays, and inspects one epoch at a time. Triple: [pipeline](#event-pipeline) / [run](#run) / **epoch**.
-
-```clojure
-;; one dispatch = one run = one epoch
-```
-
-Dev-only — [elided](#elide) from production.
+The in-process feed of [trace events](#trace-event) the runtime emits as each event
+runs: dispatch, handler, subscription recompute, effect, render. [Xray](#xray), Story
+and the pair MCP read it, and so can your own [listener](#listener). Dev-only.
 
 Related: [Observability](observability.md).
 
+### **trace event**
+
+One map on the [trace stream](#trace-stream), with `:op-type` (the family),
+`:operation` (what happened), `:time` and `:tags`. Every trace event from one run has
+the same `:rf.trace/dispatch-id`.
+
+Related: [Observability](observability.md#the-trace-stream).
+
+### **listener**
+
+A callback registered with `register-listener!` on the `:trace` or `:epoch` stream.
+Both streams are dev-only; use a [sink](#sink) in production. Listeners receive data
+unredacted, so [project](#project-egress) anything you send off-box.
+
+Related: [Observability](observability.md#write-a-listener).
+
+### **sink**
+
+A function registered with `register-observability-sink!` and named in a frame's
+`:observability` config (or once for the process with `configure!`). The `:errors`
+stream delivers [error records](#error-record); `:handled-events` delivers one
+record per handled event. Sinks work in production, and every record arrives already
+redacted under the frame's [data classification](#data-classification).
+
+```clojure
+(rf/configure! {:observability {:errors [{:sink :app/sentry}]}})
+(rf/register-observability-sink! :app/sentry (fn [record] (send-to-sentry! record)))
+```
+
+Related: [Report errors in production](how-to/report-errors-in-production.md).
+
+### **epoch**
+
+The record one [run](#run) leaves: the event, [app-db](#app-db) before and after, and
+the run's [trace events](#trace-event). [Xray](#xray) steps through and rewinds
+epochs. Dev-only.
+
+Related: [Observability](observability.md#the-epoch-history-what-the-app-was).
+
 ### **time-travel**
 
-Restore a [frame](#frame) to the state it held at an earlier [epoch](#epoch) — both partitions, one atomic write, no handlers re-run. Each epoch holds real before/after immutable values. Powers [Xray](#xray) scrubbing.
+Restoring a [frame](#frame) to the state it held after an earlier [epoch](#epoch),
+with `restore-epoch!`. Both partitions are restored in one write, and no handlers
+re-run.
+
+Related: [Observability](observability.md#the-epoch-history-what-the-app-was).
 
 ### **Xray**
 
-Dev inspector: in-app panel over the [trace stream](#trace-stream) and per-frame [epoch](#epoch) history. Debug the pipeline, not the DOM.
-
-```clojure
-;; open Xray to step epochs, inspect app-db, read each pipeline run
-```
+The dev inspector: an in-app panel over the [trace stream](#trace-stream) and each
+frame's [epoch](#epoch) history. It shows what each event did, app-db diffs, and
+supports time travel.
 
 Related: [the Xray docs](../xray/index.md).
 
 ### **Story**
 
-View workbench: render a [view](#view)'s loading, empty, error, and happy states as named variants, each in its own [frame](#frame); promote good examples into tests. Reads the same [trace stream](#trace-stream) as other tools.
+A view workbench: it renders a [view](#view)'s loading, empty, error and happy states
+as named variants, each in its own [frame](#frame), and turns good examples into
+tests.
 
-Related: [the Story tab](../story/index.md), [Observability](observability.md).
+Related: [the Story docs](../story/index.md).
