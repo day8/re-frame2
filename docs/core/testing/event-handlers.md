@@ -52,9 +52,9 @@ This `:todo/add` stamps the creation time and asks for the list to be saved:
 (rf/reg-event :todo/add
   {:rf.cofx/requires [:rf/time-ms]}
   (fn [{:keys [db rf/time-ms]} [_ title]]
-    (let [id    (inc (count (:todos db)))
+    (let [id    (inc (apply max 0 (keys (:todos db))))
           todos (assoc (:todos db) id {:id id :title title :done? false
-                                       :created-ms time-ms})]
+                                       :created-at time-ms})]
       {:db (assoc db :todos todos)
        :fx [[:todo.storage/save todos]]})))
 ```
@@ -73,7 +73,7 @@ The test supplies exactly those facts:
   (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :todo/add}))
         result  (handler {:db {:todos {}} :rf/time-ms 1781078400123}
                          [:todo/add "Buy milk"])
-        todo    {:id 1 :title "Buy milk" :done? false :created-ms 1781078400123}]
+        todo    {:id 1 :title "Buy milk" :done? false :created-at 1781078400123}]
     ;; the state change it computed
     (is (= todo (get-in result [:db :todos 1])))
     ;; the save it asked for, as data
