@@ -169,6 +169,7 @@ Add actions for clearing an old error, recording a failed attempt, and storing a
  (fn [{[_ {:keys [value]}] :event}]
    {:fx [[:auth.session/store {:token (:token value)}]]})}
 
+;; under :states
 :idle
 {:on {:auth.login/submit {:target :submitting
                           :guard  :form-valid?
@@ -213,6 +214,7 @@ The machine should issue the login request when it enters `:submitting`. Put tha
 Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it registers `:rf.http/managed`), or the effect resolves to `:rf.error/no-such-fx`.
 
 ```clojure
+;; under :actions
 :issue-request
 (fn [{[_ creds] :event}]
   {:fx [[:rf.http/managed
@@ -230,6 +232,7 @@ Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it 
              (update :attempts inc)
              (assoc  :error "Server took too long."))})
 
+;; under :states
 :submitting
 {:tags  #{:auth/busy}
  :entry :issue-request

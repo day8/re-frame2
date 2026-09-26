@@ -182,14 +182,12 @@ read-only.
 
 ## Tags as a cross-region signal
 
-In a [parallel machine](parallel-states.md) the tag union spans every region,
-and a region's guards and actions receive it as `:tags`. One region can
-advertise `:form/valid` and another region's guard can read it without knowing
-the first region's state names. A tag is a guard input, not a trigger: a tag
-appearing fires nothing, and the dependent region moves on its next event or a
-guarded `:always`, whose guard reads the tag when it runs.
-[Parallel regions → Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
-has the example and the selection rules.
+In a [parallel machine](parallel-states.md) a region's guards and actions
+receive the machine-wide tag union as `:tags`, so one region can read another's
+state by tag without knowing its state names. A tag appearing fires nothing; a
+guard reads it when it runs.
+[Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
+has the example.
 
 ## What tags are not
 

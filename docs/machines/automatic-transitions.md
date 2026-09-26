@@ -23,8 +23,6 @@ re-frame2 has four authoring forms for this, built on two engines.
 
 `:always` is checked after a state is entered and after transitions that remain in, or land in, that state.
 
-Nothing watches the guard in between, so a `:data` change that arrives outside a macrostep — a [`:spawn-all` child's `:on-done` fold](actors.md#fan-out-and-join-with-spawn-all), say — does not move the machine on its own. The next event does.
-
 Login can skip the form when a session token is already in `:data`:
 
 ```clojure
@@ -96,6 +94,8 @@ This is the safe "loop until done" pattern. The action changes `:data`; once the
 An `:always` transition may not target its own declaring state. That shape either loops forever or does nothing useful, so `reg-machine` throws `:rf.error/machine-always-self-loop`.
 
 An `:always` step runs with no event, so its guards and actions receive `:event` as `nil`. Anything that reads a trigger payload belongs on the event-driven transition; put the result in `:data` and let the `:always` guard read that.
+
+Nothing watches the guard between macrosteps. A `:data` change made outside one — a [`:spawn-all` child's `:on-done` fold](actors.md#fan-out-and-join-with-spawn-all) is the case to know — moves nothing until the next event.
 
 ## Choice states
 

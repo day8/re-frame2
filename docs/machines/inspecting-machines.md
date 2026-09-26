@@ -103,7 +103,7 @@ Effects are asserted as data: the HTTP request is not performed, and the test in
 
 ## Testing registered definitions
 
-If a machine is already registered and you want its registered definition, read it off the registration. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec rides at the reserved `:rf/machine` key.
+If a machine is already registered and you want its registered definition, read it off the registration. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec is stored under the reserved `:rf/machine` key.
 
 ```clojure
 (rf.machines/machine-transition

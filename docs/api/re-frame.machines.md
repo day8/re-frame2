@@ -256,6 +256,8 @@ On a parent's `:spawn` map, `:on-done` fires when the child enters a non-error `
 
 Any other value throws `:rf.error/machine-bad-on-done-clause` at registration. See [Final states](../machines/concepts.md#final-states) in the guide.
 
+`:on-error` takes the transition forms only. On its event, `(nth ev 2)` is the failure payload itself rather than a `{:result …}` map: the error leaf's `:output-key` slot, or the exception details when a child action threw.
+
 ## Cross-machine messaging
 
 To send an event to another machine, dispatch it at that machine's id: `[:dispatch [<actor-id> <event>]]`. There is no separate name registry.

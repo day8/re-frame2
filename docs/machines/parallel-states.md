@@ -206,7 +206,15 @@ sibling state to land on. The machine stays in the all-final configuration.
 Without a root `:on-done`, all-regions-final ends the machine the way a
 root-level `:final?` leaf does: a singleton is destroyed, and a spawned
 child reports to its parent
-([Actors](actors.md#when-a-child-finishes)).
+([Actors](actors.md#when-a-child-finishes)). A child with a root `:on-done`
+stays in the all-final configuration, so it never reports.
+
+A finishing parallel child's result comes from the shared `:data`, at the
+`:output-key` of the first region, in declaration order, whose final leaf
+declares one. Declare it on one region. Two regions naming different keys emit
+`:rf.error/machine-parallel-output-key-conflict`, and the first region's key
+wins. If any region's final leaf has `:error? true`, the child fails instead
+and reports that region's `:output-key` slot through the parent's `:on-error`.
 
 ## Coordinating regions: tags as `stateIn`
 
@@ -291,3 +299,4 @@ name every region exactly once throws
 | Registration throws `:rf.error/machine-parallel-nested-not-supported` | A region itself declares `:type :parallel` | Flatten the axes, or split into separate machines |
 | Shared `:data` incremented twice on one event | Two regions handled the same event and both wrote | Put the write in one region, or on a root `:on` |
 | Guard cannot see a sibling's same-event move | Selection is frozen for the round | Use `:raise`, or a later `:always` round |
+| A spawned parallel child reports the wrong region's result, with `:rf.error/machine-parallel-output-key-conflict` | Final leaves in two regions name different `:output-key`s | Declare `:output-key` in one region, or the same key in each |

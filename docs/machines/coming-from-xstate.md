@@ -331,8 +331,8 @@ The child is destroyed automatically when the parent leaves `:authenticating`
 or is destroyed.
 `:on-done` and `:on-error` are transitions, like XState's `onDone` and
 `onError`: each resolves at the spawning state's level, so `:authenticated` and
-`:idle` are its siblings. The child's result rides the transition's event as
-`(:result (nth ev 2))`. A fn `:on-done` —
+`:idle` are its siblings. The child's result arrives on the transition's event
+as `(:result (nth ev 2))`. A fn `:on-done` —
 `(fn [{:keys [data result]}] (assoc data :token result))` — instead folds the
 result into the parent's `:data` without moving the parent.
 
