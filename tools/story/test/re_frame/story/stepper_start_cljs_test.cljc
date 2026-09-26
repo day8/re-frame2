@@ -497,3 +497,62 @@
                  "while the framework operation keyword — which carries no
                   author data — IS reported, so the operator learns WHAT
                   class of failure the filter hid")))))))
+
+;; ---- (7) Start keeps the run's inputs for the play chip's Re-run ---------
+;;
+;; Start retires the one run owner's attempt, so nothing can later resume
+;; the script over the frame being stepped. The play chip's Re-run is
+;; `runtime/rerun!`, which re-prepares with the opts the owner was last
+;; prepared with — so Start must retire the attempt WITHOUT forgetting those
+;; opts, or the chip runs the variant with none: the `:headless` runner, no
+;; run-key and no Controls override.
+
+#?(:clj
+   (deftest the-play-chip-re-run-after-start-runs-with-the-canvas-opts
+     (testing "after Start, the play chip's Re-run runs with the opts the
+               canvas's run was prepared with — its run-key, `:runner :auto`
+               and the Controls override"
+       (let [vid         :story.stepper/chip-rerun
+             run-key     {:variant-id vid :cell-overrides {:value 11}}
+             ;; `ui.canvas/run-opts` of that run-key: what the canvas and the
+             ;; Tests pane's Re-run prepare the one run owner with.
+             canvas-opts {:active-modes   nil
+                          :cell-overrides {:value 11}
+                          :substrate      nil
+                          :runner         :auto
+                          :run-key        run-key}
+             ;; `test-mode.state/run-opts`: what Start prepares the frame with.
+             start-opts  {:active-modes nil :cell-overrides {:value 11} :substrate nil}
+             prepared    (atom [])]
+         (rf/reg-event :probe/set-value
+           (fn [{:keys [db]} [_ v]] {:db (assoc db :value v)}))
+         (rf.story/reg-variant vid
+           {:args   {:value 7}
+            :script [[:dispatch-sync [:probe/set-value [:arg :value]]]
+                     [:assert-dom "#probe" :visible]]})
+         (rf.story.runtime/listen-runs! ::chip-rerun
+           (fn [v run]
+             (when (and (= vid v) (not (contains? run :result)))
+               (swap! prepared conj (:run-key run)))))
+         (try
+           (rf.story.runtime/prepare-run! vid canvas-opts)
+           (let [canvas-run (rf.story.async/deref-blocking
+                              (rf.story.runtime/resume-run! vid) 5000)]
+             (is (= :dom (:runner canvas-run))
+                 "PRECONDITION — `:runner :auto` takes the canvas's run past
+                  the `:headless` default for the DOM step, so the runner
+                  below discriminates")
+             (rf.story.async/deref-blocking
+               (rf.story.runtime/prepare-variant vid start-opts) 5000)
+             (reset! prepared [])
+             (let [chip-run (rf.story.async/deref-blocking
+                              (rf.story.runtime/rerun! vid {:play nil}) 5000)]
+               (is (= [run-key] @prepared)
+                   "the chip's Re-run prepares under the canvas's run-key")
+               (is (= (:runner canvas-run) (:runner chip-run))
+                   "and selects the canvas run's runner — `:runner :auto`, not
+                    the `:headless` default")
+               (is (= 11 (:value (rf/app-db-value vid)))
+                   "and the Controls override reaches the script's `[:arg]`")))
+           (finally
+             (rf.story.runtime/listen-runs! ::chip-rerun nil)))))))

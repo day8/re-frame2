@@ -1580,6 +1580,25 @@
   ([] (reset! run-owner {}))
   ([variant-id] (swap! run-owner dissoc variant-id) nil))
 
+(defn- retire-run-attempt!
+  "End `variant-id`'s current one-run-owner attempt but keep the run's
+  inputs. A fresh generation is claimed already resumed, so a generation
+  prepared but not yet resumed can never be resumed, and a resume still in
+  flight settles as superseded. `:run-key` and `:opts` stay, so `rerun!`
+  runs the variant again with the opts the owner was last prepared with. A
+  variant the owner never prepared is left alone."
+  [variant-id]
+  (swap! run-owner
+         (fn [m]
+           (if-let [{:keys [generation run-key opts]} (get m variant-id)]
+             (let [gen (inc generation)]
+               (assoc m variant-id {:run-key     run-key
+                                    :opts        opts
+                                    :generation  gen
+                                    :resumed-gen gen}))
+             m)))
+  nil)
+
 (defonce ^:private run-listeners
   ;; key -> (fn [variant-id run]); see `listen-runs!`.
   (atom {}))
@@ -2145,10 +2164,13 @@
   destroyed, so a canvas already mounted over this variant keeps its live
   reactions while its app-db returns to the initial state.
 
-  Drops the one-run-owner attempt for `variant-id` (as `reset-variant`
-  does, and for the same reason): a generation that was prepared but not
-  yet resumed would otherwise let a later `resume-run!` run the whole
-  script over the frame the caller is about to step through.
+  Retires the one-run-owner attempt for `variant-id`
+  (`retire-run-attempt!`): a generation that was prepared but not yet
+  resumed would otherwise let a later `resume-run!` run the whole script
+  over the frame the caller is about to step through. The attempt's inputs
+  stay, so a later `rerun!` — the play chip's Re-run — runs with the opts
+  the owner was last prepared with (the canvas's run-key and `:runner
+  :auto` among them) rather than with none.
 
   Returns a promise/future that resolves to `nil` once phases 0-2 have
   settled, and REJECTS when preparation fails — an unknown variant, a
@@ -2201,7 +2223,7 @@
          ;; `rf.story.async/promise` rejects when this body throws, which is
          ;; the honest settle for every prepare-half failure. Phases 0-2 are
          ;; synchronous, so the promise has settled by the time this returns.
-         (reset-run-owner! variant-id)
+         (retire-run-attempt! variant-id)
          (prepare-ctx! variant-id (rf.story.frames/variant-body variant-id) opts)
          (let [failures (vec (captured-prepare-failures variant-id))
                redacted (vec (sort (redacted-prepare-failures variant-id)))]
