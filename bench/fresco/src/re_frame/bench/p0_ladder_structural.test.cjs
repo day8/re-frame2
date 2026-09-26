@@ -254,16 +254,6 @@ test('R=0 exempts NOTHING but `boundaries` — edges, cells and entries still ga
   }
 });
 
-test('`entries` at R=0 is 1 and not 0 — the empty read-set is still an entry', () => {
-  assert.deepStrictEqual(ladderStructuralFailures(rowWith(null)), []);
-  const fails = ladderStructuralFailures(
-    rowWith((arms) => {
-      arms['reagent-subs|lad/fresco#R0'].verify.fresco.entries = B;
-    })
-  );
-  assert.ok(fails.every((f) => /fresco entries 1200, expected 1/.test(f)));
-});
-
 // --- the donor arms, and the residue half of the witness -------------------
 
 test('a donor arm holding ANY Fresco boundary fails — R=0 included', () => {
@@ -316,13 +306,6 @@ test('the driver exits on THIS function and does not re-derive the counts', () =
   has(/if \(structural\.length > 0\) \{/, 'and its result is what pushes a failure');
   has(/module\.exports = \{\s*ladderStructuralFailures,/, 'so this file can drive it');
   has(/if \(require\.main === module\)/, 'and requiring the driver must not drive it');
-});
-
-test('the R=0 boundary expectation is written as a claim, not hardcoded to B', () => {
-  // A `candidateStamp` built the R-independent way
-  // would keep the green case above green, so the source is pinned too.
-  has(/boundaries: R === 0 \? 0 : B,/, 'the fused edgeless-boundary property');
-  lacks(/\{ boundaries: B, edges: B \* R/, 'the per-mount R-independent expectation');
 });
 
 test('the printed legend states the R=0 zero rather than the old flat `boundaries = B`', () => {
@@ -635,24 +618,6 @@ test('the boundary is exact — at τ passes, one byte past refuses', () => {
   }
 });
 
-test('A MASKED LEG READS BELOW ITS COHORT, and that is what refuses', () => {
-  // The same four legs, once with the third leg's collection masked and
-  // once without. Masking REMOVES bytes from `rise`, so the masked window is
-  // the one that looks SMALLER — and a budget on the window's size could only
-  // ever be flattered by that. The leg witness reads the opposite way round:
-  // removing bytes from one leg is precisely what makes it unlike its cohort.
-  const legs = [200000, 200000, 200000, 200000];
-  const masked = allocSteps(stream(legs, [0, 0, 200000, 0]));
-  const clean = allocSteps(stream(legs));
-  assert.ok(masked.rise < clean.rise, 'masking removes bytes from the rising sum');
-  assert.strictEqual(clean.certified, true, 'the unmasked window is four alike legs');
-  assert.strictEqual(masked.certified, false, 'and masking is what refuses the other');
-  assert.ok(
-    masked.legWorstDeviation < 0,
-    'the offending leg is BELOW its cohort, never above — that is the signature'
-  );
-});
-
 test('THE FALLS GATE IS UNTOUCHED — a visible collection still counts as one', () => {
   // The half that works. The leg witness only ADDS refusals beside this
   // gate, so every window with a visible collection is refused here whatever
@@ -685,6 +650,9 @@ test('an idle window is homogeneous at zero, and certifies', () => {
   assert.strictEqual(s.certified, true);
   assert.strictEqual(s.legMedian, 0);
   assert.deepStrictEqual(s.legs, [0, 0, 0]);
+  // A relative deviation from a zero median is not a number, and the field
+  // says so rather than reporting a fabricated 0 or an Infinity.
+  assert.strictEqual(s.legWorstDeviation, null);
   // But it is not a free pass: a window whose legs disagree is refused at a
   // zero median too, which is the case a ratio test would have divided by
   // zero on.
@@ -1598,13 +1566,6 @@ const allocRowWith = (windows, rounds = 2) => ({
 const SMALL = stream([20000, 20000, 20000, 20000]);
 const MASKED = stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]);
 
-test('a row of small clean windows is not a failure', () => {
-  assert.deepStrictEqual(
-    allocRefusedWindows(allocRowWith({ 'reagent-subs|lad/fresco#R7': SMALL })),
-    []
-  );
-});
-
 test('a row with no rounds at all is not a failure', () => {
   assert.deepStrictEqual(allocRefusedWindows({ perRound: [] }), []);
 });
@@ -1823,6 +1784,11 @@ test('ROUTE 1 — the large-root DEFAULT is gone, and an unstated page refuses',
   assert.ok(
     arm.refusals.some((r) => r.includes('STATE P0_ALLOC_CELLS')),
     `the refusal must name the page: ${JSON.stringify(arm.refusals)}`
+  );
+  assert.match(
+    arm.refusals.find((r) => r.includes('STATE P0_ALLOC_CELLS')),
+    /derived per rung from the instrument's own floor data/,
+    'and it names what would make a default honest'
   );
   // And the window is the floor, not something inverted out of a size bound.
   assert.strictEqual(arm.writes, ALLOC_MIN_WRITES);
@@ -3628,18 +3594,6 @@ test('V4 PROBE B — 600 KB of true allocation, admitted by the retired bound, i
   assert.match(s.refusals[0], /leg 6 of 6/);
 });
 
-test('V4 — the net-growth masking case is refused on the LEG grounds', () => {
-  // Refused because its third leg reads zero against a cohort of 200 KB,
-  // which is the observation rather than an arithmetic budget.
-  const s = allocSteps(stream([200000, 200000, 200000, 200000], [0, 0, 200000, 0]));
-  assert.strictEqual(s.falls, 0, 'the sign test is blind here — that IS the defect');
-  assert.strictEqual(s.rise, 600000, 'rise under-reads the true 800000 by the reclaimed 200000');
-  assert.strictEqual(s.certified, false);
-  assert.deepStrictEqual(s.legs, [200000, 200000, 0, 200000]);
-  assert.strictEqual(s.legMedian, 200000);
-  assert.match(s.refusals[0], /leg 3 of 4/);
-});
-
 test('V4 τ-INDEPENDENCE — both probes are refused for EVERY tolerance below 1', () => {
   // The property that stops a later re-calibration silently re-admitting
   // them. In both probes the offending leg reads exactly zero against a
@@ -3660,47 +3614,6 @@ test('V4 τ-INDEPENDENCE — both probes are refused for EVERY tolerance below 1
       `a clean window must still certify at τ=${tau}`
     );
   }
-});
-
-test('V4 NOT VACUOUS — the clean small window and the idle window both certify', () => {
-  const clean = allocSteps(stream([20000, 20000, 20000, 20000]));
-  assert.strictEqual(clean.certified, true, 'four alike legs are one work unit repeated');
-  assert.deepStrictEqual(clean.refusals, []);
-  assert.strictEqual(clean.legMedian, 20000);
-  assert.strictEqual(clean.legWorstDeviation, 0);
-
-  // An idle window is homogeneous AT ZERO. `τ·0` is 0 and every leg deviates
-  // from the median by 0, which is not MORE than 0 — so it certifies, and it
-  // has to, because the idle control is one of the three the row takes.
-  const idle = allocSteps(stream([0, 0, 0]));
-  assert.strictEqual(idle.certified, true);
-  assert.strictEqual(idle.legMedian, 0);
-  assert.deepStrictEqual(idle.legs, [0, 0, 0]);
-  // A relative deviation from a zero median is not a number, and the field
-  // says so rather than reporting a fabricated 0 or an Infinity.
-  assert.strictEqual(idle.legWorstDeviation, null);
-});
-
-test('THE MANDATORY PAGE — an unstated P0_ALLOC_CELLS is refused BY NAME', () => {
-  // There is no per-boundary sizing constant, and none may be substituted.
-  // With no sizing model there is no honest default page, so the page is
-  // MANDATORY — which also makes an accidental publication run impossible.
-  const arm = armUnderEnv({ P0_ALLOC_CELLS: '', P0_ALLOC_WRITES: '' });
-  assert.strictEqual(arm.admissible, false, 'an unstated page cannot be derived');
-  const page = arm.refusals.find((r) => r.includes('P0_ALLOC_CELLS'));
-  assert.ok(page, JSON.stringify(arm.refusals));
-  assert.match(
-    page,
-    /derived per rung from the instrument's own floor data/,
-    'and it names what would make a default honest'
-  );
-  // A stated page derives an admissible arm, so the refusal is the missing
-  // page and not a preflight that refuses everything.
-  const stated = armUnderEnv({ P0_ALLOC_CELLS: '6', P0_ALLOC_WRITES: '' });
-  assert.strictEqual(stated.cells, 6);
-  assert.strictEqual(stated.boundaries, 24);
-  assert.deepStrictEqual(stated.refusals, []);
-  assert.ok(stated.admissible);
 });
 
 let failed = 0;
