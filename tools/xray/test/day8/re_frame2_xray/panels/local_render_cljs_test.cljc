@@ -52,7 +52,6 @@
             ;; is silently a PASS-shaped failure for a redaction row. The
             ;; sibling `.cljs` query test requires it for the same reason.
             [re-frame.routing]
-            [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]
             [day8.re-frame2-xray.panels.local-render :as local-render]))
 
 ;; ---------------------------------------------------------------------------

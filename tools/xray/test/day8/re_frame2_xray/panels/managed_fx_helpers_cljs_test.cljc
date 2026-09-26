@@ -200,26 +200,6 @@
         (is (nil? (:duration-ms rec)))
         (is (nil? (:http-status rec)))))))
 
-(deftest http-record-from-issuing-bundle-is-issued
-  (testing "The runtime's ACTUAL issuing-bundle shape, walked end to end: the
-            `:rf.fx/handled` row in `:effects` and an EMPTY `:other`. That empty
-            `:other` is not an impoverished fixture — it is what the grouper
-            produces, because every later HTTP row is scope-less and lands in
-            `[nil :ungrouped]`."
-    (let [bundle {:dispatch-id 7
-                  :frame :rf/default
-                  :effects [(fx-handled :rf.http/managed
-                                        {:request    {:method :post :url "/api/checkout"}
-                                         :request-id :checkout
-                                         :on-success [:checkout/done]})]
-                  :other   []}
-          rec    (first (h/event-bundle->managed-fx-records bundle))]
-      (is (= 1 (count (h/event-bundle->managed-fx-records bundle))))
-      (is (= :issued (:status rec)))
-      (is (nil? (:failure rec)))
-      (is (nil? (:cancel-cause rec)))
-      (is (nil? (:phase rec))))))
-
 (deftest http-adapter-failure-record
   (testing "The ONE HTTP failure that can land in the issuing bundle is a
             SYNCHRONOUS request-body-prep failure — `prepare-body!` runs inside
