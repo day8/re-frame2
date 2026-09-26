@@ -95,7 +95,7 @@ An `:always` transition may not target its own declaring state. That shape eithe
 
 An `:always` step runs with no event, so its guards and actions receive `:event` as `nil`. Anything that reads a trigger payload belongs on the event-driven transition; put the result in `:data` and let the `:always` guard read that.
 
-Nothing watches the guard between macrosteps. A `:data` change made outside one — a [`:spawn-all` child's `:on-done` fold](actors.md#fan-out-and-join-with-spawn-all) is the case to know — moves nothing until the next event.
+Nothing watches the guard between macrosteps. A `:data` change made outside one — a [`:spawn-all` child's `:on-done` fold](fan-out-and-join.md#the-resolution-event) is the case to know — moves nothing until the next event.
 
 ## Choice states
 

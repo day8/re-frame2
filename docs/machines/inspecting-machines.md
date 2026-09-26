@@ -1,4 +1,4 @@
-# 9. Inspecting and testing
+# 10. Inspecting and testing
 
 <a id="inspecting-and-testing"></a>
 <a id="inspecting-and-testing-machines"></a>
