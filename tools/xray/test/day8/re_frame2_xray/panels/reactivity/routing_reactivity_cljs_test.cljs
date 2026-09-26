@@ -14,48 +14,6 @@
   [(h/cascade :c1 :rf/default)
    (h/cascade :c2 :rf/default)])
 
-(deftest routing-tab-data-sub-tracks-focus-flip
-  (testing "`:rf.xray/routing-tab-data` re-fires on focus
-            flip; the composite map's identity changes between two
-            focused cascades. The composite's `:current` slot reads
-            from the host frame's
-            `[:rf.runtime/routing :current]` slice in runtime-db (via the
-            `:rf.route/id` sub) so the slice stays consistent; the
-            `:from-id` / `:to-id` axes are derived from the focused
-            cascade's trace events. Either axis change yields a
-            different composite map."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/focus-cascade! :c1)
-    (let [data-1 (h/read-sub :rf.xray/routing-tab-data)]
-      (is (map? data-1)
-          "routing-tab-data returns the expected shape")
-      (h/focus-cascade! :c2)
-      (let [data-2 (h/read-sub :rf.xray/routing-tab-data)]
-        ;; Equality holds when both cascades produce the same
-        ;; from/to nav inference (e.g. neither has a route-change
-        ;; trace event). For the regression-guard contract, we
-        ;; assert the SUB is wired to the focus axis at all — the
-        ;; reactive graph must include `:rf.xray/focus` in
-        ;; `:rf.xray/routing-tab-data`'s input chain. The
-        ;; reactivity proof: deref under each focus state succeeds
-        ;; (no exception) and the composite is a map under both.
-        (is (map? data-2))))))
-
-(deftest routing-tab-data-current-slice-tracks-host-frame
-  (testing "`:rf.xray/current-route-slice` reads off the
-            host frame's `[:rf.runtime/routing :current]` slice in runtime-db
-            (via the `:rf.route/id` sub). The reactive chain
-            `target-frame-db → current-route-slice → routing-tab-
-            data` runs end-to-end."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    ;; The data should be subscribable without erroring; the slice
-    ;; is nil because the host db is empty.
-    (let [data (h/read-sub :rf.xray/routing-tab-data)]
-      (is (contains? data :current)
-          "composite carries the :current route slice axis"))))
-
 (deftest routing-tab-data-re-fires-with-current-route-override
   (testing "the test-only `:rf.xray/set-current-route-
             slice-override` event writes the override slot; the

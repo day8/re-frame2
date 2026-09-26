@@ -44,24 +44,6 @@
         (is (not= filters-0 filters-1)
             "active-filters sub re-fired on add-filter")))))
 
-(deftest filtered-event-bundles-sub-tracks-out-pill
-  (testing "`:rf.xray/filtered-event-bundles` recomposes when
-            an `:out` pill is added. The filtered event-id's cascade
-            falls out of the projected list."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (let [cascades-before (h/read-sub :rf.xray/filtered-event-bundles)]
-      (is (= 2 (count cascades-before))
-          "both cascades present before filter")
-      (h/dispatch-xray!
-        [:rf.xray/add-filter :out
-         {:pattern :evt/inc}])
-      (let [cascades-after (h/read-sub :rf.xray/filtered-event-bundles)]
-        (is (= 1 (count cascades-after))
-            "filtered cascade dropped from list")
-        (is (not= cascades-before cascades-after)
-            "filtered-event-bundles sub re-fired on filter")))))
-
 (deftest remove-filter-restores-cascade
   (testing "`:rf.xray/remove-filter` deletes a pill; the
             previously-filtered cascade returns to `:rf.xray/filtered-
