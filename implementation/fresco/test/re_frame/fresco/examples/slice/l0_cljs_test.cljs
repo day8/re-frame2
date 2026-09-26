@@ -253,7 +253,11 @@
              (read-sub frame [::rf.fresco.examples.slice.subs/save-state "intents"])))
       (is (true? (read-sub frame [::rf.fresco.examples.slice.subs/dirty? "intents"]))
           "the draft is kept until the reply lands, so a failure has
-           something to fail back to"))))
+           something to fail back to")
+      (is (= {:status :idle :problem nil} (read-sub frame [::rf.fresco.examples.slice.subs/save-state "controls"]))
+          "and the save region is projected per article: the projection is
+           what keeps the stale-reply rule out of the view, so an editor
+           asks one question, not two"))))
 
 (deftest the-reply-is-checked-against-the-request
   (testing "a reply for the article this frame is saving is folded in"
@@ -281,16 +285,6 @@
             "the stale reply moved nothing")
         (is (= :saving (:status (read-sub frame [::rf.fresco.examples.slice.subs/save-state "controls"])))
             "and did not disturb the save that is actually in flight")))))
-
-(deftest the-save-region-is-projected-per-article
-  (with-app
-    (fn [frame]
-      (rf/dispatch-sync [::rf.fresco.examples.slice.events/edit "intents" :title "Fine"] {:frame frame})
-      (rf/dispatch-sync [::rf.fresco.examples.slice.events/save {:slug "intents"}] {:frame frame})
-      (is (= {:status :saving :problem nil} (read-sub frame [::rf.fresco.examples.slice.subs/save-state "intents"])))
-      (is (= {:status :idle :problem nil} (read-sub frame [::rf.fresco.examples.slice.subs/save-state "controls"]))
-          "the projection is what keeps the stale-reply rule out of the
-           view: an editor asks one question, not two"))))
 
 ;; ---------------------------------------------------------------------------
 ;; i18n and theming, through the frame

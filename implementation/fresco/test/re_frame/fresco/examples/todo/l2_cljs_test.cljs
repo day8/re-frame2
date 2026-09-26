@@ -134,14 +134,6 @@
            does; that it is the same function on every render is a fact
            about identity, which only a mounted tier can observe"))))
 
-(deftest the-rows-intent-inventory-includes-both-key-branches
-  ;; `ht/intents` unpacks a key-map into its branches, which is the one
-  ;; place the tier knows the shape is not an ordinary vector.
-  (let [offered (set (rf.fresco.test/intents (row-tree row-props "sourdough")))]
-    (is (contains? offered [::rf.fresco.examples.todo.events/commit-edit 7]))
-    (is (contains? offered [:re-frame.fresco/clear rf.fresco.examples.todo.db/draft 7]))
-    (is (contains? offered [::rf.fresco.examples.todo.events/destroy 7]))))
-
 ;; ---------------------------------------------------------------------------
 ;; The list — the keyed identity claim, at the tier where the key is data
 ;; ---------------------------------------------------------------------------

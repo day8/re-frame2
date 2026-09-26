@@ -54,27 +54,26 @@
 ;; The refusals — each names its problem
 ;; ---------------------------------------------------------------------------
 
-(deftest a-read-outside-the-vocabulary-is-refused
-  (let [o (outcome #(rf.fresco.evidence/envelope :whatever true nil {}))]
-    (is (refused-with o ":read :whatever") (str (:message o)))))
-
-(deftest a-loss-must-name-a-reason-and-size-its-drop
-  (testing "an absent :dropped is the shape in which unknown looks like none"
-    (is (refused-with (outcome #(rf.fresco.evidence/envelope :intents false {:reason :cap} {}))
-                      "absent :dropped")))
-  (testing "a reason outside the closed vocabulary"
-    (is (refused-with (outcome #(rf.fresco.evidence/envelope :intents false {:reason :probably :dropped 3} {}))
-                      ":loss")))
-  (testing "a loss that is not a map"
-    (is (refused-with (outcome #(rf.fresco.evidence/envelope :intents false :cap {})) ":loss"))))
-
-(deftest completeness-and-loss-cannot-both-be-claimed
-  (let [o (outcome #(rf.fresco.evidence/envelope :mounted-boundaries true {:reason :cap :dropped 4} {}))]
-    (is (refused-with o "claims completeness and also reports loss") (str (:message o)))))
-
-(deftest completeness-is-a-boolean
-  (is (refused-with (outcome #(rf.fresco.evidence/envelope :mounted-boundaries nil nil {})) ":complete?"))
-  (is (refused-with (outcome #(rf.fresco.evidence/envelope :mounted-boundaries :yes nil {})) ":complete?")))
+(deftest each-incoherent-shape-is-refused-naming-its-problem
+  ;; One row per shape: the envelope's `read`, `complete?` and `loss`
+  ;; arguments, and the fragment the door's named problem must carry.
+  (doseq [[shape [read complete? loss] fragment]
+          [["a read outside the vocabulary"
+            [:whatever true nil] ":read :whatever"]
+           ["a loss with an absent :dropped — the shape in which unknown looks like none"
+            [:intents false {:reason :cap}] "absent :dropped"]
+           ["a loss reason outside the closed vocabulary"
+            [:intents false {:reason :probably :dropped 3}] ":loss"]
+           ["a loss that is not a map"
+            [:intents false :cap] ":loss"]
+           ["completeness claimed beside a reported loss"
+            [:mounted-boundaries true {:reason :cap :dropped 4}] "claims completeness and also reports loss"]
+           ["a nil completeness"
+            [:mounted-boundaries nil nil] ":complete?"]
+           ["a non-boolean completeness"
+            [:mounted-boundaries :yes nil] ":complete?"]]]
+    (let [o (outcome #(rf.fresco.evidence/envelope read complete? loss {}))]
+      (is (refused-with o fragment) (str shape " — " (:message o))))))
 
 (deftest a-refusal-names-every-problem-at-once
   (let [o (outcome #(rf.fresco.evidence/envelope :nope true {:reason :cap} {}))]
