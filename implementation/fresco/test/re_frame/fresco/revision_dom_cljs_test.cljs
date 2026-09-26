@@ -335,6 +335,48 @@
             (is (identical? n (node c))))
           (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
 
+;; The boundary wall. A Fresco boundary compares its whole props map by
+;; CLJS `=` (`codec/memoize-boundary!`), where `walled-field`'s React.memo
+;; compares each prop by `Object.is` — so a revision rebuilt as a fresh but
+;; equal MAP bails here, and would open that wall.
+(def ^:private boundary-field
+  (-> (fn [js-props]
+        (let [{:keys [value revision]} (unchecked-get js-props "rfProps")]
+          (rf.fresco.impl.codec/as-element (field :input value revision))))
+      rf.fresco.impl.codec/mark-boundary!
+      rf.fresco.impl.codec/memoize-boundary!))
+
+(defn- boundary [value revision]
+  (rf.fresco.impl.codec/as-element [boundary-field {:value value :revision revision}]))
+
+(deftest equal-but-fresh-revision-values-are-inert
+  (testing "spec §5 c. A revision compares by CLJS `=` at the boundary that
+           carries it, so two distinct-but-equal revision values are one
+           revision: the boundary's memo bails, nothing commits, and the
+           draft stands. Taken with a MAP revision, because a string is a
+           primitive `Object.is` already equates, so a string revision
+           cannot tell `=` from identity."
+    (if-not (browser?)
+      (skip! "the bail-out needs a real commit to skip")
+      (let [c         (container!)
+            root      (react-dom-client/createRoot c)
+            first-rev (hash-map :gen 1)
+            fresh-rev (hash-map :gen 1)]
+        (try
+          (is (and (= first-rev fresh-rev) (not (identical? first-rev fresh-rev)))
+              "premise: the two revisions are equal and are two objects")
+          (render! root (boundary "committed" first-rev))
+          (let [n (node c)]
+            (drift! n "a draft")
+            (render! root (boundary "committed" fresh-rev))
+            (is (= "a draft" (.-value n))
+                "a freshly built but EQUAL revision reset nothing")
+            (render! root (boundary "committed" (hash-map :gen 2)))
+            (is (= "committed" (.-value n))
+                "the control: a genuinely different revision does reset")
+            (is (identical? n (node c)) "and kept the node"))
+          (finally (react-dom/flushSync #(.unmount root)) (drop-container! c)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE REFUSALS
 ;; ---------------------------------------------------------------------------

@@ -17,10 +17,13 @@
   ## Why these rows and not the DOM witness beside them
 
   The DOM rows in `view-annotation-dom-cljs-test` assert the guarantee
-  through a body that writes the keyword — the one spelling `merge`
-  collapses — so they pass whether ownership is held at the key or at the
-  slot. A small array map iterates in insertion order and happens to pass
-  too, which is why the rows here take a bigger map as well.
+  through two of the five spellings: the keyword, the one spelling `merge`
+  collapses, so that row passes whether ownership is held at the key or
+  at the slot; and the string, in a map big enough to be a
+  PersistentHashMap, where ownership held at the key would leave the
+  winner to that map's iteration order. A small array map iterates in
+  insertion order and happens to pass too, which is why the rows here take
+  every spelling over both map shapes.
 
   So the property is pinned TWICE here. Once STRUCTURALLY: after the merge
   exactly one key in the map canonicalises to each annotation slot. That
