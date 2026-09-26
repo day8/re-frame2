@@ -263,9 +263,10 @@ click listener that checks eligibility itself (primary button, no modifier keys,
 Every prop `route-link` doesn't use is passed through to the `<a>`, so classes,
 `:data-*` and ARIA attributes work as usual. It uses the address keys to build the
 `href`, and `:prefetch` ([warming a destination](#warming-a-destination-before-the-click)).
-A link click always adds a history entry: `:replace?`, `:scroll` and `:bypass-leave?`
-are navigate keys, so on a `route-link` they are passed to the `<a>` like any other
-prop. When a click needs one of them, dispatch `:rf.route/navigate` instead.
+The navigate policy keys work on a link too, and apply to the navigation its click
+makes: `:replace? true` replaces the current history entry instead of adding one,
+`:scroll` overrides the route's scroll for this navigation, and `:bypass-leave? true`
+skips the current route's `:can-leave` check.
 
 #### Highlighting the active link
 
@@ -316,7 +317,7 @@ It reports on the route's blocking `:resources` ([details](#when-a-loader-fails)
 ### Fragments and scrolling
 
 A fragment-only change updates the slice and doesn't re-fire `:on-match`. A route's
-`:scroll` (or a navigate's) is `:top` (the default for links and navigates),
+`:scroll` (or a navigate's or link's) is `:top` (the default for links and navigates),
 `:restore` (the default for Back, Forward and the first load), `:preserve`, or
 `false` for no scroll effect. `:top` scrolls the element whose `id` is the fragment
 into view, or the page to the top when there is no such element.
@@ -536,7 +537,7 @@ nothing on the server.
 | Symptom | Cause | Fix |
 |---|---|---|
 | First `reg-route` throws `:rf.error/routing-artefact-missing` | `re-frame.routing` is not required | Require it once at boot |
-| `reg-route` throws `:rf.error/route-bad-metadata` | `:path` inside the map, or an unknown unqualified key | The path is the third argument |
+| `reg-route` throws `:rf.error/route-bad-metadata` | `:path` inside the map, an unknown unqualified key, or a single event as `:on-match` | The path is the third argument; `:on-match` takes a vector of events, `[[:app/load]]` |
 | `reg-route` throws `:rf.error/invalid-route-pattern` | The pattern breaks the grammar (no leading `/`, an empty `//` segment, …) | The error names the character position |
 | `reg-route` throws `:rf.error/route-decimal-unsupported` or `:rf.error/route-keyword-unbounded-unsupported` | A `:double` or bare `:keyword` slot can't round-trip through a URL | Use `:string`, `:int` or `[:enum …]` |
 | `reg-route` throws `:rf.error/invalid-route-classification` | A `:sensitive` / `:large` path is malformed | Fix the path |

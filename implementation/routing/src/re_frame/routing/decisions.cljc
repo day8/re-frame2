@@ -446,14 +446,16 @@
   an exact no-op terminates here, evaluating NEITHER guard and pushing
   NOTHING — then decide leave and entry (stages 4-5) BEFORE the address bar
   moves, so a rejected link click never adds a history entry. On an allowed
-  transition it pushes the URL and synthesises `:rf.route/handle-url-change`,
-  which owns the commit; the synthesised event carries TWO runtime-internal
-  riders on its trailing opts map — `:rf.route/cause :link`, which names the
-  navigation cause and thereby fixes the default scroll strategy at `:top`,
-  and `:rf.route/decided? true`, so an allowed link click does not decide the
-  same target twice (Spec 012 §The request grammar). Neither rider is part of
-  the published `:rf.route/navigate` request roster — that roster is closed
-  with no exemption."
+  transition it pushes the URL (replacing it for `:replace? true`) and
+  synthesises `:rf.route/handle-url-change`, which owns the commit; the
+  synthesised event carries runtime-internal riders on its trailing opts map —
+  `:rf.route/cause :link`, which names the navigation cause and thereby fixes
+  the default scroll strategy at `:top`; `:rf.route/decided? true`, so an
+  allowed link click does not decide the same target twice; and, when the
+  request carries `:scroll`, `:rf.route/scroll`, the per-call scroll override
+  the commit resolves ahead of the route's own (Spec 012 §The request
+  grammar). No rider is part of the published `:rf.route/navigate` request
+  roster — that roster is closed with no exemption."
   [{frame :rf.frame/id rdb :rf.db/runtime
     pending-nav-allocation :rf.route/pending-nav-allocation}
    [_ {:keys [url replace? bypass-leave?] :as request}]]
@@ -499,8 +501,10 @@
                       [:rf.nav/replace-url app-url]
                       [:rf.nav/push-url    app-url])
                     [:dispatch [:rf.route/handle-url-change app-url
-                                {:rf.route/cause    :link
-                                 :rf.route/decided? true}]]]}))))))
+                                (cond-> {:rf.route/cause    :link
+                                         :rf.route/decided? true}
+                                  (contains? request :scroll)
+                                  (assoc :rf.route/scroll (:scroll request)))]]]}))))))
 
 (defn continue-handler
   "`:rf.route/continue` event handler — the leave-only resume. Registered by
