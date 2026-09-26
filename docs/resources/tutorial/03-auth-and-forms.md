@@ -391,7 +391,7 @@ The read happens at boot. Reading the world is a [coeffect](../../core/glossary.
   {:rf.cofx/requires [:auth.session/token]}
   (fn [{:keys [db auth.session/token]} _]
     (cond-> {:db        (assoc db :auth {:user nil :token token})
-             ;; Classify the durable token path sensitive (an EP-0025 commit-plane
+             ;; Classify the durable token path sensitive (a commit-plane
              ;; effect) — returned alongside :db, so it's in force before any
              ;; off-box egress. The JWT renders as a redaction sentinel everywhere.
              :sensitive [[:auth :token]]}

@@ -62,7 +62,7 @@ Writing a [mutation](#mutation)'s expected result into the cache *before* the se
 
 ### **managed HTTP**
 
-The `:rf.http/managed` [effect](../core/glossary.md#effect): you describe a request as data and the runtime owns its whole lifecycle — encode, send, decode, classify failures, retry-with-backoff, abort — then [dispatches](../core/glossary.md#dispatch) the result back as an ordinary [event](../core/glossary.md#event). You never touch `js/fetch`. (A `:request-id` lets a re-issue supersede an in-flight call; reads retry, writes don't.)
+The `:rf.http/managed` [effect](../core/glossary.md#effect): you describe a request as data and the runtime owns its whole lifecycle — encode, send, decode, classify failures, retry-with-backoff, abort — then [dispatches](../core/glossary.md#dispatch) the result back as an ordinary [event](../core/glossary.md#event). You never touch `js/fetch`. (A `:request-id` lets a re-issue supersede an in-flight call; retries are opt-in per request, via `:retry`, for reads and writes alike.)
 
 ### **reply map**
 

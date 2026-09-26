@@ -54,7 +54,7 @@ and [tutorial Part 2](tutorial/02-server-data.md). Three contracts worth pinning
 
 - **A subscription never fetches.** Read the state *before* any cause fires and it's `:idle` — a test that asserts that is the honest check for "my view was a permanent skeleton because I forgot the cause."
 - **A first-load failure is `:error` with no data.** Stub `{:reply {:failure {:kind :rf.http/http-5xx :status 503}}}` and assert `:status :error`, `:has-data? false`, and the failure's `:kind` — [branch on the category, never the prose](../core/errors.md#test-the-structure-not-the-string).
-- **A fresh ensure is a cache hit.** Ensure the same key twice against a stub table and the second dispatch fetches nothing — the stub table doubles as a coverage check, since an *unexpected* second request would hang at the unmatched effect rather than silently passing.
+- **A fresh ensure is a cache hit.** Ensure the same key twice against a stub table and the second dispatch fetches nothing — count the requests with the interceptor ledger in [section 4](#4-exactly-these-requests) to pin it. A request that matches no stub never reaches the network: it settles as a `:rf.http/transport` failure ("no stub matched").
 
 ## 2. Scope resolvers are pure
 

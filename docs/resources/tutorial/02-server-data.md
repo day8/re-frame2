@@ -187,13 +187,13 @@ Then the routes:
 
 On entry the runtime *ensures* each listed resource — with the **route as [owner](../glossary.md#owner--cause)** — and on leave (or a superseding navigation) it releases them. "Ensures" is the verb to remember: it means *make sure a fresh-enough load exists*, which is a cache hit when one already does and a fetch when it doesn't.
 
-"Ensure" also covers the third case, the one the intro promised: a *deduplicated* read. If two things ensure the same `{:resource :params}` while a request is already in flight — two route entries racing, a view remounting mid-fetch — the second ensure doesn't fire a second request. It *joins* the one already running and waits for the same reply. (That's `useQuery`'s request deduplication, owner-driven: the identity is the dedupe key.) The flip side is `:rf.resource/refetch` (Step 5), which *does* force a new request even over an in-flight one — a manual refresh means "I want the latest," not "join whatever's running."
+"Ensure" also covers the third case, the one the intro promised: a *deduplicated* read. If two things ensure the same `{:resource :params}` while a request is already in flight — two route entries racing, an event ensuring what the route already asked for — the second ensure doesn't fire a second request. It *joins* the one already running and waits for the same reply. (That's `useQuery`'s request deduplication, owner-driven: the identity is the dedupe key.) The flip side is `:rf.resource/refetch` (Step 5), which *does* force a new request even over an in-flight one — a manual refresh means "I want the latest," not "join whatever's running."
 
 The flags are where the per-page judgement lives:
 
-- `:blocking? true` on the article holds the route transition pending until the read settles, so the article page never flashes empty before its data arrives. (It's also the server-side-rendering wait point, when you get there.)
-- `:blocking? false` on the home list lets the feed page render immediately and fill in when the list arrives. The page owns its own loading state — a skeleton — rather than making the whole navigation wait.
-- `:keep-previous? true` keeps the prior list on screen while a refetch runs, so a refresh never blinks back to a skeleton. This is the difference between a feed that feels alive and one that strobes.
+- `:blocking? true` on the article keeps the route's readiness, `:rf.route/transition`, at `:loading` until the first load settles, so a global progress bar can be honest about page data. The route itself still commits at once, so the page renders and shows its own placeholder meanwhile. (It's also the server-side-rendering wait point, when you get there.)
+- `:blocking? false` on the home list leaves `:rf.route/transition` alone: the feed page owns its own loading state — a skeleton — and fills in when the list arrives.
+- `:keep-previous? true` matters when the params change: while a new key has no data of its own, its view-model also carries the most recent data the same resource loaded under other params (`:previous? true`, `:previous-data`), so the old page can stay on screen instead of a skeleton. A refetch of the *same* key needs no flag at all — it goes `:fetching` and keeps its data. (Home's params are always `{}`, so here the flag is groundwork for the paginated feed in [Paginate a feed](../how-to/paginate-a-feed.md).)
 
 Notice what you *didn't* write: a fetch call. There is no `http-get`, no `then`, no `dispatch [:articles-loaded ...]`. The route *declares* what the page needs, and the runtime owns everything from there to the pixels. The fetch became data.
 
@@ -333,7 +333,7 @@ You just built the first handful: Nothing (`:idle`), Loading (the skeleton), the
 
 ### The article page
 
-The article page is simpler, because `:blocking? true` guarantees the read has already settled by the time the page renders. There's no `:loading` branch to write — the route waited so you wouldn't have to:
+The article page is simpler. `:blocking? true` doesn't hold the page back — the route commits at once and the page renders while the first load is in flight — so it needs only two real branches, the error and the article, with the skeleton as the fallback that covers the load:
 
 ```clojure
 (reg-view article-page []
@@ -361,7 +361,7 @@ The article page is simpler, because `:blocking? true` guarantees the read has a
 
 ## Step 5 — refresh on demand
 
-The route causes the *first* fetch, and `:stale-after-ms` causes background refreshes on its own. When you want a user-triggered refresh — the "↻ Refresh" button already on the home page — dispatch `:rf.resource/refetch` with the same identity and a `:cause` for the trace:
+The route causes the *first* fetch, and once `:stale-after-ms` has passed, the next ensure — a route entry, say — refreshes in the background. Going stale fetches nothing by itself. When you want a user-triggered refresh — the "↻ Refresh" button already on the home page — dispatch `:rf.resource/refetch` with the same identity and a `:cause` for the trace:
 
 ```clojure
 ;; in an event handler, or straight from a button's on-click
@@ -379,7 +379,7 @@ With the dev build running and Xray open:
 
 1. **Load the home page.** The feed shows a skeleton, then the article list. The route-entry event row in Xray shows the ensure it caused — an [event](../../core/glossary.md#event) being an inert data vector recording that something happened. The Resources panel shows the `:conduit/articles` entry walk `:idle → :loading → :loaded`.
 2. **Open an article, then press Back and open it again.** The second open is a **cache hit**. The Resources panel shows it served from cache, and there's no new network row in the timeline. You wrote zero caching code; identity — scope + resource + params — is the entire mechanism that makes the second read free.
-3. **Wait a minute, then revisit the home page.** The list is now past its `:stale-after-ms` window, so the route entry ensures it into `:fetching` — the old list stays on screen (you set `:keep-previous? true`) while a quiet background refetch runs. Stale-while-revalidate, declared in one number.
+3. **Wait a minute, then revisit the home page.** The list is now past its `:stale-after-ms` window, so the route entry ensures it into `:fetching` — the old list stays on screen, because a refresh keeps the data it already has, while a quiet background refetch runs. Stale-while-revalidate, declared in one number.
 4. **Refresh with the network off.** With the list on screen, switch dev tools to offline and click **↻ Refresh**. The refetch fails, and the list stays put: the entry is still `:loaded`, its `:refresh-error` now holds the failure, and your "Couldn't refresh" line appears. A failed refresh is a footnote, exactly as promised. Go back online.
 5. **Break a first load** (point `api-base` at a host that doesn't answer) **and reload.** The first load fails into the `:error` branch and your error view renders — a real failure, owned by a view *you* wrote, not an uncaught promise rejection scrolling past in the console.
 

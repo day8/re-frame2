@@ -97,13 +97,13 @@ Each `:resources` entry is a small declaration. The four keys above:
 
 - `:resource` names the registered resource;
 - `:params` is a pure `(fn [route] …)` computing its params from the route match;
-- `:blocking?` keeps the route transition pending (and gives [SSR](../../ssr/glossary.md#ssr) a wait point) until this resource's first load lands;
+- `:blocking?` keeps `:rf.route/transition` at `:loading` (and gives [SSR](../../ssr/glossary.md#ssr) a wait point) until this resource's first load lands — the route itself commits at once;
 - `:keep-previous?` is the no-flicker key from step 4.
 
 Two more keys earn their place on real tables:
 
 - **`:when`** — a `(fn [route _ctx] …)` predicate; the resource is only ensured when it returns truthy. Use it for a list that should only load under a condition (a search that waits for a non-empty `?q=`) rather than ensuring with sentinel-`nil` params.
-- **`:scope`** — for a *scoped* list, a named-resolver reference like `{:from-db :app/session}` so the route ensures under the same principal the view subscribes under. (A global list omits it; the resource's own `:scope :rf.scope/global` resolves sub-side too.)
+- **`:scope`** — an override of the resource's registered scope, for a route that reads as a *different* principal (an admin reading tenant X). A scoped list normally declares `:scope {:from-db :app/session}` on its registration and omits it here, so the route and the view's subscription inherit the same scope.
 
 !!! warning "Gotcha — route and sub must compute the same key"
 
@@ -111,7 +111,7 @@ Two more keys earn their place on real tables:
 
 !!! warning "Gotcha"
 
-    Once you go scoped (step 2's `:scope {:from-db :app/session}` list, or the session-scoped feed below), the same-key rule has a second half. A sub that **can't resolve a scope at all** (logged out; the resolver returns `nil`) fails loud with `:rf.error/resource-sub-unresolved-scope` — never a silent shared-cache read. A sub that passes an explicit `:scope` override naming a *different* scope reads its own (empty) entry — `:idle` forever — so pass one only when you mean to read under another principal. Either way the cure is one named resolver, declared once at registration and inherited by route and sub alike. ([Troubleshooting](../concepts.md#when-it-fails-loud--the-errors-and-warnings) is the full signal table; a global list sidesteps all of this, since `:rf.scope/global` resolves identically on both sides.)
+    Once you go scoped (a list registered with `:scope {:from-db :app/session}`, or a session-scoped feed), the same-key rule has a second half. A sub that **can't resolve a scope at all** (logged out; the resolver returns `nil`) fails loud with `:rf.error/resource-sub-unresolved-scope` — never a silent shared-cache read. A sub that passes an explicit `:scope` override naming a *different* scope reads its own (empty) entry — `:idle` forever — so pass one only when you mean to read under another principal. Either way the cure is one named resolver, declared once at registration and inherited by route and sub alike. ([Troubleshooting](../concepts.md#when-it-fails-loud--the-errors-and-warnings) is the full signal table; a global list sidesteps all of this, since `:rf.scope/global` resolves identically on both sides.)
 
 ### 3. Page by navigating, not by fetching
 
@@ -263,7 +263,7 @@ A few things just happened, so let's name them:
 
 Beyond `:next-page-param` (required) and `:page->items`, an infinite resource also accepts a handful of optional keys you'll reach for as feeds get real:
 
-- `:prev-page-param` — the bidirectional mirror, for prepending older pages (see the prepend callout at the end).
+- `:prev-page-param` — the bidirectional mirror, which feeds `:has-prev-page?` (there is no prepend event; see the callout at the end).
 - `:initial-page-param` — the first page's cursor (default `nil`).
 - `:refetch` — the refetch-window policy (see [Refetch and reset](#refetch-and-reset)).
 Per-page **validation** and per-page **egress classification** are *not* infinite-only keys — they ride the same two surfaces every resource uses, at the page grain:
@@ -356,7 +356,7 @@ That's the four you'll use every time, but `:rf.resource/infinite-state` carries
  :pages          [<page-0> <page-1> …] ;; raw page boundaries (for per-page headers / dividers)
  :page-count     2
  :has-next-page? true
- :has-prev-page? false               ;; bidirectional only (load-prev deferred — see below)
+ :has-prev-page? false               ;; bidirectional only (no prepend event — see below)
  :loading?       false               ;; first load (page 0), no data yet
  :fetching-next? false               ;; a load-more in flight (pages stay visible)
  :fetching?      false               ;; a WHOLE-feed refresh in flight
@@ -396,7 +396,7 @@ This is the payoff. Itemised, here's what just disappeared from your codebase:
 - `:refetch {:refetch-all-pages? true}` — re-fetch every accumulated page (TanStack parity).
 - `:refetch {:refetch-window n}` — bound how much of the accumulation is refreshed.
 
-Tag invalidation reaches a feed the same way it reaches any resource: a write that dispatches `:rf.resource/invalidate-tags` (or a [`reg-mutation`](../glossary.md#mutation) with `:invalidates`) marks the feed stale by its **feed [tag](../glossary.md#cache-tag)**, and the next ensure refetches it under the window-preserving rule above. So give a feed a `:tags` fn — `(fn [_params _data] #{[:feed :timeline]})` — and a "new post" mutation can invalidate the whole timeline by that tag. One coarse note: a mutation that touches *one item inside* the feed invalidates the **whole feed** (correct, if blunt) rather than patching that one element in place — in-place page-vector patching is a later, optimistic slice.
+Tag invalidation reaches a feed the same way it reaches any resource: a write that dispatches `:rf.resource/invalidate-tags` (or a [`reg-mutation`](../glossary.md#mutation) with `:invalidates`) marks the feed stale by its **feed [tag](../glossary.md#cache-tag)**; an owned feed (the route's, say) refetches at once and an unowned one on its next ensure, both under the window-preserving rule above. So give a feed a `:tags` fn — `(fn [_params _data] #{[:feed :timeline]})` — and a "new post" mutation can invalidate the whole timeline by that tag. One coarse note: a mutation that touches *one item inside* the feed invalidates the **whole feed** (correct, if blunt); patching one item in place inside a feed's pages is not supported.
 
 Resetting on a filter change needs **no code at all** — and this falls straight out of the identity model. A different filter is a different *identity params* value, so it's a different feed instance that first-loads page 0 on its own. The old accumulation is a separate, GC-eligible entry; you don't clear it, you just stop owning it. And because the feed is a real scoped resource, a per-user feed (a scope resolver instead of `:rf.scope/global`) is dropped wholesale on `clear-scope` at logout — coherence a hand-rolled app-db slice simply can't buy.
 
@@ -419,7 +419,7 @@ Resetting on a filter change needs **no code at all** — and this falls straigh
 
 ??? note "Going deeper — bidirectional feeds (prepend)"
 
-    The `:prev-page-param` derivation mirror is defined (declare it just like `:next-page-param`, computed from the *first* page, and `:has-prev-page?` becomes observable), but the prepend event `:rf.resource/load-prev` is deferred until a consumer needs it — v1 ships next-direction `load-more` only. So you can register `:prev-page-param` and read `:has-prev-page?` today; there just isn't a built-in event to advance backward yet.
+    The `:prev-page-param` derivation mirror is defined (declare it just like `:next-page-param`, computed from the *first* page, and `:has-prev-page?` becomes observable), but there is no prepend event: `load-more` only appends. So you can register `:prev-page-param` and read `:has-prev-page?`; there just isn't a built-in event to advance backward.
 
 ## Scroll position is not a fact
 
@@ -455,7 +455,7 @@ A leaderboard, a notifications badge, an admin queue — sometimes a list should
 The contract is worth knowing, because it's the same *owner-driven* model the rest of this page runs on, not a component-observer one (TanStack's `refetchInterval`, SWR's `refreshInterval`, RTK's `pollingInterval` — but driven by the owner, not by a mounted hook):
 
 - **Polling needs a live owner.** A `:poll` tick fires only while the entry has at least one active [owner](../glossary.md#owner--cause) (the route owner, a machine, an explicit app-event owner). The poll itself is pure [cause](../glossary.md#owner--cause), never an owner — it creates no liveness and extends no GC, so the instant the last owner releases (route leave), polling stops. A "just polling, no route" view mints its own app-event owner (e.g. `[:dashboard/opened …]`) with a matching release.
-- **Hidden tabs pause.** A tick is suppressed while the document is hidden (`document.visibilityState != "visible"`) and resumes on tab return — matching the `refetchIntervalInBackground: false` default of every prior-art tool. (A background opt-in is reserved for the first consumer that needs it.)
+- **Hidden tabs pause.** A tick is suppressed while the document is hidden (`document.visibilityState != "visible"`) and resumes on tab return — matching the `refetchIntervalInBackground: false` default of every prior-art tool. There is no option to keep polling while hidden.
 - **It can't stampede.** A tick that finds a refetch already in flight skips and re-arms (no overlapping requests); a tab return that fires both the focus revalidation and a poll tick double-fetches nothing — whichever starts work first wins, the other no-ops. A failed tick is an ordinary background-refresh failure (data stays, `:refresh-error` records it) and the *next* tick still fires — a transient blip never silently stops the monitor.
 
 `:poll-interval-ms` is orthogonal to `:stale-after-ms`: staleness governs "refetch on focus/route-entry *if* older than X", polling governs "re-read every X regardless." A non-positive or absent value means no polling. Because of [structural sharing](../../core/glossary.md#the-derivation-graph), a poll that returns identical rows preserves the old `:data` value, so the list stays quiet on screen when nothing actually changed.
