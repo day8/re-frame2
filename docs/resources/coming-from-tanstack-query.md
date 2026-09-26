@@ -225,7 +225,7 @@ routing-side teaching.
 
 ## The public API, at a glance
 
-re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in tells you what it does (the same split [Concepts](concepts.md#three-lanes--registering-causing-projecting) teaches on the way up):
+re-frame2 keeps three lanes strictly separate, and the lane a symbol lives in tells you what it does (the same split [the model](concepts.md#three-lanes--registering-causing-projecting) teaches on the way up):
 
 | Lane | What it is | Symbols | Who calls it |
 |---|---|---|---|

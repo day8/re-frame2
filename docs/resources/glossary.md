@@ -1,6 +1,6 @@
 # Resources & Server State glossary
 
-re-frame2's optional server-state capability — declarative, cached reads and writes where the framework owns the cache, dedupe, staleness, and invalidation, so views read passively and never fetch. See [Server state](concepts.md).
+re-frame2's optional server-state capability — declarative, cached reads and writes where the framework owns the cache, dedupe, staleness, and invalidation, so views read passively and never fetch. See [the model](concepts.md).
 
 ### **resource**
 
@@ -13,7 +13,7 @@ A declared, cached server-state **read** (the read-side partner to a [mutation](
   request-fn)
 ```
 
-Related: [Server state](concepts.md). "Server state" is the category, not the noun.
+Related: [the model](concepts.md).
 
 ### **mutation**
 
@@ -27,7 +27,7 @@ A declared server-state **write** — the write-side partner to a [resource](#re
   request-fn)
 ```
 
-Related: [Server state](concepts.md). The reply field is `:value`; the instance sub field is `:result`.
+Related: [the model](concepts.md). A `:reply-to` reply carries the result as `:value`; the instance subscription carries it as `:result`.
 
 ### **invalidate**
 
@@ -38,7 +38,7 @@ A [mutation](#mutation) declares — as data on its registration, never imperati
                 #{[:article slug]})}     ;; bare tag-set; or [{:scope … :tags #{…}}]
 ```
 
-Related: [Server state](concepts.md).
+Related: [the model](concepts.md).
 
 ### **scope**
 

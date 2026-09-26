@@ -154,4 +154,4 @@ The stub table answers requests; it doesn't count them. When the claim is about 
 
 - **The route as the cause** — a route's `:resources` entries ensure on navigation; drive them via [Testing routes](../routing/testing.md) (navigate, then read the projections here).
 - **The transport underneath** — retry policies, failure categories, the reply envelope: [Managed HTTP](../async/http.md) and [Test a pipeline run](../core/testing/pipeline-runs.md).
-- **The five statuses and their invariants** — the model these assertions lean on: [Server state: resources](concepts.md#what-a-view-sees-five-statuses). The [tutorial's Part 5](tutorial/05-test-and-ship.md) tests the whole RealWorld slice in this style.
+- **The five statuses and their invariants** — the model these assertions lean on: [the model](concepts.md#what-a-view-sees-five-statuses). The [tutorial's Part 5](tutorial/05-test-and-ship.md) tests the whole RealWorld slice in this style.
