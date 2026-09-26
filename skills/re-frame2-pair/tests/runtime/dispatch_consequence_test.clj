@@ -14,6 +14,10 @@
 ;;;;     `:reason :unknown-id` with `:nearest` matches — never a silent
 ;;;;     no-op (the no-silent-swallow principle applied to the wire).
 ;;;;
+;;;; The delegations behind this surface — `validate-registered`,
+;;;; `consequence-from-summary` and `nearest-ids` into `re-frame2-pair.pure` —
+;;;; are pinned in `pure_delegation_test.clj`'s `delegations` table.
+;;;;
 ;;;; Run: bb tests/runtime/dispatch_consequence_test.clj
 ;;;; Exit: 0 = pass, non-zero = fail.
 
@@ -36,43 +40,10 @@
   (is (some? (defn-named 'validate-event-id))
       "runtime.cljs must define `validate-event-id` — the call-time event-id registry check."))
 
-(deftest defines-validate-registered
-  (is (some? (defn-named 'validate-registered))
-      "runtime.cljs must define `validate-registered` — the generic registry-validation helper."))
-
-(deftest consequence-delegates-to-tested-pure-projection
-  (let [form (defn-named 'dispatch-consequence!)]
-    (is (some? form))
-    (when form
-      ;; The consequence projection (`:db-changed?` / `:changed-paths` /
-      ;; `:effects-fired` / `:no-op?`) lives in the SHIPPED pure helper
-      ;; `re-frame2-pair.pure/consequence-from-summary`, exercised directly by
-      ;; the CLJS node-test. `consequence-from-summary` here is
-      ;; the thin runtime wrapper that delegates to it — pin the delegation so
-      ;; the runtime keeps calling the tested code.
-      (let [proj (defn-named 'consequence-from-summary)]
-        (is (some? proj) "consequence-from-summary wrapper is present")
-        (is (form-contains? #(= 'pure/consequence-from-summary %) proj)
-            "consequence-from-summary MUST delegate to the tested pure projection.")))))
-
 (deftest consequence-echoes-resolved-event
   (let [form (defn-named 'dispatch-consequence!)]
     (is (form-contains? #(= :resolved %) form)
         "dispatch-consequence! MUST echo the parsed event under :resolved.")))
-
-(deftest validate-delegates-to-tested-pure-core
-  (let [form (defn-named 'validate-registered)]
-    ;; The `:unknown-id` / `:nearest` envelope shape is produced by the SHIPPED
-    ;; pure helper `re-frame2-pair.pure/validate-against-known` (node-tested);
-    ;; `validate-registered` reads the LIVE registry and delegates
-    ;; the decision. Pin the delegation so the runtime keeps calling the tested
-    ;; code — the no-silent-swallow behaviour is asserted in the node-test.
-    (is (form-contains? #(= 'pure/validate-against-known %) form)
-        "validate-registered MUST delegate to the tested pure validation core.")))
-
-(deftest nearest-ids-helper-present
-  (is (some? (defn-named 'nearest-ids))
-      "runtime.cljs must define `nearest-ids` — the edit-distance nearest-match ranking."))
 
 (let [{:keys [fail error]} (run-tests 'dispatch-consequence-test)]
   (System/exit (if (zero? (+ (or fail 0) (or error 0))) 0 1)))
