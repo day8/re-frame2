@@ -61,6 +61,10 @@
   need the post-`:before` request
   (e.g. the resources request-decoration test's transport stub)."
   [frame-ctx args-map]
+  ;; The args-map guards the live `:rf.http/managed` handler runs before its
+  ;; `:before` chain, in the same order, so a map the live fx refuses is
+  ;; refused here too.
+  (rf.http.handlers/validate-retry! args-map)
   (rf.http.encoding/validate-reply-addressing! args-map)
   (let [;; EP-0002 carried invariant — the canned stub runs inside a
         ;; cascade, so the fx context carries the envelope frame as
@@ -121,13 +125,14 @@
   sensitive is honoured); seeding the floor here matches production's
   pre-chain reading.
 
-  This is also where the canned paths refuse MIXED reply
-  addressing (`:reply-to` beside `:on-success` / `:on-failure`): the check
-  runs in `capture-and-run-request-chain`, which all three test-path entry
-  points — `canned-success-handler`, `canned-failure-handler` and the
-  route-map `stub-handler` — call first, so one call gives
-  the same `:rf.error/http-bad-reply-target` the live fx raises, and raises it
-  BEFORE any `:before` interceptor's side effects fire. A map the live fx
+  This is also where the canned paths refuse a malformed `:retry :on` and
+  MIXED reply addressing (`:reply-to` beside `:on-success` / `:on-failure`):
+  both checks run in `capture-and-run-request-chain`, which all three
+  test-path entry points — `canned-success-handler`, `canned-failure-handler`
+  and the route-map `stub-handler` — call first, so one call gives the same
+  `:rf.error/http-bad-retry-on` / `:rf.error/http-bad-reply-target` the live
+  fx raises, and raises it BEFORE any `:before` interceptor's side effects
+  fire. A map the live fx
   refuses must not be silently interpreted by a stub: that is how a test
   green-lights a call site production would reject."
   [frame-ctx args-map]

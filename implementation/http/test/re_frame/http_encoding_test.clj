@@ -297,6 +297,19 @@
   (testing "an empty params map renders an empty string"
     (is (= "" (rf.http.encoding/params->query {})))))
 
+(deftest params->query-writes-keyword-values-without-the-colon
+  (testing "a keyword VALUE is written as its colon-less qualified name — the
+            spelling a JSON body gives it — never as `%3A…`"
+    (is (= "status=active" (rf.http.encoding/params->query {:status :active}))
+        "a bare keyword loses only its colon")
+    (is (= "sort=sort%2Fasc" (rf.http.encoding/params->query {:sort :sort/asc}))
+        "a qualified keyword keeps its namespace")
+    (is (= "tag=a&tag=b%2Fc" (rf.http.encoding/params->query {:tag [:a :b/c]}))
+        "each element of a sequential value is written the same way")
+    (is (= "/items?status=active#top"
+           (rf.http.encoding/merge-params "/items#top" {:status :active}))
+        "and the URL the request is sent to carries it")))
+
 (deftest params->query-multi-valued-uses-repeat-key
   (testing "a sequential value (vector / seq / list) encodes
             as one repeated k=v pair per element (repeat-key idiom),
