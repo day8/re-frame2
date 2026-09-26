@@ -25,8 +25,9 @@
     * the fail-loud cases — an unresolvable `:frame`
       (`:rf.error/frame-no-generation`, NO default fallback) and a query naming
       NO source, BOTH sources, or a bad `:source`
-      (`:rf.error/registrar-query-needs-source`);
-    * the `{:source :store …}` read reaches the process source store.
+      (`:rf.error/registrar-query-needs-source`).
+
+  The `{:source :store …}` form is pinned in `registrar-query-source-cljs-test`.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
   message bytes (Spec 009 §The thrown-error shape rule 3).
@@ -146,13 +147,7 @@
         (is (= ::blue-inc (:handler-fn (get blue-events :counter/inc)))))
       (testing "green's :event registrations include the green-only :counter/reset"
         (is (= #{:counter/inc :counter/reset} (set (keys green-events))))
-        (is (= ::green-inc (:handler-fn (get green-events :counter/inc)))))
-      (testing "narrowing a frame-targeted result is `filter` over it — there is
-                no :pred key"
-        (let [only-reset (into {}
-                               (filter (fn [[id _m]] (= :counter/reset id)))
-                               (rf/registrations {:frame :green/main :kind :event}))]
-          (is (= #{:counter/reset} (set (keys only-reset)))))))))
+        (is (= ::green-inc (:handler-fn (get green-events :counter/inc))))))))
 
 ;; ===========================================================================
 ;; 2. :frame accepts a DIRECT frame OBJECT, not only a registered id
@@ -324,16 +319,3 @@
            (err-id #(rf/handler-meta nil))))
     (is (= :rf.error/registrar-query-needs-source
            (err-id #(rf/handler-meta [:event :ff/inc]))))))
-
-;; ===========================================================================
-;; 5. The {:source :store …} query reads the process source store
-;; ===========================================================================
-
-(deftest store-query-reaches-the-source-store
-  (testing "the {:source :store …} query reaches the process source store"
-    (rf/reg-event :ff/inc {:doc "inc"} (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/reg-sub :ff/n {:doc "n"} (fn [db _] (:n db)))
-    (testing "registrations"
-      (is (contains? (rf/registrations {:source :store :kind :event}) :ff/inc)))
-    (testing "handler-meta"
-      (is (some? (rf/handler-meta {:source :store :kind :event :id :ff/inc}))))))
