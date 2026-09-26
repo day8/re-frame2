@@ -111,4 +111,4 @@
   (testing "a registered parallel machine reads the same region map before and after boot"
     (rf/reg-machine :cshape/regions regions)
     (rf/dispatch-sync [:cshape/regions [:rf.machine/start]])
-    (is (= {:flat :a :compound [:x]} (:state (snapshot :cshape/regions))))))
+    (is (= (initial-state regions) (:state (snapshot :cshape/regions))))))
