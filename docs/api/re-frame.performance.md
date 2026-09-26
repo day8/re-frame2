@@ -2,11 +2,7 @@
 
 Measure how long events, subscriptions, effects and view renders take in a production build. With timing on, re-frame2 records each one as a User Timing measure, so browser DevTools, an APM or any `PerformanceObserver` can read it. This is separate from the trace stream, which exists only in development builds: in development, Xray and the trace stream already time each run and also say why it ran, so reach for this when you need timings from the build you ship.
 
-```clojure
-(:require [re-frame.performance :as perf])
-```
-
-You never call anything in this namespace, so application code does not need that require. Timing is controlled by two compile-time flags, named fully qualified in your build's `:closure-defines`. `enabled?` turns it on:
+Application code never calls this namespace. Timing is controlled by two compile-time flags, named fully qualified in your build's `:closure-defines`. `enabled?` turns it on:
 
 ```clojure
 ;; shadow-cljs.edn
@@ -15,11 +11,9 @@ You never call anything in this namespace, so application code does not need tha
 ```
 
 - Each measure is named `rf:<kind>:<id>`: `rf:event:<event-id>` for an event handler, `rf:sub:<query-id>` for a subscription recompute (a cached read records nothing), `rf:fx:<fx-id>` for an effect handler, or `rf:render:<view-id>` for a render of a view registered with `reg-view` or defined with Fresco's `defview`. A keyword id is written without its leading colon, as in `rf:event:todo/add`. No `performance.mark` entries are created.
-- Measures are delivered to observers, then cleared by name straight after they are emitted, so `performance.getEntriesByType("measure")` returns none of them unless `retain-entries?` is on.
-- Both flags are off by default. With the defaults, an `:advanced` build removes every timing call, so a shipped binary carries no User Timing code.
 - CLJS only. On the JVM both flags are constant `false` and timing does nothing, because the Performance API exists only in the browser.
 
-To look at the measures, record a profile in the browser DevTools **Performance** panel: each one appears as a named bar on the timeline (the Timings track in Chrome), beside React's renders, layout and paint. The panel captures entries as they are emitted, so it sees them without `retain-entries?`. For telemetry, attach a `PerformanceObserver` and forward the `rf:` measures to your APM:
+To send the `rf:` measures to an APM, forward them from a `PerformanceObserver`:
 
 ```clojure
 (.observe (js/PerformanceObserver.
@@ -30,7 +24,7 @@ To look at the measures, record a profile in the browser DevTools **Performance*
           #js {:type "measure"})
 ```
 
-[Find and fix a slow view](../core/how-to/fix-a-slow-view.md) walks through turning timing on and reading the entries.
+[Find and fix a slow view § Only slow in production](../core/how-to/fix-a-slow-view.md#4-only-slow-in-production-the-rf-timing-channel) shows the measures in the DevTools Performance panel and in an APM.
 
 ## Compile-time flags
 

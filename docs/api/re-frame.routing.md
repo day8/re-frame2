@@ -32,7 +32,7 @@ Routing ships in the optional `day8/re-frame2-routing` artefact. Require `re-fra
 
 The frame created with `:url-bound? true` owns the browser's address bar. Its navigations push browser history entries, Back and Forward navigate it, and on creation it reads the current URL, so a deep link or a reload lands on the right route. Leave the flag off for a frame that routes in memory only, such as a story, a test fixture or an embedded widget: its route slice still changes, but the address bar does not. See [Multi-frame URL ownership](#multi-frame-url-ownership).
 
-The [Routing guide](../routing/index.md) teaches the model.
+[The model](../routing/concepts.md) teaches routes, navigation, guards and page data.
 
 ## Route registration
 
@@ -44,10 +44,26 @@ The [Routing guide](../routing/index.md) teaches the model.
   (reg-route id metadata path) → id
   ```
 - **Description**: Registers a route. `id` is the keyword you navigate to (`[:rf.route/navigate {:to :route/cart}]`), `metadata` declares its match events, guards and schemas (keys below), and `path` is its URL pattern.
-    - A pattern is built from literal segments (`/articles`), named params (`/:id`, captured into `:params` as a string unless the `:params` schema coerces it), optional groups with the slash inside the braces (`/articles/:id{/:slug}?`, or leading, as in `{/:lang}?/about`), and at most one splat, which must come last (`/files/*rest` matches one or more segments and captures them as one string, such as `"a/b.txt"`). The bare `/*` matches every URL. Trailing slashes are ignored when matching, and matching is case-sensitive.
-    - When several routes match a URL, the most specific wins: more literal segments first, then any route over the bare `/*`, then more segments, then a named param over a splat, then a route without an optional group. A remaining tie goes to the earlier registration.
     - Emits `:rf.warning/route-shadowed-by-equal-score` when an existing route has an equal structural rank and the two patterns can match a common URL. `/a/:x` and `/a/:y` warn; `/x/:id` and `/y/:slug` tie in rank but never match the same URL, so they do not. The earlier registration wins at match time, so the new route is the shadowed one: the warning's tags name it under `:route-id`, the existing winner under `:shadowed-by`, and the tied structural tuple under `:rank`.
     - Emits the `:rf.route/registered` trace the first time an id is registered.
+- **Path patterns**: `path` is built from these parts. Trailing slashes are ignored when matching, and matching is case-sensitive.
+
+    | Part | Example | Matches |
+    |---|---|---|
+    | Literal segment | `/articles` | That segment exactly. |
+    | Named param | `/:id` | One segment, captured into `:params` as a string unless the `:params` schema coerces it. |
+    | Optional group | `/articles/:id{/:slug}?`, `{/:lang}?/about` | The group or nothing. The slash goes inside the braces. |
+    | Splat | `/files/*rest` | One or more segments, captured as one string such as `"a/b.txt"`. At most one, and it must come last. |
+    | Bare `/*` | `/*` | Every URL. |
+
+    When several routes match a URL, the most specific wins, compared in this order:
+
+    1. more literal segments
+    2. any route over the bare `/*`
+    3. more segments
+    4. a named param over a splat
+    5. a route without an optional group
+    6. the earlier registration
 - **Options** (the `metadata` map; every key is optional):
 
     | Key | Notes |
@@ -62,11 +78,25 @@ The [Routing guide](../routing/index.md) teaches the model.
     | `:can-leave` | A subscription id or query vector, subscribed before leaving the route with the pending target `{:route-id :params :query :fragment :url}` appended as its last element. `true` allows the navigation and `false` blocks it. Any other value also blocks, and emits `:rf.error/can-leave-non-boolean`. See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation). |
     | `:can-enter` | The same shape, subscribed before entering the route, such as an auth check. `true` allows entry and `false` blocks it. Any other value also blocks, and emits `:rf.error/can-enter-non-boolean`. A rejection is final: nothing commits, no pending navigation is created, and the runtime dispatches `:rf.route/entry-denied` once. See [Routing → Guarding entry](../routing/concepts.md#guarding-entry--can-enter). |
     | `:scroll` | Where the page scrolls on entering the route: `:top` (to the element named by the `#fragment`, or the top of the page), `:restore` (the position saved for this URL), `:preserve` (no movement), or `false` (no scroll effect). Without it, a link click or `:rf.route/navigate` uses `:top`, and Back, Forward and the initial load use `:restore`. A `:rf.route/navigate` request's own `:scroll` overrides the route's. Any other value is rejected by the `:rf.nav/scroll` effect with `:rf.error/unsupported-scroll-strategy`. |
-    | `:resources` | The page's server data, from the Resources artefact; without that artefact the key is rejected like any unknown key. A vector of requirement maps: `:resource` (the resource id), `:params` `(fn [route] params)` (omit it for a resource that takes none), `:blocking? true` to keep `:rf.route/transition` at `:loading` until the first load settles (also the SSR wait point), `:keep-previous?` to keep the previous params' data readable while the next loads, `:when` `(fn [route ctx] bool)` to include the entry conditionally, `:scope` to override the resource's registered scope, and a local `:id` plus `:after #{id}` to order the ensures. Entering the route ensures each resource with the route as owner, and leaving releases it. See [Routing → Declaring the data a page needs](../routing/concepts.md#declaring-the-data-a-page-needs). |
+    | `:resources` | The page's server data, from the Resources artefact; without that artefact the key is rejected like any unknown key. A vector of requirement maps, with the keys in [the table below](#route-resources). Entering the route ensures each resource with the route as owner, and leaving releases it. See [Routing → Declaring the data a page needs](../routing/concepts.md#declaring-the-data-a-page-needs). |
     | `:sensitive` | Slice paths, relative to the route projection (e.g. `[:query :token]`), redacted at egress while the route is active. A `[:query k]` path matches only when `k` is declared in `:query` or `:query-defaults`; otherwise registration warns with `:rf.warning/route-classification-query-key-unpromoted`. See [Routing → Keeping tokens off the wire](../routing/concepts.md#keeping-tokens-off-the-wire). |
     | `:large` | Slice paths replaced by a size marker at egress, so the value itself is not sent. |
+    | `:head` | SSR's head metadata, accepted unqualified whether or not the SSR artefact is loaded. See [re-frame.ssr.head](re-frame.ssr.head.md). |
+    | `:ns` | The namespace an [image](re-frame.core.md#image)'s `:select-ns` matches this registration against. It is not a routing key; set it on a programmatic `reg-route` to make the route selectable. |
 
-    `:head`, SSR's head metadata, is also accepted unqualified, whether or not the SSR artefact is loaded. The registration-metadata key `:ns` is accepted too: it is not a routing key but names the registration's namespace for image selection, so a programmatic `reg-route` can set it and be selectable with `:select-ns`.
+    <a id="route-resources"></a>
+
+    Each `:resources` entry:
+
+    | Key | Notes |
+    |---|---|
+    | `:resource` | The resource id. |
+    | `:params` | `(fn [route] params)`. Omit it for a resource that takes none. |
+    | `:blocking?` | `true` keeps `:rf.route/transition` at `:loading` until the first load settles. It is also the SSR wait point. |
+    | `:keep-previous?` | Keeps the previous params' data readable while the next params load. |
+    | `:when` | `(fn [route ctx] bool)`. Includes the entry conditionally. |
+    | `:scope` | Overrides the resource's registered scope. |
+    | `:id`, `:after` | A local id for the entry, and `:after #{id}` to order the ensures. |
 
     The guide groups these keys by purpose in [Metadata keys](../routing/concepts.md#the-metadata-map-in-full).
 - **Errors**:
@@ -101,7 +131,7 @@ The [Routing guide](../routing/index.md) teaches the model.
 
 ### Not-found route
 
-Register a route under the reserved id `:rf.route/not-found` to render a page for URLs that do not resolve. Its path is only a placeholder. A link click, Back or Forward, the initial load or SSR commits it for any URL that does not resolve to a route, and so does `[:rf.route/navigate {:url …}]` for a URL no route matches. The requested URL is in `:params`:
+Register a route under the reserved id `:rf.route/not-found` to render a page for URLs that do not resolve. Its path is only a placeholder. A link click, Back or Forward, the initial load or SSR commits it for any URL that does not resolve to a route, and so does `[:rf.route/navigate {:url …}]` for a URL no route matches. See [Routing → Not found is a route you register](../routing/concepts.md#not-found-is-a-route-you-register). The requested URL is in `:params`:
 
 | `:params` | Cause |
 |---|---|
@@ -110,8 +140,6 @@ Register a route under the reserved id `:rf.route/not-found` to render a page fo
 | `{:url url :reason :malformed-url}` | The URL has malformed percent-encoding. |
 | `{:url url :reason :match-error}` | Matching the URL threw. |
 
-A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on the always-on `:errors` stream, which SSR answers with a 404. A malformed URL, or one whose matching threw, also emits `:rf.warning/malformed-url` on the development trace stream, from a URL-driven change and from `[:rf.route/navigate {:url …}]` alike. Its tags carry the URL under `:url`, with query and fragment values redacted, and `:reason :match-error` when matching threw. When no `:rf.route/not-found` route is registered, the slice still takes that id and the runtime emits `:rf.warning/no-not-found-route`. A `{:to …}` navigation never lands here: an unregistered route or a failing param rejects it instead (see [`:rf.route/navigate`](#rfroutenavigate-request)).
-
 ```clojure
 (rf/reg-route :rf.route/not-found {} "/404")
 
@@ -119,6 +147,11 @@ A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on t
 (rf/reg-view not-found-page []
   [:h1 "No page at " (:url @(subscribe [:rf.route/params]))])
 ```
+
+- A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on the always-on `:errors` stream, which SSR answers with a 404.
+- A malformed URL, or one whose matching threw, also emits `:rf.warning/malformed-url` on the development trace stream, from a URL-driven change and from `[:rf.route/navigate {:url …}]` alike. Its tags carry the URL under `:url`, with query and fragment values redacted, and `:reason :match-error` when matching threw.
+- When no `:rf.route/not-found` route is registered, the slice still takes that id and the runtime emits `:rf.warning/no-not-found-route`.
+- A `{:to …}` navigation never lands here: an unregistered route or a failing param rejects it instead (see [`:rf.route/navigate`](#rfroutenavigate-request)).
 
 ### Clearing a route
 
@@ -159,17 +192,15 @@ A URL-driven miss also reports `:rf.error/no-such-handler` (`:kind :route`) on t
    "Profile"]
   ```
 
-## Keyword surfaces
+## Events
 
-Loading `re-frame.routing` registers these events, subscriptions, effects and coeffects. It also registers some internal ones that apps and tools never use directly, which this section leaves out: the `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation` coeffects and the `:rf.route/commit-nav-counter` effect. The `:rf.route.internal/*` event namespace is reserved for the runtime and has no members.
-
-### Events
+Loading `re-frame.routing` registers these events, and the subscriptions, effects and coeffects in the next three sections. It also registers some internal ones that apps and tools never use directly, which this page leaves out: the `:rf.route/nav-allocation` and `:rf.route/pending-nav-allocation` coeffects and the `:rf.route/commit-nav-counter` effect. The `:rf.route.internal/*` event namespace is reserved for the runtime and has no members.
 
 Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/cancel`, `:rf.route/prefetch` and `:rf.route/replan-resources`. `route-link` dispatches `:rf.route/url-requested`, and the runtime dispatches the other three; an SSR app also dispatches `:rf.route/handle-url-change` with the request URL.
 
 `:rf.route/navigation-blocked` and `:rf.route/entry-denied` are the two events an application registers its own handler for. Registering a handler under any other routing event id makes frame creation throw `:rf.error/image-duplicate-id`.
 
-#### `[:rf.route/navigate {request}]`
+### `[:rf.route/navigate {request}]`
 
 - **Kind**: event
 - **Payload**: one request map. Address keys: `:to` (a route id), `:url` (a URL inside the app), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`.
@@ -208,21 +239,21 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
   [:rf.route/navigate {:query-merge {:page 2 :filter nil}}]       ;; same route, edit the query
   ```
 
-#### `[:rf.route/url-requested {:url url}]`
+### `[:rf.route/url-requested {:url url}]`
 
 - **Kind**: event
 - **Payload**: `{:url url}`, plus any of the policy keys `:replace?`, `:scroll` and `:bypass-leave?`, with the meanings they have on `:rf.route/navigate`.
-- **Description**: A click on a framework link. [`route-link`](#route-link) dispatches it with the link's URL, and the default handler is the one to keep.
+- **Description**: Dispatched for a click on a [`route-link`](#route-link), with the link's URL. A document-level click listener of your own can dispatch it too; see [Routing → Linking from views](../routing/concepts.md#linking-from-views).
     - An external URL does nothing here and emits the `:rf.route/external-url-requested` trace.
     - A URL that resolves to the current location does nothing and runs no guards.
     - Otherwise the guards run before the address bar moves, so a blocked or denied click adds no history entry. When both allow, the handler pushes the URL (or replaces it, for `:replace? true`) and dispatches `:rf.route/handle-url-change` with cause `:link`, which commits the route.
 
-#### `[:rf.route/handle-url-change url opts?]`
+### `[:rf.route/handle-url-change url opts?]`
 
 - **Kind**: event
 - **Payload**: `url`, an app URL such as `"/articles/intro?tab=comments"`, and an optional opts map.
 - **Description**: Commits the route for a URL the address bar already shows. The runtime dispatches it after a link click, on Back and Forward, and for the current URL when a `:url-bound? true` frame takes ownership. On the server, dispatch it with the request URL, as in [SSR → Reading the request](../ssr/concepts.md#reading-the-request).
-    - The opts map's `:rf.route/cause` says why the URL changed: `:link`, `:popstate`, `:initial` or `:ssr`. The runtime sets it on its own dispatches. Without it the cause is `:ssr` on a `:platform :server` frame and `:initial` otherwise. Scroll defaults to `:top` for `:link` and `:restore` for every other cause.
+    - The opts map's `:rf.route/cause` says why the URL changed: `:link`, `:popstate`, `:initial` or `:ssr`. The runtime sets it on its own dispatches. Without it the cause is `:ssr` on a `:platform :server` frame and `:initial` otherwise. Scroll defaults to `:top` for `:link` and `:restore` for every other cause. A test passes the cause to stand in for a link click or Back; see [Testing routes → Simulating a link click or Back/Forward](../routing/testing.md#simulating-a-link-click-or-backforward).
     - `:bypass-leave? true` on the opts map skips the current route's `:can-leave` guard once.
     - This event never rejects a URL. One that no route matches, whose values fail the route's schemas, or with malformed percent-encoding commits the [not-found route](#not-found-route).
     - A URL identical to the current location does nothing. Otherwise the guards run as for `:rf.route/navigate`. The address bar has already moved, so a blocked or denied change puts the current route's URL back by replacing it.
@@ -236,7 +267,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
   (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro" {:rf.route/cause :popstate}])
   ```
 
-#### `[:rf.route/navigation-blocked pending]`
+### `[:rf.route/navigation-blocked pending]`
 
 - **Kind**: event, dispatched by the runtime
 - **Payload**: `pending`, the value the runtime stores in the pending-navigation slot:
@@ -253,7 +284,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
     | `:rejecting-guard` | The id of the `:can-leave` subscription that returned `false`. |
     | `:url-restored?` | Present and `true` when the runtime put the address bar back, after a URL-driven change. |
 
-- **Description**: Dispatched once when the current route's `:can-leave` guard returns `false`. The route stays where it is, and the pending value is readable from [`:rf/pending-navigation`](#subscriptions) until `:rf.route/continue` or `:rf.route/cancel` clears it. The slot holds one value, and a later block replaces it. The default handler does nothing; register your own to react, for example by opening a confirm dialog. The payload's `:requested-url`, `:destination` and `:target` are redacted in traces, with or without your handler.
+- **Description**: Dispatched once when the current route's `:can-leave` guard returns `false`. The route stays where it is, and the pending value is readable from [`:rf/pending-navigation`](#subscriptions) until `:rf.route/continue` or `:rf.route/cancel` clears it. The slot holds one value, and a later block replaces it. The default handler does nothing; register your own to react, for example by opening a confirm dialog. The payload's `:requested-url`, `:destination` and `:target` are redacted in traces, with or without your handler. See [Routing → Blocking a navigation](../routing/concepts.md#blocking-a-navigation) and the recipe [Guard against unsaved changes](../routing/how-to/guard-unsaved-changes.md).
 - **Example**:
   ```clojure
   (rf/reg-event :rf.route/navigation-blocked
@@ -261,7 +292,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
       {:db (assoc db :ui/confirm-leave (:id pending))}))
   ```
 
-#### `[:rf.route/entry-denied denial]`
+### `[:rf.route/entry-denied denial]`
 
 - **Kind**: event, dispatched by the runtime
 - **Payload**: `denial`, `{:destination :target :cause :requested-url :guard}`. The first four are as in [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending); `:guard` is the id of the target's `:can-enter` subscription.
@@ -277,34 +308,34 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
        :fx [[:dispatch [:rf.route/navigate {:to :app/sign-in :replace? true}]]]}))
   ```
 
-#### `[:rf.route/continue pending-nav-id]`
+### `[:rf.route/continue pending-nav-id]`
 
 - **Kind**: event
 - **Payload**: `pending-nav-id`, the pending value's `:id`.
 - **Description**: Goes ahead with a blocked navigation ("yes, leave the page"). Clears the pending slot and replays its `:destination` and `:policy` through `:rf.route/navigate` with a one-shot `:bypass-leave? true`, so the target's `:can-enter` still runs. When the address bar was put back (`:url-restored?`), the replay replaces the history entry instead of pushing one. An id that does not match the pending value does nothing.
 
-#### `[:rf.route/cancel pending-nav-id]`
+### `[:rf.route/cancel pending-nav-id]`
 
 - **Kind**: event
 - **Payload**: `pending-nav-id`, the pending value's `:id`.
 - **Description**: Abandons a blocked navigation ("stay here") and clears the pending slot. The route and the URL stay as they are. An id that does not match the pending value does nothing.
 
-#### `[:rf.route/prefetch {address}]`
+### `[:rf.route/prefetch {address}]`
 
 - **Kind**: event
 - **Payload**: a named address, `{:to :params :query}`. `:fragment` is accepted and plays no part, because it is never a resource input; `:url` is refused.
-- **Description**: Warms a destination's resource plan without navigating. It runs the parent-to-leaf plan a navigation would, in warm mode: every ensure is ownerless and `:blocking?` has no effect. No route state, guards or `:on-match` run, and the warm-up stays in the frame that dispatched it. Without the resources artefact, or with an empty plan, it only emits its `:rf.route/prefetched` summary trace. `route-link`'s `:prefetch :intent` dispatches it.
+- **Description**: Warms a destination's resource plan without navigating. It runs the parent-to-leaf plan a navigation would, in warm mode: every ensure is ownerless and `:blocking?` has no effect. No route state, guards or `:on-match` run, and the warm-up stays in the frame that dispatched it. Without the resources artefact, or with an empty plan, it only emits its `:rf.route/prefetched` summary trace. `route-link`'s `:prefetch :intent` dispatches it. See [Routing → Warming a destination before the click](../routing/concepts.md#warming-a-destination-before-the-click).
 - **Errors**: `:rf.error/prefetch-bad-address`, before planning, when the address is malformed or does not resolve (an unregistered `:to`, a missing path param, or values the route's schemas reject). `:reason` names the failure, such as `:no-such-route` or `:missing-route-param`.
 - **Example**:
   ```clojure
   [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
   ```
 
-#### `[:rf.route/replan-resources {:cause cause}]`
+### `[:rf.route/replan-resources {:cause cause}]`
 
 - **Kind**: event
 - **Payload**: `{:cause cause}`. `:cause` is required and must not be `nil`.
-- **Description**: Reruns the active route's resource plan against the current `app-db` without navigating. Use it when an identity input (principal, tenant, locale) changed with no route change: a `{:from-db …}` subscription re-keys on its own but stays `:idle` until something ensures the new key.
+- **Description**: Reruns the active route's resource plan against the current `app-db` without navigating. Use it when an identity input (principal, tenant, locale) changed with no route change: a `{:from-db …}` subscription re-keys on its own but stays `:idle` until something ensures the new key. See [Routing → Replanning the active route's resources](../routing/concepts.md#replanning-the-active-routes-resources).
     - It keeps the same navigation token, owner and planner. Kept identities are adopted with no fetch, added ones are ensured under the route owner with your `:cause`, and dropped ones lose the owner. The plan, the blocking facts and readiness are replaced, so a successful replan clears an earlier `:rf.error/resource-route-plan`.
     - A planning failure commits as a failed replan: nothing is partly ensured, and the owner is released from every earlier identity.
     - It is not a reload: unchanged data is never refetched, and no guards, `:on-match`, URL, history or scroll work runs. Without the resources artefact it does nothing.
@@ -314,7 +345,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
   [:rf.route/replan-resources {:cause [:session-restore]}]
   ```
 
-### Subscriptions
+## Subscriptions
 
 Read the route and the pending-navigation slot with ordinary `subscribe` calls. Each frame has its own route, and a subscription reads the frame it runs in, so the query vectors carry no frame argument. To read another frame, pass `subscribe`'s `{:frame <target>}` opts.
 
@@ -336,9 +367,9 @@ Read the route and the pending-navigation slot with ordinary `subscribe` calls. 
 | `:rf.route/error` | When `:transition` is `:error`, the structured failure: `:rf.error/resource-route-blocking` for a blocking first-load failure, `:rf.error/resource-route-plan` for a plan that could not be built. Otherwise `nil`. |
 | `:rf.route/fragment` | The current URL fragment, a string or `nil`. |
 | `:rf.route/chain` | A vector of route ids from the outermost parent to the current route, following `:parent`. |
-| `:rf/pending-navigation` | The pending-navigation slot (shaped by the `:rf/pending-navigation` schema) while a `:can-leave` guard holds a navigation, otherwise `nil`. A denied entry is final and never appears here. |
+| `:rf/pending-navigation` | The pending-navigation slot (the [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending) payload) while a `:can-leave` guard holds a navigation, otherwise `nil`. A denied entry is final and never appears here. |
 
-### Effects (`fx`)
+## Effects (`fx`)
 
 | Fx | Args | Platforms | Notes |
 |---|---|---|---|
@@ -346,18 +377,18 @@ Read the route and the pending-navigation slot with ordinary `subscribe` calls. 
 | `[:rf.nav/replace-url url-string]` | URL string | `:client` | Replaces the current URL without adding a history entry. |
 | `[:rf.nav/scroll scroll-spec]` | `{:strategy :from :to :saved-pos :fragment}` | `:client` | Restores or sets the scroll position after the new route renders. `:strategy` is `:top`, `:restore` or `:preserve`; any other value emits `:rf.error/unsupported-scroll-strategy`. Navigation emits this effect for you from the route's `:scroll`. |
 | `[:rf.nav/capture-scroll {:url url-string}]` | `{:url ...}` map | `:client` | Saves the current scroll position in the frame's scroll cache under `url`, before leaving a route. |
-| `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | see notes | universal | Completes an async continuation, named by its `:rf/reply-to` reply target, only if its navigation token is still current. On a match, the target is completed with the `:status :ok` reply map. If a later navigation has superseded the token, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. Optional keys: `:route-id` (the captured route id, for the work-id), `:value` (carried in the `:status :ok` reply map), `:completed-at`. |
+| `[:rf.route/with-nav-token {:rf/reply-to <reply-target> :nav-token <token>}]` | `{:rf/reply-to :nav-token :route-id? :value? :completed-at?}` | `:client`, `:server` | Completes an async continuation, named by its `:rf/reply-to` reply target, only if its navigation token is still current. On a match, the target is completed with the `:status :ok` reply map. If a later navigation has superseded the token, the completion is suppressed and `:rf.route.nav-token/stale-suppressed` fires. `:value` is carried in the `:status :ok` reply map. The reply's `:rf.reply/work-id` is `[:rf.work/route route-id nav-token loader-id]`, where `route-id` is the optional `:route-id` (`nil` without it) and `loader-id` is the `:rf/reply-to` event id. `:completed-at`, a completion time from the `:rf/time-ms` cofx, is copied onto the reply and the stale trace. |
 
-`:rf.route/with-nav-token` handles a user navigating away mid-load: the older load's reply carries a stale token, so the runtime suppresses it and the older page's data does not overwrite the newer page's state. See [Routing → Activation work and page data](../routing/concepts.md#loaders-declaring-a-pages-data).
+`:rf.route/with-nav-token` handles a user navigating away mid-load: the older load's reply carries a stale token, so the runtime suppresses it and the older page's data does not overwrite the newer page's state. See [Routing → Hand-rolled async loader](../routing/concepts.md#hand-rolled-async-loader--capture-the-nav-token).
 
-### Coeffects (`cofx`)
+## Coeffects (`cofx`)
 
 Declare these on a handler with `:rf.cofx/requires`. Each value is delivered under its cofx key in the coeffects map. Both work on client and server.
 
 | Cofx | Delivers |
 |---|---|
 | `:rf.route/nav-token` | The current navigation token, from `[:rf.runtime/routing :current :nav-token]`. Declare `{:rf.cofx/requires [:rf.route/nav-token]}` on a handler reached from `:on-match` to capture the token when the work is scheduled and pass it to an async continuation; `:rf.route/with-nav-token` checks it on receipt. |
-| `:rf.route/route-id` | The current route id, from `[:rf.runtime/routing :current :route-id]`. Declare it with `:rf.route/nav-token` (`{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`) so the route-loader work-id `[:rf.work/route route-id nav-token loader-id]` identifies the attempt completely. |
+| `:rf.route/route-id` | The current route id, from `[:rf.runtime/routing :current :route-id]`. Declare it beside `:rf.route/nav-token` (`{:rf.cofx/requires [:rf.route/nav-token :rf.route/route-id]}`) and pass it to `:rf.route/with-nav-token` as `:route-id`, so the reply and the stale trace name the route the load started on. |
 
 ## URL and route matching
 
@@ -445,7 +476,7 @@ The returned map holds the `:path` pattern and everything the registration decla
 
 ## URL strategies
 
-A URL strategy decides how the app's path-form URLs (`/active`) appear in the browser's address bar. Declare one on the URL-owning frame with the `:url-strategy` config key, as in the examples below. A frame without one uses `history-url-strategy`.
+A URL strategy decides how the app URL, the path-form URL that routes match (`/active?q=milk`), appears in the browser's address bar. Declare one on the URL-owning frame with the `:url-strategy` config key, as in the examples below. A frame without one uses `history-url-strategy`.
 
 Choosing one:
 
@@ -465,7 +496,7 @@ A strategy is a map of five functions, `{:encode :decode :push! :replace! :insta
   history-url-strategy  ;; {:encode :decode :push! :replace! :install-listener!}
   ```
 - **Description**: The default strategy: HTML5 History with path-form URLs.
-    - `:encode` and `:decode` are identity over the app-relative URL. `:decode` is `(fn [href] path)`, pure, and receives the origin-relative browser address (`pathname + search + hash`).
+    - `:encode` and `:decode` are identity.
     - `:push!` and `:replace!` call `pushState` and `replaceState`.
     - `:install-listener!` listens for `popstate`.
 
@@ -478,7 +509,7 @@ A strategy is a map of five functions, `{:encode :decode :push! :replace! :insta
   ```
 - **Description**: Puts the route in the URL fragment (`#/active`), for static hosting without server rewrites and for apps coming from hash-based routing such as secretary. `route-url` still builds the path form `/active`.
     - `:encode` turns it into `#/active` for the `route-link` href and the history effects.
-    - `:decode` takes the origin-relative browser address and returns what follows its first `#`; a missing or empty fragment decodes to `/`. It is pure: the listener reads `window.location` and passes the address in.
+    - `:decode` takes the origin-relative browser address and returns what follows its first `#`; a missing or empty fragment decodes to `/`.
     - `:install-listener!` listens for `hashchange`.
 - **Example**:
   ```clojure
@@ -527,7 +558,7 @@ Any map carrying these five functions is a strategy, and extra keys are kept.
 
 ## Multi-frame URL ownership
 
-At most one frame owns the browser URL at a time. A frame claims it by being created with `{:url-bound? true}`. Both the outbound `:rf.nav/push-url` effect and the inbound browser listener use `url-owner-frame-id` to find the owner.
+At most one frame owns the browser URL at a time. A frame claims it by being created with `{:url-bound? true}`. Both the outbound `:rf.nav/push-url` effect and the inbound browser listener use `url-owner-frame-id` to find the owner. See [Routing → Several frames, one address bar](../routing/concepts.md#several-frames-one-address-bar).
 
 ### `url-owner-frame-id`
 
@@ -552,7 +583,7 @@ At most one frame owns the browser URL at a time. A frame claims it by being cre
 
 The browser `popstate` or `hashchange` listener is installed for you. When a `:url-bound? true` frame is created or re-registered and becomes the URL owner, the runtime installs the listener and syncs the current URL into that frame's route slice. Destroying the frame removes the listener. There is no `install-url-listener!`, `remove-url-listener!`, `install-history-listener!` or `remove-history-listener!` to call.
 
-- Each browser-driven change is decoded to a path-form URL by the strategy's `:decode`, then dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)`, resolved when the change fires. With no `:url-bound? true` frame, nothing is dispatched.
+- Each browser-driven change is decoded to an app URL by the strategy's `:decode`, then dispatched synchronously as `:rf.route/handle-url-change` to `(url-owner-frame-id)`, resolved when the change fires. With no `:url-bound? true` frame, nothing is dispatched.
 - The listener kind (`popstate` or `hashchange`) comes from the owning frame's `:url-strategy` when the listener is installed.
 - Installing is idempotent. A re-registration with the same owner and `:url-strategy` leaves the listener alone; a changed owner or strategy removes the old listener before installing the new one. A duplicate `:url-bound? true` frame that loses to the current owner never installs one.
 - ClojureScript only. On the JVM there is nothing to install; SSR passes the request URL to `:rf.route/handle-url-change`.
@@ -578,7 +609,7 @@ The static route view and the live route-slice view that Xray draws have no publ
 
 ### Scroll restoration
 
-Saved scroll positions are kept in a per-frame LRU cache on the host, keyed by frame id, not in `runtime-db`. They are read from `window.scrollX/Y`, mean nothing on the server, and are not needed to rebuild a frame on restore, SSR hydration or time-travel. So they never appear in traces, epochs or SSR payloads, and an epoch restore does not rewind them. The pure functions work on one frame's cache map, `{:positions {url [x y]} :order [url ...]}`; the `!` functions read and write the host cache.
+Saved scroll positions are kept in a per-frame LRU cache on the host, keyed by frame id, not in `runtime-db`. They are read from `window.scrollX/Y`, mean nothing on the server, and are not needed to rebuild a frame on restore, SSR hydration or time-travel. So the cache is never part of `runtime-db`, epochs or SSR payloads, and an epoch restore does not rewind it. A single position can still appear in a trace as the `:saved-pos` argument of a `:rf.nav/scroll` effect. The pure functions work on one frame's cache map, `{:positions {url [x y]} :order [url ...]}`; the `!` functions read and write the host cache.
 
 #### `scroll-positions-cap`
 
@@ -587,7 +618,7 @@ Saved scroll positions are kept in a per-frame LRU cache on the host, keyed by f
   ```clojure
   scroll-positions-cap  ;; => 50
   ```
-- **Description**: The soft limit on URLs tracked in one frame's scroll cache. It is large enough for real Back-button restoration to find saved positions and small enough to keep the cache bounded over long sessions.
+- **Description**: The maximum number of URLs one frame's scroll cache holds. Saving past it evicts the least recently used URL.
 
 #### `frame-scroll-cache`
 
@@ -665,7 +696,7 @@ Each of these resets process-wide routing state so it does not leak from one tes
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (reset-counters!)
+  (reset-counters!) → 0
   ```
 - **Description**: Resets the route-registration counter to zero, so the registration-order tiebreak in route ranking is the same on every fixture run.
 

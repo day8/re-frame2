@@ -18,14 +18,14 @@ its code.
 It is built from ordinary Fresco parts: the draft is an `h/reg-state` concern, the
 reset is `::h/revision`, the protocol is three ordinary events, and the field is
 one `h/defview`, so it adds no hooks beyond a view's own.
-[Forms](../core/fresco/05-forms.md) teaches the prop table, the rejection rule and
-the recipes the module leaves to the application.
+[Forms](../core/fresco/05-forms.md) teaches the interaction protocol, the rejection
+rule and the recipes the module leaves to the application.
 
 ## The field
 
 ### `buffered-field`
 
-- **Kind**: var (view)
+- **Kind**: component (Fresco view)
 - **Signature**:
   ```clojure
   [forms/buffered-field {:control     address
@@ -37,26 +37,17 @@ the recipes the module leaves to the application.
   ```
 - **Description**: Renders a controlled `<input>` whose edits go to an `app-db`
   draft in front of the committed value.
-    - `:control` is an opaque address for the draft, not an `app-db` path. Make it
-      identify the form instance and the field: two fields with one address share
-      one draft. `:value` is the committed value. `::h/revision` is a counter you
-      keep beside the value and advance to throw a draft away (below); a field that
-      is never rejected, rewritten or reset may pass a constant such as `0`.
     - The first edit starts a draft; focus alone does not. Enter and blur both
       dispatch `:on-commit` with the draft text appended:
       `[:todo/title-committed id "new text"]`. Escape discards the draft, shows
-      `:value` again and dispatches `:on-cancel` if given. Unmount neither commits nor cancels, so a virtualized
-      row keeps its draft.
+      `:value` again and dispatches `:on-cancel` if given. Unmount neither commits
+      nor cancels, so a virtualized row keeps its draft.
     - The `:on-commit` handler accepts by writing the text as the new value. To
       normalise or reject it, write another value or none, and advance the revision
       as well: the field shows the draft while the revision matches, and `:value`
       once it moves. Once a draft has been committed, cancelled or overtaken by a
       revision change, later commits for it do nothing, so Enter followed by blur
       commits once and a blur after Escape commits nothing.
-    - `:control`, `:value`, `:on-commit`, `:on-cancel`, `:key` and `::h/revision`
-      belong to the field. The field also writes `:on-input`, `:on-blur` and
-      `:on-key-down` itself, so a value you pass at one of those is replaced. Every
-      other prop reaches the `<input>` unchanged, with `:type` defaulting to `"text"`.
     - Every keystroke writes the draft to `app-db`, which keeps the edit visible to
       tests and Xray. For a dense grid where that is too much, use an uncontrolled
       input or a React component mounted through `h/defhost`.
@@ -69,12 +60,28 @@ the recipes the module leaves to the application.
       draft's does nothing. They are written into the field rather than exported as
       names; a test that drives the field by hand spells them through
       `re-frame.fresco.test.forms`.
-    - The module has no error ids of its own. A `nil` or otherwise invalid `:control`
-      fails the draft read: every render emits `:rf.error/sub-exception`, whose
-      exception carries `reg-state`'s `:rf.error/fresco-state-bad-argument`, and the
-      field shows `:value`, never a draft. A `:type` whose value is not its text,
-      such as `"checkbox"`, raises `:rf.error/fresco-revision-not-controlled` while
-      `:value` is `nil`.
+- **Options**:
+    - `:control` (required): an opaque address for the draft, not an `app-db` path.
+      Make it identify the form instance and the field; two fields with one address
+      share one draft.
+    - `:value`: the committed value.
+    - `::h/revision`: a counter you keep beside the value and advance to throw a
+      draft away. A field that is never rejected, rewritten or reset may pass a
+      constant such as `0`.
+    - `:on-commit`: an event vector, dispatched with the draft text appended on
+      Enter and on blur.
+    - `:on-cancel` (optional): an event vector, dispatched on Escape.
+    - Any other prop reaches the `<input>` unchanged, with `:type` defaulting to
+      `"text"`. The field writes `:on-input`, `:on-blur` and `:on-key-down` itself,
+      so a value you pass at one of those is replaced.
+- **Errors**: the module has no error ids of its own. Two faults surface through
+  other ids:
+    - A `nil` or otherwise invalid `:control` fails the draft read: every render
+      emits `:rf.error/sub-exception`, whose exception carries `reg-state`'s
+      `:rf.error/fresco-state-bad-argument`, and the field shows `:value`, never a
+      draft.
+    - A `:type` whose value is not its text, such as `"checkbox"`, raises
+      `:rf.error/fresco-revision-not-controlled` while `:value` is `nil`.
 - **Example**:
   ```clojure
   [forms/buffered-field
@@ -119,5 +126,6 @@ the recipes the module leaves to the application.
 
 ## See also
 
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [Fresco API reference](../core/fresco/api-reference.md) — every Fresco name, with
+  the chapter that teaches it.
 - [`re-frame.fresco`](re-frame.fresco.md) — `h/reg-state` and `::h/revision`.

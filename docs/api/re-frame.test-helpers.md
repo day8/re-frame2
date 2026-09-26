@@ -172,9 +172,9 @@ The same three searches, keyed on `:data-testid`.
 - **Description**: Calls the handler under `event-key` on `node` with `args` and returns its value. Use it to click a button or change an input in a test.
     - An ordinary `dispatch` inside the handler only queues the event, so `app-db` has not changed yet when `invoke-handler` returns. Wait for the result with [`re-frame.test-support/poll-until`](re-frame.test-support.md#poll-until), in the same fixture-owned frame the click dispatched into. A handler that calls `dispatch-sync` drains in place.
     - On CLJS, do not wrap the click and the wait in `rf/with-new-frame`: `poll-until` returns a Promise at once, so the body returns and destroys the frame before the queued event drains. On the JVM, `poll-until` blocks inside the body, so the frame outlives the wait.
-    - A missing handler is treated as a test bug, so it throws:
-        - `:rf.error/invoke-handler-bad-node`: `node` is not a hiccup vector. A `find-by-testid` that matched nothing returns `nil`, which lands here.
-        - `:rf.error/invoke-handler-missing`: there is no handler fn under `event-key`, including when the node has no attrs map.
+- **Errors**: `invoke-handler` throws, because a missing handler is usually the bug under test:
+    - `:rf.error/invoke-handler-bad-node`: `node` is not a hiccup vector. A `find-by-testid` that matched nothing returns `nil`, which lands here.
+    - `:rf.error/invoke-handler-missing`: there is no handler fn under `event-key`, including when the node has no attrs map.
 - **Example**:
   ```clojure
   (let [btn (th/find-by-testid tree "counter-inc")]
@@ -222,54 +222,7 @@ The same three searches, keyed on `:data-testid`.
 
 ## A connected view test
 
-A view that subscribes or dispatches needs a frame in scope. There is no dedicated single-frame fixture; combine three pieces:
-
-1. `re-frame.test-support/make-reset-runtime-fixture`, given an `:adapter` (and optionally an `:init-fn` for per-test setup), seats the ambient `:rf/default` frame and rolls the registrar back between tests.
-2. The functions on this page: call the root view function directly and walk the tree it returns.
-3. `re-frame.test-support/poll-until`, for async work (a queued `dispatch`, an HTTP reply, a machine `:after`) whose result shows up in the re-rendered view.
-
-```clojure
-(ns my-app.counter-view-test
-  (:require [clojure.test :refer [deftest is use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]
-            [re-frame.test-helpers :as th]))
-
-;; The app under test. In a real suite, require your app's namespaces instead.
-(rf/reg-event :counter/inc
-  (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-
-(rf/reg-sub :counter/n
-  (fn [db _] (:n db 0)))
-
-(rf/reg-view counter-view []
-  [:div
-   [:span (th/testid "counter-display") @(subscribe [:counter/n])]
-   [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"]])
-
-(use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
-
-;; Synchronous: dispatch-sync drains before the assertion, so walk the
-;; re-rendered view directly.
-(deftest counter-shows-the-count
-  (rf/dispatch-sync [:counter/inc])
-  (rf/dispatch-sync [:counter/inc])
-  (is (= "2" (th/text-content
-               (th/find-by-testid (counter-view) "counter-display")))))
-
-;; Async: the invoked :on-click fires a plain dispatch, which queues, so poll
-;; the re-rendered view until it settles.
-(deftest inc-button-is-wired
-  (th/invoke-handler (th/find-by-testid (counter-view) "counter-inc") :on-click)
-  (is (ts/poll-until
-        #(= "1" (th/text-content
-                  (th/find-by-testid (counter-view) "counter-display")))
-        {:label "counter reached 1"})))
-```
-
-That is the JVM form. On CLJS the fixture takes `:async? true` and the async test composes `poll-until`'s Promise under `(async done …)`, as the CLJS example under [`poll-until`](re-frame.test-support.md#poll-until) shows.
+A view that subscribes or dispatches needs a frame in scope. Use [`make-reset-runtime-fixture`](re-frame.test-support.md#make-reset-runtime-fixture) with an `:adapter`, which makes `:rf/default` the ambient frame, then call the view and walk the tree it returns. After a plain `dispatch`, including one fired by `invoke-handler`, wait with [`poll-until`](re-frame.test-support.md#poll-until). On CLJS the fixture takes `:async? true`, and the test composes `poll-until`'s Promise under `(async done …)`. [Test a view](../core/testing/views.md#2-views-that-subscribe) walks through a complete test.
 
 ## See also
 

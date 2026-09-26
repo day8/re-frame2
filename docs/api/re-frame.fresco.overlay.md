@@ -22,29 +22,38 @@ an element does not get there by having an attribute, so the module calls
 `showModal` / `showPopover` at the point React offers before paint, and the inverse
 before React removes the node.
 
-There is no portal, focus-trap loop, `document` key listener, outside-click
-listener, z-index policy, scroll or resize listener, `ResizeObserver`, measurement
-of any kind, or positioning engine. [Overlays and
-focus](../core/fresco/13-overlays-and-focus.md) teaches the full option table and
-the focus rules.
+[Overlays and focus](../core/fresco/13-overlays-and-focus.md) teaches the popover
+and modal patterns and the focus rules.
 
 ## The heads
 
-Both are legal hiccup heads but not Fresco views: they read no subscriptions. On
-both, `:open?` false renders nothing at all — no element, no listener, no anchor
-name — so an overlay is open exactly when your `app-db` says so. `:label` is the
-accessible name, set as `aria-label`. Every prop that is not the head's own reaches
-the element unchanged, except the ones the module writes itself: `:ref` on both,
-`:on-cancel`, `:on-key-down` and `:closedby` on a modal, and `:on-before-toggle` and
-`:popover` on a popover. A value you pass at one of those is replaced, and `:label`,
-when given, replaces an `:aria-label`. A `:style` you pass is merged, with your keys
-winning over the `position-area` that `:placement` sets. An `:on-dismiss` with no
-frame in scope raises
-`:rf.error/fresco-intent-outside-boundary`, since nothing could dispatch it.
+Both are legal hiccup heads but not Fresco views: they read no subscriptions. They
+take these props:
+
+| Prop | Head | Meaning |
+| --- | --- | --- |
+| `:open?` | both | Whether the overlay exists. False renders nothing: no element, no listener, no anchor name. An overlay is open exactly when your `app-db` says so. |
+| `:on-dismiss` | both | Event vector dispatched when the browser dismisses the overlay. Without it the overlay ignores dismissal (see each head). |
+| `:label` | both | The accessible name, set as `aria-label`. When given, it replaces an `:aria-label` you pass. |
+| `:anchor` | popover | The DOM id of the trigger to position against. |
+| `:placement` | popover | `:top`, `:bottom`, `:left` or `:right`, alone or with `-start` or `-end`. |
+| `:light-dismiss?` | modal | Whether a backdrop click dismisses. Default false. |
+
+Every other prop reaches the element unchanged, except the ones the module writes
+itself: `:ref` on both, `:on-cancel`, `:on-key-down` and `:closedby` on a modal, and
+`:on-before-toggle` and `:popover` on a popover. A value you pass at one of those
+is replaced. A `:style` you pass is merged, with your keys winning over the
+`position-area` that `:placement` sets.
+
+- **Errors**:
+    - `:rf.error/fresco-intent-outside-boundary` when an open overlay has
+      `:on-dismiss` and no frame is in scope, since nothing could dispatch it.
+    - `:rf.error/fresco-overlay-anchor-missing` when a popover opens with an
+      `:anchor` that names no element in the document. Omitting `:anchor` is legal.
 
 ### `popover`
 
-- **Kind**: var (usable as a hiccup head)
+- **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
   [overlay/popover {:open?      open?
@@ -56,21 +65,19 @@ frame in scope raises
   ```
 - **Description**: Renders an anchored, light-dismissable panel on the browser's
   top layer.
-    - `:anchor` is the DOM id of the trigger. While the panel is open, the module
-      gives that element a generated CSS anchor name, and restores whatever it found
-      when the panel closes. Changing `:anchor` on an open panel moves it to the new
-      trigger without closing it. An `:anchor` naming no element raises
-      `:rf.error/fresco-overlay-anchor-missing`; omitting `:anchor` is legal.
-    - `:placement` is one of `:top`, `:bottom`, `:left` or `:right`, alone or with
-      `-start` or `-end` (`:bottom-start` lines the panel's left edge up with the
-      trigger's). It becomes a CSS `position-area` against the anchor. Any other
-      value is passed through as a literal `position-area` string rather than
-      rejected, so a misspelt word is an invalid CSS value and the panel lands at
-      the browser's default position.
+    - While the panel is open, the module gives the `:anchor` element a generated
+      CSS anchor name, and restores whatever it found when the panel closes.
+      Changing `:anchor` on an open panel moves it to the new trigger without
+      closing it.
+    - `:placement` becomes a CSS `position-area` against the anchor; `:bottom-start`
+      lines the panel's left edge up with the trigger's. Any other value is passed
+      through as a literal `position-area` string rather than rejected, so a
+      misspelt word is an invalid CSS value and the panel lands at the browser's
+      default position.
     - With `:on-dismiss`, the panel is `popover="auto"` and joins the platform's
-      stack of open popovers. Without it, the panel is `popover="manual"` and nothing dismisses
-      it, because a dismissal nothing handles would leave the browser, instead of
-      your `:open?` value, deciding whether the panel is open.
+      stack of open popovers. Without it, the panel is `popover="manual"` and
+      nothing dismisses it, because a dismissal nothing handles would leave the
+      browser, instead of your `:open?` value, deciding whether the panel is open.
 - **Example**:
   ```clojure
   [overlay/popover {:open?      (h/sub [:menu/open? id])
@@ -82,7 +89,7 @@ frame in scope raises
 
 ### `modal`
 
-- **Kind**: var (usable as a hiccup head)
+- **Kind**: component (Fresco head)
 - **Signature**:
   ```clojure
   [overlay/modal {:open?          open?
@@ -116,6 +123,7 @@ frame in scope raises
 
 ## See also
 
-- [Fresco API reference](../core/fresco/api-reference.md) — the full contract.
+- [Fresco API reference](../core/fresco/api-reference.md) — every Fresco name, with
+  the chapter that teaches it.
 - [`re-frame.fresco`](re-frame.fresco.md) — `h/portal`, for containers the
   application does not own.

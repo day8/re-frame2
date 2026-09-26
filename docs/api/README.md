@@ -41,9 +41,10 @@ you use it.
 | Isolate and reset framework state between tests | [re-frame.test-support](re-frame.test-support.md) |
 | Walk rendered hiccup in tests | [re-frame.test-helpers](re-frame.test-helpers.md) |
 
-The Fresco pages list each namespace's public vars. The full Fresco authoring
-contract lives in the [Fresco API reference](../core/fresco/api-reference.md).
-A Fresco app uses both corpora, because Fresco replaces only the view notation:
+The Fresco pages list each namespace's public vars. The guide's
+[Fresco API reference](../core/fresco/api-reference.md) lists every Fresco name
+with the chapter that teaches it, and covers the Fresco modules that have no page
+here. A Fresco app uses both corpora, because Fresco replaces only the view notation:
 events, subscriptions, effects and frames are the same as everywhere else.
 
 ## Reading an entry
@@ -51,7 +52,7 @@ events, subscriptions, effects and frames are the same as everywhere else.
 Each var has an entry headed by its name:
 
 - **Kind**: function, macro, var, component or React hook; for keyword-addressed
-  surfaces, effect, event, subscription or interceptor reference.
+  surfaces, effect, event, subscription, machine or interceptor reference.
 - **Signature**: every public arity, with its return value.
 - **Description**: what the var does, then its rules and edge cases. Longer
   option lists and error lists appear as their own sub-lists.
@@ -80,17 +81,3 @@ against the project's API manifest: a var the manifest tiers as
 application-facing (`:front-porch`, `:advanced`, `:adapter` or `:testing`)
 turns the build red when it has no entry. Vars meant only for tooling or the implementation are documented
 where a caller needs them, but are not guaranteed an entry.
-
-## Tests
-
-```clojure
-(ns my-app.core-test
-  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.core :as rf]
-            [re-frame.test-support :as ts]
-            [re-frame.test-helpers :as th]))
-```
-
-[re-frame.test-support](re-frame.test-support.md) resets framework state
-around each test; [re-frame.test-helpers](re-frame.test-helpers.md) finds
-elements in rendered hiccup.

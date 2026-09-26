@@ -70,7 +70,7 @@ Every reply is a **reply map**: a plain map with a closed `:status`. The framewo
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:cancelled? true` and `:rf.reply/cancel-reason` (the abort's `:reason`) alongside. |
 | `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), the issuing frame's destroy or an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
-A failure's inner `:error` map carries its own `:kind`, the category. Everyday requests read only `:status` / `:value` / `:error`. A live reply also carries bookkeeping keys, such as `:attempt` (which try produced it) and `:completed-at`; the [API reference](../api/re-frame.http.md#reply-addressing) lists them all. [Why no await](continuations-are-data.md#one-reply-map-under-every-async-surface) covers the reply map every async surface shares.
+A failure's inner `:error` map carries its own `:kind`, the category. Everyday requests read only `:status` / `:value` / `:error`. A live reply also carries bookkeeping keys, such as `:attempt` (which try produced it) and `:completed-at`; the [API reference](../api/re-frame.http.md#reply-shape) lists them all. [Why no await](continuations-are-data.md#one-reply-map-under-every-async-surface) covers the reply map every async surface shares.
 
 There are two ways to name the reply target. Neither is more correct; pick the one that fits the handler.
 
@@ -156,7 +156,7 @@ The failure map always carries a `:kind`: a keyword from a fixed list of eight, 
 - **A 2xx the app rejected.** `:rf.http/decode-failure` means your `:decode` rejected the body; `:rf.http/accept-failure` means your [`:accept`](#a-valid-200-can-still-be-a-failure-accept) did.
 - **Cancelled.** `:rf.http/aborted`, with a `:reason` saying who cancelled: `:user` for a manual abort or `:abort-signal`, `:actor-destroyed` for a machine actor's destroy. A supersession, a frame's teardown and an epoch restore abort too, but deliver no reply.
 
-The API reference's [failure categories](../api/re-frame.http.md#failure-categories-closed-set) table lists the extra keys each kind carries.
+The API reference's [failure categories](../api/re-frame.http.md#failure-kinds-closed-set) table lists the extra keys each kind carries.
 
 The set is closed for v1; adding a category is a versioned framework change, so `:rf.http/timeout` means the same thing in every codebase and in every tool watching the trace stream. Branch on the `:kind`, never on a stringified message — the same discipline you'd use on any framework [error record](../core/glossary.md#error-record).
 

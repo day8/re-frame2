@@ -1,6 +1,6 @@
 # re-frame.trace.projection
 
-Group the development trace stream into one record per event. The raw stream arrives one trace event at a time; `group-by-event` folds it into an **event bundle** for each pipeline run (one dequeued event), with the event vector, handler, effects, subscription runs and renders already sorted into named slots. Xray's event panels and the re-frame2-pair tooling read bundles in this shape; you call it yourself in a test or a tool that has collected raw trace events and wants to check or show what one event did.
+Group the development trace stream into one record per event. The raw stream arrives one trace event at a time; `group-by-event` folds it into an **event bundle** for each pipeline run (one dequeued event), with the event vector, handler, effects, subscription runs and renders already sorted into named slots. Xray's event panels and the re-frame2-pair tooling read bundles in this shape.
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -16,7 +16,7 @@ Group the development trace stream into one record per event. The raw stream arr
 
 These functions are not on the `re-frame.core` facade; require this namespace directly. [`rf/trace-buffer`](re-frame.core.md#trace-buffer) already returns bundles in this shape by default, plus a `:trace-events` vector of each run's raw events, so you call `group-by-event` only when you hold raw events: a flat buffer, a saved trace, or events collected by a [`:trace` listener](re-frame.core.md#register-listener).
 
-Both functions are pure data, with no frame, registry or router, and run the same code on the JVM and in CLJS, so a tool folding a saved buffer gets the same shape as a live listener. In practice they are development-only, because their input is the development-only trace stream. [Observability](../core/observability.md) explains where the trace stream comes from.
+Both functions are pure, with no frame, registry or router, and run the same code on the JVM and in CLJS, so a tool folding a saved buffer gets the same shape as a live listener. In practice they are development-only, because their input is the development-only trace stream. [Observability](../core/observability.md) explains where the trace stream comes from.
 
 ## Projection
 
@@ -61,7 +61,7 @@ Both functions are pure data, with no frame, registry or router, and run the sam
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (domino-bucket trace-event) → #{:event :handler :fx :effect :sub :render :other}
+  (domino-bucket trace-event) → :event | :handler | :fx | :effect | :sub | :render | :other
   ```
 - **Description**: Returns the bucket `group-by-event` would put a trace event in. Call it per event when you want your own rollup instead of whole bundles. `:event` fills the bundle's `:event` and `:dispatched` slots; `:handler`, `:fx` and `:other` fill the slots of the same name; `:effect`, `:sub` and `:render` fill the `:effects`, `:subs` and `:renders` vectors.
     - It is total: anything outside the six pipeline stages (errors, warnings, machine transitions, frame lifecycle, flows) returns `:other`.
