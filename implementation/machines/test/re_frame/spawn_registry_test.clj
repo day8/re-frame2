@@ -19,10 +19,10 @@
       pruned and the empty `[:rf.runtime/machines :spawned]` slot is
       dissoc'd entirely.
 
-   3. **Auth-flow scenario without `:data :pending` bookkeeping.** A spec
-      that does NOT record the id in any user `:data` slot still has the
-      spawned actor cleanly destroyed on state exit — the runtime tracks
-      the id internally rather than reading `:data` to find it.
+   3. **No user-side bookkeeping.** The runtime writes only the reserved
+      `:rf/spawned` capture into the parent's `:data` (keyed by invoke-id,
+      mirroring the registry slot) and never reads user `:data` to find the
+      id it destroys.
 
    4. **Multi-child independent tracking.** A parent that has two
       different `:spawn`-bearing states (different invoke-ids) tracks
@@ -106,70 +106,8 @@
 ;; parity) mirrors the runtime registry EXACTLY (Spec 005:2938). That closes a
 ;; stale-id footgun: were the data slot to outlive the actor, an action reading
 ;; `[:data :rf/spawned <invoke-id>]` AFTER the child completed would get a DEAD
-;; id. Instead the read returns nil — the actor is gone AND its capture is
-;; gone, together.
-
-(deftest destroy-clears-parent-data-rf-spawned-slot-no-dead-id
-  (testing "an action reading [:data :rf/spawned <invoke-id>] AFTER exit-cascade teardown sees NO dead id"
-    (let [;; The child sits LIVE in :running until the PARENT leaves :working —
-          ;; the declarative-:spawn exit cascade then tears it down
-          ;; (teardown-live-actor! → teardown-actor with parent-id/invoke-id).
-          child  {:initial :running
-                  :data    {}
-                  :states  {:running {}}}
-          ;; The parent's :inspect action reads its OWN :data under
-          ;; [:rf/spawned <invoke-id>] — the no-atom, in-snapshot idiom — and
-          ;; stashes whatever it finds so the test can assert the
-          ;; post-teardown read returns nil, not a stale id.
-          seen   (atom :unset)
-          parent {:initial :idle
-                  :actions
-                  {:inspect (fn [{data :data}]
-                              (reset! seen (get-in data [:rf/spawned [:working]]))
-                              nil)}
-                  :states
-                  ;; :done leaves :working → the exit cascade destroys the
-                  ;; child; :probe (fired from :idle AFTER) runs :inspect, which
-                  ;; reads the parent's own :data :rf/spawned slot post-teardown.
-                  {:idle    {:on {:start :working
-                                  :probe {:target :idle :action :inspect}}}
-                   :working {:spawn {:machine-id :kid/proc}
-                             :on    {:done :idle}}}}]
-      (rf/reg-machine :kid/proc child)
-      (rf/reg-machine :sup/data-clear parent)
-      (rf/dispatch-sync [:sup/data-clear [:start]])
-      ;; Precondition: the child is LIVE and the parent captured its id in
-      ;; BOTH the runtime registry AND its own :data slot (the two mirror).
-      (let [db (frame-db)]
-        (is (= :kid/proc#1 (get-in db [:rf.runtime/machines :spawned :sup/data-clear [:working]]))
-            "(precondition) registry slot bound")
-        (is (= :kid/proc#1 (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
-            "(precondition) parent :data slot bound — the two mirror on spawn")
-        (is (some? (get-in db [:rf.runtime/machines :snapshots :kid/proc#1]))
-            "(precondition) the child actor is alive"))
-      ;; Leave :working → the exit cascade tears the child down.
-      (rf/dispatch-sync [:sup/data-clear [:done]])
-      (let [db (frame-db)]
-        (is (nil? (get-in db [:rf.runtime/machines :snapshots :kid/proc#1]))
-            "the child actor's snapshot was cleared on exit-cascade teardown")
-        ;; THE ADVERSARIAL ASSERTION: the parent's own :data :rf/spawned slot
-        ;; for this invoke-id was ALSO cleared — no dead id lingers.
-        (is (nil? (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
-            "parent's :data :rf/spawned slot cleared on child teardown — NO dead id")
-        ;; The now-empty :rf/spawned data map is pruned (lazy-allocation mirror):
-        ;; a parent that spawned exactly one child leaves NO {:rf/spawned {}}
-        ;; residue in its :data after the child dies.
-        (is (not (contains? (:data (snapshot :sup/data-clear)) :rf/spawned))
-            "the emptied :rf/spawned data map is pruned from the parent's :data")
-        ;; The two views still MIRROR each other post-teardown: both absent.
-        (is (= (get-in db [:rf.runtime/machines :spawned :sup/data-clear [:working]])
-               (get-in (snapshot :sup/data-clear) [:data :rf/spawned [:working]]))
-            "registry slot and :data slot still mirror exactly after teardown — both absent"))
-      ;; An action reading its own :data AFTER teardown sees nil, not a dead id
-      ;; — the reader's-eye-view of the same invariant.
-      (rf/dispatch-sync [:sup/data-clear [:probe]])
-      (is (nil? @seen)
-          "an action reading [:data :rf/spawned <invoke-id>] after teardown sees nil, not a stale id"))))
+;; id. The exit-cascade route is pinned by `spawn_reentry_mirror_cljs_test`
+;; (`plain-exit-still-clears-the-mirror`); this pins the finalize route.
 
 (deftest finalize-auto-destroy-clears-parent-data-rf-spawned-slot
   (testing "a child self-completing to :final? auto-destroys AND clears the parent's :data :rf/spawned slot"
@@ -201,49 +139,6 @@
         (is (= (get-in db [:rf.runtime/machines :spawned :sup/finalize [:working]])
                (get-in (snapshot :sup/finalize) [:data :rf/spawned [:working]]))
             "registry slot and :data slot mirror exactly after finalize — both absent")))))
-
-;; ---- (3) auth-flow scenario WITHOUT user-side :data bookkeeping ----------
-;;
-;; A :spawn that writes the id into no user `:data` slot still has the
-;; spawned actor cleanly destroyed on state-exit: the runtime tracks the id
-;; internally, so the destroy cascade works correctly without any
-;; `:data :pending` to read.
-
-(deftest auth-flow-without-data-pending-magic
-  (testing "a :spawn writing no user :data still has the actor destroyed on state-exit"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :states
-                  {:idle           {:on {:submit :authenticating}}
-                   :authenticating {:spawn {:machine-id :http/post}
-                                    :on    {:auth/succeeded :authenticated
-                                            :auth/failed    :idle}}
-                   :authenticated  {}}}]
-      (rf/reg-machine :http/post child)
-      (rf/reg-machine :auth/main parent)
-      (rf/dispatch-sync [:auth/main [:submit]])
-      ;; Spawn happened — actor live, registry slot set, parent's user
-      ;; :data untouched.
-      (let [db (frame-db)
-            spawned-id (get-in db [:rf.runtime/machines :spawned :auth/main [:authenticating]])]
-        (is (= :http/post#1 spawned-id))
-        (is (some? (get-in db [:rf.runtime/machines :snapshots spawned-id])))
-        ;; The runtime binds the spawned id into the parent's `:data` under
-        ;; `[:rf/spawned <invoke-id>]` (XState-context parity) — so the
-        ;; user's domain `:data` keys are untouched, but the reserved
-        ;; `:rf/spawned` capture is present.
-        (is (= {:rf/spawned {[:authenticating] :http/post#1}}
-               (get-in (snapshot :auth/main) [:data]))
-            "user domain :data untouched; runtime stamps only the reserved :rf/spawned id capture")
-        (is (empty? (dissoc (get-in (snapshot :auth/main) [:data]) :rf/spawned))
-            "no user-domain :data key was written"))
-      ;; Mid-flight abandon → :idle.
-      (rf/dispatch-sync [:auth/main [:auth/failed]])
-      (let [db (frame-db)]
-        (is (nil? (get-in db [:rf.runtime/machines :snapshots :http/post#1]))
-            "the spawned actor was destroyed with no user-side id bookkeeping")
-        (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
-            "the registry slot is cleared")))))
 
 ;; ---- (4) multi-child — two :spawn-bearing states tracked independently ---
 
@@ -284,7 +179,7 @@
         (is (not (contains? (get-in db [:rf.runtime/machines]) :spawned))
             "with both invokes torn down, the lazy-allocation slot is dissoc'd")))))
 
-;; ---- spawned-id bound into the parent's own :data -----------
+;; ---- (3) spawned-id bound into the parent's own :data -------
 ;;
 ;; The declarative `:spawn` binds the assigned actor id into the SPAWNING
 ;; (parent) machine's own `:data` under the reserved per-invoke map
@@ -313,6 +208,8 @@
             spawned-id  (get-in parent-data [:rf/spawned [:working]])]
         (is (= :worker/proc#1 spawned-id)
             "parent's :data carries the spawned id under [:rf/spawned <invoke-id>] — XState-context parity")
+        (is (= {:rf/spawned {[:working] :worker/proc#1}} parent-data)
+            "the runtime writes only the reserved :rf/spawned capture — no user-domain :data key")
         ;; SYMMETRY: the parent's :data slot equals the runtime registry slot
         ;; (the runtime-db reverse index); they key on the SAME
         ;; <invoke-id>. The :data read is the in-snapshot, no-coupling view.
@@ -324,39 +221,6 @@
         ;; of the lineage point at each other.
         (is (= [:working] (get-in (snapshot spawned-id) [:data :rf/invoke-id]))
             "child's :rf/invoke-id == the parent's :rf/spawned key (the reverse direction)")))))
-
-(deftest action-reads-parent-data-id-and-destroys-no-atom
-  (testing "an action reads the id from its own :data and emits [:rf.machine/destroy <id>] — full round-trip, NO external atom"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          ;; The exit action reads the spawned id from the parent's OWN :data
-          ;; (the unified context-map's :data key) — no atom, no runtime-db
-          ;; path coupling — and emits the imperative keyword-form destroy.
-          parent {:initial :idle
-                  :actions
-                  {:tear-down (fn [{data :data}]
-                                (let [id (get-in data [:rf/spawned [:working]])]
-                                  {:fx [[:rf.machine/destroy id]]}))}
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn {:machine-id :worker/proc}
-                             ;; The :tear-down action fires on the :done
-                             ;; transition and emits the imperative destroy
-                             ;; using the id it read from the parent's own
-                             ;; :data — exercising the full clean round-trip.
-                             :on    {:done {:target :idle :action :tear-down}}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/clean parent)
-      (rf/dispatch-sync [:sup/clean [:start]])
-      (let [spawned-id (get-in (snapshot :sup/clean) [:data :rf/spawned [:working]])]
-        (is (= :worker/proc#1 spawned-id)
-            "(precondition) id captured into parent :data with no atom")
-        (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots spawned-id]))
-            "(precondition) the actor is alive"))
-      ;; The :done transition runs :tear-down, which read the id from :data
-      ;; and emitted the imperative destroy.
-      (rf/dispatch-sync [:sup/clean [:done]])
-      (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :worker/proc#1]))
-          "the actor was torn down via an id read from the parent's own :data — no external atom involved"))))
 
 (deftest multi-spawn-parent-data-per-invoke-id-key
   (testing "multiple :spawn-bearing states + a :spawn-all each record under their own invoke-id key — keyed-map shape, cleared on exit"
@@ -418,116 +282,12 @@
         (is (= {:x :gc/x#1 :y :gc/y#1} (get-in d [:rf/spawned [:forking]]))
             ":spawn-all records the full children id-map under the shared invoke-id — both children, no clobber")))))
 
-(deftest runtime-db-reverse-index-still-works
-  (testing "the runtime-db reverse-index read resolves the id alongside the :data read"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :states  {:idle    {:on {:start :working}}
-                            :working {:spawn {:machine-id :worker/proc}
-                                      :on    {:done :idle}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/reverse parent)
-      (rf/dispatch-sync [:sup/reverse [:start]])
-      (let [db          (frame-db)
-            via-registry (get-in db [:rf.runtime/machines :spawned :sup/reverse [:working]])
-            via-data     (get-in (snapshot :sup/reverse) [:data :rf/spawned [:working]])]
-        (is (= :worker/proc#1 via-registry)
-            "the runtime-db reverse-index slot resolves the spawned id")
-        (is (= via-registry via-data)
-            "the :data read and the reverse-index agree on the id")
-        (is (some? (get-in db [:rf.runtime/machines :snapshots via-registry]))
-            "the actor's snapshot is reachable from the reverse-index id")))))
-
-;; ---- (5) keyword-form [:rf.machine/destroy actor-id] imperative destroy --
+;; ---- (5) a grandchild allocates from the child's own :rf/spawn-counter -----
 ;;
-;; The IMPERATIVE form (an action emits `[:rf.machine/destroy actor-id]`
-;; with the actor id it holds) is first-class current API — re-frame2's
-;; spelling of XState v5 `stopChild(actorId)`. The declarative-:spawn
-;; desugar uses the runtime-resolved map form; this keyword form is the
-;; canonical imperative entry-point, not a compatibility path. This pins
-;; that the imperative form drives a full teardown.
-
-(deftest keyword-form-imperative-destroy-machine
-  (testing "[:rf.machine/destroy actor-id] (keyword arg) tears the actor down"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          ;; This test pins the keyword-form imperative destroy MECHANISM
-          ;; in isolation, so it feeds the id via a test-local atom. NOTE:
-          ;; the atom is NOT the idiomatic way to obtain the id — the
-          ;; first-class path is to read it from the parent's own `:data`
-          ;; under `[:rf/spawned <invoke-id>]` (see
-          ;; `action-reads-parent-data-id-and-destroys-no-atom` above for
-          ;; the no-atom round-trip). The atom here only isolates the
-          ;; `[:rf.machine/destroy <id>]` keyword-arg shape under test.
-          recorded (atom nil)
-          parent {:initial :idle
-                  :actions
-                  ;; User-written exit action emits the keyword form
-                  ;; directly — the canonical imperative destroy shape.
-                  {:tear-down (fn [_ctx]
-                                {:fx [[:rf.machine/destroy @recorded]]})}
-                  :states
-                  {:idle    {:on {:start :working}}
-                   :working {:spawn  {:machine-id :worker/proc}
-                             ;; Sidechannel-atom capture from the entry
-                             ;; cascade — the reducer has already bound the
-                             ;; id under [:data :rf/spawned <invoke-id>].
-                             :entry  (fn [{data :data}]
-                                       (reset! recorded
-                                               (get-in data [:rf/spawned [:working]]))
-                                       data)
-                             :on     {:done {:target :idle :action :tear-down}}}}}]
-      (rf/reg-machine :worker/proc child)
-      (rf/reg-machine :sup/imperative parent)
-      (rf/dispatch-sync [:sup/imperative [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/imperative [:working]])]
-        (is (= :worker/proc#1 spawned-id)))
-      (rf/dispatch-sync [:sup/imperative [:done]])
-      (let [db (frame-db)]
-        ;; Both the user's keyword-form destroy AND the runtime's
-        ;; tracked-form destroy fired in this transition. The runtime's
-        ;; destroy is idempotent (the spawn registry slot resolves to
-        ;; either the same actor-id or nil after the user's destroy).
-        (is (nil? (get-in db [:rf.runtime/machines :snapshots :worker/proc#1]))
-            "the spawned actor is gone")))))
-
-;; ---- (5) spawned actor's snapshot carries :rf/spawn-counter + :meta -------
-;;
-;; The unified build-initial-snapshot helper seeds :rf/spawn-counter {} and
-;; propagates :meta on every snapshot it builds — including spawned actors.
-;; A spawned child's grandchild id therefore allocates from the child's own
-;; :rf/spawn-counter, and the child's spec-declared :meta flows through to
-;; its snapshot.
-
-(deftest spawned-actor-snapshot-carries-spawn-counter
-  (testing "a spawned actor's initial snapshot has :rf/spawn-counter {}"
-    (let [child  {:initial :running :data {} :states {:running {}}}
-          parent {:initial :idle
-                  :states  {:idle    {:on {:start :working}}
-                            :working {:spawn {:machine-id :worker/sc}}}}]
-      (rf/reg-machine :worker/sc child)
-      (rf/reg-machine :sup/sc parent)
-      (rf/dispatch-sync [:sup/sc [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/sc [:working]])
-            snap       (get-in (frame-db) [:rf.runtime/machines :snapshots spawned-id])]
-        (is (= {} (:rf/spawn-counter snap))
-            "spawned actor's initial snapshot seeds :rf/spawn-counter to {}")))))
-
-(deftest spawned-actor-snapshot-propagates-meta
-  (testing ":meta declared on the child spec flows through to the spawned snapshot"
-    (let [child  {:initial :running
-                  :data    {}
-                  :meta    {:foo :bar :version 7}
-                  :states  {:running {}}}
-          parent {:initial :idle
-                  :states  {:idle    {:on {:start :working}}
-                            :working {:spawn {:machine-id :worker/meta}}}}]
-      (rf/reg-machine :worker/meta child)
-      (rf/reg-machine :sup/meta parent)
-      (rf/dispatch-sync [:sup/meta [:start]])
-      (let [spawned-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/meta [:working]])
-            snap       (get-in (frame-db) [:rf.runtime/machines :snapshots spawned-id])]
-        (is (= {:foo :bar :version 7} (:meta snap))
-            "spec-declared :meta is propagated to the spawned actor's snapshot")))))
+;; The unified build-initial-snapshot helper seeds :rf/spawn-counter {} on
+;; every snapshot it builds, spawned actors included (pinned with :meta in
+;; `initial_snapshot_unification_test`). A spawned child's grandchild id
+;; therefore allocates from the child's own counter.
 
 (deftest grandchild-spawn-allocates-from-childs-snapshot-counter
   (testing "a grandchild's id allocates from the child's :rf/spawn-counter, not the defensive fnil-inc backstop"
