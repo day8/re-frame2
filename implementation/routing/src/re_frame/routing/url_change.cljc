@@ -196,7 +196,8 @@
    `:rf.route/decided?` is the runtime-internal rider the link door sets on
    the `:rf.route/handle-url-change` event it synthesises after deciding
    (alongside `:rf.route/cause :link`), so the same target is not decided
-   twice.
+   twice. The link door also sets `:rf.route/scroll` when the link carried
+   `:scroll`, and it overrides the route's own `:scroll` for this commit.
 
    ONE argument map, keys named exactly as the destructuring
    names them, which is the shape every other function in this seam
@@ -276,8 +277,10 @@
         ;; only in the `:else` commit branch), so the `identical-nav?` /
         ;; `fragment-only?` short-circuits publish none.
         ;; The capture-fx + scroll-fx assembly is shared
-        ;; pre-commit policy — `rf.routing.plan/scroll-plan` (URL-driven path passes
-        ;; no opts; default strategy is the caller-supplied `default-scroll`).
+        ;; pre-commit policy — `rf.routing.plan/scroll-plan`. The per-call
+        ;; override is the link door's `:rf.route/scroll` rider (a route-link's
+        ;; `:scroll`), absent on every other cause; the default strategy is the
+        ;; caller-supplied `default-scroll`.
         {:keys [capture-fx scroll-fx]}
         (rf.routing.plan/scroll-plan {:rdb              rdb
                            ;; Saved scroll positions are a
@@ -287,7 +290,8 @@
                            ;; (the popstate / Back-button default) reads it.
                            :scroll-cache     (rf.routing.scroll/frame-scroll-cache frame)
                            :route-meta       route-meta
-                           :opts             nil
+                           :opts             (when (contains? opts :rf.route/scroll)
+                                               {:scroll (:rf.route/scroll opts)})
                            :default-strategy default-scroll
                            :route-id         route-id
                            :params           params

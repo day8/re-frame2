@@ -89,7 +89,8 @@
 (defn- href-attrs
   "Synthesise the `<a>` href from the link control keys (`:to` /
   `:params` / `:query` / `:fragment`), strip those control keys (plus
-  `:on-click`, which the CLJS path replaces and the SSR path drops) off
+  `:on-click`, which the CLJS path replaces and the SSR path drops, and the
+  navigation policy keys, which ride the click's dispatch) off
   `props`, and return `[path-url base-attrs address]`. The base attrs carry the
   synthesised `:href` plus every passthrough HTML attr; both the CLJS
   and SSR render fns build on it so the control-key list lives in ONE
@@ -114,8 +115,8 @@
   [props encode]
   ;; EP-0037 R0: select the address through the ONE shared extractor
   ;; (`rf.routing.address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
-  ;; key class) rather than a bespoke destructuring, and strip the address +
-  ;; behaviour keys via the shared key-class constants — so route-link cannot
+  ;; key class) rather than a bespoke destructuring, and strip the address,
+  ;; policy and behaviour keys via the shared key-class constants — so route-link cannot
   ;; drift from what an address IS, and a policy / DOM attr can never leak into
   ;; the synthesised href. The remaining props are the open DOM-attribute map
   ;; (route-link's deliberate exception — Spec 012 §The extraction law).
@@ -142,7 +143,9 @@
   (let [{:keys [to params query fragment] :as addr} (rf.routing.address/extract-address props)
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
     [path-url
-     (-> (apply dissoc props (concat rf.routing.address/address-keys rf.routing.address/link-behavior-keys))
+     (-> (apply dissoc props (concat rf.routing.address/address-keys
+                                     rf.routing.address/policy-keys
+                                     rf.routing.address/link-behavior-keys))
          (assoc :href (encode path-url)))
      addr]))
 
@@ -172,7 +175,7 @@
   "The `[:rf.route/url-requested {…}]` dispatch vector a link click carries —
   the ONE definition, run by `rf/route-link` (`route-link-render`) and by the
   `link-model` seam a view artefact's route-link consumes, so the navigation
-  identity the two surfaces dispatch cannot drift.
+  the two surfaces dispatch cannot drift.
 
   `path-url` is the PATH-FORM url `route-url` built from the EXTRACTED address
   (`rf.routing.address/extract-address`, never a bespoke destructuring of the
@@ -180,26 +183,21 @@
   `:href` was built from. The cascade is path-form throughout, so a strategy's
   `:encode` touches only the `:href`.
 
-  ONE key, and that is the request grammar's own rule rather than a trim for
-  its own sake: `:url` EXCLUDES `:params` / `:query` because a raw URL IS the
-  address (Spec 012 §The request grammar). A `:to` / `:params` / `:query` /
-  `:fragment` beside it would be a second spelling of
-  one destination — re-derived from `:url` by the match the handler runs
-  anyway — and nothing would read them: `handle-url-change` destructures `url` /
-  `replace?` / `bypass-leave?`, `normalize-policy` selects `[:replace?
-  :scroll]`, and `decide` takes its `:target` from `(target-of-url app-url)`,
-  never from the request. Carrying them would make the grammar false at the one
-  door that dispatches it, and invite a reader to believe an address key
-  here could disagree with the URL and still be honoured.
+  `props` contributes only its navigation POLICY keys (`:replace?`, `:scroll`,
+  `:bypass-leave?`), which the link door honours exactly as `:rf.route/navigate`
+  does; a key the caller did not write is not in the payload. No address key
+  rides beside `:url`, because a raw URL IS the address (Spec 012 §The request
+  grammar): a `:to` / `:params` / `:query` / `:fragment` there would be a
+  second spelling of one destination, and nothing would read it — `decide`
+  takes its `:target` from `(target-of-url app-url)`, never from the request.
 
-  So this fn takes only `path-url`: the extracted address is upstream of the
-  payload rather than in it. It
-  is a named definition — rather than an inlined map literal at each of
-  its two call sites — because being the ONE synthesiser is the whole of its
-  job: `rf/route-link` and the `link-model` seam dispatch the same navigation
-  identity by construction, and a future key added here reaches both."
-  [path-url]
-  [:rf.route/url-requested {:url path-url}])
+  It is a named definition — rather than an inlined map literal at each of its
+  two call sites — because being the ONE synthesiser is the whole of its job:
+  `rf/route-link` and the `link-model` seam dispatch the same navigation by
+  construction, and a future key added here reaches both."
+  [path-url props]
+  [:rf.route/url-requested
+   (merge {:url path-url} (select-keys props rf.routing.address/policy-keys))])
 
 #?(:cljs
    (defn- compose-intent-handler
@@ -329,9 +327,11 @@
         & children]
 
      `:to` is the only required key. `:params`, `:query`, and `:fragment`
-     are forwarded to `route-url` for href synthesis. Any other key on the
-     props map is passed through to the underlying `<a>` element (e.g.
-     `:class`, `:title`, `:id`, `:aria-label`).
+     are forwarded to `route-url` for href synthesis. `:replace?`, `:scroll`
+     and `:bypass-leave?` ride the click's navigation, as they do on
+     `:rf.route/navigate`. Any other key on the props map is passed through
+     to the underlying `<a>` element (e.g. `:class`, `:title`, `:id`,
+     `:aria-label`).
 
      The click is handed to `activate-link!` and the payload to
      `url-requested-payload`, the two definitions a view artefact's route-link
@@ -377,9 +377,9 @@
            ;; The click payload comes from the ONE synthesiser
            ;; (`url-requested-payload`) over the PATH-FORM url `href-attrs`
            ;; built from the address it extracted — so the href and the
-           ;; payload name the same destination by construction, not by two
-           ;; readings of `props`.
-           payload (url-requested-payload url)
+           ;; payload name the same destination by construction. `props`
+           ;; supplies only the navigation policy keys.
+           payload (url-requested-payload url props)
            ;; Anchors carrying native-handling attributes
            ;; (`target="_blank"`, `download`) must let the browser handle
            ;; the click — SPA interception would defeat new-tab / download.
@@ -475,14 +475,15 @@
 
 (defn link-model
   "The `:routing/link-model` seam (PURE, both hosts). Given a link `target`
-  (the `:to` / `:params` / `:query` / `:fragment` control keys plus the
+  (the `:to` / `:params` / `:query` / `:fragment` control keys, any
+  `:replace?` / `:scroll` / `:bypass-leave?` navigation policy, plus the
   native-handling HTML attrs `:target` / `:download`) and the consuming view's
   captured `render-frame` id, compute the rendered link model:
 
     {:href          <strategy-encoded href — one of the four strategy consult
                     points, on BOTH hosts>
-     :payload       <the `[:rf.route/url-requested {:url …}]` dispatch vector,
-                    path-form throughout — the navigation identity>
+     :payload       <the `[:rf.route/url-requested {:url … & policy}]` dispatch
+                    vector, path-form throughout — the navigation>
      :native?       <true when the anchor carries native-handling attrs the
                     framework must not intercept even on a plain left click>
      :prefetch      <the `[:rf.route/prefetch {address}]` warm-up vector when
@@ -561,7 +562,7 @@
         path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
         encode   (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))]
     {:href          (encode path-url)
-     :payload       (url-requested-payload path-url)
+     :payload       (url-requested-payload path-url target)
      :native?       (native-anchor? target)
      :prefetch      (prefetch-payload target)
      :prefetch-keys prefetch-intent-keys}))

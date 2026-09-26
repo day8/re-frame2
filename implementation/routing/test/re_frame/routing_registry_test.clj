@@ -2597,6 +2597,37 @@
       (is (contains? (set (:reserved (ex-data ex))) :query-defaults)
           ":query-defaults is reserved — only the retain slot is retired"))))
 
+(deftest reg-route-refuses-a-single-event-on-match
+  (testing ":on-match is a vector of event vectors; a single event vector is
+            refused AT REGISTRATION with :rf.error/route-bad-metadata, rather
+            than registering and throwing a raw host error at the first
+            navigation"
+    (let [ex (try
+               (rf/reg-route :route/one-event {:on-match [:app/load]} "/one-event")
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "reg-route THROWS on a single-event :on-match")
+      (is (= :rf.error/route-bad-metadata (:rf.error/id (ex-data ex)))
+          "the canonical thrown-error id discriminates the failure")
+      (is (= [:on-match] (:keys (ex-data ex)))
+          ":keys names the offending key")
+      (is (= [:app/load] (:value (ex-data ex)))
+          ":value carries the refused value")
+      (is (clojure.string/includes? (:reason (ex-data ex)) "[[:app/load]]")
+          "the :reason shows the wrapped form to write instead")
+      (is (nil? (rf/handler-meta {:source :store :kind :route :id :route/one-event}))
+          "the refused route is not registered")))
+  (testing "a vector of event vectors registers, and navigating dispatches each event"
+    (let [loaded (atom [])]
+      (rf/reg-event :app/load (fn [_ [_ & args]] (swap! loaded conj (vec args)) {}))
+      (rf/reg-route :route/two-events {:on-match [[:app/load 1] [:app/load 2]]} "/two-events")
+      (rf/dispatch-sync [:rf.route/navigate {:to :route/two-events}])
+      (is (= [[1] [2]] @loaded)
+          "both :on-match events ran, in order")))
+  (testing "a nil :on-match declares no events"
+    (is (= :route/no-events (rf/reg-route :route/no-events {:on-match nil} "/no-events")))))
+
 (deftest reg-route-accepts-valid-and-namespaced-metadata
   (testing "a route using only reserved keys + namespaced
             host/app keys registers fine (no false positives)"

@@ -240,6 +240,27 @@
                 :keys     bad
                 :reserved accepted})))))
 
+(defn- validate-on-match!
+  "Authoring-boundary guardrail for `reg-route`'s `:on-match`: a present
+  value must be a vector of event vectors (Spec 012 §Reserved route-metadata
+  keys). Throws `:rf.error/route-bad-metadata` naming `:on-match` under
+  `:keys` and carrying the offending `:value`. The common mistake is a
+  single event, `[:app/load]`, which would otherwise register cleanly and
+  throw a raw host error at the first navigation, when the runtime
+  dispatches each element as an event. `nil` declares no events."
+  [id metadata]
+  (let [on-match (:on-match metadata)]
+    (when (and (some? on-match)
+               (not (and (vector? on-match) (every? vector? on-match))))
+      (throw (route-error
+               :rf.error/route-bad-metadata
+               'rf/reg-route
+               (str "route " id "'s :on-match must be a vector of event vectors, got "
+                    (pr-str on-match)
+                    (when (and (vector? on-match) (keyword? (first on-match)))
+                      (str ". For one event, wrap it: {:on-match [" (pr-str on-match) "]}")))
+               {:route-id id :keys [:on-match] :value on-match})))))
+
 ;; ---- decimal-route rejection ---------------------------------------------
 ;; A `:double` / decimal-typed `:params` or `:query` slot is REJECTED at the
 ;; authoring boundary. Under the current CEDN rules a floating-point value has
@@ -482,6 +503,9 @@
           ;; `:rf.route/*` / source-coord keys. `:path` is now present (merged
           ;; from the value slot) and is a reserved key, so it passes.
           (validate-route-metadata! id metadata)
+        ;; `:on-match` is a vector of event vectors; a single event vector
+        ;; is refused here rather than failing at the first navigation.
+        _            (validate-on-match! id metadata)
         ;; EP-0025 route classification: a `:sensitive` / `:large`
         ;; projection-relative classification declaration is validated FAIL-LOUD
         ;; at the authoring boundary (a malformed path / wrong shape / non-EDN

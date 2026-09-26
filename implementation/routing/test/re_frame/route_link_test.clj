@@ -248,3 +248,98 @@
     (is (= {:id "intro"}
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :params]))
         ":params matched from the link's URL land in the :rf/route slice")))
+
+;; ---- navigation policy on a link -----------------------------------------
+;;
+;; A route-link takes the navigate request's policy keys — `:replace?`,
+;; `:scroll`, `:bypass-leave?` — and its click honours them. `click-payload`
+;; is the dispatch a click carries: `link-model` computes it through the same
+;; synthesiser `route-link-render` uses, and the CLJS suite pins the render's
+;; own click.
+
+(defn- click-payload [props]
+  (:payload (rf.routing.link/link-model props :rf/default)))
+
+(defn- record-nav-fx!
+  "Re-register the :client-only navigation fx for the JVM, recording each
+  call as `[fx-id arg]`. Returns the recording atom."
+  []
+  (let [seen (atom [])]
+    (doseq [fx-id [:rf.nav/push-url :rf.nav/replace-url :rf.nav/scroll]]
+      (rf.fx/reg-fx fx-id {:platforms #{:server :client}}
+                    (fn [_ arg] (swap! seen conj [fx-id arg]))))
+    seen))
+
+(deftest route-link-policy-keys-ride-the-click-not-the-anchor
+  (rf/reg-route :route/cart {} "/cart")
+  (let [props {:to :route/cart :class "nav" :replace? true :scroll :preserve :bypass-leave? true}]
+    (testing "the policy keys never reach the <a>"
+      (is (= {:href "/cart" :class "nav"}
+             (second (rf.routing/route-link-render-ssr props "Cart")))))
+    (testing "the click's :rf.route/url-requested carries each policy key written"
+      (is (= [:rf.route/url-requested
+              {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
+             (click-payload props))))
+    (testing "and none that was not"
+      (is (= [:rf.route/url-requested {:url "/cart"}]
+             (click-payload {:to :route/cart}))))))
+
+(deftest route-link-replace-replaces-the-history-entry
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :route/cart {} "/cart")
+  (let [seen    (record-nav-fx!)
+        history #(filterv (comp #{:rf.nav/push-url :rf.nav/replace-url} first) @seen)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+    (reset! seen [])
+    (rf/dispatch-sync (click-payload {:to :route/cart}))
+    (is (= [[:rf.nav/push-url "/cart"]] (history))
+        "a link without :replace? pushes")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+    (reset! seen [])
+    (rf/dispatch-sync (click-payload {:to :route/cart :replace? true}))
+    (is (= [[:rf.nav/replace-url "/cart"]] (history))
+        "a link with :replace? true replaces")
+    (is (= :route/cart
+           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                   [:rf.runtime/routing :current :route-id])))))
+
+(deftest route-link-scroll-overrides-the-link-default
+  (rf/reg-route :route/home {} "/")
+  (rf/reg-route :route/cart {:scroll :restore} "/cart")
+  (let [seen       (record-nav-fx!)
+        strategies #(into [] (comp (filter (comp #{:rf.nav/scroll} first))
+                                   (map (comp :strategy second)))
+                          @seen)]
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+    (reset! seen [])
+    (rf/dispatch-sync (click-payload {:to :route/cart}))
+    (is (= [:restore] (strategies))
+        "without a link :scroll the route's own :scroll applies")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+    (reset! seen [])
+    (rf/dispatch-sync (click-payload {:to :route/cart :scroll :preserve}))
+    (is (= [:preserve] (strategies))
+        "the link's :scroll overrides the route's, as a navigate request's does")
+    (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :initial}])
+    (reset! seen [])
+    (rf/dispatch-sync (click-payload {:to :route/cart :scroll false}))
+    (is (= [] (strategies))
+        ":scroll false on the link emits no scroll effect")))
+
+(deftest route-link-bypass-leave-skips-the-current-leave-guard
+  (rf/reg-route :route/editor {:can-leave :editor/can-leave?} "/editor")
+  (rf/reg-route :route/cart {} "/cart")
+  (rf/reg-sub :editor/can-leave? (fn [_ _] false))
+  (record-nav-fx!)
+  (rf/dispatch-sync [:rf.route/handle-url-change "/editor" {:rf.route/cause :initial}])
+  (let [route   #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                         [:rf.runtime/routing :current :route-id])
+        pending #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
+                         [:rf.runtime/routing :pending-navigation])]
+    (rf/dispatch-sync (click-payload {:to :route/cart}))
+    (is (= :route/editor (route)) "without :bypass-leave? the guard blocks the link")
+    (is (some? (pending)))
+    (rf/dispatch-sync [:rf.route/cancel (:id (pending))])
+    (rf/dispatch-sync (click-payload {:to :route/cart :bypass-leave? true}))
+    (is (= :route/cart (route)) "with :bypass-leave? true the link leaves")
+    (is (nil? (pending)) "and no pending navigation is created")))

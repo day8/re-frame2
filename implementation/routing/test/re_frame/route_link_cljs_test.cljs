@@ -139,12 +139,29 @@
       ;; routing-substrate dispatch, not :ui.
       (is (= :router source)
           "the route-link dispatch stamps :source :router (not :unknown / :ui)")
-      ;; The payload is ONE key. `=` on the whole map is the
-      ;; pin — an address key creeping back in fails here rather than being
-      ;; tolerated. The route id is not lost: `/cart` is what `:route/cart`
-      ;; synthesised, and the handler matches it back.
+      ;; With no policy keys on the link, the payload is ONE key. `=` on the
+      ;; whole map is the pin — an address key creeping back in fails here
+      ;; rather than being tolerated. The route id is not lost: `/cart` is
+      ;; what `:route/cart` synthesised, and the handler matches it back.
       (is (= {:url "/cart"} (second dispatched))
           "the click payload carries the url and nothing else"))))
+
+(deftest plain-left-click-carries-the-link-navigation-policy
+  (testing ":replace?, :scroll and :bypass-leave? ride the click's dispatch
+            and never reach the <a>"
+    (rf/reg-route :route/cart {} "/cart")
+    (let [props     {:to :route/cart :class "nav" :replace? true
+                     :scroll :preserve :bypass-leave? true}
+          [_ attrs] (rf.routing.link/route-link-render props)
+          {:keys [dispatched prevented?]} (click! props (mk-event {}))]
+      (is prevented?)
+      (is (= [:rf.route/url-requested
+              {:url "/cart" :replace? true :scroll :preserve :bypass-leave? true}]
+             dispatched)
+          "each policy key the link carries is on the dispatch")
+      (is (= "nav" (:class attrs)) "an ordinary attribute still passes through")
+      (is (not-any? #(contains? attrs %) [:replace? :scroll :bypass-leave?])
+          "no policy key is rendered as an <a> attribute"))))
 
 (deftest plain-left-click-passes-params-query-and-fragment
   (testing "params, query and fragment all reach the dispatch — INSIDE the url"
