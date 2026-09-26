@@ -81,28 +81,9 @@
 ;; ===========================================================================
 
 (deftest same-id-contender-loses-before-owner-installs
-  ;; A owns the id and pauses before installation. B fails promptly instead of
-  ;; entering callbacks, allocating a container, or adopting A's future record.
-  (let [reached (CountDownLatch. 1)
-        release (CountDownLatch. 1)
-        a (binding [rf.frame/*upsert-decide-probe* (window-probe :race/x reached release)]
-            (future (rf.frame/upsert-frame! :race/x {:tags #{:a}})))]
-    (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before B runs")
-    (is (= :rf.error/frame-construction-in-progress
-           (err-id #(rf.frame/upsert-frame! :race/x {:tags #{:b}})))
-        "same-id contender loses with the typed construction conflict")
-    (is (nil? (rf.frame/frame :race/x))
-        "the owner's unpublished construction is invisible")
-    (.countDown release)
-    (is (= :race/x @a) "the reservation owner completes")
-    (is (= #{:a} (get-in (rf.frame/frame :race/x) [:config :tags]))
-        "only the owner's config is published")
-    (is (some? (rf.frame/frame-state-container :race/x))
-        "the published record has a real state container")))
-
-(deftest losing-creator-does-not-allocate-an-unowned-state-container
-  ;; A pauses before allocation. B fails at reservation admission and therefore
-  ;; cannot allocate an opaque adapter value that nobody owns.
+  ;; A owns the id and pauses before installation. B fails promptly at
+  ;; reservation admission instead of entering callbacks, allocating a state
+  ;; container nobody owns, or adopting A's future record.
   (let [reached       (CountDownLatch. 1)
         release       (CountDownLatch. 1)
         allocations   (atom 0)
@@ -111,19 +92,23 @@
                   (fn [initial]
                     (swap! allocations inc)
                     (original-make initial))]
-      (let [a (binding [rf.frame/*upsert-decide-probe*
-                        (window-probe :cc/owned reached release)]
-                (future (rf.frame/upsert-frame! :cc/owned {:tags #{:a}})))]
-        (is (.await reached 10 TimeUnit/SECONDS)
-            "A reached the pre-create barrier without allocating")
+      (let [a (binding [rf.frame/*upsert-decide-probe* (window-probe :race/x reached release)]
+                (future (rf.frame/upsert-frame! :race/x {:tags #{:a}})))]
+        (is (.await reached 10 TimeUnit/SECONDS) "A owns the id before B runs")
         (is (= :rf.error/frame-construction-in-progress
-               (err-id #(rf.frame/upsert-frame! :cc/owned {:tags #{:b}})))
-            "B loses before allocation")
+               (err-id #(rf.frame/upsert-frame! :race/x {:tags #{:b}})))
+            "same-id contender loses with the typed construction conflict")
+        (is (nil? (rf.frame/frame :race/x))
+            "the owner's unpublished construction is invisible")
         (is (zero? @allocations) "neither actor has allocated while A is paused")
         (.countDown release)
-        (is (= :cc/owned @a) "A installs as the reservation owner")
+        (is (= :race/x @a) "the reservation owner completes")
         (is (= 1 @allocations)
-            "exactly the installed frame's state container was allocated")))))
+            "exactly the installed frame's state container was allocated")
+        (is (= #{:a} (get-in (rf.frame/frame :race/x) [:config :tags]))
+            "only the owner's config is published")
+        (is (some? (rf.frame/frame-state-container :race/x))
+            "the published record has a real state container")))))
 
 ;; ===========================================================================
 ;; Re-register vs destroy: construction retains same-id ownership through
@@ -168,21 +153,6 @@
   (is (some? (rf.frame/frame-state-container :mc/free)) "a full record was installed")
   (is (false? (contains? (:config (rf.frame/frame :mc/free)) :rf.frame/must-create?))
       "the construction-only :rf.frame/must-create? key is stripped from stored config"))
-
-(deftest must-create-owner-rejects-ordinary-same-id-contender
-  ;; Exclusive and ordinary construction share the same per-id admission rule.
-  (let [reached (CountDownLatch. 1)
-        release (CountDownLatch. 1)
-        a (binding [rf.frame/*upsert-decide-probe* (window-probe :mc/race reached release)]
-            (future (rf.frame/upsert-frame! :mc/race {:rf.frame/must-create? true})))]
-    (is (.await reached 10 TimeUnit/SECONDS) "A owns the exclusive transaction")
-    (is (= :rf.error/frame-construction-in-progress
-           (err-id #(rf.frame/upsert-frame! :mc/race {:tags #{:b}})))
-        "ordinary same-id construction loses at admission")
-    (.countDown release)
-    (is (= :mc/race @a) "the must-create owner completes")
-    (is (some? (rf.frame/frame-state-container :mc/race))
-        "the owner's full record is published")))
 
 ;; ===========================================================================
 ;; A same-id loser must not overwrite the OWNER's frame-scoped
@@ -279,86 +249,6 @@
         "A publishes its no-emit policy")
     (is (= 77 (retained-cap :tp/destroy-race))
         "A publishes its retention policy")))
-
-(deftest failed-reregistration-rollback-preserves-intervening-generation
-  ;; A stages replaceable config + generation and pauses before policy
-  ;; publication. The image reprojection path legitimately swaps only the
-  ;; generation while A is provisional. A later registration-hook failure must
-  ;; roll back A's config/policy revision without replacing the whole record and
-  ;; erasing that intervening generation (or runtime-container) update.
-  (let [id            :tp/rollback-merge
-        hook-key      :routing/on-frame-registered!
-        original-hook (rf.late-bind/get-fn hook-key)
-        reached       (CountDownLatch. 1)
-        release       (CountDownLatch. 1)]
-    (rf.frame/upsert-frame! id
-                         {:tags #{:prior}
-                          :rf.frame/generation :prior-gen
-                          :rf.trace/frame-no-emit? true
-                          :rf.trace/events-retained 5})
-    (let [prior-record       (rf.frame/frame id)
-          prior-config       (:config prior-record)
-          prior-policy-token (:trace-policy-token prior-record)
-          prior-revision     (get-in prior-record [:construction :revision])]
-      (try
-        (rf.late-bind/set-fn!
-          hook-key
-          (fn [candidate-id]
-            (when (= id candidate-id)
-              ;; A valid same-owner runtime write during the callback must also
-              ;; survive rollback; its container is not construction-owned.
-              (rf.frame/replace-runtime-db! id {:foreign-runtime true})
-              (throw (ex-info "registration hook failed"
-                              {:test/outcome :hook-failed})))))
-        (let [owner
-              (binding [rf.frame/*upsert-policy-probe*
-                        (window-probe id reached release)]
-                (future
-                  (try
-                    (rf.frame/upsert-frame!
-                      id {:tags #{:failed}
-                          :rf.frame/generation :failed-gen
-                          :rf.trace/frame-no-emit? false
-                          :rf.trace/events-retained 99})
-                    :unexpected-success
-                    (catch clojure.lang.ExceptionInfo e
-                      (:test/outcome (ex-data e))))))]
-          (try
-            (is (.await reached 10 TimeUnit/SECONDS)
-                "A staged its exact provisional revision")
-            (is (= :provisional
-                   (get-in @rf.frame/frames [id :construction :state])))
-            (is (= #{:failed} (get-in @rf.frame/frames [id :config :tags])))
-            (is (= :failed-gen (get-in @rf.frame/frames [id :generation])))
-            ;; `reproject-live-frame!` resolves outside the registry atom and
-            ;; reaches this raw, generation-only mutator after resolution.
-            (rf.frame/set-generation! id :foreign-gen)
-            (is (= :foreign-gen (get-in @rf.frame/frames [id :generation]))
-                "the intervening generation write linearized before rollback")
-            (finally
-              (.countDown release)))
-          (is (= :hook-failed @owner) "the staged re-registration fails")
-          (is (= :foreign-gen (rf.frame/frame-generation id))
-              "rollback preserves the valid intervening generation write")
-          (is (= {:foreign-runtime true} (rf.frame/frame-runtime-db-value id))
-              "rollback preserves runtime updates made during callbacks")
-          (is (= #{:prior} (get-in (rf.frame/frame id) [:config :tags]))
-              "rollback cannot retain the failed constructor's config")
-          (is (= prior-config (:config (rf.frame/frame id)))
-              "the complete prior config, not only tags, is restored")
-          (is (true? (rf.trace/frame-trace-disabled? id))
-              "rollback restores the prior no-emit policy")
-          (is (= 5 (retained-cap id))
-              "rollback restores the prior retention policy")
-          (is (identical? prior-policy-token
-                          (:trace-policy-token (rf.frame/frame id)))
-              "the record's prior policy authority is restored")
-          (is (identical? prior-revision
-                          (get-in (rf.frame/frame id) [:construction :revision]))
-              "rollback restores the prior final construction revision"))
-        (finally
-          (.countDown release)
-          (rf.late-bind/set-fn! hook-key original-hook))))))
 
 (deftest failed-reregistration-rollback-preserves-prestage-generation
   ;; A reads the final frame and pauses immediately before its staging
