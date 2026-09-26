@@ -17,9 +17,11 @@
   absent `:on`, and an empty `:on` set, all pass through cleanly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.handlers :as rf.http.handlers]
             [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.test-support :as rf.http.test-support]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset --------------------------------------------------------
@@ -217,3 +219,40 @@
     (let [ex (call-managed! {:on nil :max-attempts 3})]
       (is (not (and (some? ex)
                     (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
+
+;; ---- the test-support stubs validate as the live fx does ------------------
+
+(defn- call-stub!
+  "Invoke a test-support stand-in for `:rf.http/managed` with `args`.
+  Returns nil on success or the ex-info on a throw."
+  [stub args]
+  (try (stub {:frame :rf/default :event [:no-op]} args)
+       nil
+       (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest the-stubs-refuse-a-bad-retry-on-as-the-live-fx-does
+  (testing "the route-map stub (`with-request-stubs`) and the canned stubs stand
+            in for `:rf.http/managed` as `:fx-overrides` targets, so they refuse
+            the same `:retry :on` with the same error — a test must not go green
+            on a call site production rejects"
+    (let [url        "http://localhost/x"
+          scope-stub (rf.registrar/handler :fx :rf.test/managed-http-scope-stub)
+          stubs      {[:get url] {:reply {:ok :stubbed}}}
+          route-map  (fn [args]
+                       (rf.http.test-support/with-request-stubs stubs
+                         #(call-stub! scope-stub args)))]
+      (doseq [[label stub] [["route-map stub"  route-map]
+                            ["canned success"  #(call-stub! rf.http.test-support/canned-success-handler %)]
+                            ["canned failure"  #(call-stub! rf.http.test-support/canned-failure-handler %)]]]
+        (is (bad-retry-on-throw?
+              (stub {:request {:method :get :url url}
+                     :on-success nil
+                     :retry   {:on #{:rf.http/aborted}}})
+              #{:rf.http/aborted})
+            (str label ": a non-retryable member is refused"))
+        (is (bad-retry-shape-throw?
+              (stub {:request {:method :get :url url}
+                     :on-success nil
+                     :retry   {:on [:rf.http/transport]}})
+              [:rf.http/transport])
+            (str label ": a non-set :on is refused"))))))

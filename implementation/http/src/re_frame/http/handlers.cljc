@@ -48,7 +48,7 @@
     :rf.http/http-4xx
     :rf.http/http-5xx})
 
-(defn- validate-retry!
+(defn validate-retry!
   "Per Spec 014 §Closed-set `:retry :on` validation, a
   `:retry :on` value, when present and non-nil, MUST be a SET drawn
   exclusively from `retryable-categories`. Two failure shapes both throw
@@ -71,7 +71,11 @@
   absent `:on`, explicit `:on nil`, and the empty set `#{}`. A caller
   who supplies `:retry` with one of these already disables retry (the
   transport loop's `(contains? on-set kind)` gate is false for every
-  kind), so we do not force `:on` to be non-empty here."
+  kind), so we do not force `:on` to be non-empty here.
+
+  Public so the test-support stubs, which stand in for `:rf.http/managed`
+  as `:fx-overrides` targets, refuse the same args map with the same error
+  before their `:before` chain runs, as this handler does."
   [args-map]
   ;; `contains?` separates an explicit `:on nil` (intentional no-retry —
   ;; pass) from an absent key, so we read `:on` only when the `:retry`

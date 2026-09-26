@@ -44,11 +44,23 @@
                (.replace "+" "%20"))
      :cljs (js/encodeURIComponent (str s))))
 
+(defn- param-value-text
+  "The wire text of one `:params` value, before percent-encoding. A keyword
+  is written as its qualified name without the leading colon (`:active` →
+  `active`, `:sort/asc` → `sort/asc`), the spelling a JSON body gives it; any
+  other value is its `str`."
+  [v]
+  (if (keyword? v)
+    (subs (str v) 1)
+    (str v)))
+
 (defn params->query
   "Encode a `:params` map as a query string (no leading `?`).
 
   Scalar values (string / number / keyword / boolean) encode to a single
-  `k=v` pair. A sequential value (vector / seq / list) encodes as one
+  `k=v` pair; a keyword value is written without its colon, namespace kept
+  (`{:status :sort/asc}` → `status=sort%2Fasc`). A sequential value (vector /
+  seq / list) encodes as one
   repeated `k=v` pair per element — `{:tag [\"a\" \"b\"]}` → `tag=a&tag=b`
   Repeat-key is the conventional HTTP-client idiom for
   multi-valued query params; Spec 012 §Query strings and fragments does
@@ -60,8 +72,8 @@
        (mapcat (fn [[k v]]
                  (let [k-enc (url-encode (if (keyword? k) (name k) (str k)))]
                    (if (sequential? v)
-                     (map #(str k-enc "=" (url-encode %)) v)
-                     [(str k-enc "=" (url-encode v))]))))
+                     (map #(str k-enc "=" (url-encode (param-value-text %))) v)
+                     [(str k-enc "=" (url-encode (param-value-text v)))]))))
        (str/join "&")))
 
 (defn merge-params
