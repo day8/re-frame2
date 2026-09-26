@@ -31,7 +31,7 @@ The registration macros live in `re-frame.core` and route through the schemas ar
   ```
 - **Description**: Attach a Malli schema to an `app-db` path.
     - **Development-build assertion, not a production guarantee.** A production build still performs this registration — `app-schemas` and `app-schema-meta` keep answering — but the candidate validator is elided, so nothing checks the schema. A candidate that violates it installs silently: no rejection, no rollback, no trace. Your app-db schemas do not run in production builds. Keep the invariant that must hold in production in the handler, and set [`:boundary? true`](re-frame.core.md#reg-event) on the registration where untrusted input must be validated in production too.
-    - The schema is the **positional value slot** (rf2-qm7k83 Part A), uniform with the rest of the `reg-*` family. The optional middle metadata map carries the frame target under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys.
+    - The schema is the **positional value slot**, uniform with the rest of the `reg-*` family. The optional middle metadata map carries the frame target under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys.
     - The **path is the registration id**. App-db schemas are path-keyed and live in the schemas artefact's per-frame side-table; they are NOT a registrar kind. `(app-schema-meta {:frame f :path [:user]})` looks up by the same path vector.
     - `path` is a sequential `get-in` path of concrete segments, normalized to canonical vector form. `[]` registers a whole-`app-db` root schema. Returns the normalized path.
     - Raises:
@@ -156,6 +156,8 @@ They are public and manifested — tools and conformance tests call them directl
 
 On every surface, a structurally malformed registered schema (one that makes the registered validator throw) emits the distinct `:rf.error/malformed-schema` trace and returns `false` (**fail closed**), never a silent pass. That trace carries structural locator slots only — no value-bearing slots.
 
+Each fn also has a longest arity taking a trailing `continue?` predicate — the exact-owner continuation fence the runtime passes. It is consulted around the validator callbacks; once it reports false the fn stops, emits nothing further, and returns `:rf/stale-incarnation` (the dequeued event lost its exact frame incarnation, so the verdict is inert). The shorter arities supply it for you.
+
 ### `validate-app-schema!`
 
 - **Kind**: function
@@ -164,6 +166,7 @@ On every surface, a structurally malformed registered schema (one that makes the
   (validate-app-schema! db)                    ;; current frame
   (validate-app-schema! db event-id)           ;; current frame, named handler
   (validate-app-schema! db event-id frame-id)  ;; explicit frame
+  (validate-app-schema! db event-id frame-id continue?)
   ```
 - **Description**: After a handler commits `:db`, walk every registered app-schema for the named frame and validate the post-commit `app-db`. Only the named frame's schemas are walked.
     - Failures emit `:rf.error/schema-validation-failure` (one trace per failing entry) with the registered explainer's output attached. Value-bearing slots are redacted when the failing slot is `:sensitive?`.
@@ -180,6 +183,7 @@ On every surface, a structurally malformed registered schema (one that makes the
   ```clojure
   (validate-event! event-id event handler-meta)
   (validate-event! event-id event handler-meta frame)
+  (validate-event! event-id event handler-meta frame continue?)
   ```
 - **Description**: Before an event handler runs, validate the event vector against any `:schema` on the handler's registration metadata.
     - On failure, emits `:rf.error/schema-validation-failure :where :event`. The caller skips the handler (recovery `:no-recovery`).
@@ -194,6 +198,7 @@ On every surface, a structurally malformed registered schema (one that makes the
   ```clojure
   (validate-fx! fx-id event-id args fx-meta)
   (validate-fx! fx-id event-id args fx-meta frame)
+  (validate-fx! fx-id event-id args fx-meta frame continue?)
   ```
 - **Description**: Before an fx handler runs, validate its args against any `:schema` on the fx's registration metadata.
     - On failure, emits `:rf.error/schema-validation-failure :where :fx-args`. Only the offending fx is skipped (recovery `:skipped`). Sibling fx in the same `:fx` vector still run, and downstream queued events still drain.
@@ -207,6 +212,7 @@ On every surface, a structurally malformed registered schema (one that makes the
   ```clojure
   (validate-sub! sub-id query-v value sub-meta)
   (validate-sub! sub-id query-v value sub-meta frame)
+  (validate-sub! sub-id query-v value sub-meta frame continue?)
   ```
 - **Description**: After a subscription recomputes, validate its return value against any `:schema` on the sub's registration metadata.
     - On failure, emits `:rf.error/schema-validation-failure :where :sub-return`. The caller replaces the value with the default (recovery `:replaced-with-default`).
@@ -394,7 +400,8 @@ They describe **shape**, not durable egress policy — for `app-db` or for anyth
   (schema-sensitive-at? schema in-path) → boolean
   ```
 - **Description**: Path-targeted sensitivity check. `true` when the slot at `in-path` is sensitive. Two cases count: an **ancestor** along the path is `:sensitive?` (the failing slot sits under a sensitive container), or a **descendant** of the slot is `:sensitive?` (the slot's value carries a sensitive child).
-    - `in-path` is the value-relative path Malli reports as `:in`. A `nil` or empty `in-path` is equivalent to `schema-has-sensitive?`.
+    - `in-path` is the value-relative path Malli reports as `:in`. A `nil` or empty `in-path` is equivalent to `(or (schema-has-sensitive? schema) (schema-has-opaque-child? schema))`.
+    - Fails closed: an opaque child the walker reaches (or cannot align past) counts as sensitive.
     - This is the leaf-precise check the `app-db` hot path uses for its narrowed `:value` slot. A non-sensitive failing leaf whose *sibling* is sensitive is therefore not over-redacted.
 
 ### `schema-opaque?`
@@ -404,7 +411,21 @@ They describe **shape**, not durable egress policy — for `app-db` or for anyth
   ```clojure
   (schema-opaque? schema) → boolean
   ```
-- **Description**: `true` when `schema` is a compiled / opaque value the pure-data walker cannot introspect for per-slot flags. That means any non-vector, non-keyword form: a compiled `malli.core/schema` object, a map, a fn. A bare keyword (`:int`, `:string`, a registry ref) is NOT opaque. An explicit `[:ref …]` form IS treated as opaque by `schema-has-opaque-child?` (rf2-3aafh). The redaction path fails closed on an opaque schema — it redacts as if sensitive, since Malli may honour a `:sensitive?` slot the walker cannot see. The supported way to make per-slot flags visible is registering the vector form.
+- **Description**: `true` when `schema` is a compiled / opaque value the pure-data walker cannot introspect for per-slot flags. That means any non-vector, non-keyword form: a compiled `malli.core/schema` object, a map, a fn. A bare keyword (`:int`, `:string`, a registry ref) is NOT opaque. An explicit `[:ref …]` form IS treated as opaque by `schema-has-opaque-child?`. The redaction path fails closed on an opaque schema — it redacts as if sensitive, since Malli may honour a `:sensitive?` slot the walker cannot see. The supported way to make per-slot flags visible is registering the vector form.
+
+### `schema-has-opaque-child?`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (schema-has-opaque-child? schema) → boolean
+  ```
+- **Description**: The recursive form of `schema-opaque?`. `true` when the root is opaque, or a vector-form schema holds an opaque value in a real child-schema position at any depth, or carries a local `:registry` or an explicit `[:ref …]` (the walker resolves neither), or uses an unclassified operator. Literal operands (`[:= 42]`, `[:enum 1 2]`, `:re` patterns, comparator bounds) are data, not children, so they never count. `redact-validation-tags` and the `:rf.warning/schema-walker-opaque` registration nudge use it, so a compiled child cannot hide inside a walkable root.
+- **Example**:
+  ```clojure
+  (schemas/schema-has-opaque-child? [:map [:id :int]])     ; => false
+  (schemas/schema-has-opaque-child? [:ref :my.app/user])   ; => true
+  ```
 
 ## Test-support
 

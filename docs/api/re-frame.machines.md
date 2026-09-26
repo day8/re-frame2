@@ -12,7 +12,7 @@ Read a machine's snapshot with the ordinary `subscribe`, naming its framework su
 Surfaces split two ways:
 
 - **`re-frame.core` facade exports** (reach as `rf/…`): the `reg-machine` / `defmachine` registration macros.
-- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine / query helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`, `machines`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
+- **Owned by `re-frame.machines`** (reach as `rf.machines/<name>`, not `rf/<name>` — `rf.machines` is the canonical alias for a framework subsystem namespace, per [Conventions §Require-alias dialect](../../spec/Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the bare `machines` is reserved for an app's own namespaces): the plain-fn registration / engine helpers (`reg-machine*`, `make-machine-handler`, `machine-transition`) and the implementation-tier runtime helpers. This namespace is the `day8/re-frame2-machines` optional artefact.
 
 Cross-machine messaging is plain `[:dispatch [<actor-id> <event>]]` — a machine IS an event handler, so its id is its address.
 
@@ -129,7 +129,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
   ```clojure
   (re-frame.machines/make-machine-handler spec) → event-handler fn
   ```
-- **Description**: Compiles a transition table into the event-handler fn that `reg-machine` would register. Returns the fn; does not register it.
+- **Description**: Compiles a transition table into the event-handler fn that `reg-machine` would register. Returns the fn; does not register it. A spec carrying a `[:schemas :data]` schema throws `:rf.error/machine-schema-requires-reg-machine`: this path stamps no `:rf/machine` registration metadata, so the schema would validate nothing — register such a machine through `reg-machine` / `reg-machine*`.
 - **Example**:
   ```clojure
   ;; Build the handler fn without registering it (e.g. to inspect or compose it).
@@ -146,11 +146,11 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 - **Signature**:
   ```clojure
   (re-frame.machines/machine-transition definition snapshot event)
-  → {:status :ok    :snapshot next-snapshot :fx [effect …]}
+  → {:status :ok    :snapshot next-snapshot :fx [effect …] :handled? boolean}
   | {:status :error :error {:kind error-id …}}
   ```
 - **Description**: The pure transition fn. Given a machine definition, a current snapshot, and an event, returns one plain map — the shape [Spec 005 §Level 1](../../spec/005-StateMachines.md#level-1--pure-machine-transition) settles.
-    - `:status :ok` carries the new `:snapshot` and the ordered effects vector `:fx`; an event no transition matches is `:ok` with the snapshot unchanged and `:fx []`.
+    - `:status :ok` carries the new `:snapshot` and the ordered effects vector `:fx`; an event no transition matches is `:ok` with the snapshot unchanged and `:fx []`. `:handled?` is `true` when the event selected a transition (even a targetless one that changed nothing) and `false` when nothing took it, so a test can tell a declined event from an accepted no-op.
     - `:status :error` is the engine's failed macrostep — a guard / action / `:data` fn threw (`:kind :rf.error/machine-action-exception`, with `:exception` and the throwing ref) or a bounded-depth limit tripped (`:kind :rf.error/machine-always-depth-exceeded` / `:rf.error/machine-raise-depth-exceeded`). No snapshot rides a failure; the macrostep is atomic.
     - Programmer-input errors (a malformed `:state`, a dangling guard / action ref) throw the same `:rf.error/*` `ex-info` the registration validators throw — they are not results.
     - JVM-runnable; no live frame needed. `re-frame.machines` is the only namespace a caller requires.
@@ -170,7 +170,7 @@ The snapshot lives at `[:rf.runtime/machines :snapshots :session]` in the frame'
 ## Inspection and queries
 
 There is **no per-kind query accessor** on this namespace — neither `machines`
-nor `machine-meta` (both retired, rf2-kuky.31). A machine is an `:event`
+nor `machine-meta`. A machine is an `:event`
 registration carrying `:rf/machine? true`, so both questions are answered by
 the one `{id meta}` registrar grammar every tool already speaks.
 
@@ -392,7 +392,7 @@ The fx handlers behind the reserved `:rf.machine/*` effect ids. This namespace r
   ```clojure
   (re-frame.machines/after-schedule-fx fx-ctx args)
   ```
-- **Description**: On entry to an `:after`-bearing state node, the runtime emits one of these per `:after` entry. It resolves the delay (a literal `pos-int?`, a subscription vector, or a `(fn [snapshot] ms)`) and schedules a real wall-clock timer via the clock abstraction. For subscription delays it also installs an add-watch that cancels and reschedules when the sub's value changes. The synthetic expiry event is `[<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]`. It fires only when the scheduling node is still active and the carried epoch matches. Machine-internal — not for direct application use.
+- **Description**: On entry to an `:after`-bearing state node, the runtime emits one of these per `:after` entry. It resolves the delay (a literal `pos-int?`, an ISO-8601 duration string such as `"PT5S"`, a subscription vector, or a `(fn [{:keys [snapshot]}] ms)`) and schedules a real wall-clock timer via the clock abstraction. For subscription delays it also installs an add-watch that cancels and reschedules when the sub's value changes. The synthetic expiry event is `[<parent-id> [:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]]`. It fires only when the scheduling node is still active and the carried epoch matches. Machine-internal — not for direct application use.
 
 ### `re-frame.machines/after-cancel-fx`
 
@@ -416,8 +416,9 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
   ```
 - **Description**: Runs every registration-time check the machine grammar requires.
     - Covers history-state placement, the closed key-set, the at-most-one-per-compound rule, `:default-target` resolution, `:type :parallel` region shape, and top-level dispatch plus guard/action ref resolution.
+    - `:regions` is refused on any node that is not `:type :parallel` — the runtime runs regions only on a `:type :parallel` root. On a flat or compound root it throws `:rf.error/machine-root-slot-not-supported` (with every other root key no runtime path reads there), before any other check reads the root; on a state it throws `:rf.error/machine-unknown-node-key`.
     - Composed at the top of `make-machine-handler` so the registered handler fn's body is exclusively request processing.
-    - Throws the `:rf.error/machine-*` taxonomy on a grammar violation (e.g. `:rf.error/machine-history-misplaced` / `-history-extra-keys` / `-history-duplicate` / `-history-bad-default-target`, `:rf.error/machine-unknown-node-key`, `:rf.error/machine-unresolved-guard` / `-unresolved-action`).
+    - Throws the `:rf.error/machine-*` taxonomy on a grammar violation (e.g. `:rf.error/machine-history-misplaced` / `-history-extra-keys` / `-history-duplicate` / `-history-bad-default-target`, `:rf.error/machine-unknown-node-key`, `:rf.error/machine-root-slot-not-supported`, `:rf.error/machine-unresolved-guard` / `-unresolved-action`).
     - The conformance corpus's `:reg-machine` Mode-B op pins the registration-error taxonomy against this leaf fn.
 
 ### `re-frame.machines/validate-machine-data!`
@@ -426,11 +427,13 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
 - **Signature**:
   ```clojure
   (re-frame.machines/validate-machine-data! runtime-db event-id frame-id) → boolean
+  (re-frame.machines/validate-machine-data! runtime-db event-id frame-id continue?)
   ```
 - **Description**: Walks every snapshot under `[:rf.runtime/machines :snapshots]` in `runtime-db` and validates its `:data` against the resolved machine's `[:schemas :data]` schema.
-    - Returns `true` iff every snapshot conformed, or carried no schema / no validator. Returns `false` on the first failure, with the per-snapshot trace already emitted. The router then rolls back the whole transition — the same mechanism as the `:where :app-db` rollback.
+    - Returns `true` iff every snapshot conformed, or carried no schema / no validator. Otherwise returns `false`: every snapshot is validated (no short-circuit), so each failing machine emits its own trace. The router then rejects the whole candidate — the same mechanism as the `:where :app-db` rejection.
     - Schema resolution covers a SINGLETON (via the `:rf/machine` registrar projection) AND a SPAWNED actor (via the snapshot's `:rf/machine-type`).
-    - This is the post-commit boundary the router AND-conjoins with `validate-app-schema!`.
+    - This is the `:where :machine-data` boundary the router AND-conjoins with `validate-app-schema!`, run against the CANDIDATE runtime-db before the commit.
+    - The 4-arity takes an explicit `continue?` ownership predicate (the 3-arity derives it from the frame's event owner); when the owning frame incarnation is lost mid-validation the fn returns `:rf/stale-incarnation` instead of a boolean.
 
 ### `re-frame.machines/validate-spawn-data!`
 
@@ -438,8 +441,9 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
 - **Signature**:
   ```clojure
   (re-frame.machines/validate-spawn-data! spawned-id spec snapshot) → boolean
+  (re-frame.machines/validate-spawn-data! spawned-id spec snapshot continue?)
   ```
-- **Description**: Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install path. Validates a freshly-built initial snapshot's `:data` against the spawned actor's machine `[:schemas :data]` schema BEFORE the snapshot lands in runtime-db. Returns `true` on conform, no schema, or no validator. Returns `false` on failure, and the caller skips the install. A spawn failure does not commit, so there is nothing to roll back (`:phase :spawn` emits with `:rollback? false`).
+- **Description**: Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install path. Validates a freshly-built initial snapshot's `:data` against the spawned actor's machine `[:schemas :data]` schema BEFORE the snapshot lands in runtime-db. Returns `true` on conform, no schema, or no validator. Returns `false` on failure, and the caller skips the install. A spawn failure does not commit, so there is nothing to roll back (`:phase :spawn` emits with `:rollback? false`). As with `validate-machine-data!`, the 4-arity takes an explicit `continue?` ownership predicate and a lost owner returns `:rf/stale-incarnation`.
 
 ### `re-frame.machines/validate-update-snapshot-data!`
 

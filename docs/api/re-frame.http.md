@@ -1,6 +1,6 @@
 # Managed HTTP
 
-Managed HTTP is an optional capability. An event dispatches the `[:rf.http/managed args-map]` fx. The implementation owns retries, cancellation, timeouts, decode, and failure classification. **The request is data** — there is no verb-helper namespace to require: the fx, its abort/canned siblings, the request-interceptor middleware, and the test stubs are keyword-addressed or re-exported on the `re-frame.core` façade.
+Managed HTTP is an optional capability. An event dispatches the `[:rf.http/managed args-map]` fx. The implementation owns retries, cancellation, timeouts, decode, and failure classification. **The request is data** — there is no verb-helper namespace to require: the fx, its abort/canned siblings, the request-interceptor middleware, and the test stubs are keyword-addressed, re-exported on the `re-frame.core` façade, or plain fns in `re-frame.http.test-support`.
 
 The CLJS reference ships managed HTTP (Fetch in the browser, `java.net.http.HttpClient` on the JVM). Ports that omit it must not reuse the `:rf.http/*` namespace for anything else.
 
@@ -29,6 +29,7 @@ Repeating `{:request {:method :get :url …}}` at every call site is an **app** 
     - `:accept` — accept fn.
     - `:retry` — `{:on #{categories} :max-attempts N :backoff {:base-ms :factor :max-ms :jitter}}`. `:on` must be a set drawn from the retryable subset `#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}`. Anything else raises `:rf.error/http-bad-retry-on` at dispatch.
     - `:timeout-ms` — per-attempt timeout, default 30000. An explicit `nil` or `0` opts out.
+    - `:rf.http/max-decoded-keys` — per-request cap on unique JSON object keys the decoder interns, default 10000. Overflow fails as `:rf.http/decode-failure` with `:reason :too-many-keys`.
     - `:reply-to` — the unified reply target: one event vector for **both** the success and the failure reply (the app branches on `:status`). The same call-site key resources / mutations use.
     - `:on-success` / `:on-failure` — the split routing sugar: success / failure target events; event vector or nil. Any other value raises `:rf.error/http-bad-reply-target`. The two styles are **exclusive** — `:reply-to` beside either branch key raises the same error with `:reason :mixed-addressing`. Supplying **none** of the three raises `:rf.error/http-no-reply-target` at dispatch.
     - `:request-id` — for abort / supersede.
@@ -141,7 +142,8 @@ A middleware surface that mirrors the rest of the `reg-*` family. Use it to inje
 - **Description**: Unregister an interceptor by id. The public surface is **exact** — the two shapes above, nothing else.
     - `(clear-http-interceptor id)` resolves the frame through the ambient (carried-scope) chain it runs under. Under no scope it raises the always-on `:rf.error/no-frame-context` rather than clearing against a synthesised `:rf/default`.
     - `(clear-http-interceptor id {:frame target})` names the frame explicitly via the trailing opts map, mirroring `reg-http-interceptor`'s `:frame` and the family's public-frame-targeting law (never a positional frame arg on a public surface). `target` is a present, non-nil frame-id keyword or a live frame value.
-    - The two-arity opts map is **fail-closed**: it MUST be exactly `{:frame target}`. A `{}`, a `{:frame nil}`, a typo'd or extra key (`{:fram f}`), and a non-map second arg all raise `:rf.error/http-bad-interceptor` BEFORE any ambient frame is resolved or touched — never reinterpreted as a positional frame nor silently cleared against the ambient scope (rf2-s32bf). This is distinct from the single-arity no-scope `:rf.error/no-frame-context`.
+    - The two-arity opts map is **fail-closed**: it MUST be exactly `{:frame target}`. A `{}`, a `{:frame nil}`, a typo'd or extra key (`{:fram f}`), and a non-map second arg all raise `:rf.error/http-bad-interceptor` BEFORE any ambient frame is resolved or touched — never reinterpreted as a positional frame nor silently cleared against the ambient scope. This is distinct from the single-arity no-scope `:rf.error/no-frame-context`.
+    - Through the façade, `(rf/clear :http-interceptor id opts)` validates the same exact `{:frame target}` shape itself before reaching this fn, so a malformed opts map there raises `:rf.error/registrar-clear-bad-request` instead.
     - The frame-first `(frame id)` spelling is a separate artefact-internal seam (`clear-http-interceptor*`), reached directly by internal cleanup that already holds a resolved frame — frame teardown, actor destroy — **not** a public arity of `clear-http-interceptor`.
 - **Example**:
   ```clojure
@@ -169,11 +171,16 @@ A middleware surface that mirrors the rest of the `reg-*` family. Use it to inje
 
 Test-support surface for driving the pipeline without the network: canned-reply fx, plus a scoped helper that reroutes requests at named routes. None of it is on the `re-frame.core` façade — `with-request-stubs` and the raw `install` / `uninstall` pair are all reached through the home namespace `re-frame.http.test-support`.
 
+```clojure
+(:require [re-frame.http.test-support :as http-test-support])  ;; test-only; also registers the canned fxs
+```
+
 ### `[:rf.http/managed-canned-success {:value v}]`
 
 - **Kind**: fx
 - **Description**: Synthesise the canonical success reply (`{:status :ok :value v}`) directly into `:fx`, for inline "stub THIS request" patterns.
     - `:value` defaults to `{:stubbed true}` when absent.
+    - `:meta` (optional) rides the reply's `:meta` slot verbatim, so header-dependent `:after` middleware is testable without a network. Absent, the reply carries no `:meta`.
     - `:after-ms` (optional) — a positive value defers the reply via a `:dispatch-later` tick. Absent, `0`, or non-positive delivers immediately.
     - Runs the frame's `:before` and `:after` interceptor chains around the synthesised reply, exactly like the real transport path. Reply addressing (`:reply-to` / `:on-success`) applies as for `:rf.http/managed`; an unaddressed stub reply is silently dropped.
     - Registered at load of `re-frame.http.test-support`.
@@ -270,7 +277,7 @@ All test-support surfaces live in `re-frame.http.test-support` — one namespace
     {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}}
     (fn []
       (rf/dispatch-sync [:cart/load])
-      (is (= 1 (count (subscribe-once [:cart/items])))))))
+      (is (= 1 (count (rf/subscribe-once [:cart/items])))))))
 ```
 
 ## Privacy and classification
@@ -336,7 +343,15 @@ The denylists and `:sensitive?` flag cover request carriers. The response body i
 
 | `:operation` | `:op-type` | When |
 |---|---|---|
-| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`. Carries `:request-id`, `:url`, `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` (`nil` on the final exhaustion row). |
+| `:rf.http/issued` | `:info` | One row per issuance, emitted inside the issuing fx handler before any supersession or attempt. Carries `:rf.reply/work-id` (the attempt-1 work id), `:rf.reply/work-kind :http`, `:request-id`, `:url`, `:method`, `:frame`, and `:reply-to` (each branch's target event-id). |
+| `:rf.http/retry-attempt` | `:info` | Per intermediate attempt that matched `:retry :on`. Carries `:request-id`, `:url`, `:attempt`, `:max-attempts`, `:failure`, `:next-backoff-ms` and `:recovery` — a backoff and `:retried` on an intermediate row, `nil` and `:no-recovery` on the final stop row. |
+| `:rf.http/replied` | `:info` | The completion row (success or failure), built from the canonical reply envelope before it is dispatched: identity facts (`:status`, `:rf.reply/work-id`, `:attempt`, `:completed-at`) verbatim, wire-bearing slots (`:value` / `:error` / `:meta`) through the trace elider and the header denylist. |
+| `:rf.http/<category>` | `:error` | A non-abort failure, keyed by its closed-set `:kind` (`:rf.http/timeout`, `:rf.http/http-5xx`, …). Carries the redacted failure map. |
+| `:rf.http/aborted` | `:info` | An abort, whatever its `:reason` (`:user`, `:request-id-superseded`, `:actor-destroyed`, `:frame-destroyed`, `:epoch-restored`, …). Carries `:kind`, `:request-id`, `:reason`, `:actor-id`, `:url`. |
+| `:rf.http/stale-suppressed` | `:info` | An app reply was suppressed (supersession, obsolete actor target, epoch restore, frame destroy). Carries `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`, `:rf.reply/work-id`, `:rf.reply/carried` / `:rf.reply/current`, `:recovery`. |
+| `:rf.http/aborted-on-actor-destroy` | `:info` | One per request cancelled because its spawned actor was destroyed. Carries `:request-id`, `:actor-id`, `:url`. |
+| `:rf.warning/failure-swallowed` | `:warning` | One-shot: a non-abort failure whose reply had no target (`:on-failure nil`, or the branch left unaddressed). Carries `:url`, `:failure`. |
+| `:rf.error/http-reply-tail-failed` | `:error` | Always-on: the reply tail threw after the transport completed (an `:after`, the reply target, or the completion cascade). No retry, no re-send; the reply is not delivered. |
 | `:rf.http.interceptor/registered` | `:info` | A `reg-http-interceptor` succeeded. Carries `:frame`, `:id`. |
 | `:rf.http.interceptor/cleared` | `:info` | A `clear-http-interceptor` removed an existing slot. Carries `:frame`, `:id`. |
 | `:rf.error/http-interceptor-failed` | `:error` | An interceptor `:before` or `:after` threw. Carries `:frame`, `:interceptor-id`, `:url`, `:cause` (plus `:phase :after` on the response side). Request side: the request is NOT dispatched; response side: the reply is suppressed. |

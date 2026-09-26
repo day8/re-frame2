@@ -1,6 +1,6 @@
 # re-frame.ssr.ring
 
-The Ring/Pedestal host adapter for re-frame2 server-side rendering. It materialises the structured response produced by the SSR runtime in [`re-frame.ssr`](re-frame.ssr.md) into the wire format a Ring-compatible server expects. It never writes to a socket directly. The per-request lifecycle, the rendering and head primitives, the SSR events / subs / cofx, and the `:rf.server/*` fx all live in [`re-frame.ssr`](re-frame.ssr.md) (artefact `day8/re-frame2-ssr`), not here.
+The Ring/Pedestal host adapter for re-frame2 server-side rendering. It materialises the structured response produced by the SSR runtime in [`re-frame.ssr`](re-frame.ssr.md) into the wire format a Ring-compatible server expects. It never writes to a socket directly. The per-request lifecycle, the rendering and head primitives, the SSR events / cofx, and the `:rf.server/*` fx all live in [`re-frame.ssr`](re-frame.ssr.md) (artefact `day8/re-frame2-ssr`), not here.
 
 Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — the tutorial](../ssr/concepts.md) for the conceptual walkthrough.
 
@@ -33,6 +33,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
         - Omission throws `:rf.error/ssr-ring-missing-initial-events` at construction.
         - A value that is neither a vector nor a fn, or a fn returning a non-vector, throws `:rf.error/invalid-initial-events` per request.
     - `:root-view` — **required exactly when the renderer is the default** (i.e. when `:renderer` is absent), because only the default JVM-local renderer resolves one. A hiccup vector (e.g. `[(rf/view :app/root)]`) or a 0-arity fn returning hiccup, rendered against the per-request frame after the drain settles. The head must be a **callable** — the Var `rf/reg-view` defs, or `(rf/view :id)`. A keyword head is an HTML element on every host, never a view, so `[:app/root]` renders an empty `<root>` element.
+        - The two spellings emit byte-identical HTML but differ on the hydration hash channel. The resolving fn form `(fn [] ((rf/view :app/root)))` is hashed; the reference form `[(rf/view :app/root)]` is an unresolved root and carries no `data-rf-render-hash` and no payload `:rf/render-hash`, whatever `:emit-hash?` says. A hiccup-tier host that wants mismatch detection uses the fn form.
         - Omission *without* a `:renderer` throws `:rf.error/ssr-ring-missing-root-view` at construction.
         - Any other shape throws `:rf.error/invalid-root-view` at render time.
     - `:payload` — **REQUIRED, fail-closed.** The hydration-payload policy, one opt with two shapes:
@@ -43,7 +44,10 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     Optional opts:
 
     - `:renderer` — the **render-body seam**. A plain fn `(fn [{:keys [frame-id request opts]}] → {:body-html <string> :render-hash <string-or-nil>})`, called once per request inside the request frame's scope, after the boot-event drain and the blocking-resource settle and before head resolution and the payload build consume its result. It receives the live post-drain frame by id, the Ring request and the handler opts — never a hiccup value — and owns body markup plus an optional locally-derived render hash, and nothing else. A `nil` `:render-hash` omits both the `data-rf-render-hash` marker and the payload's `:rf/render-hash`. Omitted, the renderer is the local one (resolve `:root-view` → hash → render), whose bytes and errors are unchanged. A throw is projected like any render-time throw. The one non-local renderer the reference ships is [`re-frame.ssr.ring.node/renderer`](../ssr/concepts.md#render-on-node), the JVM→Node sidecar adapter; `stream-handler` refuses the opt at construction.
-    - `:render-state` — the render-visible state policy a **non-local** renderer projects under, distinct in policy from `:payload` though it shares its two-partition envelope `{:rf/app-db {…} :rf/runtime-db {…}}`. A fail-closed per-partition allowlist of top-level keys, or a `(fn [frame-id] → partitions)` projector. Unused by the default local renderer, which reads the frame directly. See [Render on Node](../ssr/concepts.md#render-on-node) for why the two policies differ.
+    - `:render-state` — **not an `ssr-handler` opt**: it is a required opt of `re-frame.ssr.ring.node/renderer`, and a copy written at the handler's top level is silently ignored. It is the render-visible state policy that non-local renderer projects under, distinct in policy from `:payload` though it shares its two-partition envelope `{:rf/app-db {…} :rf/runtime-db {…}}`: a fail-closed per-partition allowlist of top-level keys, or a `(fn [frame-id] → partitions)` projector. See [Render on Node](../ssr/concepts.md#render-on-node) for why the two policies differ.
+    - `:payload-include-sensitive` — a vector of app-db paths the frame classifies `:sensitive` whose raw value may ride the payload anyway (e.g. `[[:session :csrf]]`). Paths inside the `:payload` allowlist only; absent, every classified value ships as `:rf/redacted`. A malformed value throws `:rf.error/ssr-malformed-payload-allowlist` at construction.
+    - `:client-frame-id` — a stable frame id stamped as the payload's wire `:rf/frame-id`, for a deployment where server and client agree on one ahead of time. Default `nil`: the payload omits `:rf/frame-id`. Never a per-request gensym — the client rejects a present-and-different id as `:rf.error/hydration-frame-id-mismatch`.
+    - `:url-strategy` — the per-request frame's `:url-strategy`, threaded into `make-frame` so `route-link` hrefs in the server markup encode as the hydrated client re-encodes them. A malformed value (an explicit `nil` included) fails the request with `:rf.error/invalid-url-strategy` through `:on-error`.
     - `:fx-overrides` — per-frame `:fx-overrides` map, passed through verbatim (e.g. to stub `:rf.http/managed` in tests).
     - `:ssr` — per-frame `:ssr` config map, e.g. `{:dev-error-detail? true :public-error-id :myapp/projector}`.
     - `:emit-hash?` — embed `data-rf-render-hash` on the root element; default `true`.
@@ -56,8 +60,8 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 
     | Aspect | `:error-view` | `:on-error` |
     |---|---|---|
-    | Which failure? | A projected **5xx** the error projector catches: a drain-time handler/fx/sub exception, a render-time view throw, or an unrenderable root/shell throw. A projected **4xx** does NOT reach it — the app keeps its own body. | A transport / Ring-layer failure the projector cannot see: a per-request frame setup throw, a render-time CLJ exception, a header/cookie materialise throw, or a thrown initial-event. |
-    | What does it produce? | The projected error-page body (hiccup): a registered-view keyword (resolved as `[error-view public-error]`) or a `(public-error) → hiccup` fn. It renders through the standard SSR emitter, with no app body / hydration payload alongside it. | A raw Ring response map `{:status … :headers … :body …}` returned verbatim to the server. |
+    | Which failure? | A projected **5xx** the error projector catches: a drain-time handler/fx/sub exception, a render-time view throw, or an unrenderable root/shell throw. A projected **4xx** does NOT reach it — the app keeps its own body. | A transport / Ring-layer failure the projector cannot see: a per-request frame setup throw, a header/cookie materialise throw, or a thrown initial-event. |
+    | What does it produce? | The projected error-page body (hiccup): a registered-view keyword (resolved as `[(rf/view error-view) public-error]`; an unregistered keyword falls back to the default template) or a `(public-error) → hiccup` fn. It renders through the standard SSR emitter, with no app body / hydration payload alongside it. | A raw Ring response map `{:status … :headers … :body …}` returned verbatim to the server. |
     | What is its input? | ONLY the public-error map, sanitised by the projector and safe to render (never the request, throwable, or frame). | The raw `(request throwable)`, carrying the unsanitised throwable. The locked default never reads it. |
     | Default when omitted? | Minimal default error template (absence does NOT keep the root body). | Minimal locked 500 ([`default-on-error`](#default-on-error), topology-leak-safe). |
 
@@ -74,9 +78,10 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   ```clojure
   (require '[ring.adapter.jetty :as jetty]
            '[re-frame.core      :as rf]
+           '[re-frame.ssr       :as ssr]
            '[re-frame.ssr.ring  :as ssr.ring])
 
-  (rf/init! (requiring-resolve 'my-app/ssr-adapter))
+  (rf/init! ssr/adapter)
 
   (def handler
     (ssr.ring/ssr-handler
@@ -112,15 +117,19 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
     - The shell renders on the request thread, before the chunked head commits. A root-view or shell-walk throw fails closed to a non-200 projected error page (`:rf.error/ssr-render-failed` via the projector), with no writer thread spawned.
     - Any `Content-Length` header accumulated during the drain is stripped (case-insensitively) so the host server owns chunked transfer framing.
 
-    Opts mirror `ssr-handler`: `:initial-events` (both vector and `(fn [request] → …)` forms), `:root-view`, `:payload`, `:fx-overrides`, `:ssr`, `:on-error`, `:error-view`, `:emit-hash?`, `:version`, `:schema-digest`, `:content-type`, plus the four trusted shell-hook opts (`:head` / `:body-end` / `:script-src` / `:app-element-id`, honoured by [`default-streaming-prefix`](#default-streaming-prefix) / [`default-streaming-suffix`](#default-streaming-suffix)).
+    Opts mirror `ssr-handler`: `:initial-events` (both vector and `(fn [request] → …)` forms), `:root-view`, `:payload`, `:payload-include-sensitive`, `:client-frame-id`, `:url-strategy`, `:fx-overrides`, `:ssr`, `:on-error`, `:error-view`, `:emit-hash?`, `:version`, `:schema-digest`, `:content-type`, plus the four trusted shell-hook opts (`:head` / `:body-end` / `:script-src` / `:app-element-id`, honoured by [`default-streaming-prefix`](#default-streaming-prefix) / [`default-streaming-suffix`](#default-streaming-suffix)).
 
-    One exception: `:html-shell` is not supported and is rejected at construction (`:rf.error/ssr-streaming-unsupported-opt`). The streaming path flushes a split prefix/suffix straddling the continuation chunks, so a one-piece shell callback can never run. Customise the streaming envelope through the trusted shell-hook opts, or use `ssr-handler` when a bespoke one-piece shell is required.
+    Two exceptions, both rejected at construction with `:rf.error/ssr-streaming-unsupported-opt`:
+
+    - `:html-shell` — the streaming path flushes a split prefix/suffix straddling the continuation chunks, so a one-piece shell callback can never run. Customise the streaming envelope through the trusted shell-hook opts, or use `ssr-handler` when a bespoke one-piece shell is required.
+    - `:renderer` — the shell and every continuation render from the JVM-resolved `:root-view`, so a body rendered whole elsewhere has nothing to straddle. `:root-view` therefore stays required here.
 
     Concurrency model: one raw daemon `java.lang.Thread` per in-flight streamed request. There is no framework pool and no framework in-flight cap. Every writer's `catch`/`finally` closes the pipe and tears the frame down on every exit path (no-leak). The in-flight ceiling is the host server's accept-queue / worker-thread limit (Jetty / http-kit / Aleph). Operators size that limit as the one knob for high streaming concurrency or slow-client hardening.
 
 - **Example**:
   ```clojure
   (require '[ring.adapter.jetty :as jetty]
+           '[re-frame.core      :as rf]
            '[re-frame.ssr.ring  :as ssr.ring])
 
   ;; Same opts as ssr-handler, minus :html-shell (rejected at construction).
@@ -220,7 +229,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
   ```clojure
   (default-on-error request throwable) → ring-response
   ```
-- **Description**: The minimal 500 response used when a handler caller omits `:on-error`. Shared by `ssr-handler` and `stream-handler`, so the topology-leak contract lives in one place. It covers exceptions the SSR error projector can't see: Ring-layer throws, render-time CLJ exceptions, and writer-thread-pre-spawn throws. Trace-emitted drain errors are handled by the projector instead.
+- **Description**: The minimal 500 response used when a handler caller omits `:on-error`. Shared by `ssr-handler` and `stream-handler`, so the topology-leak contract lives in one place. It covers exceptions the SSR error projector can't see: per-request setup throws, response-materialisation (header / cookie) throws, and the streaming handler's pre-spawn throws. Drain-time and render-time errors are handled by the projector instead.
 
     The body must not leak the throwable's message: `.getMessage` carries internal topology, such as JDBC URLs, deploy-root file paths, partial SQL, and server-internal class names. So the fn ignores the throwable and emits a fixed generic plaintext body. Apps wanting a branded transport-failure body supply an explicit leak-safe `:on-error` fn that returns a fixed response and ignores the throwable. Exposed as a value: a 2-arity fn, not a `defn`, so it carries no `:arglists`.
 
@@ -297,7 +306,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 
     - `:name` must be a string or a keyword/symbol, and it must match the RFC 6265 §4.1.1 token grammar. Either violation throws `:rf.error/cookie-invalid-name`.
     - A missing `:name` throws `:rf.error/cookie-missing-name`.
-    - `:domain` / `:path` / `:max-age` / `:same-site` are checked for CR / LF / NUL before concatenation; a violation throws `:rf.error/cookie-invalid-attribute`. This closes header-splitting injection.
+    - `:domain` / `:path` / `:max-age` / `:same-site` are checked for CR / LF / NUL and the raw `;` attribute delimiter before concatenation; a violation throws `:rf.error/cookie-invalid-attribute`. This closes header-splitting and attribute injection.
     - A non-integer `:expires` throws `:rf.error/cookie-invalid-expires`.
 - **Example**:
   ```clojure
@@ -313,7 +322,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact. See [Server-side rendering — 
 
 ## See also
 
-- [`re-frame.ssr`](re-frame.ssr.md) — the SSR runtime: `render-to-string`, the streaming triple, the head model (`reg-head` / `head-model`), error projection (`reg-error-projector` / `project-error`), the SSR events / subs / cofx, and the per-request `:rf.server/*` fx.
-- [`re-frame.core`](re-frame.core.md) — `init!`, `make-frame`, `reg-event`, and the render / head primitives re-exported on the facade.
+- [`re-frame.ssr`](re-frame.ssr.md) — the SSR runtime: `render-to-string`, the streaming triple, the head model (`reg-head` / `head-model`), error projection (`reg-error-projector` / `project-error`), the SSR events / cofx, and the per-request `:rf.server/*` fx.
+- [`re-frame.core`](re-frame.core.md) — `init!`, `make-frame`, `reg-event`, and the `reg-head` / `reg-error-projector` registrars re-exported on the facade.
 - [`re-frame.routing`](re-frame.routing.md) — routes opt into per-route head models via `:head` metadata.
 - [Server-side rendering — the tutorial](../ssr/concepts.md) — the conceptual walkthrough.
