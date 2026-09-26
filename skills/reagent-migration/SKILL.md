@@ -65,7 +65,7 @@ So rewriting views into Fresco is a **separate, optional second step, and it is 
 
 ## Start with the reporter — it is a real tool and it runs first
 
-Unlike the view rewrite, the **prop-dialect fixer and the view-substrate API census are automated**, and they run before you touch anything:
+The **prop-dialect fixer and the view-substrate API census are automated**, and they run before you touch anything. From the consumer's own project — no re-frame2 checkout is needed, and none is created:
 
 ```bash
 clojure -Srepro \
@@ -73,29 +73,17 @@ clojure -Srepro \
                   {:git/url   "https://github.com/day8/re-frame2.git"
                    :git/sha   "8b17cc53d517de9359f5174a0d2fcfa4748091ab"
                    :deps/root "migration/reagent-to-fresco/codemod"}}}' \
-  -M -m re-frame.migration.fresco.codemod path/to/consumer/src/
+  -M -m re-frame.migration.fresco.codemod path/to/consumer/src/ --report out.edn
 ```
 
-Expect one stderr line, `Use of :paths external to the project has been
-deprecated` — the tool puts one shared `.cljc` slot file on its own classpath
-deliberately, and the codemod's `deps.edn` records that a `:local/root` is not
-the fix. It is not a failure; read the report.
+It reads source text on a bare JVM, loads no re-frame2, touches no file, and writes an EDN report (without `--report`, `reagent-to-fresco-report.edn` beside the first path scanned). Expect one stderr line, `Use of :paths external to the project has been deprecated`: the tool puts a shared `.cljc` file on its own classpath deliberately, so it is not a failure. The Fresco jar does not carry the reporter, so this git coordinate is how it is delivered; pin a newer `:git/sha` from `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` if you want one.
 
-Run it from the consumer's own project — no re-frame2 checkout is needed, and
-none is created. The published Fresco artefact does not carry the reporter, so
-this coordinate is how the tool is delivered rather than a pre-publication
-detour; pin a newer `:git/sha` from
-`git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` whenever
-you want one.
+The report has two halves that answer different questions:
 
-The reporter reads source text on a bare JVM, loads no re-frame2, and writes a deterministic EDN report with two halves that answer different questions:
+- **The census** (`:census`) — every rostered view-substrate API **call site**, across Reagent's API and re-frame2's own adapters under `re-frame.adapter.`. It sizes the job, and its classes route to MIG rules.
+- **The fixer** (`:entries`) — every `[:> …]`-family crossing into React, where Reagent converted the prop dialect and Fresco does not. Six rewrite families (W1–W6) are decidable from source text; everything else is a named refusal with a recovery sentence.
 
-- **The fixer** (`:entries`) — every `[:> …]`-family crossing into React. Reagent converted the prop dialect at those sites and Fresco does not, so a crossing can keep rendering while sending different values. Six rewrite families (W1–W6) are decidable from source text; everything else is a named refusal with a recovery sentence.
-- **The census** (`:census`) — every rostered view-substrate API **call site**, across two rosters: Reagent's API (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounting, and the `reagent2.*` namespaces the reagent-slim adapter ships), and re-frame2's own substrate adapters under `re-frame.adapter.`. The second roster exists because a re-frame2 application on the Reagent adapter calls no Reagent API of its own, and a Reagent-only census scored it at zero. This is the inventory that tells you how big the job actually is, and it is the half a `[:>]`-only report leaves invisible.
-
-Read the report first. It is exhaustive over what it touched or refused and carries a count of sites left alone, so *"not in the report"* is unambiguous. Its `h/defhost` sketches list the callback positions a site uses, and the usual case needs no `:callbacks` at all — Fresco infers the contract from the spelling. The one thing to check against the library's own documentation is each `on*`-named prop: a render prop the vendor named `on*` (Fluent's `onRenderCell`, Ant's `onRow`) would infer `:event`, whose wrapper returns `nil` and blanks the UI, so that prop gets a `{:callbacks {… :render}}` override on the host.
-
-`--rewrite --write` applies only the six decidable families, and it is the LAST step, not the first: port and prove a screen by hand, then apply the mechanical edits. Full detail is in the codemod's own README.
+How to read both halves, and what the report cannot see, is [`references/procedure.md`](references/procedure.md) Step 0. `--rewrite` turns the same command into a dry run of the fixer and `--rewrite --write` **rewrites the consumer's files** — the six decidable families only — which is the LAST step of a migration, not the first (Step 6).
 
 ## The mental model (read this before touching a view)
 
