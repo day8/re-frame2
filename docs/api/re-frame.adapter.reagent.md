@@ -2,7 +2,7 @@
 
 Use this namespace to run a re-frame2 app on Reagent, the default browser substrate. It provides the `adapter` you pass to `rf/init!` at boot, and the `client-root`, `render!` and `unmount!` functions your entry namespace mounts the app through.
 
-It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim), and both publish this namespace; the variants are compared under [`adapter`](#adapter).
+Pick it when your views are hiccup; it is the default substrate and the one the guide uses. If your components are React function components written with UIx hooks, use [`re-frame.adapter.uix`](re-frame.adapter.uix.md) instead. It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-slim` (slim), and both publish this namespace; the variants, and when to pick slim, are compared under [`adapter`](#adapter).
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -25,7 +25,7 @@ It ships in two artefacts, `day8/re-frame2-reagent` (full) and `day8/reagent-sli
   (mount!))
 ```
 
-Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md), and works the same on every substrate: `reg-view`, `frame-root`, `frame-provider`, `capture-frame`, `with-frame`, and the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. There are no hooks here: a view registered with `reg-view` gets `dispatch` and `subscribe` injected instead. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it. [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) walks through the entry namespace.
+Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md): `reg-view`, the `frame-root` and `frame-provider` components, `capture-frame`, `with-frame`, and the lifecycle functions `init!`, `destroy-adapter!` and `current-adapter`. There are no hooks here: a view registered with `reg-view` gets `dispatch` and `subscribe` injected instead. The dependency is one-way: this namespace requires `re-frame.core`, and core never requires it. [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) walks through the entry namespace.
 
 ## Adapter spec
 
@@ -55,20 +55,20 @@ Everything else a Reagent app calls is on [`re-frame.core`](re-frame.core.md), a
   (rf/init! reagent-adapter/adapter)   ;; install the substrate once, at boot
   ```
 
-Reagent ships in two variants. Both publish their adapter as `re-frame.adapter.reagent`, so the require and the `init!` line are the same; the Maven coordinate in your `deps.edn` selects the variant, and a build depends on one of them only.
+Reagent ships in two variants. Both publish their adapter as `re-frame.adapter.reagent`, so the require and the `init!` line are the same; the Maven coordinate in your `deps.edn` selects the variant, and a build depends on one of them only. Start on full, and move to slim once you have measured that bundle size matters.
 
 | Variant | Maven coordinate | Adapter ns (require) | Includes | Use when |
 |---|---|---|---|---|
-| Full | `day8/re-frame2-reagent` | `re-frame.adapter.reagent` | stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`) | client apps that may also render to a string on the JVM |
-| Slim | `day8/reagent-slim` | `re-frame.adapter.reagent` | the `reagent2` rewrite; static HTML export via a pure-CLJS `reagent2.dom.server`, no `react-dom/server` | browser-only bundles; ~7–10 KB gzipped smaller (up to ~22–27 KB where the HTML-export path was in play) |
+| Full | `day8/re-frame2-reagent` | `re-frame.adapter.reagent` | stock Reagent (`reagent.core`, `reagent.dom.client`, `reagent.dom.server`) | the default; any app that uses stock Reagent APIs the slim rewrite leaves out, such as `reagent.dom.server` |
+| Slim | `day8/reagent-slim` | `re-frame.adapter.reagent` | the `reagent2` rewrite; static HTML export via a pure-CLJS `reagent2.dom.server`, no `react-dom/server` | browser-only bundles where size is measured to matter; ~7–10 KB gzipped smaller (up to ~22–27 KB where the HTML-export path was in play) |
 
 A `:git/sha` dependency on this repository is the exception to the shared name. The repository carries both adapters on one classpath, so there the slim adapter is `re-frame.adapter.reagent-slim`; the published jar renames it to `re-frame.adapter.reagent`.
 
-A build on the slim variant includes neither stock Reagent nor `react-dom/server`. Switching an app from full to slim is a four-line change, shown in [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
+A build on the slim variant includes neither stock Reagent nor `react-dom/server`, so app code that requires a `reagent.*` namespace requires its `reagent2.*` counterpart instead (`reagent2.core`, `reagent2.dom.client`). Switching an app from full to slim is a four-line change, shown in [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
 
 ## The client root
 
-A browser app needs one React root for the life of the page: created once, updated on every hot reload, released on teardown. `client-root`, `render!` and `unmount!` manage that root, so your entry namespace never creates one or touches `reagent.dom.client`. Allocate the handle under a `defonce` and call `render!` from the `^:dev/after-load` hook, as in the example at the top of this page.
+A browser app needs one React root for the life of the page: created once, updated on every hot reload, released on teardown. `client-root`, `render!` and `unmount!` manage that root, so your entry namespace never creates one or touches `reagent.dom.client`. Allocate the handle under a `defonce` and call `render!` from the `^:dev/after-load` hook, as in the example at the top of this page, with `run` as the build's `:init-fn`. On a hot reload shadow-cljs calls `mount!` again: the `defonce` keeps the handle, `render!` updates the same root, and `frame-root` reuses the live frame without re-running `:initial-events`, so app-db survives the reload.
 
 The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exactly once.
 
@@ -95,7 +95,7 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
   (render! handle render-tree mount-point opts)
   ```
 - **Description**: Renders `render-tree` (hiccup) into the DOM element `mount-point` through `handle`: the first call creates the React root, and every later call updates it. Returns nil.
-    - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time.
+    - With `{:hydrate? true}` the first call hydrates the server-rendered markup already inside `mount-point` instead (see [`re-frame.ssr`](re-frame.ssr.md)). Later calls never create a second root or hydrate a second time. `:hydrate?` is the only `opts` key.
     - Because later calls update the same root, one call serves as both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
     - After `unmount!`, or after `rf/destroy-adapter!` has released the root, the next `render!` mounts afresh.
 - **Example**:
@@ -129,16 +129,16 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
   (flush-views!)
   (flush-views! f)
   ```
-- **Description**: Flushes pending Reagent renders synchronously inside React's `act()`, for tests. Returns nil.
+- **Description**: Flushes pending Reagent renders synchronously inside React's `act()`, for tests. Returns nil. Use it when a test mounts into a real DOM and must let React commit before it reads the DOM; most Reagent view tests need no DOM, and call the view and walk its hiccup with [`re-frame.test-helpers`](re-frame.test-helpers.md) instead.
     - 0-arity: drains the queued renders and effects.
     - 1-arity: runs the thunk `f`, then drains the renders, inside `act()`.
     - When `act()` is not available in the current React build, it flushes without it: `f` still runs and the render queue still drains.
-    - Do not call it from inside a `dispatch-sync` handler; it runs a render.
-    - [`re-frame.adapter.uix`](re-frame.adapter.uix.md#flush-views) publishes a `flush-views!` with the same name and nil return.
+    - It settles what the test drives: a mount, or a `dispatch-sync` run inside `f`. A `dispatch` queues on the router instead, so wait for it with `re-frame.test-support/poll-until`. Do not call it from inside a `dispatch-sync` handler; it runs a render.
+    - [`re-frame.adapter.uix`](re-frame.adapter.uix.md#flush-views) publishes a `flush-views!` with the same name and nil return; without `act()`, that one does nothing and does not run `f`.
 - **Example**:
   ```clojure
-  (reagent-adapter/flush-views!)               ;; drain queued renders + effects
-  (reagent-adapter/flush-views! (fn [] nil))   ;; run the thunk inside act()
+  (reagent-adapter/flush-views!)                                    ;; drain queued renders + effects
+  (reagent-adapter/flush-views! #(rf/dispatch-sync [:counter/inc]))  ;; dispatch, then commit the re-render
   ```
 
 ## Server-side rendering
@@ -150,8 +150,10 @@ The raw React root is never exposed. `rf/destroy-adapter!` also releases it, exa
   ```clojure
   (set-hiccup-emitter! f)
   ```
-- **Description**: Installs the function render-to-string uses to turn a render tree into HTML. Requiring [`re-frame.ssr`](re-frame.ssr.md) installs it for you, so you rarely call this directly.
+- **Description**: Installs the function the adapter's `render-to-string` uses to turn a render tree into HTML. Requiring [`re-frame.ssr`](re-frame.ssr.md) installs it for you, so you rarely call this directly.
+    - `f` takes the render tree and an opts map, and returns an HTML string.
     - Last call wins; pass `nil` to reset.
+    - With no emitter installed, `render-to-string` raises `:rf.error/no-hiccup-emitter-bound`.
     - The UIx adapter has the same function.
 - **Example**:
   ```clojure

@@ -1,26 +1,36 @@
 # re-frame.performance
 
-Measure how long events, subscriptions, effects and view renders take in a production build. With timing on, re-frame2 records each one as a User Timing measure, so browser DevTools, an APM or any `PerformanceObserver` can read it. This is separate from the trace stream, which exists only in development builds.
+Measure how long events, subscriptions, effects and view renders take in a production build. With timing on, re-frame2 records each one as a User Timing measure, so browser DevTools, an APM or any `PerformanceObserver` can read it. This is separate from the trace stream, which exists only in development builds: in development, Xray and the trace stream already time each run and also say why it ran, so reach for this when you need timings from the build you ship.
 
 ```clojure
 (:require [re-frame.performance :as perf])
 ```
 
-Nothing in this namespace is called at runtime, so the `:as perf` alias is shown only for consistency with the other pages. You turn timing on with two compile-time flags, named fully qualified in your build's `:closure-defines`:
+You never call anything in this namespace, so application code does not need that require. You turn timing on with two compile-time flags, named fully qualified in your build's `:closure-defines`:
 
 ```clojure
-;; shadow-cljs.edn — flip the compile-time gate. Default off:
-;; with the default, every measure site is removed under :advanced.
+;; shadow-cljs.edn
 {:builds {:app {:compiler-options
                 {:closure-defines {re-frame.performance/enabled? true}}}}}
 ```
 
-- Each measure is named `rf:<kind>:<id>`: `rf:event:<event-id>`, `rf:sub:<query-id>`, `rf:fx:<fx-id>` or `rf:render:<view-id>`. A keyword id is written without its leading colon, as in `rf:event:todo/add`. No `performance.mark` entries are created.
+- Each measure is named `rf:<kind>:<id>`: `rf:event:<event-id>` for an event handler, `rf:sub:<query-id>` for a subscription recompute (a cached read records nothing), `rf:fx:<fx-id>` for an effect handler, or `rf:render:<view-id>` for a render of a view registered with `reg-view` or defined with Fresco's `defview`. A keyword id is written without its leading colon, as in `rf:event:todo/add`. No `performance.mark` entries are created.
 - Measures are delivered to observers, then cleared by name straight after they are emitted, so `performance.getEntriesByType("measure")` returns none of them unless `retain-entries?` is on.
 - Both flags are off by default. With the defaults, an `:advanced` build removes every timing call, so a shipped binary carries no User Timing code.
 - CLJS only. On the JVM both flags are constant `false` and timing does nothing, because the Performance API exists only in the browser.
 
-[Find and fix a slow view](../core/how-to/fix-a-slow-view.md) shows how to turn timing on and read the entries.
+To look at the measures, record a profile in the browser DevTools **Performance** panel: each one appears as a named bar on the timeline (the Timings track in Chrome), beside React's renders, layout and paint. The panel captures entries as they are emitted, so it sees them without `retain-entries?`. For telemetry, attach a `PerformanceObserver` and forward the `rf:` measures to your APM:
+
+```clojure
+(.observe (js/PerformanceObserver.
+            (fn [entries _]
+              (doseq [e (.getEntries entries)
+                      :when (.startsWith (.-name e) "rf:")]
+                (js/console.log (.-name e) (.-duration e)))))   ;; or send to your APM
+          #js {:type "measure"})
+```
+
+[Find and fix a slow view](../core/how-to/fix-a-slow-view.md) walks through turning timing on and reading the entries.
 
 ## Compile-time flags
 
@@ -39,8 +49,8 @@ Nothing in this namespace is called at runtime, so the `:as perf` alias is shown
 - **Kind**: var (compile-time `goog-define` boolean)
 - **Signature**: set with `:closure-defines {re-frame.performance/retain-entries? true}` (CLJS). On the JVM it is a constant `false`.
 - **Description**: Keeps measure entries in the browser's User Timing buffer instead of clearing each one after it is emitted. Default `false`.
-    - Turn it on for one-shot reads with `performance.getEntriesByType("measure")` from DevTools or the console.
-    - Leave it off for long-running sessions such as real-user monitoring. Each entry is then delivered to any live `PerformanceObserver` and cleared, so the buffer does not grow and `getEntriesByType` returns no `rf:*` entries.
+    - Turn it on for one-shot reads with `performance.getEntriesByType("measure")` in the console. A DevTools Performance recording does not need it.
+    - Leave it off for long-running sessions such as real-user monitoring. The browser's measure buffer has no size limit, so retained entries accumulate for the life of the page. With it off, each entry is delivered to any live `PerformanceObserver` and cleared, so the buffer does not grow and `getEntriesByType` returns no `rf:*` entries.
     - It has no effect unless `enabled?` is also on.
     - Like `enabled?`, it is read at compile time only; changing it at runtime has no effect.
 - **Example**:

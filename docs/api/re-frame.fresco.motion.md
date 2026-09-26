@@ -1,6 +1,6 @@
 # re-frame.fresco.motion
 
-Use this module to animate children as they enter and leave. React removes a node
+Use this module when children should animate as they leave. React removes a node
 the instant its data leaves `app-db`, and a node that is gone cannot fade, so
 `presence` keeps exiting children for a stated `:timeout-ms` and applies the phase
 attributes you wrote on them. CSS declares the transition and the browser runs it.
@@ -23,7 +23,7 @@ the marker keywords and the phase table.
 
 ### `presence`
 
-- **Kind**: var (view)
+- **Kind**: var (usable as a hiccup head)
 - **Signature**:
   ```clojure
   [motion/presence {:timeout-ms ms} keyed-child …]
@@ -32,6 +32,12 @@ the marker keywords and the phase table.
   merges each child's own `::motion/mounting` or `::motion/unmounting` map into it
   while it is in that phase: into an element's attributes, or into a view's props,
   the same map either way.
+    - Every child must be a hiccup vector with a `:key` in its props map: the key is
+      how `presence` recognises a child across renders.
+    - Write the phase maps on the child you hand to `presence`, not inside a child
+      view's body, where `presence` cannot see them. A view child receives the map
+      merged into its props, under names you choose:
+      `[toast-card {:key id :toast t ::motion/unmounting {:exiting? true}}]`.
     - It inserts no wrapper node and adds no `data-*` attribute: every child it
       renders is your own node with your own attributes merged.
     - `:timeout-ms` is required. It is both the retention length and a hard upper
@@ -39,6 +45,15 @@ the marker keywords and the phase table.
     - It does no per-frame work: a transition costs one timer per outstanding
       deadline. A key that returns while it is exiting goes back to present on the
       node it already had, with no remount and no restarted exit.
+    - `::motion/mounting` applies while a child is entering, but an enter animation
+      driven by it alone can race the first paint. Animate entry with a CSS
+      animation on insertion or `@starting-style` instead.
+    - It dispatches no events of its own when a child enters or leaves.
+- **Errors**:
+    - `:rf.error/fresco-presence-timeout-required` when `:timeout-ms` is missing or
+      not a positive number.
+    - `:rf.error/fresco-presence-child-unkeyed` on a child that is not a hiccup
+      vector with a `:key`.
 - **Example**:
   ```clojure
   (h/defview toast-tray [_]

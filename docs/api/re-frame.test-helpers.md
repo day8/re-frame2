@@ -12,7 +12,7 @@ Helpers for testing views without a browser. A view returns [hiccup](../core/glo
   (is (= "Count: 5" (th/text-content label))))
 ```
 
-Everything here, the [connected view test](#a-connected-view-test) included, runs on the JVM with no DOM, no React and no `act()`. Its companion [`re-frame.test-support`](re-frame.test-support.md) holds the fixtures that reset the runtime between tests; a test that checks both state and views requires both. To assert on rendered HTML markup rather than on structure or handlers, use `render-to-string` from [re-frame.ssr](re-frame.ssr.md). [Test a view](../core/testing/views.md) walks through a complete view test.
+Everything here, the [connected view test](#a-connected-view-test) included, runs on the JVM with no DOM, no React and no `act()`. It needs a view you can call as a function, as a Reagent view is. A UIx `defui` that calls `use-sub` or `use-frame` only runs inside React's render, so mount it instead, as in [Test a view §4](../core/testing/views.md#4-uix-hook-components-mount-it-for-real). Its companion [`re-frame.test-support`](re-frame.test-support.md) holds the fixtures that reset the runtime between tests; a test that checks both state and views requires both. To assert on rendered HTML markup rather than on structure or handlers, use `render-to-string` from [re-frame.ssr](re-frame.ssr.md). [Test a view](../core/testing/views.md) walks through a complete view test.
 
 ## Reading hiccup nodes
 
@@ -96,7 +96,7 @@ These walk the whole tree, expanding components as they go, and work with any at
   ```clojure
   (find-all-by-attr tree attr val) → vector
   ```
-- **Description**: Returns every matching node, in depth-first order.
+- **Description**: Returns every node whose attrs map has `attr` equal to `val`, in depth-first order, or an empty vector when nothing matches.
 - **Example**:
   ```clojure
   (th/find-all-by-attr tree :data-test "row")  ; => every matching node
@@ -109,7 +109,7 @@ These walk the whole tree, expanding components as they go, and work with any at
   ```clojure
   (find-by-attr-prefix tree attr prefix) → vector
   ```
-- **Description**: Returns every node whose `attr` value is a string starting with `prefix`. Non-string values never match.
+- **Description**: Returns every node whose `attr` value is a string starting with `prefix`, or an empty vector when nothing matches. Non-string values never match.
 - **Example**:
   ```clojure
   ;; Matches "row-1", "row-2", …
@@ -170,9 +170,10 @@ The same three searches, keyed on `:data-testid`.
   (invoke-handler node event-key & args) → any
   ```
 - **Description**: Calls the handler under `event-key` on `node` with `args` and returns its value. Use it to click a button or change an input in a test.
-    - An ordinary `dispatch` inside the handler only queues the event, so `app-db` has not changed yet when `invoke-handler` returns. Wait for the result with `re-frame.test-support/poll-until`, in the same fixture-owned frame the click dispatched into. A handler that calls `dispatch-sync` drains in place.
+    - An ordinary `dispatch` inside the handler only queues the event, so `app-db` has not changed yet when `invoke-handler` returns. Wait for the result with [`re-frame.test-support/poll-until`](re-frame.test-support.md#poll-until), in the same fixture-owned frame the click dispatched into. A handler that calls `dispatch-sync` drains in place.
+    - On CLJS, do not wrap the click and the wait in `rf/with-new-frame`: `poll-until` returns a Promise at once, so the body returns and destroys the frame before the queued event drains. On the JVM, `poll-until` blocks inside the body, so the frame outlives the wait.
     - A missing handler is treated as a test bug, so it throws:
-        - `:rf.error/invoke-handler-bad-node`: `node` is not a hiccup vector.
+        - `:rf.error/invoke-handler-bad-node`: `node` is not a hiccup vector. A `find-by-testid` that matched nothing returns `nil`, which lands here.
         - `:rf.error/invoke-handler-missing`: there is no handler fn under `event-key`, including when the node has no attrs map.
 - **Example**:
   ```clojure
@@ -191,15 +192,14 @@ The same three searches, keyed on `:data-testid`.
   (testid id extra) → map
   ```
 - **Description**: Returns an attrs map carrying `:data-testid id`, for use in a view; find the node again with `find-by-testid`. The 2-arity merges `extra` into the map, and `:data-testid` always wins on collision.
+    - In a `rf/reg-view` body, write the callback with the `dispatch` that `reg-view` provides, as below; the closure captures it. A bare `rf/dispatch` in the callback runs after the render scope has unwound, finds no frame in scope (there is no fallback to `:rf/default`), and raises `:rf.error/no-frame-context`.
 - **Example**:
-    ```clojure
-    (rf/reg-view counter-inc-button []
-      [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])})
-       "+"])
-    ;; the button node => [:button {:data-testid "counter-inc" :on-click ...} "+"]
-    ```
-
-    `dispatch` here is the local that `rf/reg-view` provides, and the `:on-click` closure captures it. A bare `rf/dispatch` in the callback runs after the render scope has unwound, finds no frame in scope (there is no fallback to `:rf/default`), and raises `:rf.error/no-frame-context`.
+  ```clojure
+  (rf/reg-view counter-inc-button []
+    [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])})
+     "+"])
+  ;; the button node => [:button {:data-testid "counter-inc" :on-click ...} "+"]
+  ```
 
 ## Tree expansion
 
@@ -224,41 +224,52 @@ The same three searches, keyed on `:data-testid`.
 
 A view that subscribes or dispatches needs a frame in scope. There is no dedicated single-frame fixture; combine three pieces:
 
-1. `re-frame.test-support/make-reset-runtime-fixture`, given an `:adapter` (and optionally an `:init-fn` holding the `reg-event` / `reg-sub` / `reg-view` calls the test relies on), seats the ambient `:rf/default` frame and rolls the registrar back between tests.
+1. `re-frame.test-support/make-reset-runtime-fixture`, given an `:adapter` (and optionally an `:init-fn` for per-test setup), seats the ambient `:rf/default` frame and rolls the registrar back between tests.
 2. The functions on this page: call the root view function directly and walk the tree it returns.
 3. `re-frame.test-support/poll-until`, for async work (a queued `dispatch`, an HTTP reply, a machine `:after`) whose result shows up in the re-rendered view.
 
 ```clojure
-(ns my-app.views-test
+(ns my-app.counter-view-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as ts]
-            [re-frame.test-helpers :as th]
-            [my-app.counter :as counter]))
+            [re-frame.test-helpers :as th]))
+
+;; The app under test. In a real suite, require your app's namespaces instead.
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+
+(rf/reg-sub :counter/n
+  (fn [db _] (:n db 0)))
+
+(rf/reg-view counter-view []
+  [:div
+   [:span (th/testid "counter-display") @(subscribe [:counter/n])]
+   [:button (th/testid "counter-inc" {:on-click #(dispatch [:counter/inc])}) "+"]])
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter  counter/test-adapter   ;; your substrate adapter
-                                  :init-fn  counter/install!}))     ;; reg-event / reg-sub
+  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 ;; Synchronous: dispatch-sync drains before the assertion, so walk the
 ;; re-rendered view directly.
-(deftest counter-increments
+(deftest counter-shows-the-count
   (rf/dispatch-sync [:counter/inc])
   (rf/dispatch-sync [:counter/inc])
   (is (= "2" (th/text-content
-               (th/find-by-testid (counter/main) "counter-display")))))
+               (th/find-by-testid (counter-view) "counter-display")))))
 
-;; Async: an invoked :on-click fires a plain dispatch that queues, so poll
-;; the re-rendered view until it settles (JVM shown; on CLJS poll-until
-;; returns a Promise to compose with cljs.test/async).
+;; Async: the invoked :on-click fires a plain dispatch, which queues, so poll
+;; the re-rendered view until it settles.
 (deftest inc-button-is-wired
-  (let [btn (th/find-by-testid (th/expand-tree (counter/main)) "counter-inc")]
-    (th/invoke-handler btn :on-click))
+  (th/invoke-handler (th/find-by-testid (counter-view) "counter-inc") :on-click)
   (is (ts/poll-until
         #(= "1" (th/text-content
-                  (th/find-by-testid (counter/main) "counter-display")))
+                  (th/find-by-testid (counter-view) "counter-display")))
         {:label "counter reached 1"})))
 ```
+
+That is the JVM form. On CLJS the fixture takes `:async? true` and the async test composes `poll-until`'s Promise under `(async done …)`, as the CLJS example under [`poll-until`](re-frame.test-support.md#poll-until) shows.
 
 ## See also
 
