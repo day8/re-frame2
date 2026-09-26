@@ -354,7 +354,7 @@ The wiring facts, one at a time:
 - **Dev builds can carry detail.** With `:ssr {:dev-error-detail? true}` the public shape gains an extra `:details` key holding the full trace; in prod that key is simply absent. This knob governs how much a projected error *says*; it is the bullet above, not this one, that governs whether an error gets projected at all.
 - **Monitoring keeps the rich trace.** Projection governs the HTTP boundary only — the full trace still flows unchanged to your sinks and the always-on [error records](../core/glossary.md#error-record) your listeners depend on.
 
-The full error story lives in the [error dossier](../core/errors.md).
+The full error story is on the [Errors](../core/errors.md) page.
 
 !!! note "Why this matters — two error opts, two jobs"
 

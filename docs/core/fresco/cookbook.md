@@ -1,18 +1,10 @@
 # Cookbook
 
-Worked recipes, each one a whole thing you can copy into an application and then
-edit. Every recipe here is the shape a landed witness in
-`implementation/fresco/test/re_frame/fresco/` already runs, reduced to the
-parts a reader needs. Most of those witnesses are the example applications under
-`examples/`; a few — the parameterised control, the server render — are contract
-tests sitting beside that directory rather than inside it.
-
-A recipe answers *how do I build this*. It is deliberately thin on *why it works
-that way*, because the chapters own that and repeating them here would give you
-two answers to keep in step. Each recipe names its chapter.
-
-If you are looking up a signature rather than building something, the [API
-reference](api-reference.md) is the other half of this pair.
+Worked recipes you can copy into an application and then edit. Each one is
+reduced from code the Fresco test suite and the applications under `examples/`
+already run. A recipe shows how to build the thing and explains only what you
+need to use it; the chapter it names explains why it works. For exact
+signatures, see the [API reference](api-reference.md).
 
 ## Boot an application
 
@@ -21,8 +13,8 @@ Everything below assumes a mounted root, so start here.
 ```clojure
 (ns my.app
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.fresco :as h]
+            [re-frame.fresco.substrate :as substrate]
             [my.app.views :as views]))
 
 (defonce app-root (h/client-root))
@@ -44,23 +36,20 @@ Everything below assumes a mounted root, so start here.
   (h/render! app-root (app-tree) (js/document.getElementById "app")))
 
 (defn ^:export -main []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! substrate/adapter)
   (mount!)
   nil)
 ```
 
-Five things about this shape are load-bearing.
+Five things about this shape matter.
 
-**`rf/init!` comes first, and it is not optional.** Fresco is a view layer, not
-a [substrate](../glossary.md#substrate): the reactive container app-db lives in
-comes from an [adapter](../glossary.md#adapter), and nothing installs one for
-you. `h/frame-root` ensures its frame, creating a frame asks the adapter for a
-state container, and a boot that beats `init!` throws
-`:rf.error/no-adapter-installed`. `re-frame.adapter.uix` is its own artefact —
-[Installation](00-installation.md#add-the-dependencies) declares the
-`day8/re-frame2-uix` coordinate it comes from alongside Fresco's, and
-[Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) covers the other two
-substrates.
+**`rf/init!` comes first, and it is not optional.** The reactive container
+app-db lives in comes from an [adapter](../glossary.md#adapter), and nothing
+installs one for you. `h/frame-root` ensures its frame, creating a frame asks
+the adapter for a state container, and a boot that runs before `init!` throws
+`:rf.error/no-adapter-installed`. `re-frame.fresco.substrate` is Fresco's own
+adapter and ships in the same artefact; a Reagent, reagent-slim or UIx adapter
+works too — see [Installation](00-installation.md#fresco-needs-a-substrate-adapter).
 
 **Allocate the handle with `defonce`.** The FIRST `h/render!` through a handle
 creates the root; every later one updates it, so one call is both the boot and
@@ -71,15 +60,15 @@ scrap of component state instead of reconciling against them.
 
 **Seed in one place, and let it be the tree.** `h/frame-root` **ensures** the
 frame it names: it creates the frame if absent and seeds it with
-`:initial-events`, or reuses the live one untouched if something already made it.
-So if you call `rf/make-frame` yourself first, the boundary reuses and your
-`:initial-events` never run. It takes the whole `rf/make-frame` option map —
+`:initial-events`, or reuses the live one without running them if something
+already made it. So if you call `rf/make-frame` yourself first, `frame-root`
+reuses that frame and your `:initial-events` never run. It takes the whole `rf/make-frame` option map —
 `:fx-overrides`, `:url-bound?`, `:images` and the rest — so there is no reason to
 make the frame anywhere else.
 
 **`:initial-events` drain before the first paint**, in order, so the first render
 is the seeded one rather than an empty frame filled in a moment later: the ensure
-runs in a layout effect, and `h/render!` renders inside `flushSync`, so the door
+runs in a layout effect, and `h/render!` renders inside `flushSync`, so the call
 returns with the seeded markup already on the page.
 
 **The reload hands `h/frame-root` the SAME options the boot did**, which is why
@@ -144,8 +133,8 @@ data](03-events-as-data.md).
 
 ## A text field the model owns
 
-A controlled field writes every edit straight to app-db. This is the first
-recommendation and stays it.
+A controlled field writes every edit straight to app-db. Start here for any text
+field.
 
 ```clojure
 (h/defview search-field [_]
@@ -236,7 +225,7 @@ route entry, an explicit cancel and a successful save reply each need to say so:
 
 ```clojure
 (rf/reg-event ::events/saved
-  (fn [{:keys [db]} [_ id]]
+  (fn [_ [_ id]]
     {:fx [[:dispatch [::h/clear forms/drafts [:todo id :title]]]]}))
 ```
 
@@ -316,7 +305,7 @@ the prefix with the field's value appended at dispatch time.
 unchanged `:on-select` is `=` to last render's and the child keeps its
 equal-props bail-out. A fresh `#(rf/dispatch [:home/show-page %])` is a new
 object on every parent render and defeats that bail-out permanently. It is also
-the wrong door: the browser invokes it after the rendering extent has gone, so
+the wrong call: the browser invokes it after the rendering extent has gone, so
 its ambient `rf/dispatch` raises `:rf.error/no-frame-context`. Reach for
 `h/event` only when the callback's own arguments matter — geometry, a foreign
 SDK's payload — rather than for parameterisation, which this shape covers.
@@ -392,8 +381,8 @@ Chapter: [Async resources](08-async-resources.md).
 
 **`h/route-link` is called, not written as a head.** It is a plain function —
 `(h/route-link {…} "text")` — because a link is not a unit of re-render. Nothing
-at the call site says which grammar applies, so this is the one spelling in the
-door worth memorising.
+at the call site says which grammar applies, so this is the one spelling in
+`re-frame.fresco` worth memorising.
 
 **The address bar is the source of truth.** Read the parameters back through
 routing's own subscription rather than threading them down as props, and the URL
@@ -418,7 +407,7 @@ Declare the crossing once, then use the resulting var as a Hiccup head anywhere.
             [my.app.vendor :as vendor]))
 
 (h/defhost rows
-  "The declared door onto the virtualiser."
+  "The declared crossing to the virtualiser."
   vendor/virtual-rows)
 
 (h/defview ledger [_]
@@ -468,7 +457,7 @@ you hold it:
 **Say `{:server :render}` when the component is safe on the server.** The default
 is `:client-only`: the region renders nothing on the server and nothing on
 hydration's first pass, and a declared `:fallback` renders inert markup there
-instead. `:server :render` is an assertion, it mints no gate at all, and it is
+instead. `:server :render` is an assertion that adds no client-only gate, and it is
 the only policy under which a crossing's children reach the server response —
 which is what a transparent wrapper such as a context provider needs.
 
@@ -554,10 +543,14 @@ map you hand `render`:
 ```clojure
 (ns app.server-test
   (:require [cljs.test :refer [deftest is]]
-            [re-frame.fresco.test.server :as ts]))
+            [re-frame.fresco.test.server :as ts]
+            [my.app.views :as views]))
 
 (deftest the-page-renders-deterministically
-  (let [{:keys [identical? differs-at]} (ts/render-twice opts)]
+  (let [{:keys [identical? differs-at]}
+        (ts/render-twice {:hiccup   [views/page {}]
+                          :snapshot {:articles [] :session nil}
+                          :payload  [:articles :session]})]
     (is identical? (str "server render is not deterministic at " differs-at))))
 ```
 
@@ -584,7 +577,7 @@ the DOM:
   nil)
 ```
 
-**State comes first, and it is a different door.** `{:hydrate? true}` adopts DOM
+**State comes first, and it is a separate call.** `{:hydrate? true}` adopts DOM
 and nothing else, and its tree SCOPEs rather than ENSUREs — because
 `frame-root`'s
 ENSURE is commit-owned, so its first render emits no descendant subtree, where an

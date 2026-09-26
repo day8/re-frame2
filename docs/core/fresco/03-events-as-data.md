@@ -12,10 +12,10 @@ inspect and compare the interaction as data. The generated callback also
 retains the frame of the view that created it, which makes the later browser
 event safe even though the original render has ended.
 
-Any prop named `on-` followed by a letter is treated as an event position.
-CamelCase spellings such as `onClick` are also accepted for migration. Fresco
-does not maintain a fixed roster of DOM event names. An event vector in one of
-these positions is called an [intent](glossary.md#intent).
+Any prop named `on-` followed by a letter is treated as an event position, and
+so is the camelCase spelling (`:onClick`). Fresco keeps no fixed list of DOM
+event names. An event vector in one of these positions is called an
+[intent](glossary.md#intent).
 
 ## Read values from the browser event
 
@@ -39,6 +39,11 @@ Marker replacement occurs only at the top level of the intent vector. Fresco
 does not search nested data. When an intent contains no marker, the runtime
 does not read the DOM event.
 
+On a `<select multiple>`, `::h/value` is a vector of the selected option
+values. A file input has no usable value, so `::h/value` there raises
+`:rf.error/fresco-file-input-value-marker`; read `.files` with `h/event`
+instead, as [shown below](#one-callback-form-hevent).
+
 The full reserved vocabulary is `::h/value`, `::h/checked`,
 [`::h/prevent`](glossary.md#hprevent), and
 [`::h/revision`](glossary.md#hrevision). The controlled-input chapter owns the
@@ -46,10 +51,9 @@ round trip from subscription value to browser event and back.
 
 ## Prevent browser defaults explicitly
 
-Prevention is explicit, with exactly one exception — and the exception needs
-nothing written. An intent at `:on-submit` prevents the browser submission for
-you, because a form that dispatches and then reloads the page is never what the
-application meant.
+An intent at `:on-submit` prevents the browser's form submission for you,
+because a form that dispatches and then reloads the page is never what the
+application meant. It is the only position that prevents by default.
 
 ```clojure
 [:form {:on-submit [:todo/submit]}
@@ -69,18 +73,18 @@ prevented — most often an anchor being used as an application control:
 ```
 
 `[::h/prevent INTENT]` prevents the default and dispatches the one inner intent.
-A real navigation link should normally use the routing module rather than this
-pattern. A modifier-click on a real link must remain available to the browser,
-which is why Fresco does not prevent clicks by default — and why submit is the
-only position that does. No second auto-preventing position will be added.
+A real navigation link should use `h/route-link` instead (see [Routing and
+navigation](07-routing-and-navigation.md)). Fresco does not prevent clicks by
+default because a modifier-click on a real link must remain available to the
+browser.
 
-!!! note "The exception is the data spelling only"
+!!! note "Callbacks are never auto-prevented"
     A callback always owns its own event. `{:on-submit (h/event [e] …)}` is handed
     the event and is **not** auto-prevented: call `.preventDefault` yourself, or
     leave it out when a real browser submission is intended. That escape is how
     a form that must really submit opts out. Writing
     `{:on-submit [::h/prevent [:todo/submit]]}` still composes and still works;
-    it is simply saying what the data spelling already does.
+    it says what the data spelling already does.
 
 The wrapper must contain exactly one inner intent vector. A keyword instead of
 a vector, a second payload, or a nested decorator raises
@@ -99,9 +103,8 @@ must be able to observe the prevention decision.
 
 When a vector is not enough — a file list, drag payload, value-first foreign
 callback, or any calculation over the real arguments — use
-[`h/event`](glossary.md#event). It expands to an **ordinary function**. The
-contract comes from the **position** where that function is written, not from
-a second API:
+[`h/event`](glossary.md#event). It expands to an ordinary function, and the
+position where you write it decides what its return value means:
 
 ```clojure
 [:input {:type      "file"
@@ -110,30 +113,23 @@ a second API:
                        (js/Array.from (.. e -target -files))])}]
 ```
 
-| Position | Contract for `h/event` (and for an intent at that slot) |
+| Where `h/event` is written | What its return value means |
 | --- | --- |
-| An `on*` prop — on a native tag, a `defhost` or a `[:>]` crossing alike | **event** — a returned vector is dispatched; other returns are ignored |
-| Any other walked prop (for example a foreign render prop) | **render** — pure; return is output; the wrapper carries the supplying view's frame, so intents inside the returned markup dispatch there |
-| `:ref` | React's own contract; not lowered by Fresco |
-| Positions Fresco does not walk | Plain function behaviour |
+| An `on-*` prop | Event: a returned vector is dispatched; any other return is ignored |
+| Any other prop Fresco converts, such as a foreign component's render prop | Render: the return is rendered output and is not dispatched; event vectors inside it dispatch to the view that supplied the callback |
+| `:ref` | Not converted; React calls it as a ref |
 
-The contract is inferred from the spelling at a host exactly as at a native
-tag. Two exceptions, both declared on the host: a `:callbacks` override,
-`{:callbacks {:on-render-item :render}}`, for a vendor's on*-named render
-prop; and a declared ReactNode `:slots` position, which is markup and refuses
-`h/event` with `:rf.error/fresco-host-unclaimed-callback`. See
+Foreign components declared with `h/defhost` can override this per prop; see
 [Interop](09-interop.md#callback-contracts).
 
 Rules that follow:
 
-- `h/event` captures the current frame where it is created.
+- A returned vector is dispatched to the frame of the view that rendered the
+  callback.
 - The body receives every callback argument in the caller's order.
-- At an **event** position, a returned vector is dispatched; `nil` dispatches
-  nothing.
-- An `h/event` body may do imperative browser work such as `.preventDefault`. The
-  `::h/prevent` wrapper is for the data-only intent form.
-- Ordinary unmarked functions remain legal and cross by identity, so there is
-  no second “identity-preserving” form.
+- An `h/event` body may do imperative browser work such as `.preventDefault`.
+  The `::h/prevent` wrapper is for the data-only intent form.
+- Plain functions remain legal and reach React unchanged.
 
 ```clojure
 [:div {:on-drop (h/event [e]
@@ -184,9 +180,9 @@ Do not hand-roll an ambient dispatch closure:
 [:button {:on-click [:todo/toggle id]} "✓"]
 ```
 
-The browser invokes the callback after the rendering extent has gone, so an
-ambient `rf/dispatch` has no frame. Intents and `h/event` capture that context
-when the view is rendered.
+The browser calls the handler after rendering has finished, so a plain
+`rf/dispatch` there has no frame. Intents and `h/event` record the view's frame
+when the view renders.
 
 ## Keyboard maps
 
@@ -200,9 +196,12 @@ intent:
                        "Escape" [:todo.ui/cancel id]}}]
 ```
 
-Unlisted keys do nothing. The keys are strings, and keyboard maps are valid
-only at `:on-key-down` and `:on-key-up`. There is no modifier grammar; use
-`h/event` when the handler must inspect combinations such as Ctrl+Enter.
+Unlisted keys do nothing. The map's keys are the DOM `.key` strings, and a map
+value may also be an `h/event` or a plain function. Use keyboard maps on
+keyboard events such as `:on-key-down` and `:on-key-up`: at a position whose
+event has no `.key`, the handler raises `:rf.error/fresco-intent-needs-the-event`.
+There is no modifier syntax; use `h/event` when the handler must inspect
+combinations such as Ctrl+Enter.
 
 Keyboard maps also suppress application shortcuts during IME composition.
 Enter may be choosing a composition candidate and Escape may be cancelling the
@@ -214,25 +213,20 @@ signals described under [Advanced](#advanced).
 <a id="frame-safe-callbacks"></a>
 ## Frame-safe callbacks and `rf/capture-frame`
 
-Generated intent callbacks and `h/event` callbacks retain the frame they were
-lowered under — their view's, or the one a nested `h/frame-root` /
-`h/frame-provider` names for the markup below it.
-Application-owned async work should normally move to the event/effect layer,
-where an fx handler already receives the frame id in its context and
-`:dispatch-later` expresses delay as data.
+Intent callbacks and `h/event` callbacks dispatch to the frame of the view
+that rendered them, or to the frame a nested `h/frame-root` / `h/frame-provider`
+names for the markup below it. Application-owned async work should normally
+move to the event and effect layer, where an effect handler already receives
+the frame id and `:dispatch-later` expresses a delay as data.
 
-A Fresco view body does **not** have ambient frame lookup: an ambient
-`rf/subscribe` or `rf/dispatch` written in a body refuses under Fresco's render
-discipline, because a read there would contribute no edge and a dispatch there
-would run in the render phase. The two frame **doors** are core's own, and they
-are legal inside a body and inside a render callback the body supplied:
-`(rf/current-frame-id)` returns the rendering boundary's frame **id keyword**,
-and zero-arity `(rf/capture-frame)` captures a frame api locked to it. Neither
-is a tracked subscription, and neither reads nor dispatches, which is why the
-render discipline admits them. The spelling is the one every other adapter
-writes; Fresco has no frame verb of its own.
-
-The carry spelling is core's capture primitive:
+For a closure that foreign code keeps and calls later, capture the frame while
+the view renders. A plain `rf/subscribe` or `rf/dispatch` written in a view
+body throws `:rf.error/ambient-frame-refused`: the read would not be tracked,
+and the dispatch would run during rendering. Two core functions are allowed in
+a body because they neither read nor dispatch: `(rf/current-frame-id)` returns
+the rendering view's frame id, and zero-arity `(rf/capture-frame)` returns a
+handle locked to that frame. They are the same functions the Reagent and UIx
+adapters use.
 
 ```clojure
 (ns app.map
@@ -251,20 +245,19 @@ The carry spelling is core's capture primitive:
 ```
 
 `(rf/capture-frame)` returns `{:frame :dispatch :dispatch-sync :subscribe}`
-bound to that frame. Prefer this at a foreign edge you do not control — an SDK
-attach ref, a value-first callback, a host slot that retains a closure.
+bound to that frame. Use it where foreign code you do not control keeps a
+closure: an SDK attached from a ref, a value-first callback, a host slot.
 
-A captured handle remains valid for that frame incarnation. Destroying the
-frame and creating another under the same id does not revive the old handle;
-using it raises `:rf.error/frame-destroyed` and does not reach the successor.
-Capture during the live render rather than keeping a global stash. Do not put
-the frame id into markup: on the server it is process-local identity and would
-break the determinism check (`re-frame.fresco.test.server/render-twice`).
+A captured handle is valid for that frame's lifetime. Destroying the frame and
+creating another under the same id does not revive the old handle; using it
+raises `:rf.error/frame-destroyed` and does not reach the new frame. Capture
+during rendering rather than keeping a global stash. Do not render the frame id
+into markup: on the server it is process-local, and it would break the
+determinism check (`re-frame.fresco.test.server/render-twice`).
 
-Outside any scope at all, both doors raise core's `:rf.error/no-frame-context`.
-An enclosing `rf/with-frame` that names a frame other than the one the boundary
-renders raises `:rf.error/ambient-frame-refused`, naming both frames: one body
-has one frame, and the doors will not answer the wrong one.
+Outside any frame scope, both functions raise `:rf.error/no-frame-context`. An
+enclosing `rf/with-frame` naming a frame other than the one the view renders
+raises `:rf.error/ambient-frame-refused`, naming both frames.
 
 The practical rule is:
 
@@ -272,8 +265,8 @@ The practical rule is:
 - use an effect for application-owned async work
 - use `(rf/capture-frame)` for a closure retained by foreign code
 
-A link whose job is navigation belongs to the routing module's route-link
-surface rather than a custom click handler.
+A link whose job is navigation should be an `h/route-link` rather than a
+custom click handler.
 
 ## Troubleshooting
 
@@ -284,7 +277,8 @@ surface rather than a custom click handler.
 | A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/event`/the event handler |
 | A foreign callback rejects an intent that needs the event | `:rf.error/fresco-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
 | Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame)` during rendering |
-| `(rf/capture-frame)` in a body raises `:rf.error/ambient-frame-refused` naming two frames | An enclosing `rf/with-frame` names a frame the boundary is not rendering | Drop the enclosing scope, or scope it to the boundary's own frame |
+| `rf/subscribe` or `rf/dispatch` in a view body raises `:rf.error/ambient-frame-refused` | Fresco view bodies refuse untracked reads and render-time dispatches | Read with `h/sub`; dispatch through an intent, `h/event`, or a handle from `(rf/capture-frame)` |
+| `(rf/capture-frame)` in a body raises `:rf.error/ambient-frame-refused` naming two frames | An enclosing `rf/with-frame` names a frame the view is not rendering | Drop the enclosing scope, or scope it to the view's own frame |
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
 | An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
 | A captured callback reaches a destroyed frame | `:rf.error/frame-destroyed` | Recreate the callback from a render attached to the current frame incarnation |
@@ -296,8 +290,8 @@ pointer coordinates, `dataTransfer`, DOM measurement, `stopPropagation`, or an
 imperative SDK operation.
 
 Use `h/event` when the arguments are needed to decide which event vector to
-dispatch. An ordinary function is not an error; the intent form is simply the
-normal choice for declarative application interactions.
+dispatch. A plain function is not an error; the intent form is the normal
+choice for application interactions.
 
 ## Advanced
 

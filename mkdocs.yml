@@ -223,7 +223,7 @@ nav:
     - "Frames: isolated worlds": core/frames.md
     - "Flows: derived values your handlers can read": core/flows.md
     - "Interceptors: cross-cutting (rare)": core/interceptors.md
-    - "Errors: dossiers": core/errors.md
+    - "Errors: structured records": core/errors.md
     - "Observability: one wire": core/observability.md
     - "Images: registration sets": core/images.md
     - "Run to completion (detail)": core/run-to-completion.md

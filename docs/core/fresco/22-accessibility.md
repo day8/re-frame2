@@ -26,7 +26,7 @@ clickable `div` is not.
 
 Apply the same rule throughout the page:
 
-- use `:a` for navigation; `route-link` returns a real anchor;
+- use `:a` for navigation; `h/route-link` returns a real anchor;
 - pair labels and controls with a wrapping `:label` or matching `:for` and
   `:id`;
 - use `:ul`/`:li` for lists and `:table` for tabular data;
@@ -118,9 +118,9 @@ the page.
 
 ## Keyboard and focus ownership
 
-Native controls already own their keyboard bindings. Fresco's keyboard map
-expresses additional key-to-intent behaviour and suppresses mappings during IME
-composition ([Events as data](03-events-as-data.md)).
+Native controls already own their keyboard bindings. For additional keys, put a
+[keyboard map](03-events-as-data.md#keyboard-maps) at `:on-key-down` or
+`:on-key-up`; Fresco suppresses its intents during IME composition.
 
 Focus movement has specific owners:
 
@@ -137,6 +137,11 @@ Focus movement has specific owners:
 Names, roles, and ARIA state are visible in the L2 semantic tree:
 
 ```clojure
+(ns app.views-test
+  (:require [clojure.test :refer [deftest is]]
+            [re-frame.fresco.test :as ht]
+            [app.views :as views]))
+
 (deftest toggle-announces-its-state
   (let [tree
         (ht/tree

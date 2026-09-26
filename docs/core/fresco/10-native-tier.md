@@ -72,8 +72,7 @@ The same row as a UIx island:
 
 A `defui` reads its props from UIx's own carrier, which only UIx's `$` builds,
 so the crossing from a host is one plain function handing the JavaScript props
-across. That is the whole cost of the interop, and it is UIx's rather than
-Fresco's.
+across. That wrapper is the only extra code the UIx version needs.
 
 The same row in raw React:
 
@@ -165,11 +164,10 @@ is a plain function, and it carries the frame by capturing it:
       (react/createElement "td" #js {:className "px"} px))))
 ```
 
-This is the measured direct-return escape. The one record is the package's
-budget ledger, row S8: on a 200-boundary mount the direct return recovered
-19.2% of mount time, with an observed range of 7.0–31.4% over fifteen rounds —
-unresolved against the keep rule below, because the range crosses its line. It
-is a real saving on a page made of boundaries and not a promise for yours.
+In Fresco's own benchmark, on a 200-boundary mount, the direct return
+recovered 19.2% of mount time, with an observed range of 7.0–31.4% over fifteen
+rounds. That range straddles the keep rule below, so treat it as a possible
+saving on a page made of boundaries rather than a promise for yours.
 
 Keep an escape only when the measured interaction improves materially: at
 least 20%, at least 2 ms at p95, or enough to move a user-visible budget from
@@ -191,9 +189,9 @@ Keep form controls interpreted. An `<input>` inside an island does not receive
 Fresco's same-turn convergence, selection preservation, IME protection or
 `::h/revision` handling, and moving it there does not make typing faster.
 
-Do not create islands for stylistic consistency. A few named crossings are a
-boundary; islands throughout the application are a change of view-layer
-strategy, and the UIx adapter is the better fit for that.
+Do not create islands for stylistic consistency. Islands throughout the
+application amount to a change of view layer, and the UIx adapter is the
+better fit for that.
 
 ## Native screens
 
@@ -201,8 +199,8 @@ A canvas editor, diagramming surface or vendor-grid screen may be React-shaped
 from its first useful design. Implement that screen in React under the same
 adapter, root and frames. This changes only the view implementation for that
 screen; it does not justify a second state owner or an independent React root.
-
-An independent root is an isolation decision, not a performance optimisation.
+Create an independent root only when you need isolation; it does not make
+anything faster.
 
 ## Verify every crossing
 
@@ -224,7 +222,7 @@ React descendants.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | The component mounted outside a Fresco frame provider | Mount it under the application root, or use the test kit's provider |
+| `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | The component mounted outside a Fresco frame provider | Mount it under the application root; in tests, mount it with `hm/mount!` ([Testing](15-testing.md)) |
 | A click inside an island or a directly returned element does nothing | An event vector or `h/event` at a raw React prop; nothing lowers it there | Dispatch from `n/use-frame` in an island, or from `(rf/capture-frame)` in a view body |
 | A `defui` mounted through `h/defhost` sees empty props | UIx reads props from its own carrier, which only `$` builds | Cross through a plain function that calls `$` with the JavaScript props |
 | Local island state resets after each code save | Hot reload allocates a new component and React remounts it | Expected; move persistent state to app-db |

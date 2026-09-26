@@ -12,8 +12,8 @@ This glossary defines Fresco-specific terms. Core re-frame2 terms such as
 <a id="fresco"></a>
 ### Fresco
 
-re-frame2's native React view adapter. Fresco interprets
-[Hiccup](../glossary.md#hiccup), reads subscriptions with
+re-frame2's own React view layer. Fresco interprets
+[Hiccup](../glossary.md#hiccup) itself, reads subscriptions with
 [`h/sub`](#hsub), and accepts event vectors as [intents](#intent). App-db,
 events, effects, and the event pipeline remain ordinary re-frame2.
 
@@ -23,8 +23,9 @@ Require it as:
 [re-frame.fresco :as h]
 ```
 
-Forms, overlays, routing helpers, the island hooks, and test tooling are separate
-optional namespaces.
+Forms, overlays, motion, the island hooks, the server renderer, Fresco's own
+[adapter](../glossary.md#adapter) (`re-frame.fresco.substrate`) and the test kit
+are separate optional namespaces.
 
 Related: [Getting started](01-getting-started.md),
 [Installation](00-installation.md).
@@ -45,8 +46,8 @@ Use a view as a Hiccup head. Do not call it as an ordinary function:
    [:button {:on-click [:counter/increment]}
     "Click me"]])
 
-[counter {}]   ;; view boundary
-(counter {})   ;; raises
+[counter {}]   ;; right: a Hiccup head
+(counter {})   ;; wrong: a view is not a function to call
 ```
 
 Related: [Views and reads](02-views-and-reads.md).
@@ -206,10 +207,10 @@ Related: [Events as data](03-events-as-data.md).
 <a id="event"></a>
 ### `h/event`
 
-The one marked callback form (HD-024). Expands to an ordinary function. The
-contract comes from the **position** where it is written: `on*` positions
-dispatch a returned vector; render positions must stay pure; a declared
-ReactNode slot refuses the mark.
+The one marked callback form. Expands to an ordinary function. The contract
+comes from the **position** where it is written: `on*` positions dispatch a
+returned vector; render positions must stay pure; a declared ReactNode slot
+refuses it with `:rf.error/fresco-host-unclaimed-callback`.
 
 ```clojure
 [:input {:type "file"
@@ -218,8 +219,8 @@ ReactNode slot refuses the mark.
                        (js/Array.from (.. e -target -files))])}]
 ```
 
-Captures the rendering frame when created. Use it when arguments determine the
-event — value-first foreign callbacks, file lists, drag data — or when the
+A returned vector is dispatched into the frame of the view that rendered the
+callback. Use it when arguments determine the event — value-first foreign callbacks, file lists, drag data — or when the
 body must call browser methods such as `.preventDefault`.
 
 Related: [Events as data](03-events-as-data.md),
@@ -451,7 +452,8 @@ Related: [Islands](10-native-tier.md).
 <a id="nuseframe"></a>
 ### `n/use-frame`
 
-A React hook returning frame-locked operations — `:dispatch`,
+A React hook returning the same map as
+[`rf/capture-frame`](../glossary.md#capture-frame) — `:frame`, `:dispatch`,
 `:dispatch-sync`, and `:subscribe` — for the frame the island is mounted in,
 pinned to that frame's incarnation.
 
@@ -547,7 +549,7 @@ Related: [Overlays and focus](13-overlays-and-focus.md).
 <a id="route-link"></a>
 ### `route-link`
 
-A routing helper on the door, called as `h/route-link`, that returns a real
+A routing helper in `re-frame.fresco`, called as `h/route-link`, that returns a real
 anchor and encodes navigation as a Fresco intent. It supports route ids and
 params, native link semantics, and link-local veto behaviour. `:prefetch
 :intent` warms the destination on hover, focus and touch, filling those three
@@ -587,11 +589,14 @@ Related: [Async resources](08-async-resources.md),
 <a id="test-kit"></a>
 ### Test kit
 
-Two namespaces:
+Two main namespaces:
 
 - `re-frame.fresco.test`, usually `ht`, for pure and semantic tests;
 - `re-frame.fresco.test.mounted`, usually `hm`, for mounted React and DOM
   tests.
+
+`re-frame.fresco.test.forms` names the forms module's event ids, and
+`re-frame.fresco.test.server` holds the server-render determinism check.
 
 Related: [Testing](15-testing.md).
 
@@ -728,14 +733,13 @@ Related: [Diagnostics](16-diagnostics.md).
 <a id="mount"></a>
 ### `client-root`, `render!`, and `unmount!`
 
-The Fresco root lifecycle — the same three names every React view adapter
-publishes ([Spec 006 §The client
-root](../../../spec/006-ReactiveSubstrate.md#the-client-root-adapter-owned-reusable)).
+The Fresco root lifecycle — the same three names every re-frame2 React view
+adapter uses.
 
 `h/client-root` allocates an inert, opaque handle. No DOM work, no React call,
 so it belongs under a `defonce` at namespace load.
 
-`h/render!` is the root door and the hot-reload door in one verb. Its FIRST
+`h/render!` does both the boot render and every hot-reload render. Its FIRST
 call through a handle creates the React root at the node it is given; every
 later call updates that same root, so the DOM, the subscriptions and every
 scrap of component state survive. Its opts carry React-root options only —
@@ -753,7 +757,7 @@ outlives the boundary that ensured it.
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :rf/default :initial-events [[:app/init]]}
+             [h/frame-root {:id :app/main :initial-events [[:app/init]]}
               [app-shell {}]]
              (js/document.getElementById "app")))
 ```

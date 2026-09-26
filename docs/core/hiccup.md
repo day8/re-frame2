@@ -1,16 +1,9 @@
 # Hiccup: HTML as data
 
-Before more re-frame2, you need **hiccup** — the notation for building DOM. You've
-already seen it: the [Introduction](introduction.md)'s counter view returned nested
-vectors shaped like the screen. That's hiccup, and every view you write will return
-it.
-
-No state and no clicks on this page — that machinery starts with [Events](events.md).
-Just the notation, live: every cell below renders its last form, and you can edit any
-of them. Press **Ctrl-Enter** (**Cmd-Enter** on macOS) after an edit to re-evaluate.
-
-> **Hiccup is HTML as data: a vector per element, a map for attributes, strings for
-> text.**
+Every view you write returns **hiccup**: nested vectors shaped like the DOM they
+describe. The [Introduction](introduction.md)'s counter view was hiccup. This page
+covers the notation. Each cell below renders its last form; edit any of them and press
+**Ctrl-Enter** (**Cmd-Enter** on macOS) to re-evaluate.
 
 ## An element is a vector
 
@@ -34,7 +27,7 @@ to `:h1` and re-evaluate.
 ```
 
 Strings become text nodes; vectors become child elements; order is document order.
-The indentation is just formatting — the structure lives entirely in the nesting.
+The indentation is just formatting; the structure comes entirely from the nesting.
 
 ## Attributes are a map in second position
 
@@ -66,7 +59,7 @@ keyword:
 
 ## It's data, so code writes it
 
-There is no template language to learn — the screen is a data structure, and all of
+There is no template language to learn. The screen is a data structure, and all of
 ClojureScript already works on data:
 
 ```cljs-rf2
@@ -83,22 +76,22 @@ fruit. Then make it `(for [f (sort fruits)] ...)`.
 Conditional markup is plain `when`, because a `nil` child renders as nothing:
 
 ```cljs-rf2
-(def sale? true)
+(def done? true)
 
-[:h3 "Ferocious slippers "
- (when sale?
-   [:em {:style {:color "Tomato"}} "— on sale!"])]
+[:h3 "Buy milk "
+ (when done?
+   [:em {:style {:color "Tomato"}} "— done!"])]
 ```
 
-Change `true` to `false` and the emphasis vanishes — no special syntax for "render
-this conditionally", just an expression that is sometimes `nil`.
+Change `true` to `false` and the emphasis disappears. There is no special syntax for
+conditional rendering, just an expression that is sometimes `nil`.
 
 ??? info "For JavaScript developers"
 
-    Hiccup is JSX with the compiler deleted. Both describe a tree of elements, but
-    hiccup is literal data — vectors and maps you can `map`, `filter`, `sort`, and
-    pass to functions — with no build-time transform and no `{}`-escape hatch,
-    because you never left the language.
+    Hiccup does the job of JSX. Both describe a tree of elements, but hiccup is
+    literal data (vectors and maps you can `map`, `filter`, `sort`, and pass to
+    functions), so there is no build-time transform and no `{}` escape back into
+    the host language.
 
 ## Naming a piece of screen: `reg-view`
 
@@ -119,6 +112,10 @@ the view under an id derived from its name, so the framework and its tooling can
 it. Notice how the view gets used: not called like a function, but placed at the
 **head of a vector**, where a tag keyword would go, with its arguments as the tail.
 `[greeting "world"]` is still just data.
+
+These cells render inside a frame the page provides for you. In an app, views render
+under a `frame-root`, as in the Introduction; rendering a view outside any frame
+raises `:rf.error/no-frame-context`.
 
 ## Views use views
 
@@ -161,19 +158,11 @@ keywords.
         [product-card p]))
     ```
 
-## When it doesn't render
+## Troubleshooting
 
 | What you wrote | The rule it tripped | Fix |
 |---|---|---|
 | `["div" "hi"]` | The head must be a tag keyword or a view — a string head is neither | `[:div "hi"]` |
 | `[:p "hi" {:style ...}]` | The attribute map must be **second**; anywhere later it's just another child | `[:p {:style ...} "hi"]` |
 | The cell reports a reader error | A bracket is unbalanced — hiccup is data before it is anything else | Balance the brackets |
-
-You can read the hiccup any view returns; write nested elements with attributes and
-inline styles; generate markup with `for`, `when`, and plain data; name a piece of
-screen with `reg-view`; and compose views inside views. That's all the notation the
-rest of this guide leans on.
-
-What hiccup can't do alone is *change*. Reacting to clicks and showing live
-application state is the [event pipeline](glossary.md#event-pipeline)'s job — and
-teaching it starts with [Events](events.md).
+| The console warns that every element in a seq needs a unique `:key` | A `(for ...)` sequence was placed directly as a child | Pour it in with `into`, or give each item a stable `^{:key id}` ([Views](views.md) shows keys) |

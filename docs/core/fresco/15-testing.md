@@ -61,16 +61,13 @@ not named here is not on it:
 {:deps {:aliases [:shadow :test]}}
 ```
 
-The path is relative to *your* `deps.edn`, exactly as the artifact coordinates
-above are. It is a coordinate rather than a source path on purpose. The kit
-carries its own `deps.edn`, so the source root it contributes sits inside *that*
-project's boundary and the Clojure CLI has nothing to deprecate. Naming
-`test_kit/src` as an `:extra-paths` entry resolves `ht` and `hm` just as well,
-but that path escapes your project root, and the CLI says so on every
-invocation: `WARNING: Use of :paths external to the project has been
-deprecated`. Both routes work today; only one of them is quiet, and only one of
-them survives a CLI that decides to refuse the escape. When Fresco is
-published, the kit arrives inside the jar and this alias goes away entirely.
+The path is relative to *your* `deps.edn`, like the artifact coordinates above.
+Use the `:local/root` coordinate rather than an `:extra-paths` entry: the kit
+carries its own `deps.edn`, so the coordinate resolves quietly, while an
+`:extra-paths` entry pointing outside your project makes the Clojure CLI print
+`WARNING: Use of :paths external to the project has been deprecated` on every
+invocation. When Fresco is published, the kit arrives inside the jar and this
+alias goes away.
 
 Which build target the tests then run under is a choice per level, and
 the ladder below is the guide to it: L0–L2 are browser-free and need no DOM, while
@@ -137,8 +134,8 @@ but each mounted row has to say so rather than fail:
       (run-the-mounted-body done))))
 ```
 
-A stated skip is a true report. A row that passes because it never ran is the
-failure this chapter is most concerned with.
+The printed skip keeps the Node run honest: a mounted test that silently
+passes without a document would report coverage it never had.
 
 ## The testing ladder
 
@@ -205,7 +202,8 @@ and assert on the returned effects:
 (ns todo.events-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [todo.events]))
+            [todo.events]
+            [todo.subs]))
 
 (deftest toggle-flips-done
   (let [handler (:handler-fn
@@ -433,7 +431,8 @@ that supplies one.
 | `hm/hydrate!` | Adopt supplied server bytes and return a promise of the handle after hydration commits |
 | `hm/rerender!` | Render a new element into the same root |
 | `hm/dispatch-and-settle!` | Dispatch into the mount's frame and wait until Fresco and React are quiescent |
-| `hm/settle!` | Wait for quiescence after an external user-event or other stimulation |
+| `hm/settle!` | Commit work React already holds, after an external user-event or other stimulation whose handlers have already run |
+| `hm/settle-until!` | Wait until a predicate holds, then settle; returns a promise of the handle. Use it for work the router has only enqueued, such as a route-link click |
 | `hm/advance-clock!` | Advance the mount's virtual clock and run due work; requires `{:clock true}` at mount or hydrate |
 | `hm/unmount!` | Tear down the root |
 | `hm/assert-clean!` | After unmount and quiescence, compare residue with the pre-mount baseline, report, and reset |
@@ -614,10 +613,10 @@ props. The row's own test proves what a row renders.
 | `ht/tree` raises and names a query | The body read a subscription with no fixture | Add the exact query fixture; identity is `(query-id, args)` under value equality |
 | `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
 | A plain test raises `:rf.error/fresco-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
-| `:rf.error/fresco-deferred-read-at-boundary` | A closure, lazy sequence, or unforced `delay` carried a read beyond render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
+| `:rf.error/fresco-deferred-read-at-boundary` | An unforced `delay` reached a child view's props | Force it in the body, or pass the realised value ([Views and reads](02-views-and-reads.md)) |
 | `hm/assert-clean!` fails | A subscription, listener, task, or foreign callback survived unmount | Fix the leak; retained host callbacks are a common cause ([Interop](09-interop.md)) |
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
-| Tree assertion sees `nil` | A `when` returned `nil`; it renders nothing but still appears in authored data | Assert that `nil`, or filter it before comparing |
+| An L1 equality on a helper's Hiccup sees an unexpected `nil` | A `when` in the helper returned `nil`; it renders nothing but is still in the authored data | Include that `nil` in the expected value, or filter it before comparing |
 | `(nil? (ht/tree ...))` fails on a body that renders nothing | The root is always a node; a body returning `nil` roots in an empty fragment | Assert `(empty? (:children tree))` ([The root is always a node](#the-root-is-always-a-node)) |
 | Every `hm` call compiles but nothing mounts | The test lane has no `document` | Run L3 on a `:browser-test` target ([Where L3's DOM comes from](#where-l3s-dom-comes-from)) |
 | An `ht/intents` equality reds when an unrelated test is added | The tree holds a route link, whose navigate decision carries a per-call probe frame id | Compare by membership, or filter to the heads you own ([The intent stream carries more than your events](#the-intent-stream-carries-more-than-your-events)) |
@@ -650,8 +649,6 @@ Do not claim more than the level proves:
 | Canonical DOM | L3 | Two mounted implementations produced the same page structure |
 | React server bytes | Server test | The server emitted these exact bytes |
 | Hydrated behaviour | L4 | A real engine adopted and ran the page correctly |
-
-One equality does not stand in for another.
 
 ### Canonical DOM
 

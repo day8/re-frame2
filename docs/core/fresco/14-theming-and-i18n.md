@@ -122,9 +122,10 @@ An imperative-only theme does not automatically follow time travel or a
 restored snapshot. Prefer the rendered attribute unless you have measured a
 reason not to.
 
-The browser's top layer does not need a document echo. An overlay's
-`::backdrop` inherits custom properties from the element that opened it, so a
-modal inside `theme-scope` receives the same tokens
+The browser's top layer does not need a document echo. A dialog in the top
+layer still inherits custom properties from its DOM ancestors, and its
+`::backdrop` inherits from the dialog, so a modal rendered inside `theme-scope`
+receives the same tokens
 ([Overlays and focus](13-overlays-and-focus.md)).
 
 ## Treat translated strings as values
@@ -133,10 +134,10 @@ Store the locale in app-db and derive strings through a subscription:
 
 ```clojure
 (def strings
-  {:en {:greeting "Welcome back"
-        :cart/empty "Your cart is empty"}
-   :fr {:greeting "Bon retour"
-        :cart/empty "Votre panier est vide"}})
+  {:en {:greeting    "Welcome back"
+        :todos/empty "Nothing left to do"}
+   :fr {:greeting    "Bon retour"
+        :todos/empty "Plus rien à faire"}})
 
 (rf/reg-sub :i18n/locale
   (fn [db _query]

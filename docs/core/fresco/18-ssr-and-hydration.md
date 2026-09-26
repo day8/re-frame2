@@ -46,11 +46,10 @@ The example page reads a feed from app-db and includes a browser-only chart:
 No view code is specific to SSR.
 
 Use the optional server module to render one request. The Node renderer is a
-separate process from the browser, and nothing installs an adapter for it:
-`server/render` mints a frame per request, and building that frame's state
-container raises `:rf.error/no-adapter-installed` in a process where
-`rf/init!` never ran — before any HTML is produced. Install the headless SSR
-adapter once at process startup. It is boot work, not request work.
+separate process from the browser and needs its own adapter: `server/render`
+creates a frame per request, and building that frame's state raises
+`:rf.error/no-adapter-installed` in a process where `rf/init!` never ran.
+Install the headless SSR adapter once at process startup.
 
 ```clojure
 (ns app.server
@@ -92,6 +91,12 @@ adapter once at process startup. It is boot work, not request work.
 
 Concurrent requests cannot read each other's app-db.
 
+If the runtime records any error during the render, even one it recovered
+from (a subscription that threw, say), `server/render` throws
+`:rf.error/ssr-render-failed` instead of returning a page. The markup would not
+be what the application meant to render, so the request fails rather than
+shipping a wrong page with a 200.
+
 ### The payload is fail-closed
 
 `:payload` must be either:
@@ -99,12 +104,13 @@ Concurrent requests cannot read each other's app-db.
 - a non-empty vector of top-level app-db keys; or
 - `:rf.ssr.payload/whole-app-db` as an explicit opt-in.
 
-Omitting it raises `:rf.error/ssr-missing-payload-policy` at service boot.
+Omitting it makes `server/render` raise `:rf.error/ssr-missing-payload-policy`.
 Allowlist every top-level key the rendered page reads. If the server rendered a
 value that the client did not receive, the first client render uses different
 state and the resulting hydration mismatch is real.
 
-The HTTP service returns `:document`.
+`server/render` also returns `:html` (the app root's inner markup) and
+`:payload` beside `:document`; the HTTP handler normally sends `:document`.
 
 ### Server render rules
 
@@ -114,22 +120,22 @@ client effects.
 
 Two renders from the same code and snapshot should produce the same document.
 Do not read clocks, randomness, `window`, or other ambient platform state from
-a view body. Put browser work in client-only effects such as
-`:platforms #{:client}` or behind a declared host.
+a view body. Put browser work in effects registered with
+`:platforms #{:client}`, or behind a declared host.
 
 ## Create the frame, hydrate state, then adopt the DOM
 
 The first client render must see the same state used by the server, and the
-frame that state lands in must already exist. A hydrating boot therefore has
-three ordered steps. They share the adapter precondition every browser boot
-has — install one with `rf/init!` before the first frame, per
-[Installation](00-installation.md#fresco-needs-a-substrate-adapter).
+frame that state lands in must already exist. After the usual
+[adapter install](00-installation.md#fresco-needs-a-substrate-adapter), a
+hydrating boot has three ordered steps:
 
 ```clojure
 (ns app.client
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.fresco :as h]
+            [re-frame.fresco.substrate :as substrate]
             [app.views :as views]
             [app.subs]
             [app.events]))
@@ -137,6 +143,8 @@ has — install one with `rf/init!` before the first frame, per
 (defonce app-root (h/client-root))
 
 (defn ^:export run []
+  (rf/init! substrate/adapter)
+
   ;; 1. Create the client frame both hydration steps name.
   (rf/make-frame {:id :app/main :platform :client})
 
@@ -154,44 +162,34 @@ has — install one with `rf/init!` before the first frame, per
 The three calls have different jobs:
 
 - `rf/make-frame` creates the frame. Neither hydration step does it for you:
-  `ssr/hydrate!` seeds a frame that already exists, and the tree the adopting
-  render takes SCOPEs that frame with `h/frame-provider` rather than
-  ensuring it. **`h/frame-root` is the wrong verb here, and the reason is
-  SHAPE** — its ENSURE is commit-owned, so its first render emits no descendant
-  subtree and the children arrive on a second pass. An adopting root must render
-  the server's element shape on its FIRST pass, `useId` positions included, so a
-  `frame-root` would hand React an empty tree where the server's markup is.
-  (It would not *overwrite* the payload: re-ensuring a live frame preserves
-  app-db and never replays `:initial-events`. The mismatch is the failure.)
-  That is the whole reason the two verbs are two components.
+  `ssr/hydrate!` seeds a frame that already exists, and the adopting tree uses
+  `h/frame-provider`, which scopes an existing frame rather than creating one.
+  Do not use `h/frame-root` here. Its first render emits no children (they
+  arrive on a second pass, after the frame is ensured), so React would be
+  handed an empty tree where the server's markup is and report a mismatch.
 - `ssr/hydrate!` applies the state payload through `:rf/hydrate`. It validates
   the wire frame id against the requested frame. A mismatch raises
   `:rf.error/hydration-frame-id-mismatch`; omitting `:frame` raises
   `:rf.error/no-frame-context`, because the target is supplied rather than
   inferred.
 - `h/render!` with `{:hydrate? true}` calls React's `hydrateRoot` on a
-  container that already has server markup. It is a FIRST-CALL mode: every
-  later render through `app-root` updates the root it adopted, and the key is
-  ignored rather than hydrating twice.
+  container that already has server markup. It applies to the first call
+  only: every later render through `app-root` updates the root it adopted, and
+  the key is ignored.
 
-!!! warning "Seeding an absent frame is silent — the DOM step is not"
+!!! warning "Seeding an absent frame is silent"
 
     `ssr/hydrate!` installs the payload by dispatching `:rf/hydrate`, and a
-    dispatch into a frame that does not exist is a **no-op, not an error**. The
-    call still reads the payload and still returns it, so step 2 alone would
-    look like it worked. Step 3 is what catches it: `h/frame-provider` is
-    SCOPE-only and refuses an absent frame with
-    `:rf.error/frame-provider-frame-absent`, so a boot that skips step 1 fails
-    loudly at adoption instead of adopting the server's DOM against a frame that
-    never received the server's state.
+    dispatch into a frame that does not exist does nothing. The call still
+    reads and returns the payload, so step 2 alone looks like it worked. Step 3
+    catches it: `h/frame-provider` raises
+    `:rf.error/frame-provider-frame-absent` for an absent frame, so a boot that
+    skips step 1 fails at adoption.
 
-The frame comes first, then state, then the DOM.
+An adopting root is otherwise an ordinary root: its opts carry React-root
+options only, and `h/unmount!` takes it down.
 
-An adopting render has the same root lifecycle as a creating one: it is the
-same `h/render!` through the same kind of handle, its opts carry React-root
-options only, and `h/unmount!` takes the result down.
-
-Important root rules:
+Root rules:
 
 - **Hydration is root-scoped.** Each root owns its container, identifier
   prefix, and recoverable-error stream.
@@ -204,15 +202,31 @@ Important root rules:
 - **Presence-managed children start as `:present`.** Existing page content
   does not replay an entry animation.
 
-`ssr/hydrate!` returns the applied payload, or `nil` when the page carries no
-payload. A shared boot path branches on that: `nil` means nobody
-server-rendered this page, so `h/render!` WITHOUT `:hydrate?` builds a fresh
-root under an `[h/frame-root {:id … :initial-events …}]` instead of adopting
-one — the ENSURE
-branch, where the frame and its seed are the tree's. The client-only branch
-therefore needs no separate `rf/make-frame` at all; the SSR branch still does,
-because the payload has to land in a configured frame before the DOM is
-adopted.
+`ssr/hydrate!` returns the applied payload, or `nil` when the page carries
+none. A boot path shared by server-rendered and client-only pages can ask
+first with `ssr/read-server-payload`, which returns the payload map or `nil`
+without applying anything:
+
+```clojure
+;; app.client, replacing run above
+(defn ^:export run []
+  (rf/init! substrate/adapter)
+  (let [el (js/document.getElementById "app")]
+    (if (ssr/read-server-payload)
+      (do (rf/make-frame {:id :app/main :platform :client})
+          (ssr/hydrate! {:frame :app/main})
+          (h/render! app-root
+                     [h/frame-provider {:frame :app/main} [views/page {}]]
+                     el
+                     {:hydrate? true :identifier-prefix "main"}))
+      (h/render! app-root
+                 [h/frame-root {:id :app/main :initial-events [[:app/init]]}
+                  [views/page {}]]
+                 el))))
+```
+
+The client-only branch needs no `rf/make-frame`: `h/frame-root` creates the
+frame and runs its `:initial-events`.
 
 ## Client-only components and fallbacks
 
@@ -228,7 +242,7 @@ Client-only is the default for foreign hosts:
               "Chart loads in the browser"]})
 ```
 
-On the server, the crossing renders its fallback or nothing. The first client
+On the server, the host renders its fallback or nothing. The first client
 pass produces the same fallback. After adoption, the live component mounts. A
 fresh client-only application with no SSR mounts the live component directly
 and does not show the server fallback.
@@ -242,10 +256,8 @@ Use a same-footprint skeleton to reduce layout shift.
 
 ### One browser-only leaf inside a server-rendered region
 
-The two policies compose, and the composition is the answer when a region is
-server-safe **except** for one leaf. There is no third policy to reach for:
-declare the region Render and the leaf Client-only, and only the leaf stands
-down.
+When a region is server-safe except for one leaf, declare the region Render
+and the leaf Client-only. Only the leaf is skipped on the server.
 
 ```clojure
 (h/defhost product-panel ProductPanel
@@ -262,15 +274,12 @@ down.
 ```
 
 The response carries the panel, both paragraphs and the badge's fallback; the
-badge's own component never runs on the server. The leaf is an ordinary
-Client-only crossing, so everything above applies to it unchanged — it
-hydrates against the fallback it emitted, and the live component mounts after
-adoption.
+badge's own component never runs on the server. It hydrates against the
+fallback it emitted, and the live component mounts after adoption.
 
-Nesting does not narrow what stands down. A Client-only crossing replaces
-itself **and its children**, so moving the region's server-safe content
-*inside* the leaf would delete that content from the response. Keep the leaf
-as small as the browser dependency actually is.
+A Client-only host replaces itself and its children, so moving the region's
+server-safe content inside the leaf would delete that content from the
+response. Keep the leaf as small as the browser dependency.
 
 ## Render-safe hosts
 
@@ -290,9 +299,9 @@ Under Render, the real component is used for:
 
 There is no component swap after adoption.
 
-Render is also the only policy that sends a crossing's **children** to the
-server. A Client-only component renders its fallback or nothing **instead of
-the whole crossing**, including its children. A transparent wrapper such as a
+Render is also the only policy that sends a host's children to the server. A
+Client-only host renders its fallback or nothing in place of the whole host,
+children included. A transparent wrapper such as a
 context provider therefore deletes its subtree from the server response unless
 it is declared Render.
 
@@ -305,24 +314,29 @@ the server render. Other declaration failures include:
 
 ## Multiple roots report independently
 
-A page can hydrate several roots against one frame and payload:
+A page can hydrate several roots against one frame and payload. `server/render`
+returns markup for one root (its `:html`), so each extra root needs its own
+server markup in the page shell, rendered with the same `:identifier-prefix`
+its client root will use. The client side looks like this:
 
 ```clojure
+;; app.views
 (h/defview help-panel [_]
   [:aside
    [:h2 "Need a hand?"]
    ;; Don't: deliberate server/client divergence.
    [:p "Generated at " (js/Date.now)]])
 
+;; app.client
 (defonce app-root (h/client-root))
 (defonce help-root (h/client-root))
 
 (defn ^:export run []
+  (rf/init! substrate/adapter)
   (rf/make-frame {:id :app/main :platform :client})
-
   (ssr/hydrate! {:frame :app/main})
 
-  ;; TWO roots, so TWO handles — one handle owns at most one root.
+  ;; One handle per root.
   (h/render! app-root
              [h/frame-provider {:frame :app/main}
               [views/page {}]]
@@ -336,21 +350,21 @@ A page can hydrate several roots against one frame and payload:
              {:hydrate? true :identifier-prefix "help"}))
 ```
 
-The timestamp differs between server and client. React repairs the help root
-and reports a root-scoped mismatch:
+The timestamp differs between server and client. React patches the help
+root's DOM and, in development builds, Fresco emits a
+`:rf.ssr/hydration-mismatch` warning trace from that root's recoverable-error
+callback:
 
 ```clojure
-{:id    :rf.ssr/hydration-mismatch
- :root  "help"
- :where app.views/help-panel
- :error recoverable-error}
+{:error    "Hydration failed because ..."   ;; React's message
+ :where    re-frame.fresco.impl.mount/hydrate-root!
+ :recovery :warned-and-replaced}
 ```
 
-The app root can still hydrate cleanly. Each adopting root has its own
-recoverable, caught, and uncaught error channels.
-
-Xray associates hydration complaints with the root, view source, and host
-policy ([Diagnostics](16-diagnostics.md)).
+The app root still hydrates cleanly. Each root has its own recoverable-error
+callback and only reports while its own adoption is in progress, so one
+root's mismatch is never attributed to a sibling. Xray lists these warnings
+with its other issues ([Diagnostics](16-diagnostics.md)).
 
 React reports text differences and missing, extra, or wrong-type elements.
 Attribute-only divergence may produce only a development warning and can be
@@ -380,18 +394,19 @@ view rewrite.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `:rf.ssr/hydration-mismatch` names a root and view | Server and first client render differed, often because a body read a clock, random value, or browser global | Keep bodies deterministic; move platform work to client effects or host edges |
+| A `:rf.ssr/hydration-mismatch` warning appears in development | Server and first client render differed, often because a body read a clock, random value, or browser global | Keep bodies deterministic; move platform work to client effects or host edges |
 | Every `useId` id in one root reports a mismatch | The root's `:identifier-prefix` differs from the server prefix | Use the same unique prefix in `server/render` and that root's adopting `h/render!` |
-| An adopting `h/render!` throws `:rf.error/frame-provider-frame-absent` | The tree SCOPEs a frame nothing made — step 1 or step 2 was skipped | Create the frame and install the payload before adopting the DOM |
+| An adopting `h/render!` throws `:rf.error/frame-provider-frame-absent` | `h/frame-provider` names a frame nothing created: `rf/make-frame` was skipped | Create the frame, then install the payload, then adopt the DOM |
 | Client-only widget shows a skeleton, then swaps to the live widget | The Client-only policy is working | Use a same-size fallback, or select Render only when the component is truly server-safe |
 | Declaration raises `:rf.error/fresco-host-fallback-boundary-head` | The fallback contains a view or host head | Use plain deterministic Hiccup, or render the real component with `{:server :render}` |
 | Server render throws `window is not defined` under Render | The component is not server-safe | Return it to Client-only and provide a fallback |
-| A host's children are absent from server HTML | The host is Client-only, so the fallback replaces the whole crossing | Mark a server-safe transparent wrapper `{:server :render}` |
+| A host's children are absent from server HTML | The host is Client-only, so the fallback replaces the whole host | Mark a server-safe transparent wrapper `{:server :render}` |
 | Declaration raises `:rf.error/fresco-host-bad-ssr-policy` | Unsupported policy, or `:fallback` used with Render | Use `:render`, or `:client-only` with an optional fallback |
-| Service boot raises `:rf.error/ssr-missing-payload-policy` | No fail-closed payload policy was supplied | Allowlist every top-level app-db key the page reads, or explicitly select whole app-db |
+| `server/render` raises `:rf.error/ssr-missing-payload-policy` | No fail-closed payload policy was supplied | Allowlist every top-level app-db key the page reads, or explicitly select whole app-db |
 | Pure views still mismatch | A rendered app-db key was omitted from the payload | Add the key to the allowlist |
 | Boot raises `:rf.error/hydration-frame-id-mismatch` | Server `:client-frame-id` and client `:frame` differ | Use one stable wire frame id on both sides |
-| Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty | The client frame did not exist yet, so the `:rf/hydrate` dispatch was a silent no-op | `rf/make-frame` the client frame before `ssr/hydrate!` |
+| Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty | `rf/make-frame` ran after `ssr/hydrate!`, so the `:rf/hydrate` dispatch had no frame to land in | Call `rf/make-frame` before `ssr/hydrate!` |
+| `server/render` raises `:rf.error/ssr-render-failed` | The runtime recorded an error during the render, such as a subscription that threw, even though rendering continued | Fix the failure the attached record names; the renderer refuses to return a page built over it |
 
 ## Advanced
 
@@ -421,6 +436,7 @@ A server-safe context provider must be declared Render so its children remain
 in the response:
 
 ```clojure
+;; (:require ["react" :as react])
 (def theme-context
   (react/createContext "light"))
 
@@ -437,6 +453,8 @@ server contract and remains Client-only, along with its subtree.
 An island is Client-only unless its host declares Render:
 
 ```clojure
+;; (:require ["react" :as react]
+;;           [re-frame.fresco.native :as n])
 (defn ticker [^js props]
   (let [price (n/use-sub [:quote/price (.-symbol props)])]
     (react/createElement "span" #js {:className "ticker"} price)))
@@ -461,15 +479,15 @@ status, headers, cookies, redirects, error projection and frame teardown. Node
 returns a string and nothing else, so the sidecar's own HTTP status never
 reaches the browser and no partial page is possible.
 
-Three pieces make it work, and only the middle one is new to this chapter:
+Three pieces make it work:
 
 - **`re-frame.fresco.server/render-body`** — the body-only sibling of
   [`server/render`](#render-a-page-from-a-snapshot). It takes `:hiccup`, a
   `:render-state` envelope and an `:identifier-prefix`, installs both state
   partitions into a fresh per-request frame in one write, and returns inner
   markup. It builds no payload, no document and no head, because the JVM
-  already owns all three. It replays no boot events either — the JVM drained
-  them, and the projection *is* the settled result.
+  already owns all three. It replays no boot events either, because the JVM
+  already ran them and the state it sends is the settled result.
 - **A render module** in a `:node-library` build, publishing a build id and an
   entry table whose per-entry allowlists are the render-visibility policy.
 - **`:renderer`** on the Ring handler, pointing at
@@ -483,15 +501,12 @@ agree on the string rather than one.
 The full recipe — both builds, the module, the two state policies and why they
 differ, the serve command, build-id skew and the deployment posture — is
 [Render on Node](../../ssr/concepts.md#render-on-node). The worked example is
-[`substrates/fresco/login`](../../../examples/substrates/fresco/login), whose
-`server.cljs` is a real render module driven by the test suite against the real
-views. Its `host.clj` is a server you can start: the shared `login.model` is
-`.cljc`, so the JVM loads the application's own registrations, and the host
-publishes `init!` / `make-handler` / `make-app`. CI's `jvm-node-crossing` job
-drives it over a real socket against a spawned sidecar
-(`re-frame.ssr.ring.login-host-crossing-test`). The example's own README has
-the commands.
+[`substrates/fresco/login`](../../../examples/substrates/fresco/login):
+`server.cljs` is the render module, and `host.clj` is a Ring server you can
+start, publishing `init!`, `make-handler` and `make-app`. The shared
+`login.model` is `.cljc`, so the JVM loads the application's own
+registrations. The example's README has the commands.
 
-Whichever host you use, the service renders whole pages. Streaming, React
-Server Components, islands, and no-JavaScript progressive enhancement are
-outside this product's scope.
+Whichever host you use, Fresco renders whole pages. It does not support
+streaming, React Server Components, partial hydration, or no-JavaScript
+progressive enhancement.

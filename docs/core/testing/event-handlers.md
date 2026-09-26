@@ -1,18 +1,10 @@
 # Test an event handler
 
-You wrote an [**event handler**](../glossary.md#event-handler) — the pure function that runs in response to a dispatched [event](../glossary.md#event) and computes how your app's state should change — and now you want a unit test for it. Good instinct: this is where most of your testing effort should go, because this is where most of the logic lives. It's also the cheapest test you'll write — a millisecond, no browser, no DOM, no test double for the network or the clock. The recipe is short: pull the handler out of the [registrar](../glossary.md#registrar), call it with literal values, assert on what it returns.
-
-One sentence is the whole trick. Hold on to it as you read this page:
-
-> **The handler returned a map. You checked the map.**
-
-We start there — the bare function call — and add exactly one idea at a time: handlers that read the world, the full runtime when you actually want it, and the one footgun that takes down a whole suite at once.
+An [**event handler**](../glossary.md#event-handler) is the pure function that runs when an [event](../glossary.md#event) is dispatched and computes how your app's state should change. Most of an app's logic lives in handlers, so most of your tests belong here, and they are the cheapest tests you will write: no browser, no DOM, no test double for the network or the clock. Pull the handler out of the [registrar](../glossary.md#registrar), call it with literal values, and assert on what it returns.
 
 ## 1. Pluck the handler and call it
 
-An event handler is just a function. When you register one, it lands in the [registrar](../glossary.md#registrar) — the single, process-global table keyed by kind + id that every `reg-*` form writes to. So the simplest possible test is: get the function back, call it, check the answer.
-
-Start with the simplest handler — one that only touches state. Every re-frame2 event handler has the same shape: a plain **two-arg function**. The first argument is the [**coeffects**](../glossary.md#coeffect) map — the declared facts the framework hands the handler so it can stay pure (`:db`, the current [app-db](../glossary.md#app-db), is always one of them). The second is the **event vector** — the `[:some/id ...args]` that was dispatched. And it returns an [**effect map**](../glossary.md#effect-map): a description of what should change, whose `:db` key is the next state.
+Every event handler is a two-argument function. The first argument is the [**coeffects**](../glossary.md#coeffect) map, the facts the framework hands the handler; `:db`, the current [app-db](../glossary.md#app-db), is always one of them. The second is the event vector that was dispatched. It returns an [**effect map**](../glossary.md#effect-map) whose `:db` key is the next state.
 
 ```clojure
 ;; my-app/articles.cljs
@@ -21,18 +13,7 @@ Start with the simplest handler — one that only touches state. Every re-frame2
     {:db (assoc-in db [:articles :page] page)}))
 ```
 
-To get that function back in a test, ask the registrar for it. `handler-meta` reads registrations back: you give it a *kind* and an *id* — for an event that's `(rf/handler-meta {:source :store :kind :event :id :some/id})` — and the map it returns carries the registration's metadata plus its `:handler-fn`, which is your function, exactly as you wrote it. The test plucks it, calls it with a coeffects map and an event vector, and asserts on the `:db` it returns:
-
-```clojure
-(deftest page-changed-sets-page
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :articles/page-changed}))
-        result  (handler {:db {:articles {:page 1}}} [:articles/page-changed 3])]
-    (is (= 3 (get-in result [:db :articles :page])))))
-```
-
-That's the entire pattern. No [frame](../glossary.md#frame), no [dispatch](../glossary.md#dispatch), no runtime — just a function call. Which means these tests run wherever your test runner runs, including the JVM, where most re-frame2 suites live, because nothing in them touches a browser.
-
-One setup detail makes it work. Your test namespace needs three requires — `clojure.test`, `re-frame.core`, and the app namespace whose *load* performs the registrations. That last one is the easy one to forget, because requiring the namespace is what runs the `reg-event` calls and puts your handler in the registrar in the first place. (Setting up the runner itself — the `deps.edn` `:test` alias, and the `.cljc` discipline that lets your registration namespaces load on the JVM at all — is walked in [the tutorial's Part 5: test it, ship it](../../resources/tutorial/05-test-and-ship.md).)
+`reg-event` stores that function in the registrar, the process-global table every `reg-*` form writes to. `rf/handler-meta` reads a registration back: give it `{:source :store :kind :event :id <id>}` and it returns the registration's metadata, whose `:handler-fn` is your function exactly as you wrote it.
 
 ```clojure
 (ns my-app.articles-test
@@ -40,24 +21,31 @@ One setup detail makes it work. Your test namespace needs three requires — `cl
             [re-frame.core :as rf]
             [re-frame.test-support :as ts]
             [my-app.articles]))   ;; loading the ns registers the handlers
+
+(deftest page-changed-sets-page
+  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :articles/page-changed}))
+        result  (handler {:db {:articles {:page 1}}} [:articles/page-changed 3])]
+    (is (= 3 (get-in result [:db :articles :page])))))
 ```
+
+No [frame](../glossary.md#frame), no [dispatch](../glossary.md#dispatch), no runtime: a function call and an assertion. Nothing touches a browser, so this runs on the JVM, where most re-frame2 suites live. The require of `my-app.articles` is what runs the `reg-event` calls; without it the registrar has nothing to hand back. (`ts` is used by the fixtures later on this page. Setting up the runner itself — the `deps.edn` `:test` alias, and the `.cljc` discipline that lets registration namespaces load on the JVM — is covered in [the tutorial's Part 5: test it, ship it](../../resources/tutorial/05-test-and-ship.md).)
 
 ??? info "Coming from Redux?"
 
-    This is the reducer test — call the function, check the return — except it never hits the ceiling where you'd reach for `vi.mock` or fake timers. A handler's world arrives as declared data and its side effects leave as data, so the plain function call covers the ground that mocks cover in JS. If you're coming from Vitest or Jest, notice what's *absent*: no mock module, no spy, no `beforeEach` wiring up a fake clock.
+    This is the reducer test: call the function, check the return. The difference shows up where a Vitest or Jest suite would reach for `vi.mock` or fake timers. A handler's inputs arrive as declared data and its side effects leave as data, so the plain function call covers that ground too. There is no mock module, no spy, and no `beforeEach` wiring up a fake clock.
 
-One gotcha before we add anything, because it produces a misleading error. `handler-meta` returns `nil` for an unregistered id. Typo the id, or forget the app-namespace require so the registration never ran, and `(rf/handler-meta {:source :store :kind :event :id :articels/page-changed})` returns `nil` — then `(:handler-fn nil)` is `nil`, so the next line tries to *call* `nil` and you get a "nil is not a function" blow-up rather than a clear "no such handler". The two usual causes are a misspelled id and a missing `:require`. If a handler you *know* you registered comes back `nil`, check the require list first.
+`handler-meta` returns `nil` for an unregistered id. Misspell the id, or forget the app-namespace require, and `(:handler-fn nil)` is `nil`, so the next line fails with "nil is not a function" rather than "no such handler". If a handler you know you registered comes back `nil`, check the id and the require list.
 
-The mirror case is legitimate. A handler that performs only side effects — say it dispatches a follow-up but changes no state — returns `nil`, or an effect map with no `:db`, and that's valid (see [Effects](../effects.md)). Test it by asserting on `:fx` rather than `:db`; don't read `nil` as a failure.
+A handler that only performs side effects — say it dispatches a follow-up and changes no state — returns `nil` or an effect map with no `:db`, and that is valid (see [Effects](../effects.md)). Assert on `:fx` for those.
 
 ## 2. A handler that needs the world
 
-Some handlers need to know things about the outside world — the current time, a random number, a value from local storage. In re-frame2 a handler that consumes one of these has to **declare** it up front as a [**coeffect**](../glossary.md#coeffect). That declaration is exactly what keeps the handler pure: the world arrives as ordinary data in its first argument, so the test can hand it in by hand.
+Some handlers need facts from outside: the current time, a random number, a value from local storage. A handler that consumes one **declares** it as a [coeffect](../glossary.md#coeffect), and the value arrives as ordinary data in the coeffects map. The test hands it in by hand.
 
-The handler below stamps *when* a refresh was asked for, then asks for an HTTP request:
+This handler records when a refresh was requested, then issues an HTTP request:
 
 ```clojure
-;; my-app/articles.cljs — adapted from examples/real-apps/realworld_http/articles.cljs
+;; my-app/articles.cljs — cf. examples/real-apps/realworld_http/articles.cljs
 (rf/reg-event :articles/refresh
   {:doc "User asked for a fresh feed: stamp when, issue the request."
    :rf.cofx/requires [:rf/time-ms]}
@@ -68,16 +56,16 @@ The handler below stamps *when* a refresh was asked for, then asks for an HTTP r
                              :on-failure [:articles/load-failed]}]]}))
 ```
 
-`:rf.cofx/requires` lists the coeffects this handler consumes — here just the clock. They arrive **flat** in the first argument, the coeffects map, alongside `:db`. Note this is the *very same* `reg-event` as section 1: declaring a coeffect is a line of metadata plus an `:fx` vector when there's an effect to issue — not a different registration form.
+`:rf.cofx/requires` lists the coeffects the handler consumes, here just the clock. Each arrives flat in the coeffects map beside `:db`. It is the same `reg-event` as section 1: declaring a coeffect is one line of metadata.
 
-That `:rf.cofx/requires` declaration doubles as your fixture checklist — the list of facts the test must hand in. You can read it straight off the registrar:
+The declaration doubles as the test's fixture checklist, and you can read it off the registrar:
 
 ```clojure
 (:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id :articles/refresh}))
 ;; => [:rf/time-ms]
 ```
 
-So the test supplies exactly what that vector lists, as literal entries in the coeffects map — nothing more, nothing less:
+The test supplies exactly those facts as literal entries in the coeffects map:
 
 ```clojure
 (deftest refresh-stamps-and-asks
@@ -86,28 +74,28 @@ So the test supplies exactly what that vector lists, as literal entries in the c
                          [:articles/refresh])]
     ;; the state change it computed
     (is (= 1781078400123 (get-in result [:db :articles :refreshing-since])))
-    ;; the request it asked for — as data
+    ;; the request it asked for, as data
     (is (= [:rf.http/managed {:request    {:method :get :url "/articles"}
                               :on-success [:articles/loaded]
                               :on-failure [:articles/load-failed]}]
            (first (:fx result))))))
 ```
 
-Look at what *didn't* happen here, because this is the part that trips people up. The handler did not fire an HTTP request. Its job is to *describe* one — an [effect](../glossary.md#effect) is just a piece of data saying "please do this" — and the runtime, which is absent in this test, would be the thing that actually performs it. So the test asserts on the description. No fetch was mocked because no fetch was involved. The clock wasn't frozen with fake timers; the clock was simply an entry in a map you wrote. The handler returned a map. You checked the map. For why the world only ever appears at this boundary, see [Effects and coeffects](../coeffects.md).
+The handler did not fire an HTTP request. It returned a description of one — an [effect](../glossary.md#effect) — and the runtime, absent from this test, is what would perform it. So the test asserts on the description: no fetch was mocked because none happened, and the clock is an entry in a map you wrote. [Effects and coeffects](../coeffects.md) explains why the outside world only appears at this boundary.
 
-!!! note
+!!! note "What the coeffects map contains"
 
-    **The coeffects map carries exactly what the handler declared — plus `:db` and `:event`.** A handler receives `:db`, the leaves it named in `:rf.cofx/requires`, and — if its destructuring reads it — the whole event vector under `:event`. (Most handlers destructure the event vector as the second argument, as above, and never need `:event`.) Nothing *undeclared* is ever delivered, which is the whole point: the coeffects map is a closed, hand-buildable input. If your handler reaches for a key you didn't supply, that's a clear signal the test's input map is incomplete — read the `:rf.cofx/requires` vector off the registry and supply each leaf.
+    At runtime a handler receives the framework's base keys — `:db`, `:event` (the dispatched vector), the frame id and the recorded `:rf.cofx` map — plus exactly the facts it named in `:rf.cofx/requires`, each flat under its own id. A fact the handler did not declare is not delivered as a flat key. In a pure-call test you only need to build the keys the handler reads, so if it reaches for a key you didn't supply, read its `:rf.cofx/requires` vector off the registrar and supply each entry.
 
 ??? note "Going deeper"
 
-    Declaring the world up front makes the handler a *reader* in the functional sense: a function from an environment (the coeffects map) to a value (the effect map), `cofx -> fx`. The framework is the interpreter that builds the environment and runs the effects; your handler is pure description in between. That's why the test needs no mocks — you're calling a pure function with a literal environment, exactly the way you'd test any `(f input) => output`. The `:rf.cofx/requires` vector is, in effect, the function's *type signature* for its environment — and it's machine-readable, right off the registrar.
+    Declaring its inputs makes the handler a function from an environment (the coeffects map) to a value (the effect map). The framework builds the environment and performs the effects; the handler in between is pure. That's why the test needs no mocks: it calls a pure function with a literal environment. The `:rf.cofx/requires` vector describes that environment, and tools can read it from the registrar.
 
 ## 3. When you want the runtime: a fresh frame per test
 
-The pure call from the last section tests the handler's *logic* — but it skips the runtime entirely. It plucks the function out of the registry and calls it directly, so it never checks that dispatching `[:articles/refresh]` actually finds and runs that handler, nor that the `:db` it returns really lands in app-db. Most of the time you don't need to check that — the wiring is the framework's job, not yours. But sometimes you want the extra confidence. For that you go one notch up: drive a real [dispatch](../glossary.md#dispatch) — the call that sends an event into the system the way your app does — and read the state that ends up committed.
+The pure call tests the handler's logic but skips the runtime. It never checks that dispatching `[:articles/refresh]` finds that handler, or that the returned `:db` lands in app-db. The wiring is the framework's job, so you rarely need to. When you do, drive a real [dispatch](../glossary.md#dispatch) and read the committed state.
 
-That means giving the test its own [**frame**](../glossary.md#frame): an isolated runtime context with its own app-db, so tests can't leak state into each other (see [Frames](../frames.md)). `with-new-frame` creates one, makes it current for the body, and tears it down on the way out — whether the body returns or throws.
+That needs a [**frame**](../glossary.md#frame): an isolated runtime context with its own app-db, so tests can't leak state into each other (see [Frames](../frames.md)). `with-new-frame` creates one, makes it current for the body, and destroys it on the way out, whether the body returns or throws.
 
 ```clojure
 (deftest refresh-stamps-through-the-runtime
@@ -119,50 +107,55 @@ That means giving the test its own [**frame**](../glossary.md#frame): an isolate
            (get-in (rf/app-db-value f) [:articles :refreshing-since])))))
 ```
 
-[`dispatch-sync`](../glossary.md#dispatch-sync) [drains](../glossary.md#drain--run-to-completion) the whole queue to a fixed point before returning, which is why the assertion on the next line can read fully committed state — there's nothing to flush and nothing to await.
+[`dispatch-sync`](../glossary.md#dispatch-sync) [drains](../glossary.md#drain--run-to-completion) the queue to a fixed point before it returns, so the next line reads committed state with nothing to flush or await.
+
+Two dispatch options stand in for the literal coeffects map from section 2:
+
+- **`:rf.cofx`** supplies coeffects on the dispatch, and the runtime passes them to the handler. Supplied values win; the runtime fills in only what is missing. Without it the clock would be the real enqueue time the runtime stamps on the event, and the assertion would chase a moving target.
+- **`:fx-overrides`** redirects an effect for this one dispatch. Here it discards the HTTP request, because this test only checks the timestamp. Answering the request with a canned reply and asserting the whole chain is covered in [Test a pipeline run](pipeline-runs.md).
 
 !!! warning "Gotcha"
 
-    Call it from your test (or at boot, or the REPL) — never from inside a running handler. A handler that calls `(rf/dispatch-sync [:other] …)` in its body [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/dispatch-sync-in-handler`: a handler must stay pure and *describe* a follow-up dispatch as data, not synchronously drive one. The in-handler shape is the `:fx` effect `[[:dispatch [:other]]]`, which the runtime drains as part of the same drain. (A bare `(rf/dispatch [:other])` from a handler body is *not* this error — it queues normally and routes to the handler's frame — but the `:fx` form is the idiom you want.)
-
-Two dispatch options do the work that the literal coeffects map did back in section 2:
-
-- **`:rf.cofx`** supplies coeffects on the dispatch — it plays the role the literal coeffects map played in section 2, except now you hand the values to the dispatch and the runtime threads them into the handler. Supplied values win; the runtime fills in only what's missing. Without it, the clock here would be the real wall clock the runtime stamps on the event, and your assertion would be chasing a moving target.
-- **`:fx-overrides`** redirects an effect for this one dispatch. Here it swallows the HTTP request, because this test only cares about the stamp. Answering the request with a canned reply and asserting the whole chain is the next page's job: [Test a pipeline run](pipeline-runs.md).
+    Call `dispatch-sync` from a test, at boot, or at the REPL, never from inside a running handler. A handler that calls `(rf/dispatch-sync [:other] …)` in its body raises `:rf.error/dispatch-sync-in-handler`. A handler describes a follow-up dispatch as data instead: return `{:fx [[:dispatch [:other]]]}` and the runtime runs it in the same drain.
 
 ??? note "Going deeper — naming the frame yourself"
 
-    A third option, `{:frame f}`, says *which* frame to dispatch into. Inside a `with-new-frame` body you can skip it — the macro pins `f` as the current frame for the body — but outside one (say you keep a frame in a `let` and tear it down yourself) you pass `:frame` explicitly. There is no ambient default frame; [a frame's identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found) — the target is always either carried by scope or named on the opts map.
+    A third option, `{:frame f}`, says which frame to dispatch into. Inside a `with-new-frame` body you can leave it out, because the macro makes `f` the current frame. Outside one (say you keep a frame in a `let` and destroy it yourself) you pass `:frame` explicitly. There is no ambient default frame: [a frame's identity is carried, not found](../glossary.md#frame-identity-is-carried-not-found), so the target is either established by scope or named on the opts map.
 
 ### When a required coeffect is missing: a loud failure, by design
 
-There's a failure mode here that catches people, and it's a *feature* — of the **`:test` preset**. Under the router's default `:live` mint policy — what a plain `(rf/make-frame {})` rides — a handler that declares a generator-backed fact the dispatch didn't supply gets a freshly-minted value, silently. A `{:preset :test}` frame flips the mint policy to `:strict`: the same dispatch now [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/missing-required-cofx` rather than quietly minting a value your test didn't choose.
+Some coeffects are backed by a **generator**: an app-registered, recordable `reg-cofx` whose supplier produces a fresh value each time, such as a new id. What happens when a dispatch declares one but doesn't supply it depends on the frame's mint policy. A plain `(rf/make-frame {})` uses the default `:live` policy and runs the generator. A `{:preset :test}` frame uses `:strict`, and the same dispatch raises `:rf.error/missing-required-cofx` instead of minting a value your test didn't choose.
 
-`:rf/time-ms` is the exception that always succeeds — the router stamps every event with an enqueue time when it's dispatched, so the clock is never *missing*; the runtime can always mint it. The strict failure fires for a fact the runtime *can't* safely mint on its own — typically one backed by a **generator**: a function you registered with `reg-cofx` that produces a fresh value each time (a new id, a random number). A strict frame won't run that generator behind your test's back, because the value it makes is one your test didn't choose. So declare such a fact, don't supply it, and the dispatch refuses to proceed:
+`:rf/time-ms` never fails this way: the router stamps every event with its enqueue time, so the clock is never missing.
 
 ```clojure
+(rf/reg-cofx :app/new-id
+  {:recordable? true}                   ;; a generator-backed recordable fact
+  (fn [] (str (random-uuid))))
+
 (rf/reg-event :comment/create
-  {:rf.cofx/requires [:app/new-id]}     ;; a reg-cofx with a value-returning generator
+  {:rf.cofx/requires [:app/new-id]}
   (fn [{:keys [db app/new-id]} [_ body]]
     {:db (assoc-in db [:comments new-id] {:body body})}))
 
-;; A {:preset :test} frame is strict-mint by default. Supply the id, or the
-;; dispatch fails with :rf.error/missing-required-cofx — it will NOT silently
-;; mint a different id than production would.
+;; A {:preset :test} frame is strict. Supply the id, or the dispatch fails
+;; with :rf.error/missing-required-cofx instead of minting a random one.
 (rf/with-new-frame [f (rf/make-frame {:preset :test})]
   (rf/dispatch-sync [:comment/create "Great article!"]
-                    {:rf.cofx {:app/new-id "id-123"}}))
+                    {:rf.cofx {:app/new-id "id-123"}})
+  (get-in (rf/app-db-value f) [:comments "id-123" :body]))
+;; => "Great article!"
 ```
 
-This is exactly the trap you want sprung. A silently-minted random value would make the test green against a state production will never produce — green-and-wrong, the worst colour a test can be. The fix is always one of two moves: supply the fact in `:rf.cofx` (the deterministic path, almost always what you want), or, when you genuinely want a fresh value per run, opt back into live minting with `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
+A silently minted random value would let the test pass against state production never produces. Either supply the fact in `:rf.cofx`, which is almost always what you want, or, when a fresh value per run is genuinely intended, opt back into generation with `{:rf.cofx/mint-policy :explicit-live}` as a dispatch opt.
 
-!!! note "The `:test` frame preset bundles the deterministic defaults"
+!!! note "The `:test` frame preset"
 
-    Rather than spell out each test-friendly setting on every frame, ask for the bundle: `{:preset :test}` on `rf/make-frame` expands to three fixed entries. It redirects `:rf.http/managed` to a canned-success stub, so a test frame never reaches the network (the stub registers from `re-frame.http.test-support` — add that to the test ns requires); it sets `:rf.cofx/mint-policy :strict`, the strict-mint behaviour above; and it carries `:drain-depth 100`, the framework default, surfaced so tooling can read "this is a test frame" off the frame's metadata. Reach for the preset when you want those defaults without naming them one by one.
+    `{:preset :test}` on `rf/make-frame` expands to three entries. It redirects `:rf.http/managed` to a canned-success stub, so a test frame never reaches the network; the stub is registered by `re-frame.http.test-support`, so add that namespace to the test's requires. It sets `:rf.cofx/mint-policy :strict`, the behaviour above. And it sets `:drain-depth 100`, the framework default, so tools can read the bound off the frame's metadata. Your own keys win over the expansion.
 
 ### Seeding state: the frame boots it, the body tests it
 
-When a test needs state built up *before* the dispatch it's actually about, don't stack setup `dispatch-sync` calls above the action — that buries the dispatch under test. Events are the language of the system, and setup can speak it too, just not in the test body: hand the setup to `make-frame` as `:initial-events`, the same ordered event script a production [frame](../frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains to completion, in order, while the frame is constructed. The frame arrives already in the state the test needs, and the body holds exactly one dispatch — the one under test:
+When a test needs state built up before the dispatch it is about, hand the setup to `make-frame` as `:initial-events`, the same ordered event list a production [frame](../frames.md#seeding-initial-state) boots with. Each step dispatches synchronously and drains, in order, while the frame is constructed. The body then holds one dispatch, the one under test:
 
 ```clojure
 (deftest page-change-from-a-seeded-feed
@@ -172,7 +165,7 @@ When a test needs state built up *before* the dispatch it's actually about, don'
     (is (= 3 (get-in (rf/app-db-value f) [:articles :page])))))
 ```
 
-A setup step that needs pinned facts takes the map form — `:opts` is the ordinary `dispatch-sync` opts map, so a seed can carry `:rf.cofx` and `:fx-overrides` just like the action can:
+A setup step that needs pinned facts takes the map form. `:opts` is the ordinary `dispatch-sync` opts map, so a step can carry `:rf.cofx` and `:fx-overrides` like the action can:
 
 ```clojure
 (rf/make-frame
@@ -182,55 +175,50 @@ A setup step that needs pinned facts takes the map form — `:opts` is the ordin
                              :fx-overrides {:rf.http/managed (fn [_ _] nil)}}}]})
 ```
 
-And construction is strict: a setup step that fails — a thrown handler, a missing required cofx — tears the partial frame down and the constructor throws `:rf.error/initial-events-step-failed` naming the step. A broken seed is a red test at the `make-frame` line, never a half-seeded frame that fails three asserts later.
+If a setup step fails — a handler throws, a required cofx is missing — `make-frame` destroys the partial frame and throws `:rf.error/initial-events-step-failed` naming the step. A broken seed fails at the `make-frame` line.
 
 ### Ergonomic state assertions
 
-For the assertion itself, `test-support` ships a `clojure.test`-aware helper that reads the *current* (or a named) frame's app-db, so you don't have to thread `app-db-value` through `get-in` by hand: `(ts/assert-path-equals path expected)` checks one path. It takes an optional `{:frame …}` opt and reports a `:pass` / `:fail` through `clojure.test`, so it slots straight into a `deftest` (for a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value frame-id)))`):
+`re-frame.test-support` has a `clojure.test`-aware helper for path assertions: `(ts/assert-path-equals path expected opts?)` reads a frame's app-db, compares the value at `path`, and reports a `:pass` or `:fail` through `clojure.test`. It looks the frame up by id, so inside a `with-new-frame` body give the frame an `:id` and pass that id as `{:frame …}`, not the frame value `f`:
 
 ```clojure
 (deftest page-committed
-  (rf/with-new-frame [_ (rf/make-frame {:initial-events [[:articles/init]]})]
+  (rf/with-new-frame [_ (rf/make-frame {:id :test/articles
+                                        :initial-events [[:articles/init]]})]
     (rf/dispatch-sync [:articles/page-changed 3])
-    (ts/assert-path-equals [:articles :page] 3)))
+    (ts/assert-path-equals [:articles :page] 3 {:frame :test/articles})))
 ```
+
+Without `:frame`, the helper reads the frame established by the reset fixture's ambient scope (`:rf/default` when the fixture installs an adapter). For a whole-map check, compare directly: `(is (= expected-db (rf/app-db-value f)))`.
 
 ??? info "For JavaScript developers"
 
-    `assert-path-equals` mirrors the `:rf.assert/path-equals` event you'd write inside a Story play function — the fn-side and the event-side share a name root on purpose, so you don't need a translation table when you move between unit tests and Stories. If you've used Testing Library's `expect(screen…).toHaveTextContent(…)`, think of these as the app-db equivalent: a focused assertion against the one thing this test is about.
+    `assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside a Story play script, so the name is the same in unit tests and Stories. If you've used Testing Library's `expect(…).toHaveTextContent(…)`, this is the app-db equivalent: a focused assertion on one value.
 
 ## 4. The trap: frames don't isolate registrations
 
-There's a footgun here worth slowing down for. `with-new-frame` gives each test its own app-db, but it does **not** give each test its own registrar. `reg-event` and its siblings register into a process-global [registrar](../glossary.md#registrar) — one table shared across the whole test run. (This is the rule in action: a frame isolates **state, not registrations** — see [Frames](../frames.md).)
+`with-new-frame` gives each test its own app-db, but not its own registrar. `reg-event` and its siblings write to one process-global [registrar](../glossary.md#registrar) shared across the whole test run: a frame isolates state, not registrations (see [Frames](../frames.md)).
 
-So: if two test namespaces register different handlers under the same id, the later load silently wins. That's how you get the classic flake-hunt horror — every test passes alone, the suite fails together, and the failure jumps around as test order changes. Maddening to chase. Cheap to prevent.
+If two test namespaces register different handlers under the same id, the later load wins, silently. Every test passes alone, the suite fails together, and the failure moves as test order changes.
 
-If your tests — or any helpers they load — register anything themselves, bracket each test with a registrar snapshot/restore so the table is put back the way it was:
+If your tests, or helpers they load, register anything themselves, add the reset fixture:
 
 ```clojure
 (use-fixtures :each (ts/make-reset-runtime-fixture {}))
 ```
 
-`make-reset-runtime-fixture` snapshots the registrar before each test and restores it on the way out, keeping the ns-load registrations it captured at the start.
+`make-reset-runtime-fixture` is a factory: calling it returns the fixture function you hand to `use-fixtures`. The fixture snapshots the registrar before each test and restores it afterwards, keeping the registrations your namespaces made at load. It also resets the rest of the per-process runtime — frames, flows, schemas, machine timers, routing counters, in-flight HTTP, resource caches, epoch history and trace listeners. Resets for artefacts you haven't loaded are no-ops, so a plain JVM handler suite pays nothing for them. Use it as the default for any real suite.
 
-### Picking the right reset fixture
-
-`re-frame.test-support` offers a small ladder of reset options, so you can match the cleanup to what your suite actually touches:
-
-| Reach for | When |
-|---|---|
-| `ts/snapshot-registrar` + `ts/restore-registrar!` | You're hand-rolling a fixture and want the raw snapshot/restore primitives — capture the registrar map, restore it later (e.g. a `(let [snap (ts/snapshot-registrar)] (try … (finally (ts/restore-registrar! snap))))` bracket around a single ad-hoc block). |
-| `ts/make-reset-runtime-fixture` | The **default for any real suite**. It snapshots/restores the registrar *and* resets the rest of per-process state — frames, flows, schemas, machine timers, routing counters, in-flight HTTP, resource caches, epoch history, trace listeners. It's a *factory*: call it to get the fixture fn. |
+For a single ad-hoc block, the raw primitives are `ts/snapshot-registrar` and `ts/restore-registrar!`, which you call directly:
 
 ```clojure
-;; The standard shape for a suite that exercises more than the registrar:
-(use-fixtures :each (ts/make-reset-runtime-fixture {}))
+(let [snap (ts/snapshot-registrar)]
+  (try
+    (rf/reg-event :scratch/probe (fn [_ _] nil))
+    ;; ... assertions that need the scratch registration ...
+    (finally (ts/restore-registrar! snap))))
 ```
-
-`make-reset-runtime-fixture` is the right default because its resets are no-ops when an artefact is absent — a plain JVM event-handler suite that never pulls in flows or schemas doesn't pay for resetting them.
-
-One thing to keep straight: `make-reset-runtime-fixture` is a *factory* — it *returns* the fixture fn you hand to `use-fixtures` (`(ts/make-reset-runtime-fixture {})`), it is not itself the fixture. The raw `snapshot-registrar` / `restore-registrar!` pair, by contrast, you call directly inside a hand-rolled bracket. If `use-fixtures` complains, check which side of this line you're on.
 
 ??? info "For JavaScript developers"
 
-    The process-global registrar is the same shared-module-state hazard you get when one test file imports and mutates a singleton another file also imports. Jest hands you `jest.resetModules()` / `--isolateModules` to wall it off; here the wall is an explicit `use-fixtures` snapshot/restore. The difference is that re-frame2 makes the shared table — and its reset — a named, visible thing, rather than an invisible module-cache side effect.
+    The process-global registrar is the same hazard as one test file mutating a module-level singleton that another file also imports. Jest offers `jest.resetModules()` or `--isolateModules`; here the reset is an explicit `use-fixtures` fixture, and the shared table is a named thing you can snapshot and restore.

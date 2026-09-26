@@ -26,7 +26,8 @@ Register and execute the mutation normally:
 (ns app.profile
   (:require [re-frame.core :as rf]
             [re-frame.resources]
-            [re-frame.http.managed]))
+            [re-frame.http.managed]
+            [re-frame.fresco :as h]))
 
 (rf/reg-mutation :profile/save
   {:params-schema [:map
@@ -297,7 +298,7 @@ parameter change was arranged by the `:keep-previous?` on the ensure above:
          [:li {:key (:id s)}
           (:label s)]))]))
 
-(h/defview search-box []
+(h/defview search-box [_]
   (let [text (h/sub [:search/text])
         q    (h/sub [:search/committed-q])]
     [:div.search

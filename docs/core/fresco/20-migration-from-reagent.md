@@ -36,17 +36,15 @@ clojure -Srepro \
 Run it from your own project. It needs no checkout of re-frame2: the coordinate
 fetches the reporter, and `--report out.edn` chooses where the report goes.
 
-**That coordinate is the reporter's delivery, not a stopgap.** The published
-Fresco artefact does not carry this tool, so there is no Maven coordinate for
-this command to move to later. The `:git/sha` above is the commit it was last
-proved against; pin a newer one whenever you like —
-`git ls-remote https://github.com/day8/re-frame2.git refs/heads/main` prints the
-current head, and a SHA is what makes the run reproducible.
+The tool ships only as this git dependency; the published Fresco artefact does
+not include it. The `:git/sha` above is a known-good commit. To pin a newer
+one, `git ls-remote https://github.com/day8/re-frame2.git refs/heads/main`
+prints the current head.
 
-Every run writes one EDN report, a scan that changes no source included.
-Without `--report` it goes to `reagent-to-fresco-report.edn` beside the first
-path scanned — point the tool at `<repo>/src/` and the report lands at
-`<repo>/` — and the run prints the absolute path it used.
+Every run writes one EDN report, including a scan that changes no source.
+Without `--report` it goes to `reagent-to-fresco-report.edn` in the parent of
+the first path scanned (scan `<repo>/src/` and the report lands in `<repo>/`),
+and the run prints the absolute path it used.
 
 Reagent converted props crossing through `[:>]`. Among other behaviours, it
 camel-cased nested keys, converted keyword values to names, wrapped
@@ -82,27 +80,20 @@ contract against the component library's documentation.
 
 ### The report's second half: the census
 
-Everything above describes the **fixer**, and its population — the `[:>]`
-family — is not what a Reagent codebase is mostly made of. Run over this
-repository's own 88-file example corpus the fixer reports **zero entries**,
-because the corpus crosses into React nowhere. A migrator reading only that
-sees 88 files the report never mentions.
+Everything above describes the **fixer**, which only looks at `[:>]`-family
+crossings. Most Reagent code never crosses into React that way, so a codebase
+can produce zero fixer entries while still needing a lot of work.
 
-So the same run also emits a **census**, under `:census`, whose population is
-the view-substrate API **call site**: `r/atom`, `r/with-let`, `r/create-class`,
-`r/as-element`, `r/cursor`, `r/reactify-component`, root mounting, and the rest
-of the two rosters. On that same corpus it reports many, in files the fixer half
-never named. No count is quoted here on purpose: the census figure moves whenever
-the corpus grows *or* the rosters widen, and a figure pinned to a commit goes
-stale on a change neither of those announces. Run it and read your own.
+The same run therefore also emits a **census**, under `:census`, whose
+population is the view-substrate API **call site**: `r/atom`, `r/with-let`,
+`r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
+mounting, and the rest of the two rosters.
 
 There are two rosters, because a re-frame2 application on the Reagent adapter
-calls no Reagent API of its own and a Reagent-only census scored it at zero.
-The first is Reagent's API — stock Reagent's namespaces, and the `reagent2.*`
+may call no Reagent API of its own. The first is Reagent's API — stock Reagent's namespaces, and the `reagent2.*`
 ones the reagent-slim adapter ships. The second is re-frame2's own substrate
 adapters: everything under `re-frame.adapter.`, matched as a prefix anchored at
-the start of the namespace, because the adapter set is open and a list of
-today's adapters goes stale into the same silent zero tomorrow.
+the start of the namespace, so adapters added later are counted too.
 
 A **call site is source that runs**. `#_(r/atom 0)`, `'(r/atom 0)` and
 `(comment (r/atom 0))` parse into the same nodes a live call does, and the
@@ -122,7 +113,7 @@ census carries a recovery note for every class it emits:
 | --- | --- | --- |
 | Human decision | `:with-let`, `:cell-disposal`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:static-markup`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam`, `:substrate-test-harness` | A Fresco translation exists, but which one depends on intent the source does not carry |
 | Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:reactive-graph-control`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Fresco has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
-| Mechanical | none | The bucket is always emitted, at `:mechanical 0`. Every mechanical rewrite this tool family knows is a W-rule and every W-rule sits at a crossing, so the zero is a measurement rather than an omission |
+| Mechanical | none | Always emitted as `:mechanical 0`. Every mechanical rewrite is a W-rule, and W-rules apply only at crossings |
 
 Two further classes report a resolution failure rather than a translation, both
 as runtime blockers. A namespace that spells a Reagent name without being
@@ -205,7 +196,7 @@ two doors, and the choice is about who owns the mount:
     :profile [profile-page]                     ;; still Reagent
     [not-found]))
 
-;; Door 2 — h/as-component, minted ONCE at top level, beside the view it
+;; Door 2 — h/as-component, created once at top level, beside the view it
 ;; bridges. Reach for it when the Reagent parent must key, mount and
 ;; re-render the screen as a component.
 (def feed-component (h/as-component feed/feed))
@@ -214,9 +205,8 @@ two doors, and the choice is about who owns the mount:
   [:> feed-component {:page 0}])
 ```
 
-Minting the component inside a render would allocate a fresh element type on
-every pass and remount the subtree, which is `React.memo`'s own law rather than
-a Fresco rule.
+Calling `h/as-component` inside a render would create a new component type on
+every pass, and React would remount the subtree each time.
 
 `h/client-root` + `h/render!` ([Installation](00-installation.md)) is the
 whole-application door. It is where the migration ends rather than where it
@@ -243,8 +233,7 @@ exactly where it was.
 | `r/as-element` inside a render prop | `h/as-element` inside an `h/event` at the render prop |
 | `r/reactify-component` | `h/as-component`, the outward bridge |
 
-The same table for the second starting point. Every row but the last is a
-spelling change; none of those is a change of shape:
+The same table for the second starting point. Every row is a spelling change:
 
 | re-frame2 on the Reagent adapter | Fresco |
 | --- | --- |
@@ -253,19 +242,14 @@ spelling change; none of those is a change of shape:
 | `dispatch`, injected into a `reg-view` body | the intent vector itself, or `h/event` when the event matters |
 | `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
 | `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
-| `[rf/frame-root {:id :app ...}]` around the tree | `[h/frame-root {:id :app ...}]` — the SAME head, the same options, in the same place. A rename, and nothing more |
+| `[rf/frame-root {:id :app ...}]` around the tree | `[h/frame-root {:id :app ...}]`, with the same options in the same place |
 
-That last row used to be the exception, and it used to fail silently: the mount
-config was closed at three keys and dropped the rest, so a `frame-root` carrying
-`:url-bound?` or `:fx-overrides` did not survive being respelled as one. It is an
-ordinary row now. `h/frame-root` passes every `rf/make-frame` option through
-exactly as `rf/frame-root` does — `:url-bound?`, `:fx-overrides`, `:images`,
-`:preset` and the rest of the record config — and the root door refuses a frame
-option rather than ignoring it, so the mistake is loud on the rare occasion
-somebody still makes it.
+`h/frame-root` accepts every `rf/make-frame` option, as `rf/frame-root` does:
+`:url-bound?`, `:fx-overrides`, `:images`, `:preset` and the rest. Frame options
+belong on the head, not on `h/render!`; passing `:frame` or `:initial-events` to
+`h/render!` raises `:rf.error/fresco-frame-config-misplaced`.
 [Installation](00-installation.md#a-frame-that-needs-more-than-a-seed) shows the
-shape; a routed application needs `:url-bound? true`, so this is the common path
-rather than an edge
+shape, and a routed application needs `:url-bound? true`
 ([Routing and navigation](07-routing-and-navigation.md#boot-a-routed-application)).
 
 A `reg-view` body's `subscribe` and `dispatch` are lexical bindings the macro
@@ -304,7 +288,7 @@ back out to the callers that are still Reagent:
      [:h2 (:title article)]
      [:button {:on-click [:article/favourite id]} "Favourite"]]))
 
-;; Minted once, beside the view, for the callers that have not moved.
+;; Created once, beside the view, for the callers that have not moved.
 (def article-preview-component (h/as-component article-preview))
 ```
 
@@ -430,11 +414,9 @@ Add a sabotage control before trusting the comparator: deliberately change a
 candidate prop and confirm the run turns red at the expected checkpoint.
 
 Omit `:script` for interactive development. Both mounts stay live and the call
-answers a handle rather than a verdict. **No checkpoint is taken
-automatically.** A reading per committed render is not built, because the
-runtime publishes no commit callback, so nothing is compared until you ask for
-it. Retain the handle, drive both mounts by hand, call `:checkpoint!` at each
-point you want compared, and `:stop!` when you are finished.
+returns a handle rather than a verdict. Nothing is compared automatically: drive
+both mounts by hand, call `:checkpoint!` at each point you want compared, and
+`:stop!` when you are finished.
 
 ```clojure
 (let [s (hm/shadow! {:reference [:> old-article-row {:id 7}]

@@ -6,6 +6,10 @@ the same browser turn and handles caret and IME behaviour for the normal
 `:value`/`:on-input` form.
 
 ```clojure
+(ns todo.fields
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco :as h]))
+
 (h/defview title-field [{:keys [id]}]
   [:input {:type     :text
            :value    (h/sub [:todo.ui/draft id])
@@ -52,15 +56,15 @@ autofill, a browser extension, or another script changes `.value`, the next
 commit restores the model. An event delivered after the field unmounts is a
 no-op, including a late blur; it leaves no retained input state.
 
-Every controlled keystroke is a complete event-pipeline run. The performance
-chapter owns the measurements and budgets; this page owns the behaviour.
+Every controlled keystroke is a complete pipeline run;
+[Performance](19-performance.md) has the measurements and budgets.
 
 ??? info "For readers coming from Reagent"
     A common Reagent pattern adds a local ratom to protect a field from async
     rendering. Do not copy that pattern into Fresco. The controlled path is
     synchronous and the runtime already preserves selection and composition.
-    When an edit needs a separate draft/commit lifecycle, use the forms module
-    rather than building a second atom stack.
+    When an edit needs a separate draft/commit lifecycle, use the
+    [forms module](05-forms.md) rather than a second atom.
 
 ## Supported controls
 
@@ -89,18 +93,18 @@ platform value:
          :on-change [:todo/set-done id ::h/checked]}]
 ```
 
-Fresco reconciles a controlled value only for the shapes in that table, and it
-approximates nothing outside them. A contenteditable region is the case worth
-naming: it has no single value Fresco could reconcile, so it is not treated as
-a controlled field at all. A `:value` bound to one is passed through to React
-untouched — nothing refuses it, and nothing keeps it in step with your app-db,
-so the binding is silently inert rather than loud. Use a declared foreign host
-or named native island so the rich-text editor can own the DOM it needs.
+Fresco reconciles a controlled value only for the controls in that table. A
+contenteditable region has no single value to reconcile, so it is not a
+controlled field: a `:value` on one is passed to React untouched, raises
+nothing, and is never kept in step with app-db. Put a rich-text editor behind a
+[foreign host](09-interop.md) or a [native island](10-native-tier.md) so it can
+own the DOM it needs.
 
 ## Forward caller attributes safely
 
-A reusable field can accept ordinary caller attributes while retaining its
-control slots. Merge the caller map first and the owned entries last:
+A reusable field forwards caller attributes the way
+[chapter 02](02-views-and-reads.md#forward-attributes-with-owned-keys-last)
+shows: merge the caller map first and the owned entries last.
 
 ```clojure
 (h/defview field [{:keys [id busy?] :as attrs}]
@@ -110,26 +114,21 @@ control slots. Merge the caller map first and the owned entries last:
            :disabled busy?
            :on-input [:todo.ui/edit-field id ::h/value]})])
 
-[field {:id :title
-        :busy? busy?
-        :type "text"
+[field {:id          :title
+        :busy?       busy?
+        :type        "text"
         :placeholder "Todo title"}]
 ```
 
-Literal owned keys win by presence: `:value`, `:disabled`, and `:on-input` are
-merged last, so a caller's entries under those same keys are replaced. That
-protection is per map key, not per React slot. A caller's `:onInput` or
-`"value"` is a different key, so it survives the merge and lands on the same
-React slot as the owned literal, and which of the two wins is decided by map
-iteration order. Forward maps in the same kebab-keyword spelling as Hiccup, as
-[chapter 02](02-views-and-reads.md#forward-attributes-with-owned-keys-last)
-says, or `dissoc` the alternate spellings before merging. When callers should
-own a slot, do not write that literal in the wrapper.
+The owned `:value`, `:disabled`, and `:on-input` replace a caller's entries
+under the same keys. That protection is per map key, not per React prop: a
+caller's `:onInput` or `"value"` is a different key, survives the merge, and
+lands on the same React prop as the owned entry, with map iteration order
+deciding which wins. Forward maps in kebab-keyword spelling, or `dissoc` the
+alternate spellings before merging.
 
-Put the wrapper's own classes on the Hiccup tag so they compose with a caller's
-`:class`. Do not forward `:key` or [`::h/revision`](glossary.md#hrevision): both
-refer to the element authored by the wrapper and are read only from that
-map.
+Do not forward `:key` or [`::h/revision`](glossary.md#hrevision): both describe
+the element the wrapper writes, and are read only from that map.
 
 ## Reset with `::h/revision`
 
@@ -208,6 +207,7 @@ commits on Enter or blur and cancels on Escape.
 | The field resets on every render | The view creates a new revision while rendering | Read a stable revision written to app-db by events |
 | A `revision="…"` attribute appears and the field never resets | The page used bare `:revision`; only the exact namespaced `::h/revision` is reserved | Use `::h/revision`. Other spellings are ordinary DOM attributes and may lose namespace information |
 | Rendering raises `:rf.error/fresco-revision-not-controlled` | Revision was placed on a control outside the supported text path | Put it on the controlled input/textarea. Reset a select or checkbox by updating its model value |
+| A file input's `:on-change` raises `:rf.error/fresco-file-input-value-marker` | The intent uses `::h/value`, which has no meaningful value on a file input | Use `h/event` and read `(.. e -target -files)` |
 | Focus disappears after validation fails | Code remounted the input | Keep the node and let the controlled path restore the model value |
 
 ## When not to control a field

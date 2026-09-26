@@ -36,7 +36,8 @@ Teardown is part of performance. Long-lived applications must not accumulate
 subscriptions, timers, listeners, or SDK handles as users leave and revisit
 screens. Fresco releases its own committed reads. Hosts and native islands
 must release what they acquire ([Interop](09-interop.md)). Prove the complete
-claim with `hm/assert-clean!` ([Testing](15-testing.md)).
+claim with `hm/assert-clean!` from `re-frame.fresco.test.mounted`
+([Testing](15-testing.md)).
 
 ## Start with ordinary Fresco
 
@@ -113,26 +114,20 @@ The runtime delivers entries to `PerformanceObserver` and browser DevTools but
 does not retain them for later polling. A subsequent `getEntriesByType` call
 may find nothing even though the live observer saw the entries.
 
-**`h/defview` boundaries are bracketed**, so your Fresco views do appear in the
-stream. Each emits `rf:render:<view-id>`, where the id is the
-`"<namespace>/<name>"` of the declaration — the same string React DevTools shows
-as `displayName`, so a measure name and a DevTools node are one identifier. A
-typical entry reads `rf:render:app.todo/todo-row`. This does not vary by
-adapter: Fresco is the view substrate rather than a layer over one.
+Each `h/defview` emits `rf:render:<view-id>`, where the id is the
+`"<namespace>/<name>"` of the declaration, for example
+`rf:render:app.todo/todo-row`. In development builds React DevTools shows the
+same string as the component's `displayName`.
 
-The bracket sits on the boundary and nowhere else. A plain function inlined into
-a body is not a boundary and gets no measure of its own; its cost lands inside
-the enclosing boundary's entry.
+Only `defview` boundaries are measured. A plain function called from a body
+gets no entry of its own; its cost lands inside the enclosing view's entry.
 
 A view that bails out emits no measure because its body did not run.
 Development StrictMode emits twice when the body runs twice. When the runtime
-re-runs a body internally to settle its reads, the bracket still emits once —
-the count is render passes React actually performed, and the duration is the
-wall-clock it actually paid, not a total inflated by an internal retry.
+re-runs a body internally to settle its reads, the view still emits one entry.
 
-A throwing body still emits, because the bracket is a `try`/`finally`. An
-`rf:render:` entry is evidence that a render was attempted, not that it
-completed.
+A throwing body still emits, so an `rf:render:` entry shows that a render was
+attempted, not that it completed.
 
 ## Keep an escape only when it earns its cost
 
@@ -217,7 +212,8 @@ A coarse read has a different cost:
       (for [cell cells]
         [grid-cell
          {:key (:id cell)
-          :cell cell}])]]))
+          :row (:row cell)
+          :col (:col cell)}])]]))
 ```
 
 Every keystroke now:
@@ -252,8 +248,8 @@ write path can drop or reorder characters
 | Fast typing drops characters | A timeout, debounce, queue, or effect sits between input and app-db commit | Keep the controlled write synchronous and debounce downstream consumers |
 | A native island shipped but the interaction did not improve | The original cost was misattributed | Re-run attribution and remove the island when it fails the benefit rule |
 | The feature is fast locally but misses field budgets | Measurement used a development build, fast hardware, or best-run values | Test the production build on mid-tier hardware and report p95 |
-| Heap or listeners grow after leave-and-return cycles | A host or island acquires without matching teardown | Pair attach and cleanup, then prove zero residue with `assert-clean!` |
-| An escape clears no threshold but is kept “for safety” | The benefit rule was ignored | Remove it; an unearned escape is permanent complexity |
+| Heap or listeners grow after leave-and-return cycles | A host or island acquires without matching teardown | Pair attach and cleanup, then prove zero residue with `hm/assert-clean!` |
+| An escape clears no threshold but is kept “for safety” | The benefit rule was ignored | Remove it and return to the previous level |
 | The path remains slow after moving native | The measured owner was not construction | Return to attribution and fix the actual pressure class |
 
 ## When not to optimise

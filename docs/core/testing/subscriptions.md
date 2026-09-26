@@ -1,12 +1,6 @@
 # Test a subscription
 
-A [subscription](../subscriptions.md) is a formula over facts. You test a formula the spreadsheet way: hand it the cells, look at the answer.
-
-That works because a subscription's computation is a pure function of `(inputs, query-v)` — so you need no reactive runtime, no DOM, and no browser to test what it *computes*. `rf/compute-sub` runs a sub's body against an app-db **value** and returns the result. It runs on the JVM: no Reagent, no React, no installed [adapter](../glossary.md#adapter), no live cache.
-
-> **A subscription test is `compute-sub` against a db value — the whole declared-`:inputs` chain resolves for you.**
-
-That's the whole recipe. The rest of this page is choosing where the db value comes from — and knowing the one thing a sub test doesn't prove.
+A [subscription](../subscriptions.md)'s computation is a pure function of its inputs and its query vector, so testing what it computes needs no reactive runtime, no DOM and no browser. `rf/compute-sub` runs a sub against an app-db **value** and returns the result. It runs on the JVM with no Reagent, no React, no installed [adapter](../glossary.md#adapter) and no live cache.
 
 The sub under test here is the three-layer cart chain from [Subscriptions](../subscriptions.md#three-layers-one-graph): `:cart/items` and `:cart/category-filter` extract, `:cart/by-price` sorts, `:cart/visible` filters.
 
@@ -29,31 +23,39 @@ The sub under test here is the three-layer cart chain from [Subscriptions](../su
            (mapv :sku (rf/compute-sub [:cart/visible] db))))))
 ```
 
-Notice what you didn't write: nothing in the test computes `:cart/items` or `:cart/by-price`. Pass `compute-sub` the outer query vector and a `db`, and it resolves the entire input chain for you, in dependency order. It's **pure** — the same `(query-v, db)` always returns the same value, with no cache carried between calls — and that's what makes it the workhorse for sub tests. A parametric sub tests the same way, the arguments riding the query vector: `(rf/compute-sub [:article/page "welcome"] db)`.
+Nothing in the test computes `:cart/items` or `:cart/by-price`. Given the outer query vector and a `db`, `compute-sub` resolves the entire input chain in dependency order. It carries no cache between calls, so the same query vector and db always return the same value. A parametric sub tests the same way, with its arguments in the query vector: `(rf/compute-sub [:article/page "welcome"] db)`.
 
-## The sharper variant: drive real events first
+## Build the db with real events
 
-A hand-rolled literal `db` has a hidden cost: the test now knows the internal structure of app-db. For a very simple reader, fine — that's the escape hatch. But for anything that depends on the *shape* your events actually produce, it rots silently: the day a handler changes that shape, the test keeps passing against a db your app no longer builds. Green, and wrong.
+A hand-written `db` literal encodes the internal shape of app-db. For a simple extractor that is fine. For a sub that depends on the shape your events actually produce, it goes stale without failing: the day a handler changes that shape, the test keeps passing against a db your app no longer builds.
 
-The fix is to build the db the way your app builds it — through events. Boot a test [frame](../glossary.md#frame) through real events — `:initial-events` on `make-frame`, each step an ordinary dispatch drained in order at construction — and read the sub against the db that produces. The events aren't the subject here; they're setup, so they ride the frame's construction rather than the test body:
+Build the db the way your app builds it. Boot a test [frame](../glossary.md#frame) with `:initial-events` on `make-frame` — each step is an ordinary dispatch, drained in order while the frame is constructed — and compute the sub against the db that produces:
 
 ```clojure
+;; Assumes my-app registers :cart/add-item, which conj's the item onto :cart/items.
 (deftest cart-count-after-events
   (rf/with-new-frame [f (rf/make-frame {:initial-events [[:cart/add-item {:sku "BK-1"}]
                                                          [:cart/add-item {:sku "BK-2"}]]})]
     (is (= 2 (count (rf/compute-sub [:cart/items] (rf/app-db-value f)))))))
 ```
 
-!!! note "Two styles, one rule of thumb"
+Use a literal `db` when the sub is trivial and the shape is obvious. Seed with real events when the shape matters, because that test runs against the db your handlers actually build. In either case, skip `subscribe` plus deref in tests: it needs a live cache and an installed adapter, and adds nothing to a value assertion.
 
-    `compute-sub` against a literal `db` when the reader is trivial and the shape is obvious. Seed with real events and read `(rf/app-db-value f)` when the db shape matters — that test exercises the same db your handlers actually build, so it can't drift from reality. And skip `subscribe` + deref in tests altogether: the reactive runtime is pure overhead for a value assertion, and it needs a live cache and an installed adapter.
+`compute-sub` checks the computation, not the reactive machinery. It proves the value is right, not that a view re-renders when it changes. Change propagation (the equality gate, ref-counting, disposal) is the framework's job, so you don't re-test it per sub. When the thing under test is "the view updated", write a [view test](views.md) with the reset fixture, or a [pipeline-run test](pipeline-runs.md) asserting on committed state.
 
-Now the boundary — worth stating bluntly, because it spares you a whole category of useless test: `compute-sub` runs the *computation*, not the *reactive machinery*. It proves the value is right — not that a view re-renders when it changes. That's by design. Change propagation (the equality gate, ref-counting, disposal) is the framework's contract, not your code, so you don't re-test it per sub. When the thing under test genuinely is "the view updated", that's a [view test](views.md) with the app fixture, or a [pipeline-run test](pipeline-runs.md) asserting on committed state.
+If a hand-rolled fixture or a REPL session does exercise the live cache, `(rf/clear-sub-cache! frame-id)` disposes every cached subscription for that frame. The reset fixture above already discards frames between tests, so a suite using it doesn't need the call.
 
 ## When the sub carries a `:schema`
 
-Nothing about your assertions changes. A sub registered with output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) metadata validates its computed value at the `:sub-return` boundary in dev — so a shape bug in the computation surfaces as a structured `:rf.error/schema-validation-failure` rather than a downstream view choking on it. And [asserting on that record](../errors.md#test-the-structure-not-the-string) is itself an ordinary listener-based test.
+Your assertions don't change. A sub registered with an output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) validates its computed value in dev, `compute-sub` included, so a shape bug in the computation raises a structured `:rf.error/schema-validation-failure` and the call returns `nil`. [Asserting on that error record](../errors.md#test-the-structure-not-the-string) is an ordinary listener-based test.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `compute-sub` returns `nil` unexpectedly | The sub body threw (`:rf.error/sub-exception`), its output failed its `:schema`, or an input names an unregistered sub, which computes to `nil` with no error record | Check your error listener, then re-read the input ids and the app namespace require |
+| Test passes but the app shows something else | The literal `db` no longer matches the shape your handlers build | Seed the db with `:initial-events` instead |
 
 ??? info "For JavaScript developers"
 
-    Pause on what's *absent* from this page. No React Testing Library, no `renderHook`, no jsdom, no provider wrapper to set up — a subscription test is a plain function call asserting on a plain value, and it runs on the JVM at unit-test speed. That's the payoff of computation functions being pure: the reactive runtime exists only to *cache and notify* in a live app; the *logic* is just data in, data out, testable in isolation.
+    There is no React Testing Library, no `renderHook`, no jsdom and no provider wrapper here. A subscription test is a function call asserting on a value, and it runs on the JVM at unit-test speed. The reactive runtime exists to cache and notify in a live app; the logic itself is data in, data out.
