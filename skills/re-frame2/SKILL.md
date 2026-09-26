@@ -76,6 +76,18 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 8. **`reg-*` macros over the runtime-fn forms.** Macros capture source coordinates that tools rely on; the functional counterparts — the `*`-suffixed twins for `reg-view*` / `reg-machine*`, or the same name in value position for everything else (`reg-event`, `reg-sub`, `reg-interceptor`, …) — are for advanced/programmatic cases only. Naming a machine spec is the one place a plain `def` silently defeats this: `reg-machine` sees a symbol rather than a literal and captures nothing per-element, so use **`rf/defmachine`**, which stamps the value itself and does not register, then pair it with `reg-machine` ([`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md)).
 9. **Pillar 4 — assume training knowledge.** Teach the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering.
 
+## Authoring workflow (every task)
+
+1. Identify the surface — event? sub? fx? cofx? view? machine? route? story? schema?
+2. Load at most two leaves, picked from §Decision shortcuts and §Where the depth lives below (the relevant fundamentals or pattern; a second only if the task spans two surfaces).
+3. Match the canonical declaration in the leaf; do not re-derive.
+4. Pick the feature prefix (`:cart/...`, `:auth/...`) — never `:rf/*`.
+5. Cross-check a worked example or reference view that uses the same shape when one exists (in the re-frame2 repo, that's `examples/**`; in a consumer app, your project's own reference views).
+6. Schema only at boundaries.
+7. Use `reg-*` macros unless the macro shape can't express the need.
+8. Cut-test comments: would I write this same comment in a React / Vue / Elm app? If yes, cut it.
+9. Run the gate: discover the nearest declared noninteractive one ([`references/cross-cutting/testing.md` §Discovering a project's gates](references/cross-cutting/testing.md#discovering-a-projects-gates)), run it, fix what it finds, and report the exact command and result. Hand off only when it is interactive / visual, needs a live runtime (`re-frame2-pair`), does not exist, or the user said not to — and say which.
+
 ## Decision shortcuts
 
 **Slice vs machine vs region** — `decision-trees/slice-or-machine.md`. Tell: if the prompt names *transitions* or *modes*, machine. If it names *fields*, *flags*, or *counters*, slice. A sub-concern of a larger feature's lifecycle is a *region* inside that feature's machine, not its own top-level machine.
@@ -111,10 +123,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 | Datadog / Sentry / Honeycomb production listeners that survive `goog.DEBUG=false` | `references/cross-cutting/production-observability.md` |
 | Head/meta (`reg-head` / `head-model`); extending the shipped `:rf/hydrate` handler (re-register only to change merge policy) | `references/cross-cutting/ssr-authoring.md` |
 | Path overlap / valid segments / `[:rf.path/param …]` templates; canonical EDN identity for a resource key / route param / work id | `references/cross-cutting/path-and-identity.md` |
-
-## Testing your views
-
-"Does the screen show the right thing? Does the button dispatch the right event?" — use the **hiccup-walk pattern** (walk the view-fn's returned hiccup by `:data-testid`, not a browser-mount; state-only assertions miss the view-broken and wrong-frame-dispatch bugs the walk catches). Recipe: [`references/cross-cutting/testing-views.md`](references/cross-cutting/testing-views.md).
+| Testing a view — does the screen show the right thing, does the button dispatch the right event — walk the view's returned hiccup by `:data-testid` rather than mounting a browser; state-only assertions miss a broken view or a wrong-frame dispatch | `references/cross-cutting/testing-views.md` |
 
 ## Where the depth lives
 
@@ -131,18 +140,6 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 **Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each opens with load triggers, the canonical mini-declaration, the features it uses, trade-offs, and the worked-example link. Pattern → example app: `examples-map.md`.
 
 **Decision trees — `decision-trees/`**: `pick-a-pattern.md`, `slice-or-machine.md`.
-
-## Authoring workflow (every task)
-
-1. Identify the surface — event? sub? fx? cofx? view? machine? route? story? schema?
-2. Load at most two leaves (the relevant fundamentals or pattern; a second only if the task spans two surfaces).
-3. Match the canonical declaration in the leaf; do not re-derive.
-4. Pick the feature prefix (`:cart/...`, `:auth/...`) — never `:rf/*`.
-5. Cross-check a worked example or reference view that uses the same shape when one exists (in the re-frame2 repo, that's `examples/**`; in a consumer app, your project's own reference views).
-6. Schema only at boundaries.
-7. Use `reg-*` macros unless the macro shape can't express the need.
-8. Cut-test comments: would I write this same comment in a React / Vue / Elm app? If yes, cut it.
-9. Run the gate: discover the nearest declared noninteractive one ([`references/cross-cutting/testing.md` §Discovering a project's gates](references/cross-cutting/testing.md#discovering-a-projects-gates)), run it, fix what it finds, and report the exact command and result. Hand off only when it is interactive / visual, needs a live runtime (`re-frame2-pair`), does not exist, or the user said not to — and say which.
 
 ## Done checklist
 

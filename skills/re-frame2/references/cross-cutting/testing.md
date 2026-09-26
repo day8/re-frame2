@@ -2,6 +2,8 @@
 
 Load when the task is **authoring a `deftest` / `cljs.test` test** against re-frame2 application code: an event-fx handler, a sub graph, a machine snapshot, a tag query, a view that reads from a frame. Teaches only the **re-frame2-specific binding** — `clojure.test` / `cljs.test` themselves are assumed. Then run the nearest relevant gate ([§Discovering a project's gates](#discovering-a-projects-gates)).
 
+**Contents:** [the single import](#the-single-import) · [per-test fixture](#the-per-test-fixture-always-use-it) · [`dispatch-sync`](#driving-events-dispatch-sync) · [pinning `:rf.cofx`](#pinning-recordable-coeffects-rfcofx-in-dispatch-opts) · [`with-frame`](#pinning-a-frame-with-frame) · [asserting state](#asserting-state-assert-path-equals-and-app-db-value) · [asserting subs](#asserting-subscriptions-compute-sub-preferred-and-subscribe-once) · [the view](#asserting-the-view) · [machines and tags](#machine-snapshots-and-tag-queries) · [HTTP and other fx](#http-and-other-side-effecting-fx) · [discovering gates](#discovering-a-projects-gates) · [done checklist](#checklist-before-declaring-a-test-done)
+
 ## The single import
 
 ```clojure
