@@ -65,6 +65,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | Order | Rule | Why here |
 |---|---|---|
 | 5 | **M-5** | Higher-order / value-position `reg-*` use — a compile-time break on the **JVM** only; on CLJS the same names resolve to plain fns in value position (Convention A) and the hit is left alone. Surface before behaviour-shape rules so the host classification happens once. |
+| 5a | **M-73** | `reg-event-db` / `reg-event-fx` / `reg-event-ctx` → the one `reg-event`. Usually the highest-count rule, and **compile-silent**: the retired names resolve and throw at registration. Run the codemod for the mechanical half; the nil-capable / multi-arity `reg-event-db` and every `reg-event-ctx` are Type B. Detail in [`auto-call-site-rewrites.md` §M-73](auto-call-site-rewrites.md#m-73--one-event-registration-form-reg-event). |
 | 6 | **M-22** | `reg-view` is a defn-shape macro; keyword-shape calls fail to expand. Compile-level. |
 | 7 | **M-23** | `re-frame.alpha` namespace removed. Compile-level (require fails). |
 | 8 | **M-24** | `rf/h` removed. Compile-level (symbol unresolved). |
@@ -100,6 +101,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 |---|---|---|
 | 19 | **M-21** | Drop `debug` / `trim-v` (mechanical). Flag `on-changes` / `enrich` / `after` (Type B). |
 | 19a | **M-70** | Event interceptor chains → metadata `:interceptors`. Pairs with M-21 (same interceptor-chain surface). Type A but **loud-at-RUNTIME, not loud-at-compile** — so it can't ride march-the-wall; it's found by the Phase-0a up-front structural grep and confirmed by the boot smoke-test (see §"When failures land" preamble above). Rewrite detail in [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile). |
+| 19b | **M-72** | `inject-cofx` removed → `:rf.cofx/requires` registration metadata; `reg-cofx` suppliers become value-returning. Same chain surface as M-70. The reshape is Type A (calling `inject-cofx` throws `:rf.error/inject-cofx-removed`); which host reads must become recorded facts is Type B. Detail in [`causal-world-inputs.md`](causal-world-inputs.md). |
 | 20 | **M-17** | `reg-global-interceptor` / `clear-global-interceptor` removed. Single-frame: mechanical. Multi-frame: ask. |
 | 21 | **M-7** | `reg-fx` / `reg-cofx` `:platforms` default; add `:platforms #{:client}` for browser-only fx. |
 | 21a | **M-58** | Trace-redaction interceptor **removed**. `with-redacted` was renamed to `redact-interceptor`, and the data-classification redesign then dropped `redact-interceptor` from the facade entirely — there is no positional payload-redaction interceptor to rename to. **Type B**: classify transient payloads with `:sensitive` registration metadata, durable app-db with the commit-plane `:sensitive` effect, and project at the boundary with `project-egress`; which of the three applies depends on what was being scrubbed. v2-pre-rename only. |
@@ -124,6 +126,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 28 | **M-13** | `reg-event-error-handler` removed; no app-steering recovery policy in v2. Type B. Detail in [`guided-handlers-state.md` §M-13](guided-handlers-state.md#m-13--reg-event-error-handler). |
 | 29 | **M-18** | `reg-sub-raw` removed. Four rewrite paths (read-only-app-db, fx-driven, machine, anti-pattern). Type B. |
 | 29b | **M-71** | v1 signal-function `reg-sub` form → v2 `input-fn`. Sits with the other sub rewrites (M-18). Type B; pair with M-75's move into `:inputs`. Positional syntax fails at registration, while a producer still returning reactions fails at materialization. Three return shapes rewrite differently — detail in [`guided-interceptors-subs.md` §M-71](guided-interceptors-subs.md#m-71--the-v1-signal-function-reg-sub-form-3-arity--v2-input-fns). |
+| 29c | **M-75** | Every `:<-` chain → `{:inputs [...]}` in the metadata map; bracket one-input bodies. Type A, loud-at-load (`:rf.error/reg-sub-bad-args` aborts the namespace), so swept by the up-front grep, not march-the-wall. Detail in [`auto-call-site-rewrites.md` §M-75](auto-call-site-rewrites.md#m-75--subscription-inputs-move-into-inputs). |
 | 30 | **M-42** | React-19-removed Reagent surfaces — **absent** on the slim adapter (compile-time unresolved-var); on the bridge the `render` call site still needs the `create-root` rewrite (React 19 removed `react-dom/render`). A/B split (mount-path Type A; `dom-node` / `force-update-all` Type B). Detail in [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). |
 
 ### Group 8 — Per-feature artefact splits (dep-only adds; pair with the feature-trigger rules)
@@ -171,6 +174,7 @@ Order of presentation within the batch (most-blocking first):
 9. **M-13** — `reg-event-error-handler` policy.
 10. **M-12** — render-count test re-baselines.
 11. **M-19** (only if requested) — opt-in map-payload migration per event-id.
+12. **The remaining Type-B rules that tripped** — M-15 / M-15b seeding, M-16b top-level `^:flush-dom`, M-30 flow-vs-sub triage, M-34, M-40 adapter choice, M-42 `dom-node` / `force-update-all`, the M-72 durable-read judgment, the M-73 judgment half. Each rule's leaf states its question.
 
 Apply all the Type A rewrites first, present the Type B batch second. The author shouldn't have to context-switch every five minutes.
 
