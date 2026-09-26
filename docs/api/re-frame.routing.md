@@ -163,7 +163,7 @@ Loading `re-frame.routing` registers these events, subscriptions, effects and co
 
 | Event | Notes |
 |---|---|
-| `:rf.route/navigate` | Navigates, taking one request map: `[:rf.route/navigate {request}]`. Address keys: `:to` (route id), `:url` (a raw URL), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`. Give `:to` or `:url`, not both; `:url` excludes `:params`, `:query` and `:query-merge`. Omit both for an in-place request that patches the current location (`:query-merge`, or a `:query` or `:fragment` key). A structurally invalid request is rejected with `:rf.error/navigate-bad-request` before any guard runs. |
+| `:rf.route/navigate` | Navigates, taking one request map: `[:rf.route/navigate {request}]`. Address keys: `:to` (route id), `:url` (a raw URL), `:params`, `:query`, `:fragment`. Policy keys: `:replace?`, `:scroll`, `:bypass-leave?`. Edit key: `:query-merge`. Give `:to` or `:url`, not both; `:url` excludes `:params`, `:query` and `:query-merge`. Omit both for an in-place request that patches the current location (`:query-merge`, or a `:query` or `:fragment` key). A structurally invalid request is rejected with `:rf.error/navigate-bad-request` before any guard runs ([the rules](#navigate-request-rules)). |
 | `:rf.route/handle-url-change` | Handles every URL change: a link click, popstate, the initial load, or SSR. The cause is `:rf.route/cause` on the trailing opts map (`:link`, `:popstate`, `:initial` or `:ssr`); when omitted it is `:initial` on a client frame and `:ssr` on a `:platform :server` frame. Default scroll is `:top` for `:link` and `:restore` for every other cause. The runtime dispatches this; you can override it for custom URL-change handling. |
 | `:rf.route/url-requested` | The user clicked a framework link: `[:rf.route/url-requested {:url "/cart"}]`, optionally with the policy keys `:replace?`, `:scroll` and `:bypass-leave?`. `route-link` dispatches it; you normally leave it to the default handler. |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending-navigation slot holds the rejected attempt as `{:id :destination :target :cause :policy :requested-url :rejecting-route :rejecting-guard :url-restored?}`. The slot only ever holds a leave rejection, so it has no direction field. |
@@ -189,6 +189,24 @@ The common `:rf.route/navigate` requests:
 - `:url` takes an address inside the app. An external URL is never followed: the request does nothing and emits the `:rf.route/external-url-requested` trace.
 - A request whose target `route-url` cannot build (an unregistered `:to` route, a missing path param, or params or query the route's schemas reject) changes nothing and emits `:rf.error/schema-validation-failure` with `:where :event`, carrying `route-url`'s error under `:error`.
 - A request identical to the current location does nothing, and runs no guards.
+
+<a id="navigate-request-rules"></a>
+
+A request that breaks one of these rules is rejected with `:rf.error/navigate-bad-request` before any guard runs: the route slice is unchanged and nothing is pushed. The error's `:reason` names the rule, and `:keys` the offending keys.
+
+| `:reason` | Rule |
+|---|---|
+| `:bad-event-arity` | The event is exactly `[:rf.route/navigate {request}]`, with no third element such as a separate opts map. |
+| `:request-not-a-map` | The request is a map. |
+| `:unknown-keys` | Every key is one of the address, policy and edit keys above. A namespaced key is refused too. |
+| `:to-url-exclusive` | `:to` or `:url`, not both. |
+| `:url-excludes-address` | `:url` takes no `:params`, `:query` or `:query-merge`. `:fragment` is allowed and replaces the URL's own. |
+| `:params-requires-destination` | `:params` needs `:to`: changing path params is a new destination, never an in-place edit. |
+| `:query-exclusive` | `:query` or `:query-merge`, not both. |
+| `:query-merge-in-place-only` | `:query-merge` needs a request with no `:to` or `:url`. |
+| `:query-merge-not-map` | `:query-merge` is a map. `{}` is a no-op and a `nil` inside it removes a key, but a `nil` or other non-map value for `:query-merge` itself is refused. |
+| `:no-destination-or-change` | The request names a destination or an in-place change. `{}` and a policy-only map such as `{:replace? true}` are refused; `{:query {}}` and `{:fragment nil}` are valid. |
+| `:no-current-route` | An in-place request needs a current route to edit. |
 
 `:rf.route/replan-resources` is for an identity input (principal, tenant, locale) that changed with no route change. A `{:from-db …}` subscription re-keys on its own but stays `:idle` until something ensures the new key.
 
