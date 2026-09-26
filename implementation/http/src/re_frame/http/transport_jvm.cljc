@@ -189,15 +189,17 @@
          ;; The warning's `:url` is routed
          ;; through `privacy/prepare-emit-tags` so a denylisted query
          ;; param (`?api_key=…`) is scrubbed and `:sensitive?` is
-          ;; stamped when the request is sensitive.
+          ;; stamped when the request is sensitive. `:cause` is the fixed
+         ;; `encoding/header-invalid-cause` sentence, never the exception
+         ;; message: the JDK's message echoes the rejected value.
          (try (.header b k v)
-              (catch Throwable t
+              (catch Throwable _
                 (when rf.interop/debug-enabled?
                   (rf.trace/emit! :warning :rf.warning/http-header-invalid
                                (rf.http.privacy/prepare-emit-tags
                                  {:url     url
                                   :header  k
-                                  :cause   (.getMessage t)}
+                                  :cause   (rf.http.encoding/header-invalid-cause k)}
                                  (true? sensitive?)))))))
        (.build b))))
 
