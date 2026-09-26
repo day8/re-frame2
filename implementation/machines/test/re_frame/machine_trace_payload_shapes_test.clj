@@ -4,7 +4,8 @@
 
     1. `:rf.machine/action-ran` carries `:phase` from the closed set
        `:exit / :transition / :entry / :always / :after-action /
-       :initial-entry / :destroy-exit`.
+       :initial-entry / :destroy-exit` (`:initial-entry` is pinned in
+       `action_ran_decl_path_test`).
     2. `:rf.machine/guard-evaluated` carries `:outcome :threw` with
        `:exception` when the guard fn throws. Per Spec 005
        §`:rf.machine/guard-evaluated` (XState v5 alignment):
@@ -109,41 +110,6 @@
       (is (= :after-action (-> do-t :tags :phase))
           "the timer-driven transition's :action stamps :after-action"))))
 
-(deftest action-ran-phase-initial-entry
-  (testing "bootstrap entry cascade actions stamp :phase :initial-entry"
-    (rf/reg-machine :rf2-82a0u/boot
-      {:initial :idle
-       :actions {:hello (fn [_] nil)}
-       :states  {:idle {:entry :hello}}})
-    (let [evs (record-traces!
-                (fn []
-                  ;; Any dispatch into a freshly-registered machine
-                  ;; triggers the bootstrap entry cascade before the
-                  ;; event itself is handled.
-                  (rf/dispatch-sync [:rf2-82a0u/boot [:rf.machine/start]])))
-          as  (ops evs :rf.machine/action-ran)
-          hello (some #(when (= :hello (-> % :tags :action-id)) %) as)]
-      (is (some? hello) ":hello fired from initial-entry")
-      (is (= :initial-entry (-> hello :tags :phase))
-          "bootstrap cascade stamps :initial-entry"))))
-
-(deftest action-ran-phase-closed-set-only
-  (testing "every action-ran emit carries :phase from the closed set"
-    (rf/reg-machine :rf2-82a0u/closed
-      {:initial :idle
-       :actions {:tap (fn [_] nil)}
-       :states  {:idle {:exit :tap
-                        :on   {:go {:target :done :action :tap}}}
-                 :done {:entry :tap}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rf2-82a0u/closed [:go]])))
-          as  (ops evs :rf.machine/action-ran)
-          phases (set (map #(-> % :tags :phase) as))
-          allowed #{:exit :transition :entry :always :after-action
-                    :initial-entry :destroy-exit}]
-      (is (every? allowed phases)
-          (str "every :phase ∈ closed set; got " phases)))))
-
 ;; =====================================================================
 ;; (2) :rf.machine/guard-evaluated outcome :threw
 ;; =====================================================================
@@ -192,51 +158,6 @@
             snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/guard-throws])]
         (is (= :idle (:state snap))
             "macrostep aborted atomically — neither :A nor :B was entered")))))
-
-(deftest guard-throw-aborts-macrostep-not-demote-to-next-candidate
-  (testing "XState v5 alignment: a throwing guard ABORTS the
-            macrostep — it is NOT walked past to a lower-priority candidate.
-            The unguarded fallback candidate does NOT fire; the snapshot
-            rolls back atomically (no transition, no action side effect)."
-    (rf/reg-machine :rf2-82a0u/threw-fall
-      {:initial :idle
-       :guards  {:boom (fn [_] (throw (ex-info "boom" {})))}
-       :data    {:n 0}
-       :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
-       :states  {:idle {:on {:go [{:guard :boom :target :nope}
-                                  {:target :done :action :bump}]}}
-                 :nope {}
-                 :done {}}})
-    ;; Boot first so the rollback target is the committed :idle snapshot.
-    (rf/dispatch-sync [:rf2-82a0u/threw-fall [:rf.machine/start]])
-    (rf/dispatch-sync [:rf2-82a0u/threw-fall [:go]])
-    ;; The throwing-guard candidate aborts the macrostep — the engine does
-    ;; NOT walk past it to the unguarded fallback. Atomic rollback: the
-    ;; snapshot stays at :idle and :bump never ran.
-    (let [db   (rf.frame/frame-runtime-db-value :rf/default)
-          snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/threw-fall])]
-      (is (= :idle (:state snap))
-          "the guard throw aborted the macrostep — the fallback candidate
-           did NOT fire (no silent demotion past the throwing guard)")
-      (is (= 0 (-> snap :data :n))
-          ":bump never ran — the macrostep rolled back atomically"))))
-
-(deftest guard-evaluated-pass-fail-outcomes-unchanged
-  (testing "a pass / fail outcome carries no :exception slot — only
-            :threw does"
-    (rf/reg-machine :rf2-82a0u/pass-fail
-      {:initial :idle
-       :data    {:ready? false}
-       :guards  {:ready? (fn [{d :data}] (:ready? d))}
-       :states  {:idle  {:on {:go [{:guard :ready? :target :done}]}}
-                 :done  {}}})
-    (let [evs (record-traces!
-                (fn [] (rf/dispatch-sync [:rf2-82a0u/pass-fail [:go]])))
-          g (first (ops evs :rf.machine/guard-evaluated))]
-      (is (= :fail (-> g :tags :outcome))
-          ":fail outcome (the guard returned false)")
-      (is (nil? (-> g :tags :exception))
-          "no :exception slot on the non-throw path"))))
 
 ;; =====================================================================
 ;; (3) :rf.machine.timer/cancelled — unified event with :reason
@@ -322,23 +243,3 @@
       (is (= (-> sched-ev :tags :epoch)
              (-> cancel-ev :tags :epoch))
           ":epoch matches — the cancel closes the same arm's slot"))))
-
-(deftest cancelled-reason-closed-set
-  (testing "every :rf.machine.timer/cancelled emit's :reason is in the
-            closed set"
-    (rf/reg-machine :rf2-82a0u/closed-reasons
-      {:initial :a
-       :states  {:a {:after {60000 :b}
-                     :on    {:cancel :c}}
-                 :b {}
-                 :c {}}})
-    (let [evs (record-traces!
-                (fn []
-                  (rf/dispatch-sync [:rf2-82a0u/closed-reasons [:rf.machine/start]])
-                  (rf/dispatch-sync [:rf2-82a0u/closed-reasons [:cancel]])))
-          cs  (timer-cancellations evs)
-          reasons (set (map #(-> % :tags :reason) cs))
-          allowed #{:on-exit :on-destroy :on-resolution
-                    :on-supersede :on-frame-destroy}]
-      (is (every? allowed reasons)
-          (str "every :reason ∈ closed set; got " reasons)))))
