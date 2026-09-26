@@ -14,9 +14,9 @@
    1. `:rf.machine.timer/cancelled` (on state exit) →
       `:rf.reply/status :cancelled` + canonical timer `:work/id`;
    2. `:rf.machine/destroyed` `:reason :explicit` (a genuine cancellation) →
-      `:rf.reply/status :cancelled` + canonical machine `:work/id`;
-      `:reason :rf.machine/finished` carries NO cancelled facts (the actor
-      already closed through `:rf.machine/done`);
+      `:rf.reply/status :cancelled` + canonical machine `:work/id`
+      (`destroyed_trace_shape_test` pins that a `:reason
+      :rf.machine/finished` destroy carries NO cancelled facts);
    3. `:rf.machine.spawn/cancelled-on-join-resolution` →
       `:rf.reply/status :cancelled` + `:rf.reply/cancel-reason :on-join-resolution`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -202,31 +202,6 @@
           (is (= :machine (:rf.reply/work-kind (:tags destroyed))))
           (is (some? (:rf.reply/work-id (:tags destroyed)))
               "canonical machine :work/id closes the cancelled actor attempt"))))))
-
-(deftest finished-destroy-carries-no-cancelled-reply
-  (testing "a :rf.machine/finished destroy is NOT a cancellation
-            (the actor closed through :rf.machine/done) — no cancelled facts"
-    (let [child  {:initial :running
-                  :data    {}
-                  :states  {:running {:on {:end :done}}
-                            :done    {:final? true}}}
-          parent {:initial :working
-                  :states  {:working {:spawn {:machine-id :sfunt8/fchild}}}}]
-      (rf/reg-machine :sfunt8/fchild child)
-      (rf/reg-machine :sfunt8/fparent parent)
-      (rf.machines.test-support/with-trace-capture captured
-        (rf/dispatch-sync [:sfunt8/fparent [:rf.machine.spawn/spawned]])
-        (let [spawned-id (get-in (rf.machines.test-support/runtime-db)
-                                 [:rf.runtime/machines :spawned :sfunt8/fparent [:working]])]
-          (rf/dispatch-sync [spawned-id [:end]]))
-        (let [finished (->> @captured
-                            (filter #(and (= :rf.machine/destroyed (:operation %))
-                                          (= :rf.machine/finished (:reason (:tags %)))))
-                            first)]
-          (is (some? finished) "a :rf.machine/finished destroy fired")
-          (is (not (contains? (:tags finished) :rf.reply/status))
-              "a finished destroy carries no cancelled reply facts")
-          (is (not (contains? (:tags finished) :work/id))))))))
 
 ;; ---- join-survivor cancellation ----------------------------------------
 

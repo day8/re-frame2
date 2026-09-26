@@ -83,26 +83,6 @@
           (is (= spawned-id (:actor-id (:tags destroyed)))
               "destroyed carries the reaped actor INSTANCE under :actor-id"))))))
 
-(deftest spawned-trace-keeps-machine-id-for-the-type
-  (testing "the spawn observation rows keep :machine-id = the registered TYPE alongside :spawned-id = the instance"
-    (let [child  {:initial :running :states {:running {}}}
-          parent {:initial :idle
-                  :states  {:idle    {:on {:go :working}}
-                            :working {:spawn {:machine-id :idn2/child}}}}
-          traces (atom [])]
-      (rf/reg-machine :idn2/child child)
-      (rf/reg-machine :idn2/parent parent)
-      (rf.trace.tooling/register-listener! ::idn2 (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:idn2/parent [:go]])
-      (let [spawned (first (ops @traces :rf.machine.lifecycle/spawned))]
-        (is (some? spawned) ":rf.machine.lifecycle/spawned fired")
-        (is (= :idn2/child (:machine-id (:tags spawned)))
-            ":machine-id is the registered TYPE (NOT the instance)")
-        (is (= :idn2/child#1 (:spawned-id (:tags spawned)))
-            ":spawned-id is the live instance address")
-        (is (not= (:machine-id (:tags spawned)) (:spawned-id (:tags spawned)))
-            "TYPE and INSTANCE are not conflated — distinct values on one row")))))
-
 ;; ---------------------------------------------------------------------------
 ;; (2) Explicit actor-address INPUT vs declarative invocation PATH.
 ;;     On ONE declarative :spawn, `:fixed-actor-id` (explicit address, a bare

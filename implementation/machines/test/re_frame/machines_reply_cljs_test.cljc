@@ -45,15 +45,16 @@
 ;; branch tests `#"\d+"` (fully numeric) before parseInt — both platforms
 ;; agree on generation 1 for a malformed suffix (no determinism break).
 
-(deftest actor-generation-numeric-suffix
-  (testing "a fully-numeric #n suffix parses to n on both platforms"
-    (is (= 1  (rf.machines.reply/actor-generation :auth/flow#1)))
-    (is (= 7  (rf.machines.reply/actor-generation :auth/flow#7)))
-    (is (= 12 (rf.machines.reply/actor-generation :app/child#12)))))
-
-(deftest actor-generation-no-suffix-is-one
-  (testing "an id with no #n suffix is generation 1 (explicit :fixed-actor-id)"
-    (is (= 1 (rf.machines.reply/actor-generation :explicit/actor)))))
+(deftest actor-generation-reads-the-numeric-suffix
+  (doseq [[id gen] [[:auth/flow#1   1]
+                    [:auth/flow#7   7]
+                    [:app/child#12  12]
+                    ;; no #n suffix — an explicit :fixed-actor-id
+                    [:explicit/actor 1]
+                    ;; no live counterpart
+                    [nil            nil]]]
+    (is (= gen (rf.machines.reply/actor-generation id))
+        (str "actor-generation of " (pr-str id)))))
 
 (deftest actor-generation-malformed-suffix-is-one-cross-platform
   (testing "a # followed by a NON-fully-numeric suffix is generation 1 on
@@ -69,10 +70,6 @@
     ;; whitespace / sign-prefixed: js/parseInt is lenient about leading
     ;; whitespace; CLJ Long/parseLong is not — both must agree on 1.
     (is (= 1 (rf.machines.reply/actor-generation (keyword "weird" "actor# 4"))))))
-
-(deftest actor-generation-nil-safe
-  (testing "nil id (no live counterpart) → nil"
-    (is (nil? (rf.machines.reply/actor-generation nil)))))
 
 ;; ---- canonical spawned-actor reply maps -----------------------------------
 

@@ -11,14 +11,14 @@
   Concerns covered:
     - `:spawn` spawns child on entry and destroys it on exit; the
       deterministic actor id is tracked in the runtime spawn-registry slot.
-    - `:spawn :data` fn-form materialised at spawn: the spawned
-      child receives the result map, not the fn; fn sees the post-action
-      snapshot.
     - State-level `:after` on a `:spawn`-bearing state:
       synthetic timer-elapsed cancels the child via the standard exit
       cascade and transitions the parent.
     - `:timeout-ms` on `:spawn` / `:spawn-all` is rejected at registration
       with `:rf.error/spawn-timeout-ms-removed`.
+
+  The `:spawn :data` fn form is pinned on both hosts by
+  `spawn_ordering_ep0029_cljs_test`.
 
   The deterministic child id is read back from the
   runtime spawn-registry slot at
@@ -146,53 +146,6 @@
                        (= :running        (:state (:tags ev)))))
                 @traces)
           "registrar-substrate axis: expected :rf.machine.lifecycle/spawned carrying :spawned-id + initial :state"))))
-
-;; ---- :spawn :data fn-form materialised at spawn -------------------------
-;; Per Spec 005 §Spec-spec keys (line 1503/1511): `:data` admits a function
-;; form `(fn [snap ev] data)` so the spawned child's initial data can be
-;; derived from the parent's post-action snapshot + the triggering event.
-;; The runtime materialises the fn before passing the value to the
-;; spawn-fx (which expects a literal map).
-
-(deftest machine-spawn-data-fn-form-cljs
-  (testing "fn-form `:data` is materialised — spawned child receives the result map, NOT the fn"
-    (let [child   {:initial :running :data {} :states {:running {}}}
-          parent  {:initial :idle
-                   :data    {:endpoint "/api/login"}
-                   :states
-                   {:idle    {:on {:start :working}}
-                    :working {:spawn {:machine-id :h131/worker
-                                       :data       (fn [{snap :snapshot}]
-                                                     {:url    (-> snap :data :endpoint)
-                                                      :method :post})}}}}]
-      (rf/reg-machine :h131/worker child)
-      (rf/reg-machine :h131/sup parent)
-      (rf/dispatch-sync [:h131/sup [:start]])
-      (let [child-data (:data (snapshot :h131/worker#1))]
-        (is (map? child-data)
-            "spawned child's :data is a literal map, not the fn")
-        (is (= "/api/login" (:url child-data))
-            "fn-form derived :url from the parent's :data.:endpoint")
-        (is (= :post (:method child-data))
-            "fn-form-derived :method survived the spawn"))))
-  (testing "fn-form `:data` sees the post-action snapshot (Spec 005:1511)"
-    (let [child   {:initial :running :data {} :states {:running {}}}
-          parent  {:initial :idle
-                   :data    {:base "https://api.example.com"}
-                   :actions {:assemble (fn [{data :data}]
-                                         {:data (assoc data :endpoint
-                                                       (str (:base data) "/v1/me"))})}
-                   :states
-                   {:idle    {:on {:go {:target :working :action :assemble}}}
-                    :working {:spawn {:machine-id :h131b/worker
-                                       :data       (fn [{snap :snapshot}]
-                                                     {:url (-> snap :data :endpoint)})}}}}]
-      (rf/reg-machine :h131b/worker child)
-      (rf/reg-machine :h131b/sup parent)
-      (rf/dispatch-sync [:h131b/sup [:go]])
-      (is (= "https://api.example.com/v1/me"
-             (:url (:data (snapshot :h131b/worker#1))))
-          "fn-form saw the :data writes the transition's :action made"))))
 
 ;; ---- state-level :after on :spawn-bearing state -------------------------
 ;; Per Spec 005 §Wall-clock timeouts on :spawn — use parent state's :after.

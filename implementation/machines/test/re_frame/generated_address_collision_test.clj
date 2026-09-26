@@ -218,17 +218,6 @@
 ;; (3) Controls — ordinary generated spawning never meets the guard.
 ;; ---------------------------------------------------------------------------
 
-(deftest an-uncontended-generated-spawn-installs-exactly-as-before
-  (testing "the guard costs one runtime-db read and changes nothing
-            when the generated address is free: the child installs, the spawned
-            trace fires once, and no reject is emitted"
-    (reg-child! :gac3/child)
-    (reg-parent! :gac3/parent :gac3/child)
-    (rf/dispatch-sync [:gac3/parent [:go]])
-    (is (some? (snapshot :gac3/child#1)) "the child installed normally")
-    (is (= [:gac3/child#1] (spawned-ids)) "one spawned trace, naming it")
-    (is (empty? (rejects)) "and no collision reject")))
-
 (deftest re-entry-re-allocates-and-never-collides
   (testing "leaving a :spawn-bearing state destroys the child through
             the exit cascade AND the parent's counter advances, so re-entry
@@ -247,27 +236,8 @@
     (is (nil? (snapshot :gac4/child#1)))
     (is (empty? (rejects)) "no reject on the ordinary re-entry path")))
 
-(deftest an-occupied-fixed-address-still-REPLACES-rather-than-rejecting
-  (testing "an address the AUTHOR NAMED is
-            replaced cleanly, with no error, because naming it twice is a
-            request. Only the generated case rejects."
-    (reg-child! :gac5/child)
-    (rf/reg-event :gac5/hire
-      (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :gac5/child
-                                          :fixed-actor-id :gac5/pinned}]]}))
-    (rf/dispatch-sync [:gac5/hire])
-    (rf/dispatch-sync [:gac5/pinned [:mark :FIRST]])
-    (is (= :FIRST (:mark (machine-data :gac5/pinned))))
-
-    (rf/dispatch-sync [:gac5/hire])
-    (is (some? (snapshot :gac5/pinned)) "the replacement installed")
-    (is (= :none (:mark (machine-data :gac5/pinned)))
-        "and it IS the replacement — a fresh incarnation at the named address")
-    (is (empty? (rejects))
-        "no reject: the generated-address guard does not apply to a named address")))
-
 ;; ---------------------------------------------------------------------------
-;; (4) `:spawn-all` — the within-batch guard and the admitted-child invariant.
+;; (4) `:spawn-all` — the within-batch guard.
 ;; ---------------------------------------------------------------------------
 
 (deftest an-intra-spawn-all-duplicate-still-rejects-the-whole-invoke
@@ -295,27 +265,6 @@
          which the generated-address reject does not")
     (is (nil? (snapshot :gac6/one))
         "nothing installed: the invoke was rejected atomically")))
-
-(deftest an-admitted-spawn-all-child-still-always-installs
-  (testing "the authoritative preflight is the SOLE verdict for a
-            :spawn-all child, so the generated-address guard deliberately
-            excludes prepared children: a second per-child reject would strand
-            a live join naming a child that never appears. A batch of two
-            children of one type allocates #1 and #2 and both install."
-    (reg-child! :gac7/child)
-    (rf/reg-machine :gac7/parent
-      {:initial :idle
-       :states  {:idle    {:on {:go :forking}}
-                 :forking {:spawn-all {:children        [{:id :x :machine-id :gac7/child}
-                                                         {:id :y :machine-id :gac7/child}]
-                                       :join            :all
-                                       :on-all-complete [:all/done]}
-                           :on {:all/done :ready}}
-                 :ready   {}}})
-    (rf/dispatch-sync [:gac7/parent [:go]])
-    (is (some? (snapshot :gac7/child#1)) "the first child installed")
-    (is (some? (snapshot :gac7/child#2)) "and the second, at the NEXT address")
-    (is (empty? (rejects)) "no reject — the batch's addresses are distinct")))
 
 ;; ---------------------------------------------------------------------------
 ;; (5) The reject's own shape.

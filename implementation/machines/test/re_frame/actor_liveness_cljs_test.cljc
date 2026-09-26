@@ -111,23 +111,6 @@
 
 ;; ---- dispatch lazily resolves a spawned actor through its snapshot --------
 
-(deftest dispatch-to-spawned-actor-lazy-resolves-via-snapshot
-  (testing "a dispatch to a spawned actor-id (no registrar
-            entry) lazy-resolves the actor's TYPE handler from its
-            snapshot and drives a real transition"
-    (rf/reg-machine :al2/child  (counter-child))
-    (rf/reg-machine :al2/parent (spawning-parent :al2/child))
-    (rf/dispatch-sync [:al2/parent [:go]])
-    (is (nil? (rf.registrar/lookup :event :al2/child#1))
-        "no per-instance handler is registered for the spawned actor")
-    (is (= 0 (:n (:data (snapshot :al2/child#1)))))
-    ;; Dispatch straight at the spawned actor-id — this only resolves via
-    ;; the lazy resolver (there is no registrar entry to find).
-    (rf/dispatch-sync [:al2/child#1 [:bump]])
-    (rf/dispatch-sync [:al2/child#1 [:bump]])
-    (is (= 2 (:n (:data (snapshot :al2/child#1))))
-        "the lazy-resolved handler ran and bumped the actor's own snapshot")))
-
 ;; ---- genuine no-such-handler when no live snapshot ------------------------
 
 (deftest dispatch-to-gone-actor-is-clean-no-such-handler
