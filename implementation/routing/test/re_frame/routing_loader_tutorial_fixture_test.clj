@@ -1,21 +1,19 @@
 (ns re-frame.routing-loader-tutorial-fixture-test
-  "Pins the routing tutorial's loader program (docs/routing/tutorial.md Steps 4 + 7)
-  and its race-safety story (docs/routing/concepts.md §A hand-rolled async loader).
+  "Pins the routing tutorial's loader route (docs/routing/tutorial.md Steps 4 + 7)
+  and the hand-rolled async loader in docs/routing/concepts.md §Advanced. The
+  routes, params and events use the docs' own shapes; the docs are not read at
+  test time, so a change to either sample must be copied here by hand.
 
-  Two properties of the progressive tutorial:
+  1. Step 7 re-registers `:app/article` with `:parent` + `:params`. `reg-route` is
+     FULL replacement of the route's metadata, so a Step 7 that dropped the Step 4
+     `:on-match` loader would leave the final program silently without one.
+     `tutorial-step7-reregistration-*` pins the cumulative program: the loader
+     survives the Step 7 re-registration only when `:on-match` is carried forward.
 
-  1. Step 7 re-registers `:app/article` with `:parent` + `:params`. `reg-route` →
-     `registrar/register!` is FULL replacement
-     (re_frame/registrar.cljc:586 — `assoc-in [kind id] metadata`), so a Step 7 that
-     dropped the Step 4 `:on-match` loader would leave the final program silently
-     without one. `tutorial-step7-reregistration-*` pins the cumulative
-     program: the loader survives the Step 7 re-registration only when `:on-match` is
-     carried forward.
-
-  2. The tutorial recommends real HTTP, and the hand-rolled-loader race lesson (capture
-     the nav-token, gate delivery) is part of its concepts page. `tutorial-loader-is-race-safe-*` is the
-     deterministic A-load → navigate-B → late-A fixture proving A's stale reply cannot
-     reach app delivery or app-db when the documented nav-token pattern is followed."
+  2. `concepts-hand-rolled-loader-*` is the deterministic A-load → navigate-B →
+     late-A fixture: with the documented nav-token capture and the
+     `:rf.route/with-nav-token` `:value` delivery, A's stale reply never reaches
+     `:app/article-loaded` or app-db, and B's does."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -31,7 +29,9 @@
             Step 4 loader is silently deleted (reg-route is full replacement)"
     ;; Step 4 — the route gets its loader.
     (rf/reg-route :app/article
-      {:params [:map [:id :string]] :on-match [[:app/load-article]]} "/articles/:id")
+      {:params   [:map [:slug :string]]
+       :on-match [[:app/load-article]]}
+      "/articles/:slug")
     (is (= [[:app/load-article]] (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
         "Step 4 registered the loader")
 
@@ -39,15 +39,16 @@
     ;; Full replacement drops the loader. This assertion documents WHY the tutorial
     ;; must repeat :on-match.
     (rf/reg-route :app/article
-      {:parent :app/articles :params [:map [:id :string]]} "/articles/:id")
+      {:parent :app/articles :params [:map [:slug :string]]} "/articles/:slug")
     (is (nil? (:on-match (rf/handler-meta {:source :store :kind :route :id :app/article})))
         "re-registration without :on-match deletes the loader — full replacement")
 
     ;; The CORRECT Step 7 — carries :on-match forward alongside :parent.
-    (rf/reg-route :app/article
-      {:parent   :app/articles
-       :params   [:map [:id :string]]
-       :on-match [[:app/load-article]]} "/articles/:id")
+    (rf/reg-route :app/articles {} "/articles")
+    (rf/reg-route :app/article  {:parent   :app/articles
+                                 :params   [:map [:slug :string]]
+                                 :on-match [[:app/load-article]]}
+      "/articles/:slug")
     (let [meta (rf/handler-meta {:source :store :kind :route :id :app/article})]
       (is (= :app/articles (:parent meta))
           "final registration keeps :parent")
@@ -56,49 +57,57 @@
 
 ;; ---- (2) the hand-rolled nav-token loader is race-safe ----
 
-(deftest tutorial-loader-is-race-safe-late-A-cannot-overwrite-B
+(deftest concepts-hand-rolled-loader-late-A-cannot-overwrite-B
   (testing "A-load → navigate B → late-A: the documented nav-token loader suppresses
-            A's stale reply; only B reaches app delivery and app-db"
-    (rf/reg-route :app/article {:params [:map [:id :string]]} "/articles/:id")
+            A's stale reply; only B reaches :app/article-loaded and app-db"
+    (rf/reg-route :app/article
+      {:params   [:map [:slug :string]]
+       :on-match [[:app/load-article]]}
+      "/articles/:slug")
     (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
 
-    ;; The concepts.md §A hand-rolled async loader program, verbatim in shape:
-    ;; terminal delivery …
-    (rf/reg-event :app/article-loaded
-      (fn [{:keys [db]} [_ _id payload]]
-        {:db (assoc db :article/current payload)}))
-    ;; … completion gates the reply on the captured token …
-    (rf/reg-event :app/article-arrived
-      (fn [_ [_ captured-token id payload]]
-        {:fx [[:rf.route/with-nav-token
-               {:rf/reply-to [:app/article-loaded id payload]
-                :nav-token   captured-token}]]}))
+    ;; `:app/fetch-article` stands in for the app's async effect: it records each
+    ;; reply event so the test can deliver A's reply LATE, after B's navigation,
+    ;; modelling the real click-away race.
+    (let [replies (atom {})]
+      (rf.fx/reg-fx :app/fetch-article {:platforms #{:server :client}}
+        (fn [_ {:keys [slug on-reply]}]
+          (swap! replies assoc slug on-reply)))
 
-    (let [captured (atom {})]
-      ;; … and the loader captures the live epoch token at scheduling time. The
-      ;; capture closes over `captured` so the test can replay A's reply LATE
-      ;; (out of order), modelling the real click-away race.
+      ;; The concepts.md hand-rolled async loader, verbatim.
       (rf/reg-event :app/load-article
         {:rf.cofx/requires [:rf.route/nav-token]}
         (fn [{:rf.route/keys [nav-token] rt :rf.db/runtime} _]
-          (let [{:keys [id]} (get-in rt [:rf.runtime/routing :current :params])]
-            (swap! captured assoc id nav-token)
-            {})))
+          (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+            {:fx [[:app/fetch-article {:slug slug :on-reply [:app/article-arrived nav-token slug]}]]})))
 
-      ;; 1. Open A; loader captures A's token.
+      (rf/reg-event :app/article-arrived
+        (fn [_ [_ captured-token slug payload]]
+          {:fx [[:rf.route/with-nav-token
+                 {:rf/reply-to [:app/article-loaded slug]
+                  :nav-token   captured-token
+                  :value       payload}]]}))
+
+      (rf/reg-event :app/article-loaded
+        (fn [{:keys [db]} [_ _slug {:keys [value]}]]
+          {:db (assoc db :article/current value)}))
+
+      ;; 1. Open A; its :on-match loader captures A's token.
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:app/load-article])
-      ;; 2. Navigate to B BEFORE A's reply lands; loader captures B's token.
+      ;; 2. Navigate to B BEFORE A's reply lands; the loader captures B's token.
       (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-      (rf/dispatch-sync [:app/load-article])
-      ;; 3. A's reply lands LATE, carrying A's stale token → suppressed.
-      (rf/dispatch-sync [:app/article-arrived (@captured "A") "A" "A-payload"])
-      ;; 4. B's reply lands, carrying the fresh token → delivered.
-      (rf/dispatch-sync [:app/article-arrived (@captured "B") "B" "B-payload"])
+      (let [token-of (fn [slug] (second (@replies slug)))]
+        (is (every? some? [(token-of "A") (token-of "B")])
+            "the cofx injected non-nil tokens (a nil token would mismatch every time)")
+        (is (not= (token-of "A") (token-of "B"))
+            "each navigation minted a distinct token"))
 
-      (is (not= (@captured "A") (@captured "B"))
-          "each navigation minted a distinct epoch token")
-      (is (every? some? (vals @captured))
-          "the cofx injected non-nil tokens (a nil token would mismatch every time)")
+      ;; 3. A's reply lands LATE, carrying A's stale token → suppressed.
+      (rf/dispatch-sync (conj (@replies "A") "A-payload"))
+      (is (nil? (:article/current (rf/app-db-value :rf/default)))
+          "A's late reply was suppressed by the nav-token")
+
+      ;; 4. B's reply lands, carrying the live token → delivered as :value.
+      (rf/dispatch-sync (conj (@replies "B") "B-payload"))
       (is (= "B-payload" (:article/current (rf/app-db-value :rf/default)))
-          "only B reached app-db — A's late reply was suppressed by the nav-token"))))
+          "B's reply reached app-db through the reply map's :value"))))
