@@ -128,7 +128,7 @@ By default the body is parsed by sniffing the Content-Type (`:decode :auto`). Bu
         :on-failure [:article/load-error]}]]}
 ```
 
-Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`, which loads `malli.core`: that is enough to validate. Coercing JSON into the schema's types (a string into a keyword or a UUID) also needs `malli.transform`, so a ClojureScript build requires it too; the JVM loads it for you. Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
+Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`. With it, the body is both validated and coerced into the schema's types (a string into a keyword or a UUID). Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
 
 **Notice:** decode runs **only on 2xx responses**. A 404 that answers with an HTML error page arrives as `:rf.http/http-4xx` with the raw HTML at `:body`, never as a decode failure ([how failures are classified](http.md#failures-are-a-closed-set)).
 

@@ -192,7 +192,7 @@ Two classification rules catch newcomers:
 
 ## Validating the body with `:decode`
 
-By default `:decode` is `:auto`, which sniffs the Content-Type: JSON for a JSON type, a string for `text/*`, and otherwise the raw binary body (a `Blob` in the browser, bytes on the JVM). Hand `:decode` a Malli [schema](../core/glossary.md#schema), as the tutorial's Step 3 does, and a malformed 2xx body becomes a `:rf.http/decode-failure` routed to your failure handler. (Malli has to be in the build, and coercion needs one more namespace: see [tutorial step 3](tutorial.md#step-3--validate-the-body-with-a-schema).)
+By default `:decode` is `:auto`, which sniffs the Content-Type: JSON for a JSON type, a string for `text/*`, and otherwise the raw binary body (a `Blob` in the browser, bytes on the JVM). Hand `:decode` a Malli [schema](../core/glossary.md#schema), as the tutorial's Step 3 does, and a malformed 2xx body becomes a `:rf.http/decode-failure` routed to your failure handler. (Malli has to be in the build: see [tutorial step 3](tutorial.md#step-3--validate-the-body-with-a-schema).)
 
 `:decode` also accepts a keyword (`:json` / `:text` / `:blob` / `:array-buffer` / `:form-data`) or a plain function `(fn [text headers] decoded)` when you need full control.
 
@@ -318,7 +318,7 @@ Tests need no network: the canned-stub fxs (`:rf.http/managed-canned-success` / 
 | `:rf.error/fx-handler-exception` on `:rf.http/managed`, its exception carrying an `:rf.error/http-…` id | The args map was refused and nothing was sent: no reply target, a reply target that isn't a vector, a bad `:url`, or a bad `:retry :on`. The error names the key. |
 | `:rf.http/issued`, later `:rf.http/stale-suppressed`, and no handler ran | The reply was suppressed: a newer request took the `:request-id`, or the frame was destroyed or restored to an earlier epoch. See [Cancellation](#cancellation-supersession-and-abort). |
 | `:rf.warning/failure-swallowed` | A failure had no reply target and was dropped. See [Silencing a reply](#silencing-a-reply). |
-| `:rf.error/http-interceptor-failed` or `:rf.error/http-reply-tail-failed` | An interceptor threw, or delivering the reply threw after the response arrived. No reply is delivered. |
+| `:rf.error/http-interceptor-failed`, `:rf.error/http-interceptor-bad-return` or `:rf.error/http-reply-tail-failed` | An interceptor threw or returned a non-map, or delivering the reply threw after the response arrived. No reply is delivered. |
 | `:rf.warning/http-malli-absent`, and a malformed body reached your handler | Malli isn't in the build, so the `:decode` schema was skipped. See [step 3 of the tutorial](tutorial.md#step-3--validate-the-body-with-a-schema). |
 
 Every other `:rf.http/*` trace row, and what each carries, is in [the API reference's trace table](../api/re-frame.http.md#trace-events).
