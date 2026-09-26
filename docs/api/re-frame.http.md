@@ -107,7 +107,7 @@ There is no `re-frame.http` namespace and no per-verb helper. The fx are address
     - The child finishes in a final `:succeeded` or `:failed` state holding the reply's `:value`, or its `:error` failure map, under `:rf/result`.
     - Under `:spawn`, the parent receives `[:succeeded value]` or `[:failed failure]`. Under `:spawn-all`, the result folds into the join and no event is sent.
     - Leaving the parent state aborts the request, and neither event is sent.
-    - Leave `:reply-to`, `:on-success` and `:on-failure` out of `:data`: the child sets its own `:on-success` / `:on-failure`, and a `:reply-to` raises `:rf.error/http-bad-reply-target`.
+    - The child sets its own `:on-success` / `:on-failure`, so `:data` must not carry `:reply-to`, `:on-success` or `:on-failure`. Any of them makes the child throw `:rf.error/http-bad-reply-target` (`:reason :machine-owns-reply`, `:keys` naming them) when it starts, before a request is sent. The runtime reports the throw as `:rf.error/machine-action-exception`, with the error in its `:exception-data`, and routes it to the parent's `:spawn :on-error`.
 - **Example**:
   ```clojure
   :loading
@@ -173,7 +173,7 @@ A failure's `:kind` is one of eight values, all reserved under `:rf.http/*`. The
 
 - The status is classified before the body is decoded, so a 4xx or 5xx response is never decoded: its raw body is on the failure map's `:body`. An empty 2xx JSON body decodes to `nil` rather than failing.
 - The first five kinds are the ones `:retry :on` accepts. `:rf.http/decode-failure`, `:rf.http/accept-failure` and `:rf.http/aborted` are never retried.
-- Every failure map also names the request it came from: `:request {:method :url}` (`:method` only when the request set one), `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
+- Every failure map also names the request it came from: `:request {:method :url}` (the method sent, `:get` when the request set none), `:request-id`, `:attempt`, `:max-attempts` (when a retry policy was set) and `:work/id`.
 - Resources and mutations store this same map as their `:error` (and a resource's `:refresh-error`), so one `case` on `:kind` serves both.
 
 [Failures are a closed set](../async/http.md#failures-are-a-closed-set) lists the tags each kind carries.
@@ -191,7 +191,7 @@ Register an interceptor to change every request a frame issues: add an auth head
   ```
 - **Description**: Registers an interceptor on a frame's `:rf.http/managed` chain: its `:before` fn can rewrite each outgoing request, and its `:after` fn each reply. Returns `id`.
     - `interceptor-map` carries at least one of `:before (fn [ctx] ctx')` and `:after (fn [ctx response] response')`, plus an optional `:frame` and the standard `:rf/registration-metadata` keys.
-    - A `:before` fn receives a ctx `{:request … :args … :frame … :event …}` and returns it, possibly changed; the `:request` left at the end of the chain is what is sent. An `:after` fn receives that final ctx and the reply map, so it can match a response to its request, and returns the reply.
+    - A `:before` fn receives a ctx `{:request … :args … :frame … :event … :sensitive? …}` and returns it, possibly changed. `:sensitive?` is `true` when the args marked the request sensitive, at the top level or under `:request`; the `:request` left at the end of the chain is what is sent. An `:after` fn receives that final ctx and the reply map, so it can match a response to its request, and returns the reply.
     - `:before` fns run in registration order, before the request goes to the platform HTTP client. `:after` fns run in reverse registration order, after the reply is built and before it is dispatched.
     - `:before` fns run once per request, not per retry attempt: every attempt sends the request the chain produced. `:after` fns run once, on the final reply, including a `:cancelled` one.
     - A request uses the chain as it stood when the request was issued, for both halves and every retry. Registering, replacing or clearing an interceptor affects only requests issued afterwards.
@@ -421,7 +421,7 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
 | `:rf.http/replied` | `:info` | The completion row (success or failure), built from the reply map before it is dispatched. Identity facts (`:status`, `:rf.reply/work-id`, `:attempt`, `:completed-at`) are verbatim; the wire-bearing slots (`:value` / `:error` / `:meta`) go through the trace elider and the header denylist. |
 | `:rf.http/<category>` | `:error` | A failure other than an abort, keyed by its `:kind` (`:rf.http/timeout`, `:rf.http/http-5xx`, …). Carries the redacted failure map. |
 | `:rf.http/aborted` | `:info` | An abort, whatever its `:reason` (`:user`, `:request-id-superseded`, `:actor-destroyed`, `:frame-destroyed`, `:epoch-restored`, …). Carries `:kind`, `:request-id`, `:reason`, `:actor-id`, `:url`. |
-| `:rf.http/stale-suppressed` | `:info` | An app reply was suppressed (supersession, obsolete actor target, epoch restore, frame destroy). Carries `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`, `:rf.reply/work-id`, `:rf.reply/carried` / `:rf.reply/current`, `:recovery`. |
+| `:rf.http/stale-suppressed` | `:info` | An app reply was suppressed (supersession, obsolete actor target, epoch restore, frame destroy). Carries `:rf.reply/status :stale`, `:rf.reply/work-status :suppressed`, `:rf.reply/work-id`, `:rf.reply/carried` / `:rf.reply/current`, `:rf.reply/stale-reason` and `:recovery`. `:recovery` names the trigger (`:superseded-by-fresh-request`, `:actor-destroyed-target-obsolete`, `:suppressed-on-epoch-restore`, `:suppressed-on-frame-destroy`); `:rf.reply/stale-reason` is `:rf.http/actor-destroyed-target-obsolete` for an obsolete actor target and `:rf.http/request-id-superseded` for the other three. |
 | `:rf.http/aborted-on-actor-destroy` | `:info` | One per request cancelled because the actor that spawned it was destroyed. Carries `:request-id`, `:actor-id`, `:url`. |
 | `:rf.warning/failure-swallowed` | `:warning` | Once: a failure other than an abort had no reply target (`:on-failure nil`, or the branch left unaddressed). Carries `:url`, `:failure`. |
 | `:rf.warning/http-malli-absent` | `:warning` | Once per process: a schema `:decode` ran without Malli, so the parsed body went on unvalidated. Carries `:reason`, `:schema`. |

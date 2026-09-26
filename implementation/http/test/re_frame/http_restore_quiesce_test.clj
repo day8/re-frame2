@@ -152,11 +152,17 @@
         (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
           (is (seq stale)
               "an EP-0011 stale-suppressed trace fired for the suppressed attempt")
+          ;; Per Spec 009 §Core fields the trace pipeline HOISTS :recovery out of
+          ;; :tags to the top-level event slot; the reply facts stay in :tags.
+          (is (= :suppressed-on-epoch-restore (:recovery (first stale)))
+              "the recovery names epoch restore — NOT frame destroy")
           (let [tags (:tags (first stale))]
             (is (= :stale (:rf.reply/status tags))
                 "the suppressed attempt's reply status is :stale")
             (is (= :suppressed (:rf.reply/work-status tags))
                 "its work-ledger status is :suppressed")
+            (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags))
+                "the row carries the generic stale reason; :recovery names the boundary")
             (is (= :rf/default (:frame tags))
                 "the trace names the restored frame")))
         (finally

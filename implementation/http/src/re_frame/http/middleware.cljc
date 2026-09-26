@@ -16,10 +16,11 @@
 
   Each `:before` receives a ctx map with the documented shape:
 
-    {:request <request-map>      ;; the :request map from the args
-     :args    <full-args-map>    ;; the full :rf.http/managed args
-     :frame   <frame-id>         ;; resolved frame id
-     :event   <origin-event>}    ;; originating event vector or nil
+    {:request    <request-map>   ;; the :request map from the args
+     :args       <full-args-map> ;; the full :rf.http/managed args
+     :frame      <frame-id>      ;; resolved frame id
+     :event      <origin-event>  ;; originating event vector or nil
+     :sensitive? <boolean>}      ;; the args' sensitivity, resolved before the chain
 
   A `:before` returns the (possibly-modified) ctx. The runtime threads
   the chain in registration order; the final `:request` is what the

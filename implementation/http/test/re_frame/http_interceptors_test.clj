@@ -983,6 +983,30 @@
         (finally
           (rf.trace.tooling/unregister-listener! listener-id))))))
 
+;; ---- the :before ctx carries the request's resolved :sensitive? -----------
+
+(deftest before-ctx-carries-resolved-sensitivity
+  (testing "each :before receives :sensitive?, the request's sensitivity as
+            resolved from the args before the chain ran: true for a top-level
+            or a [:request :sensitive?] opt-in, false otherwise"
+    (let [seen (atom [])]
+      ;; The :before records what it saw, then throws, so no request is sent.
+      (rf/reg-http-interceptor :capture-sensitive
+        {:before (fn [ctx]
+                   (swap! seen conj (:sensitive? ctx))
+                   (throw (ex-info "stop before the transport" {})))})
+      (rf/reg-event :bsens/load
+        (fn [_ [_ args]]
+          {:fx [[:rf.http/managed (merge {:request    {:url "https://api.example.invalid/x"}
+                                          :on-success nil
+                                          :on-failure nil}
+                                         args)]]}))
+      (rf/dispatch-sync [:bsens/load {}])
+      (rf/dispatch-sync [:bsens/load {:sensitive? true}])
+      (rf/dispatch-sync [:bsens/load {:request {:url "https://api.example.invalid/x" :sensitive? true}}])
+      (is (= [false true true] @seen)
+          "plain, top-level opt-in, [:request :sensitive?] opt-in"))))
+
 ;; ---- CLJS-only-key check runs on the POST-:before request -----------------
 ;;
 ;; A :before that ADDS a JVM-degraded CLJS-only key (:credentials / :mode /
