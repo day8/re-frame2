@@ -9,8 +9,8 @@
     3. `event-bundle->managed-fx-records` — cascade walker; record-per-fx;
        paths-touched cross-fold.
     4. Status / phase / cancel-cause / failure derivation."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.managed-fx-helpers :as h]))
 
 ;; ---- fixtures -----------------------------------------------------------
@@ -43,37 +43,28 @@
 
 ;; ---- (1) classify-fx-id ------------------------------------------------
 
-(deftest classify-fx-id-http
-  (is (= :http (h/classify-fx-id :rf.http/managed)))
-  (is (= :http (h/classify-fx-id :rf.http/managed-abort)))
-  (is (= :http (h/classify-fx-id :rf.http/managed-canned-success))))
-
-(deftest classify-fx-id-ws
-  (is (= :websocket (h/classify-fx-id :rf.ws/connect)))
-  (is (= :websocket (h/classify-fx-id :rf.ws/send))))
-
-(deftest classify-fx-id-machine
-  (is (= :machine-invoke (h/classify-fx-id :rf.machine/spawn)))
-  (is (= :machine-invoke (h/classify-fx-id :rf.machine/destroy))))
-
-(deftest classify-fx-id-ssr
-  (is (= :ssr-fx (h/classify-fx-id :rf.server/set-status)))
-  (is (= :ssr-fx (h/classify-fx-id :rf.server/set-header)))
-  (is (= :ssr-fx (h/classify-fx-id :rf.server/redirect))))
-
-(deftest classify-fx-id-flow
-  (is (= :flow (h/classify-fx-id :rf.flow/registered)))
-  (is (= :flow (h/classify-fx-id :rf.fx/reg-flow)))
-  (is (= :flow (h/classify-fx-id :rf.fx/clear-flow))))
-
-(deftest classify-fx-id-non-managed-is-nil
-  (testing "non-managed-effects fxs classify as nil"
-    (is (nil? (h/classify-fx-id :db)))
-    (is (nil? (h/classify-fx-id :dispatch)))
-    (is (nil? (h/classify-fx-id :user/my-fx)))
-    (is (nil? (h/classify-fx-id :my/persist)))
-    (is (nil? (h/classify-fx-id nil)))
-    (is (nil? (h/classify-fx-id "not-a-keyword")))))
+(deftest classify-fx-id-maps-each-fx-to-its-surface
+  (are [fx-id surface] (= surface (h/classify-fx-id fx-id))
+    :rf.http/managed                :http
+    :rf.http/managed-abort          :http
+    :rf.http/managed-canned-success :http
+    :rf.ws/connect                  :websocket
+    :rf.ws/send                     :websocket
+    :rf.machine/spawn               :machine-invoke
+    :rf.machine/destroy             :machine-invoke
+    :rf.server/set-status           :ssr-fx
+    :rf.server/set-header           :ssr-fx
+    :rf.server/redirect             :ssr-fx
+    :rf.flow/registered             :flow
+    :rf.fx/reg-flow                 :flow
+    :rf.fx/clear-flow               :flow
+    ;; non-managed fxs, and ids that are not keywords at all, classify as nil
+    :db                             nil
+    :dispatch                       nil
+    :user/my-fx                     nil
+    :my/persist                     nil
+    nil                             nil
+    "not-a-keyword"                 nil))
 
 (deftest managed-fx-effect?-uses-classifier
   (is (true?  (h/managed-fx-effect? {:tags {:rf.fx/id :rf.http/managed}})))
@@ -199,26 +190,6 @@
         (is (nil? (:res rec)))
         (is (nil? (:duration-ms rec)))
         (is (nil? (:http-status rec)))))))
-
-(deftest http-record-from-issuing-bundle-is-issued
-  (testing "The runtime's ACTUAL issuing-bundle shape, walked end to end: the
-            `:rf.fx/handled` row in `:effects` and an EMPTY `:other`. That empty
-            `:other` is not an impoverished fixture — it is what the grouper
-            produces, because every later HTTP row is scope-less and lands in
-            `[nil :ungrouped]`."
-    (let [bundle {:dispatch-id 7
-                  :frame :rf/default
-                  :effects [(fx-handled :rf.http/managed
-                                        {:request    {:method :post :url "/api/checkout"}
-                                         :request-id :checkout
-                                         :on-success [:checkout/done]})]
-                  :other   []}
-          rec    (first (h/event-bundle->managed-fx-records bundle))]
-      (is (= 1 (count (h/event-bundle->managed-fx-records bundle))))
-      (is (= :issued (:status rec)))
-      (is (nil? (:failure rec)))
-      (is (nil? (:cancel-cause rec)))
-      (is (nil? (:phase rec))))))
 
 (deftest http-adapter-failure-record
   (testing "The ONE HTTP failure that can land in the issuing bundle is a

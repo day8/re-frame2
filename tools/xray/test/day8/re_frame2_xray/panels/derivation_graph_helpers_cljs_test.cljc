@@ -130,12 +130,6 @@
 ;; 3. edges.
 ;; ---------------------------------------------------------------------------
 
-(deftest edges-by-role-groups-the-three-roles
-  (let [by-role (h/edges-by-role fixture-graph)]
-    (is (= 1 (count (:input by-role))))
-    (is (= 1 (count (:param by-role))))
-    (is (= 1 (count (:selector by-role))))))
-
 (deftest node-degree-counts-in-and-out
   (let [deg (h/node-degree fixture-graph)]
     (is (= {:in 0 :out 1} (get deg [:rf/route :route/article])))

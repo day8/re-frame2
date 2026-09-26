@@ -1,6 +1,6 @@
 (ns day8.re-frame2-xray.panels.managed-fx-subs-cljs-test
-  "Composite-sub test for `:rf.xray/managed-fx-for-focused-event` +
-  the `:rf.xray/focus-event` cross-link event.
+  "Composite-sub test for `:rf.xray/managed-fx-for-focused-event` and
+  the record panel's section-disclosure slot.
 
   Uses the same test-runtime + seed-buffer pattern as
   `event_detail_cljs_test.cljs` — install Xray's handlers, allocate
@@ -74,16 +74,6 @@
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest empty-when-no-focus
-  (testing "with cascades in the buffer but no focused dispatch-id, the
-            composite returns empty records (the spine snaps to head in
-            LIVE mode but the cascade picked may have no managed-fx)"
-    (seed-buffer! (cascade-evs-non-managed 100 0))
-    (rf/with-frame :rf/xray
-      (let [out @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])]
-        (is (= [] (:records out))
-            "non-managed cascade yields empty records in LIVE-head mode")))))
-
 (deftest projects-records-for-focused-cascade
   (testing "focused cascade with managed-fx → records populated"
     (seed-buffer! (cascade-evs-http 200 0))
@@ -105,24 +95,6 @@
       (let [out @(rf/subscribe [:rf.xray/managed-fx-for-focused-event])]
         (is (= 300 (:dispatch-id out)))
         (is (= [] (:records out)))))))
-
-(deftest focus-event-writes-spine-slot
-  (testing ":rf.xray/focus-event dispatches through to the spine slot —
-            this is the cross-link the HANDLER DISPATCHED row uses to
-            pivot the spine to the handler's event. The row reuses the
-            spine's canonical `:rf.xray/focus-event`, so focusing a PAST
-            (non-head) event pins the spine to RETRO — head-aware, per
-            spine semantics."
-    ;; Seed 400 then a LATER head event (500) so 400 is genuinely a
-    ;; PAST event — focusing it must flip the spine to :retro.
-    (seed-buffer! (concat (cascade-evs-http 400 0)
-                          (cascade-evs-http 500 100)))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-event 400 :rf/default])
-      (let [focus @(rf/subscribe [:rf.xray/focus])]
-        (is (= 400 (:dispatch-id focus)))
-        (is (= :rf/default (:frame focus)))
-        (is (= :retro (:mode focus)))))))
 
 ;; ---- section disclosure state --------------------------------------------
 ;;

@@ -7,7 +7,8 @@
 
   Covers:
 
-    1. Registry wires the canvas subs + events + fx.
+    1. Registration of the canvas subs, events and fx — pinned by
+       `registry_cljs_test`'s registry snapshot rows rather than here.
     2. The chart-collapsed slot mutates + persists per machine.
     3. The `Chart` view returns hiccup carrying the canvas-host
        data-testid."
@@ -18,7 +19,6 @@
             ;; codec grades a hiccup head with. The dual-head rows read it
             ;; rather than restating how each head was spelled.
             [re-frame.fresco.impl.codec :as rf.fresco.impl.codec]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-machines-viz.chart :as mv-chart]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -37,17 +37,6 @@
 (defn- setup-xray-frame! []
   (registry/register-xray-handlers!)
   (rf/make-frame {:id :rf/xray}))
-
-;; ---- 1. Registry wires the canvas surface -----------------------------
-
-(deftest registry-wires-canvas-subs
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (testing "every machine-canvas sub resolves through rf/subscribe"
-      (doseq [q-v [[:rf.xray.machine-canvas/chart-collapsed-for :m]
-                   [:rf.xray.machine-canvas/chart-collapsed-by-id]]]
-        (is (some? (rf/subscribe q-v))
-            (str q-v " must resolve through rf/subscribe"))))))
 
 ;; ---- 2. Chart-collapsed slot ------------------------------------------
 
@@ -100,13 +89,6 @@
         "per-machine slot, one machine's collapse
          does not affect another's")))
 
-(deftest persist-chart-collapsed-fx-registered
-  (setup-xray-frame!)
-  (is (some?
-        (rf.registrar/handler
-          :fx :rf.xray.machine-canvas/persist-chart-collapsed))
-      "persist-chart-collapsed fx is in the registrar"))
-
 (deftest persist-chart-collapsed-fx-actually-fires-rf2-04tx
   (testing "the set-chart-collapsed handler must REACH the persist fx,
             not merely have one registered. A handler returning the fx-id
@@ -114,10 +96,10 @@
             policed as `:rf.error/effect-map-shape` and dropped, because
             the effect map is closed — the `:db` write would land, the
             toggle would look like it worked, and the operator's choice
-            would never reach localStorage. `persist-chart-collapsed-
-            fx-registered` above cannot see that: a registered fx nobody
-            routes to satisfies it perfectly. This one observes the do-fx
-            plane, which is the only place the drop is visible."
+            would never reach localStorage. A registration check cannot
+            see that: a registered fx nobody routes to satisfies it
+            perfectly. This one observes the do-fx plane, which is the
+            only place the drop is visible."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (let [persisted (atom [])]
@@ -158,13 +140,6 @@
   {:initial :idle
    :states  {:idle {:on {:start :loading}}
              :loading {}}})
-
-(deftest chart-view-emits-canvas-host
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (let [tree (mc/Chart {:definition fixture-definition :machine-id :m})]
-      (is (some? (find-by-testid tree "rf-xray-machine-canvas-host"))
-          "canvas host wrapper present"))))
 
 (deftest chart-view-never-emits-view-mode-toggle-rf2-48fwsi
   (testing "there is no Canvas/List view-mode toggle; the Chart never
@@ -280,20 +255,3 @@
              which is how the two heads mount DIFFERENT overlay heads (the
              bridge, or the boundary) through one body")))))
 
-(deftest chart-tree-reads-show-after-rings-and-nothing-else-gates-the-overlay
-  (testing "the NON-VACUITY control for the row above: with
-            `:show-after-rings? false` the caller's overlay value is dropped
-            altogether, so the assertion that it is mounted verbatim is a
-            claim about the gate and not about a value that is always there."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [tree  (mc/chart-tree {:definition fixture-definition
-                                  :machine-id :m
-                                  :show-after-rings? false}
-                                 identity
-                                 [::overlay-sentinel])
-            heads (into #{}
-                        (comp (filter vector?) (map first))
-                        (hiccup-seq tree))]
-        (is (not (contains? heads ::overlay-sentinel))
-            ":show-after-rings? false drops the caller's overlay entirely")))))

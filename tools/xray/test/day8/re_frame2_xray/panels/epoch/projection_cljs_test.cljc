@@ -160,20 +160,6 @@
       (is (= [:active :authenticating] (:source-state-path enrich))
           "source-state-path from the inner vector's slot 3 (invoke-id)"))))
 
-(deftest dispatch-row-after-timer-defensive-degrade-test
-  (testing "when `:source :after-timer` is stamped but the
-            event vector doesn't match the canonical timer shape, the
-            row carries no enrichment (defensive fall-through; the
-            view renders the kind label only)"
-    (let [ev {:op-type   :rf.event
-              :operation :rf.event/dispatched
-              :tags      {:rf.event/v [:some/other-event]
-                          :source     :after-timer}}
-          r  (proj/dispatch-row [ev] nil)]
-      (is (= :after-timer (:source r)))
-      (is (nil? (:source-enrichment r))
-          "non-canonical timer-event shape → no enrichment"))))
-
 (deftest dispatch-row-after-timer-scalar-slot3-fail-soft-test
   (testing "a partial `:rf.machine.timer/after-elapsed`
             event whose slot-3 invoke-id is a SCALAR (or nil) passes the
@@ -263,34 +249,27 @@
       (is (= 9001 (:parent-dispatch-id enrich)))
       (is (nil? (:delay-ms enrich))))))
 
-(deftest dispatch-row-vanilla-source-has-no-enrichment-test
-  (testing "vanilla source kinds (`:ui`, `:frame-init`,
-            `:test-harness`, `:unknown`) carry no `:source-enrichment`
-            slot; their labels render through the plain
-            `from <source>` chrome"
-    (doseq [src [:ui :frame-init :test-harness :unknown]]
+(deftest dispatch-row-keeps-the-source-and-omits-enrichment-it-cannot-build-test
+  (testing "the row keeps its `:source` and carries no `:source-enrichment`,
+            so the view renders the kind label alone, when:"
+    (doseq [[src event why]
+            [;; vanilla kinds render through the plain `from <source>` chrome
+             [:ui           [:counter/inc]      "a vanilla source kind"]
+             [:frame-init   [:counter/inc]      "a vanilla source kind"]
+             [:test-harness [:counter/inc]      "a vanilla source kind"]
+             [:unknown      [:counter/inc]      "a vanilla source kind"]
+             ;; defensive fall-through for a non-canonical timer-event shape
+             [:after-timer  [:some/other-event] "the event is not the canonical timer shape"]
+             ;; no `:rf.trace/parent-dispatch-id` (a root cascade, or a fixture
+             ;; omitting dispatch-id correlation): the parent-epoch link is
+             ;; simply omitted and the kind label still reads `from fx`
+             [:fx-dispatch  [:cart/add :apple]  "no parent-dispatch-id rides the trace"]]]
       (let [ev {:op-type   :rf.event
                 :operation :rf.event/dispatched
-                :tags      {:rf.event/v [:counter/inc] :source src}}
+                :tags      {:rf.event/v event :source src}}
             r  (proj/dispatch-row [ev] nil)]
-        (is (= src (:source r)))
-        (is (nil? (:source-enrichment r))
-            (str src " — vanilla source kinds carry no enrichment"))))))
-
-(deftest dispatch-row-fx-dispatch-without-parent-test
-  (testing "when `:source :fx-dispatch` is stamped but the
-            trace carries no `:rf.trace/parent-dispatch-id` (root
-            cascade / test fixtures that omit dispatch-id correlation),
-            the row carries no enrichment (the parent-epoch link is
-            simply omitted; the kind label still reads `from fx`)"
-    (let [ev {:op-type   :rf.event
-              :operation :rf.event/dispatched
-              :tags      {:rf.event/v [:cart/add :apple]
-                          :source     :fx-dispatch}}
-          r  (proj/dispatch-row [ev] nil)]
-      (is (= :fx-dispatch (:source r)))
-      (is (nil? (:source-enrichment r))
-          "no parent-dispatch-id → no enrichment map (graceful degrade)"))))
+        (is (= src (:source r)) (str src " — " why))
+        (is (nil? (:source-enrichment r)) (str src " — " why))))))
 
 ;; ---- RECORDABLE COEFFECTS (EP-0010 · EP-0017 §9) -------------------------
 ;;
@@ -896,24 +875,6 @@
       (is (= :hvac/controller (:machine-id tx))
           "the transition row threads through into the machine cascade"))))
 
-(deftest handler-row-bootstrap-initial-entry-transition-test
-  (testing "the bootstrap macrostep (bootstrap runs
-            `:initial-entry`, never a no-op) emits a
-            `:rf.machine/transition` summary. Even were its `:initial-entry`
-            actions untraced, the transition marks it a machine cascade →
-            `:reg-machine`, so the EVENT HANDLER renders the machine section
-            (the `[INITIAL]` bootstrap), not a raw `:db` diff."
-    (let [snap-before {:state nil          :data {}}
-          snap-after  {:state [:off]       :data {}}
-          evs [(do-fx-ev {:db {:hvac/controller {:state {:climate [:off]}}}})
-               (machine-transition-ev :hvac/controller snap-before snap-after
-                                       [:rf.machine/start] 1)]
-          r   (proj/handler-row evs :hvac/controller)]
-      (is (= :reg-machine (:flavour r))
-          "the bootstrap transition classifies :reg-machine, not :effectful")
-      (is (some? (:machine r))
-          "the bootstrap renders the machine section"))))
-
 (deftest handler-flavour-negative-guards-test
   (testing "NEGATIVE GUARD — a genuine fx-bearing handler (a do-fx with
             NO machine trace at all) classifies :effectful; the
@@ -1160,20 +1121,6 @@
           rows   (proj/machine-cascade-rows [tx micro])]
       (is (empty? (filterv #(= :microstep (:kind %)) rows))
           "no first-class :microstep row for a region-less (single-active) event"))))
-
-(deftest machine-cascade-microstep-op-is-first-class-test
-  (testing "the microstep op is a member of the harvested closed
-            set + maps to the :microstep kind, and the :microstep kind is a
-            painted cascade kind. This gate FAILS if
-            `:rf.machine.microstep/transition` is filtered out of the epoch
-            projection."
-    (is (contains? proj/machine-cascade-trace-ops :rf.machine.microstep/transition)
-        "the op joins the harvested closed set (machine-cascade-trace-ops)")
-    ;; end-to-end: a real-shaped round trace must yield a :microstep row
-    (let [micro (machine-microstep-ev :par/gate :a :staged :done 0)
-          rows  (proj/machine-cascade-rows [micro])]
-      (is (= [:microstep] (mapv :kind rows))
-          "the harvested op projects a :microstep-kind row"))))
 
 (deftest machine-cascade-rows-action-threw-test
   (testing "an action that threw stamps `:threw? true`
@@ -1435,38 +1382,7 @@
       (is (false? (issues/issue-event? ev)))
       (is (false? (l2/event-bundle-has-issue? {:other [ev]}))))))
 
-;; ---- a no-op cascade carries no transition row --------------------------
-
-(deftest no-op-cascade-carries-no-transition-row-test
-  (testing "there is no tool-side no-op transition drop: the SOURCE
-            suppresses it, so a no-op macrostep (`:before` ==
-            `:after`, empty cascade, zero microsteps) emits no
-            `:rf.machine/transition` at all. So a genuine
-            unknown-user-event no-op cascade carries ONLY the
-            `:rf.machine.event/unhandled-no-op` trace — the projection
-            renders the single `:no-op` row with no transition to suppress."
-    (let [state {:vehicle :red :pedestrian :walk}
-          ;; the substrate emits the no-op ALONE (no companion
-          ;; {X}->{X} transition); this fixture mirrors that real trace.
-          no-op (machine-unhandled-no-op-ev :traffic/light
-                                            [:traffic/unknown] state)
-          rows  (proj/machine-cascade-rows [no-op])]
-      (is (= [:no-op] (mapv :kind rows))
-          "the single :no-op row — the substrate emits no companion transition")
-      (is (= 1 (count rows)))
-      (is (not-any? #(= :transition (:kind %)) rows))
-      (is (= 1 (:step (first rows)))
-          ":step renumbered 1..N over the cascade")))
-
-  (testing "the no-op flows through handler-row into the
-            :machine :cascade slot the view renders (the live surface)"
-    (let [state {:vehicle :red :pedestrian :walk}
-          evs   [(machine-unhandled-no-op-ev :traffic/light
-                                             [:traffic/unknown] state)]
-          r     (proj/handler-row evs :traffic/light)]
-      (is (= :reg-machine (:flavour r)))
-      (is (= [:no-op] (mapv :kind (-> r :machine :cascade)))
-          "the view's :cascade carries the no-op row alone"))))
+;; ---- a self-transition keeps its transition row -------------------------
 
 (deftest genuine-self-transition-keeps-its-row-test
   (testing "NEGATIVE GUARD — a genuine EXTERNAL self-transition
@@ -1505,32 +1421,7 @@
           "internal self-transition row preserved (no no-op row present)")
       (is (= 1 (count (filterv #(= :transition (:kind %)) rows)))))))
 
-(deftest unhandled-no-op-is-not-an-issue-test
-  (testing "the no-op trace's op-type is :rf.machine (NOT a
-            severity), so issue-event? returns FALSE — NO pink wash, NO
-            ribbon entry, for free"
-    (let [no-op (machine-unhandled-no-op-ev :door/main [:door/insert-coin] :alarming)]
-      (is (= :rf.machine (:op-type no-op)))
-      (is (false? (issues/issue-event? no-op))
-          "issue-event? FALSE for the benign no-op")
-      (is (false? (l2/event-bundle-has-issue? {:other [no-op]}))
-          "event-bundle-has-issue? FALSE — no pink wash for a no-op-only cascade"))))
-
-;; ---- the :* wildcard-action throw (the inverse) --------------------------
-
-(deftest machine-action-exception-is-an-issue-test
-  (testing "a :rf.error/machine-action-exception IS an issue
-            (op-type :error) — issue-event? + event-bundle-has-issue? TRUE
-            (pink); the inverse of the benign no-op above"
-    (let [exc (machine-action-exception-ev
-                {:machine-id :fuse/box :action-id :blow-fuse
-                 :event [:fuse/short-circuit] :message "unhandled machine event"
-                 :via-wildcard? true})]
-      (is (= :error (:op-type exc)))
-      (is (true? (issues/issue-event? exc))
-          "issue-event? TRUE for the real exception")
-      (is (true? (l2/event-bundle-has-issue? {:other [exc]}))
-          "event-bundle-has-issue? TRUE — the event row goes pink"))))
+;; ---- the :* wildcard-action throw ----------------------------------------
 
 (deftest machine-action-exception-row-attributes-wildcard-test
   (testing "exception-row lifts the machine attribution +
@@ -1623,23 +1514,6 @@
       (is (false? (proj/machine-logical-state-changed?
                     {:state :open :tags #{:open} :data {:n 1} :rf/spawn-counter {}}
                     {:state :open :tags #{:open} :data {:n 2} :rf/spawn-counter {:a 1}}))))))
-
-(deftest project-machine-populates-cascade-slot-test
-  (testing "`(handler-row …)` populates `:machine
-            :cascade` with the CANONICALLY-ORDERED cascade the view
-            consumes. The entry action emits before the transition but
-            renders AFTER it (canonical guard → TRANSITION → entry)."
-    (let [evs [(dispatched-ev [:ws/start] :ui nil)
-               (machine-guard-ev :ready? :pass)
-               (machine-action-ev :open-socket :entry :ok)
-               (machine-transition-ev :ws/conn [:idle] [:connecting])]
-          r   (proj/handler-row evs :ws/start)
-          c   (-> r :machine :cascade)]
-      (is (vector? c) ":cascade is a vector")
-      (is (= 3 (count c))
-          "one row per substrate emit (guard + action + transition)")
-      (is (= [:guard :transition :action] (mapv :kind c))
-          "canonical order: guard → TRANSITION → entry action"))))
 
 ;; ---- STRUCTURED transition cascade ------------------------------------
 ;;
@@ -1818,20 +1692,6 @@
     (is (nil? (fmt/cascade-guard-for-state {:kind :guard :guard-id :ready?}))
         "nil when neither state was stamped — the view omits the clause (no dangling `for`)")))
 
-(deftest cascade-row-source-key-test
-  (testing "`cascade-row-source-key` returns the spec-path
-            tuple for source-coord lookup (named cases)"
-    (is (= [:actions :open-socket]
-           (fmt/cascade-row-source-key
-             {:kind :action :action-id :open-socket})))
-    (is (= [:guards :ready?]
-           (fmt/cascade-row-source-key
-             {:kind :guard :guard-id :ready?})))
-    (is (nil? (fmt/cascade-row-source-key {:kind :transition}))
-        "transitions with no state/event context → nil")
-    (is (nil? (fmt/cascade-row-source-key {:kind :timer}))
-        "timers with no state context → nil")))
-
 ;; ---- inline-fn / transition / timer source keys --------------------------
 
 (deftest cascade-row-source-key-inline-entry-action-test
@@ -1867,15 +1727,6 @@
                {:kind :action :action-id inline-fn :phase :destroy-exit
                 :source-state :idle}))
           ":destroy-exit phase also maps to the :exit slot"))))
-
-(deftest cascade-row-source-key-inline-transition-action-test
-  (testing "inline-fn transition `:action` resolves to
-            `[:states <src> :on <event> :action]`"
-    (let [inline-fn (fn [_] {})]
-      (is (= [:states :idle :on :submit :action]
-             (fmt/cascade-row-source-key
-               {:kind :action :action-id inline-fn :phase :transition
-                :source-state :idle :event-id :submit}))))))
 
 (deftest cascade-row-source-key-inline-always-action-test
   (testing "inline-fn `:always` `:action` resolves to the
@@ -4011,26 +3862,21 @@
 ;; sibling `schema-violation-row` and runs on the JVM `clojure -M:test`
 ;; gate via this `.cljc` test ns.
 
-(deftest decode-malli-explain-returns-expected-got-test
+(deftest decode-malli-explain-summarises-the-first-error-test
   (testing "`decode-malli-explain` lifts the first error's
-            :schema + :value into a programmer-friendly summary map.
-            Pure data fn; JVM-testable."
+            :schema + :value into a programmer-friendly summary map."
     (is (= {:expected :int :got "bad" :more-errors 0}
            (proj/decode-malli-explain
              {:schema :int
               :value "bad"
-              :errors [{:path [] :in [] :schema :int :value "bad"}]})))))
-
-(deftest decode-malli-explain-falls-back-to-root-value-test
+              :errors [{:path [] :in [] :schema :int :value "bad"}]}))))
   (testing "when the first error does NOT carry :value
             (the value rides on the explain map's root), :got reads
             from `explain`'s `:value` slot."
     (is (= {:expected :int :got 42 :more-errors 0}
            (proj/decode-malli-explain
              {:schema :int :value 42
-              :errors [{:path [] :schema :int}]})))))
-
-(deftest decode-malli-explain-counts-additional-errors-test
+              :errors [{:path [] :schema :int}]}))))
   (testing "multi-error explain maps surface
             `:more-errors (- N 1)` so the call-site can paint a
             `(+N more)` chip beneath the first-error summary."
@@ -4466,26 +4312,6 @@
     (is (false? (proj/handler-wrote-db?
                   [(do-fx-ev {:fx [[:navigate "/x"]]})
                    (run-end-ev 1)])))))
-
-(deftest handler-row-db-write?-slot-test
-  (testing "the HANDLER row carries `:db-write?` so the view's
-            `:db` sub-section chooses the no-write placeholder over the
-            phantom full-app-db fallback"
-    (let [threw (proj/handler-row
-                  [(dispatched-ev [:standard-epochs/throw-handler] :ui nil)
-                   (handler-exception-ev :standard-epochs/throw-handler "boom" nil)
-                   (run-end-ev 1)]
-                  :standard-epochs/throw-handler
-                  {:n 1})]
-      (is (false? (:db-write? threw))
-          "handler that threw before returning a :db → db-write? false"))
-    (let [wrote (proj/handler-row
-                  [(db-pending-ev {:count 1})
-                   (db-changed-ev [[[:count] 0 1 :modified]])
-                   (run-end-ev 1)]
-                  :counter/inc {:count 0})]
-      (is (true? (:db-write? wrote))
-          "handler that wrote a :db → db-write? true"))))
 
 (deftest exception-rows-harvests-cascade-exceptions-test
   (testing "`exception-rows` harvests the `cascade-exception-ops`

@@ -52,7 +52,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.routing]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -171,48 +170,7 @@
   [route-id]
   (select-keys (rf/registrations {:source :store :kind :route}) [route-id]))
 
-;; ---- (1) registry wiring + tab inventory --------------------------------
-
-(deftest registry-installs-routing-subs
-  (testing "register-xray-handlers! installs the topology-plus-overlay subs"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/registered-routes))
-        ":rf.xray/registered-routes sub registered (shared with Static)")
-    (is (some? (rf.registrar/handler :sub :rf.xray/current-route-slice))
-        ":rf.xray/current-route-slice sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray/routing-tab-data))
-        "view-facing topology-plus-overlay composite sub registered"))
-  (testing "production registration installs NO -for-test ids
-            nor *-override subs; install-test-overrides! installs them"
-    (registry/register-xray-handlers!)
-    (is (nil? (rf.registrar/handler :sub :rf.xray/registered-routes-override)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/current-route-slice-override)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/set-registered-routes-override-for-test)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/set-current-route-slice-override-for-test)))
-    (xray-test-support/install-test-overrides!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/registered-routes-override))
-        "test-only override sub registered by seam")
-    (is (some? (rf.registrar/handler :sub :rf.xray/current-route-slice-override))
-        "test-only override sub registered by seam")
-    (is (some? (rf.registrar/handler :event :rf.xray/set-registered-routes-override-for-test))
-        "test-only override event registered by seam")
-    (is (some? (rf.registrar/handler :event :rf.xray/set-current-route-slice-override-for-test))
-        "test-only override event registered by seam"))
-  (testing "browse + search + Simulate-URL slots do NOT live under
-            :rf.xray.routing/* (they live under :rf.xray.static.routes/*)"
-    (registry/register-xray-handlers!)
-    (is (nil? (rf.registrar/handler :sub :rf.xray.routing/query))
-        ":rf.xray.routing/query is not registered (see static.routes/query)")
-    (is (nil? (rf.registrar/handler :sub :rf.xray.routing/sim-url))
-        ":rf.xray.routing/sim-url is not registered (see static.routes/sim-url)")
-    (is (nil? (rf.registrar/handler :sub :rf.xray.routing/expanded))
-        ":rf.xray.routing/expanded is not registered (see static.routes/expanded)")
-    (is (nil? (rf.registrar/handler :event :rf.xray.routing/set-query))
-        ":rf.xray.routing/set-query is not registered (see static.routes/set-query)")
-    (is (nil? (rf.registrar/handler :event :rf.xray.routing/set-sim-url))
-        ":rf.xray.routing/set-sim-url is not registered (see static.routes/set-sim-url)")
-    (is (nil? (rf.registrar/handler :event :rf.xray.routing/toggle-row))
-        ":rf.xray.routing/toggle-row is not registered (see static.routes/toggle-row)")))
+;; ---- (1) tab inventory --------------------------------------------------
 
 (deftest palette-includes-routing
   (testing "the palette's canonical panel list carries the :routing entry"

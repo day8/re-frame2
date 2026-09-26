@@ -176,30 +176,12 @@
                   sel)
           "every selector edge runs from a machine its target selector reads"))))
 
-;; ---- (4) live mode calls the live composer with the target frame --------
-
-(deftest live-mode-subscription-calls-the-live-composer-with-the-target-frame
-  (testing "switching to :live + setting :rf.xray/target-frame makes
-            :rf.xray/derivation-graph call live-derivation-graph with :frame"
-    (setup-xray!)
-    ;; A real host frame to observe.
-    (rf/make-frame {:id :app/main})
-    (rf/dispatch-sync [:rf.xray/set-derivation-graph-mode :live] {:frame :rf/xray})
-    (rf/dispatch-sync [:rf.xray/set-target-frame :app/main] {:frame :rf/xray})
-    (let [graph (read-xray [:rf.xray/derivation-graph])]
-      (is (= :live (:mode graph)) "the live graph carries :mode :live")
-      (is (= :app/main (:frame graph))
-          "the live composer was called with the observed target frame id"))
-    (let [{:keys [mode]} (read-xray [:rf.xray/derivation-graph-tab-data])]
-      (is (= :live mode) "tab-data reflects the live mode"))))
-
-;; ---- (4b) LIVE mode carries REAL live CONTENT + frame isolation
+;; ---- (4) LIVE mode: the target frame, its REAL live CONTENT, isolation ---
 ;;
-;; The §4 test above proves the live composer is CALLED with the target frame,
-;; but a regression that returned an EMPTY live graph for the selected frame,
+;; A regression that returned an EMPTY live graph for the selected frame,
 ;; dropped the live nodes/edges, or failed to feed live content into tab-data
-;; would still satisfy it (it asserts only :mode + :frame). This test plants a
-;; REAL live fact in the target frame — a navigation that materializes the
+;; would still report `:mode :live` and the right `:frame`. So this test plants
+;; a REAL live fact in the target frame — a navigation that materializes the
 ;; route slice — and asserts the live node + family grouping flow through the
 ;; consumer path; a SECOND frame (no navigation) proves target-frame isolation.
 

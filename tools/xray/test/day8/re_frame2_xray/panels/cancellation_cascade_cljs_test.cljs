@@ -245,20 +245,6 @@
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-close])
       (is (false? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?]))))))
 
-(deftest focus-trace-entry-event-shape
-  (testing "the row-click event accepts a `:dispatch-id` and dispatches
-            without throwing — production path flips through the spine
-            shim and panel-select"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-trace! cancel-cascade-buffer)
-      ;; No throw is enough — the event handler delegates via :fx so
-      ;; the side-effecting half routes through the spine shim, which
-      ;; the spine tests cover.
-      (rf/dispatch-sync [:rf.xray/focus-trace-entry
-                         {:dispatch-id 7 :frame :rf/default :trace-id 1}])
-      (is (true? true)))))
-
 (deftest focus-trace-entry-lands-on-a-live-tab
   ;; There is no `:event` tab id (the event detail lives in Epoch), and
   ;; selecting an unregistered id would land the shell's

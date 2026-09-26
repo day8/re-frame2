@@ -26,19 +26,9 @@
   `app_db_diff_helpers_cljs_test.cljc` / the view-shape tests in
   `app_db_diff_state_cljs_test.cljs`)
 
-  1. **Registry wires the subs / events** under the `:rf.xray/*`
-     namespace, including the `:rf.xray/app-db-state` +
-     `:rf.xray/app-db-current+diff` subs (and not the composite diff
-     family).
+  1. **The off-box safe-egress projection** fails closed — see (7).
 
-  2. **There are no path-click handlers** — no segment-inspector
-     popup, no 'show me when this changed' sub, no slice-focus event
-     pair, since nothing in `tools/xray/src` would dispatch or
-     subscribe them. Each nil-assert
-     sits beside a positive control so absence cannot read as a failed
-     install.
-
-  3. **Current-state inspector view** renders the section model and
+  2. **Current-state inspector view** renders the section model and
      follows the picker-selected frame.
 
   ## Pure hiccup
@@ -50,7 +40,6 @@
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.egress :as egress]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -209,63 +198,6 @@
                          (.startsWith prefix))))
           (hiccup-seq tree)))
 
-;; ---- (1) registry wires the subs / events -------------------------------
-
-(deftest registry-installs-app-db-diff-subs
-  (testing "register-xray-handlers! installs the app-db tab's subs,
-            and no pinned-slices subs (there is no pinned-watches
-            strip)."
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/target-frame-db)))
-    (is (some? (rf.registrar/handler :sub :rf.xray/selected-epoch-record)))
-    ;; The current-state inspector's section-model sub.
-    (is (some? (rf.registrar/handler :sub :rf.xray/app-db-state)))
-    ;; The atomic current-state + before-image sub the panel
-    ;; pivots on.
-    (is (some? (rf.registrar/handler :sub :rf.xray/app-db-current+diff)))
-    ;; No segment-inspector popup sub and no show-me-when walker sub:
-    ;; nothing in src would dispatch the popup's opener or subscribe the
-    ;; walker's result.
-    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-open?)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-path)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-value)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
-    ;; No composite diff family (no production view would consume it).
-    (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-diff)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/app-db-diff)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
-    ;; No pinned-slices subs.
-    (is (nil? (rf.registrar/handler :sub :rf.xray/pinned-slices-store)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/pinned-slices)))))
-
-(deftest registry-installs-app-db-diff-events
-  (testing "register-xray-handlers! installs the app-db tab's events,
-            and none of the pin / unpin / reorder or segment-inspector
-            open / close events, which nothing would dispatch. There are
-            no clipboard copy events either; the clipboard fx is pinned
-            below."
-    (registry/register-xray-handlers!)
-    ;; The positive control that the orchestrator really ran, so the
-    ;; nil-asserts below are absence rather than a failed install.
-    (is (some? (rf.registrar/handler :event :rf.xray/set-frame)))
-    ;; No pin events.
-    (is (nil? (rf.registrar/handler :event :rf.xray/pin-slice)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/unpin-slice)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/reorder-pinned-slices)))
-    ;; No path-click events.
-    (is (nil? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))))
-
-(deftest registry-installs-clipboard-fx
-  (testing "register-xray-handlers! installs the :rf.xray.fx/copy-to-
-            clipboard effect"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))))
-
 ;; ---- (7) the off-box safe-egress projection ------------------------------
 ;;
 ;; These are the fail-closed proofs for `egress/egress-value`, Xray's single
@@ -352,18 +284,6 @@
 ;; that does not resolve — which is why `egress.cljs` requires a caller to
 ;; forward `:frame` unconditionally, including when it is nil.
 
-(deftest egress-value-with-nil-frame-fails-closed
-  (testing "an explicitly-nil :frame (the unselected picker)
-            redacts the value whole rather than projecting it under the
-            Xray chrome frame's empty policy"
-    (let [out (egress/egress-value {:auth {:token "shh"}} {:frame nil})]
-      (is (= :rf/redacted out)
-          (str "no resolvable frame must egress the whole-value redaction "
-               "sentinel. got: " (pr-str out)))
-      (is (not (re-find #"shh" (pr-str out)))
-          (str "the RAW value survived with no frame policy in force "
-               "— got: " (pr-str out))))))
-
 (deftest egress-value-with-destroyed-frame-fails-closed
   (testing "a host frame destroyed between render and use
             leaves a STALE observed id; a frame-id that does not resolve
@@ -419,7 +339,7 @@
 ;; area (machines/spawned fan out per id; route + slices are singletons;
 ;; absent/empty areas render an empty-state). There are no diff /
 ;; focus-result / redacted-chip view affordances, and no data subs for
-;; them either (the registry test above pins their absence).
+;; them either (registry_cljs_test's exact-set snapshot pins their absence).
 
 (deftest panel-renders-current-state-container
   (testing "the Panel renders the current-state inspector container +

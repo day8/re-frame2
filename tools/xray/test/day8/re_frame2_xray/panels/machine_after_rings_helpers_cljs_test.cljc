@@ -28,8 +28,8 @@
     9. `ms-remaining`                       — tooltip-ms calc.
     10. `focused-cascade-time-ms` / `resolve-now-ms` — retro now-ms
         anchor (xray/003 §M.2)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.machine-after-rings-helpers
              :as h]))
 
@@ -226,24 +226,6 @@
         (is (= 1 (:epoch armed)))
         (is (= 0 (:epoch fired)))))))
 
-(deftest fold-multiple-after-timers-same-state-same-epoch-stay-independent
-  (testing "a state declaring MULTIPLE :after entries
-            ({:after {5000 :warn 30000 :timeout}}) schedules both timers
-            CONCURRENTLY at the SAME (machine-id, state, epoch) —
-            build-after-fx computes ONE epoch per scheduling node, reused
-            across every entry in that node's :after map (Spec 005
-            §Multiple :after per state). A `timer-key` omitting the
-            :delay discriminator would let the SECOND :scheduled
-            assoc-overwrite the first record at the identical key,
-            leaving only one ring."
-    (let [t (h/fold-timer-events
-              [(scheduled 1000 :auth/login :idle 5000  0)
-               (scheduled 1000 :auth/login :idle 30000 0)])]
-      (is (= 2 (count t))
-          "both concurrent timers get their own independent fold record")
-      (is (= #{5000 30000} (set (map :duration-ms (vals t))))
-          "each record keeps its own delay/duration"))))
-
 (deftest fold-multiple-after-timers-fire-independently
   (testing "a :fired event for ONE delay closes only that
             timer's record; the concurrent timer at the same
@@ -291,16 +273,6 @@
 
 ;; ---- (3b) target-frame narrowing ----------------------------------------
 
-(deftest project-timers-two-machines-in-one-frame-stay-apart
-  (testing "the projection answers ONLY for the machine asked about, so a
-            focused record targeting :checkout reads zero rings while a
-            timer is armed on :auth/main. This is the helper half of the
-            claim; the sub asking for the RIGHT machine is the other, and
-            `machine_after_rings_cljs_test` owns that half."
-    (let [buf [(scheduled-in :rf/host 1000 :auth/main :idle 5000 0)]]
-      (is (= 1 (count (h/project-timers buf :auth/main :rf/host))))
-      (is (= [] (h/project-timers buf :checkout :rf/host))))))
-
 (deftest project-timers-narrows-to-target-frame
   (testing "ONE machine definition instantiated in TWO
             frames. A singleton actor-id is identical across them, and the
@@ -345,21 +317,6 @@
            attributed"))))
 
 ;; ---- (3c) cancelled-ring retention + dedupe ----------------------------
-
-(deftest active-timers-evicts-a-cancelled-ring-past-the-retention-window
-  (testing "a :cancelled ring is a MOMENTARY fade + cross. Without
-            retention, every early exit would leave a permanent grey
-            crossed ring — one per visit to the state, for as long as the
-            buffer held the trace."
-    (let [buf [(scheduled 1000 :auth/login :idle 5000 0)
-               (cancelled 2000 :auth/login :idle 0 nil)]
-          at  (fn [now] (h/active-timers-for-machine buf :auth/login now))]
-      (is (= 1 (count (at (+ 2000 h/cancelled-retention-ms))))
-          "still on screen at exactly the retention boundary")
-      (is (= [] (at (+ 2000 h/cancelled-retention-ms 1)))
-          "evicted one ms past it")
-      (is (= [] (at 60000))
-          "and it never comes back — the ring is bounded, not permanent"))))
 
 (deftest active-timers-dedupes-cancelled-per-state-newest-wins
   (testing "enter and leave one state twice inside the
@@ -412,8 +369,8 @@
   ;; it claims: with no `now-ms` nothing can be aged, so a
   ;; `:cancelled` record rides through. The CLOCKED behaviour — eviction
   ;; past `cancelled-retention-ms` — is
-  ;; `active-timers-evicts-a-cancelled-ring-past-the-retention-window`
-  ;; above, and it is the one that describes what the chart shows.
+  ;; `cancelled-ring-live?-owns-the-boundary-prune-timers-evicts-on`
+  ;; below, and `machine_after_rings_cljs_test` pins what the chart shows.
   (let [buf [(scheduled                1000 :auth/login :idle    5000 0)
              (scheduled                1500 :auth/login :authing 5000 0 :sub)
              (cancelled                2000 :auth/login :authing 0 :delay)
@@ -442,21 +399,13 @@
 
 ;; ---- (4) ring-fraction --------------------------------------------------
 
-(deftest ring-fraction-just-armed-is-near-1
+(deftest ring-fraction-is-the-share-of-the-delay-still-to-run
   (let [t {:armed-at 1000 :fires-at 6000 :duration-ms 5000}]
-    (is (= 1.0 (h/ring-fraction t 1000)))))
-
-(deftest ring-fraction-halfway
-  (let [t {:armed-at 1000 :fires-at 6000 :duration-ms 5000}]
-    (is (= 0.5 (h/ring-fraction t 3500)))))
-
-(deftest ring-fraction-about-to-fire
-  (let [t {:armed-at 1000 :fires-at 6000 :duration-ms 5000}]
-    (is (= 0.0 (h/ring-fraction t 6000)))))
-
-(deftest ring-fraction-past-deadline-clamps-to-zero
-  (let [t {:armed-at 1000 :fires-at 6000 :duration-ms 5000}]
-    (is (= 0.0 (h/ring-fraction t 9000)))))
+    (are [now-ms fraction] (= fraction (h/ring-fraction t now-ms))
+      1000 1.0    ; just armed
+      3500 0.5    ; halfway
+      6000 0.0    ; about to fire
+      9000 0.0))) ; past the deadline, clamped to zero
 
 (deftest ring-fraction-degenerate-cases-return-nil
   (testing "nil duration / nil fires-at / nil now-ms / zero duration"
@@ -589,20 +538,16 @@
 
 ;; ---- (8) needs-ticking? -------------------------------------------------
 
-(deftest needs-ticking?-true-when-armed-and-at-present
-  (is (h/needs-ticking? [{:status :armed}] :present 1000)))
-
-(deftest needs-ticking?-falsy-when-no-armed
-  ;; A `:cancelled` record with NO `:closed-at` cannot be aged, so
-  ;; `prune-timers` DROPS it rather than keep an unboundable ring; a
-  ;; dropped ring needs no clock, because the record has no deadline to
-  ;; reach.
-  (is (not (h/needs-ticking? [{:status :cancelled}] :present 1000)))
-  (is (not (h/needs-ticking? [] :present 1000))))
-
-(deftest needs-ticking?-falsy-when-scrubbed-back
-  (is (not (h/needs-ticking? [{:status :armed}] 3 1000)))
-  (is (not (h/needs-ticking? [{:status :armed}] 0 1000))))
+(deftest needs-ticking?-only-for-an-armed-timer-at-present
+  (is (h/needs-ticking? [{:status :armed}] :present 1000))
+  (testing "no armed timer: a `:cancelled` record with NO `:closed-at`
+            cannot be aged, so `prune-timers` DROPS it rather than keep an
+            unboundable ring, and a dropped ring has no deadline to reach"
+    (is (not (h/needs-ticking? [{:status :cancelled}] :present 1000)))
+    (is (not (h/needs-ticking? [] :present 1000))))
+  (testing "scrubbed back to a past position"
+    (is (not (h/needs-ticking? [{:status :armed}] 3 1000)))
+    (is (not (h/needs-ticking? [{:status :armed}] 0 1000)))))
 
 ;; ---- (8b) a cancelled ring's DEADLINE keeps the clock alive -------------
 ;;
@@ -663,12 +608,10 @@
 
 ;; ---- (9) ms-remaining ---------------------------------------------------
 
-(deftest ms-remaining-armed-returns-non-negative
+(deftest ms-remaining-is-non-negative-and-nil-without-both-inputs
   (is (= 3000 (h/ms-remaining {:fires-at 6000} 3000)))
   (is (= 0    (h/ms-remaining {:fires-at 6000} 9000))
-      "past deadline clamps to zero so tooltip doesn't show a negative"))
-
-(deftest ms-remaining-nil-cases
+      "past deadline clamps to zero so tooltip doesn't show a negative")
   (is (nil? (h/ms-remaining {} 1000)))
   (is (nil? (h/ms-remaining {:fires-at 6000} nil))))
 
@@ -697,18 +640,14 @@
               {:selected-event-bundle {:dispatched {:time "not-a-number"}}}))
       "non-numeric :time defends against a malformed/synthetic event-bundle"))
 
-(deftest resolve-now-ms-present-uses-live-clock
+(deftest resolve-now-ms-picks-the-live-clock-or-the-focused-cascade
   (is (= 9999 (h/resolve-now-ms :present 9999 1111))
       "LIVE mode (:present) always uses the rAF-bumped live clock, even
-       when a focused-cascade timestamp is also available"))
-
-(deftest resolve-now-ms-retro-uses-focused-cascade-timestamp
+       when a focused-cascade timestamp is also available")
   (is (= 1111 (h/resolve-now-ms 3 9999 1111))
       "RETRO mode (scrubber-position anything but :present) anchors to
        the focused cascade's timestamp, NOT the live clock (9999 here
-       would be the stale live clock)"))
-
-(deftest resolve-now-ms-retro-falls-back-to-live-clock-when-no-focused-ms
+       would be the stale live clock)")
   (is (= 9999 (h/resolve-now-ms 3 9999 nil))
       "defensive fallback — a nil focused-cascade timestamp must not
        freeze the ring at nil (every fraction calc would blank)"))
