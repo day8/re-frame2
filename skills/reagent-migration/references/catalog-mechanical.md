@@ -263,8 +263,10 @@ Reagent's `doall` is dead weight here. Note the key moves with it (MIG-07).
 ## MIG-14 — plain hiccup passes through unchanged
 
 Tags, `.class`/`#id` sugar, fragments, `:style` maps, `:class` collections,
-control forms and expression children pass through **structurally** — that is
-the point of keeping hiccup:
+control forms, expression children, a head computed at run time to a tag
+keyword (MIG-21) and markup a helper builds (MIG-30) pass through
+**structurally** — Fresco walks the tree at render, which is the point of
+keeping hiccup:
 
 ```clojure
 ;; unchanged apart from the header
@@ -363,6 +365,11 @@ Four things matter, and the first two are the ones a migration gets wrong:
 - **`h/unmount!` is `render!`'s inverse** and is idempotent. It leaves sibling
   roots, their frames and the container alone, and a later `h/render!` through
   the same handle mounts afresh.
+
+The other root spellings map onto the same three doors: `reagent.dom.client`'s
+`create-root` + `render`, and the adapter's own `client-root` / `render!` /
+`unmount!`, become `h/client-root` / `h/render!` / `h/unmount!`;
+`rdom/unmount-component-at-node` becomes `h/unmount!` on the root's handle.
 
 `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D), whose
 recipe is its own leaf, [`ssr-hydrate.md`](ssr-hydrate.md): the Fresco pipeline
