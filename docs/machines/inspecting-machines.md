@@ -47,8 +47,8 @@ You will most often see records for:
 - transition selected (`:rf.machine/transition`);
 - guard evaluated (`:rf.machine/guard-evaluated`);
 - action ran (`:rf.machine/action-ran`);
-- timer scheduled, fired, cancelled, or stale;
-- actor spawned or destroyed;
+- timer scheduled, fired, cancelled, or stale (`:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/cancelled`, `:rf.machine.timer/stale-after`);
+- actor spawned, finished, or destroyed (`:rf.machine.spawn/spawned`, `:rf.machine/done`, `:rf.machine/destroyed`);
 - unhandled event no-op (`:rf.machine.event/unhandled-no-op`).
 
 A guard trace tells you:

@@ -115,6 +115,7 @@ The socket is spawned on the `:active` *parent*, so one actor spans
 
 A state carries at most one `:spawn`. For several children, use a compound
 state with one actor per substate, or [`:spawn-all`](#fan-out-and-join-with-spawn-all).
+One state cannot declare both (`:rf.error/machine-spawn-all-with-spawn`).
 Events are not forwarded to children; dispatch to the child id yourself. To
 read a child's snapshot:
 
@@ -470,6 +471,12 @@ Rules:
 - **`:on-all-complete` is required for `:all`.** **`:on-some-complete` is
   required for `:any`.** Missing either is
   `:rf.error/machine-spawn-all-bad-shape`.
+- **`:on-any-failed` is optional, but without it a failure can leave the join
+  waiting for ever.** Under `:all`, one failed child means the join can never
+  complete; under `:any`, the join waits once every child has failed. The
+  parent stays in the state, and the runtime warns
+  `:rf.warning/spawn-all-join-unsatisfiable`. Declare `:on-any-failed`, or
+  give the state an `:after` deadline.
 - **An unregistered child type fails the whole invoke**, atomically —
   nothing is spawned, so an `:all` join cannot hang on a child that never
   runs (`:rf.error/machine-spawn-unregistered-type`).

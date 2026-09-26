@@ -255,7 +255,8 @@ what should not survive in the `:action`:
 The root reads nothing else. `:always`, `:choice`, `:final?` and `:spawn-all`
 there are refused with `:rf.error/machine-root-slot-not-supported`, whose
 message names the substitute. A root `:after` works only on a
-`:type :parallel` machine.
+`:type :parallel` machine; on any other root it is refused with
+`:rf.error/machine-non-parallel-root-after-not-supported`.
 
 <a id="when-a-sub-flow-finishes-nested-final-states"></a>
 

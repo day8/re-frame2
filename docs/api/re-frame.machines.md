@@ -117,7 +117,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 
 ### Machine-root keys
 
-Beside `:initial`, `:states`, `:data`, `:guards` and `:actions`, a machine spec's root takes the keys below. The runtime reads them only at the root: on a nested state they throw `:rf.error/machine-unknown-node-key`.
+Beside `:initial`, `:states`, `:data`, `:guards` and `:actions`, a machine spec's root takes the keys below. The runtime reads them only at the root: on a nested state they throw `:rf.error/machine-unknown-node-key`. The keys every state takes, the root included, are listed in [State node keys](../machines/concepts.md#state-node-keys) in the machines guide.
 
 | Root key | What it takes and does |
 |---|---|
@@ -125,6 +125,7 @@ Beside `:initial`, `:states`, `:data`, `:guards` and `:actions`, a machine spec'
 | `[:schemas :output]` | A schema for the value a root-level `:final?` leaf reports through `:output-key`, which is `nil` when the leaf has none. It is checked once, as the machine finishes, in development builds only. A failing value emits `:rf.error/schema-validation-failure` with `:where :machine-output`, `:phase :completion` and `:rollback? false`, and nothing is rolled back: the machine has already finished, so it is still destroyed and a parent's `:on-done` still receives the value. A schema the validator throws on emits `:rf.error/malformed-schema` with `:where :machine-output`, and completion proceeds the same way. See [Schemas](../machines/concepts.md#schemas) in the machines guide. |
 | `:sensitive`, `:large` | A vector of paths into the snapshot, such as `[[:data :payment :token]]`. They classify those slots of every instance: each actor's paths are registered when it is spawned, first boots or is restored, and removed when it is destroyed. Traces and the SSR hydration payload then show `:rf/redacted` for a sensitive slot and the `:rf.size/large-elided` marker for a large one; the snapshot itself is unchanged. A malformed declaration throws `:rf.error/invalid-machine-classification` at registration. A `:sensitive?` prop inside `[:schemas :data]` does not classify the snapshot; it only redacts a failed validation's trace. See [Classify subsystem data on the subsystem](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem). |
 | `:internal-events` | A set of keywords, such as `#{:tick}`, naming events the machine raises for itself. [`[:raise event-vec]`](#raise-event-vec) says what an external dispatch of one does. A vector, a non-keyword member or a wildcard member such as `:tick/*` throws `:rf.error/machine-bad-internal-events`, and a reserved `:rf/*` id throws `:rf.error/machine-internal-event-reserved`. See [Raise and internal events](../machines/concepts.md#raise-and-internal-events) in the machines guide. |
+| `:region-order` | A vector naming a `:type :parallel` machine's regions in the order their actions run. It is required when `:regions` has more than eight entries, which a map does not keep in written order; without it registration throws `:rf.error/machine-parallel-region-order-required`, and an order that does not name every region exactly once throws `:rf.error/machine-parallel-region-order-mismatch`. See [Parallel regions](../machines/parallel-states.md#limitations) in the machines guide. |
 | `:always-depth-limit` | An integer, 16 by default. It bounds the `:always` transitions the machine takes while it settles after an event. Exceeding it aborts the whole macrostep with `:rf.error/machine-always-depth-exceeded`, and no snapshot or effects commit. |
 | `:raise-depth-limit` | An integer, 16 by default. It bounds the raised events one macrostep handles; [`[:raise event-vec]`](#raise-event-vec) has the rule. See [Run to completion](../machines/automatic-transitions.md#run-to-completion) in the machines guide. |
 
@@ -136,7 +137,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 
 - **Kind**: subscription
 - **Payload**: `machine-id`, a registered machine id or a spawned actor's id.
-- **Description**: Returns the machine's snapshot `{:state :data}`, plus the framework-managed `:tags`. Returns `nil` for an unknown machine, and for a registered machine that has not yet handled its first event. To give views narrower values, register subscriptions that take this one as an input, as shown in [The table](../machines/concepts.md#register-and-drive).
+- **Description**: Returns the machine's snapshot `{:state :data}`, plus the framework-managed `:tags`. `:state` is a keyword for a flat machine; for a compound machine it is the vector path from the root to the active leaf, so a root-level leaf reads `[:idle]`; for a `:type :parallel` machine it is a map from each region to that region's keyword or path. Returns `nil` for an unknown machine, and for a registered machine that has not yet handled its first event. To give views narrower values, register subscriptions that take this one as an input, as shown in [The table](../machines/concepts.md#register-and-drive).
     - A view that renders before the first event must handle `nil`. To create the snapshot at startup instead, dispatch the reserved trigger `[machine-id [:rf.machine/start]]`: it runs the initial state's `:entry` actions and arms its `:after` timers, and matches no `:on` transition.
 - **Example**:
   ```clojure
@@ -171,6 +172,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Errors**:
     - `:rf.error/machine-spawn-unregistered-type`: `:machine-id` names no registered machine and there is no `:definition`. Nothing is spawned.
     - `:rf.error/machine-spawn-bad-shape`: an inline `:definition` names neither `:id-prefix` nor `:fixed-actor-id`, so the actor would have no id. The effect handler throws, the effect runner reports it as `:rf.error/fx-handler-exception`, and nothing is spawned.
+    - `:rf.error/machine-spawn-all-duplicate-id`: the generated `<prefix>#<n>` id is already held by a live actor, as when two parent machines spawn one type without distinct `:id-prefix` values. Nothing is spawned.
 - **Example**:
   ```clojure
   (rf/reg-event :session/start-logger
@@ -194,7 +196,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Description**: Stops an actor. It runs the `:exit` actions of the actor's active states, cancels its pending `:after` timers and removes its snapshot from `[:rf.runtime/machines :snapshots actor-id]` in `runtime-db`.
     - It also aborts the actor's in-flight `:rf.http/managed` requests and releases any resources the actor owns. Hold anything else the actor uses, such as a websocket or an interval, in a custom effect handler keyed by the actor's id, and have the actor's `:exit` action return the close effect: `:exit` runs, and its effects execute, on every destroy path.
     - It ends the instance, not the machine's registration. A singleton's `reg-machine` registration survives, so `registrations` and `handler-meta` still report it, and its next event starts it again from `:initial`. To remove the registration as well, call [`clear`](re-frame.core.md#clear): `(rf/clear :event <machine-id>)`. A spawned actor has no registration of its own: it exists for as long as its snapshot does.
-    - Destroying an actor that is already gone does nothing.
+    - Destroying an actor that is already gone does nothing. A payload that is not an actor-id keyword emits `:rf.error/machine-destroy-bad-arg` and destroys nothing.
     - A declarative child rarely needs it: the runtime destroys it when its parent leaves the spawning state or is destroyed, and when it enters a root-level `:final?` state (see [Final states](#final-states-and-on-done)). An actor you started with `:rf.machine/spawn` has no parent state to end it, so emit this effect when you are done with it, unless it finishes by entering a root-level `:final?` state.
 - **Example**:
   ```clojure
