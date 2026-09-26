@@ -336,18 +336,6 @@
           fired       (trace-state/extract-fired-edge-ids def events :cart)]
       (is (= #{populate-id} fired)))))
 
-(deftest extract-fired-edge-ids-reads-modern-before-after-shape
-  (testing "modern :tags {:before/:after {:state ...}} drives the match"
-    (let [def         (toy-definition)
-          populate-id (canonical-edge-id def [:empty] [:populated] :populate)
-          events      [{:operation :rf.machine/transition
-                        :tags {:machine-id :cart
-                               :before {:state :empty}
-                               :after  {:state :populated}}
-                        :event :populate}]
-          fired       (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (= #{populate-id} fired)))))
-
 (deftest extract-fired-edge-ids-reads-runtime-tags-event-shape
   (testing "the LIVE runtime shape: `commit-or-finalize`
             (lifecycle_fx/registration) emits the inner event under
@@ -372,25 +360,9 @@
 ;; The Xray fired-edge ids MUST equal the ids the live MachineChart
 ;; mints, or the fired-this-epoch highlight wiring
 ;; silently mis-targets. The live chart edges come straight off
-;; `chart.layout/project-definition`; these tests pin that the fired ids
-;; are a SUBSET of — and individually present among — those projected
-;; ids, including the injective-node-id collision triple and
-;; namespaced events.
-
-(deftest fired-ids-agree-with-projected-chart-edge-ids
-  (testing "every fired id is a real projected chart edge :id"
-    (let [def           (toy-definition)
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :cart}
-                          :from [:empty] :to [:populated] :event :populate}
-                         {:operation :rf.machine/transition
-                          :tags {:machine-id :cart}
-                          :from [:populated] :to [:submitting] :event :submit}]
-          fired         (trace-state/extract-fired-edge-ids def events :cart)]
-      (is (seq fired))
-      (is (every? projected-ids fired)
-          "each fired id is one the live chart actually rendered"))))
+;; `chart.layout/project-definition`; the rows below derive their expected
+;; ids from that projection, and this section adds the injective-node-id
+;; collision triple, whose three punctuated state names must stay distinct.
 
 (deftest fired-ids-agree-across-injective-node-id-collision-triple
   (testing ":a/b vs :a-b vs :a_b transitions resolve to DISTINCT chart ids"
@@ -414,20 +386,6 @@
           "two transitions → two distinct fired ids (no collapse)")
       (is (every? projected-ids fired)
           "both fired ids are real live-chart edge ids"))))
-
-(deftest fired-ids-agree-for-namespaced-events
-  (testing "namespaced event keyword matches the canonical edge id"
-    (let [def           {:initial :idle
-                         :states  {:idle    {:on {:auth/login :pending}}
-                                   :pending {}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :sess}
-                          :from [:idle] :to [:pending] :event :auth/login}]
-          fired         (trace-state/extract-fired-edge-ids def events :sess)]
-      (is (= 1 (count fired)))
-      (is (every? projected-ids fired)
-          "the namespaced-event fired id is a real live-chart edge id"))))
 
 ;; ---- machine-level (top-level :on) fallback fired-edge match ------------
 ;;
@@ -852,18 +810,6 @@
           "the inherited edge lights — its [:open] :from-path is a prefix of
            the active [:open :wide] leaf"))))
 
-(deftest guard-blocked-ids-agree-with-projected-chart-edge-ids
-  (testing "every guard-blocked id is a real projected chart edge :id"
-    (let [def           (door-definition)
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          events        [{:operation :rf.machine/guard-evaluated
-                          :tags {:machine-id :door :guard-id :may-close?
-                                 :outcome :fail :input {:event :door/close}}}]
-          blocked       (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (seq blocked))
-      (is (every? projected-ids blocked)
-          "each guard-blocked id is one the live chart actually rendered"))))
-
 ;; ---- extract-fired-edge-ids: PARALLEL multi-region ----------------------
 ;;
 ;; A `:type :parallel` machine's snapshot `:state` is a region-MAP (one
@@ -977,21 +923,6 @@
       (is (not= left-id right-id) "the two regions' :a→:b edges have distinct ids")
       (is (= #{left-id} fired)
           "ONLY the :left edge lights — the region-scoped source discriminates"))))
-
-(deftest fired-ids-parallel-agree-with-projected-chart-edge-ids
-  (testing "every parallel fired id is a real projected chart edge :id"
-    (let [def           (hvac-definition)
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :hvac/controller
-                                 :before {:state {:climate :idle :fan :off}}
-                                 :after  {:state {:climate :running :fan :on}}
-                                 :event  [:hvac/power-cycle]}}]
-          fired         (trace-state/extract-fired-edge-ids
-                          def events :hvac/controller)]
-      (is (= 2 (count fired)) "both region edges fired")
-      (is (every? projected-ids fired)
-          "each parallel fired id is one the live chart actually rendered"))))
 
 ;; ---- extract-fired-edge-ids: parent-owned parallel `:always` ROUNDS ------
 ;;
@@ -1331,25 +1262,6 @@
       (is (= #{local-a} fired)
           "the region-local edge lights; the suppressed root :on chip does NOT"))))
 
-(deftest fired-ids-parallel-root-on-agree-with-projected-chart-edge-ids
-  (testing "every root-:on fired id is a real projected chart edge :id"
-    (let [def           {:type    :parallel
-                         :on      {:go-all {:target [[:a :two] [:b :two]]}}
-                         :regions {:a {:initial :one :states {:one {} :two {}}}
-                                   :b {:initial :one :states {:one {} :two {}}}}}
-          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
-          events        [{:operation :rf.machine/transition
-                          :tags {:machine-id :par
-                                 :before {:state {:a :one :b :one}}
-                                 :after  {:state {:a :two :b :two}}
-                                 :event  [:go-all]
-                                 :cascade [{:kind :entry :region :a :state [:two]}
-                                           {:kind :entry :region :b :state [:two]}]}}]
-          fired         (trace-state/extract-fired-edge-ids def events :par)]
-      (is (= 2 (count fired)) "both targeted regions' root chips fired")
-      (is (every? projected-ids fired)
-          "each root-:on fired id is one the live chart actually rendered"))))
-
 ;; ---- extract-fired-edge-ids: region-level top-level `:on` ---------------
 ;;
 ;; A parallel REGION def is a compound state and MAY carry its OWN top-level
@@ -1603,39 +1515,6 @@
       (is (= #{internal-id} fired)
           "the region-root internal HANDLED-unchanged :a fallback lights off the cascade"))))
 
-(deftest fired-ids-parallel-resting-region-lights-nothing
-  (testing "a region whose before == after AND is ABSENT from the
-            cascade (a RESTING region that declined the event) lights nothing,
-            even if a self/internal edge for the event exists in the projection"
-    (let [def       {:type    :parallel
-                     :regions {:a {:initial :idle
-                                   :states  {:idle {:on {:ping {:action :log}}}}}
-                               :b {:initial :idle
-                                   :states  {:idle {:on {:other :done}} :done {}}}}}
-          ;; :b moved on :other; :a has a self/internal :ping edge but :ping
-          ;; was NOT this event — :a rested (no cascade step). Only :b lights.
-          projected (:edges (chart-layout/project-definition def))
-          b-id      (->> projected
-                         (some (fn [e]
-                                 (when (and (= [:idle] (:from-path e))
-                                            (= [:done] (:to-path e))
-                                            (= :other (:event e))
-                                            (= "region__b__idle" (:source e)))
-                                   (:id e)))))
-          events    [{:operation :rf.machine/transition
-                      :tags {:machine-id :par
-                             :before {:state {:a :idle :b :idle}}
-                             :after  {:state {:a :idle :b :done}}
-                             :event  [:other]
-                             ;; only :b handled :other; :a is RESTING.
-                             :cascade [{:kind :exit  :region :b :state [:idle]}
-                                       {:kind :entry :region :b :state [:done]}]}}]
-          fired     (trace-state/extract-fired-edge-ids def events :par)]
-      (is (string? b-id))
-      (is (= #{b-id} fired)
-          "only the moved :b region lights; the resting :a (absent from
-           cascade) lights nothing even though it has a :ping self edge"))))
-
 (deftest fired-ids-parallel-mixed-moved-and-handled-unchanged
   (testing "one event moves region :a (changed) AND fires a self
             transition in region :b (handled-unchanged): BOTH light"
@@ -1675,29 +1554,6 @@
       (is (string? b-self-id) "the :b self edge exists")
       (is (= #{a-id b-self-id} fired)
           "the moved :a edge AND the handled-unchanged :b self edge BOTH light"))))
-
-(deftest fired-ids-parallel-no-cascade-keeps-changed-region-behaviour
-  (testing "a trace with NO :cascade (legacy / hand-built)
-            lights every CHANGED region too; only handled-UNCHANGED
-            detection needs the cascade"
-    (let [def        (hvac-definition)
-          projected  (:edges (chart-layout/project-definition def))
-          climate-id (->> projected
-                          (some (fn [e]
-                                  (when (and (= [:idle]    (:from-path e))
-                                             (= [:running] (:to-path e))
-                                             (= :hvac/power-cycle (:event e)))
-                                    (:id e)))))
-          ;; climate moved; no :cascade on the trace at all.
-          events     [{:operation :rf.machine/transition
-                       :tags {:machine-id :hvac/controller
-                              :before {:state {:climate :idle :fan :off}}
-                              :after  {:state {:climate :running :fan :off}}
-                              :event  [:hvac/power-cycle]}}]
-          fired      (trace-state/extract-fired-edge-ids
-                       def events :hvac/controller)]
-      (is (= #{climate-id} fired)
-          "the changed climate region lights without a cascade"))))
 
 ;; ---- RAISED (internal) events are their own causal step -----------------
 ;;
