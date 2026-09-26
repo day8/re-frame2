@@ -261,7 +261,11 @@
       `:all` / `:any` enum; or an unknown bare key on the block (e.g.
       `:cancel-on-decision?`).
     - `:rf.error/machine-spawn-all-duplicate-id` — two children share an
-      `:id` keyword inside the same `:spawn-all` block.
+      `:id` keyword inside the same `:spawn-all` block. The id covers any
+      duplicate spawned-actor id, whichever form spawned it: at runtime
+      `lifecycle-fx.spawn` raises it too, for `:spawn-all` children that
+      resolve to one actor address and for a single `:spawn` whose
+      generated address a live actor already holds.
     - `:rf.error/machine-spawn-all-with-spawn` — a state node declares
       both `:spawn` and `:spawn-all` (mutually exclusive).
     - `:rf.error/machine-bad-on-done-clause` — a child's `:on-done` is not
@@ -1556,10 +1560,10 @@
   triad (an ISO string is a literal), but applied as a REGISTRATION gate so
   an invalid static key (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, `[]`) is
   rejected at `reg-machine` time
-  rather than degrading to an `:rf.warning/no-clock-configured` no-op at
-  fx time. Dynamic resolutions (a sub vector / fn that RETURNS an invalid
-  ms at runtime) keep their fx-time warning — only the STATIC key shape is
-  gated here."
+  rather than arming nothing at fx time. Dynamic resolutions (a sub vector /
+  fn that RETURNS an invalid ms at runtime) report the same
+  `:rf.error/machine-bad-after-delay` at fx time — only the STATIC key shape
+  is gated here."
   [delay-key]
   (boolean
     (or (and (integer? delay-key) (pos? delay-key))
@@ -1582,9 +1586,9 @@
   widget / conformance can discriminate \"the delay key is wrong\" from
   \"the transition spec is wrong\".
 
-  Keeps the runtime fx-time `:rf.warning/no-clock-configured` warning for
-  DYNAMIC delays (sub-vector / fn) that resolve to an invalid ms at
-  runtime — only the STATIC key shape is gated here."
+  A DYNAMIC delay (sub-vector / fn) that resolves to an invalid ms at
+  runtime reports the same id at fx time, where the timer is skipped —
+  only the STATIC key shape is gated here."
   [machine]
   (let [check-key!
         (fn [state-key delay-key]
@@ -2410,8 +2414,7 @@
   (the `:timeout` duration grammar), a non-empty subscription vector, or a
   function. Throws `:rf.error/machine-bad-after-delay` for a static key that
   is none of those (`-1`, `0`, `\"soon\"`, `\"5s\"`, `nil`, `[]`) —
-  gated at registration rather than degrading to an fx-time
-  `:rf.warning/no-clock-configured` no-op.
+  gated at registration rather than arming nothing at fx time.
 
   Per Conventions §No silent swallow + §Reserved state-node keys /
   §Spawn-spec keys: every state node (root + descendants + parallel-region
@@ -2572,7 +2575,7 @@
   (validate-transition-targets! machine)
   ;; Every `:after` delay KEY must be a positive integer, an ISO-8601
   ;; duration string, a non-empty subscription vector, or a function — gated at registration
-  ;; rather than degrading to an fx-time :rf.warning/no-clock-configured.
+  ;; rather than arming nothing at fx time.
   (validate-after-delays! machine)
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use

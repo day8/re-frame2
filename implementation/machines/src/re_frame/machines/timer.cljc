@@ -129,9 +129,9 @@
 
     (fn? delay-key)
     ;; A throwing fn-form `:after` emits `:rf.error/machine-after-fn-threw`
-    ;; on the exception path; the fn falls through to no-clock-configured
-    ;; for recovery, but the exception is observable rather than silently
-    ;; swallowed.
+    ;; on the exception path, so the exception is observable rather than
+    ;; silently swallowed. The delay then resolves to nothing, and the timer
+    ;; is skipped and reported as `:rf.error/machine-bad-after-delay`.
     ;;
     ;; The `:after` delay-fn receives the unified context-map
     ;; `{:snapshot ...}` and returns a positive-int ms delay.
@@ -140,7 +140,7 @@
                    (rf.trace/emit-error! :rf.error/machine-after-fn-threw
                                       {:exception e
                                        :frame     frame-id
-                                       :recovery  :no-clock-configured})
+                                       :recovery  :skipped})
                    nil))]
       [v nil])
 
@@ -158,7 +158,7 @@
                                                 :rf.sub/id      (first delay-key)
                                                 :rf.sub/query-v (vec delay-key)
                                                 :frame          frame-id
-                                                :recovery       :no-clock-configured})
+                                                :recovery       :skipped})
                             nil)))]
       [v reaction])
 
@@ -708,7 +708,11 @@
 
           (or (not (number? resolved-ms))
               (not (pos? resolved-ms)))
-          ;; Bad delay resolution — emit advisory and skip.
+          ;; Bad delay resolution — report it and skip. A dynamic delay
+          ;; that resolves to anything but a positive number is the fault
+          ;; a static key raises at registration, so it carries that id,
+          ;; `:rf.error/machine-bad-after-delay`, on the same diagnostic
+          ;; channel; no timer is armed and the state waits for an event.
           ;;
           ;; `resolve-delay-ms` for a subscription-vector delay calls
           ;; `rf.subs/subscribe` (bumping the sub-cache ref-count) BEFORE we
@@ -722,16 +726,18 @@
             (when (and reaction (vector? delay-key))
               (try (rf.subs/unsubscribe frame-id delay-key)
                    (catch #?(:clj Throwable :cljs :default) _ nil)))
-            (rf.trace/emit! :warning :rf.warning/no-clock-configured
-                         ;; the timer's owning actor is a LIVE INSTANCE;
-                         ;; address it by `:actor-id`, not `:machine-id`
-                         ;; (reserved for the registered TYPE).
-                         {:actor-id     parent-id
-                          :state        state
-                          :delay-key    delay-key
-                          :delay-source delay-source
-                          :frame        frame-id
-                          :recovery     :skipped}))
+            (rf.trace/emit-error! :rf.error/machine-bad-after-delay
+                               ;; the timer's owning actor is a LIVE INSTANCE;
+                               ;; address it by `:actor-id`, not `:machine-id`
+                               ;; (reserved for the registered TYPE).
+                               {:actor-id       parent-id
+                                :state          state
+                                :slot           :after
+                                :delay-key      delay-key
+                                :delay-source   delay-source
+                                :resolved-delay resolved-ms
+                                :frame          frame-id
+                                :recovery       :skipped}))
 
           :else
           ;; TWO-PHASE, TOKEN-OWNED arm (mirrors core

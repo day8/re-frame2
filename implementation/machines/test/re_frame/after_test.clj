@@ -535,8 +535,8 @@
 (deftest after-fn-form-throw-surfaces-trace
   (testing "fn-form :after that throws emits :rf.error/machine-after-fn-threw"
     ;; A fn-form :after delay that throws surfaces the failure: the error
-    ;; arm emits :rf.error/machine-after-fn-threw and recovers to
-    ;; :rf.warning/no-clock-configured downstream, so the blown-up fn is
+    ;; arm emits :rf.error/machine-after-fn-threw and the skipped timer
+    ;; reports :rf.error/machine-bad-after-delay downstream, so the blown-up fn is
     ;; observable rather than silently swallowed.
     (let [delay-fn (fn [_ctx]
                      (throw (ex-info "fn-form delay blew up" {:where :test})))]
@@ -562,7 +562,7 @@
                 ":exception slot is populated under :tags")
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
             ;; off `:tags` to the envelope top-level.
-            (is (= :no-clock-configured (:recovery first-err))
+            (is (= :skipped (:recovery first-err))
                 ":recovery hoisted to the envelope top-level")))))))
 
 ;; ---- sub-cache ref-count balance on bad-delay early-return ----------------
@@ -575,7 +575,7 @@
   ;; by calling `subs/subscribe`, which bumps the sub-cache ref-count BEFORE
   ;; we know whether the resolved value is positive. When the resolved value
   ;; is nil / 0 / negative, the bad-delay branch emits
-  ;; :rf.warning/no-clock-configured AND unsubscribes, so no sub-cache slot
+  ;; :rf.error/machine-bad-after-delay AND unsubscribes, so no sub-cache slot
   ;; leaks even though no entry is stored in `after-timers` (the only
   ;; cancellation path that would otherwise drop the ref).
   ;;
@@ -597,10 +597,10 @@
       (rf/dispatch-sync [:a/sub-bad [:go]])
       (rf/unregister-listener! :trace ::no-clock)
       (is (some (fn [ev]
-                  (and (= :rf.warning/no-clock-configured (:operation ev))
+                  (and (= :rf.error/machine-bad-after-delay (:operation ev))
                        (= :sub (-> ev :tags :delay-source))))
                 @traces)
-          ":rf.warning/no-clock-configured emitted for the bad delay")
+          ":rf.error/machine-bad-after-delay emitted for the bad delay")
       (is (not (contains? (default-sub-cache) [:a/timeout-config-0]))
           "sub-cache has no leaked entry for the resolved-to-0 :after sub")))
   (testing "sub-vec :after delay resolving to nil also unsubscribes"
@@ -645,7 +645,7 @@
 ;; The other two arms are the SAFETY NET against silently swallowing a
 ;; deref-throw or an add-watch-throw: each surfaces the failure as its own
 ;; error trace rather than returning [nil nil] and showing up only as
-;; `:rf.warning/no-clock-configured` downstream with no signal the
+;; `:rf.error/machine-bad-after-delay` downstream with no signal the
 ;; underlying reactive surface blew up.
 ;;
 ;; These tests pin those two cousin arms at the trace-emit boundary —
@@ -655,10 +655,10 @@
 (deftest after-sub-vec-deref-throw-surfaces-trace
   (testing "sub-vec :after whose @reaction throws emits
             :rf.error/machine-after-sub-threw with :rf.sub/id +
-            :exception slots and :recovery :no-clock-configured"
+            :exception slots and :recovery :skipped"
     ;; A deref throw on the reaction surfaces the underlying sub failure
     ;; through the error arm rather than returning [nil nil] and showing up
-    ;; only as :rf.warning/no-clock-configured.
+    ;; only as :rf.error/machine-bad-after-delay.
     ;;
     ;; A USER-SPACE sub body throw is caught by `validate-and-trace`
     ;; in re-frame.subs.memo BEFORE it reaches the timer's `try
@@ -708,8 +708,8 @@
                 ":rf.sub/query-v carries the full subscription vector")
             ;; Per Spec 009 §Error event shape, `:recovery` is hoisted
             ;; off `:tags` to the envelope top-level.
-            (is (= :no-clock-configured (:recovery first-err))
-                ":recovery :no-clock-configured hoisted to top-level")))))))
+            (is (= :skipped (:recovery first-err))
+                ":recovery :skipped hoisted to top-level")))))))
 
 (deftest after-sub-vec-watch-failure-surfaces-trace
   (testing "sub-vec :after where add-watch on the reaction
