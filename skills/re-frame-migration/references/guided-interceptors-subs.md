@@ -351,6 +351,8 @@ Read the body and propose; author confirms.
 
 Read the callback body; categorise; propose; author confirms.
 
+**The v1 trace / epoch callbacks take the same verb, and the same review.** `(rf/register-trace-cb key f)` → `(rf/register-listener! :trace key f)` and `(rf/register-epoch-cb key f)` → `(rf/register-listener! :epoch key f)` (the `:epoch` stream needs `day8/re-frame2-epoch`, M-33), with `remove-*` → `unregister-listener!`. It is not a rename: a v1 trace callback received a **batch** of finished traces and a v1 epoch callback a vector of epochs, where a v2 listener is called once per trace event or epoch record. Rewrite each body over one record, and put the change to the author.
+
 ---
 
 ## Anti-pattern: silent rewrites

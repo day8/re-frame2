@@ -426,9 +426,9 @@ The shape is valid Clojure, so **the compile is still clean** and march-the-wall
 
 **Entries a v1 app already wrote inside `:fx` need a pass too.** v1 supported the `:fx` vector, so an app can carry v1-shaped entries that the top-level fold never touches:
 
-- `[:dispatch-later {:ms n :dispatch ev}]` — rename the map's `:dispatch` key to `:event` (`{:ms n :event ev}`). This one is **silent**: the v2 fx reads only `:ms` and `:event`, so the entry is accepted and the event you meant is never dispatched. Grep every `:dispatch-later` map, not just top-level ones.
+- `[:dispatch-later {:ms n :dispatch ev}]` — rename the map's `:dispatch` key to `:event` (`{:ms n :event ev}`), per MIGRATION.md M-8. This one is **silent**: the v2 fx reads only `:ms` and `:event`, so the entry is accepted and the event you meant is never dispatched; the only trace is an `:rf.error/no-such-handler` record with `:event-id nil` when the timer fires, naming neither the handler nor the key. Grep every `:dispatch-later` map, not just top-level ones.
 - `[:dispatch-n [e1 e2]]` — v2 ships no `:dispatch-n` fx; expand to `[:dispatch e1] [:dispatch e2]`.
-- `[:deregister-event-handler id]` (top-level or in `:fx`) — v2 ships no such fx. Register a project fx that calls `(rf/clear :event id)`, or flag the site.
+- `[:deregister-event-handler id]` (top-level or in `:fx`) — v2 ships no such fx (M-26). Call `(rf/clear :event id)` where the deregistration is decided, or register a project fx that calls it.
 
 An unregistered fx id inside `:fx` is not silent — it emits `:rf.error/no-such-fx` when the entry runs — but it is still compile-clean, so sweep for it rather than waiting for the error.
 

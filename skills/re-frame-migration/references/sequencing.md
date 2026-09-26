@@ -56,7 +56,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 |---|---|---|
 | 1 | **M-0** | Already done in Phase 2. The whole migration runs against the new classpath. |
 | 2 | **M-1** | Every other rule assumes `re-frame.core` is the only allowed re-frame namespace. Private-namespace requires would cause spurious compile errors elsewhere. |
-| 2a | **M-77** | If the codebase calls `clear-event` / `clear-sub` / `clear-fx`. Rewrite each to the kind-keyed `(rf/clear :<kind> id)`. Compile-level (symbol unresolved). Runs beside M-1, which owns the near-miss `clear-subscription-cache!` → `clear-sub-cache!` rename — that one is runtime cache state and must **not** be swept into `rf/clear`. |
+| 2a | **M-77** | If the codebase calls `clear-event` / `clear-sub` / `clear-fx` / `clear-cofx`. Rewrite each to the kind-keyed `(rf/clear :<kind> id)`. Compile-level (symbol unresolved). Runs beside M-1, which owns the near-miss `clear-subscription-cache!` → `clear-sub-cache!` rename — that one is runtime cache state and must **not** be swept into `rf/clear`. |
 | 3 | **M-38** | Substrate-adapter ns rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`) for the view substrates `reagent` / `uix` / `context` only. Codebases that explicitly required the substrate (rare; usually only set up code) hit this. **`re-frame.substrate.plain-atom` and `re-frame.substrate.adapter` are carved out and stay as-is** — there is no `re-frame.adapter.plain-atom`, and a headless project boots on plain-atom, so renaming it breaks the build M-1 was meant to protect. |
 | 4 | **M-40** | `(rf/init!)` + an app frame are boot action 0 — a v1 app has neither, so they must land before the first dispatch and the first render, ahead of every later rule that boots the app. Type B (the author confirms the adapter). Full boot-sequence invariant in [`auto-cross-cutting.md` §Init / adapter](auto-cross-cutting.md#init--adapter-m-40) + §Boot-sequence invariant. |
 
@@ -72,7 +72,7 @@ The M-rule numbering in [`MIGRATION.md`](https://github.com/day8/re-frame2/blob/
 | 9 | **M-25** | `re-frame.test` renamed to `re-frame.test-support`. Compile-level. |
 | 9a | **M-64** | If the codebase uses `reset-runtime-fixture-factory`. Rename to `make-reset-runtime-fixture`. Closed mechanical rename. Pairs with M-25 (same `re-frame.test-support` ns). v2-pre-rename only. |
 | 9b | **M-62** | If the codebase uses `assert-state`. Path form → `assert-path-equals`; full-db form → direct compare `(is (= expected-db (rf/app-db-value f)))` (no dedicated v2 fn). Disambiguation moves from arity to call site. Pairs with M-25. v1's `assert-state` (path form only) → `assert-path-equals` directly. |
-| 10 | **M-26** | Drift-sweep drops — most are symbol-not-found at compile time. The Type B `add-post-event-callback` half waits for behavioural review. |
+| 10 | **M-26** | Drift-sweep drops — most are symbol-not-found at compile time. The Type B half (`add-post-event-callback`, the trace / epoch callbacks) waits for behavioural review; `console` / `set-loggers!` and `enqueue` are not migrated, so flag them. |
 
 ### Group 3 — Effect map / dispatch shape (compile-or-warning)
 
