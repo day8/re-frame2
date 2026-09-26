@@ -180,7 +180,8 @@
     [re-frame.http.test-support run-request-chain]
     [re-frame.http.test-support emit-canned-success!]
     [re-frame.http.test-support canned-success-handler]
-    [re-frame.http.test-support canned-failure-handler]])
+    [re-frame.http.test-support canned-failure-handler]
+    [re-frame.resources.test-support reset-resources!]])
 
 (defn- source-file->ns-sym
   "Namespace symbol for a Clojure source file at `rel-path` (a `/`-joined
@@ -584,10 +585,11 @@
      ;; `:resources/reset-resources!` late-bind hook, and the consumer-facing
      ;; name is `re-frame.test-support/make-reset-runtime-fixture` — already
      ;; rowed at :testing with a docs/api page — which FIRES the one public var
-     ;; here. No consumer calls `reset-resources!` itself. And unlike routing's,
-     ;; THIS name is not itself in the contract: no page under skills/, docs/,
-     ;; spec/ or migration/ instructs the require, so authors reach the reset
-     ;; only through that rowed fixture. The two reasons differ on purpose.
+     ;; here. No consumer calls `reset-resources!` itself, so the namespace
+     ;; stays internal while that var is rowed at :implementation through
+     ;; `extra-vars`, as the http test-support helpers are. The require
+     ;; itself is named in guidance: docs/core/testing/index.md says the
+     ;; fixture resets resource caches when the test requires it.
      re-frame.resources.test-support})
 
 (defn- repo-file
