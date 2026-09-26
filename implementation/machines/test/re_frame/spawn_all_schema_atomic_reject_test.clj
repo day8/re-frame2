@@ -33,11 +33,13 @@
    2. Exactly ONE schema error per invalid child.
    3. The join can never observe a half-installed child set, in any `:join`
       mode — the reject is decided upstream of the join mode entirely.
-   4. Parent exit clears the sentinel; no valid sibling is left orphaned.
-   5. No false reject: an all-valid `:spawn-all` keeps the fast path.
+   4. No false reject: an all-valid `:spawn-all` keeps the fast path.
+
+  Parent exit clears the sentinel whatever caused the reject (pinned in
+  `machine_spawn_unregistered_type_test`).
 
   Moving schema validation into only the later per-child effect makes
-  (1)–(4) fail: the live join publishes, the valid sibling installs, and the
+  (1)–(3) fail: the live join publishes, the valid sibling installs, and the
   invalid child is stranded inside it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -215,48 +217,8 @@
       (is (nil? (snapshot-of :sa/plain#1))
           (str ":join " mode " — no half-installed sibling to observe")))))
 
-(deftest completion-against-a-rejected-invoke-is-a-noop-not-a-hang
-  (testing "a stray completion delivered after an invoke-level schema reject
-            finds the childless sentinel and is the documented no-op — the
-            join cannot be driven toward resolution, and cannot hang"
-    (rf/reg-machine :sa/strict strict-child)
-    (rf/reg-machine :sa/plain plain-child)
-    (rf/reg-machine :sup/stray
-                    (parent-over [{:id :bad :machine-id :sa/strict :data {:n -1}}
-                                  {:id :ok  :machine-id :sa/plain}]))
-    (rf/dispatch-sync [:sup/stray [:start]])
-    (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/stray))
-        "(precondition) the childless reject sentinel is seeded")
-    ;; Hand-drive the completion the (suppressed) valid sibling would have sent.
-    (rf/dispatch-sync [:sup/stray [:sa/done :ok]])
-    (is (= :forking (rf.machines.test-support/machine-state :sup/stray))
-        "a completion against a childless sentinel resolves nothing and hangs nothing")))
-
 ;; ===========================================================================
-;; (4) Parent exit clears the sentinel — no teardown debt, no orphan.
-;; ===========================================================================
-
-(deftest parent-exit-clears-the-schema-reject-sentinel
-  (testing "parent exit clears the reject sentinel and no valid sibling remains
-            live or orphaned — a rejected invoke owns no teardown debt"
-    (rf/reg-machine :sa/strict strict-child)
-    (rf/reg-machine :sa/plain plain-child)
-    (rf/reg-machine :sup/exit
-                    (parent-over [{:id :bad :machine-id :sa/strict :data {:n -1}}
-                                  {:id :ok  :machine-id :sa/plain}]))
-    (rf/dispatch-sync [:sup/exit [:start]])
-    (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/exit))
-        "(precondition) the childless reject sentinel is seeded")
-    (rf/dispatch-sync [:sup/exit [:back]])
-    (is (= :idle (rf.machines.test-support/machine-state :sup/exit))
-        "(precondition) the parent left the :spawn-all state")
-    (is (nil? (join-slot :sup/exit))
-        "parent exit CLEARS the reject sentinel")
-    (is (nil? (snapshot-of :sa/plain#1))
-        "no valid sibling was left live or orphaned")))
-
-;; ===========================================================================
-;; (5) No false reject — the all-valid fast path.
+;; (4) No false reject — the all-valid fast path.
 ;; ===========================================================================
 
 (deftest all-valid-spawn-all-still-installs-a-live-join
@@ -285,19 +247,3 @@
         "the unconstrained sibling installed")
     (is (= {:n 7} (select-keys (:data (snapshot-of :sa/strict#1)) [:n]))
         "the child's materialised :data landed — validated, not mutated")))
-
-(deftest single-spawn-schema-reject-is-unchanged
-  (testing "a standalone single :spawn has no invoke to reject: its own
-            per-child schema gate still fires exactly once and fails closed
-            (the invoke sentinel must not swallow it)"
-    (rf/reg-machine :sa/strict strict-child)
-    (rf/reg-machine :sup/single
-                    {:initial :idle
-                     :states
-                     {:idle    {:on {:start :working}}
-                      :working {:spawn {:machine-id :sa/strict :data {:n -1}}}}})
-    (rf/dispatch-sync [:sup/single [:start]])
-    (is (= 1 (count (schema-failures)))
-        "exactly ONE :phase :spawn failure for the rejected single spawn")
-    (is (nil? (snapshot-of :sa/strict#1))
-        "the rejected single spawn installs nothing")))

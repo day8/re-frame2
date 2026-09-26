@@ -161,7 +161,7 @@
 
 ;; ---- (5) :spawn-all child :data fn-form is materialised ------------------
 
-(deftest invoke-all-child-data-fn-form-is-materialised
+(deftest spawn-all-child-data-fn-form-is-materialised
   (testing "each :spawn-all child's `:data` admits the same fn-form per Spec 005:1818"
     (let [child  {:initial :running :data {} :states {:running {}}}
           parent {:initial :idle

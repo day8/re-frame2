@@ -1,16 +1,10 @@
 (ns re-frame.spawn-all-lifecycle-leak-test
-  "Two `:spawn-all` lifecycle leak shapes the runtime closes.
+  "A `:spawn-all` lifecycle leak shape the runtime closes. (The MIXED
+  registered/unregistered orphan shape — the whole invoke rejected so no
+  registered sibling installs — is pinned in
+  `machine_spawn_unregistered_type_test`.)
 
-  (a) MIXED registered/unregistered `:spawn-all`. When any child names an
-      UNREGISTERED TYPE, `spawn-all-init-fx` rejects the join by seeding a
-      reject sentinel, so the registered siblings' per-child
-      `:rf.machine/spawn` fxs later in the same entry `:fx` vector suppress
-      themselves: the whole malformed invoke spawns NOTHING (the atomic-reject
-      analogue of a single `:spawn`). Without the sentinel those siblings
-      would install LIVE actors that no seeded join ever tears down — orphans
-      leaking until frame-destroy.
-
-  (b) COMPLETED children at join resolution. A completed child that stayed a
+  COMPLETED children at join resolution. A completed child that stayed a
       LIVE actor would rely on the parent's resolution transition EXITING the
       `:spawn-all` state to be torn down by the exit cascade, so an
       INTERNAL/self resolution handler (or a parent with no `:on` for the
@@ -19,7 +13,7 @@
       Completion is finality, so a child that folds into a join destroys
       itself at its own completion with `:reason :rf.machine/finished`
       (Spec 005 §Final states, D4). The leak is structurally unreachable, and
-      only SURVIVORS remain for the join to cancel at resolution. The (b) test
+      only SURVIVORS remain for the join to cancel at resolution. The test
       below pins the OUTCOME — no child snapshot survives an internal/self
       resolution — because that is the invariant a future change could break.
 
@@ -30,7 +24,6 @@
             ;; (`:machines/reg-machine`, …) the tests below exercise — keep the
             ;; require even though the ns is reached only via `rf/...` facades.
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
@@ -55,57 +48,8 @@
              :done   {:final? true :output-key :id}
              :failed {:final? true :error? true :output-key :id}}})
 
-(defn- collect-traces
-  "Run `body-fn` with a trace listener; return the collected envelopes."
-  [body-fn]
-  (let [traces (atom [])
-        cb-key (gensym ::leak-cb)]
-    (rf/register-listener! :trace cb-key (fn [ev] (swap! traces conj ev)))
-    (try (body-fn) (finally (rf/unregister-listener! :trace cb-key)))
-    @traces))
-
 ;; ===========================================================================
-;; (a) mixed registered/unregistered :spawn-all — atomic reject, no orphan
-;; ===========================================================================
-
-(deftest mixed-registered-unregistered-spawn-all-rejects-whole-invoke-atomically
-  (testing "a :spawn-all naming an unregistered sibling TYPE
-            spawns NOTHING — the registered sibling is suppressed atomically,
-            leaving no orphan actor to leak"
-    ;; Only :qb/registered is registered; :qb/never-registered is NOT.
-    (rf/reg-machine :qb/registered (mk-child))
-    (rf/reg-machine :qb/parent-a
-      {:initial :idle
-       :states
-       {:idle {:on {:start :hydrating}}
-        :hydrating
-        {:spawn-all
-         {:children        [{:id :reg   :machine-id :qb/registered       :start [:set-id :reg]}
-                            {:id :unreg :machine-id :qb/never-registered :start [:set-id :unreg]}]
-          :join            :all
-          :on-all-complete [:hydrate/done]}
-         :on {:hydrate/done :ready}}
-        :ready {}}})
-    (let [traces (collect-traces (fn [] (rf/dispatch-sync [:qb/parent-a [:start]])))
-          errs   (->> traces
-                      (filter #(= :rf.error/machine-spawn-unregistered-type (:operation %))))
-          slot   (get-in (frame-db) [:rf.runtime/machines :spawned :qb/parent-a [:hydrating]])
-          snaps  (get-in (frame-db) [:rf.runtime/machines :snapshots])]
-      (is (seq errs)
-          "the unregistered sibling TYPE was rejected (:rf.error/machine-spawn-unregistered-type)")
-      (is (= {:rf/spawn-all-rejected? true} slot)
-          "the join slot holds the reject sentinel (no live child-bearing join state — cannot deadlock)")
-      (is (not (contains? slot :children))
-          "the sentinel carries no :children, so the join interceptor treats it as no live join")
-      (is (= #{:qb/parent-a} (set (keys snaps)))
-          "NO orphan: the ONLY snapshot is the parent's — the registered sibling never installed")
-      (is (= [] (rf.machines.spawn-order/frame-order :rf/default))
-          "NO orphan: nothing recorded in spawn-order (the registered sibling was suppressed)")
-      (is (= :hydrating (:state (snapshot :qb/parent-a)))
-          "the parent rests on the (malformed) :spawn-all state — the config error to fix"))))
-
-;; ===========================================================================
-;; (b) internal/self join-resolution destroys COMPLETED children
+;; internal/self join-resolution destroys COMPLETED children
 ;; ===========================================================================
 
 (deftest internal-self-join-resolution-destroys-completed-children
