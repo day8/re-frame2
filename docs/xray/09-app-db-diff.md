@@ -10,6 +10,10 @@ The app-db panel compares the focused epoch's `:db-before` and `:db-after`. It s
 
 This is not a giant tree dump on first paint. Giant tree dumps are where useful questions go to become archaeology.
 
+The tree is app-db as the focused event left it. Each value the event changed is marked `← was` with its old value, and the maps above every change are expanded for you. Your own keys sit in the top **app-db** card. The framework's state follows in cards of its own: one per machine instance under `:rf/machines` and `:rf/spawned`, then `:rf/route`, `:rf/pending-navigation` and `:rf/elision`. A card appears only when that state exists.
+
+Double-click a map or vector, or press Enter on it, to zoom in. The breadcrumb above the tree leads back up, and Esc zooms out one level.
+
 Use app-db when you are asking:
 
 - Did the handler write the path I expected?
@@ -47,3 +51,5 @@ That matters in Xray because the panel can show you framework-owned process stat
 Sensitive and large values are rendered through the same classification rules used by the rest of the tooling. Seeing `:rf/redacted` or a large-value marker is not a broken diff. It is the system refusing to spray secrets or huge payloads through the tool surface.
 
 The path, marker, and surrounding context should still be enough to tell you what kind of value changed and where to look next.
+
+A value declared sensitive shows as a **● redacted** chip, and a very long string is shortened to a size marker. Because both sides of a changed sensitive value read `redacted`, the tree cannot show that it changed; a chip reading "N redacted paths modified" says so instead.

@@ -27,14 +27,20 @@ The ribbon is for scope, not diagnosis.
 - **Filters** hide or show event rows by event id.
 - **Settings** controls theme, density, sensitive-value posture, and related shell behavior.
 - **Close** hides the panel without tearing down the mounted tree.
+- **‹ › »** step to the previous or next event, and **»** returns to the newest. [Time-travel scrubbing](03-time-travel.md) covers them.
+- **☾** and **☀** switch between the light and dark theme.
+- **⛶** pops Xray out into a second window.
+- **🔇 N** appears once you have muted event types, and opens the list of mutes. **● REDACTED N** appears when the privacy setting has held back sensitive trace events.
 
-Frame selection matters in real apps. If your page has multiple isolated frames, the same event id can mean different state and different epoch history in each frame. Pick the frame first, then debug.
+Frame selection matters in real apps. If your page has multiple isolated frames, the same event id can mean different state and different epoch history in each frame. Pick the frame first, then debug. The picker lists your app's frames, never Xray's own, and reads **Frame** until one is chosen.
 
 ## The Event Spine
 
 The spine lists recent epochs for the selected frame. New rows arrive while Xray is following the live head. Clicking an older row puts you into a historical focus: the app can keep running, but the detail panels remain pointed at the row you chose until you follow the head again.
 
 Use the spine when you know the symptom just happened and you want to answer: "Which event caused it?"
+
+Each row shows the event id, where the dispatch came from, a timestamp and the handler's duration. The source reads `ui` for a dispatch from your own code, or names the part of the runtime that dispatched it, such as `fx-dispatch` for an event another handler queued, `http` or `router`. Hover a row for the full event vector and its frame. A row whose epoch recorded an error or a warning is washed pink. Right-click a row to **Mute** its event id, or to **Always hide this event-type…** with a filter. Drag the seam under the list to give it more height, and drag Xray's left edge to make the whole panel wider.
 
 ## The Dynamic Tabs
 
@@ -56,6 +62,8 @@ Open app-db when the question is state. The panel starts with changed slices for
 
 Open Views when the page looks wrong or slow. It shows the reactive side of the cascade: subscriptions and renders, with enough structure to see whether a view changed because a subscription changed, because props changed, or because the view was mounted or unmounted.
 
+The Reactive Flow graph runs from app-db through the subscriptions that recomputed to the views that re-rendered. Each view is marked with why it re-rendered and how long it took. Click a node to open its source; hover a view to highlight it on the page. Below the graph, Unmounted Views and Destroyed Subscriptions list what the epoch tore down. When nothing reacted, the graph reads "No subs subscribed to changed paths · no views re-rendered."
+
 ![The Views panel showing reactive activity](../images/xray/xray-tutorial-views.png)
 
 ### Trace
@@ -70,9 +78,13 @@ Open Machine when the focused event touched a state machine. Dynamic Machine is 
 
 Open Routes when navigation is the problem. The Dynamic Routes tab explains the focused epoch's route activity; the Static Routes tab is for browsing the registered route table and simulating how URLs rank.
 
+The Dynamic tab has three sections. **Current route** shows the active route. **Navigation this epoch** shows the route the focused event navigated from and to, with its outcome. **Route table** lists every registered route and marks the current one. Each section says when it has nothing to show: "No active route.", "No route activity in this epoch." or "No routes registered in the host app."
+
 ### Resources
 
 Open Resources when the question is server state. It is the lens on managed server state for the focused event: the resource registry, live instances, in-flight work, invalidations, and the route-to-resource graph. Read-only.
+
+The tab stacks one section per question, from the resource registry and live instances to "What is still running?", stale races, optimistic mutations and cache growth. Sensitive values show as `[redacted]`. An app that registers no resources reads "No resources registered in the host app."
 
 ### Graph
 
@@ -92,17 +104,43 @@ Static mode removes the event spine. That is the point. You are no longer asking
 
 Static tabs:
 
-- **Machines**: registered machines and their topology.
-- **Routes**: route catalogue and URL simulation.
+- **Machines**: registered machines and their topology. [8. Machine inspector](08-machine-inspector.md#static-machines) covers its simulator.
+- **Routes**: route catalogue and URL simulation. Type a URL into **Simulate URL** to see which routes match it and which one wins. Expand a row for its details, a **Simulate navigation** preview that dispatches nothing, and a **→ Dynamic** link to the Dynamic Routes tab.
 - **Schemas**: registered app-db, event, sub, and related schemas.
-- **Flows**: registered flows and their inputs.
-- **Interceptors**: registered event chains and shared interceptors.
+- **Flows**: registered flows and their inputs, with the app-db path each one writes.
+- **Interceptors**: registered event chains and shared interceptors. Each interceptor is listed once, with how many chains use it.
 
 Use Static mode before a debugging session when you want the map. Use Dynamic mode during the debugging session when you want the journey.
 
 ## The Derivation Graph
 
 The Graph tab deserves a second word, because it is the one Dynamic tab that does not read as a lens on one epoch. Where the tabs above each project the focused cascade, the derivation graph draws *how your derived values relate* — every subscription, flow, resource, route fact, and machine selector as nodes in one dependency graph, with its own static (what's registered) and live (what the observed frame realized) modes. That static/live split of its own is why it feels like it cuts across the mode switch. Reach for it when the question is structural rather than event-coupled. [10. Derivation graph](10-derivation-graph.md) is the chapter.
+
+## Settings And The Command Palette
+
+The gear icon, or `,`, opens Settings. It has four tabs:
+
+- **General**: whether Xray sits in the right rail or covers the page as a fullscreen overlay, whether it opens itself when an issue is observed, how many epochs it keeps per frame, and which editor source links open in.
+- **Keybindings**: the shortcut table below, and a **Handle keys?** switch that stops Xray taking any keystrokes.
+- **Buffer**: how many trace events each frame keeps, and **Clear buffer now**.
+- **Diff**: whether view diffs highlight changed function references.
+
+Ctrl+K (⌘K on macOS) opens the command palette. It searches panels, events, frames, handlers and commands, such as switching the theme or density, clearing the buffer, and popping Xray out.
+
+## Keyboard
+
+| Key | Does |
+| --- | --- |
+| Ctrl+Shift+C | Show or hide Xray |
+| Ctrl+Shift+M (⌘⇧M) | Switch between Dynamic and Static mode |
+| Ctrl+K (⌘K) | Open the command palette |
+| `j` / `k` | Step to the previous / next event |
+| `l` or Shift+G | Follow the newest event again |
+| Space | Pause or resume following new events |
+| `,` or `s` | Open Settings |
+| Esc | Dismiss the open-in-editor hint |
+
+The single-letter keys work only while focus is inside Xray and not in a text field. The letters in tab tooltips, such as "Trace (t)", are labels, not shortcuts. Inside Settings, `g`, `k`, `b` and `d` switch its tabs. A popped-out window takes every key except Ctrl+Shift+C.
 
 ## The Daily Path
 
@@ -115,3 +153,15 @@ Most debugging sessions are pleasantly boring:
 5. Drop to Trace only if you need the raw record.
 
 That is the whole tool in its everyday form.
+
+## Xray Inside Story
+
+Story embeds Xray in its right rail, one panel at a time. A row of chips picks the panel (Epoch, App-db, Views, Trace, Machines or Routing), under a strip of the selected variant's recent events. Click an event in the strip to focus the panel on that epoch.
+
+Each Story variant runs in its own frame, registered under the variant's id, and the rail watches the selected variant's frame. Select another variant and Xray follows it. **Pop out** opens the full shell, with every tab, in a second window.
+
+Story switches off Xray's keyboard shortcuts so its own keys keep working. Inside Story, and in a shell popped out from it, use the mouse.
+
+The usual way in is a failing variant. Story's Tests tab names the assertion that failed, and **open in Evidence →** opens the run's narrative at that step. Each step's beats carry **Xray: Epoch**, **Xray: App-db** and **Xray: Trace** links, which point the rail at that panel and that beat's epoch. [Xray, earned at failure](../story/06-xray-earned-at-failure.md) follows one failure from the Tests tab into Xray.
+
+Story drives the panel through `focus!`, which any host can call to select a frame, an epoch and a tab. [Focusing a panel from a host](api/mount-control.md#focusing-a-panel-from-a-host) lists its keys.

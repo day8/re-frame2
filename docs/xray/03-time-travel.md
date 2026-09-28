@@ -19,6 +19,8 @@ Think of focus as having two postures:
 
 You enter RETRO by clicking an older event row or stepping backward. You return to LIVE by following the head from the ribbon controls.
 
+The ribbon's **‹** (or `j`) steps to the previous event and **›** (or `k`) to the next. **»** (or `l`, or Shift+G) follows the newest event again. While an older row is focused, a strip under the list reads "↓ N newer events — » to follow"; click it to return to the newest. Space pauses and resumes following without focusing a row.
+
 The important detail is that this is panel focus, not a magical fork of your app. The focused epoch is the record every tab reads. If you choose an older row, app-db, Views, Trace, Machine, and Routes all agree on that older row.
 
 ![Focused epoch in the spine](../images/xray/xray-tutorial-epoch.png)
@@ -43,6 +45,16 @@ Rewinding the app is a stronger operation. The runtime can restore an epoch's ca
 
 The restore operation is a runtime primitive, not an Xray trick. Xray gives you the context; re-frame2 owns the state transition.
 
+The **Reset ↺** button at the right end of the tab bar calls that primitive for the focused epoch, on the frame Xray is observing. It asks for no confirmation. It is disabled until an event is focused. When the runtime refuses the restore, the bar shows "Reset failed — epoch unavailable (see Trace)", and the Trace tab holds the reason. [`restore-epoch!`](../api/re-frame.epoch.md#restore-epoch) lists them: for example, an epoch whose event failed cannot be restored, and nor can one that has left the history.
+
+## How Far Back You Can Go
+
+Xray keeps the newest 50 epochs per frame. Change that with the **Epoch history** setting on Settings' General tab. Focus an event whose epoch has left the history and the panels say so; the Epoch tab reads "The selected epoch was evicted from the history buffer. Pick a more recent event."
+
+## From A Past Epoch To A Test
+
+A bug you reproduced with Xray open is a list of events, and replaying that list in a test rebuilds the same state. Focus each event in turn: the Epoch tab shows its event vector under DISPATCH and the coeffect values it recorded under RECORDABLE COEFFECTS. [Replay a bug as a regression test](../core/testing/pipeline-runs.md#replay-a-bug-as-a-regression-test) shows the test that replays them.
+
 ## Filters Keep The Spine Useful
 
 Real apps produce noise. Xray's filter pills let you include or exclude event ids so the spine stays readable.
@@ -53,5 +65,18 @@ Good filter habits:
 - Include only one feature namespace when debugging a focused flow.
 - Clear filters before deciding an event did not happen.
 - Remember that errors and issue-marked rows are designed to remain visible enough to find.
+
+A pattern is an event id or part of one:
+
+| Pattern | Matches |
+| --- | --- |
+| `:auth/login` | exactly that event id |
+| `:auth/*` | every id in the `auth` namespace |
+| `:auth` | the id `:auth` and every id in the `auth` namespace |
+| `login` | every id containing `login` |
+
+With no IN pills, the spine shows everything no OUT pill matches. With IN pills, it shows only events matching one of them, minus the OUT matches. An event whose epoch errored stays in the list even when a pill or a mute would hide it; its tooltip reads "⚠ shown because it errored — a filter would normally hide it". The `:rf.xray/filters-auto-hide-error-overrides?` setting turns that off ([Configuration keys](api/config-keys.md#filters-cluster)).
+
+Pills last for the page's life. A reload starts unfiltered, unless the host seeds a baseline set with `:rf.xray/filters`. Mutes, made from a row's right-click menu, are listed under the ribbon's 🔇 count.
 
 The goal is not to hide complexity forever. It is to remove unrelated motion long enough to read the cascade you care about.

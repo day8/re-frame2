@@ -58,3 +58,11 @@ It is a diagnostic reader over re-frame2's runtime substrate. It does not write 
 - Where in the source should I look next?
 
 That is the tutorial's job: make those questions feel routine.
+
+## Xray, Story And Tests
+
+Xray has no pass or fail view of its own. A verdict comes from your test runner or from Story's Tests tab. Xray shows the runtime behind the verdict: which events ran, what they changed, and what the trace recorded.
+
+- When a Story variant fails, the Tests tab names the failing assertion and its Evidence panel links each step to Xray. [Xray inside Story](02-panel-tour.md#xray-inside-story) shows the embedded panel.
+- Tests on the JVM or in Node run without Xray. They read the same epoch records with [`rf/epoch-history`](../api/re-frame.epoch.md#epoch-history).
+- A bug you watched happen in Xray becomes a regression test by replaying its events. [From a past epoch to a test](03-time-travel.md#from-a-past-epoch-to-a-test) shows where to read them.

@@ -33,6 +33,8 @@ In browser DevTools, inspect or copy an element and look for:
 
 That is not for production. It is a dev-only bridge from pixels back to the view function.
 
+Going the other way, hover a view in the Epoch or Views tab and Xray highlights that view's element on the page.
+
 ![A DOM node carrying a source coordinate](../images/xray/05-dom-attribute.png)
 
 ## Xray Back To Editor
@@ -59,6 +61,10 @@ There are two ways to configure the editor:
     The `{:custom "<uri-template>"}` form supports a team's own editor bridge via `{path}` / `{file}` / `{line}` / `{column}` placeholders.
 
 The two compose: **the Settings picker overrides the boot-time `configure!` value, per machine.** So a mixed-editor team sets a sensible project default in code and individuals override locally without touching the host's boot config — the override is purely client-side and never mutates the shared default.
+
+### What A Click Does
+
+With an editor configured, a click first asks the page's dev server to open the file, by posting to `/__rf-open-in-editor`. The testbeds in this repository are served by a dev server that answers it. When no server answers, Xray hands the editor URI to the operating system. Each click logs that URI to the browser console, so when nothing opens you can see what was attempted. A `{:custom …}` template that produces a `javascript:`, `data:` or `vbscript:` URI is never opened.
 
 ### Relative Coordinates And `:rf.xray/project-root`
 

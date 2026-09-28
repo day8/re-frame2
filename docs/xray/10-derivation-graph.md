@@ -46,6 +46,8 @@ A toggle in the panel header switches two modes:
 
 Use static when you want the structural map; use live when you want to see what your running frame actually built.
 
+Under the toggle, the header counts what the current mode found: nodes, edges, how many nodes are derivations and how many processes, and the edges of each kind. An app with nothing to draw reads "No derivation/process nodes in the host app." A graph whose nodes have no edges between them, such as one made only of subscriptions over app-db and parametric subscriptions in static mode, says so under the edge list.
+
 ## Reading off-box is redacted
 
 On your own box, in your own browser, the panel shows **raw** value summaries — that is the in-process truth, and read-only inspection of your own app is fine (the summaries are bounded only so a multi-megabyte value can't wreck the panel). 
