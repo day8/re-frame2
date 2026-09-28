@@ -291,7 +291,7 @@
             (is (= :test.6z20/foo (-> errs first :tags :rf.trace/event-id))
                 ":rf.trace/event-id carries the cleared handler's id")))))))
 
-(deftest clear-event-no-arg-clears-every-event
+(deftest clear-kind-clears-every-event
   (testing "(rf.registrar/clear-kind! :event) clears every registered :event id
             — the fixture-side bulk verb; there is no nilary `clear-event`"
     ;; `re-frame.events` defines no `clear-event` fn — `:event` owns no
@@ -307,7 +307,7 @@
     (rf.registrar/clear-kind! :event)
 
     (is (nil? (rf.registrar/lookup :event :test.6z20/a))
-        "all :event slots cleared by no-arg form")
+        "all :event slots cleared by (rf.registrar/clear-kind! :event)")
     (is (nil? (rf.registrar/lookup :event :test.6z20/b)))
     (is (nil? (rf.registrar/lookup :event :test.6z20/c)))))
 
@@ -499,7 +499,7 @@
           "canonical shapes are well-formed; no metadata-misuse warning expected"))))
 
 (deftest normalise-args-rejects-overlong-and-malformed
-  (testing "tail count > 3 throws the arity error"
+  (testing "an over-long tail (four args after the id) throws the arity error"
     (let [ex (try
                (rf/reg-event :test.fuudi/too-many
                  {:doc "..."}
