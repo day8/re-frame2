@@ -3,89 +3,53 @@
 
   Pure data → data — the same expected URIs verify on the CLJS side via
   `re-frame.source-coords-editor-uri-cljs-test`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]))
 
 (def ^:private sample-coord
   {:ns 'app.views :file "src/app/views.cljs" :line 42 :column 7})
 
-(deftest vscode-default-scheme
-  (testing "nil editor falls through to :vscode"
-    (is (= "vscode://file/src/app/views.cljs:42:7"
-           (rf.source-coords.editor-uri/editor-uri nil sample-coord))))
-  (testing ":vscode produces vscode://file/<path>:<line>:<column>"
-    (is (= "vscode://file/src/app/views.cljs:42:7"
-           (rf.source-coords.editor-uri/editor-uri :vscode sample-coord)))))
+(deftest each-built-in-editor-builds-its-documented-uri
+  (testing "nil falls through to :vscode; every other built-in keyword builds
+            its own scheme — colon-suffixed for the VS Code family and Zed,
+            query parameters for IntelliJ"
+    (are [editor expected]
+         (= expected (rf.source-coords.editor-uri/editor-uri editor sample-coord))
+      nil       "vscode://file/src/app/views.cljs:42:7"
+      :vscode   "vscode://file/src/app/views.cljs:42:7"
+      :cursor   "cursor://file/src/app/views.cljs:42:7"
+      :windsurf "windsurf://file/src/app/views.cljs:42:7"
+      :zed      "zed://file/src/app/views.cljs:42:7"
+      :idea     "idea://open?file=src/app/views.cljs&line=42&column=7")))
 
-(deftest cursor-scheme
-  (testing ":cursor produces cursor://file/<path>:<line>:<column>"
-    (is (= "cursor://file/src/app/views.cljs:42:7"
-           (rf.source-coords.editor-uri/editor-uri :cursor sample-coord)))))
+(deftest custom-template-substitutes-its-placeholders
+  (testing "{path} / {line} / {column} are substituted, {file} is an alias for
+            {path}, and a template without {column} simply omits the column"
+    (are [template expected]
+         (= expected (rf.source-coords.editor-uri/editor-uri {:custom template} sample-coord))
+      "my-editor://open?p={path}&l={line}&c={column}" "my-editor://open?p=src/app/views.cljs&l=42&c=7"
+      "x://{file}/{line}"                             "x://src/app/views.cljs/42"
+      "vscode://file/{path}:{line}"                   "vscode://file/src/app/views.cljs:42")))
 
-(deftest windsurf-scheme
-  (testing ":windsurf produces windsurf://file/<path>:<line>:<column>"
-    (is (= "windsurf://file/src/app/views.cljs:42:7"
-           (rf.source-coords.editor-uri/editor-uri :windsurf sample-coord))))
-  (testing ":windsurf with missing :line / :column defaults to 1:1"
-    (is (= "windsurf://file/src/x.cljs:1:1"
-           (rf.source-coords.editor-uri/editor-uri :windsurf {:file "src/x.cljs"}))))
-  (testing ":windsurf with missing :file → nil URI"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri :windsurf {:line 10 :column 1})))))
-
-(deftest zed-scheme
-  (testing ":zed produces zed://file/<path>:<line>:<column>"
-    (is (= "zed://file/src/app/views.cljs:42:7"
-           (rf.source-coords.editor-uri/editor-uri :zed sample-coord))))
-  (testing ":zed with missing :line / :column defaults to 1:1"
-    (is (= "zed://file/src/x.cljs:1:1"
-           (rf.source-coords.editor-uri/editor-uri :zed {:file "src/x.cljs"}))))
-  (testing ":zed with missing :file → nil URI"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri :zed {:line 10 :column 1})))))
-
-(deftest idea-scheme
-  (testing ":idea produces idea://open?file=&line=&column="
-    (is (= "idea://open?file=src/app/views.cljs&line=42&column=7"
-           (rf.source-coords.editor-uri/editor-uri :idea sample-coord)))))
-
-(deftest custom-template-substitutes-all-placeholders
-  (testing "{path} / {line} / {column} placeholders are substituted"
-    (is (= "my-editor://open?p=src/app/views.cljs&l=42&c=7"
-           (rf.source-coords.editor-uri/editor-uri
-             {:custom "my-editor://open?p={path}&l={line}&c={column}"}
-             sample-coord)))))
-
-(deftest custom-template-file-alias
-  (testing "{file} is an alias for {path}"
-    (is (= "x://src/app/views.cljs/42"
-           (rf.source-coords.editor-uri/editor-uri
-             {:custom "x://{file}/{line}"}
-             sample-coord)))))
-
-(deftest custom-template-omits-missing-placeholders
-  (testing "custom template without {column} simply omits the column"
-    (is (= "vscode://file/src/app/views.cljs:42"
-           (rf.source-coords.editor-uri/editor-uri
-             {:custom "vscode://file/{path}:{line}"}
-             sample-coord)))))
-
-(deftest missing-column-defaults-to-1
-  (testing ":column missing on source-coord → URI carries column 1"
-    (is (= "vscode://file/src/x.cljs:10:1"
-           (rf.source-coords.editor-uri/editor-uri :vscode
-                          {:file "src/x.cljs" :line 10})))))
-
-(deftest missing-line-defaults-to-1
-  (testing ":line missing on source-coord → URI carries line 1"
-    (is (= "vscode://file/src/x.cljs:1:1"
-           (rf.source-coords.editor-uri/editor-uri :vscode
-                          {:file "src/x.cljs"})))))
+(deftest missing-line-and-column-default-to-1
+  (testing "a coord without :line / :column still opens the file, at 1:1"
+    (are [editor coord expected]
+         (= expected (rf.source-coords.editor-uri/editor-uri editor coord))
+      :vscode   {:file "src/x.cljs" :line 10} "vscode://file/src/x.cljs:10:1"
+      :vscode   {:file "src/x.cljs"}          "vscode://file/src/x.cljs:1:1"
+      :windsurf {:file "src/x.cljs"}          "windsurf://file/src/x.cljs:1:1"
+      :zed      {:file "src/x.cljs"}          "zed://file/src/x.cljs:1:1")))
 
 (deftest missing-file-returns-nil
-  (testing "no :file → nil URI (UI hides the open button)"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode {:line 10 :column 1})))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode nil)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode {:file ""})))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode {:file "   "})))))
+  (testing "no usable :file → nil URI (UI hides the open button)"
+    (are [editor coord]
+         (nil? (rf.source-coords.editor-uri/editor-uri editor coord))
+      :vscode   {:line 10 :column 1}
+      :vscode   nil
+      :vscode   {:file ""}
+      :vscode   {:file "   "}
+      :windsurf {:line 10 :column 1}
+      :zed      {:line 10 :column 1})))
 
 (deftest unknown-editor-falls-back-to-vscode
   (testing "unknown editor keyword treated as :vscode (typo-tolerant)"
@@ -127,44 +91,27 @@
 
 ;; ---- forbidden schemes --------------------------------------------------
 
-(deftest custom-rejects-javascript-scheme
-  (testing "{:custom javascript:...} returns nil (in-tab script execution gate)"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri
-                {:custom "javascript:alert('xss')"}
-                sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri
-                {:custom "javascript:fetch('/exfil',{method:'POST',body:document.cookie})"}
-                sample-coord)))))
-
-(deftest custom-rejects-data-scheme
-  (testing "{:custom data:...} returns nil"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri
-                {:custom "data:text/html,<script>alert(1)</script>"}
-                sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri
-                {:custom "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="}
-                sample-coord)))))
-
-(deftest custom-rejects-vbscript-scheme
-  (testing "{:custom vbscript:...} returns nil"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri
-                {:custom "vbscript:msgbox(\"xss\")"}
-                sample-coord)))))
-
-(deftest forbidden-schemes-case-insensitive
-  (testing "scheme detection is case-insensitive"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "JavaScript:alert(1)"}    sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "JAVASCRIPT:alert(1)"}    sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "Data:text/html,xxx"}     sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "DATA:text/html,xxx"}     sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "VBScript:msgbox(1)"}     sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "VBSCRIPT:msgbox(1)"}     sample-coord)))))
-
-(deftest forbidden-schemes-tolerate-leading-whitespace
-  (testing "leading whitespace doesn't disguise a forbidden scheme"
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom " javascript:alert(1)"}   sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "\tdata:text/html,xxx"}   sample-coord)))
-    (is (nil? (rf.source-coords.editor-uri/editor-uri {:custom "  vbscript:msgbox(1)"}   sample-coord)))))
+(deftest custom-template-with-a-forbidden-scheme-returns-nil
+  (testing "javascript: / data: / vbscript: would turn the launch affordance
+            into in-tab script execution, so a {:custom ...} template resolving
+            to one returns nil — whatever its casing, and however much leading
+            whitespace hides it"
+    (are [template]
+         (nil? (rf.source-coords.editor-uri/editor-uri {:custom template} sample-coord))
+      "javascript:alert('xss')"
+      "javascript:fetch('/exfil',{method:'POST',body:document.cookie})"
+      "data:text/html,<script>alert(1)</script>"
+      "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="
+      "vbscript:msgbox(\"xss\")"
+      "JavaScript:alert(1)"
+      "JAVASCRIPT:alert(1)"
+      "Data:text/html,xxx"
+      "DATA:text/html,xxx"
+      "VBScript:msgbox(1)"
+      "VBSCRIPT:msgbox(1)"
+      " javascript:alert(1)"
+      "\tdata:text/html,xxx"
+      "  vbscript:msgbox(1)")))
 
 (deftest legitimate-custom-schemes-still-pass
   (testing "ordinary custom editor schemes round-trip cleanly"
@@ -207,32 +154,28 @@
 ;; allowlist). `forbidden-scheme?` is PUBLIC so the tool `open!` seams can
 ;; re-apply the cheap denylist at the pre-resolved `{:uri ...}` handoff.
 ;;
-;; Each test here has a twin in the forbidden-schemes block above: that block
-;; drives the `editor-uri` BUILDER, this one drives the `forbidden-scheme?`
-;; PREDICATE directly. The twins' names say which surface is under test —
-;; were two twins to share one name, the later `deftest` would silently
-;; replace the earlier one.
+;; The builder block above drives `editor-uri`; the tests below drive the
+;; `forbidden-scheme?` PREDICATE directly, so a caller that re-applies the
+;; denylist at its own handoff is held to the same rows. The names say which
+;; surface is under test — were two tests to share one name, the later
+;; `deftest` would silently replace the earlier one.
 
-(deftest forbidden-scheme-rejects-the-three-known-bad
-  (testing "forbidden-scheme? is true for javascript: / data: / vbscript:"
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "javascript:alert(1)"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "data:text/html,<script>alert(1)</script>"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "vbscript:msgbox(1)"))))
-
-(deftest forbidden-scheme-is-case-insensitive
-  (testing "bad schemes are rejected regardless of casing"
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "JavaScript:alert(1)"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "JAVASCRIPT:alert(1)"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "Data:text/html,xxx"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "DATA:text/html,xxx"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "VBScript:msgbox(1)"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "VBSCRIPT:msgbox(1)"))))
-
-(deftest forbidden-scheme-tolerates-leading-whitespace
-  (testing "leading whitespace doesn't disguise a forbidden scheme"
-    (is (rf.source-coords.editor-uri/forbidden-scheme? " javascript:alert(1)"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "\tdata:text/html,xxx"))
-    (is (rf.source-coords.editor-uri/forbidden-scheme? "  vbscript:msgbox(1)"))))
+(deftest forbidden-scheme-flags-the-three-script-schemes
+  (testing "forbidden-scheme? is true for javascript: / data: / vbscript:,
+            whatever the casing and despite leading whitespace"
+    (are [uri] (rf.source-coords.editor-uri/forbidden-scheme? uri)
+      "javascript:alert(1)"
+      "data:text/html,<script>alert(1)</script>"
+      "vbscript:msgbox(1)"
+      "JavaScript:alert(1)"
+      "JAVASCRIPT:alert(1)"
+      "Data:text/html,xxx"
+      "DATA:text/html,xxx"
+      "VBScript:msgbox(1)"
+      "VBSCRIPT:msgbox(1)"
+      " javascript:alert(1)"
+      "\tdata:text/html,xxx"
+      "  vbscript:msgbox(1)")))
 
 (deftest forbidden-scheme-passes-everything-else
   (testing "NO positive allowlist — every non-dangerous scheme passes
