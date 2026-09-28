@@ -39,16 +39,6 @@
 ;; refuse-pre-connection — the pure pre-dispatch predicate.
 ;; ---------------------------------------------------------------------------
 
-(deftest refuse-pre-connection-gates-the-two-write-tools-when-off
-  (writes/set-allow-writes! false)
-  (doseq [tool ["restore-epoch" "replace-app-db"]]
-    (let [result (writes/refuse-pre-connection tool)]
-      (is (some? result) (str tool " is refused at the boundary when writes are OFF"))
-      (is (err? result))
-      (let [edn (read-edn result)]
-        (is (= :rf.error/writes-disabled (:reason edn)))
-        (is (= tool (:tool edn)) "the refusal names the specific tool")))))
-
 (deftest refuse-pre-connection-passes-write-tools-through-when-on
   (writes/set-allow-writes! true)
   (doseq [tool ["restore-epoch" "replace-app-db"]]

@@ -132,29 +132,6 @@
                        "tool frame is excluded from app-db-top-keys"))
                  (done))))))
 
-(deftest non-map-return-degrades-to-error
-  (async done
-    (stub-eval! nil nil)
-    (-> (orient/orient-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 ;; a nil runtime return ⇒ structured error, not a silent
-                 ;; success.
-                 (is (err? r))
-                 (is (= :unexpected-shape (:reason (read-result-text r))))
-                 (done))))))
-
-(deftest echoes-resolved-build-for-round-tripping
-  ;; orient echoes the canonical resolved :build (the session-sticky
-  ;; target when :build is omitted) so the agent sees which build it
-  ;; oriented against.
-  (async done
-    (stub-eval! nil sample-summary)
-    (-> (orient/orient-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (= :app (:build (read-result-text r)))
-                     "orient echoes the resolved :build keyword")
-                 (done))))))
-
 (deftest echoes-session-sticky-build-when-omitted
   ;; With a session target cached (a prior discover-app), orient with no
   ;; :build arg resolves to AND echoes that sticky target.

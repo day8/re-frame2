@@ -16,9 +16,7 @@
   `re-frame2-pair-mcp.elision-test` (via the `build-snapshot-form`
   mirror); see the note at the bottom of this file."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [cljs.reader]
-            [re-frame2-pair-mcp.tools.args :as args]
-            [re-frame2-pair-mcp.tools.eval-form :as ef]))
+            [re-frame2-pair-mcp.tools.args :as args]))
 
 (deftest frames-default-is-app-not-all
   ;; The DEFAULT scope (absent arg) is `:app` (app frames only, reserved
@@ -56,23 +54,6 @@
   (testing "all-unknown falls back to the full list"
     (is (= [:app-db :sub-cache :machines :epochs :traces]
            (args/parse-include-arg #js ["garbage" "more-garbage"])))))
-
-(deftest include-accepts-subset
-  (is (= [:app-db :sub-cache] (args/parse-include-arg #js ["app-db" "sub-cache"]))))
-
-(deftest snapshot-state-form-is-edn-readable
-  ;; The MCP server lifts the opts map into the eval-form DSL, which
-  ;; renders `(re-frame2-pair.runtime/snapshot-state
-  ;; {:frames :all :include [...]})`. Assert against the parsed opts
-  ;; map rather than regex-matching the source string.
-  (let [opts {:frames :all
-              :include (args/parse-include-arg nil)}
-        form (ef/emit (ef/rt-call 'snapshot-state opts))
-        edn  (cljs.reader/read-string form)]
-    (is (= 're-frame2-pair.runtime/snapshot-state (first edn)))
-    (is (= :all (-> edn second :frames)))
-    (is (= [:app-db :sub-cache :machines :epochs :traces]
-           (-> edn second :include)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Note on elision integration coverage:

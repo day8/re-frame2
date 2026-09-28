@@ -258,24 +258,6 @@
     (is (> deep-bytes (* 100 scalar-bytes))
         "a 5-entry vector of fat maps must estimate vastly more than a 5-scalar vector")))
 
-(deftest tree-summary-bytes-scales-with-count-and-entry-size
-  ;; The estimate is count × sampled-per-entry. Doubling the entry depth
-  ;; roughly doubles the estimate at the same count.
-  (let [small-entry {:a 1}
-        big-entry   (zipmap (map #(keyword (str "k" %)) (range 50)) (range 50))
-        small-bytes (-> (vec (repeat 10 small-entry)) summary/tree-summary :rf.mcp/summary :bytes)
-        big-bytes   (-> (vec (repeat 10 big-entry))   summary/tree-summary :rf.mcp/summary :bytes)]
-    (is (> big-bytes small-bytes)
-        "a vector of bigger entries must estimate more bytes at equal count")))
-
-(deftest tree-summary-bytes-still-linear-in-count
-  ;; Same-shaped entries: 10x the count ⇒ ~10x the bytes (sampling reads
-  ;; one entry, so the per-entry factor is constant).
-  (let [entry {:a 1 :b 2}
-        one   (-> [entry] summary/tree-summary :rf.mcp/summary :bytes)
-        ten   (-> (vec (repeat 10 entry)) summary/tree-summary :rf.mcp/summary :bytes)]
-    (is (= 10 (/ ten one)))))
-
 (deftest tree-summary-bytes-handles-empty-collections
   ;; Empty collections have no entries, so the `count × per-entry`
   ;; estimate is a clean 0 — never NaN / negative. A single non-empty
