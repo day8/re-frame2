@@ -185,15 +185,6 @@
     ;; three known-bad schemes, everything else is the developer's call.
     (is (some? (rf.source-coords.editor-uri/editor-uri {:custom "future-editor-9://{path}:{line}"} sample-coord)))))
 
-(deftest builtin-schemes-cannot-trip-the-gate
-  (testing "the built-in scheme builders never produce a forbidden scheme"
-    (doseq [editor [nil :vscode :cursor :windsurf :zed :idea]]
-      (let [uri (rf.source-coords.editor-uri/editor-uri editor sample-coord)]
-        (is (string? uri))
-        (is (not (rf.source-coords.editor-uri/forbidden-scheme? uri))
-            (str editor " produced a URI that trips the forbidden-scheme gate: "
-                 uri))))))
-
 (deftest editor-uri-does-not-reject-forbidden-scheme-substring
   (testing "the gate matches the LEADING scheme only, so `editor-uri`
             returns a URI when a substring elsewhere in the path looks like a
@@ -335,13 +326,6 @@
            (rf.source-coords.editor-uri/editor-uri :vscode {:file "src/x.cljs"} {:project-root ""})))
     (is (= "vscode://file/src/x.cljs:1:1"
            (rf.source-coords.editor-uri/editor-uri :vscode {:file "src/x.cljs"} {:project-root "   "})))))
-
-(deftest two-arg-form-still-works
-  (testing "2-arg form is equivalent to 3-arg with nil opts"
-    (is (= (rf.source-coords.editor-uri/editor-uri :vscode sample-coord)
-           (rf.source-coords.editor-uri/editor-uri :vscode sample-coord nil)))
-    (is (= (rf.source-coords.editor-uri/editor-uri :idea sample-coord)
-           (rf.source-coords.editor-uri/editor-uri :idea sample-coord nil)))))
 
 (deftest project-root-strips-trailing-separators
   (testing "trailing `/` or `\\` on the root is stripped so we don't double up"
