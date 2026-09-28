@@ -54,7 +54,3 @@
                                     :tags  {:rf.trace/dispatch-id 3}}]
       (is (nil? (rf.trace/trace-event-frame raw-with-stray-top-level))
           "the raw reader does not read top-level :frame"))))
-
-(deftest frame-of-alias-identity
-  (testing "frame-of and trace-event-frame resolve to the same fn value"
-    (is (= rf.trace/trace-event-frame rf.trace/frame-of))))

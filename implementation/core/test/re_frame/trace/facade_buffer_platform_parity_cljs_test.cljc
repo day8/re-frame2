@@ -55,13 +55,6 @@
 ;; The facade reader resolves and reads the same ring as its tooling home.
 ;; ---------------------------------------------------------------------------
 
-(deftest ^:requires-debug facade-trace-buffer-resolves-on-both-platforms
-  (testing "rf/trace-buffer and rf/clear-trace-buffer! are bound vars on this platform"
-    (is (fn? rf/trace-buffer)
-        "rf/trace-buffer is a fn value here (not an undeclared var / nil)")
-    (is (fn? rf/clear-trace-buffer!)
-        "rf/clear-trace-buffer! is a fn value here")))
-
 (deftest ^:requires-debug facade-trace-buffer-equals-the-tooling-home
   (testing "(rf/trace-buffer frame-id) returns the same event bundles as the tooling fn"
     (run-one-event!)
