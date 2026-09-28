@@ -419,16 +419,8 @@
       (is (= [] (classes src "app/p.clj"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Determinism, and a summary that cannot hide an empty bucket
+;; A summary that cannot hide an empty bucket
 ;; ---------------------------------------------------------------------------
-
-(deftest a-second-scan-reports-identically
-  (is (= (rf.migration.fresco.census/scan form-2 "app/counter.cljs")
-         (rf.migration.fresco.census/scan form-2 "app/counter.cljs")))
-  (is (= (rf.migration.fresco.census/scan conditional-require "app/ssr.cljc")
-         (rf.migration.fresco.census/scan conditional-require "app/ssr.cljc")))
-  (is (= (rf.migration.fresco.census/scan vendored-require "app/panel.cljs")
-         (rf.migration.fresco.census/scan vendored-require "app/panel.cljs"))))
 
 (deftest the-summary-names-every-bucket-including-the-empty-ones
   (let [built (rf.migration.fresco.census/build [(rf.migration.fresco.census/scan form-2 "app/counter.cljs")

@@ -96,9 +96,8 @@
       (let [once  (rewritten src)
             twice (rewritten once)]
         (is (= once twice)
-            (str label ": running the fixer on its own output changed it"))
-        (is (= (endings once) (endings twice))
-            (str label ": the second pass changed the line endings"))))))
+            (str label ": running the fixer on its own output changed it — "
+                 "its forms or its line endings"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The convention is read off the input, not off the platform
@@ -109,8 +108,8 @@
             not invent one"
     (let [src "[:> Btn {:variant :primary}]"
           out (:source (rf.migration.fresco.codemod/rewrite-string src "src/app/one.cljs"))]
-      (is (= "[:> Btn {:variant \"primary\"}]" out))
-      (is (= [0 0] (endings out))))))
+      (is (= "[:> Btn {:variant \"primary\"}]" out)
+          "the rewrite, with no line ending invented around it"))))
 
 (deftest a-mixed-file-follows-its-majority
   (testing "a genuinely mixed file cannot be reproduced exactly — the
