@@ -142,7 +142,8 @@ lets that slide: an untimed read edge answers `:unknown` and never `0.0`. Spec
 subscription it never timed as instantaneous — and the reader would then rank it
 LAST. Its loss is `:uncorrelated` rather than `:cap`, because the recomputes were
 observed and it is the DURATION that joins to nothing; reporting a cap there
-would send the reader to the retention knob, which is not the remedy.
+would call the window empty and send the reader to reproduce recomputes it
+already holds.
 
 The window is scoped **per frame**. Two frames are two applications, and summing
 frame B's clock into frame A's ranking would make an idle boundary look hot
@@ -160,12 +161,16 @@ already scopes its leads against (audit #7789).
 | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all, so no search happened |
 
 The last three are the trio a naive advisor collapses, and `:observed` is what
-holds them apart **in data** rather than only in prose. `:cap` says *raise
-`:rf.trace/events-retained` and reproduce* — free. The two `:host-opaque` rows
-say *the answer is real and lives in another tool* — a change of instrument. One
-sentence covering all three would send two thirds of its readers to the wrong
-place, so they are three sentences under two loss chips, and exactly one of them
-names the retention knob.
+holds them apart **in data** rather than only in prose. `:cap` marks an EMPTY
+window, so a bigger buffer is not the remedy: it says *reproduce the interaction
+and read again* — free. Retention matters only when it is set to 0, and the
+`:cap` chip beside the sentence names the call that restores the default. The two `:host-opaque` rows say *the
+answer is real and lives in another tool* — a change of instrument. One sentence
+covering all three would send two thirds of its readers to the wrong place, so
+they are three sentences under two loss chips, exactly one of them sends the
+reader to reproduce, and none of them tells the reader to raise
+`:rf.trace/events-retained`. The Advisor's `:cap` sentence and its measure-first
+route give the same advice as the `:cap` chip and `docs/core/fresco/16-diagnostics.md`.
 
 #### `:read-orders` is a FOLD COUNT, and the arm says so
 
@@ -215,9 +220,9 @@ about the same event (audit #8027, reproduced on `main` with one skip:
   trace projection's `:subs` slot also carries `:rf.sub/dispose`, which was
   landing in that roster too.
 
-An advisor that sends a reader to the retention knob when the evidence was
-already retained is worse than no advisor: it sends them to fix the instrument
-instead of the code.
+An advisor that calls a window empty when the evidence was already retained is
+worse than no advisor: it sends the reader back to the instrument instead of to
+the code.
 
 The repair is **one predicate**, `fresco-helpers/sub-recompute?` (`#{:rf.sub/run}`)
 with `sub-skip?` beside it, in the shared algebra both derivations already
@@ -246,7 +251,7 @@ attached to it.
 `classify` now asks two questions rather than one: `searched?` is about
 recomputes and `considered?` is about activity of any kind. A skip-only window is
 `:host-opaque` / `:memo-hits-only`, routed to **measure-first** and never to the
-retention knob, and its sentence says what the window actually held — *N memo
+empty-window `:cap` advice, and its sentence says what the window actually held — *N memo
 hits and no recompute at all; the cells were considered and answered without
 running; subscription computation owns none of this boundary's cost, because
 none of it ran.* **`:runs` stays 0**: the skip is classified as observed activity
@@ -558,7 +563,7 @@ bead: no new sentinel, no new evidence machinery, and no code under
 |---|---|---|
 | `…panels.fresco-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
 | `…panels.fresco-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
-| `…panels.fresco-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
+| `…panels.fresco-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the empty-window `:cap` advice, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct, exactly one sends the reader to reproduce the interaction, and none tells the reader to raise `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
 | `…panels.fresco-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real raw-React island (a function component mounted through `h/defhost`) reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
 
 The pair-in-one-row shape of the third suite is the point: an advisor-only row

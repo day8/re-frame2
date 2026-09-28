@@ -115,8 +115,8 @@
       (is (hh/unknown? (:ms ax)) "unknown, not 0.0")
       (is (= :uncorrelated (:reason (:loss ax)))
           (str "the recomputes are observed and it is the DURATION that joins "
-               "to nothing — reporting a cap would send the reader to the "
-               "retention knob, which is not the remedy")))))
+               "to nothing — reporting a cap would call the window empty and "
+               "send the reader to reproduce recomputes it already holds")))))
 
 (deftest a-memo-hit-is-counted-and-never-summed-as-work
   (let [t (advisor/sub-timing
@@ -304,8 +304,8 @@
     (is (string/includes? (:says c) "bringing it back"))))
 
 (deftest a-searched-window-that-explains-nothing-is-HOST-OPAQUE-not-CAPPED
-  ;; The pair a naive advisor collapses. One remedy is free (raise the
-  ;; retention knob); the other is a change of INSTRUMENT. A tool that
+  ;; The pair a naive advisor collapses. One remedy is free (reproduce the
+  ;; interaction and read again); the other is a change of INSTRUMENT. A tool that
   ;; printed one sentence for both would send half its readers to the
   ;; wrong place.
   (let [searched (classify-with (boundary [[:app/main :a]])
@@ -433,13 +433,29 @@
     (is (string/includes? (:says r) "Do not split per element mechanically")
         "the ladder's own warning rides with the advice")))
 
-(deftest a-capped-boundary-is-told-to-widen-the-window-not-to-measure-react
-  (let [r (advisor/recommend (classify-with (boundary [[:app/main :a]]) {:app/main []}))]
+(deftest a-capped-boundary-is-told-to-reproduce-not-to-grow-the-buffer-or-measure-react
+  ;; `:cap` marks an EMPTY window. A bigger buffer recovers nothing already
+  ;; dropped and cannot fill an empty window, so the remedy is to reproduce
+  ;; the interaction and read again — the advice the `:cap` chip gives
+  ;; beside this sentence, which is why the two are asserted to agree.
+  (let [r (advisor/recommend (classify-with (boundary [[:app/main :a]]) {:app/main []}))
+        ruled "Retention matters only when it is set to 0"]
     (is (= :measure-first (:route r)))
     (is (= :cap (get-in r [:refusal :reason])))
-    (is (string/includes? (:says r) "events-retained"))
+    (is (string/includes? (:label r) "Reproduce the interaction"))
+    (is (string/includes? (:says r) "reproduce the interaction"))
+    (doseq [[field s] {:label (:label r) :says (:says r) :because (:because r)}]
+      (is (not (string/includes? s "events-retained"))
+          (str field " must not send the reader to the retention knob — a "
+               "bigger buffer cannot fill an empty window"))
+      (is (not (re-find #"(?i)\bwiden\b" s))
+          (str field " must not tell the reader to widen the window")))
+    (is (string/includes? (:says r) ruled))
+    (is (string/includes? (:because r) ruled))
+    (is (string/includes? (:says (hh/loss-chip :cap)) ruled)
+        "the chip beside the sentence gives the same advice")
     (is (not (string/includes? (:says r) "DevTools"))
-        (str "a capped window is a knob setting, and sending its reader to "
+        (str "an empty window is reproduced, and sending its reader to "
              "another tool would waste the free remedy"))))
 
 ;; ---------------------------------------------------------------------------

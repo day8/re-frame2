@@ -432,8 +432,8 @@
                 ;; duration that joins to nothing — Spec 009 puts
                 ;; `:rf.sub/elapsed-ms` on the reactive recompute path and
                 ;; not on the pure `compute-sub` form. Reporting that as a
-                ;; cap would send the reader to the retention knob, which
-                ;; is not the remedy.
+                ;; cap would send the reader to reproduce an interaction
+                ;; whose recomputes the window already holds.
                 :loss  (if (:timed? att)
                          {:reason :cap :dropped hh/unknown}
                          {:reason :uncorrelated :dropped (:untimed-runs-total att)})
@@ -520,15 +520,17 @@
 
   The last three are the trio a naive advisor collapses, and `:observed`
   is what keeps them apart in DATA rather than only in prose. `:cap` says
-  *raise the retention knob and look again* — free. The two
+  *the window is empty: reproduce the interaction and read again* — free,
+  and not a bigger buffer, which cannot fill an empty window. The two
   `:host-opaque` rows say *the answer is real and lives in another tool*
   — a change of instrument.
 
   **The `:memo-hits-only` row is the one that is easy to get wrong.**
   Deriving `searched?` from recompute runs alone would let a window
   holding nothing but tagged `:rf.sub/skip` events fall through to `:cap`
-  and tell the reader to enlarge a window that already retained the
-  answer — sending them to fix the instrument instead of the code. A skip
+  and report an empty window that had already retained the answer —
+  sending the reader to reproduce evidence they already hold instead of
+  to the code. A skip
   is not a recompute and is not nothing either: Spec 009
   emits one only when the cell was CONSIDERED, so a retained skip is
   positive evidence, and the remedy has to be the one that follows from
@@ -639,8 +641,7 @@
       ;; window RETAINED this boundary's reads being considered, and the
       ;; memo answered every time — which is a finding about the read
       ;; topology, not a gap in the window. Routing this to the `:cap` arm
-      ;; below would tell the reader to enlarge a window that already holds
-      ;; the answer.
+      ;; below would call a window empty that already holds the answer.
       considered?
       {:owner      :unattributed
        :basis      :host-opaque
@@ -668,9 +669,9 @@
        :candidates (mapv :class unmeasured-classes)
        :says       (str "nothing in the retained window touched this "
                         "boundary's reads — no recompute and no memo hit — so "
-                        "no search happened. This is an absence of evidence — "
-                        "raise `:rf.trace/events-retained` and reproduce the "
-                        "interaction.")})))
+                        "no search happened. This is an absence of evidence in an EMPTY window, "
+                        "so a bigger buffer is not the remedy: reproduce the interaction and "
+                        "read again. Retention matters only when it is set to 0.")})))
 
 ;; ---------------------------------------------------------------------------
 ;; The route ladder — a table keyed on the OWNER, and the refusal it produces
@@ -781,12 +782,12 @@
    :rung     nil
    :native?  false
    :label    (if (= :cap (:basis classification))
-               "Widen the window and reproduce"
+               "Reproduce the interaction and read again"
                "Measure the unattributed half elsewhere")
    :says     (if (= :cap (:basis classification))
                (str "Nothing was retained for this boundary, so no ranking here "
-                    "is about it yet. Raise `:rf.trace/events-retained`, "
-                    "reproduce the interaction, and read this tab again.")
+                    "is about it yet. The window is empty, not small, so a bigger buffer is not the remedy: "
+                    "reproduce the interaction and read this tab again. Retention matters only when it is set to 0.")
                (str "The measured half does not own this boundary, and the "
                     "three classes that might are not observable from a "
                     "subscription table or a trace ring. Recommending a native "
