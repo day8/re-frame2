@@ -184,8 +184,15 @@
 (def ^:private styles
   {:strip       {:display        "flex"
                  :align-items    "center"
-                 :gap            "6px"
-                 :padding        "6px 10px"
+                 ;; This gap, the divider's side margins and the cluster
+                 ;; label's right margin are sized so a variant's six
+                 ;; clusters fit one row in a 1440px-wide window, REC
+                 ;; included, even with a failing play chip.
+                 :gap            "4px"
+                 ;; The wide left pad keeps the MODES cluster clear of the
+                 ;; shell's fixed-position `?` help chip, which floats over
+                 ;; the strip's top-left corner (`shell-styles` `:help-slot`).
+                 :padding        "6px 10px 6px 44px"
                  :background     (:bg-2 rf.story.theme.colors/tokens)
                  :border-bottom  (str "1px solid " (:border-default rf.story.theme.colors/tokens))
                  :font-family    mono-stack
@@ -241,13 +248,13 @@
                    :text-transform "uppercase"
                    :color          (:text-tertiary rf.story.theme.colors/tokens)
                    :letter-spacing (:label-wide rf.story.theme.typography/letter-spacing)
-                   :margin-right   "6px"}
+                   :margin-right   "4px"}
    ;; Vertical divider between clusters. Token-driven
    ;; hairline; carries an inline height so the rule sits centred on
    ;; the strip rather than spanning it edge-to-edge.
    :divider     {:width        "1px"
                  :align-self   "stretch"
-                 :margin       "2px 4px"
+                 :margin       "2px 2px"
                  :background   (:border-subtle rf.story.theme.colors/tokens)
                  :flex-shrink  "0"}
    :reset       {:padding       "3px 9px"
