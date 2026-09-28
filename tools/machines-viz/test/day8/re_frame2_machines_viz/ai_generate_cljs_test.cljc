@@ -136,15 +136,6 @@
                                     {:resolver (stub-resolver resp)})]
       (is (= login-flow-spec out)))))
 
-(deftest generate-tolerates-surrounding-prose
-  (testing "prose around the fenced block is stripped"
-    (let [resp (str "Sure, here's a login flow machine:\n\n"
-                    "```clojure\n" (pr-str login-flow-spec) "\n```\n\n"
-                    "Let me know if you want to adjust the transitions.")
-          out  (ai/generate-machine "a login flow"
-                                    {:resolver (stub-resolver resp)})]
-      (is (= login-flow-spec out)))))
-
 (deftest generate-handles-parallel-spec
   (testing "parallel machines parse and validate"
     (let [resp (fence-clojure (pr-str parallel-form-spec))

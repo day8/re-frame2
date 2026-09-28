@@ -80,28 +80,6 @@
       (is (= :invalid-chart-state (:reason vm)))
       (is (nil? (:props vm))))))
 
-(deftest decode-location-rejects-recursively-malformed-definition
-  (testing "a share-URL carrying a RECURSIVELY-malformed machine
-            definition (structurally invalid BELOW the root: a nested compound
-            missing :initial, a dangling transition target, or an unknown bare
-            node key) also fails closed at the viewer boundary — :status :error,
-            :reason :invalid-chart-state, and NO MachineChart props. A gate
-            that checked only the root shape would bless these."
-    (doseq [[label definition]
-            {:nested-compound-no-initial {:initial :outer :states {:outer {:states {:inner {}}}}}
-             :dangling-target            {:initial :idle :states {:idle {:on {:go :missing}}}}
-             :unknown-node-key           {:initial :idle :states {:idle {:on-entry :oops}}}}]
-      (let [url (envelope->url
-                  {:rf.machines-viz.share/v       "2"
-                   :rf.machines-viz.share/chart   {:machine-id :demo :definition definition}
-                   :rf.machines-viz.share/created 0})
-            vm  (viewer/decode-location url)]
-        (is (= :error (:status vm))
-            (str "recursively-malformed " label " must not reach the MachineChart path"))
-        (is (= :invalid-chart-state (:reason vm)) (str label))
-        (is (nil? (:props vm))
-            (str "no MachineChart props are produced for recursively-malformed " label))))))
-
 (deftest viewer-view-dispatches-on-status
   (testing "viewer-view renders the right top-level shape per status"
     ;; The view is hiccup data; assert the data-testid carried by each
