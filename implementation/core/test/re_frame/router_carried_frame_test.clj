@@ -169,16 +169,6 @@
     (is (= 1 (:n (rf/app-db-value :app/main)))
         "the handler ran against the with-frame scope frame")))
 
-(deftest dispatch-via-binding-scope-works
-  (testing "a dispatch under a *current-frame* binding (the dynamic-var
-            scope tier with-frame expands to) resolves that frame"
-    (rf/make-frame {:id :app/main :doc "scope frame"})
-    (rf/reg-event :app/inc {:frame :app/main}
-      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (binding [rf.frame/*current-frame* :app/main]
-      (rf/dispatch-sync [:app/inc]))
-    (is (= 1 (:n (rf/app-db-value :app/main))))))
-
 ;; ---- async bare dispatch after scope unwinds FAILS ------------------------
 
 (deftest async-bare-dispatch-after-unwind-fails

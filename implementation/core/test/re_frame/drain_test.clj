@@ -124,137 +124,25 @@
 
 ;; ---- 2. drain depth limit -------------------------------------------------
 
-(deftest drain-depth-limit-aborts-with-structured-error
-  ;; Spec 002 §Run-to-completion dispatch §Rules rule 3:
-  ;; \"Depth-limited (dynamic). The drain enforces a configurable depth
-  ;; limit (:drain-depth). When exceeded, drain aborts with a machine-
-  ;; readable error: {:reason :drain-depth-exceeded :frame :auth :event
-  ;; [...] :depth N}. The limit is per-frame and runtime-overridable.\"
-  ;; The router halts the loop and clears the queue when the bound is hit;
-  ;; see implementation/core/src/re_frame/router.cljc."
-  (testing "a self-redispatching handler trips :rf.error/drain-depth-exceeded"
-    (let [runs   (atom 0)
-          traces (atom [])]
-      (rf/register-listener! :trace ::depth (fn [ev] (swap! traces conj ev)))
-      ;; Reg a frame with a small drain-depth so the test runs quickly.
-      (rf/make-frame {:id :drain.test/loop :drain-depth 8})
-      (rf/reg-event :loop-forever
-        (fn [_ _]
-          (swap! runs inc)
-          {:fx [[:dispatch [:loop-forever]]]}))
-      (rf/dispatch-sync [:loop-forever] {:frame :drain.test/loop})
-      (rf/unregister-listener! :trace ::depth)
-      ;; SEMANTIC, posture-independent: the bound really halted the runaway.
-      ;; `dispatch-sync` returning at all is the witness — an unbounded drain
-      ;; never returns — and it returned after exactly the bound's worth of
-      ;; handler bodies.
-      (is (= 8 @runs)
-          "the drain-depth bound halted the runaway after exactly 8 handler bodies")
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (let [hit (some (fn [ev]
-                          (when (= :rf.error/drain-depth-exceeded
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-          (is (some? hit)
-              "expected :rf.error/drain-depth-exceeded trace event")
-          (when hit
-            (let [tags (:tags hit)]
-              (is (number? (:depth tags))
-                  ":depth tag is a number")
-              (is (= :drain.test/loop (:frame tags))
-                  ":frame tag identifies the offending frame")
-              (is (vector? (:last-event tags))
-                  ":last-event tag carries the most-recently-dequeued event")
-              (is (= [:loop-forever] (:last-event tags))
-                  ":last-event is the recursive event that drove the cascade")))))))
-
+(deftest drain-depth-halt-leaves-the-queue-empty-and-unscheduled
+  ;; Spec 002 §Run-to-completion dispatch §Rules rule 3: when the
+  ;; `:drain-depth` bound is exceeded the drain aborts. The router halts the
+  ;; loop AND clears the queue, so no stuck work survives the halt and the
+  ;; next dispatch re-engages a fresh drain. The halt's count and structured
+  ;; error are pinned by `drain-depth-halts-after-exactly-drain-depth-events`
+  ;; (dev trace) and `drain-depth-exceeded-fans-out-on-the-always-on-axis-with-cycle-evidence`
+  ;; (always-on record); see implementation/core/src/re_frame/router.cljc."
   (testing "after the abort the queue is cleared (no stuck pending work)"
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::depth-2 (fn [ev] (swap! traces conj ev)))
-      (rf/make-frame {:id :drain.test/loop2 :drain-depth 4})
-      (rf/reg-event :loop2
-        (fn [_ _]
-          {:fx [[:dispatch [:loop2]]]}))
-      (rf/dispatch-sync [:loop2] {:frame :drain.test/loop2})
-      (rf/unregister-listener! :trace ::depth-2)
-      (let [router (:router (rf.frame/frame :drain.test/loop2))]
-        (is (zero? (count (:queue @router)))
-            "the router queue is drained empty after the depth-exceeded abort")
-        (is (false? (:scheduled? @router))
-            ":scheduled? is reset so future dispatches re-engage drain")))))
-
-(deftest drain-depth-exceeded-keeps-durable-per-event-writes
-  ;; Per Spec 002 §Drain versus event — the epoch unit: the epoch boundary
-  ;; is the dequeued EVENT, so each event that ran before the depth limit
-  ;; tripped settled its own durable epoch AND its own db write. There is NO
-  ;; whole-drain rollback under per-event epochs (Spec 002 §Run-to-completion
-  ;; rule 3) — each settled event is independently atomic. The depth limit
-  ;; stops the NEXT (halting) event; the work that already ran survives.
-  (testing "a chain that overflows leaves :db with the durable per-event writes"
-    ;; Frame seeded via :initial-events so the baseline is non-empty.
-    (rf/reg-event :seed/init
-      (fn [{:keys [db]} _] {:db {:step :pre-drain :counter 0}}))
-    (rf/make-frame {:id :drain.rollback/main :initial-events   [[:seed/init]]
-                    :drain-depth 4})
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::rollback (fn [ev] (swap! traces conj ev)))
-      ;; A handler that COMMITS a :db write (advancing :step, bumping
-      ;; :counter) AND re-dispatches itself. Each iteration is its own
-      ;; dequeued event = its own durable epoch + db write. After the
-      ;; 4-event limit, :counter == 4 and :step == :mid-drain survive.
-      (rf/reg-event :overflow
-        (fn [{:keys [db]} _]
-          {:db {:step :mid-drain :counter (inc (:counter db 0))}
-           :fx [[:dispatch [:overflow]]]}))
-      (rf/dispatch-sync [:overflow] {:frame :drain.rollback/main})
-      (rf/unregister-listener! :trace ::rollback)
-      ;; Per-event durability: the four completed events' writes survive —
-      ;; NO whole-drain rollback.
-      (is (= {:step :mid-drain :counter 4}
-             (rf/app-db-value :drain.rollback/main))
-          "the durable per-event writes survive; there is no whole-drain rollback")
-      ;; Sanity: the depth-exceeded trace fired and tags :rollback? false
-      ;; (no rollback under per-event epochs).
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
-      ;; no-rollback SEMANTICS are already pinned above, posture-independently,
-      ;; by the surviving `{:step :mid-drain :counter 4}` app-db value.
-      (when rf.interop/debug-enabled?
-        (let [hit (some (fn [ev]
-                          (when (= :rf.error/drain-depth-exceeded
-                                   (:operation ev))
-                            ev))
-                        @traces)]
-          (is (some? hit) "drain-depth-exceeded trace was emitted")
-          (when hit
-            (is (false? (get-in hit [:tags :rollback?]))
-                ":rollback? false — there is no whole-drain rollback"))))))
-
-  (testing "earlier clean drains stay durable; an overflow keeps prior-event writes"
-    ;; A drain that has already settled cleanly once, then is re-engaged
-    ;; with a self-dispatching event: the earlier clean drain stays
-    ;; durable AND the overflow drain's own per-event writes stay durable
-    ;; (no rollback).
-    (rf/reg-event :seed2/init (fn [{:keys [db]} _] {:db {:phase :seeded :n 0}}))
-    (rf/make-frame {:id :drain.rollback/two :initial-events   [[:seed2/init]]
-                    :drain-depth 3})
-    ;; First drain: a clean settle that mutates :phase.
-    (rf/reg-event :advance (fn [{:keys [db]} _] {:db (assoc db :phase :first-settled)}))
-    (rf/dispatch-sync [:advance] {:frame :drain.rollback/two})
-    (is (= {:phase :first-settled :n 0}
-           (rf/app-db-value :drain.rollback/two))
-        "first drain settled cleanly; that's the new baseline")
-    ;; Second drain: trip the depth limit. The three events that ran each
-    ;; made a durable :n write — no rollback.
-    (rf/reg-event :overflow2
-      (fn [{:keys [db]} _]
-        {:db (assoc db :phase :poisoned :n (inc (:n db 0)))
-         :fx [[:dispatch [:overflow2]]]}))
-    (rf/dispatch-sync [:overflow2] {:frame :drain.rollback/two})
-    (is (= {:phase :poisoned :n 3}
-           (rf/app-db-value :drain.rollback/two))
-        "the overflow drain's per-event writes are durable — no whole-drain rollback")))
+    (rf/make-frame {:id :drain.test/loop2 :drain-depth 4})
+    (rf/reg-event :loop2
+      (fn [_ _]
+        {:fx [[:dispatch [:loop2]]]}))
+    (rf/dispatch-sync [:loop2] {:frame :drain.test/loop2})
+    (let [router (:router (rf.frame/frame :drain.test/loop2))]
+      (is (zero? (count (:queue @router)))
+          "the router queue is drained empty after the depth-exceeded abort")
+      (is (false? (:scheduled? @router))
+          ":scheduled? is reset so future dispatches re-engage drain"))))
 
 (deftest drain-depth-halts-after-exactly-drain-depth-events
   ;; CANONICAL pin of the drain-depth event count.
@@ -300,7 +188,9 @@
             (when hit
               (is (= n (get-in hit [:tags :depth]))
                   (str ":depth tag equals drain-depth " n
-                       " (the halting event's depth = N)")))))))))
+                       " (the halting event's depth = N)"))
+              (is (= [event-id] (get-in hit [:tags :last-event]))
+                  ":last-event is the recursive event that drove the cascade"))))))))
 
 ;; ---- 3. dispatch-sync-in-handler ------------------------------------------
 
@@ -509,28 +399,17 @@
       (is (true? (:b-ran? (rf/app-db-value :drain.test/B)))
           "B's :db commit landed in B's app-db")
       (is (nil? (:a-ran? (rf/app-db-value :drain.test/B)))
-          "A's :db commit did NOT spill into B's app-db")))
+          "A's :db commit did NOT spill into B's app-db"))))
 
-  (testing "two interleaved dispatch-sync calls keep their queues separate"
-    ;; This pins the per-frame router contract: each frame has its own
-    ;; queue and :scheduled?/:in-drain? flags.
-    (rf/make-frame {:id :drain.test/X :doc "X"})
-    (rf/make-frame {:id :drain.test/Y :doc "Y"})
-    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/dispatch-sync [:tick] {:frame :drain.test/X})
-    (rf/dispatch-sync [:tick] {:frame :drain.test/Y})
-    (rf/dispatch-sync [:tick] {:frame :drain.test/X})
-    (is (= 2 (:n (rf/app-db-value :drain.test/X))))
-    (is (= 1 (:n (rf/app-db-value :drain.test/Y))))))
-
-;; ---- drain-depth-exceeded preserves OTHER frames' app-db ------------------
+;; ---- drain-depth-exceeded keeps per-event writes, confined to its frame ----
 ;;
-;; The companion `drain-depth-exceeded-keeps-durable-per-event-writes`
-;; watches only the overflowing frame. The broader contract is "a
-;; depth-exceed is scoped to the FRAME that overflowed — other frames'
-;; app-dbs are untouched, and the depth-exceeded trace carries the right
-;; frame id". Under per-event epochs the overflowing frame keeps its durable
-;; per-event writes (no whole-drain rollback).
+;; Per Spec 002 §Drain versus event — the epoch unit: the epoch boundary is
+;; the dequeued EVENT, so each event that ran before the depth limit tripped
+;; settled its own durable db write. There is NO whole-drain rollback (Spec
+;; 002 §Run-to-completion rule 3); the limit stops only the NEXT (halting)
+;; event. And a depth-exceed is scoped to the FRAME that overflowed — other
+;; frames' app-dbs are untouched, and the depth-exceeded trace carries the
+;; right frame id.
 
 (deftest drain-depth-exceeded-isolated-to-the-overflowing-frame
   (testing "depth-exceed on frame :B is confined to :B; :A's
