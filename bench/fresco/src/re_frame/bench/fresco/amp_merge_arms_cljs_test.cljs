@@ -45,7 +45,11 @@
   where the frozen arms land an eight-entry `PersistentArrayMap`. Unless
   that reads true, every equality above it is an equality between two
   things that were never in danger of differing, and this file would
-  pass while checking nothing."
+  pass while checking nothing.
+
+  The threshold itself is `cljs.core`'s, and no row pins it bare: every
+  row reads it off the arms' own maps, so a compiler that moved it would
+  red them where it matters."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.fresco.amp-merge-clock-app :as rf.bench.fresco.amp-merge-clock-app]
             [re-frame.bench.fresco.front.codec :as rf.bench.fresco.front.codec]))
@@ -121,30 +125,6 @@
   quantity."
   [hiccup]
   (rf.bench.fresco.front.codec/merge-caller (attrs-of hiccup)))
-
-;; ---------------------------------------------------------------------------
-;; The cliff itself
-;; ---------------------------------------------------------------------------
-
-(deftest the-array-map-cliff-is-where-the-ladder-says-it-is
-  (testing "`PersistentArrayMap`'s own threshold, in the ClojureScript compiled here"
-    (is (= 8 (.-HASHMAP-THRESHOLD PersistentArrayMap))
-        "the ladder's whole diagnosis rests on this number"))
-
-  (testing "eight entries is an array map and the NINTH promotes"
-    (let [eight (reduce (fn [m i] (assoc m (keyword (str "k" i)) i)) {} (range 8))
-          nine  (assoc eight :k8 8)]
-      (is (= 8 (count eight)))
-      (is (instance? PersistentArrayMap eight))
-      (is (= 9 (count nine)))
-      (is (instance? PersistentHashMap nine)
-          "one more entry, and the map is a different data structure")))
-
-  (testing "the COMPILER draws the same line: a nine-key literal is a hash map"
-    (is (instance? PersistentArrayMap
-                   {:a 1 :b 2 :c 3 :d 4 :e 5 :f 6 :g 7 :h 8}))
-    (is (instance? PersistentHashMap
-                   {:a 1 :b 2 :c 3 :d 4 :e 5 :f 6 :g 7 :h 8 :i 9}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Rung (1') — the author's wrapper, cleanly

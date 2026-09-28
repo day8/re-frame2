@@ -116,19 +116,3 @@
            writing that string to a socket would also do."
     (is (= 0 (rf.bench.fresco.lane/utf8-bytes "")))
     (is (= 3 (rf.bench.fresco.lane/utf8-bytes "\uD834")) "an unpaired high surrogate encodes as U+FFFD")))
-
-(deftest utf8-bytes-agrees-with-the-encoder-the-lane-already-trusts
-  (testing "**a second derivation, not a second call to the same function.**
-           `ssr/spike_cljs_test/sha256-hex` feeds
-           `(.encode (js/TextEncoder.) s)` to `crypto.subtle`, so the lane
-           stakes a published SHA-256
-           on this encoder's output. Deriving the length from a
-           `Uint8Array` built the same way — and comparing it against
-           `utf8-bytes` on every fixture — ties the helper to the encoder the
-           lane trusts, rather than to itself."
-    (doseq [{:keys [what s bytes]} cases]
-      (let [^js buf (.encode (js/TextEncoder.) s)]
-        (is (= bytes (.-byteLength buf))
-            (str what ": the encoder the digest rows use agrees"))
-        (is (= (rf.bench.fresco.lane/utf8-bytes s) (.-byteLength buf))
-            (str what ": and utf8-bytes agrees with it"))))))

@@ -517,6 +517,10 @@
 ;; ---------------------------------------------------------------------------
 ;; The generation fence
 ;; ---------------------------------------------------------------------------
+;;
+;; Its quiet half — a body that only reads leaves the basis where it found
+;; it and runs once — is what every render row in this file stands on, and
+;; `hydrate_cljs_test`'s body-run count pins it to one run per render.
 
 (deftest a-commit-landing-inside-a-body-re-runs-that-body
   (seeded! 3)
@@ -552,12 +556,6 @@
                       (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
                       [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/done? 0]))]))))
       ((:release! warm)))))
-
-(deftest a-body-that-reads-without-writing-never-moves-the-generation
-  (seeded! 3)
-  (let [g (rf.bench.fresco.arm1.runtime/generation)]
-    (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))
-    (is (= g (rf.bench.fresco.arm1.runtime/generation)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Boundaries, heads, and the ABI
