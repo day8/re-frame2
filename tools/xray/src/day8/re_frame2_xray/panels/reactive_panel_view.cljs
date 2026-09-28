@@ -705,13 +705,18 @@
 ;; ---- empty state ------------------------------------------------------
 
 (defn- empty-state
+  "The panel's body when no epoch record resolved. The composed focus
+  (`spine/compose-focus`) names a selection by `:dispatch-id` or
+  `:epoch-id`; with neither set nothing is focused, and with either set
+  the focused bundle simply captured no reactive activity."
   [data]
   [:div {:data-testid "rf-xray-reactive-empty"
          :style {:padding "16px"
                  :color (:text-tertiary tokens)
                  :font-family sans-stack
                  :font-size "13px"}}
-   (if (nil? (:current (:focus data)))
+   (if (and (nil? (:dispatch-id (:focus data)))
+            (nil? (:epoch-id (:focus data))))
      [:p "No event focused."]
      [:p "Focused event-bundle has no reactive activity captured yet."])])
 

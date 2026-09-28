@@ -255,10 +255,11 @@
    ;; ride the row's `for <region> · round <n>` clause.
    :microstep   "ALWAYS"
    :timer       "TIMER"
-   ;; "NO OP" (space, not hyphen) is the SOLE marker for the
+   ;; "NO OP" (space, not hyphen) is the QUALIFIER chip's label for the
    ;; benign unhandled-user-event no-op. The row reads
-   ;; "[NO OP] staying in {state}" (`format/cascade-row-label`) — the pill
-   ;; carries the one badge; the verb carries the consequence. No "ignored"
+   ;; "[TRANSITION] [NO OP] staying in {state}" — the kind-pill names the
+   ;; step, the qualifier marks that it changed nothing, and the verb
+   ;; (`format/cascade-row-label`) carries the consequence. No "ignored"
    ;; outcome chip, no "no-op —" prefix, no ", no transition" suffix.
    :no-op       "NO OP"
    ;; The machine's BIRTH pill. "START" mirrors xstate's

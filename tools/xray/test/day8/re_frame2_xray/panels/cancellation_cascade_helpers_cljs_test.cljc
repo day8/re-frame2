@@ -544,6 +544,19 @@
     (is (re-find #"2 effects aborted" s))
     (is (re-find #"1 child destroyed" s))))
 
+(deftest cascade-summary-with-no-aborts-pluralises-children
+  (testing "a destroy that aborted nothing counts its teardowns in
+            English: `2 children destroyed`, never `2 child destroyeds`"
+    (let [one (h/extract-cascade
+                [(destroy-ev {:machine-id :a :dispatch-id 1 :time 1010 :id 1})])
+          two (h/extract-cascade
+                [(destroy-ev {:machine-id :a :dispatch-id 1 :time 1010 :id 1})
+                 (destroy-ev {:machine-id :b :dispatch-id 1 :time 1011 :id 2})])]
+      (is (= [:no-aborts 2] [(:empty-kind two) (count (:child-teardowns two))])
+          "the :no-aborts branch, with two teardowns to count")
+      (is (= "2 children destroyed · 0 effects aborted" (h/cascade-summary two)))
+      (is (= "1 child destroyed · 0 effects aborted" (h/cascade-summary one))))))
+
 (deftest should-collapse?-respects-threshold
   (let [tiny  {:effect-aborts (vec (repeat 3 {}))}
         big   {:effect-aborts (vec (repeat 50 {}))}]

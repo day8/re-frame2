@@ -13,7 +13,7 @@
     - `format-time-hms` — render ms-since-epoch as `HH:MM:SS.mmm`;
       the one clock body. Panel helpers re-export it as `format-time`
       rather than re-implement it, so those re-exports ARE the roster
-      (`trace-helpers` and `issues-ribbon-helpers` today) — read them
+      (`trace-helpers` today) — read them
       rather than a list of feeds restated here.
     - `dispatch-id-of-epoch` — resolve an `:rf/epoch-record`'s settling
       event-bundle-id from its `:dispatch-id` slot, falling back to a

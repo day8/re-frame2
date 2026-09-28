@@ -19,7 +19,8 @@
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.reactive-panel :as facade]
-            [day8.re-frame2-xray.panels.reactive-panel-view :as view]))
+            [day8.re-frame2-xray.panels.reactive-panel-view :as view]
+            [day8.re-frame2-xray.spine :as spine]))
 
 (defn- has-testid? [tree testid]
   (some? (rf.test-helpers/find-by-testid tree testid)))
@@ -67,6 +68,25 @@
     (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-empty")
           "empty-state surfaces when no cascade exists"))))
+
+(deftest reactive-panel-empty-state-tells-a-focused-bundle-from-no-focus
+  (testing "the empty state reads the focus the SPINE composes: a pinned
+            bundle or epoch with no record says it captured nothing,
+            and only an unset focus says nothing is focused"
+    (let [empty-text (fn [focus]
+                       (text-of (view/reactive-panel nil {:has-event-bundle? false
+                                                          :focus             focus})
+                                "rf-xray-reactive-empty"))
+          pinned     (spine/compose-focus {:mode :retro :dispatch-id 42} [])
+          epoch-only (spine/compose-focus {:mode :retro :epoch-id 7} [])
+          unset      (spine/compose-focus nil [])]
+      (is (= [42 nil nil] (mapv :dispatch-id [pinned epoch-only unset]))
+          "the composed focus carries the pinned dispatch-id, and nothing else does")
+      (is (= "Focused event-bundle has no reactive activity captured yet."
+             (empty-text pinned)))
+      (is (= "Focused event-bundle has no reactive activity captured yet."
+             (empty-text epoch-only)))
+      (is (= "No event focused." (empty-text unset))))))
 
 (deftest reactive-panel-omits-large-h1-heading
   (testing "the Views panel renders NO large h1 heading; the

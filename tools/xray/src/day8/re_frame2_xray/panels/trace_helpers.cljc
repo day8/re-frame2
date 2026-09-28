@@ -684,11 +684,14 @@
       ;; `:rf.cofx/value` carries the supplier's PRODUCED
       ;; value (redacted by the cofx's marks); the requirement-arg rides
       ;; the distinct `:rf.cofx/arg`. The one-liner surfaces the produced
-      ;; value (what egressed into `:coeffects`), mirroring `:fx`.
+      ;; value (what egressed into `:coeffects`), mirroring `:fx` — and,
+      ;; like `:fx`, by KEY presence: `false` and `nil` are values a
+      ;; supplier can produce, so only an absent key renders the id alone.
       (when-let [cofx-id (or (:rf.cofx/id tags) (:cofx-id tags))]
-        (str cofx-id
-             (when-let [v (or (:rf.cofx/value tags) (:value tags))]
-               (str " → " (pr-str-safe v)))))
+        (let [v (get tags :rf.cofx/value (get tags :value tags-absent))]
+          (str cofx-id
+               (when-not (= v tags-absent)
+                 (str " → " (pr-str-safe v))))))
 
       :routing
       (or (some-> (or (:rf.route/id tags) (:route-id tags)) str)

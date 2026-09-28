@@ -664,8 +664,9 @@
 ;;
 ;; IT LIVES HERE, ONE LAYER ABOVE THE SEAM, AND THAT PLACEMENT IS FORCED.
 ;; `fresco-reads` passes the producer's envelope through VERBATIM — a
-;; byte-for-byte contract with the AI pair, pinned by a witness asserting
-;; the seam's answer is `identical?` to the door's — so a filter there
+;; byte-for-byte contract with the AI pair, pinned by `fresco-cljs-test`'s
+;; `the-seam-reshapes-nothing`, which asserts the seam's answer prints
+;; byte-identical (`pr-str`) to the door's — so a filter there
 ;; would break a contract to fix a presentation defect. Row projection is
 ;; where shaping belongs, and `fresco-reads`' own docstring says so.
 ;;

@@ -397,6 +397,10 @@
       (is (false? (:evidenced? l)))
       (is (hh/unknown? (:holds l)))
       (is (string/includes? (:says l) "mounted census is NOT substituted"))
+      (is (= [:frame-id :sub-id :query] (get-in l [:joins :on]))
+          (str "the join it could not make is still named by the CELL key the "
+               "readable branch joins on — a registration key here would name "
+               "the fabrication the readable branch refuses"))
 
       (testing "and the census it could have borrowed from is still right there"
         (is (seq (get-in e [:mounted-boundaries :boundaries]))

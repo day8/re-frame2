@@ -329,9 +329,10 @@
                       (when reason (str " · " (name reason))))
     ;; The benign unhandled-user-event no-op. The verb is the
     ;; CONSEQUENCE only: "staying in {state}" (the machine matched no
-    ;; transition, so its state is unchanged). The `[NO OP]` kind-pill is
-    ;; the sole marker and the focused-epoch Event header names the
-    ;; event, so the verb restates neither.
+    ;; transition, so its state is unchanged). The view marks the row
+    ;; with the `[TRANSITION]` kind-pill plus a `[NO OP]` qualifier chip,
+    ;; and the focused-epoch Event header names the event, so the verb
+    ;; restates neither.
     ;;
     ;; The machine name appears ONLY when >1 machine is in play this epoch
     ;; (broadcast event / parallel regions) so the operator can tell WHICH
@@ -609,8 +610,8 @@
     :timer      (str "cancelled"
                      (when reason (str " (" (name reason) ")")))
     ;; The benign no-op carries NO outcome chip. The "[NO OP]"
-    ;; kind-pill + the "staying in {state}" verb (`cascade-row-label`) are
-    ;; the whole story; an "ignored" chip would be a third restatement.
+    ;; qualifier chip + the "staying in {state}" verb (`cascade-row-label`)
+    ;; are the whole story; an "ignored" chip would be a third restatement.
     nil))
 
 ;; The merged ACTION badge is followed by ` for <state> `
@@ -744,16 +745,6 @@
     :effectful    "reg-event"
     :reg-machine  "reg-machine"
     (str flavour)))
-
-(def machine-start-marker
-  "The reserved synthetic marker a machine receives as its creation kick
-  (`[<machine-id> [:rf.machine/start]]`). It is NOT a real trigger — it
-  runs the initial-entry cascade then STOPS (a PURE init-kick,
-  xstate's `createActor(m).start()` / `xstate.init`). The EVENT
-  HANDLER orientation line suppresses itself for a pure creation
-  kick — the birth story rides the `[START]` cascade row, not a
-  'Processing …' line."
-  :rf.machine/start)
 
 ;; The structured EVENT HANDLER orientation line — `Processing [TRIGGER]
 ;; <vec> for [MACHINE] <id> in [STATE] <state>` — is projected by

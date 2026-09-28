@@ -19,19 +19,17 @@
     3. **category-prefix / category-label** — project `:operation`'s
        keyword namespace + unqualified name (the Figma row cell).
     4. **project-issue** — projects raw trace events onto row cells.
-    5. **severity-badge-label** — uppercase ERROR/WARNING/ADVISORY badge.
-    6. **project-feed** — top-level composite over a focused epoch
+    5. **project-feed** — top-level composite over a focused epoch
        record; empty-kind classifier (:no-focus, :epoch-evicted,
        :no-issues branches per spec/021 §10.7). No filtering
        (pure rows per the Figma design).
-    7. **the sub call-site composition** — `resolve-focus-status` →
+    6. **the sub call-site composition** — `resolve-focus-status` →
        `find-epoch-record` → `project-feed`. The resolver the two
        aliases re-export is pinned in `shared/focus_resolver_cljs_test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as h]
-            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]
-            [day8.re-frame2-xray.theme.tokens :as tokens]))
+            [day8.re-frame2-xray.test-helpers.trace-event-builders :as teb]))
 
 ;; ---- fixture builders ---------------------------------------------------
 
@@ -102,26 +100,6 @@
     (is (nil? (h/op-type->severity :rf.sub/run)))
     (is (nil? (h/op-type->severity :rf.view/render)))
     (is (nil? (h/op-type->severity nil)))))
-
-(deftest severity-colour-mapping-honours-tokens
-  (testing "each severity gets the shell.cljs token-equivalent colour
-            (resolved through `theme/tokens` so a change to the
-            `:text-tertiary` contrast round-trips automatically).
-            Drives both the row's 3px left-border and the text badge
-            per the Figma design."
-    (is (= (:error    tokens/tokens) (h/severity-colour :error)))
-    (is (= (:warning  tokens/tokens) (h/severity-colour :warning)))
-    (is (= (:advisory tokens/tokens) (h/severity-colour :advisory)))
-    (is (= (:text-tertiary tokens/tokens) (h/severity-colour :unknown)))))
-
-(deftest severity-badge-label-uppercase
-  (testing "the per-row TEXT badge is uppercase
-            ERROR / WARNING / ADVISORY per the Figma design
-            (design-reference/xray_devtools_reference.cljs, the issues-panel component)"
-    (is (= "ERROR"    (h/severity-badge-label :error)))
-    (is (= "WARNING"  (h/severity-badge-label :warning)))
-    (is (= "ADVISORY" (h/severity-badge-label :advisory)))
-    (is (= "UNKNOWN"  (h/severity-badge-label :unknown)))))
 
 ;; ---- (2) issue-event? -------------------------------------------------
 
@@ -344,15 +322,6 @@
                                 :focused)]
       (is (= [:error :warning] (mapv :severity (:issues feed))))
       (is (= 2 (:total feed))))))
-
-;; ---- (11) find-issue ----------------------------------------------
-
-(deftest find-issue-by-id
-  (let [rows [{:id 1 :severity :error}
-              {:id 2 :severity :warning}
-              {:id 3 :severity :advisory}]]
-    (is (= {:id 2 :severity :warning} (h/find-issue rows 2)))
-    (is (nil? (h/find-issue rows 99)))))
 
 ;; ---- (12) short-description ---------------------------------------
 

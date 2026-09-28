@@ -653,8 +653,8 @@
       "No cancellation cascade in the trace window."
 
       (= :no-aborts (:empty-kind cascade))
-      (str teardowns " " (common/pluralize teardowns "child destroyed")
-           " · 0 effects aborted")
+      (str teardowns " " (common/pluralize teardowns "child" "ren")
+           " destroyed · 0 effects aborted")
 
       :else
       (str/join " · "
