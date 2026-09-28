@@ -11,15 +11,14 @@
     1. `:register` returns the id and the listener is reachable.
     2. `:unregister` drops a single listener; siblings unaffected.
     3. `:clear` drops every listener.
-    4. `:fan-out` invokes every listener with the record argument.
-    5. `:fan-out` short-circuits on empty registry (no deref-then-doseq
-       cost when no one is listening).
-    6. Listener exceptions are caught — the cascade continues and
-       sibling listeners still fire.
-    7. An externally-held `:listeners` atom is used as the backing
+    4. `:fan-out` invokes every listener with the record argument, and
+       over an emptied registry (after `:clear`) is a quiet no-op.
+    5. Listener exceptions are caught — the cascade continues, sibling
+       listeners still fire, and `:fan-out` returns nil.
+    6. An externally-held `:listeners` atom is used as the backing
        store (the hot-reload-survives contract — consumers
        `defonce` their atom and pass it through).
-    8. Idempotent re-register on the same id replaces the listener fn."
+    7. Idempotent re-register on the same id replaces the listener fn."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.emit-substrate :as rf.emit-substrate]))
 
@@ -70,16 +69,6 @@
       (is (= 2 (count @captured)) "both listeners fired")
       (is (every? #(= {:k :v} (second %)) @captured)
           "each listener saw the same record"))))
-
-(deftest fan-out-empty-registry-is-noop
-  (testing ":fan-out short-circuits when the registry is empty"
-    ;; Hot-path cost reduces to one deref + `empty?` when no listener
-    ;; is registered. We can't measure the cost directly; we DO assert
-    ;; that calling fan-out without any listeners is exception-free
-    ;; (catches a future regression where the doseq runs on nil).
-    (let [{:keys [fan-out]} (fresh-registry)]
-      (is (nil? (fan-out {:any :record}))
-          "fan-out returns nil on empty"))))
 
 (deftest fan-out-listener-exception-isolated
   (testing "a buggy listener throws — the cascade continues; siblings still fire"
