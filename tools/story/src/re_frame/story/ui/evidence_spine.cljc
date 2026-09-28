@@ -57,8 +57,9 @@
   `[:focus …]`, `[:assert …]`. The spec requires these be DEFINED as
   non-dispatch spans before rendering them as causally equivalent to
   dispatch spans. `span-kind` makes the distinction explicit so the
-  renderer can mark a beatless span as a step that committed no epoch
-  (rather than reading as 'this dispatch produced nothing').
+  renderer can mark a beatless span as a non-dispatch step whose epochs,
+  if any, are filed under the span above (`empty-span-note`), rather than
+  reading as 'this dispatch produced nothing'.
 
   ## Graceful no-coordinates path (spec/020 §3 + spec/021 §2)
 
@@ -213,8 +214,8 @@
 
   Spec/020 §3 requires non-dispatch step spans be DEFINED before rendering
   them as causally equivalent to dispatch spans — so the renderer can mark
-  a beatless span as 'this step committed no epoch' rather than reading as
-  'this dispatch produced nothing'. A span whose step IS a dispatch step
+  a beatless span as a non-dispatch step (`empty-span-note`) rather than
+  reading as 'this dispatch produced nothing'. A span whose step IS a dispatch step
   (`rf.story.play.evidence/dispatch-step?`) but committed no epoch is still `:dispatch`
   (it tried to dispatch); the empty-beats marker is the renderer's job."
   [{:keys [step] :as _span}]
@@ -242,6 +243,22 @@
           (pr-str (first (second step)))
           (pr-str head))))
     :else (pr-str step)))
+
+(defn empty-span-note
+  "The note a span with no beats shows in their place, keyed to its
+  `span-kind`. Pure data → data.
+
+  A non-dispatch step never has beats of its own, because the narrative
+  files every epoch under a dispatch or setup span
+  (`rf.story.play.evidence/narrative`): an epoch committed while the step
+  ran, such as the verdict an `[:assert …]` checkpoint dispatches, lands in
+  the span above it. So the note says where such an epoch went instead of
+  claiming the step committed none."
+  [kind]
+  (case kind
+    :non-dispatch "non-dispatch step — any epoch committed during it is filed under the span above"
+    :setup        "setup phase — no committed epoch"
+    "dispatch committed no epoch"))
 
 ;; ===========================================================================
 ;; FOCUS-COMMAND CONSTRUCTION  (spec/020 §2.1 — build a focus command)
@@ -817,9 +834,9 @@
 #?(:cljs
    (defn- span-block
      "Render one narrative span — the step label + kind, the optional author
-     caption, and the span's beats. A span with no beats renders an honest
-     'committed no epoch' marker keyed to its kind (spec/020 §3 — the
-     non-dispatch / empty-dispatch case)."
+     caption, and the span's beats. A span with no beats renders the
+     `empty-span-note` for its kind (spec/020 §3 — the non-dispatch /
+     empty-dispatch case)."
      [variant-id {:keys [span-idx kind label caption beats] :as _span} selected-idx]
      [:div {:style       (:span styles)
             :data-test   "story-evidence-span"
@@ -836,10 +853,7 @@
           [beat-row variant-id beat (= selected-idx (:beat-idx beat))])
         [:div {:style     (:span-empty styles)
                :data-test "story-evidence-span-empty"}
-         (case kind
-           :non-dispatch "non-dispatch step — committed no epoch"
-           :setup        "setup phase — no committed epoch"
-           "dispatch committed no epoch")])]))
+         (empty-span-note kind)])]))
 
 ;; ---- the result→spine entry point ----------------------------------------
 ;;

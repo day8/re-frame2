@@ -119,8 +119,9 @@
       ;; the settled beat carries both direct + attributed (db + sub-run)
       (is (some #(= "direct" (get (second %) :data-strength)) str-tags))
       (is (some #(= "attributed" (get (second %) :data-strength)) str-tags))
-      ;; the non-dispatch assert span renders the 'committed no epoch' marker
-      (is (some? (rf.test-helpers/find-by-attr tree :data-test "story-evidence-span-empty"))))))
+      ;; the beatless non-dispatch assert span renders its empty-span note
+      (is (= (rf.story.ui.evidence-spine/empty-span-note :non-dispatch)
+             (last (rf.test-helpers/find-by-attr tree :data-test "story-evidence-span-empty")))))))
 
 ;; ===========================================================================
 ;; selection (spec/021 §2 — result row drives the selected span)
