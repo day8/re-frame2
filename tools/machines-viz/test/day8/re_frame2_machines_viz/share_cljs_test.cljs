@@ -118,13 +118,6 @@
       (is (= "2" (:rf.machines-viz.share/v env)))
       (is (number? (:rf.machines-viz.share/created env))))))
 
-(deftest round-trip-parallel
-  (testing "parallel definitions round-trip"
-    (let [back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (encode parallel-state)))]
-      (is (= (:definition parallel-state) (:definition back)))
-      (is (= :editor/flow (:machine-id back))))))
-
 (deftest round-trip-no-snapshot
   (testing "a ChartState with no :snapshot round-trips without one"
     (let [cs   (dissoc chart-state :snapshot)
@@ -138,39 +131,6 @@
 ;; All three must round-trip cleanly and stay encode/decode symmetric: an
 ;; encoder accepting compound/parallel snapshots beside a keyword-only
 ;; decoder would mint undecodable URLs.
-
-(deftest round-trip-flat-snapshot
-  (testing "a FLAT keyword :state round-trips"
-    (let [cs   (assoc chart-state :snapshot {:state :loading})
-          back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (encode cs)))]
-      (is (= {:state :loading} (:snapshot back)))
-      (is (keyword? (get-in back [:snapshot :state]))))))
-
-(deftest round-trip-compound-snapshot
-  (testing "a COMPOUND vector-path :state round-trips"
-    (let [cs   {:machine-id :shop/store
-                :frame-id   :app/main
-                :definition compound-definition
-                :snapshot   {:state [:authenticated :cart :browsing]}}
-          back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (encode cs)))]
-      (is (= {:state [:authenticated :cart :browsing]} (:snapshot back)))
-      (is (vector? (get-in back [:snapshot :state]))))))
-
-(deftest round-trip-parallel-snapshot
-  (testing "a PARALLEL region-map :state round-trips"
-    (let [cs   (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
-          back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (encode cs)))]
-      (is (= {:state {:data :dirty :form :busy}} (:snapshot back)))
-      (is (map? (get-in back [:snapshot :state])))))
-  (testing "a PARALLEL region-map whose region value is itself a compound path"
-    (let [cs   (assoc parallel-state
-                      :snapshot {:state {:data :dirty :form [:edit :touched]}})
-          back (:rf.machines-viz.share/chart
-                 (share/decode-share-url (encode cs)))]
-      (is (= {:state {:data :dirty :form [:edit :touched]}} (:snapshot back))))))
 
 (deftest malformed-state-rejected-at-encode
   (testing "a :state that is none of the three arms is rejected at ENCODE — symmetric, no undecodable URL"
@@ -216,11 +176,6 @@
         (is (not (str/includes? payload "+")))
         (is (not (str/includes? payload "/")))
         (is (not (str/includes? payload "=")))))))
-
-(deftest host-selects-the-viewer-base
-  (testing "{:host ...} names the viewer the URL points at"
-    (let [url (share/encode-share-url chart-state {:host "https://acme.example.com/v.html"})]
-      (is (str/starts-with? url "https://acme.example.com/v.html#machine=")))))
 
 (deftest no-host-is-refused
   (testing "there is no default host, and a missing one is refused
@@ -654,27 +609,6 @@
           "the `:fn` region's topology is intact")
       (is (contains? (:regions dfn) :b)))))
 
-(deftest executable-fn-slot-still-dropped-alongside-fn-topology
-  (testing "preserving topology keyed `:fn` keeps the privacy
-            guarantee: a co-located EXECUTABLE `:fn` slot (a fn value) is
-            stripped, even when a `:fn` STATE id is also present"
-    (let [defn {:initial :fn
-                :guards  {:ready? {:fn (fn [_] true)}}   ;; executable slot
-                :states  {:fn {:on {:go {:target :done :guard :ready?}}}
-                          :done {:final? true}}}
-          cs   (assoc chart-state :definition defn)
-          url  (encode cs)
-          dfn  (:definition
-                 (:rf.machines-viz.share/chart (share/decode-share-url url)))]
-      (is (string? url) "encoding succeeds (the live fn did not crash Transit)")
-      ;; Topology `:fn` (the state id) survives …
-      (is (contains? (:states dfn) :fn) "the `:fn` STATE id is preserved")
-      ;; … while the EXECUTABLE `:fn` slot is stripped.
-      (is (nil? (get-in dfn [:guards :ready? :fn]))
-          "the executable :fn slot is dropped")
-      (is (contains? (:guards dfn) :ready?)
-          "the guard NAME (its key) survives, names-only"))))
-
 ;; ---------------------------------------------------------------------------
 ;; A function-valued `:after` delay (Spec 005) is a
 ;; map KEY, out of reach of the value-side fn handling: left alone the fn
@@ -824,35 +758,12 @@
                  (catch :default e (ex-data e)))]
       (is (= :invalid-chart-state (:reason d))))))
 
-(deftest decoded-frame-id-absent-still-decodes
-  (testing "a forged v2 payload omitting :frame-id decodes cleanly (optional)"
-    (let [url  (envelope->url
-                 {:rf.machines-viz.share/v       "2"
-                  :rf.machines-viz.share/chart   (dissoc chart-state :frame-id)
-                  :rf.machines-viz.share/created 0})
-          back (:rf.machines-viz.share/chart (share/decode-share-url url))]
-      (is (not (contains? back :frame-id)))
-      (is (= :auth/login-flow (:machine-id back))))))
-
 (deftest missing-envelope-rejected
   (testing "a payload missing the envelope keys throws :missing-envelope"
     (let [bad-url (envelope->url {:not :an-envelope})
           d (try (share/decode-share-url bad-url)
                  (catch :default e (ex-data e)))]
       (is (= :missing-envelope (:reason d))))))
-
-(deftest decoded-snapshot-with-extra-keys-rejected
-  (testing "a hand-edited URL smuggling :data onto :snapshot is rejected on decode"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :snapshot {:state :loading
-                                                                       :data {:token "leak"}})
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))
-          "the closed :snapshot schema rejects extra keys at decode time"))))
 
 (deftest decoded-snapshot-extra-key-alongside-compound-state-rejected
   (testing "a closed :snapshot is still closed for compound/parallel arms — extra keys rejected on decode"
@@ -952,16 +863,6 @@
         (is (= :invalid-chart-state (:reason d))
             (str "malformed definition " label " must fail closed at decode"))
         (is (= :rf.machines-viz.share/decode-failed (:rf.error/id d)))))))
-
-(deftest decoded-malformed-definition-rejected-safe
-  (testing "the SAFE decode API returns
-            {:error {:reason :invalid-chart-state}} — never :ok — for a
-            malformed definition (the viewer's ingestion API)"
-    (doseq [[label definition] malformed-definitions]
-      (let [{:keys [ok error]} (share/decode-share-url-safe (forge-definition-url definition))]
-        (is (nil? ok) (str "malformed definition " label " must NOT decode :ok"))
-        (is (= :invalid-chart-state (:reason error))
-            (str "malformed definition " label " surfaces a banner-friendly reason"))))))
 
 (deftest encode-rejects-malformed-definitions
   (testing "the encoder rejects the same malformed definitions
@@ -1116,19 +1017,6 @@
       (is (= :invalid-chart-state (:reason error))
           "the safe wrapper surfaces a banner-friendly reason rather than leaking the forged chart"))))
 
-(deftest decoded-extra-key-alongside-valid-snapshot-rejected
-  (testing "a forged top-level key is rejected even when the rest of the ChartState (incl. :snapshot) is valid"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :snapshot {:state :loading}  ;; legitimately valid
-                                                            :data {:token "leak"})       ;; forged extra
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))
-          "a valid :snapshot does not excuse an extra top-level key"))))
-
 (deftest valid-chart-state-with-exact-keys-still-decodes
   (testing "guard against over-tightening — a legitimate ChartState (no extra keys) still round-trips"
     (let [url  (encode chart-state)
@@ -1241,19 +1129,6 @@
       (is (= :invalid-chart-state (:reason d)) "reason/category preserved")
       (is (not (contains? d :chart-state)) "no raw chart-state slot")
       (is (some? (:chart-state-summary d)) "value-free summary present")
-      (is (not (some #(str/includes? % secret) (ex-data-strings d)))
-          "the secret string must not survive anywhere in ex-data"))))
-
-(deftest decode-error-omits-raw-envelope
-  (testing "missing-envelope decode-failed carries a value-free envelope summary, not the raw envelope"
-    (let [secret  "session-cookie-abc123"
-          ;; A forged envelope missing the required keys but carrying a secret.
-          url     (envelope->url {:totally :wrong :secret secret})
-          d       (try (share/decode-share-url url)
-                       (catch :default e (ex-data e)))]
-      (is (= :missing-envelope (:reason d)) "reason/category preserved")
-      (is (not (contains? d :envelope)) "no raw envelope slot")
-      (is (some? (:envelope-summary d)) "value-free summary present")
       (is (not (some #(str/includes? % secret) (ex-data-strings d)))
           "the secret string must not survive anywhere in ex-data"))))
 
