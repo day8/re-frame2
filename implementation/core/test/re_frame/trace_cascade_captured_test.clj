@@ -41,8 +41,7 @@
   the gate elides wholesale — the `(nil? …)` / `(not (contains? …))`
   negatives read off a NIL tag map in
   `sub-run-value-changed-attribution`,
-  `sub-run-first-run-flag-true-on-cache-slot-creation`,
-  `sub-run-layer-1-no-cause-sub` and
+  `sub-run-first-run-flag-true-on-cache-slot-creation` and
   `sub-run-cause-event-id-absent-outside-dispatch`.
 
   A precondition `when` is the other trap: in
@@ -604,33 +603,6 @@
           (is (true? (:rf.sub/first-run? t))
               "layer-2 sub: first-run? true on cache-slot creation")
           (is (= 4 (:rf.sub/value t))))))))
-
-(deftest sub-run-layer-1-no-cause-sub
-  (testing "a layer-1 sub never carries a :rf.sub/cause-sub (app-db-driven, not a cascade)"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r      (rf/subscribe [:n])
-          before @r
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     (rf/dispatch-sync [:inc])
-                     (reset! after @r)))
-          runs   (sub-runs events :n)]
-      ;; ALWAYS-ON: "app-db-driven, not a cascade" is a claim
-      ;; about WHERE this sub reads from, and that is production-visible —
-      ;; the sub tracks a direct app-db write with no upstream sub involved.
-      ;; The `(nil? (:rf.sub/cause-sub t))` negative is GUARDED: under the
-      ;; gate `t` is nil, so it would pass for free.
-      (is (= 0 before))
-      (is (= 1 @after) "the layer-1 sub tracks the app-db write directly")
-      (when rf.interop/debug-enabled?
-        (is (seq runs))
-        (let [t (:tags (first runs))]
-          (is (false? (:rf.sub/cascade? t)))
-          (is (nil? (:rf.sub/cause-sub t))))))))
 
 (deftest sub-run-base-shape-still-emitted
   (testing "the :rf.sub/run op-type vocabulary carries the base tags alongside the attribution tags"

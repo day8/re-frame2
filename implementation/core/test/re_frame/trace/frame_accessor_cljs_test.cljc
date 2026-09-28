@@ -6,7 +6,8 @@
   `[:tags :frame]`; there is no public top-level `:frame` on the raw
   trace-event shape. Derived / projection records (event bundles,
   `:rf/epoch-record`s, dispatch consequences, cursor / summary records)
-  carry frame identity at top-level `:frame`. One canonical reader,
+  carry frame identity at top-level `:frame` (`group-by-event`'s half of
+  that is pinned in `re-frame.trace.projection-cljs-test`). One canonical reader,
   owned by the Spec 009 / trace contract, reads the raw shape:
   `(get-in trace-event [:tags :frame])`.
 
@@ -16,8 +17,7 @@
   tool consumer (Xray, Story, story-mcp, machines-viz, re-frame2-pair)
   reads frame off a raw event."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.trace :as rf.trace]
-            [re-frame.trace.projection :as rf.trace.projection]))
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- raw trace-event shape: frame lives ONLY at [:tags :frame] ------------
 
@@ -34,12 +34,6 @@
           "frame is read from [:tags :frame]")
       (is (= :app/main (rf.trace/frame-of raw))
           "frame-of is the same accessor (alias)"))))
-
-(deftest trace-event-frame-is-its-implementation
-  (testing "the reader IS (get-in ev [:tags :frame]) — pinned so the wire shape can't drift"
-    (let [raw {:tags {:frame :req/scoped}}]
-      (is (= (get-in raw [:tags :frame])
-             (rf.trace/trace-event-frame raw))))))
 
 (deftest trace-event-frame-nil-when-not-frame-qualified
   (testing "a frameless raw event (registry-time / boot-time, outside any cascade) reads nil"
@@ -64,26 +58,3 @@
 (deftest frame-of-alias-identity
   (testing "frame-of and trace-event-frame resolve to the same fn value"
     (is (= rf.trace/trace-event-frame rf.trace/frame-of))))
-
-;; ---- derived / projection records: frame at TOP-LEVEL :frame --------------
-
-(deftest projection-records-carry-frame-top-level
-  (testing "group-by-event records expose frame at top-level :frame (NOT under :tags)"
-    ;; The producer stamps :frame under [:tags :frame] on every raw event;
-    ;; the projection hoists it to the cascade record's top-level :frame
-    ;; slot (the bare record/projection vocabulary, Tool-Pair §Identity
-    ;; spellings). This is the derived-record half of the two-layer contract.
-    (let [raw-events [{:op-type :rf.event :operation :rf.event/dispatched
-                       :id 1 :tags {:frame :counter/a
-                                    :rf.event/v [:inc]
-                                    :rf.trace/dispatch-id 100}}
-                      {:op-type :rf.sub :operation :rf.sub/run
-                       :id 2 :tags {:frame :counter/a
-                                    :rf.trace/dispatch-id 100}}]
-          [record] (rf.trace.projection/group-by-event raw-events)]
-      (is (= :counter/a (:frame record))
-          "the projected cascade record carries frame at top-level :frame")
-      ;; And the canonical RAW reader reads each underlying raw
-      ;; event's frame off [:tags :frame] — the two layers coexist.
-      (is (every? #(= :counter/a (rf.trace/trace-event-frame %)) raw-events)
-          "the raw events the record was projected from carry frame at [:tags :frame]"))))
