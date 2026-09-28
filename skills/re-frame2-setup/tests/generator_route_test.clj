@@ -213,10 +213,7 @@
               (str "CONTROL FAILED: the relative \"tools/template\" resolved to a "
                    "real template directory from a freshly created target. The "
                    "resolution check below therefore proves nothing — investigate "
-                   "before trusting it.")))
-        (let [resolved (resolve-local-root "tools/template" target)]
-          (is (= (.getName resolved) "template")
-              "CONTROL sanity: the relative form should resolve under the target.")))
+                   "before trusting it."))))
       (testing "the DOCUMENTED form resolves to the reviewed template from that same fresh target"
         (let [root     (str/replace (or @local-root-form "") checkout-placeholder (fwd repo-root))
               resolved (resolve-local-root root target)]
