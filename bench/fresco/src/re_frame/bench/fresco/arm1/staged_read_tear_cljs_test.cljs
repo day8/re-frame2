@@ -250,31 +250,6 @@
            carries a pair of values that were not simultaneously true")
       (is (true? @then-) "and the winning run read the committed value"))))
 
-;; ---------------------------------------------------------------------------
-;; The cost of the staged term, stated as assertions
-;; ---------------------------------------------------------------------------
-
-(deftest the-repair-costs-no-hook-no-object-and-no-record-of-a-read
-  (testing "the tripwire, checked rather than claimed. Closing the gap
-           costs one integer term in a number that is summed anyway —
-           no second scratch, nothing keyed by a render or an
-           attempt, no per-read object, and no commit-phase deref of a
-           subscription value."
-    (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
-        "two hooks; the staged term rides `useSyncExternalStore`'s own
-         snapshot re-check rather than buying a third")
-    (let [inv (rf.bench.fresco.arm1.runtime/retained-inventory)]
-      (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
-             (into #{} (map :token) (:absent inv)))
-          "the enumerated absences stand")))
-  (testing "and a render mutates neither the cell table nor a reference,
-           which is the clause the staged term stays inside: the staged
-           term is READ from the frame, never recorded by the render"
-    (seeded!)
-    (let [before (rf.bench.fresco.arm1.runtime/stats)]
-      (render (done-row (volatile! nil)))
-      (let [after (rf.bench.fresco.arm1.runtime/stats)]
-        (is (= (:cells before) (:cells after)) "no cell built")
-        (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")
-        (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
-        (is (= (:edges before) (:edges after)) "no edge added")))))
+;; The repair's cost — two hooks and no per-boundary object — is the hook
+;; ledger `runtime_cljs_test` pins, and a render recording nothing is
+;; `cold_read_cljs_test`'s `a-cold-read-leaves-the-world-as-it-found-it`.
