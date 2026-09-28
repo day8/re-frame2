@@ -1734,10 +1734,15 @@ structural template:
 
 Shift-click a third instance → tertiary focus (cyan); cap at 4 lanes.
 
-### Per-instance state-arc — v1 ships (rf2-nqw0v, Phase 5)
+### Per-instance state-arc — not built
 
-The mini-scrubber's companion overlay. A thin SVG strip mounted ABOVE
-the chart that traces the focused instance's chronological
+Design reference; nothing here ships. The Dynamic panel renders no
+per-instance arc overlay (see
+[§What is NOT in the Dynamic panel](#what-is-not-in-the-dynamic-panel-post-rf2-y9xmf)),
+and `tools/xray/src` carries no arc module.
+
+The design is the mini-scrubber's companion overlay: a thin SVG strip
+mounted ABOVE the chart that traces the focused instance's chronological
 state-trajectory:
 
 - **Origin** is the machine's initial state (`@idx 0`); each subsequent
@@ -1754,14 +1759,17 @@ state-trajectory:
   scrubbed to `idx N`, the arc trims to `[0..N]` so the strip mirrors
   the chart's rewound state.
 
-Pure-data algebra (`machine_inspector_arc_helpers.cljc`) is
-JVM-runnable; the view module (`machine_inspector_arc.cljs`) is a
-thin CLJS renderer mounted via the chart primitive's overlay slot.
-
 ### Per-instance mini-scrubber
 
-When a machine instance is focused, an in-arc-strip mini-scrubber lets
-the user rewind THAT instance without affecting the rest of Xray:
+Design reference; nothing here ships either. The Dynamic panel renders
+no mini-scrubber — no slider, no present button, no per-instance
+rewind. What exists is the `:rf.xray/machine-scrubber-position` slot,
+which reads `:present` unless `:rf.xray/set-scrubber-position` writes an
+index into it. No Xray view writes it, and the `:after`-rings overlay
+reads it to gate ring rendering to the `:present` position.
+
+The design lets the user rewind ONE focused machine instance without
+affecting the rest of Xray:
 
 - **Global timeline** = L2 event list + ribbon `[‹ › »]` (every Xray
   surface rebinds).
@@ -1770,31 +1778,10 @@ the user rewind THAT instance without affecting the rest of Xray:
   diagram's focused-instance highlight changes; other instances
   continue live).
 
-This mini-scrubber is intra-tab content (inside the Machines tab); it
-is NOT related to the (now-dead) bottom rail / global scrubber. The
-global scrubber surface is the ribbon `[‹ › »]` cluster + the L2 event
-list per [`018-Event-Spine.md`](018-Event-Spine.md) §6.
-
-#### v1 ships — concrete widget shape (rf2-nqw0v, Phase 5)
-
-The shipped mini-scrubber is a horizontal `<input type="range">`
-beneath the chart (NOT the prose `◀ scrub ▶` widget — the spec text
-above is the user-facing mental model; the v1 mechanics use a native
-range input for keyboard-accessibility and OS-native drag semantics).
-
-- **Slider write surface.** Dragging dispatches
-  `:rf.xray/set-scrubber-position` into the per-slot reducer; the
-  chart's active-state highlight overrides to the scrubbed-to state;
-  the per-instance arc trims to `[0..idx]`.
-- **Domain.** `[0, max-idx]` where `max-idx` is the last transition
-  recorded for the focused instance.
-- **"⏭ present" button** sits next to the slider — snaps the position
-  back to head and re-engages live-tracking semantics. Equivalent to
-  setting position = `max-idx` AND re-arming the head-follow flag.
-- **Auto-flip to `:present` on max-idx drag.** Dragging the slider to
-  the right-edge max value auto-flips position state to `:present` so
-  head-tracking survives a future-tense scrub (vs. sticking at
-  numeric `max-idx` and silently lagging the next live transition).
+The mini-scrubber would be intra-tab content (inside the Machines tab),
+separate from the global scrubber surface, which is the ribbon
+`[‹ › »]` cluster + the L2 event list per
+[`018-Event-Spine.md`](018-Event-Spine.md) §6.
 
 ## Spec 005 actor lifecycle — full XState parity
 

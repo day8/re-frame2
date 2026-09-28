@@ -151,7 +151,8 @@
 ;; ---- raw (un-normalised) before/after state -----------------------------
 ;;
 ;; A PARALLEL machine's snapshot `:state` is a region-MAP
-;; (`{:climate :idle :fan :off}`), one active leaf per orthogonal region
+;; (`{:climate [:idle] :fan :off}`), one active leaf per orthogonal region,
+;; each a keyword for a flat region and a vector path for a compound one
 ;; (Spec 005 §Parallel regions). `from-path-from-trace` / `to-path-from-trace`
 ;; run that value through `normalise-path`, which returns nil for a map —
 ;; correct for the single-active path resolvers, but it means a parallel

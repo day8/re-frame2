@@ -2243,11 +2243,11 @@
       (- (count focusable) idx 1))))
 
 (defn newer-events-text
-  "The marker's copy. spec/018 §LIVE-tracking + sticky rules writes
-  `↓ N new events — press ⏭ to follow`; the chrome paints `»`
-  ([[ribbon-nav-cluster]]'s `rf-xray-nav-head`, title \"Fast-forward to
-  latest (G)\"), so the marker names the control the user can actually
-  see. Singular at one. A nil or zero count drops the digit rather than
+  "The marker's copy, per spec/018 §LIVE-tracking + sticky rules:
+  `↓ N newer events — » to follow`. `»` is the glyph the chrome paints on
+  the fast-forward control ([[ribbon-nav-cluster]]'s `rf-xray-nav-head`,
+  title \"Fast-forward to latest (G)\"), so the marker names the control
+  the user can see. Singular at one. A nil or zero count drops the digit rather than
   printing a number the spine could not stand behind — see
   [[newer-event-count]]."
   [n]
