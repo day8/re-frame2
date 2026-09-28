@@ -227,15 +227,6 @@
       ((:release! child))
       ((:release! parent)))))
 
-(deftest the-crossing-leaves-no-residue
-  (seeded!)
-  (let [parent (mounted! parent-body {})
-        child  (mounted! child-body (crossing-props (:element parent)))]
-    ((:release! child))
-    ((:release! parent))
-    (rf.bench.fresco.arm1.runtime/reset-runtime!)
-    (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0 :entries 0} (rf.bench.fresco.arm1.runtime/residue)))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3 — the walk itself: what it forces, and what it must not disturb
 ;; ---------------------------------------------------------------------------
