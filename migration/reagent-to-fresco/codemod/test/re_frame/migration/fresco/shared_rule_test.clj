@@ -218,33 +218,20 @@
 ;; Amendment (B), at the unit
 ;; ---------------------------------------------------------------------------
 
+;; The pairwise collisions (camel-case, seeded rename, keyword/string), the
+;; injective maps and the CSS custom property are pinned with their exact
+;; `:collisions` data by the `w2-normalized-key-collisions` and
+;; `w2-nested-map-keys` corpus cases. These are the two shapes the corpus
+;; does not carry.
+
 (defn- collisions [src] (rf.migration.fresco.rewrite/injective-keys (p/parse-string src)))
 
 (deftest amendment-b-injectivity
-  (testing "an ordinary camel-case collision"
-    (is (= [{:slot "fooBar" :keys [":foo-bar" ":fooBar"]}]
-           (collisions "{:foo-bar 1 :fooBar 2}"))))
-
-  (testing "a seeded-rename collision"
-    (is (= [{:slot "className" :keys [":class" ":className"]}]
-           (collisions "{:class \"a\" :className \"b\"}"))))
-
-  (testing "a keyword/string collision — the donor takes the string
-            verbatim and camelCases the keyword onto the same name"
-    (is (= [{:slot "fooBar" :keys ["\"fooBar\"" ":foo-bar"]}]
-           (collisions "{:foo-bar 1 \"fooBar\" 2}"))))
-
   (testing "three sources onto one slot are all named, not just the pair"
     (is (= [{:slot "fooBar" :keys ["\"fooBar\"" ":foo-bar" ":fooBar"]}]
            (collisions "{:foo-bar 1 :fooBar 2 \"fooBar\" 3}"))))
 
-  (testing "an injective map is not refused"
-    (is (nil? (collisions "{:page-size 10 :first-name \"a\"}")))
-    (is (nil? (collisions "{:aria-label 1 :data-kind 2}")))
+  (testing "a string key and its keyword twin are not refused"
     (is (nil? (collisions "{\"first-name\" 1 :first-name 2}"))
         "the donor takes the string verbatim, so these are two DIFFERENT
-         slots — `first-name` and `firstName` — and neither collides"))
-
-  (testing "a CSS custom property cannot be half of a minted duplicate,
-            because it is never respelled"
-    (is (nil? (collisions "{:--brand-color \"red\" :font-size 12}")))))
+         slots — `first-name` and `firstName` — and neither collides")))

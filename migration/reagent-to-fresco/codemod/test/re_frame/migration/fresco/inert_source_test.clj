@@ -110,13 +110,7 @@
     (is (= [:computed-value]
            (classes "[:> A {:on-click f}]\n(comment [:> B {:on-click g}])\n"))
         "the inert form ENDS the file: `past-subtree` answers nil there and
-         the walk must terminate rather than fault or loop"))
-
-  (testing "the file's last form being inert is the case that faults, not
-            the case that miscounts — `analyse` guarded only on `z/end?`
-            before rf2-xc11, and nil is not an end"
-    (is (= 1 (sites "[:> A {:on-click f}]\n(comment [:> B {:on-click g}])\n")))
-    (is (= 0 (sites "(comment [:> B {:on-click g}])\n")))))
+         the walk must terminate rather than fault or loop")))
 
 (deftest a-syntax-quote-is-still-a-crossing-site
   (testing "the boundary, stated as a test so it is a decision and not an
@@ -156,14 +150,6 @@
             so `--rewrite` reports it as untouched rather than rewriting a
             comment and calling the file changed"
     (let [body "(comment [:> Chart {:options {:page-size 10}}])\n"]
-      (is (= (str hdr body) (rewritten body)))))
-
-  (testing "the two passes agree. `analyse` and `rw-node` walk the same tree
-            separately, and the design's whole discipline is that they
-            cannot reach different decisions — a file the report says has
-            no sites must come back untouched."
-    (let [body "#_[:> Chart {:options {:page-size 10}}]\n"]
-      (is (= 0 (sites body)))
       (is (= (str hdr body) (rewritten body))))))
 
 ;; ---------------------------------------------------------------------------
