@@ -254,8 +254,9 @@
 ;; re-registration after a clear restores delivery.
 
 (deftest ^:requires-debug clear-trace-listeners-drops-every-listener
-  (testing "clear-listeners! drops every listener; subsequent emits hit
-            zero listeners; re-registration after clear restores delivery"
+  (testing "clear-listeners! drops every listener and returns nil (per Spec
+            009 §The listener API); subsequent emits hit zero listeners;
+            re-registration after clear restores delivery"
     ;; Setup: three listeners under distinct keys, each appending to its
     ;; own observation atom.
     (let [seen-a (atom [])
@@ -280,7 +281,8 @@
             "every registered listener received the same number of events")
 
         ;; Clear every cb.
-        (rf.trace.tooling/clear-listeners!)
+        (is (nil? (rf.trace.tooling/clear-listeners!))
+            "clear-listeners! is a side-effecting nil-returning fn")
 
         ;; A subsequent dispatch lands on NONE of the cleared listeners.
         (rf/dispatch-sync [:clear/seed])
@@ -303,12 +305,6 @@
         ;; they were dissoc'd, not paused.
         (is (= a-count-1 (count @seen-a))
             "A stays cleared — clear-listeners! is permanent, not pause")))))
-
-(deftest ^:requires-debug clear-trace-listeners-returns-nil
-  (testing "clear-listeners! returns nil per Spec 009 §The listener API"
-    (rf/register-listener! :trace ::ret-nil (fn [_ev]))
-    (is (nil? (rf.trace.tooling/clear-listeners!))
-        "clear-listeners! is a side-effecting nil-returning fn")))
 
 ;; ---- unknown listener stream — canonical thrown-error shape ----------------
 ;;
