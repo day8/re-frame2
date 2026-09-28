@@ -1,8 +1,8 @@
 # 1. Installation
 
-You want Xray in a dev build without teaching production about it. This chapter gives you the smallest honest setup: add the dev dependency, reserve the right-side host, wire the preload, and check that the panel opens.
+You want Xray in your dev build and nowhere else. Setup is four steps: add the dev dependency, give Xray a place in the page, wire the preload, and check that the panel opens.
 
-## Add The Dev Dependency
+## Add the dev dependency
 
 While re-frame2 is pre-alpha, use a checkout-local dependency from a dev alias. `:local/root` is relative to *your* `deps.edn`, so the path below assumes the convention the rest of the docs use: a re-frame2 clone sitting **beside** your project directory.
 
@@ -14,11 +14,11 @@ While re-frame2 is pre-alpha, use a checkout-local dependency from a dev alias. 
    {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-When Xray is published, this becomes a normal Maven coordinate. Keep it in a dev-only alias. Xray is a tool, not application code.
+When Xray is published, this becomes a normal Maven coordinate. Keep it in a dev-only alias either way.
 
-## Reserve The Host
+## Reserve the host
 
-Xray's normal launch mode is a true inline right rail. Your page owns the layout. Xray owns the content inside the host.
+Xray opens as a column on the right of your page. Your page owns the layout; Xray renders inside the element you give it.
 
 ```html
 <div class="app-shell">
@@ -48,7 +48,7 @@ Xray's normal launch mode is a true inline right rail. Your page owns the layout
 }
 ```
 
-The CSS variable sets the initial width. Xray adds its own drag handle, persists the user-chosen width, and yields if you deliberately put native `resize:` behavior on the host.
+The CSS variable sets the starting width. Xray adds its own drag handle, remembers the width you drag it to, and leaves the host alone if you give it native `resize:` behaviour yourself.
 
 If your layout cannot use `[data-rf-xray-host]`, configure another selector before `rf/init!`:
 
@@ -59,9 +59,9 @@ If your layout cannot use `[data-rf-xray-host]`, configure another selector befo
   {:rf.xray/layout-host-selector "#devtools-xray"})
 ```
 
-## Wire The Preload
+## Wire the preload
 
-For a Shadow CLJS browser build:
+For a shadow-cljs browser build:
 
 ```clojure
 ;; shadow-cljs.edn
@@ -71,11 +71,11 @@ For a Shadow CLJS browser build:
    {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload loads your saved Xray Settings, registers Xray's handlers and its trace and epoch collectors, installs the browser API and Xray's keyboard shortcuts, `Ctrl+Shift+C` among them, and auto-opens into the layout host after the re-frame2 substrate adapter is ready.
+The preload loads your saved Xray settings, registers Xray's handlers and its trace and epoch collectors, installs the browser API and Xray's keyboard shortcuts, `Ctrl+Shift+C` among them, and opens Xray in the host once `rf/init!` has installed the substrate adapter.
 
-You do not need to call `init!` when the preload is wired. `day8.re-frame2-xray.core/init!` exists for manual hosts and unusual embedding setups.
+With the preload wired you do not call `init!`. `day8.re-frame2-xray.core/init!` exists for hosts that install Xray by hand; see [Mount control](api/mount-control.md#installing-without-the-preload).
 
-## Launch And Close
+## Launch and close
 
 In a normal dev page, Xray opens automatically once the app starts. The everyday controls are:
 
@@ -88,37 +88,38 @@ In a normal dev page, Xray opens automatically once the app starts. The everyday
 | Pop out to a second same-origin window | the ⛶ icon in the ribbon, or `(day8.re-frame2-xray.core/popout!)` |
 | Cover the page instead of sitting beside it | Settings → General → Panel position → Fullscreen overlay |
 
-Tool-owned pages can suppress only the automatic page-load open:
+A page that should not open Xray on load can turn off only the automatic open:
 
 ```clojure
 (xray-config/configure! {:rf.xray/auto-open? false})
 ```
 
-That does not disable Xray. Explicit `open!`, `toggle!`, and the keybinding still work.
+Xray stays installed: `open!`, `toggle!` and `Ctrl+Shift+C` still work.
 
 Xray listens for its shortcuts on the whole page, including Ctrl+K (⌘K) for its command palette. When those collide with your app's own keys, set `{:rf.xray/keybinding-enabled? false}` in `configure!`, or turn off **Handle keys?** on Settings' Keybindings tab.
 
-## Check It
+## Check it
 
-From this repository, the smallest useful Xray driving surface is the standard-epochs testbed:
+From a re-frame2 checkout, the quickest way to see Xray working is the standard-epochs testbed, which the rest of this guide uses as its running example:
 
 ```powershell
 cd implementation
 npx shadow-cljs watch :examples/standard-epochs
 ```
 
-Open `http://localhost:8031`. Press **⏭ Step** on the left a few times. Xray should be visible on the right, and the event spine should fill with rows.
+Open `http://localhost:8031` and press **⏭ Step** on the left a few times. Xray is open on the right, and its event list fills with rows.
 
 ![The standard-epochs testbed on the left after five steps, with Xray open on the right](../images/xray/xray-tutorial-shell.png)
 
-If Xray does not appear, check:
+## Troubleshooting
 
-- The host element exists in the page.
-- The preload is on the dev build, not the release build.
+If Xray does not appear in your own app, check that:
+
+- the host element exists in the page;
+- the preload is on the dev build, not the release build;
 - `rf/init!` has run with a substrate adapter.
-- `window.day8.re_frame2_xray.status()` has no missing-host diagnostic.
 
-`status` returns a map whose `:diagnostic` says why a launch did not happen:
+Then run `window.day8.re_frame2_xray.status()` in the browser console. Its `:diagnostic` says why a launch did not happen:
 
 | `:reason` | Meaning | Fix |
 | --- | --- | --- |
@@ -126,11 +127,11 @@ If Xray does not appear, check:
 | `:no-substrate-adapter` | Xray waited about 6 seconds and no substrate adapter was installed | Call `rf/init!` with an adapter |
 | `:auto-open-disabled` | Auto-open is switched off. This is not a failure. | Open Xray with `Ctrl+Shift+C` or `open!` |
 
-## Clickable Jump-To-Source
+## Clickable jump-to-source
 
-Every panel that surfaces a source-coord renders it as a link, such as `reg-event ↗` in Epoch or a ↗ after a Trace row's target. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, no editor is configured: the link targets the `:vscode` default scheme, but if that is not your editor the OS has no handler for it and the click would silently go nowhere. So rather than navigate into the void, an unconfigured click surfaces a **"No editor configured" hint** — a small bottom-corner toast with an **Open Settings** button that lands you on the editor picker. Once an editor is configured (in Settings or at boot), the click resolves and navigates straight to source; the hint never fires.
+Every panel that surfaces a source-coord renders it as a link, such as `reg-event ↗` in Epoch or a ↗ after a Trace row's target. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, no editor is configured: the link targets the `:vscode` default scheme, but if that is not your editor the OS has no handler for it and the click would silently go nowhere. So an unconfigured click shows a **"No editor configured" hint** instead: a small bottom-corner toast with an **Open Settings** button that lands you on the editor picker. Once an editor is configured, in Settings or at boot, the click navigates straight to source and the hint never fires.
 
-Set your editor either in **Xray Settings** (the "Click-to-source links open in" picker on the General tab — persisted per-dev in localStorage, so each teammate can pick their own), or once at boot in code:
+Set your editor either in **Xray Settings** (the "Click-to-source links open in" picker on the General tab, stored per developer in localStorage, so each teammate can pick their own), or once at boot in code:
 
 ```clojure
 (require '[day8.re-frame2-xray.config :as xray-config])
@@ -138,14 +139,25 @@ Set your editor either in **Xray Settings** (the "Click-to-source links open in"
 ;; :vscode (default) | :cursor | :windsurf | :zed | :idea | {:custom "<uri-template>"}
 ```
 
-The Settings picker overrides the boot-time `configure!` value per-machine, so a mixed-editor team sets a project default in code and individuals override locally.
+The Settings picker overrides the boot-time `configure!` value on that machine, so a mixed-editor team sets a project default in code and each developer overrides it locally.
 
 `:rf.xray/project-root` is **only** needed when your stamped source-coords are classpath-*relative* (an editor cannot resolve a relative path). The normal `reg-*` / `reg-machine` registration path stamps **absolute** coords, which Xray ships verbatim — leave `:rf.xray/project-root` unset in that case. Do not hardcode a machine-specific path "to make Open work"; if absolute coords already open, you do not need it.
 
-## Production Posture
+## Keep it out of production
 
-**Xray is kept out of production by where you put it, not by anything inside Xray.** The practical rule is the whole rule: put Xray in dev build config, not app code.
+Xray stays out of a release build because the release build never loads it. Put it in dev build configuration, not in application code.
 
-- **The preload path is dev-only build config.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace collector also gates its own entry point the same way.
-- **The manual `init!` / mount path has no `goog.DEBUG` gate.** `init!` registers Xray's handlers, the collectors, the browser globals and the keybinding listener unconditionally; `open!` gates only on a substrate adapter being installed, which every app that called `rf/init!` has in production exactly as in dev. Requiring `day8.re-frame2-xray.core` at all runs load-time registrations, so guarding the *calls* is not enough — keep the `:require` **and** the calls in a namespace only your dev entry point loads. See [Mount control §Production: what keeps Xray out](api/mount-control.md#production-what-keeps-xray-out).
-- **No CI gate proves Xray's absence from a release bundle.** `npm run test:elision` roots `re-frame.*` sentinels only; the bundle-isolation check greps a no-feature bundle that never installed Xray. If you want certainty for your own build, grep your release output for `rf-xray-root` or `rf.xray` — both survive Closure as string literals. That is a leak detector, not proof of zero retained bytes.
+- **The preload.** `:devtools :preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`.
+- **`init!`.** If you install Xray by hand, nothing inside Xray stops it reaching production: requiring `day8.re-frame2-xray.core` is enough to register it. Keep the `:require` and the calls in a namespace only your dev entry point loads. [Production: what keeps Xray out](api/mount-control.md#production-what-keeps-xray-out) has the details and a sample namespace.
+
+Nothing checks this for you. To confirm, search both builds' output for a string Xray always carries:
+
+```bash
+npx shadow-cljs compile app
+grep -c "rf-xray-root" public/js/main.js    # expect more than 0
+
+npx shadow-cljs release app
+grep -c "rf-xray-root" public/js/main.js    # expect 0
+```
+
+The dev build must show a count above 0. Zero in both means the search is broken, not that Xray is gone.

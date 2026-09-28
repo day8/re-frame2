@@ -1,12 +1,10 @@
-# 8. Machine Inspector
+# 8. Machine inspector
 
-Your bug is not a value; it is a process. This chapter shows how Xray reads re-frame2 state machines: Dynamic mode explains what one epoch did to a machine, while Static mode lets you browse machine definitions and topology.
+A state machine did something you did not expect. A generic logger can tell you that something updated a map; Xray can tell you that this `:door/push` moved `:door/main` from `:closed` to `:open`, ran `:clear-hold` on the way out and `:count-open` on the way in, and what data each one wrote. Dynamic mode shows what one event did to a machine; Static mode shows every machine's definition.
 
 ## Dynamic Machine
 
-The Dynamic Machine tab is event-coupled. It is useful when the focused epoch touched a machine.
-
-It reads the one machine the focused event targeted. A header line names the trigger event, the machine and the state it was in, and numbered rows follow in the order the machine ran them, the same rows the Epoch tab shows under EVENT HANDLER:
+The Dynamic Machine tab shows the one machine the focused event targeted. A header line names the trigger event, the machine and the state it was in, and numbered rows follow in the order the machine ran them, the same rows the Epoch tab shows under EVENT HANDLER:
 
 - **GUARD** for each guard the machine checked;
 - **ACTION** for each action, labelled by when it ran, such as **EXIT ACTION** or **ENTRY ACTION**, with the data it produced;
@@ -14,24 +12,17 @@ It reads the one machine the focused event targeted. A header line names the tri
 - **ALWAYS** for an eventless `:always` transition, and **TIMER** for an `:after` timer;
 - **START** when the event created the machine, and **NO OP** when the machine had no transition for the event.
 
-When a destroyed child actor aborts work it had in flight, that cancellation cascade is in Trace, behind the **⟲** button ([4. Trace stream](04-trace-stream.md#what-trace-shows)).
+When a destroyed child actor aborts work it had in flight, that cancellation cascade is in Trace, behind the **⟲** button ([Cancellation cascades](04-trace-stream.md#cancellation-cascades)).
 
-If the focused event did not target a machine, the tab reads only "This event does not target a state machine". That is not failure; it is honest scope.
+If the focused event did not target a machine, the tab reads only "This event does not target a state machine".
 
 Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. The chart has its own zoom, pan and fit controls. **◀ Prev** and **Next ▶** step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
 
 ![The Machine tab for a :door/push event: an exit action, the :closed → :open transition, and an entry action, with the chart below](../images/xray/xray-tutorial-machine.png)
 
-## Static Machines
+## Static machines
 
-Static Machines answers a different question: "what machines are registered, and what shape do they have?"
-
-Use it before or during debugging when you need the map:
-
-- browse registered machine ids;
-- inspect topology;
-- read states and transitions;
-- simulate the definition without touching your app.
+Static Machines answers a different question: which machines are registered, and what shape do they have? Use it to browse machine ids, read their states and transitions, and try a definition out without touching your app.
 
 Pick a machine to see its source link, how many states it has and how many instances are live, and four views of it:
 
@@ -40,22 +31,14 @@ Pick a machine to see its source link, how many states it has and how many insta
 - **Instances** jumps to the machine's live instances in Dynamic mode.
 - **Cascade** is disabled here, because cancellation cascades belong to Dynamic mode.
 
-Dynamic is the black box recorder for one transition. Static is the diagram on the wall.
+## A machine debugging loop
 
-## A Good Machine Debugging Loop
-
-When a machine flow behaves wrongly:
+When a machine behaves wrongly:
 
 1. Reproduce the action.
-2. Click the event row in the spine.
+2. Click the event in the event list.
 3. Open Dynamic Machine and read the transition.
-4. If the transition is surprising, flip to Static Machines and inspect the definition.
-5. Return to Epoch or Trace for the exact guard/action records.
+4. If the transition is surprising, switch to Static Machines and read the definition.
+5. Go back to Epoch or Trace for the exact guard and action records.
 
-That loop keeps you out of the most common machine-debugging trap: staring at the current state while forgetting the event that moved it there.
-
-## Why Machines Are Especially Good In Xray
-
-Machines have a small, named state space. Xray can exploit that. A generic logger can tell you "something updated a map"; Xray can tell you "this `:door/push` moved `:door/main` from `:closed` to `:open`, ran `:clear-hold` on the way out and `:count-open` on the way in, and here is the data each one wrote."
-
-That is the difference between seeing state and seeing behavior.
+Start from the event that moved the machine, not from its current state: the current state tells you where the machine is, and only the event tells you how it got there.

@@ -1,16 +1,12 @@
 # Reference
 
-The complete symbol table for Xray's public surface, organised by namespace for `Ctrl-F` use. Every row carries a signature and a one-line intuition — the same shape as the topical chapters, but flat and exhaustive. Reach for the topical chapters when you want context and prose around the contract; reach for this page when you know what you're looking for and just want the row.
-
-Surfaces fall into four namespaces and one browser global. The split is principled — each namespace answers a distinct question — but the row count varies wildly. `core` carries the common host-facing facade; `config` carries the full configuration surface; `keybinding` carries the embed-host lifecycle pair. If you're scanning for a single function and don't remember which namespace owns it, the right move is `Ctrl-F` on this page.
-
-For the topical walk-through with intuition notes and use-when prose, see [Mount control](mount-control.md) and [Configuration keys](config-keys.md). For what *canonical* means here, see [the index](index.md#what-canonical-means-here); for what this page leaves out on purpose, see [What this reference deliberately omits](#what-this-reference-deliberately-omits).
+Every public Xray function and constant, one row each, grouped by namespace. `core` holds the functions most hosts call, `config` the full configuration surface, and `keybinding` the pair that attaches and detaches Xray's keyboard listener. [Mount control](mount-control.md) and [Configuration keys](config-keys.md) explain the same functions with examples.
 
 ## `day8.re-frame2-xray.core`
 
-The canonical facade. The day-to-day require for host integrations: mount control, frame selection, Story-to-Xray focus, theme override, and the high-traffic config re-exports.
+The namespace most hosts require: opening and closing Xray, choosing the frame, `focus!`, the theme override, and the most-used configuration setters.
 
-| Symbol | Signature | Intuition |
+| Symbol | Signature | Use |
 | --- | --- | --- |
 | `init!` | `(init!)` / `(init! opts)` → nil | Manual install — the alternative to wiring `:preloads`. Installs once, applies `opts` on every call, and does not mount: call `open!` next. See [Mount control](mount-control.md#init). |
 | `open!` | `(open!)` → mount-state map or missing-host diagnostic | Mount + show the shell true-inline into the host's layout host. The canonical default. |
@@ -22,7 +18,7 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `target-frame` | `(target-frame)` → keyword \| nil | Read the currently-selected inspected-host frame, or `nil` when none is selected (never defaulted to `:rf/default`). One-shot read; not reactive. |
 | `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the inspected-host frame Xray targets. `nil` resets to the **unselected** state (not `:rf/default`). |
 | `focus!` | `(focus! command)` / `(focus! host-frame command)` → map | Host-facing focus handoff. Story and other hosts use it to select a frame, an epoch and a tab in one call. See [Focusing a panel from a host](mount-control.md#focusing-a-panel-from-a-host). |
-| `valid-focus-panels` | set value | Canonical focusable panel ids — one per live Dynamic L4 tab: `#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :fresco}`. The id is the internal registry key, not the visible label: `:routing` renders as "Routes", `:derivation-graph` as "Graph", `:module-view` as "Frames". A host that prefers the display noun may pass `:routes`, which normalises to `:routing`. |
+| `valid-focus-panels` | set value | The tab ids `focus!` accepts as `:panel`, one per Dynamic tab: `#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :fresco}`. [The Dynamic tabs](#the-dynamic-tabs) maps each to its label. |
 | `load-theme!` | `(load-theme! css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |
 | `configure!` | `(configure! opts)` → nil | Top-level config — re-exported from `config`. See [Configuration keys](config-keys.md). |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Re-exported from `config`. Whether the preload auto-opens. |
@@ -31,11 +27,11 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 
 ## `day8.re-frame2-xray.config`
 
-The full configuration surface. Reach here when you're flipping a knob the facade doesn't re-export, or when boot code is routing all config through `configure!`. Twelve setter surfaces plus seven published constants — the constants are values (not call-shapes) for docs generators, snippet helpers, and host stylesheet authoring.
+The full configuration surface: `configure!`, a setter per key, and constants naming the defaults that tools and stylesheets may need.
 
 ### Setters
 
-| Symbol | Signature | Intuition |
+| Symbol | Signature | Use |
 | --- | --- | --- |
 | `configure!` | `(configure! opts)` → nil | Top-level config. Map keyed by `:rf.xray/*`. |
 | `set-editor!` | `(set-editor! editor)` → nil | Editor preference. `:vscode` (default) / `:cursor` / `:windsurf` / `:zed` / `:idea` / `{:custom <tpl>}`. |
@@ -45,7 +41,7 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 | `set-keybinding-enabled!` | `(set-keybinding-enabled! bool)` → nil | Whether `keybinding/attach!` installs the global listener. Default `true`. |
 | `set-egress-profile!` | `(set-egress-profile! profile)` → nil | Xray's on-box `:rf.egress/*` privacy gate, per `(tool, frame)`. Default `:rf.egress/local-redacted`; `:rf.egress/local-raw` is the trusted-local opt-in. Narrowing back clears the trace buffer. |
 | `set-filters-auto-hide-error-overrides!` | `(set-filters-auto-hide-error-overrides! bool)` → nil | Whether an errored event stays listed when a filter would hide it. Default `true`. |
-| `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | Host-supplied seed pill set applied to `:active-filters` as the boot baseline — reapplied on every load after the transient-filter reset, not a first-install-only value. Shape: `{:in [{...}] :out [{...}]}`. |
+| `set-filter-seed!` | `(set-filter-seed! seed-map)` → nil | The filter pills every page load starts with. Shape: `{:in [{...}] :out [{...}]}`. |
 | `update-setting!` | `(update-setting! section key value)` → nil | Set one Settings slot and record it as the user's choice. The theme is `(update-setting! :theme nil kw)`. |
 | `reset-settings!` | `(reset-settings!)` → nil | Reset every Settings slot to its default. Wipes the localStorage slot and the `configure!` settings seed. |
 | `reset-suppressed-count!` | `(reset-suppressed-count!)` / `(reset-suppressed-count! frame-id)` → nil | Clear the count of sensitive trace events the egress profile held back, for every frame or one. |
@@ -66,7 +62,7 @@ The full configuration surface. Reach here when you're flipping a knob the facad
 
 The lifecycle pair for Xray's document keydown listener, which handles `Ctrl+Shift+C` and Xray's other shortcuts. Reach here from embed hosts that need to take the keys back after Xray has already attached.
 
-| Symbol | Signature | Intuition |
+| Symbol | Signature | Use |
 | --- | --- | --- |
 | `attach!` | `(attach!)` → nil | Install the listener once, in the capture phase. Does nothing while `:rf.xray/keybinding-enabled?` is `false`, or when already attached. |
 | `detach!` | `(detach!)` → nil | Remove the global listener. Idempotent. Symmetric with `attach!`. |
@@ -90,7 +86,7 @@ All eight sit inside the preload's `(when rf.interop/debug-enabled? …)` block,
 
 The preload installs a JS-side mirror so JS hosts, devtools-console one-liners, and `puppeteer` automation scripts can reach Xray's surfaces without a CLJS compile. The names are CLJS-munged, so a `!` in a function name becomes `_BANG_`.
 
-| JS spelling | CLJS equivalent | Intuition |
+| JS spelling | CLJS equivalent | Use |
 |---|---|---|
 | `window.day8.re_frame2_xray.open_BANG_()` | `(xray/open!)` | Mount + show the shell. |
 | `window.day8.re_frame2_xray.open_overlay_BANG_()` | `(xray/open-overlay!)` | Mount as overlay. |
@@ -101,57 +97,32 @@ The preload installs a JS-side mirror so JS hosts, devtools-console one-liners, 
 
 Once `core.cljs` has loaded, the same six fns are reachable under `window.day8.re_frame2_xray.core.*` so JS-console users see the canonical facade names. Both spellings are stable contracts.
 
-## Panel namespaces (composed by the shell)
+## The Dynamic tabs
 
-Ten Dynamic tab panels ship in `day8.re-frame2-xray.panels.*`. Hosts normally mount the full shell through `open!`, `open-overlay!`, or `popout!`; advanced tool surfaces can mount a focused panel through the panel facade when they are deliberately composing Xray-owned diagnostics.
+`valid-focus-panels` holds one id per Dynamic tab. Pass it as `focus!`'s `:panel` to open that tab. The id is not always the tab's label:
 
-Seven of the ten carry a standalone `mount-<panel>!` facade:
+| Tab | `:panel` |
+| --- | --- |
+| Epoch | `:epoch` |
+| app-db | `:app-db` |
+| Views | `:views` |
+| Trace | `:trace` |
+| Machine | `:machines` |
+| Routes | `:routing` (`:routes` is also accepted) |
+| Resources | `:resources` |
+| Graph | `:derivation-graph` |
+| Frames | `:module-view` |
+| Fresco | `:fresco` |
 
-| Panel | Namespace | Surface |
-|---|---|---|
-| Epoch | `day8.re-frame2-xray.panels.epoch-panel` | `Panel` Fresco boundary |
-| app-db | `day8.re-frame2-xray.panels.app-db-diff` | `Panel` Fresco boundary |
-| Reactive (Views) | `day8.re-frame2-xray.panels.reactive-panel` | `Panel` Fresco boundary |
-| Trace | `day8.re-frame2-xray.panels.trace` | `Panel` Fresco boundary |
-| Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` Fresco boundary |
-| Routing | `day8.re-frame2-xray.panels.routing` | `Panel` bridge over a private Fresco boundary |
-| Resources | `day8.re-frame2-xray.panels.resources` | `Panel` Fresco boundary |
-
-The remaining three are **L4-only registry tabs** — registered for the tab strip and focusable through `focus!`, but shell-internal and not independently mountable into a host's own layout:
-
-| Panel | Namespace | Surface |
-|---|---|---|
-| Graph (derivation graph) | `day8.re-frame2-xray.panels.derivation-graph` | `Panel` Fresco boundary, registry only |
-| Frames (module view) | `day8.re-frame2-xray.panels.module-view` | `Panel` Fresco boundary, registry only |
-| Fresco | `day8.re-frame2-xray.panels.fresco` | `Panel` Fresco boundary, registry only |
-
-Focusability and mountability are separate axes: every one of the ten is in `valid-focus-panels`, and only the first seven have a mount facade. See [11. The Fresco tab](../11-fresco-tab.md) for what the Fresco panel shows.
-
-Five parallel Static-mode panels browse the registrar rather than the event spine. All five are **Fresco boundaries** — `rf.fresco/defview` React function components reading through re-frame.fresco's collector, not `rf/reg-view`s. They are shell-internal either way: the tab registry stores a small private bridge, so the symbol named below is the boundary itself rather than the callable the shell mounts.
-
-| Panel | Namespace | Surface |
-|---|---|---|
-| Static Machines | `day8.re-frame2-xray.static.machines.panel` | `panel` Fresco boundary (symbol is lowercase) |
-| Static Flows | `day8.re-frame2-xray.static.flows.panel` | `Panel` Fresco boundary |
-| Static Interceptors | `day8.re-frame2-xray.static.interceptors.panel` | `Panel` Fresco boundary |
-| Static Routes | `day8.re-frame2-xray.static.routes.panel` | `Panel` Fresco boundary |
-| Static Schemas | `day8.re-frame2-xray.static.schemas.panel` | `Panel` Fresco boundary |
+The panels themselves live in `day8.re-frame2-xray.panels.*` and `day8.re-frame2-xray.static.*`. Xray's shell composes them; they are not part of the host API.
 
 ## What this reference deliberately omits
 
-Several surfaces are **publicly visible** in the CLJS source but explicitly *not part of the contract*. They're documented in the [developer-internal spec](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) for Xray's maintainers; this reference omits them on purpose.
+Several functions and vars are reachable in the ClojureScript source but are internal to Xray, so this reference leaves them out:
 
-- **`config.cljc` atom handles.** Every state setter writes to a `defonce` atom (`auto-open?`, `editor`, `keybinding-enabled?`, …); the atoms are reachable as `@day8.re-frame2-xray.config/<atom>` due to CLJS-default-public visibility. The setters are the canonical write path. Reaching for the atom directly is reading an internal seam.
-- **Internal `mount-<panel>!` aggregators.** Story's RHS inspector is their one consumer; a host that builds its own Xray chrome MAY call them (manifest tier `internal-public`), an app never should. They take hiccup and so mount only on a ratom-family adapter, by design; an element-shaped host uses the mount verbs. Full-shell embedding lives at [`008-Embedding-Contract.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/008-Embedding-Contract.md).
-- **Predicate / mutation helpers.** `suppress-sensitive?`, `note-suppressed!`, `clamp-panel-width-px`, `editor-uri` — thin wrappers Xray's own modules consume. (The `:sensitive?` stamp predicate itself is the framework's `rf/sensitive?`, called directly.)
-- **`register-toggle-off-callback!` / `unregister-toggle-off-callback!`.** Internal — Xray modules wire their buffer-clear hooks here. Host applications should NOT register.
+- **The atoms behind `config`.** Each setter writes to an atom in `day8.re-frame2-xray.config` (`auto-open?`, `editor`, `keybinding-enabled?`, …). Use the setters; the atoms are internal.
+- **The `mount-<panel>!` functions** in `day8.re-frame2-xray.panels`. They mount a single panel, and Story's right-rail inspector is their one consumer. They take hiccup, so they mount only under a Reagent-style adapter. A host that wants Xray on its page uses `open!`, `open-overlay!` or `popout!`.
+- **Helpers Xray's own code uses**: `suppress-sensitive?`, `note-suppressed!`, `clamp-panel-width-px` and `editor-uri`. To test whether a value is marked sensitive, call the framework's `rf/sensitive?`.
+- **`register-toggle-off-callback!` / `unregister-toggle-off-callback!`.** Xray's own modules register hooks here to clear their buffers. Host applications should not.
 
-If you find yourself reading source for a Xray-internal symbol because the chapters don't list it, the answer is almost always: the spec considers that surface internal, and a future minor release may rename or `^:private`-mark it. Reach for the documented surfaces in the chapters above instead.
-
-## See also
-
-- [Index](index.md) — the navigation map for the three chapters in this folder.
-- [Mount control](mount-control.md) — `init!`, `open!`, `close!`, `toggle!`, `popout!`, `status`, the frame picker.
-- [Configuration keys](config-keys.md) — `configure!` and the per-key setters.
-- [Driving the app from outside](https://github.com/day8/re-frame2/blob/main/tools/re-frame2-pair-mcp/README.md) — Xray has no agent seam; `re-frame2-pair.runtime` + the Pair MCP server is that surface.
-- [Normative spec — `tools/xray/spec/API.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/API.md) — the developer-internal source of truth.
+These may be renamed or made private in any release.

@@ -2,10 +2,13 @@
 
 Build-time and content-generation helpers for the docs site.
 
-There are 2 independent tutorial screenshot generators — one for
-[Story](../story/index.md), one for [Xray](../xray/index.md). They have
-different testbeds, serving models and output directories. Run them
-separately. The sections below document each in full.
+Two scripts generate the tutorial screenshots, one for
+[Story](../story/index.md) and one for [Xray](../xray/index.md). Each
+serves compiled testbed bundles from `implementation/out` over its own
+HTTP server, drives them with Playwright, and writes annotated PNGs.
+They use different testbeds and output directories, and you run them
+separately. The Story generator reuses the Xray generator's annotation
+functions.
 
 | Generator | Tutorial | Output |
 | --------- | -------- | ------ |
