@@ -163,96 +163,50 @@
         (is (nil? summary)
             "an empty override map is the no-override path — tag omitted")))))
 
-;; ---- removed / replaced classification ------------------------------------
+;; ---- removed / replaced / unmatched classification -------------------------
 
-(deftest summary-records-removed-override
-  (testing "a {ref nil} override is reported under :removed (and :matched)"
-    (reset-ran!)
-    (reg-recording-ic! ::log-a)
-    (reg-recording-ic! ::log-b)
-    (rf/reg-event :sum/run
-      {:interceptors [::log-a ::log-b]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [summary (run-start-summary [:sum/run]
-                                     {:interceptor-overrides {::log-a nil}})]
-      ;; ALWAYS-ON: the removal HAPPENED — `::log-a` did not run,
-      ;; `::log-b` did. That is the fact the guarded tag reports.
-      (is (= [::log-b] @ran) "the removed interceptor did not run; its sibling did")
-      (when rf.interop/debug-enabled?
-        (is (some? summary) "tag present when an override fires")
-        (is (= [::log-a] (:removed summary)) ":removed carries the removed ref id")
-        (is (= [] (:replaced summary)) ":replaced empty — nothing was replaced")
-        (is (= [::log-a] (:matched summary)) ":matched is the union")
-        (is (= 1 (:count summary)) ":count is (count :matched)")))))
-
-(deftest summary-records-replaced-override
-  (testing "a {ref other-ref} override is reported under :replaced (and :matched)"
-    (reset-ran!)
-    (reg-recording-ic! ::log-x)
-    (reg-recording-ic! ::stub-x)
-    (rf/reg-event :sum/run
-      {:interceptors [::log-x]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [summary (run-start-summary [:sum/run]
-                                     {:interceptor-overrides {::log-x ::stub-x}})]
-      ;; ALWAYS-ON: the SUBSTITUTION happened — the stub ran in the
-      ;; replaced entry's slot and the original did not run at all.
-      (is (= [::stub-x] @ran) "the replacement ran in place of the original")
-      (when rf.interop/debug-enabled?
-        (is (some? summary))
-        (is (= [::log-x] (:replaced summary)) ":replaced carries the replaced ref id")
-        (is (= [] (:removed summary)))
-        (is (= [::log-x] (:matched summary)))
-        (is (= 1 (:count summary)))))))
-
-(deftest summary-records-mixed-removed-and-replaced
-  (testing "a mix of removed + replaced overrides classifies each correctly"
-    (reset-ran!)
-    (reg-recording-ic! ::log-a)
-    (reg-recording-ic! ::log-b)
-    (reg-recording-ic! ::stub-b)
-    (rf/reg-event :sum/run
-      {:interceptors [::log-a ::log-b]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [summary (run-start-summary [:sum/run]
-                                     {:interceptor-overrides {::log-a nil
-                                                              ::log-b ::stub-b}})]
-      ;; ALWAYS-ON: removal and substitution compose — only the
-      ;; stub ran, in the position the replaced entry held.
-      (is (= [::stub-b] @ran)
-          "the removed entry is gone and the replaced entry ran as its stub")
-      (when rf.interop/debug-enabled?
-        (is (some? summary))
-        (is (= [::log-a] (:removed summary)))
-        (is (= [::log-b] (:replaced summary)))
-        (is (= #{::log-a ::log-b} (set (:matched summary)))
-            ":matched is the union of removed + replaced")
-        (is (= 2 (:count summary)))))))
-
-;; ---- unmatched override key does not count --------------------------------
-
-(deftest unmatched-override-key-not-counted
-  (testing "an override key that matches NO chain entry is not in the summary"
-    (reset-ran!)
-    (reg-recording-ic! ::log-a)
-    (rf/reg-event :sum/run
-      {:interceptors [::log-a]}
-      (fn [{:keys [db]} _] {:db db}))
-    ;; ::not-in-chain references nothing on the chain — it is the
-    ;; override-fallthrough candidate, NOT something that took effect.
-    (let [summary (run-start-summary [:sum/run]
-                                     {:interceptor-overrides {::not-in-chain nil}})]
-      ;; ALWAYS-ON: an unmatched override key leaves the chain
-      ;; untouched — the production statement of ":count 0".
-      (is (= [::log-a] @ran) "an unmatched override key changed nothing")
-      (when rf.interop/debug-enabled?
-        ;; The override map is non-empty (so the helper runs) but nothing
-        ;; matched — :matched/:removed/:replaced are empty, :count 0.
-        (is (some? summary) "tag present (override map non-empty)")
-        (is (= [] (:matched summary)))
-        (is (= [] (:removed summary)))
-        (is (= [] (:replaced summary)))
-        (is (= 0 (:count summary)))))))
+(deftest summary-classifies-each-override
+  (testing "each override is reported under :removed or :replaced, :matched is
+            their union and :count its size; a key matching NO chain entry is
+            the override-fallthrough candidate, not something that took effect,
+            so it is not counted"
+    (doseq [[label chain overrides expected-ran expected]
+            [["a {ref nil} override is reported under :removed (and :matched)"
+              [::log-a ::log-b] {::log-a nil} [::log-b]
+              {:removed [::log-a] :replaced [] :matched [::log-a] :count 1}]
+             ["a {ref other-ref} override is reported under :replaced (and :matched)"
+              [::log-x] {::log-x ::stub-x} [::stub-x]
+              {:removed [] :replaced [::log-x] :matched [::log-x] :count 1}]
+             ;; removal and substitution compose — only the stub runs, in the
+             ;; position the replaced entry held. `:matched` is compared as a
+             ;; set: the union carries no promised order across the two kinds.
+             ["a mix of removed + replaced overrides classifies each correctly"
+              [::log-a ::log-b] {::log-a nil ::log-b ::stub-b} [::stub-b]
+              {:removed [::log-a] :replaced [::log-b] :matched #{::log-a ::log-b} :count 2}]
+             ;; The override map is non-empty (so the summary is built) but
+             ;; nothing matched.
+             ["an override key that matches NO chain entry is not counted"
+              [::log-a] {::not-in-chain nil} [::log-a]
+              {:removed [] :replaced [] :matched [] :count 0}]]]
+      (testing label
+        (reset-ran!)
+        (doseq [id [::log-a ::log-b ::log-x ::stub-x ::stub-b]]
+          (reg-recording-ic! id))
+        (rf/reg-event :sum/run
+          {:interceptors chain}
+          (fn [{:keys [db]} _] {:db db}))
+        (let [summary (run-start-summary [:sum/run] {:interceptor-overrides overrides})]
+          ;; ALWAYS-ON: the override HAPPENED (or, unmatched, changed nothing)
+          ;; — the chain that actually ran is the fact the guarded tag reports.
+          (is (= expected-ran @ran) "the chain that ran reflects the override")
+          (when rf.interop/debug-enabled?
+            (is (some? summary) "tag present (the override map is non-empty)")
+            (is (= (:removed expected) (:removed summary)) ":removed carries the removed ref ids")
+            (is (= (:replaced expected) (:replaced summary)) ":replaced carries the replaced ref ids")
+            (if (set? (:matched expected))
+              (is (= (:matched expected) (set (:matched summary))) ":matched is the union")
+              (is (= (:matched expected) (:matched summary)) ":matched is the union"))
+            (is (= (:count expected) (:count summary)) ":count is (count :matched)")))))))
 
 ;; ---- per-frame overrides also surface -------------------------------------
 
@@ -275,35 +229,12 @@
           (is (= [::log-a] (:removed summary)))
           (is (= 1 (:count summary))))))))
 
-;; ---- value safety: no interceptor values / fns leak -----------------------
-
-(deftest summary-egresses-ids-only-no-values
-  (testing "the summary carries ONLY keyword ref ids — no fns, maps, or values"
-    (reset-ran!)
-    (reg-recording-ic! ::log-a)
-    (reg-recording-ic! ::stub-a)
-    (rf/reg-event :sum/run
-      {:interceptors [::log-a]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [summary (run-start-summary [:sum/run]
-                                     {:interceptor-overrides {::log-a ::stub-a}})
-          all-ids (concat (:matched summary) (:replaced summary) (:removed summary))]
-      ;; ALWAYS-ON: the substitution under scrutiny really happened,
-      ;; so the guarded value-safety claim below is about a real summary rather
-      ;; than an empty one. `(seq all-ids)` over the empty concat the gate
-      ;; yields would otherwise go red for a posture reason.
-      (is (= [::stub-a] @ran) "the replacement ran in place of the original")
-      (when rf.interop/debug-enabled?
-        (is (seq all-ids))
-        (doseq [id all-ids]
-          (is (or (keyword? id)
-                  (and (vector? id) (= 2 (count id)) (keyword? (first id))))
-              (str "summary id is an interceptor reference, not a value: " (pr-str id)))
-          ;; No executable interceptor map / fn ever appears.
-          (is (not (map? id)) "no interceptor value map in the summary")
-          (is (not (fn? id)) "no fn in the summary"))))))
-
 ;; ---- marks chokepoint fail-closed -----------------------------------------
+;;
+;; `summary-classifies-each-override`'s exact equality on `:removed`,
+;; `:replaced` and `:matched` already pins that only ref ids egress from a real
+;; dispatch; the cases below pin the chokepoint that fails closed if a value
+;; ever slips into the summary.
 
 (deftest marks-projection-keeps-id-only-shape
   (testing "project-trace-event passes through a clean id-only summary unchanged"
