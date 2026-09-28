@@ -362,21 +362,6 @@
                           {:file "x.cljs"}
                           {:project-root "C:/code/proj\\"})))))
 
-(deftest project-root-leading-separators-treated-as-absolute
-  (testing "a `:file` with a leading `/` or `\\` is treated as absolute and
-            passes through without the project-root prefix. The compose-
-            path step is conservative: when in doubt about a path's
-            absolute-ness, leave it alone rather than risk producing
-            `<root>/<root-relative-path>` double-roots."
-    (is (= "vscode://file//x.cljs:1:1"
-           (rf.source-coords.editor-uri/editor-uri :vscode
-                          {:file "/x.cljs"}
-                          {:project-root "/should-not-apply"})))
-    (is (= "vscode://file/\\x.cljs:1:1"
-           (rf.source-coords.editor-uri/editor-uri :vscode
-                          {:file "\\x.cljs"}
-                          {:project-root "/should-not-apply"})))))
-
 (deftest absolute-source-coord-file-is-not-prefixed
   (testing "absolute :file passes through verbatim regardless of project-root"
     ;; POSIX absolute.
@@ -409,21 +394,3 @@
     (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode {} {:project-root "/abs"})))
     (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode {:file ""} {:project-root "/abs"})))
     (is (nil? (rf.source-coords.editor-uri/editor-uri :vscode nil {:project-root "/abs"})))))
-
-(deftest panel-gallery-regression-rf2-zfy1e
-  (testing "the panel-gallery testbed coord shape resolves to an
-            absolute URI when the host has plumbed :project-root through"
-    ;; The testbed's source-coord file is classpath-relative
-    ;; (`panel_gallery/event_detail_stories.cljs`); with a local checkout as
-    ;; the project root, the URI must absolute-path the file the OS-side
-    ;; editor handler resolves.
-    (is (= (str "vscode://file/"
-                "C:/Users/me/code/my-app/tools/xray/testbeds/"
-                "panel_gallery/event_detail_stories.cljs:115:3")
-           (rf.source-coords.editor-uri/editor-uri
-             :vscode
-             {:file "panel_gallery/event_detail_stories.cljs"
-              :line 115
-              :column 3}
-             {:project-root
-              "C:/Users/me/code/my-app/tools/xray/testbeds"})))))

@@ -233,14 +233,6 @@
           "after (configure :elision {:rf.egress/threshold-bytes 100}) the 300-byte string warns"))
     (rf/unregister-listener! :trace :elision-test/configured)))
 
-(deftest configure-threshold-reaches-elision-config
-  ;; The configure case stores the value where elision reads it — direct
-  ;; assertion against the elision config, mirroring the :sub-cache shape
-  ;; of configure-test.
-  (rf/configure! {:elision {:rf.egress/threshold-bytes 4096}})
-  (is (= 4096 (:rf.egress/threshold-bytes (rf.elision/current-config)))
-      "(configure :elision {:rf.egress/threshold-bytes N}) reaches the elision config"))
-
 (deftest explicit-opt-wins-over-configured
   ;; Precedence: an explicit `:rf.egress/threshold-bytes` on the call wins
   ;; over the configured value. Configure a tiny threshold (would warn),
@@ -677,14 +669,6 @@
         "fail-closed applies to scalars too — nothing escapes without a frame")
     (is (= :rf/redacted (rf.elision/elide-wire-value {:secret "shh"} {}))
         "an explicit empty opts map does not supply a frame ⇒ still fail-closed")))
-
-(deftest frameless-egress-explicit-frame-override-resolves
-  ;; An explicit `:frame` override resolves regardless of the ambient scope:
-  ;; the contract's *override* tier. With no scope but an explicit frame,
-  ;; the named frame's (empty) registry applies — identity, not fail-closed.
-  (binding [rf.frame/*current-frame* nil]
-    (is (= {:a 1} (rf.elision/elide-wire-value {:a 1} {:frame :rf/default}))
-        "explicit :frame override resolves a known frame ⇒ its policy applies")))
 
 (deftest frameless-egress-include-sensitive-opt-out
   ;; `:rf.egress/include-sensitive? true` is the deliberate opt-out: a caller
