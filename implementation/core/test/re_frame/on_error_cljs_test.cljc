@@ -517,122 +517,18 @@
 ;; category but not WHICH component failed. So `:failing-id` + `:reason` are
 ;; lifted onto the always-on record for these categories (and ONLY these —
 ;; handler-exception and the sub-* categories, whose failing id already EQUALS
-;; `:event-id`, carry neither, keeping the tight record shape).
+;; `:event-id`, carry neither, keeping the tight record shape that
+;; `error-listener-fires-on-handler-exception` pins as an exact key set).
+;;
+;; `:phase` is deliberately NOT lifted: `rf.error-emit/emit-error-both!` lifts
+;; exactly `:failing-id` + `:reason`. So in production the interceptor phase is
+;; observable through the `:reason` STRING and nowhere else — drop it from that
+;; string and an off-box shipper silently loses the ability to tell a
+;; `:before` failure from an `:after` one. The dev-posture twin,
+;; `re-frame.interceptor-test`'s `pipeline-exception-attributed-to-true-component`,
+;; reads `:phase` off the trace tags directly; these are its production-axis
+;; counterpart.
 ;; ============================================================================
-
-(deftest interceptor-exception-record-carries-failing-interceptor-id
-  (testing "A user interceptor whose :after throws fans
-            `:rf.error/interceptor-exception` through the always-on listener
-            with the EVENT id in `:event-id` AND the failing INTERCEPTOR id in
-            `:failing-id` (distinct from the event) — so an off-box shipper
-            can tell WHICH interceptor failed in production, not just the
-            category. `:reason` rides too."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                             (fn [record] (swap! seen conj record)))
-      (rf/reg-interceptor :n4x74b/boom-after
-                          {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
-      (rf/reg-event :n4x74b/with-throwing-interceptor
-                    {:interceptors [:n4x74b/boom-after]}
-                    (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
-      (rf/dispatch-sync [:n4x74b/with-throwing-interceptor])
-      (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
-                    @seen)]
-        (is (some? r) "listener received :rf.error/interceptor-exception")
-        (is (= :n4x74b/with-throwing-interceptor (:event-id r))
-            ":event-id carries the EVENT id")
-        (is (= :n4x74b/boom-after (:failing-id r))
-            ":failing-id carries the failing INTERCEPTOR id (distinct from the
-             event) — the off-box record attributes the component")
-        (is (string? (:reason r))
-            ":reason rides the always-on record too")
-        (is (some? (:exception r)) ":exception present")))))
-
-(deftest interceptor-before-exception-record-carries-failing-interceptor-id
-  (testing "The :before-phase variant — an interceptor whose
-            :before throws is attributed to the interceptor id on the always-on
-            record too (the same classification applies to both phases)."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                             (fn [record] (swap! seen conj record)))
-      (rf/reg-interceptor :n4x74b/boom-before
-                          {:before (fn [_ctx] (throw (ex-info "before boom" {})))})
-      (rf/reg-event :n4x74b/before-throws
-                    {:interceptors [:n4x74b/boom-before]}
-                    (fn [{:keys [db]} _] {:db db}))
-      (rf/dispatch-sync [:n4x74b/before-throws])
-      (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
-                    @seen)]
-        (is (some? r) "listener received :rf.error/interceptor-exception")
-        (is (= :n4x74b/before-throws (:event-id r)) ":event-id carries the event id")
-        (is (= :n4x74b/boom-before (:failing-id r))
-            ":failing-id carries the failing interceptor id on the :before path too")))))
-
-(deftest coeffect-exception-record-carries-failing-cofx-id
-  (testing "A coeffect supplier that throws during context
-            assembly fans `:rf.error/coeffect-exception` through the always-on
-            listener. The always-on record carries the failing COFX id in
-            `:failing-id` (the supplier id, distinct from the dispatched event)
-            so off-box shippers attribute the failing supplier — not just the
-            category. `:reason` rides too."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                             (fn [record] (swap! seen conj record)))
-      (rf/reg-cofx :n4x74b/boom-cofx
-        (fn [] (throw (ex-info "cofx supplier boom" {}))))
-      (rf/reg-event :n4x74b/needs-boom-cofx
-        {:rf.cofx/requires [:n4x74b/boom-cofx]}
-        (fn [_ _] {}))
-      (try (rf/dispatch-sync [:n4x74b/needs-boom-cofx])
-           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
-      (let [r (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
-                    @seen)]
-        (is (some? r) "listener received :rf.error/coeffect-exception")
-        (is (= :n4x74b/boom-cofx (:failing-id r))
-            ":failing-id carries the failing COFX supplier id (distinct from the
-             event-id slot) — the off-box record attributes the component")
-        (is (string? (:reason r))
-            ":reason rides the always-on record too")))))
-
-(deftest handler-exception-record-omits-redundant-failing-id
-  (testing "For handler-exception the failing id EQUALS the
-            event id, so NO redundant `:failing-id` is stamped — the tight
-            record shape holds (the lift is guarded on failing-id being
-            DISTINCT from event-id)."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                             (fn [record] (swap! seen conj record)))
-      (rf/reg-event :n4x74b/handler-throws
-                    (fn [{:keys [db]} _] {:db (throw (ex-info "handler boom" {}))}))
-      (rf/dispatch-sync [:n4x74b/handler-throws])
-      (let [r (some (fn [x] (when (= :rf.error/handler-exception (:error x)) x))
-                    @seen)]
-        (is (some? r) "listener received :rf.error/handler-exception")
-        (is (not (contains? r :failing-id))
-            "handler-exception record carries NO :failing-id (it would be
-             redundant with :event-id — the tight shape is preserved)")
-        (is (= :n4x74b/handler-throws (:event-id r))
-            ":event-id carries the event id (the failing handler IS the event)")))))
-
-;; ----------------------------------------------------------------------------
-;; The part of the attribution contract the four twins above do not reach.
-;;
-;; They pin `:failing-id` on the always-on record, which is the load-bearing
-;; half. But the contract also
-;; discriminates the two INTERCEPTOR PHASES, and `:phase` is deliberately NOT
-;; lifted: `rf.error-emit/emit-error-both!` lifts exactly `:failing-id` +
-;; `:reason`, keeping the record tight. So in production the phase is
-;; observable through the `:reason` STRING and nowhere else — and both
-;; interceptor twins above assert only `(string? (:reason r))`. Drop the phase
-;; from that string and an off-box shipper silently loses the ability to tell
-;; a `:before` failure from an `:after` one, with nothing red in either
-;; posture.
-;;
-;; The dev-posture assertions in `re-frame.interceptor-test`'s
-;; `pipeline-exception-attributed-to-true-component` read `:phase` off the
-;; trace tags directly. That arm is correct; this is its
-;; production-axis counterpart, in the same twin shape.
-;; ----------------------------------------------------------------------------
 
 (defn- record-for
   "Dispatch `event`, return the first ALWAYS-ON record whose `:error` is
@@ -647,44 +543,49 @@
          (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
     (some (fn [x] (when (= category (:error x)) x)) @seen)))
 
-(deftest interceptor-exception-record-discriminates-phase-in-production
-  (testing "`:phase` is not lifted onto the tight always-on
-            record, so an off-box shipper tells a `:before` failure from an
-            `:after` one through `:reason` alone. Both phases pinned here, in
-            every posture."
-    (rf/reg-interceptor :mlh1h/boom-before
-      {:before (fn [_ctx] (throw (ex-info "before boom" {})))})
-    (rf/reg-event :mlh1h/before-throws
-                  {:interceptors [:mlh1h/boom-before]}
-                  (fn [{:keys [db]} _] {:db db}))
-    (rf/reg-interceptor :mlh1h/boom-after
-      {:after (fn [_ctx] (throw (ex-info "after boom" {})))})
-    (rf/reg-event :mlh1h/after-throws
-                  {:interceptors [:mlh1h/boom-after]}
-                  (fn [{:keys [db]} _] {:db db}))
-    (let [before (record-for :rf.error/interceptor-exception [:mlh1h/before-throws])
-          after  (record-for :rf.error/interceptor-exception [:mlh1h/after-throws])]
-      (is (some? before) "the always-on record fired for the :before throw")
-      (is (some? after) "the always-on record fired for the :after throw")
-      ;; NOT a vacuous negative: the record above is asserted present first,
-      ;; and it is the always-on one, which fires in both postures.
-      (is (nil? (:phase before))
-          ":phase is absent from the record by design — it rides the dev trace
-           tags only, and the tight record shape is the contract")
-      (is (re-find #"`before` phase" (:reason before))
-          ":reason names the :before phase — the ONLY production-visible
-           discriminator between the two interceptor phases")
-      (is (re-find #"`after` phase" (:reason after))
-          ":reason names the :after phase")
-      (is (re-find #":mlh1h/boom-before" (:reason before))
-          ":reason names the failing interceptor, agreeing with :failing-id"))))
+(deftest interceptor-exception-record-attributes-the-failing-interceptor-and-phase
+  (testing "A user interceptor that throws in either phase fans
+            `:rf.error/interceptor-exception` through the always-on listener
+            with the EVENT id in `:event-id` AND the failing INTERCEPTOR id in
+            `:failing-id` (distinct from the event), so an off-box shipper can
+            tell WHICH interceptor failed in production, not just the category.
+            `:phase` is not lifted onto the tight record, so `:reason` is the
+            ONLY production-visible discriminator between the two phases —
+            pinned for both, in every posture."
+    (doseq [[phase icpt event-id] [[:before :mlh1h/boom-before :mlh1h/before-throws]
+                                   [:after  :mlh1h/boom-after  :mlh1h/after-throws]]]
+      (testing (name phase)
+        (rf/reg-interceptor icpt
+          {phase (fn [_ctx] (throw (ex-info (str (name phase) " boom") {})))})
+        (rf/reg-event event-id
+                      {:interceptors [icpt]}
+                      (fn [{:keys [db]} _] {:db db}))
+        (let [r (record-for :rf.error/interceptor-exception [event-id])]
+          (is (some? r) "the always-on record fired")
+          (is (= event-id (:event-id r)) ":event-id carries the EVENT id")
+          (is (= icpt (:failing-id r))
+              ":failing-id carries the failing INTERCEPTOR id (distinct from the
+               event) — the off-box record attributes the component")
+          (is (some? (:exception r)) ":exception present")
+          (is (string? (:reason r)) ":reason rides the always-on record too")
+          ;; NOT a vacuous negative: the record above is asserted present
+          ;; first, and it is the always-on one, which fires in both postures.
+          (is (nil? (:phase r))
+              ":phase is absent from the record by design — it rides the dev
+               trace tags only, and the tight record shape is the contract")
+          (is (re-find (re-pattern (str "`" (name phase) "` phase")) (:reason r))
+              ":reason names the phase — the ONLY production-visible
+               discriminator between the two interceptor phases")
+          (is (re-find (re-pattern (str icpt)) (:reason r))
+              ":reason names the failing interceptor, agreeing with :failing-id"))))))
 
-(deftest coeffect-exception-record-keeps-the-event-in-event-id
-  (testing "The lift is GUARDED on `:failing-id` differing from
-            `:event-id`, so the coeffect twin above only means what it claims
-            if `:event-id` really carries the dispatched EVENT. Pin the other
-            half of that pair — otherwise a supplier id in BOTH slots would
-            satisfy the twin while telling the shipper nothing."
+(deftest coeffect-exception-record-carries-failing-cofx-id
+  (testing "A coeffect supplier that throws during context assembly fans
+            `:rf.error/coeffect-exception` through the always-on listener. The
+            record carries the failing COFX id in `:failing-id` and keeps the
+            dispatched EVENT in `:event-id` — the lift is GUARDED on the two
+            differing, so a supplier id in BOTH slots would tell the shipper
+            nothing. `:reason` rides too."
     (rf/reg-cofx :mlh1h/boom-cofx (fn [] (throw (ex-info "cofx boom" {}))))
     (rf/reg-event :mlh1h/needs-boom-cofx
                   {:rf.cofx/requires [:mlh1h/boom-cofx]}
@@ -696,7 +597,9 @@
       (is (= :mlh1h/boom-cofx (:failing-id r))
           ":failing-id is the failing SUPPLIER")
       (is (not= (:event-id r) (:failing-id r))
-          "the two are DISTINCT — exactly the condition the lift is guarded on"))))
+          "the two are DISTINCT — exactly the condition the lift is guarded on")
+      (is (string? (:reason r))
+          ":reason rides the always-on record too"))))
 
 ;; ============================================================================
 ;; Sub error records carry the failing SUB's source-coord.
@@ -864,66 +767,46 @@
     (rf.source-coords/remember-error-coords! :event id xlvt-event-coord)
     (rf.source-coords/remember-error-coords! :sub   id xlvt-sub-coord)))
 
-(deftest stale-captured-dispatch-resolves-the-event-coord-not-the-collision-sub
-  (testing "A stale captured `:dispatch` whose id is BOTH an event
-            AND a same-keyword sub resolves the EVENT coord. Dropping the realm
-            would let the `[:sub]`-first fallback steal the sub's coord."
-    (let [records (capture-superseded-record :dispatch :audit/collide
-                                             (seed-both :audit/collide))]
-      (is (= 1 (count records)) "exactly one always-on record per stale op")
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (= xlvt-event-coord (:source-coord r))
-            "stale captured dispatch resolves the EVENT coord, never the collision sub's")))))
+(defn- seed-event-only [id]
+  (fn [] (rf.source-coords/remember-error-coords! :event id xlvt-event-coord)))
 
-(deftest stale-captured-dispatch-sync-shares-the-event-realm
-  (testing "A stale captured `:dispatch-sync` shares the dispatch
-            realm: the EVENT coord, never the same-keyword sub's."
-    (let [records (capture-superseded-record :dispatch-sync :audit/collide
-                                             (seed-both :audit/collide))]
-      (is (= 1 (count records)))
-      (is (= xlvt-event-coord (:source-coord (first records)))
-          "stale captured dispatch-sync resolves the EVENT coord"))))
+(defn- seed-sub-only [id]
+  (fn [] (rf.source-coords/remember-error-coords! :sub id xlvt-sub-coord)))
 
-(deftest stale-captured-subscribe-resolves-the-sub-coord-not-the-collision-event
-  (testing "The inverse collision direction: a stale captured
-            `:subscribe` whose id is BOTH resolves the SUB coord, never the
-            same-keyword event's."
-    (let [records (capture-superseded-record :subscribe :audit/collide
-                                             (seed-both :audit/collide))]
-      (is (= 1 (count records)))
-      (is (= xlvt-sub-coord (:source-coord (first records)))
-          "stale captured subscribe resolves the SUB coord"))))
+(def ^:private realm-coord-rows
+  "`[label op seed expected-coord]` — both collision directions and both
+  absent-coord directions. `::absent` means the record must OMIT
+  `:source-coord` rather than steal the other realm's coord, which is what the
+  `[:sub]`-then-`[:event]` fallback would return."
+  [["dispatch, id is BOTH an event and a sub" :dispatch
+    (seed-both :audit/collide) xlvt-event-coord]
+   ["dispatch-sync shares the dispatch event realm" :dispatch-sync
+    (seed-both :audit/collide) xlvt-event-coord]
+   ["subscribe, id is BOTH an event and a sub" :subscribe
+    (seed-both :audit/collide) xlvt-sub-coord]
+   ["subscribe, id is ONLY an event" :subscribe
+    (seed-event-only :audit/collide) ::absent]
+   ["dispatch, id is ONLY a sub" :dispatch
+    (seed-sub-only :audit/collide) ::absent]])
 
-(deftest stale-captured-subscribe-omits-coord-when-only-event-registered
-  (testing "A stale captured `:subscribe` for an id that is ONLY an
-            EVENT (no sub coord) OMITS `:source-coord` rather than stealing the
-            unrelated event's. The `[:sub]`-then-`[:event]` fallback
-            would return the EVENT coord — the wrong realm."
-    (let [records (capture-superseded-record
-                    :subscribe :audit/collide
-                    (fn [] (rf.source-coords/remember-error-coords!
-                             :event :audit/collide xlvt-event-coord)))]
-      (is (= 1 (count records)))
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :source-coord))
-            "no sub coord ⇒ :source-coord is ABSENT, never the unrelated event's")))))
-
-(deftest stale-captured-dispatch-omits-coord-when-only-sub-registered
-  (testing "The inverse omit: a stale captured `:dispatch` for an id
-            that is ONLY a SUB (no event coord) OMITS `:source-coord` rather than
-            stealing the unrelated sub's. The `[:sub]`-first fallback
-            would return the SUB coord — the wrong realm."
-    (let [records (capture-superseded-record
-                    :dispatch :audit/collide
-                    (fn [] (rf.source-coords/remember-error-coords!
-                             :sub :audit/collide xlvt-sub-coord)))]
-      (is (= 1 (count records)))
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :source-coord))
-            "no event coord ⇒ :source-coord is ABSENT, never the unrelated sub's")))))
+(deftest stale-captured-op-resolves-the-coord-of-its-own-realm
+  (testing "A stale captured op emits exactly one always-on
+            `:rf.error/frame-destroyed` record whose `:source-coord` names the
+            op's OWN realm — `:dispatch` / `:dispatch-sync` the EVENT coord,
+            `:subscribe` the SUB coord — and is ABSENT when that realm has no
+            coord, never the unrelated same-keyword definition's. Dropping the
+            realm would let the `[:sub]`-first fallback steal the wrong one."
+    (doseq [[label op seed expected] realm-coord-rows]
+      (testing label
+        (let [records (capture-superseded-record op :audit/collide seed)
+              r       (first records)]
+          (is (= 1 (count records)) "exactly one always-on record per stale op")
+          (is (= :rf.error/frame-destroyed (:error r)))
+          (if (= ::absent expected)
+            (is (not (contains? r :source-coord))
+                "no coord in the op's own realm ⇒ :source-coord ABSENT, never the other realm's")
+            (is (= expected (:source-coord r))
+                "the coord of the op's own realm, never the collision's")))))))
 
 ;; ============================================================================
 ;; The LATE captured-op frame-destroyed rejections are REALM-EXACT
@@ -985,72 +868,26 @@
           :subscribe     ((:subscribe h) [id])))
       @seen)))
 
-(deftest late-superseded-dispatch-resolves-the-event-coord-not-the-collision-sub
-  (testing "A captured `:dispatch` rejected at the
-            LATE A→B router fence whose id is BOTH an event AND a same-keyword sub
-            resolves the EVENT coord, realm-exact via the threaded `:op`; a late
-            fence that dropped the realm would let the `[:sub]`-first fallback
-            steal the sub's coord."
-    (let [records (late-superseded-records :dispatch :audit/collide (seed-both :audit/collide))]
-      (is (= 1 (count records)) "exactly one always-on record per late rejection")
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (= xlvt-event-coord (:source-coord r))
-            "late captured dispatch resolves the EVENT coord, never the collision sub's")
-        (is (= :dispatch (:op r))
-            "the public `:op` realm rides the captured-op record")))))
-
-(deftest late-superseded-dispatch-sync-shares-the-event-realm
-  (testing "A captured `:dispatch-sync` at the
-            LATE fence shares the dispatch event realm: the EVENT coord."
-    (let [records (late-superseded-records :dispatch-sync :audit/collide (seed-both :audit/collide))]
-      (is (= 1 (count records)))
-      (is (= xlvt-event-coord (:source-coord (first records)))
-          "late captured dispatch-sync resolves the EVENT coord")
-      (is (= :dispatch-sync (:op (first records)))))))
-
-(deftest late-superseded-subscribe-resolves-the-sub-coord-not-the-collision-event
-  (testing "A captured `:subscribe` at the LATE
-            subscribe fence whose id is BOTH resolves the SUB coord, never the
-            same-keyword event's."
-    (let [records (late-superseded-records :subscribe :audit/collide (seed-both :audit/collide))]
-      (is (= 1 (count records)))
-      (is (= xlvt-sub-coord (:source-coord (first records)))
-          "late captured subscribe resolves the SUB coord")
-      (is (= :subscribe (:op (first records)))))))
-
-(deftest late-superseded-subscribe-omits-coord-when-only-event-registered
-  (testing "A captured `:subscribe`
-            rejected at the LATE subscribe fence for an id that is ONLY an EVENT
-            (no sub coord) OMITS `:source-coord` rather than STEALING the
-            unrelated event's. A late subscribe fence that dropped the realm
-            would let the `[:sub]`-then-`[:event]` fallback return the EVENT
-            coord — the wrong-realm record."
-    (let [records (late-superseded-records
-                    :subscribe :audit/collide
-                    (fn [] (rf.source-coords/remember-error-coords!
-                             :event :audit/collide xlvt-event-coord)))]
-      (is (= 1 (count records)))
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :source-coord))
-            "no sub coord ⇒ :source-coord ABSENT, never the unrelated event's")
-        (is (= :subscribe (:op r)) "the `:subscribe` realm still rides the record")))))
-
-(deftest late-superseded-dispatch-omits-coord-when-only-sub-registered
-  (testing "The inverse omit: a captured `:dispatch` at the LATE
-            fence for an id that is ONLY a SUB OMITS `:source-coord` rather than
-            stealing the unrelated sub's."
-    (let [records (late-superseded-records
-                    :dispatch :audit/collide
-                    (fn [] (rf.source-coords/remember-error-coords!
-                             :sub :audit/collide xlvt-sub-coord)))]
-      (is (= 1 (count records)))
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :source-coord))
-            "no event coord ⇒ :source-coord ABSENT, never the unrelated sub's")
-        (is (= :dispatch (:op r)))))))
+(deftest late-superseded-op-resolves-the-coord-of-its-own-realm
+  (testing "A captured op rejected at the LATE A→B fence emits exactly one
+            always-on `:rf.error/frame-destroyed` record, realm-exact via the
+            threaded `:op`: its `:source-coord` names the op's OWN realm, or is
+            ABSENT when that realm has no coord — a late fence that dropped the
+            realm would let the `[:sub]`-first fallback steal the other realm's
+            coord — and the public `:op` realm rides the record."
+    (doseq [[label op seed expected] realm-coord-rows]
+      (testing label
+        (let [records (late-superseded-records op :audit/collide seed)
+              r       (first records)]
+          (is (= 1 (count records)) "exactly one always-on record per late rejection")
+          (is (= :rf.error/frame-destroyed (:error r)))
+          (if (= ::absent expected)
+            (is (not (contains? r :source-coord))
+                "no coord in the op's own realm ⇒ :source-coord ABSENT, never the other realm's")
+            (is (= expected (:source-coord r))
+                "the coord of the op's own realm, never the collision's"))
+          (is (= op (:op r))
+              "the public `:op` realm rides the captured-op record"))))))
 
 ;; The ORDINARY address-directed DISPATCH path carries no `:op` —
 ;; `listener-fires-on-frame-destroyed-dispatch-sync` above pins it.
