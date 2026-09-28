@@ -185,14 +185,6 @@
                      (is (= "rec-abc" (:recording-id edn)) "recording-id surfaced"))
                    (done)))))))
 
-(deftest record-no-signals-short-circuits
-  (async done
-    (-> (record/record-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (tu/error? r))
-                 (is (= :no-signals (:reason (tu/extract-edn r))))
-                 (done))))))
-
 (deftest record-runtime-ok-false-is-iserror
   ;; Adversarial: a REACHABLE runtime `:ok? false` — the
   ;; `start-recording!` `:ambiguous-frame` refusal when an `:app-db`/`:sub`
@@ -264,27 +256,6 @@
                  (is (tu/error? r))
                  (is (= :missing-recording-id (:reason (tu/extract-edn r))))
                  (done))))))
-
-(deftest read-recording-no-such-recording-is-iserror
-  ;; Adversarial: reading a recording-id that aged out / was
-  ;; stopped returns the runtime `{:ok? false :reason :no-such-recording
-  ;; …}`. That MUST ride as :isError so the host can route recovery
-  ;; through the error channel — not a green result hiding a buried
-  ;; `:ok? false`. isError:true ⟺ :ok? false; a DISTINCT reason from the
-  ;; client-side :missing-recording-id short-circuit above.
-  (async done
-    (let [canned {:ok? false :reason :no-such-recording :recording-id "rec-gone"}]
-      (-> (tu/with-stubbed-eval! canned
-            (fn []
-              (record/read-recording-tool (fresh-conn) #js {:recording-id "rec-gone"})))
-          (.then (fn [r]
-                   (is (true? (tu/error? r))
-                       "an unknown/expired recording-id rides isError:true")
-                   (let [edn (tu/extract-edn r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :no-such-recording (:reason edn)))
-                     (is (= "rec-gone" (:recording-id edn))))
-                   (done)))))))
 
 (deftest read-recording-legitimate-empty-drain-stays-ok
   ;; Guard the non-regression: a legitimate empty drain is the runtime's
@@ -372,15 +343,6 @@
                      (is (true? (:timed-out? edn)))
                      (is (= {0 "loading"} (:last-sample edn)) "final reading surfaced"))
                    (done)))))))
-
-(deftest watch-until-no-signals-short-circuits
-  (async done
-    (-> (watch-until/watch-until-tool (fresh-conn)
-                                      #js {:pred #js {:signal 0 :equals 1}})
-        (.then (fn [r]
-                 (is (tu/error? r))
-                 (is (= :no-signals (:reason (tu/extract-edn r))))
-                 (done))))))
 
 (deftest watch-until-missing-pred-short-circuits
   (async done

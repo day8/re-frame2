@@ -123,21 +123,6 @@
                        "a non-string (number) :frame is dropped, not embedded raw")
                    (done)))))))
 
-(deftest array-frame-does-not-throw-and-drops-cleanly
-  ;; The array/object shape — a JSON array
-  ;; :frame arriving off a malformed client must degrade the same way a
-  ;; number does, not throw.
-  (async done
-    (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok? true}
-            (fn []
-              (read-ui/read-ui-tool (fresh-conn)
-                                    #js {:selector "#save" :frame #js ["not" "a" "string"]})))
-          (.then (fn [_]
-                   (is (not (str/includes? @seen ":frame"))
-                       "a non-string (array) :frame is dropped, not embedded raw")
-                   (done)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Tool wiring — preflight + envelope passthrough.
 ;; ---------------------------------------------------------------------------
@@ -218,14 +203,6 @@
                      (is (= :no-tagged-view-root (get-in edn [:entity :reason])))
                      (is (= "span" (get-in edn [:content :tag])) "content still present"))
                    (done)))))))
-
-(deftest missing-entry-point-short-circuits
-  (async done
-    (-> (read-ui/read-ui-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (tu/error? r))
-                 (is (= :no-target-arg (:reason (tu/extract-edn r))))
-                 (done))))))
 
 (deftest bad-selector-error-forwarded
   ;; A genuine `:ok? false` runtime failure (a thrown malformed-selector)

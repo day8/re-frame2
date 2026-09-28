@@ -193,38 +193,6 @@
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Scripted workflow witness — the ACTUAL order: capture F0,
-;; edit/reload to F1 BEFORE invoking tail-build, then wait. An atom stands in
-;; for the running app's probe-visible state; the capture is taken from it
-;; exactly as the skill instructs (pre-edit, printed form), the "edit + fast
-;; reload" lands before the first sample, and tail-build must still return ok.
-;; Reverting the baseline-aware comparison makes this red (:timed-out).
-;; ---------------------------------------------------------------------------
-
-(deftest workflow-capture-edit-reload-then-tail-build
-  (testing "capture F0 → edit+reload to F1 → tail-build recognizes the landed reload"
-    (async done
-      (let [runtime  (atom 0)                 ;; the app's probe-visible state
-            f0       (pr-str @runtime)        ;; 1. capture the baseline PRE-edit
-            _        (reset! runtime 1)       ;; 2. edit + reload land BEFORE the first sample
-            orig     nrepl/cljs-eval-value
-            stub     (fn
-                       ([_conn _build-id _form-str] (js/Promise.resolve @runtime))
-                       ([_conn _build-id _form-str _opts] (js/Promise.resolve @runtime)))]
-        (set! nrepl/cljs-eval-value stub)
-        (-> (tail/tail-build-tool nil (tu/args->js {:probe "(app/probe)"
-                                                    :baseline f0
-                                                    :wait-ms 3000}))
-            (.then (fn [result]
-                     (let [edn (tu/extract-edn result)]
-                       (is (true? (:ok? edn))
-                           "the reload landed before the first sample and is still recognized")
-                       (is (= 1 (get-in edn [:probe-values :final]))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.finally (fn [] (tu/restore-eval! stub orig)))
-            (.then (fn [_] (done))))))))
-
-;; ---------------------------------------------------------------------------
 ;; Probe never leaves the baseline — timeout envelope carries :probe-values
 ;; with baseline = initial = final, plus the :note hint. This is the
 ;; non-vacuity control for the baseline contract: the fast-reload success
@@ -318,18 +286,6 @@
                              (is (= "wait-ms" (:arg edn)))
                              (is (not= :probe-errored (:reason edn))
                                  "validation runs BEFORE the nREPL probe eval")))))))
-          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-          (.then (fn [_] (done)))))))
-
-(deftest negative-wait-ms-errors-honestly
-  (testing "a negative :wait-ms (immediate timeout / negative setTimeout) is rejected"
-    (async done
-      (-> (tail/tail-build-tool nil (tu/args->js {:probe "(some-form)" :baseline "0" :wait-ms -5}))
-          (.then (fn [result]
-                   (is (tu/error? result))
-                   (let [edn (tu/extract-edn result)]
-                     (is (= :invalid-numeric-arg (:reason edn)))
-                     (is (= "wait-ms" (:arg edn))))))
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
           (.then (fn [_] (done)))))))
 

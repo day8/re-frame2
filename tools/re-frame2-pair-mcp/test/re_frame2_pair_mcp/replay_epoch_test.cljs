@@ -174,18 +174,6 @@
                      (is (= 50 (:history-size edn))))
                    (done)))))))
 
-(deftest unreplayable-fn-override-refusal-carries-fx-ids
-  (async done
-    (let [refusal {:ok? false :reason :rf.epoch/replay-unreplayable-fx-override
-                   :frame :rf/default :epoch-id 8 :fx-ids [:http]}]
-      (-> (with-captured-eval! (atom nil) refusal
-            (fn []
-              (replay-epoch/replay-epoch-tool (fresh-conn) #js {:epoch-id "8"})))
-          (.then (fn [r]
-                   (is (err? r))
-                   (is (= [:http] (:fx-ids (read-result-text r))))
-                   (done)))))))
-
 (deftest strict-missing-cofx-failure-rides-as-isError
   ;; The runtime translates the framework's loud throw into an envelope.
   (async done

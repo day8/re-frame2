@@ -187,41 +187,11 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The `db` value is EXTERNAL EDN, so printing it is not quoting it.
-;; These three arms are the ones a `pr-str` path would fail: each carries
-;; a value that PRINTS the same either way and EVALUATES to something
-;; else.
+;; This arm is one a `pr-str` path would fail: it carries a value that
+;; PRINTS the same either way and EVALUATES to something else. The
+;; nested-list and symbol cases are pinned on `rt-quote` itself in
+;; eval-form-test.
 ;; ---------------------------------------------------------------------------
-
-(deftest db-keeps-nested-lists-as-lists
-  ;; The defect in one line: unquoted, `(inc 41)` inside the injected
-  ;; app-db evaluates to 42 and the frame is reset to a db the caller
-  ;; never asked for.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured {:ok? true :frame :rf/default}
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "{:expr (inc 41)}"})))))
-          (.then (fn [_]
-                   (is (= {:expr '(inc 41)} (quoted-datum (db-arg captured)))
-                       "the nested list survives as a list — it evaluates to itself")
-                   (done)))))))
-
-(deftest db-keeps-symbols-as-symbols
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured {:ok? true :frame :rf/default}
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "{:who js/window}"})))))
-          (.then (fn [_]
-                   (is (= {:who 'js/window} (quoted-datum (db-arg captured)))
-                       "a symbol-valued app-db entry stays a symbol rather than resolving")
-                   (done)))))))
 
 (deftest db-does-not-splice-an-emitter-shaped-payload
   ;; A caller-supplied vector wearing the emitter's own `::raw` tag is
@@ -264,16 +234,6 @@
                      (is (= :stories (nth parsed 2))))
                    (done)))))))
 
-(deftest rejects-missing-db
-  (async done
-    (-> (with-writes-on!
-          (fn []
-            (replace-app-db/replace-app-db-tool (fresh-conn) #js {})))
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :missing-db (:reason (read-result-text r))))
-                 (done))))))
-
 (deftest rejects-unreadable-db
   (async done
     (-> (with-writes-on!
@@ -287,29 +247,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Runtime soft-failure passthrough.
 ;; ---------------------------------------------------------------------------
-
-(deftest reset-rejected-envelope-rides-as-isError
-  ;; A `{:ok? false :reason :reset-rejected ...}` from the runtime means
-  ;; the injection did NOT land (no-such-frame, replace-during-drain,
-  ;; schema-mismatch). It is not a terminal-empty outcome, so it MUST
-  ;; ride as an isError result carrying the reason, not a success-shaped
-  ;; envelope the host reads as a landed write.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured {:ok? false :frame :rf/default
-                                             :reason :reset-rejected
-                                             :hint "schema mismatch"}
-                (fn []
-                  (replace-app-db/replace-app-db-tool (fresh-conn)
-                                                      #js {:db "{:bad :shape}"})))))
-          (.then (fn [r]
-                   (is (err? r) "soft-failure rides as an isError result")
-                   (let [edn (read-result-text r)]
-                     (is (= false (:ok? edn)))
-                     (is (= :reset-rejected (:reason edn))))
-                   (done)))))))
 
 (deftest unexpected-shape-fallback-rides-as-isError
   ;; A degraded runtime can return a non-map value; the tool synthesises

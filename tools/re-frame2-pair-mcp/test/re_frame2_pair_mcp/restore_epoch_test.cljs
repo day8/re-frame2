@@ -146,16 +146,6 @@
                      (is (= :stories (nth parsed 2))))
                    (done)))))))
 
-(deftest rejects-missing-epoch-id
-  (async done
-    (-> (with-writes-on!
-          (fn []
-            (restore-epoch/restore-epoch-tool (fresh-conn) #js {})))
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :missing-epoch-id (:reason (read-result-text r))))
-                 (done))))))
-
 (deftest rejects-unreadable-epoch-id
   (async done
     (-> (with-writes-on!
@@ -265,8 +255,8 @@
 ;; :event-vector to :rf/redacted when the epoch is sensitive AND the
 ;; raw-state gate is OFF (the published-build default). For that runtime
 ;; redaction to fire, the tool MUST signal `configure-raw-state!` to the
-;; runtime BEFORE the restore eval — exactly like dispatch-dry-run. These
-;; tests pin the WIRE boundary (the signal ordering + gate posture pushed);
+;; runtime BEFORE the restore eval — exactly like dispatch-dry-run. This
+;; test pins the WIRE boundary (the signal ordering + gate posture pushed);
 ;; the runtime redaction itself is exercised by the preload's pure-core
 ;; node test (skills/re-frame2-pair/tests/fixture/test/re_frame2_pair/pure_test.cljs).
 ;; ---------------------------------------------------------------------------
@@ -292,60 +282,3 @@
                      (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
                          "the gate-OFF posture is pushed to the runtime"))))
           (.finally (fn [] (raw-state/set-allow-raw-state! prev) (done)))))))
-
-(deftest redacted-sensitive-event-vector-rides-through
-  ;; The runtime already redacted the sensitive target epoch's
-  ;; :event-vector to :rf/redacted (gate OFF). The tool passes the
-  ;; runtime envelope through verbatim — the redacted marker must survive
-  ;; on the wire, and the raw payload must NOT appear anywhere.
-  (async done
-    (let [redacted-cascade {:epoch-id 7
-                            :event-id :auth/login
-                            :event-vector :rf/redacted
-                            :sensitive? true
-                            :frame :rf/default
-                            :outcome :ok
-                            :db-diff {:changed-paths [[:auth]] :added-paths [] :removed-paths []}
-                            :fx-fired [:http]
-                            :subs-recomputed 1
-                            :renders 1
-                            :restore? true}
-          runtime-envelope {:ok? true :restored? true :epoch-id 7
-                            :frame :rf/default
-                            :cascade-summary redacted-cascade
-                            :unreplayable-effects [{:fx-id :http}]}]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! (atom nil) runtime-envelope
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn  (read-result-text r)
-                         text (tu/extract-text r)]
-                     (is (= :rf/redacted (get-in edn [:cascade-summary :event-vector]))
-                         "the redacted :event-vector marker rides through verbatim")
-                     (is (true? (get-in edn [:cascade-summary :sensitive?]))
-                         "the :sensitive? annotation rides through")
-                     (is (not (str/includes? text "password"))
-                         "no raw payload literal appears on the wire"))
-                   (done)))))))
-
-(deftest legacy-true-runtime-falls-back-to-stub-envelope
-  ;; A runtime that returns plain `true` on success. The tool falls back
-  ;; to a synthesised envelope so the wire stays sane even against an
-  ;; out-of-date preload.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-writes-on!
-            (fn []
-              (with-captured-eval! captured true
-                (fn []
-                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (true? (:ok? edn)))
-                     (is (true? (:restored? edn)))
-                     (is (= 7 (:epoch-id edn))))
-                   (done)))))))

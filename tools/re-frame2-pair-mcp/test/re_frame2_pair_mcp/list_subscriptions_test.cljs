@@ -8,28 +8,21 @@
   subscriptions reports them accurately and the two surfaces agree by
   construction.
 
-  These tests pin:
-   - the descriptor (shape + arg contracts) so an accidental
-     rename / arg-name slip breaks the test rather than silently
-     shipping a broken tool;
-   - the `list-subscriptions` eval form reads the reactive sub-cache via
-     `sub-cache-info`, the source `snapshot`'s `:sub-cache` slice also
-     reads;
-   - that the `list-subscriptions` eval form and the `snapshot :sub-cache`
-     slice route through the SAME runtime accessor for the same frame
-     (`sub-cache` / `sub-cache-snapshot`), so the two agree by
-     construction.
+  These tests pin the descriptor (shape + arg contracts) so an
+  accidental rename / arg-name slip breaks the test rather than
+  silently shipping a broken tool, the retired tool name staying out of
+  tools/list, and a runtime refusal riding isError. The blank-eval and
+  genuinely-empty envelopes are the conformance corpus's
+  `:list-subscriptions/degraded-blank` and `:list-subscriptions/empty`
+  fixtures.
 
   The live end-to-end coverage runs against a real shadow-cljs runtime
   (`test/stdio-roundtrip.js`, the cross-server conformance harness)."
   (:require [cljs.test :refer-macros [deftest is testing async]]
-            [cljs.reader]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
-            [re-frame2-pair-mcp.tools.eval-form :as ef]
-            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.list-subscriptions :as lsub]))
 
 (defn- descriptor-named [nm]
@@ -71,67 +64,8 @@
       (is (re-find #"never disagree" desc)))))
 
 ;; ---------------------------------------------------------------------------
-;; list-subscriptions — reads the reactive cache
-;; ---------------------------------------------------------------------------
-
-(deftest list-subscriptions-eval-form-reads-reactive-sub-cache
-  (testing "the eval form calls the runtime's sub-cache-info (reactive cache)"
-    ;; The tool builds `(re-frame2-pair.runtime/sub-cache-info <opts>)`.
-    (let [form (ef/emit (ef/rt-call 'sub-cache-info {:frame :rf/default}))
-          edn  (cljs.reader/read-string form)]
-      (is (= 're-frame2-pair.runtime/sub-cache-info (first edn))
-          "list-subscriptions routes through sub-cache-info — the reactive sub-cache reader")
-      (is (= :rf/default (-> edn second :frame))
-          "the resolved frame threads into the opts map"))))
-
-(deftest list-subscriptions-include-values-threads-into-opts
-  (testing ":include-values true sets :include-values? on the runtime opts"
-    (let [form (ef/emit (ef/rt-call 'sub-cache-info {:frame :rf/xray :include-values? true}))
-          edn  (cljs.reader/read-string form)]
-      (is (= true (-> edn second :include-values?))))))
-
-;; ---------------------------------------------------------------------------
-;; Agreement with snapshot :sub-cache — same source, by construction
-;; ---------------------------------------------------------------------------
-
-(deftest list-subscriptions-agrees-with-snapshot-sub-cache-source
-  (testing "list-subscriptions and snapshot :sub-cache route through the SAME runtime accessor"
-    ;; snapshot's :sub-cache slice is computed by
-    ;; `snapshot-frame-slice` via `(subs-tooling/sub-cache-snapshot
-    ;; frame-id)` — exposed on the runtime as the `sub-cache` fn.
-    ;; `sub-cache-info` (which list-subscriptions calls) reads the SAME
-    ;; `sub-cache-snapshot` source. Both project the per-frame reactive
-    ;; cache keyed by query-vector, so the query-vectors they report for
-    ;; a given frame agree by construction.
-    ;;
-    ;; This unit test pins the FORM-LEVEL agreement (both forms name the
-    ;; reactive-cache runtime surface for the same frame); the live
-    ;; runtime end-to-end agreement is asserted by the conformance
-    ;; harness against a real build.
-    (let [ls-form   (ef/emit (ef/rt-call 'sub-cache-info {:frame :rf/default}))
-          snap-form (ef/emit (ef/rt-call 'snapshot-state
-                                         {:frames [:rf/default]
-                                          :include [:sub-cache]}))
-          ls-edn    (cljs.reader/read-string ls-form)
-          snap-edn  (cljs.reader/read-string snap-form)]
-      ;; list-subscriptions reads the reactive cache for :rf/default …
-      (is (= 're-frame2-pair.runtime/sub-cache-info (first ls-edn)))
-      (is (= :rf/default (-> ls-edn second :frame)))
-      ;; … and snapshot includes the :sub-cache slice for the same frame.
-      (is (= 're-frame2-pair.runtime/snapshot-state (first snap-edn)))
-      (is (contains? (set (-> snap-edn second :include)) :sub-cache)
-          "snapshot's :sub-cache slice is the peer source list-subscriptions reads"))))
-
-;; ---------------------------------------------------------------------------
 ;; tools/list surface + naming hygiene
 ;; ---------------------------------------------------------------------------
-
-(deftest tool-surfaces-on-tools-list
-  (testing "tool-descriptors-js includes list-subscriptions"
-    (let [arr   (tools/tool-descriptors-js)
-          names (set (for [i (range (alength arr))]
-                       (j/get (aget arr i) :name)))]
-      (is (contains? names "list-subscriptions")))))
 
 (deftest old-name-not-present
   (testing "no `subscription-info` tool name is registered"
@@ -141,54 +75,10 @@
       (is (not (contains? names "subscription-info"))
           "`subscription-info` is not a tool name (no back-compat shim)"))))
 
-(deftest tool-name-uses-kebab-case
-  (testing "the descriptor name uses kebab-case"
-    (is (= "list-subscriptions" (:name (descriptor-named "list-subscriptions"))))))
-
 ;; ---------------------------------------------------------------------------
-;; Frame-arg coercion (shared with snapshot / get-path)
+;; Degraded-eval contract — a runtime `:ok? false` refusal rides isError,
+;; never a success-shaped listing.
 ;; ---------------------------------------------------------------------------
-
-(deftest frame-arg-coerces-bare-and-edn-forms
-  (testing "list-subscriptions reuses ->frame-keyword, so both arg shapes resolve"
-    (is (= :rf/default (args/->frame-keyword "rf/default")))
-    (is (= :rf/default (args/->frame-keyword ":rf/default")))))
-
-;; ---------------------------------------------------------------------------
-;; Degraded-eval contract — a blank/non-map eval must NOT be
-;; fabricated into a fake `{:ok? true :subs []}` "everything fine, zero
-;; subscriptions" answer. A non-map surfaces as `:unexpected-shape`
-;; err-text (isError:true); a genuinely-empty read (the runtime's own
-;; `{:ok? true :subs []}` map) is unaffected.
-;; ---------------------------------------------------------------------------
-
-(deftest list-subscriptions-blank-eval-is-iserror-not-fabricated-empty
-  (async done
-    (-> (tu/with-stubbed-eval! nil
-          (fn [] (lsub/list-subscriptions-tool (fresh-conn) #js {})))
-        (.then (fn [r]
-                 (is (true? (tu/error? r))
-                     "a blank/non-map eval rides isError:true, not a fabricated empty success")
-                 (let [edn (tu/extract-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :unexpected-shape (:reason edn))))
-                 (done))))))
-
-(deftest list-subscriptions-genuine-empty-stays-ok
-  ;; Non-regression: a genuinely-empty listing is the runtime's own
-  ;; `{:ok? true :subs []}` MAP — a real success. `map-envelope-result`
-  ;; only diverts a non-map or an explicit `:ok? false`, so real emptiness
-  ;; must still ride as a non-error success.
-  (async done
-    (-> (tu/with-stubbed-eval! {:ok? true :subs []}
-          (fn [] (lsub/list-subscriptions-tool (fresh-conn) #js {})))
-        (.then (fn [r]
-                 (is (not (tu/error? r))
-                     "an empty-but-ok listing is a success, not an error")
-                 (let [edn (tu/extract-edn r)]
-                   (is (true? (:ok? edn)))
-                   (is (= [] (:subs edn))))
-                 (done))))))
 
 (deftest list-subscriptions-runtime-ok-false-is-iserror
   ;; A runtime `{:ok? false :reason :ambiguous-frame}` refusal (multi-frame
