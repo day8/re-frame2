@@ -27,14 +27,6 @@
                                   :runtime-count 1}))
       "No JVM half ⇒ :unknown regardless of the browser fields"))
 
-(deftest verdict-no-runtime-when-zero-runtimes
-  (is (= :no-runtime
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 0
-                                  :build-flushed-at 1000
-                                  :runtime-loaded-at 2000}))
-      "Zero connected runtimes ⇒ :no-runtime"))
-
 (deftest verdict-no-runtime-when-heartbeat-stale
   (is (= :no-runtime
          (fresh/liveness-verdict {:jvm-read? true

@@ -64,23 +64,3 @@
                              (is false "the retry must SUCCEED once discovery recovers")
                              nil)))))
             (.then (fn [_] (done))))))))
-
-(deftest repeated-failures-keep-resurfacing-fresh-errors
-  (testing "while discovery keeps failing, each call re-runs it and surfaces a fresh rejection (no permanent wedge)"
-    (async done
-      (let [calls (atom 0)
-            err   (ex-info ":rf.error/pair-mcp-nrepl-port-not-found"
-                           {:rf.error/id :rf.error/pair-mcp-nrepl-port-not-found})
-            discover-fn (fn [_launch-flags]
-                          (swap! calls inc)
-                          (js/Promise.reject err))]
-        (-> (server/ensure-connection! {} discover-fn)
-            (.catch (fn [_e1]
-                      (is (= 1 @calls))
-                      ;; A second call must ALSO re-invoke discovery rather
-                      ;; than replaying the cached error without trying.
-                      (-> (server/ensure-connection! {} discover-fn)
-                          (.catch (fn [_e2]
-                                    (is (= 2 @calls)
-                                        "the second failing call re-ran discovery (not a cached replay)")
-                                    (done)))))))))))

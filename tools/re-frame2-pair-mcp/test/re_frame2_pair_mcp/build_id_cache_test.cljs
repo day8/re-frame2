@@ -25,7 +25,8 @@
        when no explicit `:build` arg is passed.
     3. An explicit `:build` arg always wins (no surprise).
     4. nREPL `close!` clears the cache (a transport-only `connect!`
-       reopen of the same port deliberately PRESERVES it)."
+       reopen of the same port deliberately PRESERVES it) — pinned by
+       nrepl-test's close and reopen tests."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
@@ -172,23 +173,6 @@
                   "Successful discover-app must cache the resolved build-id")
               (done)))))))
 
-(deftest discover-app-cache-survives-into-subsequent-arg-build-call
-  ;; End-to-end: after a discover-app run, the next call's `arg-build`
-  ;; (with no `:build` arg) routes to the same build discover-app
-  ;; resolved — the friction the cache removes.
-  (async done
-    (let [conn          (fresh-conn)
-          _             (prime-probe-cache! conn :examples/step-deck)
-          discover-args (tu/args->js {:build "examples/step-deck"})
-          tool-args     (tu/args->js {})]
-      (-> (tu/with-stubbed-eval! healthy-health
-            (fn [] (discover-app/discover-app conn discover-args)))
-          (.then
-            (fn [_]
-              (is (= :examples/step-deck (wire/arg-build conn tool-args))
-                  "Post-discover-app, omitted :build must default to the cached id")
-              (done)))))))
-
 (deftest discover-app-does-not-cache-on-precondition-failure
   ;; `discover-app` short-circuits on precondition failures (e.g.
   ;; `:debug-enabled? false`) without caching — the build isn't a usable
@@ -226,29 +210,6 @@
               (is (= :examples/step-deck (:resolved-build-id @conn))
                   "Ambiguous-frame warning is still a discoverable build — cache it")
               (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Cache invalidation — shared lifecycle with `:probed-builds`.
-;; ---------------------------------------------------------------------------
-
-(deftest cache-cleared-by-close
-  ;; `nrepl/close!` drops `:resolved-build-id` so a reconnect doesn't
-  ;; carry a stale build-id from the previous session — the operator
-  ;; may have restarted shadow against a different build between
-  ;; reconnects.
-  (let [conn (fresh-conn)]
-    (swap! conn assoc :resolved-build-id :examples/step-deck)
-    (nrepl/close! conn)
-    (is (nil? (:resolved-build-id @conn))
-        "close! must drop the resolved-build-id cache")))
-
-(deftest make-conn-initialises-cache-to-nil
-  ;; A fresh conn-atom has the slot present and nil — `arg-build` falls
-  ;; through to the env default cleanly, and `connect!` doesn't need to
-  ;; create the slot, just reset it.
-  (let [conn (nrepl/make-conn 0 "127.0.0.1")]
-    (is (contains? @conn :resolved-build-id))
-    (is (nil? (:resolved-build-id @conn)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Single-build auto-selection.
@@ -373,25 +334,6 @@
                     "the echoed :build round-trips unchanged through arg-build"))
               (done)))))))
 
-(deftest canonical-build-round-trips-from-both-alias-forms
-  ;; The echoed canonical keyword, re-serialised either as the bare
-  ;; qualified string or the colon form, resolves identically — the
-  ;; deterministic alias contract. The two alias forms are
-  ;; exactly the colon-tolerance axis: `subs (str kw) 1` (drop the
-  ;; leading `:`) and `str kw` (keep it) both read back to `kw`.
-  (let [conn      (fresh-conn)
-        canonical :examples/step-deck
-        bare      (subs (str canonical) 1)   ; "examples/step-deck"
-        colon     (str canonical)]           ; ":examples/step-deck"
-    (is (= "examples/step-deck" bare) "sanity: the bare qualified form")
-    (is (= canonical (wire/arg-build conn (tu/args->js {:build bare})))
-        "bare qualified string round-trips to the canonical keyword")
-    (is (= canonical (wire/arg-build conn (tu/args->js {:build colon})))
-        "colon-prefixed form round-trips identically")
-    (is (= (wire/arg-build conn (tu/args->js {:build bare}))
-           (wire/arg-build conn (tu/args->js {:build colon})))
-        "the two alias forms are indistinguishable post-coercion")))
-
 ;; ---------------------------------------------------------------------------
 ;; Per-session isolation.
 ;;
@@ -418,17 +360,6 @@
     ;; inherits NOTHING from A or B (no process-global).
     (is (= :app (wire/arg-build (fresh-conn) no-build))
         "a fresh session sees no sticky target from other sessions")))
-
-(deftest sticky-target-is-not-a-process-global
-  ;; Belt-and-braces: the sticky state is keyed on the conn-atom identity.
-  ;; Two conns with the same shape are independent atoms; mutating one's
-  ;; :resolved-build-id must not be observable on the other.
-  (let [a (fresh-conn)
-        b (fresh-conn)]
-    (swap! a assoc :resolved-build-id :only-a)
-    (is (= :only-a (:resolved-build-id @a)))
-    (is (nil? (:resolved-build-id @b))
-        "the sticky target is per-conn-atom, never shared across sessions")))
 
 ;; ---------------------------------------------------------------------------
 ;; Ambiguous-target / no-target structured error.

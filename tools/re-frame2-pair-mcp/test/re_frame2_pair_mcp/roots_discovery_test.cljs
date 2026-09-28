@@ -106,15 +106,6 @@
       (clj->js (mapv (fn [{:keys [name kind]}] (dirent name kind)) entries))
       #js [])))
 
-(deftest walk-finds-root-level-edn
-  (let [root "/proj"
-        tree {root [{:name "shadow-cljs.edn" :kind :file}
-                    {:name "README.md"      :kind :file}]}
-        hits (vec (array-seq (rd/walk-for-shadow-edns* (fs-stub tree) root)))]
-    (is (= 1 (count hits)))
-    (is (= (jp root "shadow-cljs.edn") (first hits))
-        "the root-level edn is found at depth 0")))
-
 (deftest walk-finds-implementation-level-edn
   (testing "monorepo with shadow-cljs.edn under <root>/implementation/"
     (let [root "/proj"

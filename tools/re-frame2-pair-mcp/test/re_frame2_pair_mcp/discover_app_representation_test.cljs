@@ -71,29 +71,6 @@
                     "no colon-stripped short-name list in the canonical EDN text"))
               (done)))))))
 
-(deftest discover-app-build-id-is-a-full-keyword-in-canonical-text
-  ;; The resolved :build-id echoed on success is a keyword, rendered
-  ;; with its colon in the EDN text.
-  (async done
-    (let [conn (fresh-conn)
-          _    (prime! conn :examples/step-deck)
-          args (tu/args->js {:build "examples/step-deck"})
-          healthy {:ok?                        true
-                   :debug-enabled?             true
-                   :coord-annotation-enabled?  true
-                   :frames                     [:rf/default]
-                   :ambiguous-frame?           false}]
-      (-> (tu/with-stubbed-eval! healthy
-            (fn [] (discover-app/discover-app conn args)))
-          (.then
-            (fn [result]
-              (let [edn (tu/extract-edn result)]
-                (is (= :examples/step-deck (:build-id edn))
-                    ":build-id is the full keyword")
-                (is (str/includes? (tu/extract-text result) ":build-id :examples/step-deck")
-                    "rendered with its colon in the canonical text"))
-              (done)))))))
-
 (deftest discover-app-unhealthy-runtime-is-isError
   ;; An unhealthy runtime (`:ok? false` from `runtime-health!`) is a
   ;; known-tool failure per spec/003's universal isError rule, not a

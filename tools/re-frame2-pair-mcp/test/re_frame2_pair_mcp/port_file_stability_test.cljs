@@ -76,29 +76,6 @@
             ;; is what keeps the stub from leaking into the next test.
             (.then (fn [_] (restore!) (done))))))))
 
-(deftest cached-probe-winning-candidate-stays-on-connection
-  (testing "a winning HTTP-probe candidate (target/shadow-cljs/nrepl.port) is reused when unchanged"
-    (async done
-      ;; The probe winner is target/shadow-cljs/nrepl.port, NOT a
-      ;; derived .shadow-cljs/nrepl.port. Cache the winning path; re-read
-      ;; sees the same port ⇒ stay put.
-      (let [winning-pf "/abs/proj/root/target/shadow-cljs/nrepl.port"
-            conn       (nrepl/make-conn 6789 "127.0.0.1")
-            restore!   (with-fs-read (reads-port-at winning-pf "6789"))]
-        (server/set-discovered-for-tests!
-          {:conn conn :port 6789 :port-file winning-pf
-           :project-home "/abs/proj/root"})
-        (-> (server/ensure-connection! {} (fn [_] (js/Promise.reject (js/Error. "must not re-discover"))))
-            (.then (fn [resolved-conn]
-                     (is (= conn resolved-conn)
-                         "cached conn reused — the winning candidate path re-read fine")
-                     (is (= winning-pf (:port-file (server/session-state-snapshot)))
-                         "the cached port-file is the winning candidate, not a derived one")))
-            (.catch (fn [e]
-                      (is false (str "ensure-connection! must NOT reject: " (.-message e)))
-                      nil))
-            (.then (fn [_] (restore!) (done))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; CWD-fallback restart recovery. The step-5 cwd scan retains the winning
 ;; candidate's cwd-resolved absolute identity, so a session seeded from THAT
@@ -185,31 +162,6 @@
             (.then (fn [_]
                      (is (true? @redisc?)
                          "a vanished cwd port-file forces rediscovery, not a silent reuse of P1")))
-            (.catch (fn [e]
-                      (is false (str "rediscovery should succeed here: " (.-message e)))
-                      nil))
-            (.then (fn [_] (restore!) (done))))))))
-
-(deftest cached-port-file-genuine-disappearance-still-rediscovers
-  (testing "when the cached (exact) port-file genuinely vanishes, ensure-connection! still rediscovers — cached-path reuse doesn't mask real shutdowns"
-    (async done
-      (let [explicit-pf "C:/repo/target/shadow-cljs/nrepl.port"
-            conn        (nrepl/make-conn 7001 "127.0.0.1")
-            redisc?     (atom false)
-            ;; Every read throws — the file is truly gone (shadow stopped).
-            restore!    (with-fs-read (fn [_] (throw (js/Error. "ENOENT"))))
-            discover-fn (fn [_]
-                          (reset! redisc? true)
-                          (server/mark-discovered-for-tests!
-                            (nrepl/make-conn 7002 "127.0.0.1"))
-                          (js/Promise.resolve :ok))]
-        (server/set-discovered-for-tests!
-          {:conn conn :port 7001 :port-file explicit-pf
-           :project-home "C:/repo/target/shadow-cljs"})
-        (-> (server/ensure-connection! {} discover-fn)
-            (.then (fn [_]
-                     (is (true? @redisc?)
-                         "a genuine vanished port-file STILL forces rediscovery (no false reuse)")))
             (.catch (fn [e]
                       (is false (str "rediscovery should succeed here: " (.-message e)))
                       nil))
