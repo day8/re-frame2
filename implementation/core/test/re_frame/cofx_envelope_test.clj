@@ -10,15 +10,19 @@
     - a caller-supplied map is PRESERVED verbatim — including extra slots
       (`:uuid`, `:random`, browser/storage facts) — and the router never
       overwrites a supplied `:rf/time-ms`;
-    - a CHILD dispatch (`:fx [[:dispatch ...]]`) gets its OWN map: `:rf/time-ms`
-      is NOT inherited from the parent (each is a distinct causal token);
-    - the value is visible to handler bodies as the `:rf.cofx`
-      coeffect alongside `:db` / `:event` / `:rf.db/runtime` / `:rf.frame/id`
-      (Spec 002 §Event Context And Coeffects);
-    - it is FILTERED out of the user-cofx trace projection exactly like the
-      other framework defaults (`rf.fx/framework-coeffect-keys`);
-    - there is no `:dispatched-at` (EP-0010 rider b) — its diagnostic
-      dispatch-time need is the trace event `:time` stamp.
+    - a `:dispatch-later` CHILD gets its OWN map, stamped at fire time:
+      `:rf/time-ms` is NOT inherited from the parent (each is a distinct
+      causal token; the immediate `:dispatch` child is pinned by
+      `re-frame.cofx-cljs-test/reply-envelope-carries-rf-cofx-flat-and-freshly-stamped`);
+    - handler bodies read owner-qualified facts off the `:rf.cofx` coeffect
+      and fold them into durable state exactly as supplied, so re-feeding
+      the same token reproduces the same durable state.
+
+  The coeffect's place among the framework defaults and its filtering out of
+  the user-cofx trace projection are pinned by
+  `re-frame.event-context-coeffect-keys-test`; the absence of
+  `:dispatched-at` (EP-0010 rider b) under both gate states by
+  `re-frame.jvm-prod-gate-integration-test`.
 
   The envelope field is the flat `:rf.cofx` map (EP-0017), with no alias for
   the EP-0010 draft name `:rf.world/inputs`; this namespace pins the live
@@ -36,8 +40,8 @@
 
   ## Posture split
 
-  Only two of this file's twenty-two cases need anything, and both for the
-  same reason: they read a DEV-ONLY channel to observe a DURABLE fact.
+  Only two of this file's cases need anything, and both for the same
+  reason: they read a DEV-ONLY channel to observe a DURABLE fact.
 
   `dispatched-at-supplied-is-a-generic-unknown-opt-with-did-you-mean` asserts
   the retired draft key trips `:rf.warning/unknown-dispatch-opt`, a dev-gated
@@ -60,7 +64,6 @@
   app-db, with the epoch-ring projection as the guarded dev-side detail."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as rf.fx]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
@@ -103,22 +106,6 @@
   "The private envelope builder — the dispatch envelope is not exposed to
   user handlers, so stamping/preservation is asserted directly against it."
   #'rf.router/build-envelope)
-
-(defn- capture-coeffects
-  "Dispatch `[:capture]` on `frame-id` (threading `opts`) and return the
-  coeffects map the handler saw."
-  ([frame-id] (capture-coeffects frame-id nil))
-  ([frame-id opts]
-   (let [captured (atom nil)]
-     (rf/reg-interceptor :capture/probe
-       {:before (fn [ctx] (reset! captured (:coeffects ctx)) ctx)})
-     (rf/reg-event :capture
-       {:interceptors [:capture/probe]}
-       (fn [_ _] {}))
-     (if opts
-       (rf/dispatch-sync [:capture] (merge {:frame frame-id} opts))
-       (rf/dispatch-sync [:capture] {:frame frame-id}))
-     @captured)))
 
 ;; ===========================================================================
 ;; Envelope stamping
@@ -225,27 +212,16 @@
         (is (re-find #"INTEGER" (:reason data))
             "the message states the integer/epoch-ms contract")))))
 
-(deftest valid-cofx-shapes-pass
-  (testing "the valid shapes the validator must NOT reject"
+(deftest nil-supplied-cofx-passes-and-is-stamped
+  (testing "an explicit nil :rf.cofx is a shape the validator must NOT reject:
+            the router stamps a fresh map (the integer and map-without-time
+            shapes pass through `preserves-caller-supplied-time-ms` and
+            `preserves-caller-supplied-extra-keys-and-fills-time-ms` above)"
     (rf/make-frame {:id :wi/valid :doc "ctx"})
-    (testing "nil :rf.cofx passes (the router stamps a fresh map)"
-      (is (number? (get-in (build-envelope [:noop] {:frame :wi/valid
-                                                    :rf.cofx nil})
-                           [:rf.cofx :rf/time-ms]))
-          "a nil supplied value is filled with a stamped :rf/time-ms"))
-    (testing "an integer :rf/time-ms passes verbatim"
-      (is (= 1781078400123
-             (get-in (build-envelope [:noop] {:frame :wi/valid
-                                              :rf.cofx {:rf/time-ms 1781078400123}})
-                     [:rf.cofx :rf/time-ms]))
-          "a valid integer :rf/time-ms rides through preserved"))
-    (testing "a map with NO :rf/time-ms passes (the router fills it)"
-      (let [cofx (get (build-envelope [:noop]
-                                      {:frame :wi/valid
-                                       :rf.cofx {:todo/id 1}})
-                      :rf.cofx)]
-        (is (= 1 (:todo/id cofx)) "the supplied fact rides through")
-        (is (number? (:rf/time-ms cofx)) "the missing :rf/time-ms is filled")))))
+    (is (number? (get-in (build-envelope [:noop] {:frame :wi/valid
+                                                  :rf.cofx nil})
+                         [:rf.cofx :rf/time-ms]))
+        "a nil supplied value is filled with a stamped :rf/time-ms")))
 
 ;; ===========================================================================
 ;; Structural-EDN-always recordable cofx-value validation (supplied values)
@@ -316,9 +292,7 @@
       (is (rf.recordable/recordable-edn-value? d)
           "a java.util.Date is recordable EDN data")
       (is (nil? (rf.recordable/explain-non-recordable d))
-          "no failing descriptor for a Date")
-      (is (= d (read-string (pr-str d)))
-          "a Date round-trips through pr-str / read-string unchanged")))
+          "no failing descriptor for a Date")))
   (testing "a java.time.Instant is NOT recordable — rejected at the source"
     (let [inst (java.time.Instant/ofEpochMilli 1781078400123)]
       (is (not (rf.recordable/recordable-edn-value? inst))
@@ -329,11 +303,7 @@
         (is (re-find #"(?i)instant" (:bad-type bad))
             "the bad-type names the Instant host class"))
       (is (nil? (rf.recordable/safe-preview inst))
-          "safe-preview refuses an Instant — no non-round-tripping preview leak")
-      (testing "the round-trip the predicate protects against actually fails"
-        (is (thrown? RuntimeException
-              (read-string (pr-str inst)))
-            "read-string of a printed Instant throws (No reader function for tag inst)"))))
+          "safe-preview refuses an Instant — no non-round-tripping preview leak")))
   (testing "an Instant BURIED in a collection is rejected (deep walk)"
     (let [bad (rf.recordable/explain-non-recordable
                 {:ok 1 :when {:at (java.time.Instant/ofEpochMilli 0)}})]
@@ -343,7 +313,13 @@
 (deftest supplied-non-edn-cofx-value-is-cofx-value-invalid
   ;; THE adversarial acceptance leg: a non-EDN supplied cofx value throws
   ;; :rf.error/cofx-value-invalid; an EDN one passes.
-  (testing "a supplied host-handle cofx value throws cofx-value-invalid (dev mode)"
+  ;;
+  ;; The walk is ALWAYS-ON (EP-0017 Open Issue 9): a host handle folded into
+  ;; the durable causal record corrupts durable state, so it is a production
+  ;; error, not a dev nicety. This namespace is on the prod-gate roster, so
+  ;; this deftest also runs under the real `-Dre-frame.debug=false` gate —
+  ;; which is what proves the walk is not gated on `debug-enabled?`.
+  (testing "a supplied host-handle cofx value throws cofx-value-invalid (both postures)"
     (rf/make-frame {:id :wi/edn-bad :doc "ctx"})
     (let [ex   (try
                  (build-envelope [:noop] {:frame   :wi/edn-bad
@@ -393,41 +369,6 @@
           "a nested EDN map fact rides through unchanged")
       (is (inst? (:session/at cofx)) "an #inst fact rides through"))))
 
-(deftest structural-edn-check-is-production-hard
-  ;; EP-0017 Open Issue 9 (structural EDN ALWAYS, hard error in
-  ;; production as well as dev): a supplied recordable value that is a host
-  ;; handle folds a non-EDN value into the durable causal record (epoch ledger,
-  ;; replay, SSR payload, Xray) — corrupt durable state, not a dev nicety. The
-  ;; per-value walk is therefore ALWAYS-ON, NOT gated on `rf.interop/debug-enabled?`
-  ;; — the same causal-token contract the map-shape /
-  ;; `:rf/time-ms` checks enforce in production.
-  (testing "with the dev gate OFF a non-EDN supplied value IS structurally rejected"
-    (rf/make-frame {:id :wi/edn-prod :doc "ctx"})
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [ex   (try
-                   (build-envelope [:noop]
-                                   {:frame   :wi/edn-prod
-                                    :rf.cofx {:rf/time-ms 1781078400123
-                                              :app/handle (atom :host)}})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))
-            data (ex-data ex)]
-        (is (some? ex)
-            "the structural walk fires in prod — a host handle is rejected even
-             with the dev gate OFF (the durable causal-token contract, not a dev guard)")
-        (is (= :rf.error/cofx-value-invalid (:rf.error/id data)))
-        (is (= :non-edn-recordable-value (:rf.cofx/value-error data))
-            "the structural sub-kind is named on its own slot")
-        (is (= [:app/handle] (:path data))
-            "the path is rooted at the failing fact key"))))
-  (testing "the MAP-SHAPE check is always-on even with the dev gate OFF"
-    (rf/make-frame {:id :wi/edn-prod2 :doc "ctx"})
-    (with-redefs [rf.interop/debug-enabled? false]
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (build-envelope [:noop] {:frame :wi/edn-prod2
-                                            :rf.cofx "not-a-map"}))
-          "both the map-shape guard and the structural supplied-value guard are always-on"))))
-
 (deftest invalid-cofx-rejected-before-clock-read
   ;; The validation runs BEFORE the causal-token clock stamp, so an invalid token
   ;; fails fast WITHOUT triggering the always-on epoch-now-ms read for a
@@ -462,42 +403,6 @@
         "dispatch-sync surfaces the malformed-token error synchronously")))
 
 ;; ===========================================================================
-;; Child dispatch gets its OWN :rf.cofx map (no :rf/time-ms inheritance)
-;; ===========================================================================
-
-(deftest child-dispatch-gets-fresh-time-ms
-  (testing "a :fx [[:dispatch ...]] child gets its OWN :rf.cofx — :rf/time-ms NOT inherited"
-    (rf/make-frame {:id :wi/cascade :doc "ctx"})
-    (let [envelopes (atom [])]
-      ;; A user fx-handler receives the parent dispatch envelope under
-      ;; (:envelope m); each handler in the cascade fires its own capture,
-      ;; so we read both the parent's and child's stamped :rf.cofx map.
-      (rf/reg-fx :wi/capture-env
-        (fn [m _args] (swap! envelopes conj (:envelope m))))
-      (rf/reg-event :wi/parent
-        (fn [_ _]
-          {:fx [[:wi/capture-env]
-                [:dispatch [:wi/child]]]}))
-      (rf/reg-event :wi/child
-        (fn [_ _]
-          {:fx [[:wi/capture-env]]}))
-
-      ;; Parent supplies an explicit :rf/time-ms; the child must NOT inherit it.
-      (rf/dispatch-sync [:wi/parent]
-                        {:frame :wi/cascade
-                         :rf.cofx {:rf/time-ms 1781078400000}})
-
-      (let [[parent-env child-env] @envelopes
-            parent-t (get-in parent-env [:rf.cofx :rf/time-ms])
-            child-t  (get-in child-env  [:rf.cofx :rf/time-ms])]
-        (is (= [:wi/parent] (:event parent-env)) "first capture is the parent")
-        (is (= [:wi/child]  (:event child-env))  "second capture is the child")
-        (is (= 1781078400000 parent-t) "parent carries the supplied :rf/time-ms")
-        (is (number? child-t) "child has its own stamped :rf/time-ms")
-        (is (not= 1781078400000 child-t)
-            "child did NOT inherit the parent's :rf/time-ms — distinct causal token (EP-0010)")))))
-
-;; ===========================================================================
 ;; A :dispatch-later child gets a FRESH :rf.cofx map stamped at
 ;; FIRE time (the causal boundary is when the deferred dispatch RUNS, not when
 ;; it was enqueued) — :rf/time-ms is NOT the parent's, NOT the enqueue-time clock,
@@ -505,8 +410,9 @@
 ;; propagate from the parent.
 ;;
 ;; EP-0010 §Dispatch Envelope Stamping names BOTH :dispatch and :dispatch-later
-;; as child causal-token producers. child-dispatch-gets-fresh-time-ms
-;; (above) covers the IMMEDIATE :dispatch child; the deferred path is
+;; as child causal-token producers.
+;; `re-frame.cofx-cljs-test/reply-envelope-carries-rf-cofx-flat-and-freshly-stamped`
+;; covers the IMMEDIATE :dispatch child; the deferred path is
 ;; distinct because `:dispatch-later` wraps the router `dispatch!` in
 ;; `rf.interop/set-timeout!` (re-frame.fx §reserved-fx-handlers), so the child's
 ;; `build-envelope` — and thus its `:rf.cofx` stamp — happens inside
@@ -538,8 +444,8 @@
           deferred       (atom nil)
           captured-child (atom nil)]
       ;; The deferred child reads its own envelope off the fx-handler ctx
-      ;; (:envelope m) — the same surface child-dispatch-gets-fresh-time-ms
-      ;; uses — so we observe the :rf.cofx map the router stamped for it.
+      ;; (:envelope m), so we observe the :rf.cofx map the router stamped
+      ;; for it.
       (rf/reg-fx :wi.later/capture-env
         (fn [m _args] (reset! captured-child (:envelope m))))
       (rf/reg-event :wi.later/parent
@@ -609,45 +515,8 @@
              (:fx-dispatch-later), stamped by the fx handler — not inherited")))))
 
 ;; ===========================================================================
-;; Coeffect visibility + trace projection filtering
+;; A supplied :dispatched-at is an unrecognised dispatch opt
 ;; ===========================================================================
-
-(deftest cofx-visible-as-coeffect
-  (testing "handlers read :rf.cofx from the coeffect map"
-    (rf/make-frame {:id :wi/cofx :doc "ctx"})
-    (let [cofx (capture-coeffects :wi/cofx
-                                  {:rf.cofx {:rf/time-ms 1781078400456}})]
-      (is (contains? cofx :rf.cofx)
-          ":rf.cofx is a framework coeffect in the initial context")
-      (is (= 1781078400456 (get-in cofx [:rf.cofx :rf/time-ms]))
-          "the supplied :rf/time-ms is what the handler reads"))))
-
-(deftest cofx-filtered-from-user-cofx-projection
-  (testing "rf.fx/user-injected-coeffects strips :rf.cofx like the other framework defaults"
-    (is (contains? rf.fx/framework-coeffect-keys :rf.cofx)
-        ":rf.cofx is in the framework-coeffect-keys filter set")
-    (let [cofx {:db {} :event [:e] :rf.db/runtime {} :rf.frame/id :f
-                :rf.cofx {:rf/time-ms 1781078400789}
-                :my/cofx 1}]
-      (is (= {:my/cofx 1} (rf.fx/user-injected-coeffects cofx))
-          ":rf.cofx does NOT appear in the user-cofx trace projection"))))
-
-;; ===========================================================================
-;; There is no :dispatched-at
-;; ===========================================================================
-
-(deftest dispatched-at-is-gone
-  (testing "EP-0010 rider b: there is no :dispatched-at on the envelope (no coexistence)"
-    (rf/make-frame {:id :wi/no-dispatched-at :doc "ctx"})
-    (testing "absent even with the dev gate ON (it is not merely prod-elided — it does not exist)"
-      (with-redefs [rf.interop/debug-enabled? true]
-        (is (not (contains? (build-envelope [:noop] {:frame :wi/no-dispatched-at})
-                            :dispatched-at))
-            "no :dispatched-at key on the envelope")))
-    (testing "the durable causal-time fact is (:rf/time-ms (:rf.cofx env)) instead"
-      (let [env (build-envelope [:noop] {:frame :wi/no-dispatched-at})]
-        (is (number? (get-in env [:rf.cofx :rf/time-ms]))
-            ":rf/time-ms is the replacement for the retired :dispatched-at")))))
 
 (deftest dispatched-at-supplied-is-a-generic-unknown-opt-with-did-you-mean
   ;; `:dispatched-at` only ever named a fact

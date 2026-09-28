@@ -21,12 +21,14 @@
 
   ## Posture split
 
-  Two of the three surfaces this file reads are dev-only. The
-  `:rf.warning/app-handler-runtime-effect` diagnostic is a trace-bus warning,
-  and `:rf.error/effect-map-shape` is catalogued `diagnostic` in Spec 009 —
-  dev-only by design — as is the `:rf.error/legacy-runtime-root` TRACE. None of
-  them is emitted under `-Dre-frame.debug=false`, so those assertions are
-  guarded.
+  Every diagnostic this file reads — the
+  `:rf.warning/app-handler-runtime-effect` warning and the
+  `:rf.error/effect-map-shape`, `:rf.error/legacy-runtime-root` and
+  `:rf.error/handler-exception` errors — is read off the TRACE bus, which
+  carries nothing under `-Dre-frame.debug=false`, so those assertions are
+  guarded. (`:rf.error/effect-map-shape` and `:rf.error/legacy-runtime-root`
+  are catalogued always-on in Spec 009 and also reach the always-on
+  `:errors` stream; this file does not read that stream.)
 
   THE POLICING ITSELF IS NOT DEV-ONLY, and that is the whole point of the file:
   a foreign top-level effect key REFUSES the event, a non-sequential `:fx`
@@ -41,24 +43,19 @@
   it still says everything that matters about production behaviour; what it
   loses is the narration.
 
-  A negative over an empty trace ring passes vacuously, so the five deftests
-  whose dev-only assertion certifies that nothing was emitted —
-  `runtime-db-effect-is-not-a-shape-error`,
-  `framework-authority-runtime-effect-does-not-warn`,
-  `plain-db-fx-handler-does-not-warn`,
-  `legitimate-runtime-db-effect-is-not-a-legacy-root-error` and
+  A negative over an empty trace ring passes vacuously, so the two deftests
+  whose dev-only assertions certify that nothing was emitted —
+  `framework-authority-runtime-effect-commits-silently` and
   `well-shaped-final-effects-emit-no-shape-error` — each also carry an
-  always-on commit witness, which is all two of them —
-  `runtime-db-effect` and `well-shaped-final-effects` — have to say under the
-  gate.
+  always-on commit witness, which is all they have to say under the gate.
 
   ONE ASYMMETRY IS WORTH RECORDING RATHER THAN PAPERING OVER.
-  `framework-authority-runtime-effect-does-not-warn` has NO production
-  counterpart even in principle: the diagnostic is `:recovery :warned`, so the
-  effect applies identically whether it fires or not (convention, not
-  enforcement). Its always-on residue can only be that the
-  write landed, which is true of the warned case too. That is the honest state
-  of the contract, not a gap in the test."
+  The no-warning half of `framework-authority-runtime-effect-commits-silently`
+  has NO production counterpart even in principle: the diagnostic is
+  `:recovery :warned`, so the effect applies identically whether it fires or
+  not (convention, not enforcement). Its always-on residue can only be that
+  the write landed, which is true of the warned case too. That is the honest
+  state of the contract, not a gap in the test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -160,26 +157,34 @@
 ;;     :clear-sensitive :clear-large})
 ;; ===========================================================================
 
-(deftest runtime-db-effect-is-not-a-shape-error
-  (testing "a framework-authority handler returning :rf.db/runtime emits no :rf.error/effect-map-shape"
-    (rf/make-frame {:id :ctx/runtime-fx :doc "ctx"})
-    (let [recorded (record-traces! ::no-shape-err)]
+(deftest framework-authority-runtime-effect-commits-silently
+  (testing "a framework-authority handler (:rf/machine? true) returning
+            :rf.db/runtime commits it with no shape error, no
+            app-handler-runtime diagnostic and no legacy-root throw"
+    (rf/make-frame {:id :ctx/fw-authority :doc "ctx"})
+    (let [recorded (record-traces! ::fw-quiet)]
       ;; :rf/machine? marks framework-write authority (machine registrar mints
       ;; framework-authority handlers — Spec 002 §Write authority).
-      (rf/reg-event :ctx/fw-runtime
+      (rf/reg-event :ctx/fw-emits-runtime
         {:doc "framework-authority runtime write" :rf/machine? true}
-        (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}} :fx []}))
-      (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/runtime-fx})
-      ;; ALWAYS-ON: "inside the closed set" means the effect was APPLIED
-      ;; rather than dropped, and that is readable in both postures. The
-      ;; negative below is vacuous under the gate, so without this the
-      ;; deftest would say nothing there.
-      (is (= {:rf.runtime/machines {}}
-             (:rf.db/runtime (rf/frame-state-value :ctx/runtime-fx)))
-          "the :rf.db/runtime effect committed — it was not policed away")
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}} :fx []}))
+      (rf/dispatch-sync [:ctx/fw-emits-runtime] {:frame :ctx/fw-authority})
+      ;; ALWAYS-ON: the commit is the production statement of the closed-set
+      ;; and legacy-root claims — a policed key would have been dropped with
+      ;; the event refused, and a legacy-root throw would have aborted the
+      ;; write. The ABSENCE of the app-handler nudge is a dev-posture fact
+      ;; only (see the ns docstring), and every negative below is vacuous
+      ;; under the gate.
+      (is (= {:rf.runtime/machines {:m 1}}
+             (:rf.db/runtime (rf/frame-state-value :ctx/fw-authority)))
+          "the framework-authority :rf.db/runtime write committed")
       (when rf.interop/debug-enabled?
         (is (empty? (error-events recorded :rf.error/effect-map-shape))
-            ":rf.db/runtime is inside the closed set — no shape error")))))
+            ":rf.db/runtime is inside the closed set — no shape error")
+        (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
+            "the framework-authority path is in-bounds — no diagnostic")
+        (is (empty? (error-events recorded :rf.error/handler-exception))
+            "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")))))
 
 (deftest foreign-top-level-key-refuses-the-event
   (testing "a foreign top-level key (legacy :http) refuses the event"
@@ -234,40 +239,10 @@
           (is (= :warned (:recovery (first warns)))
               "recovery is :warned — convention, not enforcement"))))))
 
-(deftest framework-authority-runtime-effect-does-not-warn
-  (testing "a framework-authority handler (:rf/machine? true) does NOT fire the diagnostic"
-    (rf/make-frame {:id :ctx/fw-authority :doc "ctx"})
-    (let [recorded (record-traces! ::fw-quiet)]
-      (rf/reg-event :ctx/fw-emits-runtime
-        {:doc "framework-authority" :rf/machine? true}
-        (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {}}}))
-      (rf/dispatch-sync [:ctx/fw-emits-runtime] {:frame :ctx/fw-authority})
-      ;; ALWAYS-ON — and see the ns docstring: this case has no production
-      ;; counterpart even in principle, because the diagnostic is
-      ;; `:recovery :warned` and the effect applies either way. The residue is
-      ;; that the framework write landed; the ABSENCE of the nudge is a
-      ;; dev-posture fact only, and the negative is vacuous under the gate.
-      (is (= {:rf.runtime/machines {}}
-             (:rf.db/runtime (rf/frame-state-value :ctx/fw-authority)))
-          "the framework-authority runtime write committed")
-      (when rf.interop/debug-enabled?
-        (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
-            "the framework-authority path is in-bounds — no diagnostic")))))
-
-(deftest plain-db-fx-handler-does-not-warn
-  (testing "an ordinary handler that does NOT return :rf.db/runtime stays silent"
-    (rf/make-frame {:id :ctx/plain :doc "ctx"})
-    (let [recorded (record-traces! ::plain-quiet)]
-      (rf/reg-event :ctx/plain-db
-        (fn [{:keys [db]} _] {:db (assoc db :touched? true) :fx []}))
-      (rf/dispatch-sync [:ctx/plain-db] {:frame :ctx/plain})
-      ;; ALWAYS-ON: the ordinary path commits.
-      (is (true? (:touched? (rf/app-db-value :ctx/plain)))
-          "the :db effect committed normally")
-      ;; Vacuous under the gate: a negative over an empty trace ring.
-      (when rf.interop/debug-enabled?
-        (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
-            "no :rf.db/runtime effect ⇒ no diagnostic")))))
+;; The framework-authority (:rf/machine? true) counterpart, which does NOT
+;; warn, is `framework-authority-runtime-effect-commits-silently` above; an
+;; ordinary handler that returns no :rf.db/runtime stays silent in
+;; `well-shaped-final-effects-emit-no-shape-error` below.
 
 ;; ===========================================================================
 ;; EP-0001 — legacy :rf/runtime root is a HARD ERROR
@@ -296,14 +271,6 @@
       (is (= :rf/runtime (:offending-key (ex-data thrown)))
           "ex-data names :rf/runtime as the offending key"))))
 
-(deftest reject-legacy-runtime-root-is-a-noop-for-clean-app-db
-  (testing "the guard fn returns the value unchanged (no throw) when :rf/runtime is absent"
-    (let [clean {:user/id 1 :cart {:items []}}]
-      (is (= clean (rf.events/reject-legacy-runtime-root! clean [:ok/event]))
-          "a clean app-db passes through untouched")
-      (is (= nil (rf.events/reject-legacy-runtime-root! nil [:ok/event]))
-          "nil (no :db effect) is a no-op"))))
-
 (deftest db-handler-returning-legacy-runtime-root-surfaces-hard-error
   (testing "a reg-event handler whose {:db ...} return carries a :rf/runtime root surfaces :rf.error/legacy-runtime-root"
     (rf/make-frame {:id :ctx/legacy-db :doc "ctx"})
@@ -326,38 +293,8 @@
           (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
               "the captured exception is :rf.error/legacy-runtime-root"))))))
 
-(deftest fx-handler-returning-legacy-runtime-root-surfaces-hard-error
-  (testing "a reg-event handler whose {:db :fx} return carries :rf/runtime in its :db effect surfaces the hard error"
-    (rf/make-frame {:id :ctx/legacy-fx :doc "ctx"})
-    (let [recorded (record-traces! ::legacy-fx)]
-      (rf/reg-event :ctx/fx-writes-legacy-root
-        (fn [{:keys [db]} _] {:db (assoc db :rf/runtime {:rf.runtime/routing {}})}))
-      (rf/dispatch-sync [:ctx/fx-writes-legacy-root] {:frame :ctx/legacy-fx})
-      (let [errs (error-events recorded :rf.error/handler-exception)
-            ex   (some-> errs first :tags :exception)]
-        ;; ALWAYS-ON: the rejection holds on the `:fx` path too.
-        (is (not (contains? (rf/app-db-value :ctx/legacy-fx) :rf/runtime))
-            "the legacy root never commits")
-        (when rf.interop/debug-enabled?
-          (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
-              "the :fx-path :db effect with a legacy root is rejected too"))))))
-
-(deftest legitimate-runtime-db-effect-is-not-a-legacy-root-error
-  (testing "a framework :rf.db/runtime effect (the runtime-db partition) is NOT the legacy-root hard error"
-    (rf/make-frame {:id :ctx/new-runtime :doc "ctx"})
-    (let [recorded (record-traces! ::new-runtime)]
-      (rf/reg-event :ctx/fw-runtime
-        {:doc "framework-authority" :rf/machine? true}
-        (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
-      (rf/dispatch-sync [:ctx/fw-runtime] {:frame :ctx/new-runtime})
-      ;; ALWAYS-ON: the commit IS the discriminator — a legacy-root throw
-      ;; would have aborted it. The trace negative below is vacuous under the
-      ;; gate.
-      (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :ctx/new-runtime)))
-          "the runtime-db partition committed normally")
-      (when rf.interop/debug-enabled?
-        (is (empty? (error-events recorded :rf.error/handler-exception))
-            "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")))))
+;; A legitimate `:rf.db/runtime` write is NOT this error:
+;; `framework-authority-runtime-effect-commits-silently` above.
 
 ;; ===========================================================================
 ;; FINAL-effects boundary shape policing
@@ -541,7 +478,7 @@
 ;; ---- the well-shaped hot path stays clean ---------------------------------
 
 (deftest well-shaped-final-effects-emit-no-shape-error
-  (testing "a clean reg-event {:db :fx} return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing)"
+  (testing "a clean reg-event {:db :fx} return ({:db .. :fx [..]}) emits NO :rf.error/effect-map-shape from the final boundary (no double-policing), and — carrying no :rf.db/runtime — no app-handler-runtime diagnostic"
     (rf/make-frame {:id :ctx/clean-final :doc "ctx"})
     (let [recorded (record-traces! ::clean-final)]
       (let [fx-ran (atom 0)]
@@ -560,4 +497,6 @@
             "the well-shaped :fx ran — nothing was dropped at the boundary")
         (when rf.interop/debug-enabled?
           (is (empty? (error-events recorded :rf.error/effect-map-shape))
-              "well-shaped effects pass the final boundary untouched — no spurious / double shape error"))))))
+              "well-shaped effects pass the final boundary untouched — no spurious / double shape error")
+          (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
+              "no :rf.db/runtime effect ⇒ no app-handler-runtime diagnostic"))))))
