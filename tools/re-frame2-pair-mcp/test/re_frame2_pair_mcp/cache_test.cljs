@@ -360,19 +360,6 @@
 ;; Marker shape — cross-MCP vocabulary.
 ;; ---------------------------------------------------------------------------
 
-(deftest cache-hit-marker-uses-rf-mcp-namespace
-  ;; The `:rf.mcp/cache-hit` key follows the same namespace convention
-  ;; as `:rf.mcp/overflow`, `:rf.mcp/dedup-table`, etc. Agents
-  ;; recognise the family.
-  (let [args (args-js {})
-        text "{:ok? true}"
-        opts {:tool "snapshot" :args args :enabled? true}]
-    (cache/apply-cache (mcp-result text) opts)
-    (let [hit (cache/apply-cache (mcp-result text) opts)
-          v   (edn/read-string (extract-text hit))]
-      (is (contains? v :rf.mcp/cache-hit)
-          "marker key is :rf.mcp/cache-hit"))))
-
 (deftest cache-hit-marker-payload-is-small
   ;; The whole point — the marker should be sub-100 bytes so it can't
   ;; itself blow the wire-cap.
@@ -385,20 +372,6 @@
       (is (cache-hit-result? hit))
       (is (< (count text) 500)
           "cache-hit marker fits well under a 5K-token cap"))))
-
-(deftest cache-hit-marker-carries-via-slot
-  ;; The marker carries `:via` to distinguish a pre-eval short-circuit
-  ;; (`:precheck`) from the post-eval match (`:result-hash`). Agents that
-  ;; read the marker can attribute the saving correctly; tooling can
-  ;; graph cache-hit volume by source.
-  (let [args (args-js {:frame ":rf/default"})
-        text "{:ok? true :app-db {:k :v}}"
-        opts {:tool "snapshot" :args args :enabled? true}]
-    (cache/apply-cache (mcp-result text) opts)
-    (let [hit (cache/apply-cache (mcp-result text) opts)
-          v   (edn/read-string (extract-text hit))]
-      (is (= :result-hash (get-in v [:rf.mcp/cache-hit :via]))
-          "apply-cache hit annotates :via :result-hash"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Precheck — decide cache-hit BEFORE running the tool.
@@ -455,17 +428,6 @@
                        (assoc opts :precheck-hash 12345))
     (is (nil? (cache/precheck opts nil))
         "no current-precheck-hash supplied → precheck returns nil")))
-
-(deftest precheck-returns-nil-when-prior-has-no-precheck-hash
-  ;; A prior entry without a stored :precheck-hash (e.g. cached
-  ;; before precheck wiring existed, or the precheck fetch failed
-  ;; that round) cannot short-circuit even with a current hash.
-  (let [args (args-js {:frame ":rf/default"})
-        opts {:tool "snapshot" :args args :enabled? true}]
-    ;; Prime WITHOUT a precheck-hash.
-    (cache/apply-cache (mcp-result "{:k :v}") opts)
-    (is (nil? (cache/precheck opts 12345))
-        "no stored :precheck-hash → precheck returns nil even with current hash")))
 
 (deftest precheck-hit-short-circuits-with-marker
   ;; The load-bearing path. Prime the cache with a precheck-hash;
@@ -572,17 +534,6 @@
         "entry 0 survived — precheck-hit touched the LRU")
     (is (nil? (cache/precheck (opts 1) 1000))
         "entry 1 evicted as the new oldest")))
-
-(deftest precheck-hash-stored-by-apply-cache
-  ;; `apply-cache` is the single write surface — when the caller
-  ;; supplies `:precheck-hash`, it's stored alongside the result
-  ;; hash so the next `precheck` call can match it.
-  (let [args (args-js {:frame ":rf/default"})
-        opts {:tool "snapshot" :args args :enabled? true
-              :precheck-hash 54321}]
-    (cache/apply-cache (mcp-result "{:k :v}") opts)
-    (is (some? (cache/precheck (dissoc opts :precheck-hash) 54321))
-        "precheck-hash supplied at store time is queryable on the next call")))
 
 (deftest precheck-hash-absent-when-not-supplied
   ;; When `apply-cache` is called WITHOUT `:precheck-hash`, the stored

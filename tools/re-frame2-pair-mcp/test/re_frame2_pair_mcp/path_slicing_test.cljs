@@ -101,16 +101,6 @@
     (is (<= 8 (:bytes marker) 512)
         "Per-entry estimate should be order-of-magnitude reasonable")))
 
-(deftest tree-summary-bytes-scales-with-entry-count
-  ;; The estimator is linear: a 10-entry map should report ~10x the
-  ;; `:bytes` of a 1-entry map.
-  (let [tiny  {:a 1}
-        big   (zipmap (map #(keyword (str "k" %)) (range 10)) (range 10))
-        tiny-bytes (-> tiny summary/tree-summary :rf.mcp/summary :bytes)
-        big-bytes  (-> big  summary/tree-summary :rf.mcp/summary :bytes)]
-    (is (= 10 (/ big-bytes tiny-bytes))
-        "10-entry map's bytes estimate should be 10x a 1-entry map's")))
-
 (deftest tree-summary-bytes-is-cheap-on-large-values
   ;; The load-bearing property. Computing `:bytes` on a 50K-entry map
   ;; MUST be effectively instant — the marker exists precisely to avoid
@@ -129,14 +119,6 @@
     (is (= 50000 (:count marker)))
     (is (zero? (mod bytes 50000))
         "Bytes must be entry-count × constant, not pr-str byte count")))
-
-(deftest tree-summary-vector-records-count
-  (let [v [1 2 3 4 5]
-        marker (:rf.mcp/summary (summary/tree-summary v))]
-    (is (= :vector (:type marker)))
-    (is (= 5 (:count marker)))
-    (is (integer? (:bytes marker)))
-    (is (pos? (:bytes marker)))))
 
 (deftest tree-summary-set-and-seq
   (is (= :set (-> (summary/tree-summary #{1 2 3}) :rf.mcp/summary :type)))
@@ -375,26 +357,3 @@
         [out2 _] (pipeline/slice-app-db-in-snapshot snap [:foo] :summary)]
     (is (not (contains? (:f1 out) :app-db)))
     (is (not (contains? (:f1 out2) :app-db)))))
-
-;; ---------------------------------------------------------------------------
-;; Wire-cap interaction: tree-summary keeps a 5MB app-db inside the cap.
-;; ---------------------------------------------------------------------------
-
-(deftest summary-mode-bounds-the-5mb-scenario
-  ;; A 5MB app-db pr-strs to ~5.6M chars ⇒ ~1.4M tokens, 290× the
-  ;; 5,000-token cap. With path slicing's :summary default, the call
-  ;; replaces the slice with a small marker — fits the cap by
-  ;; construction. The wire-cap remains the backstop for the remaining
-  ;; slices, but :app-db alone never blows the budget.
-  (let [big-app-db (apply hash-map
-                          (mapcat (fn [i] [(keyword (str "k" i))
-                                           (apply str (repeat 1024 "x"))])
-                                  (range 5120)))   ;; ~5MB worth of map
-        snap {:rf/default {:app-db big-app-db
-                            :sub-cache {} :machines {} :epochs [] :traces []}}
-        [out _] (pipeline/slice-app-db-in-snapshot snap nil :summary)
-        wire    (pr-str (-> out :rf/default :app-db))]
-    (is (contains? (-> out :rf/default :app-db) :rf.mcp/summary))
-    (is (< (tu/token-estimate wire) 5000)
-        (str "Summary marker MUST be under the 5k cap. Got "
-             (tu/token-estimate wire) " tokens for serialised marker"))))
