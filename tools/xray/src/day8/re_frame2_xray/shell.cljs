@@ -416,6 +416,14 @@
   column ends. Shared so neither surface drifts."
   "6px")
 
+(def ^:private l2-list-padding-px
+  "The L2 scroll box's padding (px). A sticky child sticks INSIDE its
+  scroll container's padding, so the sticky column header and the
+  newer-events strip are offset by its negation to sit flush with the
+  box's edges — otherwise a row shows through the gap above the header
+  and below the strip."
+  4)
+
 ;; ---- column-divider drag state -----------------------------------------
 ;;
 ;; Mirrors `resize-handle.cljs` §drag-state. Each divider's pointerdown
@@ -1585,12 +1593,56 @@
   (when (and el (.-scrollIntoView el))
     (.scrollIntoView el #js {:behavior "auto" :block "nearest"})))
 
+(defn overlay-nudge
+  "Pure helper. How far (px) to scroll the L2 list so the focused row
+  is clear of the sticky column header and the newer-events strip — 0
+  when it is already clear, and 0 when it is off-screen.
+
+  The strip paints over the rows at the box's bottom edge, which is
+  exactly where the focused row sits when following pauses at the head
+  and a newer event arrives. Off-screen stays off-screen: RETRO and a
+  paused spine keep their scroll position (spec/018 §LIVE-tracking +
+  sticky rules), so this only uncovers a row the reader can already
+  see part of. All values are viewport y-coordinates: the row's, the
+  scroll box's, and the band between the header's bottom and the
+  strip's top."
+  [{:keys [row-top row-bottom view-top view-bottom clear-top clear-bottom]}]
+  (cond
+    (or (<= row-bottom view-top) (>= row-top view-bottom)) 0
+    (> row-bottom clear-bottom) (- row-bottom clear-bottom)
+    (< row-top clear-top)       (- row-top clear-top)
+    :else                       0))
+
+(defn- reveal-focused-row!
+  "Scroll the L2 list by [[overlay-nudge]] so the focused row `el` is not
+  under the sticky header or the newer-events strip."
+  [^js el]
+  (when-let [^js box (when (and el (.-closest el))
+                       (.closest el "[data-testid='rf-xray-event-list']"))]
+    (let [^js header (.querySelector box "[data-testid='rf-xray-event-list-header']")
+          ^js strip  (.querySelector box "[data-testid='rf-xray-newer-events']")
+          row        (.getBoundingClientRect el)
+          view       (.getBoundingClientRect box)
+          d          (overlay-nudge
+                       {:row-top      (.-top row)
+                        :row-bottom   (.-bottom row)
+                        :view-top     (.-top view)
+                        :view-bottom  (.-bottom view)
+                        :clear-top    (if header (.-bottom (.getBoundingClientRect header)) (.-top view))
+                        :clear-bottom (if strip (.-top (.getBoundingClientRect strip)) (.-bottom view))})]
+      ;; Rounded OUTWARD: `scrollTop` lands on whole pixels, and a
+      ;; fraction rounded inward leaves the row a sliver under the strip.
+      (when-not (zero? d)
+        (set! (.-scrollTop box)
+              (+ (.-scrollTop box) (if (pos? d) (js/Math.ceil d) (js/Math.floor d))))))))
+
 (defn- focused-row-ref
-  "Build the `:ref` callback for a row that is BOTH focused AND in the
-  auto-tracking branch (LIVE + head). Returns nil when not in the
-  auto-tracking branch — non-nil rows always get a ref attachment
-  cycle on first mount, which would otherwise scroll on every initial
-  RETRO render too.
+  "Build the `:ref` callback for the focused row. In the auto-tracking
+  branch (LIVE + head) it scrolls the row into view; while the
+  newer-events strip is showing (`stale-read?`) it only uncovers the row
+  ([[reveal-focused-row!]]) and never follows. Returns nil otherwise —
+  non-nil rows always get a ref attachment cycle on first mount, which
+  would otherwise scroll on every initial RETRO render too.
 
   The callback compares `id` against `last-scrolled-focus-id` and
   scrolls + updates the atom only on transition. nil-element calls
@@ -1603,22 +1655,31 @@
   Without this, React's callback-ref reconciliation would detach +
   reattach on every render (a changed fn reference looks like a
   changed ref to React), which resets `last-scrolled-focus-id` right
-  before re-checking it — permanently defeating the dedup guard above."
-  [id auto-track?]
-  (when auto-track?
-    (let [{cached-id :id cached-fn :ref-fn} @focused-row-ref-cache]
-      (if (and cached-fn (= cached-id id))
-        cached-fn
-        (let [f (fn [el]
-                  (cond
-                    (nil? el)
-                    (reset! last-scrolled-focus-id ::never)
+  before re-checking it — permanently defeating the dedup guard above.
 
-                    (not= id @last-scrolled-focus-id)
-                    (do (reset! last-scrolled-focus-id id)
-                        (scroll-focused-row-into-view! el))))]
-          (reset! focused-row-ref-cache {:id id :ref-fn f})
-          f)))))
+  The cache is keyed on the MODE as well as the id, so the strip
+  appearing over a row that stays focused hands React a new ref, and the
+  attach is what uncovers it."
+  ([id auto-track?] (focused-row-ref id auto-track? false))
+  ([id auto-track? stale-read?]
+   (when-let [mode (cond auto-track? :track
+                         stale-read? :reveal)]
+     (let [{cached-id :id cached-mode :mode cached-fn :ref-fn} @focused-row-ref-cache]
+       (if (and cached-fn (= cached-id id) (= cached-mode mode))
+         cached-fn
+         (let [f (case mode
+                   :track  (fn [el]
+                             (cond
+                               (nil? el)
+                               (reset! last-scrolled-focus-id ::never)
+
+                               (not= id @last-scrolled-focus-id)
+                               (do (reset! last-scrolled-focus-id id)
+                                   (scroll-focused-row-into-view! el))))
+                   :reveal (fn [el]
+                             (when el (reveal-focused-row! el))))]
+           (reset! focused-row-ref-cache {:id id :mode mode :ref-fn f})
+           f))))))
 
 (defn- event-row
   "One row in the L2 event list. Single line per the Figma-Make
@@ -1669,7 +1730,7 @@
   inline column widths from. The parent (`event-list`) subscribes
   ONCE per paint and threads the resolved map through props so each
   row doesn't re-subscribe per render."
-  [{:keys [event-bundle focused-id auto-track? col-widths dispatch-fn]}]
+  [{:keys [event-bundle focused-id auto-track? stale-read? col-widths dispatch-fn]}]
   (let [dispatch-fn (or dispatch-fn rf/dispatch)
         id          (:dispatch-id event-bundle)
         focused?    (= id focused-id)
@@ -1711,10 +1772,11 @@
         issue-wash  (when has-issue?
                       (str "linear-gradient(" (:bg-issue-row tokens) ", "
                            (:bg-issue-row tokens) ")"))
-        ;; Only the focused row in the LIVE-at-head
-        ;; auto-tracking branch carries a ref. RETRO and non-focused rows
-        ;; get nil (no DOM-side scroll work, no per-render cost).
-        ref-fn      (when focused? (focused-row-ref id auto-track?))
+        ;; Only the focused row carries a ref, and only while the
+        ;; spine is auto-tracking or the newer-events strip is showing
+        ;; (see `focused-row-ref`). Other rows get nil (no DOM-side
+        ;; scroll work, no per-render cost).
+        ref-fn      (when focused? (focused-row-ref id auto-track? stale-read?))
         ;; Body-click is pure SELECTION (drives the L3 tabs):
         ;; row click selects the event-bundle, full stop.
         body-click  (fn [_e]
@@ -2142,7 +2204,7 @@
            ;; duration sit directly above their data columns (Figma
            ;; EventList).
            :style {:position      "sticky"
-                   :top           0
+                   :top           (->px (- l2-list-padding-px))
                    :z-index       1
                    :display       "flex"
                    :align-items   "center"
@@ -2277,7 +2339,7 @@
          :title       "Fast-forward to latest (G)"
          :on-click    (fn [_e] (dispatch [:rf.xray/follow-head]))
          :style       {:position    "sticky"
-                       :bottom      0
+                       :bottom      (->px (- l2-list-padding-px))
                        :width       "100%"
                        :box-sizing  "border-box"
                        :cursor      "pointer"
@@ -2370,7 +2432,7 @@
                     :overflow-x    "hidden"
                     :background    (:bg-2 tokens)
                     :border-bottom (str "1px solid " (:border-subtle tokens))
-                    :padding       "4px"
+                    :padding       (->px l2-list-padding-px)
                     ;; Firefox standardised props for the
                     ;; slim scrollbar. WebKit/Blink pseudo-element rules ship
                     ;; via the `inject-scrollbar-style!` <style> tag above —
@@ -2408,6 +2470,7 @@
                  (event-row {:event-bundle event-bundle
                              :focused-id   focused-id
                              :auto-track?  auto-track?
+                             :stale-read?  stale-read?
                              :col-widths   col-widths
                              :dispatch-fn  dispatch})))))
       ;; LAST child of the scroll container so

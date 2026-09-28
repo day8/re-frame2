@@ -118,7 +118,6 @@
   for the truly degenerate case where focus is nil AND history is
   empty (no event-bundles have settled yet)."
   (:require [clojure.string :as str]
-            [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- severity classification --------------------------------------------
@@ -270,10 +269,6 @@
   (into []
         (keep project-issue)
         events))
-
-;; Re-export of `now-ms`; the body lives in `common-helpers`. Nothing
-;; calls it through this ns.
-(def now-ms common/now-ms)
 
 ;; ---- composite projection (the panel reads this) ------------------------
 

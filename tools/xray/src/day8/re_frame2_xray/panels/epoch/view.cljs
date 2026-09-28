@@ -1706,15 +1706,20 @@
 
   `skip-reason` `:halted-depth` (stamped by
   `projection/mark-halted`) words it for a drain-depth halt instead: nothing
-  threw, the drain refused the event."
+  threw, the drain refused the event. `:event-schema` (stamped by
+  `projection/mark-skipped-handler`) words it for an event its handler's
+  `:schema` rejected: the router refused the event before the handler ran."
   ([testid what] (skipped-body testid what nil))
   ([testid what skip-reason]
    [:div {:data-testid (str testid "-skipped")
           :data-rf-xray-step-skipped "true"
           :style skipped-body-style}
     (str what
-         (if (= :halted-depth skip-reason)
+         (case skip-reason
+           :halted-depth
            " did not run — the drain hit its depth limit before this event could execute."
+           :event-schema
+           " did not run — the event failed its handler's :schema, so the router never called the handler."
            " did not run — an upstream step threw before this step could execute."))]))
 
 ;; There is no HANDLER-level "cascade rolled back" banner: the :app-db

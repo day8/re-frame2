@@ -217,3 +217,47 @@
                        :view-rows    [{:view-id :v :action :rerender}]})]
     (is (pos? (:width out)))
     (is (pos? (:height out)))))
+
+;; ---- labels fit their boxes --------------------------------------------
+
+(deftest every-node-label-fits-its-box
+  ;; SVG text does not clip to its <rect>, so a label wider than its node
+  ;; paints across its neighbours. Measured independently of the layout:
+  ;; 11px names and 9px meta lines at the mono stack's 0.6em advance,
+  ;; inside a 3px inset each side. The ids are the standard-epochs
+  ;; testbed's own, which overflowed their boxes.
+  (let [advance 0.6
+        fits?   (fn [s w font-size] (<= (* (count s) advance font-size) (- w 6)))
+        out     (g/layout
+                  {:level-1-subs [{:sub-id :cart/total :changed? true}
+                                  {:sub-id :standard-epochs/greater-than?
+                                   :query-v [:standard-epochs/greater-than? 5]
+                                   :changed? true}]
+                   :level-2-subs [{:sub-id :standard-epochs/chain-labelled
+                                   :inputs [:cart/total] :changed? true}]
+                   :view-rows    [{:view-id :standard-epochs.core/diamond-display
+                                   :action :rerender}
+                                  {:view-id :standard-epochs.core/child-a
+                                   :action :rerender}]})
+        nodes   (concat (-> out :nodes :l1) (-> out :nodes :l2) (-> out :nodes :view))]
+    (is (= 5 (count nodes)))
+    (doseq [n nodes
+            :let [shown (or (:display-label n) (:label n))]]
+      (is (fits? shown (:w n) 11)
+          (str (pr-str shown) " fits its " (:w n) "px box")))
+
+    (testing "a label that fits is shown whole; a longer one keeps its tail"
+      (let [by-id (into {} (map (juxt :id identity)) nodes)]
+        (is (= ":cart/total" (:display-label (by-id :cart/total))))
+        (is (= "…s/chain-labelled"
+               (:display-label (by-id :standard-epochs/chain-labelled))))
+        (is (= ":standard-epochs.core/child-a"
+               (:display-label (by-id :standard-epochs.core/child-a))))))
+
+    (testing "a view's cause/timing line fits, whole when it is short"
+      (let [line "(rerendered)  ← :cart/total · 2ms"]
+        (is (fits? (g/fit-line line g/view-node-w 9) g/view-node-w 9))
+        (is (= line (g/fit-line line g/view-node-w 9)))
+        (is (= "(rerendered)  ← :standard-epochs/c…"
+               (g/fit-line "(rerendered)  ← :standard-epochs/chain-labelled · 0.3ms"
+                           g/view-node-w 9)))))))

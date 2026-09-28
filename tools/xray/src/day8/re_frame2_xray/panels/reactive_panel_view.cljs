@@ -325,7 +325,7 @@
   border + bold; unchanged → transparent + dashed dim outline + dim
   label. A shared sub (read by ≥2 views) carries a `×N` annotation.
   Clicking the node jumps to the sub's registration source."
-  [{:keys [id slug label changed? shared-count coord x y w h kind] :as node}]
+  [{:keys [id slug label display-label changed? shared-count coord x y w h kind] :as node}]
   (let [click (when coord (fn [e] (open-source! coord e)))]
     [:g (cond-> {;; The sequence key rides in the attribute
                  ;; map. `flow-graph` CALLS this fn (a plain fn in hiccup
@@ -339,6 +339,9 @@
                  :data-node-id (str id)}
           click (assoc :on-click click
                        :style {:cursor "pointer"}))
+     ;; The whole label, as the node's tooltip: the text below is fitted
+     ;; to the box (`graph/fit-label`).
+     [:title label]
      [:rect (cond-> {:x x :y y :width w :height h :rx 4}
               changed?       (assoc :fill (with-alpha :accent 12)
                                     :stroke (:accent tokens) :stroke-width 2)
@@ -348,9 +351,9 @@
      [:text {:x (+ x (/ w 2)) :y (+ y (/ h 2) 4)
              :text-anchor "middle"
              :fill (if changed? (:accent tokens) (:dim tokens))
-             :font-size 11 :font-family mono-stack
+             :font-size graph/label-font-size :font-family mono-stack
              :font-weight (if changed? 600 400)}
-      label]
+      (or display-label label)]
      (when (and shared-count (> shared-count 1))
        [:text {:data-testid (str "rf-xray-reactive-shared-" slug)
                :x (+ x w -4) :y (- y 3)
@@ -385,7 +388,9 @@
                     mount?       nil
                     :else        "← props")
         timing    (elapsed-label elapsed-ms)
-        meta-line (->> [cause timing] (remove nil?) (string/join " · "))]
+        meta-line (->> [cause timing] (remove nil?) (string/join " · "))
+        name-text (if (and (string? disp-name) (seq disp-name)) disp-name label)
+        meta-text (if (seq meta-line) (str sub-label "  " meta-line) sub-label)]
     [:g {;; Attribute-map key; see `sub-node`.
          ;; The instance (render-key) key.
          :key (:key node)
@@ -396,20 +401,23 @@
          :on-mouse-leave (fn [_e] (clear-highlight! id))
          :on-click       (when coord (fn [e] (open-source! coord e)))
          :style {:cursor (if coord "pointer" "default")}}
+     ;; Both lines whole, as the node's tooltip: the text below is fitted
+     ;; to the box (`graph/fit-label`, `graph/fit-line`).
+     [:title (str name-text "\n" meta-text)]
      [:rect {:x x :y y :width w :height h :rx 4
              :fill (with-alpha :success 12)
              :stroke (:success tokens) :stroke-width 2}]
      ;; view name
      [:text {:x (+ x (/ w 2)) :y (+ y 16)
              :text-anchor "middle" :fill (:success tokens)
-             :font-size 11 :font-family mono-stack :font-weight 600}
-      (if (and (string? disp-name) (seq disp-name)) disp-name label)]
+             :font-size graph/label-font-size :font-family mono-stack :font-weight 600}
+      (graph/fit-label name-text w graph/label-font-size)]
      ;; (rerendered) + cause/timing sub-label
      [:text {:data-testid (str "rf-xray-reactive-view-meta-" slug)
              :x (+ x (/ w 2)) :y (+ y 28)
              :text-anchor "middle" :fill (:text-tertiary tokens)
-             :font-size 9 :font-family sans-stack}
-      (if (seq meta-line) (str sub-label "  " meta-line) sub-label)]]))
+             :font-size graph/meta-font-size :font-family sans-stack}
+      (graph/fit-line meta-text w graph/meta-font-size)]]))
 
 ;; ---- REACTIVE FLOW graph -----------------------------------------------
 
