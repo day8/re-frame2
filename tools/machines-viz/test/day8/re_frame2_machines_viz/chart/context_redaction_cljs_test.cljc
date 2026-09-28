@@ -190,7 +190,7 @@
                    :rf.size/large-elided)]
       (is (= 24 (:bytes body)) "both rulers agree on ASCII"))))
 
-(deftest large-char-cap-is-characters-and-did-not-move
+(deftest large-char-cap-counts-characters-not-bytes
   ;; Only the PUBLISHED figure is in bytes. A byte cap would elide this
   ;; 400-character value (1,200 UTF-8 bytes), which renders inline under
   ;; the character cap.

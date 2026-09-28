@@ -415,7 +415,7 @@
       (is (str/includes? d "C")
           "the bezier fallback is a cubic curve (C command)"))))
 
-(deftest edge-path-empty-points-falls-back-to-bezier
+(deftest edge-path-single-point-route-falls-back-to-bezier
   (testing "a single-point (or empty) route is not a real
             route; the edge falls back to the bezier"
     (let [{:keys [routed?]}

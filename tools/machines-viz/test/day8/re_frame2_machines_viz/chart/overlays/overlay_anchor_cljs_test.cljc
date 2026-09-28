@@ -64,35 +64,21 @@
 
 ;; ---- join-resolved? -----------------------------------------------------
 
-(deftest join-resolved-all
-  (testing ":all resolves only when every child is done"
-    (is (true?  (anchor/join-resolved?
-                  {:join :all :children [{:done? true} {:done? true}]})))
-    (is (false? (anchor/join-resolved?
-                  {:join :all :children [{:done? true} {:done? false}]})))))
-
-(deftest join-resolved-any
-  (testing ":any resolves once one child is done"
-    (is (true?  (anchor/join-resolved?
-                  {:join :any :children [{:done? true} {:done? false}]})))
-    (is (false? (anchor/join-resolved?
-                  {:join :any :children [{:done? false} {:done? false}]})))))
-
-(deftest join-resolved-host-override-wins
-  (testing "an explicit :resolved? from the host wins over the computed value"
-    (is (true? (anchor/join-resolved?
-                 {:join :all :resolved? true :children [{:done? false}]})))
-    (is (false? (anchor/join-resolved?
-                  {:join :any :resolved? false :children [{:done? true}]})))))
-
-(deftest join-resolved-unknown-join-is-not-resolved
-  (testing "an out-of-enum join (e.g. {:n N} / {:fn}) is NOT resolved by
-            the overlay — the grammar is a closed
-            :all / :any enum, so anything else defaults to false"
-    (is (false? (anchor/join-resolved?
-                  {:join {:n 2} :children [{:done? true} {:done? true}]})))
-    (is (false? (anchor/join-resolved?
-                  {:join {:fn :host-decides} :children [{:done? true} {:done? true}]})))))
+(deftest join-resolved-follows-the-join-rule
+  (testing ":all resolves only when every child is done, :any once one child
+            is done; an explicit :resolved? from the host wins over the
+            computed value; an out-of-enum join (e.g. {:n N} / {:fn}) is NOT
+            resolved, because the grammar is a closed :all / :any enum"
+    (doseq [[label spec expected]
+            [[":all, every child done"   {:join :all :children [{:done? true} {:done? true}]}   true]
+             [":all, one child pending"  {:join :all :children [{:done? true} {:done? false}]}  false]
+             [":any, one child done"     {:join :any :children [{:done? true} {:done? false}]}  true]
+             [":any, no child done"      {:join :any :children [{:done? false} {:done? false}]} false]
+             ["host :resolved? true wins"  {:join :all :resolved? true :children [{:done? false}]} true]
+             ["host :resolved? false wins" {:join :any :resolved? false :children [{:done? true}]} false]
+             ["{:n N} join"              {:join {:n 2} :children [{:done? true} {:done? true}]} false]
+             ["{:fn} join"               {:join {:fn :host-decides} :children [{:done? true} {:done? true}]} false]]]
+      (is (identical? expected (anchor/join-resolved? spec)) label))))
 
 ;; ---- join-summary -------------------------------------------------------
 
@@ -118,28 +104,16 @@
 
 ;; ---- cascade-counts + summary -------------------------------------------
 
-(deftest cascade-summary-line-pluralises
-  (is (= "destroyed 1 actor · aborted 3 requests"
-         (anchor/cascade-summary-line
-           {:steps [{:kind :destroy}
-                    {:kind :abort} {:kind :abort} {:kind :abort}]})))
-  (is (= "no cascade steps"
-         (anchor/cascade-summary-line {:steps []}))))
-
-(deftest cascade-summary-line-cleanup-pluralisation
-  (testing "the cleanup segment pluralises on its own axis: `1 cleanup`
-            (singular) vs `2 cleanups` (plural). A cleanup-only cascade
-            still renders the cleanup segment (no destroyed / aborted)."
-    (is (= "1 cleanup"
-           (anchor/cascade-summary-line {:steps [{:kind :cleanup}]})))
-    (is (= "2 cleanups"
-           (anchor/cascade-summary-line
-             {:steps [{:kind :cleanup} {:kind :cleanup}]})))))
-
-(deftest cascade-summary-line-ignores-exit-only-steps
-  (testing "an `:exit` step contributes to no count bucket
-            (`cascade-counts` tracks only destroy / abort / cleanup), so a
-            cascade of only `:exit` steps reads `no cascade steps`"
-    (is (= "no cascade steps"
-           (anchor/cascade-summary-line
-             {:steps [{:kind :exit} {:kind :exit}]})))))
+(deftest cascade-summary-line-counts-and-pluralises
+  (testing "each segment pluralises on its own axis; a cleanup-only cascade
+            still renders its segment; an `:exit` step contributes to no
+            count bucket (`cascade-counts` tracks only destroy / abort /
+            cleanup), so an exit-only cascade reads like an empty one"
+    (doseq [[label steps expected]
+            [["one destroy, three aborts" [{:kind :destroy} {:kind :abort} {:kind :abort} {:kind :abort}]
+              "destroyed 1 actor · aborted 3 requests"]
+             ["no steps"                  []                                  "no cascade steps"]
+             ["one cleanup"               [{:kind :cleanup}]                  "1 cleanup"]
+             ["two cleanups"              [{:kind :cleanup} {:kind :cleanup}] "2 cleanups"]
+             ["exit steps only"           [{:kind :exit} {:kind :exit}]       "no cascade steps"]]]
+      (is (= expected (anchor/cascade-summary-line {:steps steps})) label))))

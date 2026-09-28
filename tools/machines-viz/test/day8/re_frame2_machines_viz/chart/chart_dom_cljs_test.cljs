@@ -1124,12 +1124,12 @@
                                  :connected  {}}}
              :failed  {:on {:retry :active}}}})
 
-(deftest chart-data-edge-count-projected-matches-parsed
+(deftest chart-data-edge-count-projected-not-below-parsed
   (testing "the chart root carries
             `data-edge-count-projected` (the projector output count) +
             `data-edge-count` (the parser output count). For a compound-
-            endpoint machine the two must agree at the parser→projector
-            boundary so no edge is silently dropped there"
+            endpoint machine the projector count is not below the parser
+            count, so no edge is silently dropped at that boundary"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart

@@ -36,7 +36,7 @@
 ;; returns `valid-definition? => true` for each; each is rejected with the
 ;; SAME `:rf.error/machine-*` id the runtime `validate-machine!` raises.
 
-(deftest deterministic-false-positives-now-rejected
+(deftest shallow-check-false-positives-are-rejected
   (testing "nested compound missing :initial => machine-compound-state-missing-initial"
     (let [d {:initial :outer :states {:outer {:states {:inner {}}}}}]
       (is (false? (g/valid-definition? d)))
@@ -99,7 +99,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Empty / non-map state bodies
 
-(deftest empty-and-non-map-state-bodies
+(deftest root-shape-defects
   (testing "a non-map definition is rejected"
     (is (= :rf.error/machine-bad-definition (category 42)))
     (is (= :rf.error/machine-bad-definition (category "not-a-machine"))))

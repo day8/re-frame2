@@ -603,7 +603,7 @@
         (is (false? s) (str "SCXML must accept "   (pr-str d)))
         (is (= a m s) (str "all three must AGREE on accepting " (pr-str d)))))))
 
-(deftest scxml-now-rejects-malformed-parallel-region-bodies
+(deftest scxml-rejects-malformed-parallel-region-bodies
   (testing "SCXML rejects a parallel region body with no
             :initial/:states, matching AI + Mermaid"
     (is (scxml-rejects? malformed-parallel-region-body-machine)
@@ -617,7 +617,7 @@
       (is (= :scxml/invalid-spec (:rf.error/id d))
           "SCXML keeps its surface-specific error id"))))
 
-(deftest all-three-now-reject-non-keyword-initial
+(deftest all-three-reject-non-keyword-initial
   (testing "Mermaid + SCXML reject a non-keyword :initial,
             matching AI (the machine contract: state ids are keywords)"
     (doseq [d [non-keyword-initial-machine numeric-initial-machine]]

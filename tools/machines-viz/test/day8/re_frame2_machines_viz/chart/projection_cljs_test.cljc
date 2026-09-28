@@ -254,10 +254,9 @@
       (is (nil? (:onClick (:data hist)))
           "a history marker carries no on-state-click handler"))))
 
-(deftest history-node-keeps-incoming-edge
+(deftest project-definition-history-target-keeps-incoming-edge
   (testing "a transition targeting the history pseudo-state keeps
-            its incoming edge (the marker is a legitimate transition target),
-            sourced from the off state's event node"
+            its incoming edge (the marker is a legitimate transition target)"
     (let [parsed (layout/project-definition shallow-history-machine)
           ;; one parsed edge :resume from :off → [:player :hist]
           resume (first (filter #(= [:player :hist] (:to-path %)) (:edges parsed)))]
@@ -491,7 +490,7 @@
         (is (< (index-of parent) (index-of (:id n)))
             (str "parent " parent " must precede child " (:id n)))))))
 
-(deftest xyflow-graph-region-sort-is-stable-against-shuffle
+(deftest xyflow-graph-parent-first-order-survives-reversed-input
   (testing "the sort is defensive — even if upstream emits a child
             before its region, the projector re-orders regions first"
     (let [parsed   (layout/project-definition parallel-machine)
@@ -632,9 +631,10 @@
       (is (false? (:active (:data (node-by-id graph other-id))))
           "an inactive sibling leaf stays dark"))))
 
-(deftest xyflow-graph-flat-machine-unaffected-by-container-chrome
-  (testing "a flat machine has no containers, so the active
-            set is exactly the active leaf(s); no spurious node lights"
+(deftest xyflow-graph-flat-machine-lights-only-the-highlighted-leaf
+  (testing "a flat machine's only container is the root frame,
+            which never lights, so the active set is exactly the
+            highlighted leaf; no spurious node lights"
     (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
           graph    (projection/xyflow-graph parsed {} {:highlight-ids #{hi}})
@@ -3083,7 +3083,7 @@
       (is (= "store-result" (:action (:data ev-node))) "the action surfaces on the chip")
       (is (nil? (outbound-edge-for graph (:id od))) "no outgoing segment"))))
 
-(deftest xyflow-graph-spawn-on-done-fold-projects-nothing
+(deftest project-definition-spawn-on-done-fold-projects-no-edge
   (testing "a fn `:spawn :on-done` and a `:spawn-all` child's fn `:on-done`
             fold `:data` and project no edge"
     (doseq [[label m] {:spawn     {:initial :working
