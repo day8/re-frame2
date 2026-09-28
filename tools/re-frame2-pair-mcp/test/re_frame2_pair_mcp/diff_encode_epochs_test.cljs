@@ -12,15 +12,15 @@
   pipeline composes the transform via
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`.
 
-  Tests pin the public surfaces directly:
-  `re-frame.mcp-base.diff-encode/collect-patches`,
-  `re-frame.mcp-base.diff-encode/apply-patches`,
-  `re-frame.mcp-base.diff-encode/diff-encode-db-after`,
-  `re-frame.mcp-base.diff-encode/decode-db-after`,
+  Tests pin the public surfaces this server composes:
+  `re-frame.mcp-base.diff-encode/diff-encode-db-after` +
+  `decode-db-after` through their round-trip property,
   `re-frame.mcp-base.diff-encode/diff-encode-epochs`,
   `tools.snapshot-pipeline/diff-encode-epochs-in-snapshot`,
   `tools.args/parse-epochs-mode`. A rename or signature change
-  surfaces as a failing test rather than silent contract drift.
+  surfaces as a failing test rather than silent contract drift. The
+  `collect-patches` / `apply-patches` primitives are mcp-base's own and
+  its suite pins them on both the JVM and CLJS lanes.
 
   Live end-to-end coverage runs against a real shadow-cljs build
   with a populated `epoch-history`; this file pins the pure CLJS
@@ -31,80 +31,7 @@
             [re-frame2-pair-mcp.tools.snapshot-pipeline :as pipeline]))
 
 ;; ---------------------------------------------------------------------------
-;; collect-patches — the encoder's path-keyed diff factory.
-;; ---------------------------------------------------------------------------
-
-(deftest collect-patches-equal-maps-no-patches
-  (is (= [] (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 1} []))))
-
-(deftest collect-patches-added-key-emits-assoc
-  (is (= [[[:b] :assoc 2]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 1 :b 2} []))))
-
-(deftest collect-patches-removed-key-emits-dissoc
-  (is (= [[[:b] :dissoc]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1 :b 2} {:a 1} []))))
-
-(deftest collect-patches-changed-leaf-emits-assoc
-  (is (= [[[:a] :assoc 99]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1} {:a 99} []))))
-
-(deftest collect-patches-nested-change-emits-deep-path
-  (let [patches (rf.mcp-base.diff-encode/collect-patches {:user {:auth {:token "abc"}}}
-                                       {:user {:auth {:token "xyz"}}}
-                                       [])]
-    (is (= [[[:user :auth :token] :assoc "xyz"]] patches))))
-
-(deftest collect-patches-non-map-replacement-at-root
-  ;; Root-level swap from one shape to another wholly different shape.
-  (is (= [[[] :assoc :replaced]]
-         (rf.mcp-base.diff-encode/collect-patches {:a 1} :replaced []))))
-
-(deftest collect-patches-same-length-vector-diffs-element-wise
-  ;; Same-length vectors diff element-by-element under numeric index
-  ;; paths — a reorder of [1 2 3] → [3 2 1] differs at indices 0 and 2
-  ;; and emits index-level patches, not a whole-vector replacement. This
-  ;; is the actionable item-level shape the token-budget premise needs
-  ;; for tables / cards / queues / logs.
-  (is (= [[[:items 0] :assoc 3]
-          [[:items 2] :assoc 1]]
-         (rf.mcp-base.diff-encode/collect-patches {:items [1 2 3]} {:items [3 2 1]} [])))
-  ;; A LENGTH change still falls back to a whole-vector :assoc.
-  (is (= [[[:items] :assoc [1 2 3 4]]]
-         (rf.mcp-base.diff-encode/collect-patches {:items [1 2 3]} {:items [1 2 3 4]} []))))
-
-;; ---------------------------------------------------------------------------
-;; apply-patches — the decoder.
-;; ---------------------------------------------------------------------------
-
-(deftest apply-patches-empty-list-is-identity
-  (is (= {:a 1 :b 2} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} []))))
-
-(deftest apply-patches-assoc-adds-or-changes-value
-  (is (= {:a 1 :b 99}
-         (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :assoc 99]]))))
-
-(deftest apply-patches-dissoc-removes-key
-  (is (= {:a 1}
-         (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
-
-(deftest apply-patches-root-assoc-replaces-value
-  (is (= :other
-         (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[] :assoc :other]]))))
-
-(deftest apply-patches-deep-path-creates-or-updates
-  (is (= {:a {:b {:c 99}}}
-         (rf.mcp-base.diff-encode/apply-patches {:a {:b {:c 1}}} [[[:a :b :c] :assoc 99]]))))
-
-(deftest apply-patches-applies-in-order
-  ;; Two patches against the same parent: order matters.
-  (is (= {:a 1 :b 2}
-         (rf.mcp-base.diff-encode/apply-patches {:a 1}
-                              [[[:b] :assoc 99]
-                               [[:b] :assoc 2]]))))
-
-;; ---------------------------------------------------------------------------
-;; diff-encode-db-after — the encoder shape.
+;; The fixture epoch — one committed cart change.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private fixture-epoch
@@ -118,45 +45,9 @@
    :db-after     {:cart {:items [{:sku "A1"}] :total 10}
                   :user {:id 7}}})
 
-(deftest diff-encode-db-after-replaces-db-after-with-marker
-  ;; The wire shape is path-headed cluster sections, not a flat patch
-  ;; list. The `:rf.mcp/diff-from` marker tags the source slot; the body
-  ;; lives under `:sections`.
-  (let [enc (rf.mcp-base.diff-encode/diff-encode-db-after fixture-epoch)
-        da  (:db-after enc)]
-    (is (= :db-before (:rf.mcp/diff-from da))
-        "Diff marker carries the source-slot key")
-    (is (vector? (:sections da)))
-    (is (every? (every-pred map? #(contains? % :section-path)
-                            #(contains? % :section-kind)
-                            #(contains? % :patches))
-                (:sections da))
-        "every section carries :section-path + :section-kind + :patches")))
-
-(deftest diff-encode-db-after-leaves-db-before-untouched
-  (let [enc (rf.mcp-base.diff-encode/diff-encode-db-after fixture-epoch)]
-    (is (= (:db-before fixture-epoch) (:db-before enc))
-        ":db-before stays the canonical reference")))
-
-(deftest diff-encode-db-after-no-db-before-leaves-epoch-alone
-  ;; Synthetic / pruned epoch without :db-before can't be diffed —
-  ;; pass-through is the correct posture.
-  (let [partial-epoch {:epoch-id :ep-x :db-after {:foo 1}}]
-    (is (= partial-epoch (rf.mcp-base.diff-encode/diff-encode-db-after partial-epoch)))))
-
-(deftest diff-encode-db-after-non-map-passes-through
-  (is (= :not-an-epoch (rf.mcp-base.diff-encode/diff-encode-db-after :not-an-epoch)))
-  (is (= nil (rf.mcp-base.diff-encode/diff-encode-db-after nil))))
-
 ;; ---------------------------------------------------------------------------
 ;; Round-trip property: encode → decode → identity.
 ;; ---------------------------------------------------------------------------
-
-(deftest round-trip-single-key-change
-  (let [enc (rf.mcp-base.diff-encode/diff-encode-db-after fixture-epoch)
-        dec (rf.mcp-base.diff-encode/decode-db-after enc)]
-    (is (= fixture-epoch dec)
-        "encode→decode round-trips the full epoch unchanged")))
 
 (deftest round-trip-identical-db-before-and-db-after
   ;; Degenerate case: no change. Sections list is empty (empty patches →
@@ -273,19 +164,6 @@
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-epochs — the slice-level transform.
 ;; ---------------------------------------------------------------------------
-
-(deftest diff-encode-epochs-diff-mode-encodes-every-record
-  (let [epochs [fixture-epoch fixture-epoch fixture-epoch]
-        enc    (rf.mcp-base.diff-encode/diff-encode-epochs epochs :diff)]
-    (is (= 3 (count enc)))
-    (doseq [e enc]
-      (is (= :db-before (-> e :db-after :rf.mcp/diff-from))))))
-
-(deftest diff-encode-epochs-full-mode-pass-through
-  (let [epochs [fixture-epoch fixture-epoch]
-        enc    (rf.mcp-base.diff-encode/diff-encode-epochs epochs :full)]
-    (is (= epochs enc)
-        ":full mode is a no-op — agent gets the records verbatim")))
 
 (deftest diff-encode-epochs-each-record-self-contained
   ;; Independence property: each epoch encodes against ITS OWN

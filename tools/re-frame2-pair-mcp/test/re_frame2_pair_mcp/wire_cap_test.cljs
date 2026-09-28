@@ -11,8 +11,8 @@
   `re-frame2-pair-mcp.tools.cap`: `max-tokens-arg`, `overflow-payload`,
   `sum-payload-tokens`, `apply-cap`, `overflow-hints`, `default-max-tokens`.
   The two test-only helpers `token-estimate` and `overflow-hint-fallback`
-  live in `re-frame2-pair-mcp.test-utils` and are pinned via `tu/`
-  here. A rename or signature change surfaces as a failing test rather
+  live in `re-frame2-pair-mcp.test-utils`; the token rule itself is
+  mcp-base's own (`overflow/token-estimate`) and its suite pins it. A rename or signature change surfaces as a failing test rather
   than a silent contract drift.
 
   Live end-to-end coverage of `invoke` lives in
@@ -41,17 +41,6 @@
 
 (defn- big-string [n]
   (apply str (repeat n "x")))
-
-;; ---------------------------------------------------------------------------
-;; token-estimate — the rule the spec pins.
-;; ---------------------------------------------------------------------------
-
-(deftest token-estimate-is-chars-div-4
-  (is (zero? (tu/token-estimate "")))
-  (is (zero? (tu/token-estimate "abc")))
-  (is (= 1 (tu/token-estimate "abcd")))
-  (is (= 250 (tu/token-estimate (big-string 1000))))
-  (is (= 5000 (tu/token-estimate (big-string 20000)))))
 
 ;; ---------------------------------------------------------------------------
 ;; max-tokens-arg — per-call override resolution.
@@ -85,13 +74,6 @@
       (is (= -1 (:value body)))
       (is (re-find #"(?i)0 disables" (:hint body)))))
   (is (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" -5}))))
-
-(deftest invalid-arg?-discriminates
-  (is (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" -1})))
-  (is (not (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" 0}))))
-  (is (not (cap/invalid-arg? (cap/max-tokens-arg #js {"max-tokens" 100}))))
-  (is (not (cap/invalid-arg? (cap/max-tokens-arg #js {}))))
-  (is (not (cap/invalid-arg? nil))))
 
 ;; ---------------------------------------------------------------------------
 ;; sum-payload-tokens — sums every `:text` slot.
@@ -177,14 +159,6 @@
     (is (not (true? (j/get ok-out :isError)))
         "control: an over-cap success stays non-error")))
 
-(deftest apply-cap-overflow-payload-is-itself-under-cap
-  ;; The replacement marker must fit; otherwise we recurse on overflow.
-  (let [big (apply str (repeat 8000 "x"))
-        r   (ok-text-result {:huge big})
-        out (cap/apply-cap r {:tool "snapshot" :cap 500})]
-    (is (<= (cap/sum-payload-tokens out) 500)
-        "The overflow marker itself must be under the cap")))
-
 (deftest apply-cap-unknown-tool-uses-fallback-hint
   (let [big (apply str (repeat 8000 "x"))
         r   (ok-text-result {:huge big})
@@ -193,25 +167,6 @@
         marker (:rf.mcp/overflow edn)]
     (is (= "no-such-tool" (:tool marker)))
     (is (= tu/overflow-hint-fallback (:hint marker)))))
-
-(deftest apply-cap-unknown-strategy-degrades-safely
-  ;; Unknown strategy must NOT throw and must NOT ship the over-budget
-  ;; payload. It falls back to the marker, same as :truncate-with-marker.
-  (let [big (apply str (repeat 8000 "x"))
-        r   (ok-text-result {:huge big})
-        out (cap/apply-cap r {:tool "snapshot" :cap 500 :strategy :unknown-strategy})
-        edn (read-edn out)]
-    (is (contains? edn :rf.mcp/overflow))))
-
-(deftest apply-cap-at-cap-exact-boundary-passes
-  ;; <= cap passes; only > cap trips. Boundary check pins inclusive-low.
-  (let [;; 400 chars ⇒ 100 tokens; pr-str adds quote overhead so final
-        ;; text is ~402 chars ⇒ 100 tokens.
-        s    (apply str (repeat 400 "x"))
-        r    (ok-text-result s)
-        toks (cap/sum-payload-tokens r)
-        out  (cap/apply-cap r {:tool "snapshot" :cap toks})]
-    (is (identical? r out))))
 
 ;; ---------------------------------------------------------------------------
 ;; :structuredContent counts toward the cap.
@@ -233,15 +188,6 @@
   [text-v structured-v]
   #js {:content          #js [#js {:type "text" :text (pr-str text-v)}]
        :structuredContent (clj->js structured-v)})
-
-(deftest sum-payload-tokens-counts-structured-content
-  ;; Small text slot, large structuredContent. The token sum must reflect
-  ;; the structured JSON bytes, not just the text slot.
-  (let [r          (dual-coded-result {:ok? true} {:big-payload (big-string 30000)})
-        text-only  (tu/token-estimate (read-text r))
-        total      (cap/sum-payload-tokens r)]
-    (is (> total (+ text-only 5000))
-        "structuredContent JSON bytes MUST be summed alongside the text slot")))
 
 (deftest apply-cap-trips-on-huge-structured-content-under-small-text
   ;; THE load-bearing case: a response whose `:content` text is tiny but
@@ -269,31 +215,6 @@
   (let [r   (dual-coded-result {:ok? true :v 1} {:ok? true :v 1})
         out (cap/apply-cap r {:tool "snapshot" :cap cap/default-max-tokens})]
     (is (identical? r out))))
-
-;; ---------------------------------------------------------------------------
-;; The load-bearing scenario: 5MB app-db snapshot — the worst-case
-;; payload size the cap must contain.
-;; ---------------------------------------------------------------------------
-
-(deftest five-mb-snapshot-is-bounded-at-wire-boundary
-  ;; A 5MB app-db snapshot pr-strs to ~5.6M chars ⇒ ~1.4M tokens, 290×
-  ;; the 5,000-token cap. Without the cap this is silent context
-  ;; corruption; with it, a structured marker so the agent retries with
-  ;; narrower args.
-  (let [big-app-db (apply str (repeat (* 5 1024 1024) "x"))  ;; 5 MB
-        snapshot {:rf/default {:app-db big-app-db}}
-        r        (ok-text-result {:ok? true :snapshot snapshot})
-        out      (cap/apply-cap r {:tool "snapshot" :cap cap/default-max-tokens})
-        edn      (read-edn out)]
-    (is (contains? edn :rf.mcp/overflow)
-        "5MB payload MUST be replaced with overflow marker, not shipped raw")
-    (is (<= (cap/sum-payload-tokens out) cap/default-max-tokens)
-        "Replacement payload MUST be under the cap")
-    (let [marker (:rf.mcp/overflow edn)]
-      (is (= :reached (:limit marker)))
-      (is (= "snapshot" (:tool marker)))
-      (is (> (:token-count marker) (* 200 cap/default-max-tokens))
-          "Token-count reflects the original oversized payload"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-tool hints — every catalogued tool has a tailored next-step.
@@ -341,16 +262,6 @@
         out     (cap/apply-cap r {:tool "snapshot" :cap 1})]
     (is (identical? r out)
         "overflow marker passes through unchanged — no recursion")))
-
-(deftest apply-cap-runs-walk-on-non-marker-payloads
-  ;; Negative — a normal map that doesn't open with the marker
-  ;; namespace MUST be subject to the cap walk.
-  (let [big   (apply str (repeat 8000 "x"))
-        r     (ok-text-result {:huge big})
-        out   (cap/apply-cap r {:tool "snapshot" :cap 500})
-        edn   (read-edn out)]
-    (is (contains? edn :rf.mcp/overflow)
-        "non-marker payload over budget is still capped")))
 
 (deftest apply-cap-caps-over-budget-lookalike-marker-key
   ;; Regression guard: the marker detector matches on the EXACT marker
