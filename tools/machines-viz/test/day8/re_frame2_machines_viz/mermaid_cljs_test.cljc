@@ -691,10 +691,6 @@
                                 :hist    {:type :history :deep? false}}
                       :on      {:power-off :off}}}})
 
-(def deep-history-machine
-  (assoc-in shallow-history-machine [:states :player :states :hist]
-            {:type :history :deep? true}))
-
 (def default-target-history-machine
   (assoc-in shallow-history-machine [:states :player :states :hist]
             {:type :history :deep? false :default-target :playing}))
