@@ -124,18 +124,15 @@
 (deftest an-unbindable-require-is-reported
   (let [{:keys [entries unresolved?]} (rf.migration.fresco.census/scan vendored-require "app/panel.cljs")]
     (is (true? unresolved?))
-    (is (= [:unresolved-reagent-require :unresolved-alias] (mapv :class entries)))
+    (is (= [:unresolved-reagent-require :unresolved-alias] (mapv :class entries))
+        "exactly two: `(atom nil)` on line 4 is `clojure.core`'s, and an alias is
+         what could not be bound, so a call with no alias is not evidence of it")
     (testing "the require is reported at the `ns` form, where the fix goes"
       (is (= 1 (:line (first entries)))))
     (testing "and the call that could not be bound names the symbol it could not bind"
       (is (= {:api "atom" :symbol "r/atom"} (:detail (second entries)))))
     (testing "the note says the whole tool family is blind here, not just the census"
       (is (str/includes? (:note (first entries)) "PARTIALLY BLIND")))))
-
-(deftest the-unqualified-core-call-beside-it-is-not-reported
-  (testing "`(atom nil)` on line 4 is `clojure.core`'s. An alias is what could not
-            be bound, so a call with no alias is not evidence of it."
-    (is (not-any? #(= 4 (:line %)) (:entries (rf.migration.fresco.census/scan vendored-require "app/panel.cljs"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A require behind a reader conditional RESOLVES (rf2-m4hm)

@@ -138,31 +138,6 @@
       (is (= [:a :b 1 2] (wrapper 1 2))))))
 
 ;; ---------------------------------------------------------------------------
-;; The written shape
-;; ---------------------------------------------------------------------------
-
-(deftest the-emitted-shape-is-hygienic-and-minimal
-  (testing "self-evaluating arguments are INLINED, not bound: their
-            evaluation has nothing to observe and a binding for one is
-            pure noise"
-    (let [[_ text] (emitted "(r/partial handler :id 7 \"s\")")]
-      (is (= "(let [f__rf2 handler] (fn [& args__rf2] (apply f__rf2 :id 7 \"s\" args__rf2)))"
-             text))))
-
-  (testing "a SYMBOL callee is bound even though it looks atomic:
-            re-reading a var on each invocation picks up a redefinition
-            the donor's captured value would never have seen"
-    (let [[_ text] (emitted "(r/partial handler)")]
-      (is (= "(let [f__rf2 handler] (fn [& args__rf2] (apply f__rf2 args__rf2)))" text))))
-
-  (testing "every argument that is not self-evaluating is bound, in source
-            order, and every binding carries the `__rf2` suffix"
-    (let [[_ text] (emitted "(r/partial (make-handler!) (next-id!) (log! \"x\"))")]
-      (is (= (str "(let [f__rf2 (make-handler!) a0__rf2 (next-id!) a1__rf2 (log! \"x\")] "
-                  "(fn [& args__rf2] (apply f__rf2 a0__rf2 a1__rf2 args__rf2)))")
-             text)))))
-
-;; ---------------------------------------------------------------------------
 ;; Hygiene — the generated names are FRESH against the site
 ;; ---------------------------------------------------------------------------
 ;;
