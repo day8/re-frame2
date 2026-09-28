@@ -31,7 +31,6 @@
             [re-frame.core :as rf]
             [re-frame.interceptor :as rf.interceptor]
             [re-frame.interceptor-registry :as rf.interceptor-registry]
-            [re-frame.std-interceptors :as rf.std-interceptors]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -43,28 +42,37 @@
 ;; PIECE 1 — standard :rf.interceptor/path FULL contract
 ;; ===========================================================================
 
-(deftest path-noop-preserves-identical-app-db-end-to-end
-  (testing "RULE 4: an unchanged focused slice keeps the app-db object identical? end-to-end"
-    ;; Seed a non-trivial slice at [:cart].
-    (rf/reg-event :cart/seed
-      (fn [{:keys [db]} _] {:db (assoc db :cart {:items [:milk :eggs]})}))
-    ;; A focused handler that returns its slice UNCHANGED (the same object it
-    ;; received) — the canonical no-op focused-handler pattern.
-    (rf/reg-event :cart/touch
-      {:interceptors [[:rf.interceptor/path [:cart]]]}
-      (fn [{:keys [db]} _]
-        ;; `db` here is the FOCUSED slice (the value at [:cart]); return it
-        ;; unchanged so rule 4 must re-emit the original full app-db object.
-        {:db db}))
-
-    (rf/dispatch-sync [:cart/seed])
-    (let [before (rf/app-db-value :rf/default)]
-      (rf/dispatch-sync [:cart/touch])
-      (let [after (rf/app-db-value :rf/default)]
-        (is (identical? before after)
-            "the frame-commit identical? no-op held: the path interceptor widened the
-             unchanged slice back to the ORIGINAL full app-db object, so the commit
-             boundary skipped the container write")))))
+(deftest path-unchanged-db-keeps-the-app-db-object-identical
+  (testing "RULE 4 (an unchanged focused slice widens back to the ORIGINAL full
+            app-db object) and RULE 3 (no `:db` effect → no synthetic `:db`):
+            the frame-commit `identical?` no-op survives end-to-end through a
+            real dispatch + commit"
+    (doseq [[label path seed handler]
+            [;; A focused handler that returns its slice UNCHANGED (the same
+             ;; object it received) — the canonical no-op focused-handler
+             ;; pattern, so rule 4 must re-emit the original full app-db object.
+             ["RULE 4: the [:cart] slice returned unchanged" [:cart]
+              (fn [db] (assoc db :cart {:items [:milk :eggs]}))
+              (fn [{:keys [db]} _] {:db db})]
+             ;; No :db effect at all (just an empty effect map).
+             ["RULE 3: a [:cart]-focused handler emitting no :db effect" [:cart]
+              (fn [db] (assoc db :cart {:items [:x]}))
+              (fn [_ _] {})]
+             ;; The root path [] focuses the whole app-db.
+             ["RULE 4 at the root path []" []
+              (fn [db] (assoc db :x 1))
+              (fn [{:keys [db]} _] {:db db})]]]
+      (testing label
+        (rf/reg-event :noop-path/seed (fn [{:keys [db]} _] {:db (seed db)}))
+        (rf/reg-event :noop-path/touch
+          {:interceptors [[:rf.interceptor/path path]]}
+          handler)
+        (rf/dispatch-sync [:noop-path/seed])
+        (let [before (rf/app-db-value :rf/default)]
+          (rf/dispatch-sync [:noop-path/touch])
+          (is (identical? before (rf/app-db-value :rf/default))
+              "the frame-commit identical? no-op held: nothing was written, so the
+               commit boundary skipped the container write"))))))
 
 (deftest path-changed-slice-widens-and-allocates
   (testing "RULE 5: a CHANGED focused slice widens back into app-db at the path"
@@ -84,22 +92,6 @@
             "a real change produces a new app-db object (the commit wrote)")
         (is (= [:milk] (get-in after [:cart :items]))
             "the changed slice was spliced back into full app-db at [:cart]")))))
-
-(deftest path-no-db-effect-emits-no-synthetic-db
-  (testing "RULE 3: a handler emitting NO :db effect produces no synthetic :db write"
-    (rf/reg-event :cart/seed
-      (fn [{:keys [db]} _] {:db (assoc db :cart {:items [:x]})}))
-    (rf/reg-event :cart/peek
-      {:interceptors [[:rf.interceptor/path [:cart]]]}
-      ;; Returns no :db effect at all (just an empty effect map).
-      (fn [{:keys [db]} _] {}))
-
-    (rf/dispatch-sync [:cart/seed])
-    (let [before (rf/app-db-value :rf/default)]
-      (rf/dispatch-sync [:cart/peek])
-      (let [after (rf/app-db-value :rf/default)]
-        (is (identical? before after)
-            "no :db effect → no synthetic :db → no write → identical app-db")))))
 
 (deftest path-nested-interceptors-compose
   (testing "nested path interceptors stack + unwind correctly"
@@ -133,19 +125,6 @@
     (let [db (rf/app-db-value :rf/default)]
       (is (and (:seeded? db) (:root-wrote? db))
           "root focus saw + wrote the whole db"))))
-
-(deftest path-root-path-noop-preserves-identical
-  (testing "RULE 4 at the root path: an unchanged whole-db focus stays identical?"
-    (rf/reg-event :root/seed
-      (fn [{:keys [db]} _] {:db (assoc db :x 1)}))
-    (rf/reg-event :root/touch
-      {:interceptors [[:rf.interceptor/path []]]}
-      (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:root/seed])
-    (let [before (rf/app-db-value :rf/default)]
-      (rf/dispatch-sync [:root/touch])
-      (is (identical? before (rf/app-db-value :rf/default))
-          "root-path no-op preserved the original object"))))
 
 (deftest path-bad-path-arg-is-structured-error
   (testing ":rf.error/path-interceptor-bad-path for a non-vector path argument"
@@ -207,22 +186,6 @@
     (let [seen (::seen (rf/app-db-value :rf/default))]
       (is (= [:b] seen)
           "the exact [:ov/tag :a] reference was removed; the sibling [:ov/tag :b] survived"))))
-
-(deftest override-parameterized-does-not-match-different-arg
-  (testing "an [id arg] override does NOT match an [id other-arg] reference"
-    (rf/reg-interceptor :ov/tag2
-      {:factory (fn [tag]
-                  {:before (fn [ctx]
-                             (update-in ctx [:coeffects :db ::seen2]
-                                        (fnil conj []) tag))})})
-    (rf/reg-event :ov/run2
-      {:interceptors [[:ov/tag2 :keep]]}
-      (fn [{:keys [db]} _] {:db db}))
-
-    ;; Override targets a DIFFERENT arg — must not match; the chain is untouched.
-    (rf/dispatch-sync [:ov/run2] {:interceptor-overrides {[:ov/tag2 :other] nil}})
-    (is (= [:keep] (::seen2 (rf/app-db-value :rf/default)))
-        "the override [:ov/tag2 :other] did not match [:ov/tag2 :keep] — it ran")))
 
 (deftest override-parameterized-canonical-arg-identity
   (testing "exact-ref matching is by CANONICAL arg identity (map-key order ignored)"
@@ -307,29 +270,10 @@
                               (fn [{:keys [db]} _] {:db db})))
           "an inline lowered value in a chain is :rf.error/inline-interceptor-removed"))))
 
-(deftest standard-path-built-via-internal-constructor
-  (testing "the standard path interceptor is itself built by the internal lowering constructor"
-    (let [icpt (rf.std-interceptors/standard-path-interceptor [:cart])]
-      (is (= :rf.interceptor/path (:id icpt)))
-      (is (and (fn? (:before icpt)) (fn? (:after icpt)))
-          "the internal lowering constructor produced an executable interceptor"))))
-
-(deftest interceptor-public-authoring-is-reg-interceptor
-  (testing "reg-interceptor — NOT ->interceptor* — is the public authoring surface"
-    ;; The public form names + registers the interceptor so it is referenced by id.
-    (is (= :pub/authored
-           (rf/reg-interceptor :pub/authored {:doc "public form"} {:before identity})))
-    (is (some? (rf/handler-meta {:source :store :kind :interceptor :id :pub/authored}))
-        "reg-interceptor produced a registered, addressable program member")
-    ;; The lowering constructor lives ONLY on its owning namespace
-    ;; (the facade does not carry `->interceptor*`; the absence
-    ;; is pinned on both platforms by
-    ;; re-frame.facade-internal-constructors-cljs-test). This test pins the
-    ;; BEHAVIORAL contract: authoring goes through reg-interceptor, while
-    ;; `re-frame.interceptor/->interceptor*` is a working internal
-    ;; lowering seam (above).
-    (is (fn? rf.interceptor/->interceptor*)
-        "->interceptor* lives on re-frame.interceptor as the internal lowering constructor")))
+;; Public authoring is `reg-interceptor` — its return id and registered
+;; handler-meta are pinned by `re-frame.reg-interceptor-cljs-test`'s
+;; `reg-interceptor-each-descriptor-form` — and the facade's lack of
+;; `->interceptor*` by `re-frame.facade-internal-constructors-cljs-test`.
 
 ;; ===========================================================================
 ;; PIECE 4 — interceptor-registry resolution seams

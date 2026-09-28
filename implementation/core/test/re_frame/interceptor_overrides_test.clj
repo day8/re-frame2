@@ -63,39 +63,11 @@
   id)
 
 ;; ---- per-call :interceptor-overrides ---------------------------------------
-
-(deftest per-call-interceptor-override-removes-by-ref
-  (testing "per-call {:ref nil} drops the interceptor from the chain"
-    (let [log (atom [])]
-      (reg-logger! log ::log-a)
-      (reg-logger! log ::log-b)
-      (rf/reg-event :test/run
-        {:interceptors [::log-a ::log-b]}
-        (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
-
-      (rf/dispatch-sync [:test/run]
-                        {:interceptor-overrides {::log-a nil}})
-
-      (is (= [[::log-b :before]
-              [::log-b :after]]
-             @log)
-          "::log-a was removed; ::log-b's before/after still fired"))))
-
-(deftest per-call-interceptor-override-replaces-by-ref
-  (testing "per-call {:ref <other-ref>} replaces the interceptor"
-    (let [log (atom [])]
-      (reg-logger! log ::log-x)
-      (rf/reg-interceptor ::stub-x
-        {:before (fn [ctx] (swap! log conj [::stub :fired]) ctx)})
-      (rf/reg-event :test/run
-        {:interceptors [::log-x]}
-        (fn [{:keys [db]} _] {:db db}))
-
-      (rf/dispatch-sync [:test/run]
-                        {:interceptor-overrides {::log-x ::stub-x}})
-
-      (is (= [[::stub :fired]] @log)
-          "the ::stub-x ref fired in place of the original ::log-x interceptor"))))
+;;
+;; Per-call removal (`ref -> nil`) and replacement (`ref -> <ref>`) are pinned
+;; on both hosts by `re-frame.interceptor-runtime-complete-cljs-test`'s
+;; `override-matches-bare-keyword-ref` and
+;; `override-bare-keyword-replaces-with-ref`.
 
 (deftest value-valued-override-replacement-rejected
   (testing "an inline interceptor VALUE as an override replacement is rejected (overrides are reference-only)"
