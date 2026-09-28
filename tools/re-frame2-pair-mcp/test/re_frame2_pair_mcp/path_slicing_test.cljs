@@ -30,48 +30,28 @@
 ;; parse-path-arg — the input-shape contract.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-path-arg-nil-is-nil
-  (is (nil? (args/parse-path-arg nil))))
-
-(deftest parse-path-arg-blank-string-is-nil
-  (is (nil? (args/parse-path-arg "")))
-  (is (nil? (args/parse-path-arg "   "))))
-
-(deftest parse-path-arg-edn-vector-string
-  (is (= [:cart :items 0] (args/parse-path-arg "[:cart :items 0]")))
-  (is (= [:a :b :c] (args/parse-path-arg "[:a :b :c]"))))
-
-(deftest parse-path-arg-edn-empty-vector-is-root
-  (is (= [] (args/parse-path-arg "[]"))))
-
-(deftest parse-path-arg-cljs-vector-passes-through
-  (is (= [:a :b :c] (args/parse-path-arg [:a :b :c])))
-  (is (= [] (args/parse-path-arg []))))
-
-(deftest parse-path-arg-cljs-sequential-coerces-to-vector
-  (is (= [:a :b :c] (args/parse-path-arg (list :a :b :c)))))
-
-(deftest parse-path-arg-js-array-of-edn-strings
-  ;; Each segment is parsed as EDN: keywords, integers, etc.
-  (is (= [:cart :items 0]
-         (args/parse-path-arg #js [":cart" ":items" "0"]))))
-
-(deftest parse-path-arg-js-array-with-bare-strings-stays-strings
-  ;; Non-EDN segments (bare strings) pass through as map keys.
-  (is (= [:a "bare-key" :b]
-         (args/parse-path-arg #js [":a" "bare-key" ":b"]))))
-
-(deftest parse-path-arg-non-vector-edn-wraps-as-single-segment
-  ;; A lone keyword string becomes a 1-segment path.
-  (is (= [:foo] (args/parse-path-arg ":foo")))
-  ;; A bare integer string also becomes a 1-segment path.
-  (is (= [42] (args/parse-path-arg "42"))))
-
-(deftest parse-path-arg-unparseable-string-is-single-string-segment
-  ;; Pathological — EDN parser barfs; fall back to treating as one
-  ;; map-key string segment rather than raising.
-  (is (= ["((("] (args/parse-path-arg "(((")))
-  (is (= ["[" "]"] (args/parse-path-arg #js ["[" "]"]))))
+(deftest parse-path-arg-input-shapes
+  ;; Each row: the input, the path it parses to, and why. JS-array
+  ;; segments are parsed one at a time as EDN, so a bare string stays a
+  ;; string map key; anything the EDN reader rejects falls back to a
+  ;; single string segment rather than raising.
+  (doseq [[input expected why]
+          [[nil                         nil              "nil ⇒ no path"]
+           [""                          nil              "a blank string ⇒ no path"]
+           ["   "                       nil              "a whitespace-only string ⇒ no path"]
+           ["[:cart :items 0]"          [:cart :items 0] "an EDN vector string with an index"]
+           ["[:a :b :c]"                [:a :b :c]       "an EDN vector string of keywords"]
+           ["[]"                        []               "an empty EDN vector is the root"]
+           [[:a :b :c]                  [:a :b :c]       "a CLJS vector passes through"]
+           [[]                          []               "an empty CLJS vector passes through"]
+           [(list :a :b :c)             [:a :b :c]       "a CLJS sequential coerces to a vector"]
+           [#js [":cart" ":items" "0"]  [:cart :items 0] "each JS-array segment parses as EDN"]
+           [#js [":a" "bare-key" ":b"]  [:a "bare-key" :b] "a non-EDN JS-array segment stays a string map key"]
+           [":foo"                      [:foo]           "a lone keyword string is a 1-segment path"]
+           ["42"                        [42]             "a bare integer string is a 1-segment path"]
+           ["((("                       ["((("]          "an unparseable string is one string segment"]
+           [#js ["[" "]"]               ["[" "]"]        "unparseable JS-array segments stay strings"]]]
+    (is (= expected (args/parse-path-arg input)) why)))
 
 ;; ---------------------------------------------------------------------------
 ;; tree-summary — the {:rf.mcp/summary ...} marker shape.
