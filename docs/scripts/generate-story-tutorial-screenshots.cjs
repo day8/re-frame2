@@ -93,10 +93,7 @@ const APPS = {
  * Chapter 6's failure path. The login testbed has no failing variant, so this
  * registers the chapter's `wrong-expectation` variant in the running page,
  * selects it, opens the Tests tab and follows the failed row's
- * "open in Evidence →" link. The shots that use it wait for the sidebar rather
- * than the canvas: Story remembers each variant's last mode tab in
- * localStorage, so `:story.login-form/error` may open in Docs, where the
- * canvas is not shown.
+ * "open in Evidence →" link.
  */
 async function openFailingRun(page) {
   await page.evaluate(() => {
@@ -176,6 +173,13 @@ const SHOTS = [
     hash: '#/stories',
     waitFor: '[data-test="story-mode-tabs"]',
     before: async (page) => {
+      // Docs mode's status and evidence come from the variant's last run,
+      // so the shot runs it in the Tests tab first.
+      await page.getByText('Tests', { exact: true }).click();
+      await page
+        .locator('[data-test="story-test-row"][data-status="pass"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: SHOT_VISIBLE_TIMEOUT_MS });
       await page.getByText('Docs', { exact: true }).click();
       await page.locator('[data-test="story-docs-view"]').waitFor({ state: 'visible' });
     },
@@ -361,19 +365,28 @@ async function main() {
   await withServer(async (baseUrl) => {
     const browser = await chromium.launch({ headless: true });
     try {
-      const page = await browser.newPage({
-        viewport: VIEWPORT,
-        deviceScaleFactor: 1,
-      });
-      page.on('pageerror', (err) => {
-        throw err;
-      });
-      await page.addInitScript(() => {
-        localStorage.setItem('re-frame.story/seen-help-v1', 'true');
-      });
-
+      // Each shot gets a fresh browser context, so it starts from the same
+      // known state whichever shots run before it. Story keeps UI state in
+      // localStorage (each variant's mode tab, the active modes, the
+      // viewport and background), and a shared page would carry one shot's
+      // clicks into the next.
       for (const shot of shots) {
-        await captureShot(page, baseUrl, shot, annotations);
+        const context = await browser.newContext({
+          viewport: VIEWPORT,
+          deviceScaleFactor: 1,
+        });
+        try {
+          const page = await context.newPage();
+          page.on('pageerror', (err) => {
+            throw err;
+          });
+          await page.addInitScript(() => {
+            localStorage.setItem('re-frame.story/seen-help-v1', 'true');
+          });
+          await captureShot(page, baseUrl, shot, annotations);
+        } finally {
+          await context.close();
+        }
       }
     } finally {
       await browser.close();
