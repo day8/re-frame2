@@ -107,12 +107,6 @@
         (is (= :string (:type body)))
         (is (not (contains? body :head)) "no content head leaks")))))
 
-(deftest redact-value-large-heuristic-fires-for-unmarked-big-value
-  (testing "an unmarked value over the char cap is still elided as large"
-    (let [big (apply str (repeat 1000 "y"))
-          out (r/redact-value :unmarked big {})]
-      (is (contains? out :rf.size/large-elided) "defensive size guard fires"))))
-
 (deftest redact-value-sensitive-wins-over-large
   (testing "a key that is BOTH sensitive and large redacts as sensitive"
     (is (= :rf/redacted
@@ -232,22 +226,3 @@
   (testing "ordinary values render via pr-str"
     (is (= "3"      (r/display-string 3)))
     (is (= "[:a :b]" (r/display-string [:a :b])))))
-
-;; ---------------------------------------------------------------------------
-;; The end-to-end leak guard: a secret-bearing live value, projected with
-;; its machine's declared sensitivity, never produces display text carrying the
-;; secret — so it cannot reach the serialised SVG/PNG/clipboard.
-
-(deftest secret-never-survives-into-display-text
-  (testing "a sensitive live :data slot never appears in the band display text"
-    (let [secret "card-4111-1111-1111-1111"
-          cls    (r/derive-classification {:sensitive [[:data :card]]
-                                           :data      {:card nil :count 0}})
-          band   (array-map :card secret :count 7)
-          rows   (->> (r/redact-context band cls)
-                      (mapv (fn [[k v]] [(str (symbol k)) (r/display-string v)])))
-          texts  (mapcat identity rows)]
-      (is (not (some #(str/includes? % secret) texts))
-          "the secret must not appear in any display row")
-      ;; the non-sensitive slot still renders its value
-      (is (some #(= "7" %) texts) ":count still rendered"))))

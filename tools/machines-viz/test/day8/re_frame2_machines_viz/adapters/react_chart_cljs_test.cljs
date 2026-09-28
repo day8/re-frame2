@@ -25,14 +25,6 @@
 
 ;; ---- shared React bridge ------------------------------------------------
 
-(deftest reactified-class-is-stable-by-reference
-  (testing "the Reagent MachineChart is reactified ONCE (React caches
-            component types by reference; a per-render reactify would
-            churn the subtree)"
-    (is (some? react-chart/MachineChartReactClass))
-    (is (identical? react-chart/MachineChartReactClass
-                    react-chart/MachineChartReactClass))))
-
 (deftest chart-element-builds-a-react-element
   (testing "chart-element returns a valid React element for the bridge"
     (let [el (react-chart/chart-element

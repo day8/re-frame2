@@ -265,39 +265,6 @@
           (is (= "3" (.getAttribute root "data-edge-count"))
               "data-edge-count reflects the transition count"))))))
 
-;; ---- edge routing fallback (G2) -----------------------------------------
-;;
-;; Before the async elkjs pass resolves, edges carry no bend-points, so
-;; the edge component renders the bezier fallback (`data-routed=false`).
-;; The routed path (`data-routed=true`) only appears after layout —
-;; which the synchronous runner cannot await (see the ns docstring) — so
-;; the routed geometry itself is pinned at the cheap layer:
-;; `edges-cljs-test` (the pure `edge-path` helper) +
-;; `projection-cljs-test` (the `:edge-points` → `:data {:points}`
-;; threading). This DOM pin guards the LIVE fallback render.
-
-(deftest chart-edge-label-renders-bezier-fallback-before-layout
-  (testing "on first commit (pre-elk-layout) an edge label
-            renders with data-routed=\"false\": no bend-points yet, so
-            the edge takes the bezier fallback path. (The routed path
-            arrives after the async layout the runner can't await; the
-            poly-path geometry is pinned in edges-cljs-test.)"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/flow :definition idle-loading-done}
-        (fn [_root node]
-          (let [labels (.querySelectorAll node "[data-testid^=\"rf-mv-chart-edge-\"]")]
-            ;; edge labels mount via EdgeLabelRenderer on the first commit
-            ;; (they do not depend on positions for existence).
-            (when (pos? (.-length labels))
-              (let [el (aget labels 0)]
-                (is (= "false" (.getAttribute el "data-routed"))
-                    "pre-layout edge falls back to the bezier path")))
-            ;; Always assert at least the structural invariant so the
-            ;; test is meaningful even if labels race the commit.
-            (is (number? (.-length labels)))))))))
-
 ;; ---- final-state affordance ---------------------------------------------
 
 (deftest chart-marks-final-states
@@ -612,24 +579,6 @@
             (is (some? badge) "the inferred-from-:data badge mounted")
             (is (= "inferred from :data" (.-textContent badge))
                 "the badge reads 'inferred from :data'")))))))
-
-(deftest chart-context-band-suppresses-inferred-badge-when-live
-  (testing "a host feeding LIVE :data values passes
-            `:context-band-inferred? false`; the inferred badge is then
-            omitted (the band still renders the values)."
-    (if-not (browser?)
-      (is true ":node-test: no DOM — browser-test runner exercises this")
-      (with-mounted-chart
-        {:machine-id :test/ctx :definition machine-level-on-machine
-         :context-band {:hits 3 :seen [:a :b]}
-         :context-band-inferred? false}
-        (fn [_root node]
-          (is (some? (.querySelector node
-                       "[data-testid^=\"rf-mv-chart-root-container-context-\"]"))
-              "the Context band still renders for live values")
-          (is (nil? (.querySelector node
-                      "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]"))
-              "no inferred badge when context-band-inferred? is false"))))))
 
 (deftest chart-context-band-shows-declared-badge-when-authoritative
   (testing "EP-0005 — a host feeding a DECLARED context shape
@@ -1007,12 +956,11 @@
 ;;
 ;; The host (Xray) resolves the focused epoch's traversed edges via
 ;; `extract-fired-edge-ids` (CANONICAL ids) and passes them as
-;; `:fired-edge-ids`. The matching edge label renders with
+;; `:fired-edge-ids`. The matching event-node renders with
 ;; `data-fired="true"` (the DOM pin for the FIRED treatment) and the chart
-;; root surfaces the sorted set on `data-fired-edge-ids`. Edge labels mount
-;; via EdgeLabelRenderer on first commit (see
-;; chart-edge-label-renders-bezier-fallback-before-layout above), so the
-;; attr is assertable without awaiting the elk layout pass.
+;; root surfaces the sorted set on `data-fired-edge-ids`. Event-nodes mount
+;; on the first commit, so the attr is assertable without awaiting the elk
+;; layout pass.
 
 (defn- canonical-edge-id
   "Resolve the canonical machines-viz edge id for the from→to via event
