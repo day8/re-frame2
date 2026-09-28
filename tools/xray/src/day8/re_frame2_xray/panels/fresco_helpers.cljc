@@ -200,8 +200,12 @@
   {:cap
    {:short "capped"
     :says  (str "a retention window bounded this — Spec 009's ring holds only "
-                "`:rf.trace/events-retained` runs, so what fell off it cannot "
-                "be counted. A bigger buffer is the remedy")}
+                "the last `:rf.trace/events-retained` runs per frame, so what "
+                "fell off it cannot be counted. Reproduce the interaction and "
+                "read again: a bigger buffer recovers nothing already dropped "
+                "and cannot fill an empty window. Retention matters only when "
+                "it is set to 0; `(rf/configure! {:trace-buffer "
+                "{:events-retained 50}})` restores the default")}
 
    :opaque
    {:short "opaque"
@@ -318,8 +322,9 @@
     :says (str "The retained window holds nothing. This is a CAP, not a "
                "finding — Spec 009's ring keeps `:rf.trace/events-retained` "
                "runs and cannot say what fell off it, and a ring of size 0 "
-               "cannot say whether anything was dispatched at all. Raise the "
-               "retention knob to see further back.")}
+               "cannot say whether anything was dispatched at all. Reproduce "
+               "the interaction and read again; a bigger ring cannot fill an "
+               "empty window.")}
    :explain
    {:testid-suffix "empty-explain"
     :says (str "There is no mounted boundary to explain. Why answers per "
