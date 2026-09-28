@@ -39,9 +39,11 @@
   that channel is live.
 
   Leg (d) is the only dev-posture material: the contract is that its rows
-  ride the DIAGNOSTIC channel, not that they survive prod. Its deftest, and
-  the one diagnostic-count row inside `both-channels-fire-together`, sit
-  inside `(when rf.interop/debug-enabled? …)` arms. What `both-channels-fire-together`
+  ride the DIAGNOSTIC channel, not that they survive prod. Its deftest is
+  `^:requires-debug`, so `scripts/test-core-prod-gate.sh` skips it rather
+  than counting a deftest that ran nothing; it and the one diagnostic-count
+  row inside `both-channels-fire-together` also sit inside
+  `(when rf.interop/debug-enabled? …)` arms. What `both-channels-fire-together`
   proves in production posture is the half that matters there: ONE bounded
   report carrying BOTH hook failures, rather than a per-hook flood."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
@@ -274,9 +276,11 @@
 ;; (d) Dev per-hook DIAGNOSTIC rows emit at causal positions (R2)
 ;; ===========================================================================
 
-(deftest dev-per-hook-diagnostic-rows-still-emit
+(deftest ^:requires-debug dev-per-hook-diagnostic-rows-still-emit
  ;; This deftest IS the diagnostic channel; it has no production
- ;; residue by design (see the body's own comment), so it sits in the arm.
+ ;; residue by design (see the body's own comment), so it declares the
+ ;; posture it needs — the production-gate lane skips the tag rather than
+ ;; counting an empty pass — and sits in the arm on every other runner.
  (when rf.interop/debug-enabled?
   (testing "Per EP-0008 R2 / Spec 009: the per-hook
             `:rf.warning/teardown-hook-exception` DIAGNOSTIC trace
