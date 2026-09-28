@@ -324,10 +324,6 @@ async function captureShot(page, baseUrl, shot, annotations) {
     await shot.before(page);
   }
   await page.waitForTimeout(700);
-  // Focusing a tab or link can scroll the document itself by a few pixels,
-  // which clips the toolbar. The shell's panes scroll on their own, so the
-  // document belongs at the top.
-  await page.evaluate(() => window.scrollTo(0, 0));
 
   const regionSpecs = annotations[shot.file] || [];
   const resolved = [];

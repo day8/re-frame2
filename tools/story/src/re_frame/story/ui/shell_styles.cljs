@@ -34,9 +34,16 @@
             [re-frame.story.theme.space :as rf.story.theme.space]))
 
 (def styles
-  {:root      {:display "flex"
+  {;; The shell pins itself to the viewport rather than sizing to
+   ;; `100vh` in the page's flow. Whatever the host page puts around it —
+   ;; the body's default margin, a padded container — then adds nothing to
+   ;; the document's height, so the document has nothing to scroll and
+   ;; focusing or scrolling-into-view an element inside a pane never nudges
+   ;; the whole shell off the top of the window.
+   :root      {:display "flex"
                :flex-direction "column"
-               :height "100vh"
+               :position "fixed"
+               :inset "0"
                :font-family sans-stack
                ;; Atmospheric backdrop — radial-gradient mesh
                ;; over the deepest slate ground, lifts the shell out of
