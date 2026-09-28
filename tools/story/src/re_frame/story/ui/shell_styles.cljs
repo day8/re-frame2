@@ -99,9 +99,10 @@
    ;; (`recorder/rec-chip` in the toolbar) plus the recording-overlay
    ;; banner (`recorder/recording-overlay` at top:44px right:12px); a
    ;; floating `?` on the right would occlude the REC affordance. Top-left
-   ;; sits over the toolbar's first axis-label only — no fixed-position
-   ;; conflict with the sidebar (which is part of the flex layout, not
-   ;; fixed-positioned) or any other chrome affordance.
+   ;; sits in the left pad the toolbar strip reserves for it, clear of the
+   ;; MODES cluster — no fixed-position conflict with the sidebar (which is
+   ;; part of the flex layout, not fixed-positioned) or any other chrome
+   ;; affordance.
    :help-slot {:position "fixed"
                :top      (rf.story.theme.space/pad 4)
                :left     (rf.story.theme.space/pad 5)
