@@ -1,32 +1,23 @@
-# 7. Hydration Debugger
+# 7. SSR Hydration
 
-You server-rendered a page and the client disagreed. This chapter explains how Xray helps with hydration mismatches: it treats them as runtime evidence, ties them to the relevant epoch, and helps you locate the first meaningful divergence.
+You server-rendered a page and now it hydrates in the browser. This chapter shows what Xray shows of hydration, and where a hydration mismatch is reported instead. [When the renders disagree](../ssr/concepts.md#when-the-renders-disagree) in the SSR guide explains how a mismatch is detected and what the runtime does about it.
 
-## The Problem
+## The Hydrate Epoch
 
-SSR bugs are unpleasant because the symptom is visual but the cause can live in several places:
+Hydration is an ordinary event. The client dispatches `:rf/hydrate`, which installs the server's state into app-db, and Xray lists it in the event list like any other event. Its Epoch tab shows the state landing in app-db, the effects it ran, and the subscriptions that computed their first values. The app-db tab shows the state the client's first render reads.
 
-- server app-db seed;
-- client hydration payload;
-- route params;
-- locale, time, random values, or browser-only coeffects;
-- a view that reads from the world during render;
-- a schema or data-classification mismatch across the wire.
+![The Epoch tab for an :rf/hydrate event, showing the state it installs, its effects and the subscriptions it computes](../images/xray/xray-tutorial-hydration.png)
 
-Xray's job is not to make SSR magical. It gives you the evidence in the same place you already debug client cascades.
+## Where A Mismatch Is Reported
 
-![Hydration mismatch evidence](../images/xray/xray-tutorial-hydration.png)
+A hydration mismatch is not an event, and it belongs to no epoch. The client checks for it after its first render, outside any event, so Xray's event list and Trace tab never show it. It goes to:
 
-## Where Hydration Appears
+- trace listeners, as the trace `:rf.ssr/hydration-mismatch`, carrying the server's and the client's render hashes, the frame, the `:failing-id` and the recovery the runtime took. [4. Trace stream](04-trace-stream.md) shows how to register a listener.
+- the frame's `:observability :errors` sinks, as an error record under the same id. That record is sent in every build. In a development build, a record that no sink handles is printed to the console. [Declare a sink](../core/observability.md#consuming-production-telemetry-declare-a-sink) in the observability guide shows how.
 
-Hydration diagnostics surface as issue evidence on the relevant epoch. Use the same loop:
+The hashes tell you that the renders diverged, not which node. By default the client's render replaces the server's markup and the page keeps working. Set `:ssr {:on-mismatch :hard-error}` on the frame to make the check throw instead, which suits CI.
 
-1. Find the marked event row.
-2. Open Epoch for the high-level failure and recovery.
-3. Open Trace for the raw SSR or hydration record.
-4. Use source coordinates to jump to the view or route involved.
-
-If the mismatch has a render-tree diff, Xray shows the server and client sides around the divergent path rather than making you compare entire HTML strings.
+The testbed in the screenshot registers a trace listener that dispatches the mismatch report into app-db. That is why `:ssr-hydration-mismatch.core/record-mismatch` follows `:rf/hydrate` in its event list, and why the report shows up in Xray at all.
 
 ## What To Look For
 
@@ -42,6 +33,6 @@ Fix the source of nondeterminism. Do not patch the rendered HTML after the fact.
 
 ## Xray And The SSR Rule
 
-The SSR rule is the same rule the guide teaches for client views: render is a function of state. If the server and client have the same state and the view is deterministic, hydration has a chance. If not, React is left trying to reconcile two different stories.
+The SSR rule is the same rule the guide teaches for client views: render is a function of state. If the server and client have the same state and the view is deterministic, the renders agree. If not, React is left trying to reconcile two different stories.
 
-Xray helps by showing the story re-frame2 saw: the hydrate event, the payload shape, the route or view evidence, and the mismatch record.
+Xray shows the client's side of that comparison. Read the `:rf/hydrate` epoch for the state the client started from, and compare it with the state the server rendered.

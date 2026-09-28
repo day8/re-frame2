@@ -441,11 +441,13 @@ const SCENES = [
     },
   },
   {
+    // The effect step is the newest event, so no "newer events" strip
+    // covers its row.
     id: 'xray-tutorial-trace',
     app: '/standard-epochs',
     clip: 'xray',
     before: async (page) => {
-      await runSteps(page, SE, FIRST_FIVE);
+      await runSteps(page, SE, [SE_STEPS.increment, SE_STEPS.cofx, SE_STEPS.fx]);
       await focusRow(page, ':standard-epochs/increment-fx');
       await selectTab(page, 'trace');
     },

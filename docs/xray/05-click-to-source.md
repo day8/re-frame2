@@ -6,7 +6,7 @@ You found the bad row or the wrong DOM node. Now you want the source line, not a
 
 In dev mode, re-frame2 stamps source coordinates onto registrations and rendered views. Xray consumes those coordinates in panels and turns them into editor links where possible.
 
-You will see source chips on things like:
+You will see source links on things like:
 
 - event handlers;
 - subscriptions;
@@ -17,33 +17,34 @@ You will see source chips on things like:
 - schema registrations;
 - trace rows with a known origin.
 
-The shape is the same idea everywhere: namespace, symbol or id, line, and column.
+A registration records its coordinate as a map of `:ns`, `:file`, `:line` and `:column`. A rendered view carries the same facts packed into one string attribute, described next.
 
 ## DOM Back To View
 
-Rendered elements can carry `data-rf2-source-coord` in dev mode. That attribute points at the view code that produced the DOM.
+In dev mode, each registered view's root element carries `data-rf2-source-coord`, which points at the view code that produced it, and `data-rf-view`, which names the view. Only the root element carries them; the elements inside it do not.
 
-In browser DevTools, inspect or copy an element and look for:
+In browser DevTools, inspect an element and look for the nearest ancestor carrying:
 
 ```html
-<button data-rf2-source-coord="standard_epochs.core:control-button:412:4">
+<div data-rf2-source-coord="runner.core:step-row:310:1"
+     data-rf-view=":runner.core/step-row">
   ...
-</button>
+</div>
 ```
 
-That is not for production. It is a dev-only bridge from pixels back to the view function.
+The value is the namespace, the view's name, the line and the column. It is a dev-only bridge from pixels back to the view function.
 
 Going the other way, hover a view in the Epoch or Views tab and Xray highlights that view's element on the page.
 
-![A DOM node carrying a source coordinate](../images/xray/05-dom-attribute.png)
+![A step row of the standard-epochs testbed outlined in red, labelled as the element carrying data-rf2-source-coord](../images/xray/xray-tutorial-source-coord.png)
 
 ## Xray Back To Editor
 
-Xray's source chips wrap each coordinate in an `open` chip. Clicking resolves the coordinate to your editor's URI scheme — `vscode://file/...`, `cursor://...`, `idea://open?...` — and hands it to the OS so your editor jumps to the line.
+Xray renders each coordinate as a link. Its look varies by panel: in Epoch it is the registration kind, such as `reg-event`, followed by ↗, and in Trace it is a ↗ after the row's target. Clicking resolves the coordinate to your editor's URI scheme — `vscode://file/...`, `cursor://...`, `idea://open?...` — and hands it to the OS so your editor jumps to the line.
 
 ### Tell Xray Which Editor
 
-The catch: Xray cannot guess your editor. A host that wires only the preload never sets one, so the chip falls back to the framework default `:vscode` scheme. If VS Code is not your editor, the OS has no handler for that scheme and the navigation goes nowhere — and the browser cannot observe an OS-level handler miss, so the click would be a silent dead end.
+The catch: Xray cannot guess your editor. A host that wires only the preload never sets one, so the link falls back to the framework default `:vscode` scheme. If VS Code is not your editor, the OS has no handler for that scheme and the navigation goes nowhere — and the browser cannot observe an OS-level handler miss, so the click would be a silent dead end.
 
 Rather than navigate into the void, an unconfigured click surfaces a **"No editor configured" hint**: a small, non-intrusive toast in the bottom corner of the panel with an **Open Settings** button that lands you on the editor picker. Once an editor is configured, the hint never fires and the click navigates straight to source.
 
@@ -90,6 +91,6 @@ That loop is short because every hop is data-shaped. You are not searching the r
 
 ## Privacy And Production
 
-Source coordinates are dev-only. Production HTML does not carry `data-rf2-source-coord`, and production bundles should not include Xray.
+In a production build, a registration's metadata carries no source coordinate, and the HTML carries no `data-rf2-source-coord` or `data-rf-view`. The runtime keeps each registration's `:ns`, `:file` and `:line` for one purpose only, so that error reports can still name where a handler lives. Production bundles should not include Xray.
 
 Sensitive values are a separate concern. Xray follows the framework's redaction and elision rules when rendering runtime evidence. A source coordinate tells you where a value came from; it should not force the value itself to leak.

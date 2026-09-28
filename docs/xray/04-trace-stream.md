@@ -17,22 +17,22 @@ Drop to Trace when you need:
 
 The Trace tab is not a punishment box. It is the same story at a lower level.
 
-![Trace rows for a focused epoch](../images/xray/xray-tutorial-trace.png)
+![The Trace tab for :standard-epochs/increment-fx, one row per record from the dispatch through the handler and its effects](../images/xray/xray-tutorial-trace.png)
 
 ## What Trace Shows
 
-Trace is scoped to the focused epoch. If the spine is focused on `:counter/inc`, Trace shows records from that cascade. Pick another event row and Trace rebinds.
+Trace is scoped to the focused epoch. If the spine is focused on `:standard-epochs/increment-fx`, Trace shows records from that cascade. Pick another event row and Trace rebinds.
 
-Each row is shaped for scanning:
+Each row is shaped for scanning, in six columns:
 
-- **Time**: relative placement in the epoch.
-- **Stage**: the same cascade phase vocabulary used by Epoch.
-- **Area**: dispatch, coeffect, handler, db, fx, sub, view, machine, route, schema, or related runtime area.
+- **Δt**: milliseconds since the epoch's first record.
+- **Stage**: the Epoch tab's step names, such as DISPATCH, EVENT HANDLER, FLOW, EFFECT HANDLERS, SUBSCRIPTIONS and VIEWS.
+- **Area**: a badge naming the runtime area: EVENT, COEFFECT, DB, FX, FLOW, SUB, VIEW, MACHINE, ROUTING, RESOURCE, EPOCH, ERROR or WARNING.
 - **What**: the operation that happened.
 - **Target**: the event id, sub id, view id, path, fx id, machine id, or route id.
 - **Duration**: present where the substrate has timing.
 
-The left edge color follows the Epoch stage, so the raw list still has a story line.
+The left edge colour follows the Epoch stage, so the raw list still has a story line. An error or warning row takes its severity colour instead.
 
 Click a row to open the raw trace record beneath it, and click again to close it. A row that changed app-db lists the changed paths under it. A **↗** after the target opens the code that emitted the record in your editor.
 
@@ -46,14 +46,15 @@ Xray is the complete UI over the trace bus, but the bus is public substrate. A s
 (require '[re-frame.core :as rf])
 
 (defn install-mini-trace! []
-  (rf/register-listener!
+  (rf/register-listener! :trace
     :my-tool/trace-printer
-    (fn [event]
+    (fn [trace]
       (js/console.log
-        (pr-str (select-keys event [:operation :event :frame]))))))
+        (pr-str {:operation (:operation trace)
+                 :frame     (get-in trace [:tags :frame])})))))
 ```
 
-That is the same architectural move Xray makes, just with a smaller presentation. Xray does more because it also reads epoch history, source coordinates, registries, frames, and panel-specific projections.
+The first argument names the stream: `:trace` for raw trace records, or `:epoch` for assembled epochs. [Write a listener](../core/observability.md#write-a-listener) in the observability guide covers both. That is the same architectural move Xray makes, just with a smaller presentation. Xray does more because it also reads epoch history, source coordinates, registries, frames, and panel-specific projections.
 
 ## Why The Trace Tab Stays Flat
 

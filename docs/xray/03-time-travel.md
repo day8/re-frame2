@@ -1,39 +1,37 @@
 # 3. Time-Travel Scrubbing
 
-You need to look backward without losing the live app. This chapter explains Xray's current time-travel model: the event spine is the scrubber, a focused past row is RETRO, and following the head returns you to LIVE.
+You need to look backward without losing the live app. This chapter explains Xray's time-travel model: the event spine is the scrubber, focusing a past row pins every lens to it, and following the newest event lets them move on again.
 
-## There Is No Bottom Rail
+## The Event Spine Is The Timeline
 
-Older Xray drafts had a bottom time-travel rail. The shipped model is simpler: the event spine is the timeline.
-
-Click an event row in the spine. Xray focuses that epoch. The detail panels now show the app-db diff, trace rows, views, machine transitions, and route activity for that selected epoch.
+Click an event row in the spine. Xray focuses that epoch. The detail panels now show app-db, trace rows, views, machine transitions, and route activity for that selected epoch.
 
 The app can continue running while you inspect the past. Xray stays on the selected row until you move focus or follow the head.
 
-## LIVE And RETRO
+## Following And Focused
 
 Think of focus as having two postures:
 
-- **LIVE**: Xray follows the newest epoch for the selected frame.
-- **RETRO**: Xray is pinned to an older epoch.
+- **Following**: Xray follows the newest epoch for the selected frame.
+- **Focused**: Xray is pinned to an older epoch.
 
-You enter RETRO by clicking an older event row or stepping backward. You return to LIVE by following the head from the ribbon controls.
+You pin an older epoch by clicking its event row or stepping backward. You return to following the newest from the ribbon controls.
 
 The ribbon's **‹** (or `j`) steps to the previous event and **›** (or `k`) to the next. **»** (or `l`, or Shift+G) follows the newest event again. While an older row is focused, a strip under the list reads "↓ N newer events — » to follow"; click it to return to the newest. Space pauses and resumes following without focusing a row.
 
 The important detail is that this is panel focus, not a magical fork of your app. The focused epoch is the record every tab reads. If you choose an older row, app-db, Views, Trace, Machine, and Routes all agree on that older row.
 
-![Focused epoch in the spine](../images/xray/xray-tutorial-epoch.png)
+![An older event focused in the event list, with the strip under it reading ↓ 3 newer events — » to follow](../images/xray/xray-tutorial-epoch.png)
 
 ## Inspecting A Past Event
 
 On the standard-epochs testbed:
 
-1. Click buttons 1, 2, and 3.
-2. Click the row for button 1 in Xray's event spine.
-3. Open app-db. You see the state delta for button 1, not button 3.
-4. Open Trace. You see the trace records for button 1's epoch.
-5. Follow the head. The panels jump back to the newest epoch.
+1. Press **⏭ Step** three times. Each step adds two rows: `:standard-epochs/run-step`, then the event that step runs.
+2. Click the first `:standard-epochs/run-step` row in Xray's event spine.
+3. Open app-db. `:step` reads `0 ← was nil`: the state as the first step left it, not the `2` the third step left.
+4. Open Trace. You see the trace records for that epoch.
+5. Press **»**. The panels jump back to the newest epoch.
 
 This is the heart of Xray: one historical selection drives every lens.
 
@@ -64,7 +62,7 @@ Good filter habits:
 - Exclude high-volume housekeeping events when chasing a user action.
 - Include only one feature namespace when debugging a focused flow.
 - Clear filters before deciding an event did not happen.
-- Remember that errors and issue-marked rows are designed to remain visible enough to find.
+- Remember that an event whose epoch errored stays in the list even when a filter would hide it. A warning does not keep a row visible.
 
 A pattern is an event id or part of one:
 

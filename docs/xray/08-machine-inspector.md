@@ -6,21 +6,21 @@ Your bug is not a value; it is a process. This chapter shows how Xray reads re-f
 
 The Dynamic Machine tab is event-coupled. It is useful when the focused epoch touched a machine.
 
-It can show:
+It reads the one machine the focused event targeted. A header line names the trigger event, the machine and the state it was in, and numbered rows follow in the order the machine ran them, the same rows the Epoch tab shows under EVENT HANDLER:
 
-- the affected machine;
-- the active state before and after;
-- the transition that fired;
-- guards and actions;
-- entry and exit activity;
-- spawned or destroyed actors;
-- `:after` timers and cancellation cascades where relevant.
+- **GUARD** for each guard the machine checked;
+- **ACTION** for each action, labelled by when it ran, such as **EXIT ACTION** or **ENTRY ACTION**, with the data it produced;
+- **TRANSITION** with the state and tags before and after;
+- **ALWAYS** for an eventless `:always` transition, and **TIMER** for an `:after` timer;
+- **START** when the event created the machine, and **NO OP** when the machine had no transition for the event.
 
-If the focused epoch did not touch a machine, the tab should be quiet. That is not failure; it is honest scope.
+When a destroyed child actor aborts work it had in flight, that cancellation cascade is in Trace, behind the **⟲** button ([4. Trace stream](04-trace-stream.md#what-trace-shows)).
 
-Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. **◀ Prev** and **Next ▶** step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
+If the focused event did not target a machine, the tab reads only "This event does not target a state machine". That is not failure; it is honest scope.
 
-![Machine activity for a focused epoch](../images/xray/xray-tutorial-machine.png)
+Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. The chart has its own zoom, pan and fit controls. **◀ Prev** and **Next ▶** step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
+
+![The Machine tab for a :door/push event: an exit action, the :closed → :open transition, and an entry action, with the chart below](../images/xray/xray-tutorial-machine.png)
 
 ## Static Machines
 
@@ -31,8 +31,7 @@ Use it before or during debugging when you need the map:
 - browse registered machine ids;
 - inspect topology;
 - read states and transitions;
-- simulate or inspect defined paths where the panel supports it;
-- compare definition shape to live snapshots.
+- simulate the definition without touching your app.
 
 Pick a machine to see its source link, how many states it has and how many instances are live, and four views of it:
 
@@ -57,6 +56,6 @@ That loop keeps you out of the most common machine-debugging trap: staring at th
 
 ## Why Machines Are Especially Good In Xray
 
-Machines have a small, named state space. Xray can exploit that. A generic logger can tell you "something updated a map"; Xray can tell you "this event moved `:door/main` from `:closed` to `:opening`, ran this guard, scheduled this timer, and cancelled that prior branch."
+Machines have a small, named state space. Xray can exploit that. A generic logger can tell you "something updated a map"; Xray can tell you "this `:door/push` moved `:door/main` from `:closed` to `:open`, ran `:clear-hold` on the way out and `:count-open` on the way in, and here is the data each one wrote."
 
 That is the difference between seeing state and seeing behavior.

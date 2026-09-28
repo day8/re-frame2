@@ -71,7 +71,7 @@ For a Shadow CLJS browser build:
    {:preloads [day8.re-frame2-xray.preload]}}}}
 ```
 
-The preload registers Xray's trace and epoch collectors, installs the browser API, installs the `Ctrl+Shift+C` keybinding, and auto-opens into the layout host after the re-frame2 substrate adapter is ready.
+The preload loads your saved Xray Settings, registers Xray's handlers and its trace and epoch collectors, installs the browser API and Xray's keyboard shortcuts, `Ctrl+Shift+C` among them, and auto-opens into the layout host after the re-frame2 substrate adapter is ready.
 
 You do not need to call `init!` when the preload is wired. `day8.re-frame2-xray.core/init!` exists for manual hosts and unusual embedding setups.
 
@@ -107,9 +107,9 @@ cd implementation
 npx shadow-cljs watch :examples/standard-epochs
 ```
 
-Open `http://localhost:8031`. Click a few numbered buttons on the left. Xray should be visible on the right, and the event spine should fill with rows.
+Open `http://localhost:8031`. Press **⏭ Step** on the left a few times. Xray should be visible on the right, and the event spine should fill with rows.
 
-![The standard-epochs app driving Xray](../images/xray/xray-tutorial-shell.png)
+![The standard-epochs testbed on the left after five steps, with Xray open on the right](../images/xray/xray-tutorial-shell.png)
 
 If Xray does not appear, check:
 
@@ -128,7 +128,7 @@ If Xray does not appear, check:
 
 ## Clickable Jump-To-Source
 
-Every panel that surfaces a source-coord wraps it in an `open` chip. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, no editor is configured: the chip targets the `:vscode` default scheme, but if that is not your editor the OS has no handler for it and the click would silently go nowhere. So rather than navigate into the void, an unconfigured click surfaces a **"No editor configured" hint** — a small bottom-corner toast with an **Open Settings** button that lands you on the editor picker. Once an editor is configured (in Settings or at boot), the click resolves and navigates straight to source; the hint never fires.
+Every panel that surfaces a source-coord renders it as a link, such as `reg-event ↗` in Epoch or a ↗ after a Trace row's target. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, no editor is configured: the link targets the `:vscode` default scheme, but if that is not your editor the OS has no handler for it and the click would silently go nowhere. So rather than navigate into the void, an unconfigured click surfaces a **"No editor configured" hint** — a small bottom-corner toast with an **Open Settings** button that lands you on the editor picker. Once an editor is configured (in Settings or at boot), the click resolves and navigates straight to source; the hint never fires.
 
 Set your editor either in **Xray Settings** (the "Click-to-source links open in" picker on the General tab — persisted per-dev in localStorage, so each teammate can pick their own), or once at boot in code:
 
@@ -146,6 +146,6 @@ The Settings picker overrides the boot-time `configure!` value per-machine, so a
 
 **Xray is kept out of production by where you put it, not by anything inside Xray.** The practical rule is the whole rule: put Xray in dev build config, not app code.
 
-- **The preload path is dev-only build config.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace and epoch collectors gate their own entry points the same way.
+- **The preload path is dev-only build config.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace collector also gates its own entry point the same way.
 - **The manual `init!` / mount path has no `goog.DEBUG` gate.** `init!` registers Xray's handlers, the collectors, the browser globals and the keybinding listener unconditionally; `open!` gates only on a substrate adapter being installed, which every app that called `rf/init!` has in production exactly as in dev. Requiring `day8.re-frame2-xray.core` at all runs load-time registrations, so guarding the *calls* is not enough — keep the `:require` **and** the calls in a namespace only your dev entry point loads. See [Mount control §Production: what keeps Xray out](api/mount-control.md#production-what-keeps-xray-out).
 - **No CI gate proves Xray's absence from a release bundle.** `npm run test:elision` roots `re-frame.*` sentinels only; the bundle-isolation check greps a no-feature bundle that never installed Xray. If you want certainty for your own build, grep your release output for `rf-xray-root` or `rf.xray` — both survive Closure as string literals. That is a leak detector, not proof of zero retained bytes.

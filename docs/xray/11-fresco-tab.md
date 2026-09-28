@@ -16,13 +16,19 @@ The Fresco tab is registered at Xray install time alongside Epoch, app-db,
 Views and the rest. It is not conditional on the inspected application running
 Fresco, and there is no switch to turn it on.
 
-What changes is what it *says*. On an app that is not running Fresco, the tab
-renders one sentence explaining exactly that, rather than an empty table you
-would have to interpret. That distinction is the tab's organising idea: an
-absence of evidence and evidence of absence are different findings, and this
-panel never lets them look alike.
+What changes is what it *says*. Xray loads Fresco's evidence door itself, so
+in a development build the door always answers, and on an app with no Fresco
+boundaries each view says what its empty roster means. Where the door answers
+`nil`, as in a production build, the tab renders one sentence saying there is
+no Fresco evidence, rather than an empty table you would have to interpret.
+That distinction is the tab's organising idea: an absence of evidence and
+evidence of absence are different findings, and this panel never lets them look
+alike.
 
-Reach it in Dynamic mode from the L3 tab strip, or with its `h` mnemonic.
+Reach it in Dynamic mode from the tab strip or the command palette, or from a
+host with `focus!`, described [below](#focusing-the-tab-from-a-host). Its
+tooltip reads "Fresco (h)", but like every tab letter the `h` is a label, not a
+shortcut.
 
 ## One Read, Six Views
 
@@ -35,9 +41,9 @@ states the question it answers.
 | **Mounted** | Which boundaries are mounted, over which frames? |
 | **Reads** | Which boundaries read each subscription? |
 | **Intents** | What was dispatched, in order, inside the retained window? |
-| **Why** | Which reads changed, and what can that prove? |
+| **Why** | Which reads changed, and what can and can't that prove? |
 | **Advisor** | Which boundary is hot, what owns the pressure, and what is the smallest route that addresses it? |
-| **Causal** | One dispatch, walked link by link from event to paint, with every missing link named? |
+| **Causal** | How did one dispatch travel from event to paint, link by link, with every missing link named? |
 
 They are sub-views of one tab rather than six tabs for a reason worth knowing:
 they are derivations of a single one-turn read. A second tab would take a second
@@ -46,7 +52,9 @@ census the causal slice no longer agrees with.
 
 The first four are the questions the spec says a developer actually asks of a
 view substrate. Advisor and Causal are derivations over those same four
-envelopes — which is why both inherit the mounted census's state.
+envelopes — which is why both inherit the mounted census's state. Both also
+read the runtime's retained trace ring: Advisor for the subscriptions' measured
+recompute times, and Causal for the dispatch's events.
 
 ## Reading An Empty Tab
 
@@ -55,7 +63,7 @@ remedies. Xray writes each one out:
 
 | State | What it means | What to do |
 | --- | --- | --- |
-| **Not running Fresco** | The evidence door answered `nil` — this app does not use Fresco, or this is a production build where the door is erased rather than empty | Nothing. This is the correct reading for a Reagent or UIx app |
+| **No Fresco evidence** | The evidence door answered `nil`. Xray loads the door itself, so this is the reading of a production build, where the door is erased rather than empty | Nothing. A Reagent or UIx app in a development build reads as an empty roster instead |
 | **Schema mismatch** | Fresco answered, stamping an evidence schema this Xray build was not taught to parse | Align the Xray and Fresco versions. Rows are suppressed rather than mis-parsed, because a shape read as though it were the expected one is worse than no rows |
 | **Empty roster** | Fresco answered, and the roster is genuinely empty | Depends on the view — see below |
 
@@ -93,14 +101,16 @@ point:
 
 ## The Advisor Ranks, Classifies, And Refuses
 
-The **Advisor** view ranks the mounted census by time, frequency, read churn and
-fan-out, then does the part a sorted list of durations cannot: it says what owns
-the pressure.
+The **Advisor** view ranks the mounted boundaries by attributable subscription
+time. When no retained recompute carries a measured time, it ranks them by
+recompute count instead, and says so in its summary line. Each row shows the
+boundary's time, recomputes and memo hits, read churn and fan-out. Then it does
+the part a sorted list of durations cannot: it says what owns the pressure.
 
 | Owner | Basis | Means |
 | --- | --- | --- |
 | Computation | observation | One read's measured recompute time dominates, above the clock's floor |
-| Read topology | derivation | The read set is the problem — it oscillates, or re-runs repeatedly for little measured work |
+| Read topology | derivation | The read set is the problem — several read orders are folded onto the boundary's key, or it re-runs repeatedly for little measured work. A fold can have more than one cause, so that finding carries an `uncorrelated` chip |
 | Unattributed (recomputes happened) | host-opaque | The window was searched, recomputes happened, and the measured half does not explain them |
 | Unattributed (memo hits only) | host-opaque | Reads were considered and the memo answered every one. Nothing recomputed, so computation owns none of it |
 | Unattributed (nothing retained) | cap | The window retained no activity for this boundary at all |
@@ -110,16 +120,25 @@ them apart is what makes the advice actionable: `cap` means *raise the retention
 knob and look again*, which is free, while the two `host-opaque` rows mean *the
 answer is real and lives in another tool*, which is a change of instrument.
 
-From the owner, the advisor selects a rung of the performance ladder — never
-from how hot the boundary is. A boundary can be the hottest on the page and
-still select "tune topology", because topology is what its owner answers to.
+From the owner, never from how hot the boundary is, the advisor selects a
+route:
+
+| Owner | Route |
+| --- | --- |
+| Computation | **Narrow or memoize the subscription**. The cost runs below the view layer, so moving the view would keep it |
+| Read topology | **Tune topology without changing language**, rung 2 of the performance ladder |
+| Unattributed, host-opaque | **Measure the unattributed half elsewhere** |
+| Unattributed, cap | **Widen the window and reproduce** |
+
+The hottest boundary on the page and the coldest one with the same owner get the
+same route, because the route is what the owner answers to.
 
 **And here is the part to know before you open it: from this evidence the
 advisor never recommends a native route.** Not once, not for the hottest
 boundary on the page. That is not a stub and not timidity. Of the five pressure
 classes, this door measures one — application computation, from the retained
 subscription ring's elapsed times — and derives a second, read topology, from
-fan-out and read orders. Hiccup lowering, React reconciliation and DOM layout
+read orders and recompute counts. Hiccup lowering, React reconciliation and DOM layout
 are all unmeasured here, and every native rung of the ladder addresses one of
 those three. Recommending an expensive, semantics-changing, diagnostics-losing
 change on evidence that cannot speak to whether it helps is the most expensive
@@ -156,9 +175,10 @@ authority — React DevTools for the first two, the browser's own performance
 tools for paint — so you know which tool to open next rather than being left
 with a blank.
 
-The slice is drawn for the boundary the Advisor ranked first and the newest
-dispatch the ring still holds, so ranking and chain are one workflow rather than
-two lookups.
+The slice is drawn for the boundary the Advisor ranked first and for the event
+focused in the event list. When nothing is focused, or the focused dispatch has
+left the retained ring, it walks the newest dispatch the ring still holds. So
+ranking and chain are one workflow rather than two lookups.
 
 ## Focusing The Tab From A Host
 
@@ -175,24 +195,23 @@ The full set is in [the reference](api/reference.md#day8re-frame2-xraycore).
 
 What the Fresco tab does *not* have is a standalone `mount-*!` facade. It is an
 **L4-only registry tab**: focusable and composed by the shell, but not
-independently mountable into a host's own layout the way Epoch or App-DB Diff
+independently mountable into a host's own layout the way Epoch or app-db
 are. Graph and Frames are the same shape. This is a deliberate split, and it is
 a different axis from focusability — a tab can be one without the other.
 
 ## A Good Fresco Debugging Loop
 
 1. Reproduce the interaction.
-2. Click the event row in the spine.
-3. Open **Fresco** and read **Advisor** first — it points at a boundary and
+2. Open **Fresco** and read **Advisor** first — it points at a boundary and
    names the owner.
-4. If the owner is computation or topology, go to **Reads** for the fan-out and
+3. If the owner is computation or topology, go to **Reads** for the fan-out and
    read-set shape behind it.
-5. If the owner is unattributed with a `cap` basis, raise
+4. If the owner is unattributed with a `cap` basis, raise
    `:rf.trace/events-retained`, reproduce, and read again.
-6. If the owner is unattributed and `host-opaque`, stop here and open the tool
+5. If the owner is unattributed and `host-opaque`, stop here and open the tool
    the advisor named. This tab has told you everything it honestly can.
-7. Use **Causal** when you need the whole chain for one dispatch rather than one
-   boundary's ranking.
+6. When you need the whole chain for one dispatch rather than one boundary's
+   ranking, click that event's row in the spine and open **Causal**.
 
 [Diagnostics](../core/fresco/16-diagnostics.md) in the Fresco guide covers the
 same ground from the application side — the cause table, the pressure table, and

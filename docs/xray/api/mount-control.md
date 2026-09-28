@@ -29,7 +29,7 @@ There's also a small JS-side mirror — the same six verbs exposed on `window.da
   ```clojure
   (xray/popout!)
   ```
-- **Description**: Open Xray in a same-origin second window. The shell mounts into its own document context — own React root, own theme cascade, own keybinding listener. The popped window uses `window.opener` to reach the host's runtime, so all observation surfaces (trace bus, epoch history, registrar) work unchanged. Useful when the panel is competing with the app for screen space.
+- **Description**: Open Xray in a same-origin second window. The host page renders the shell into the new window's document, through Xray's own React root there. The pop-out shares the host page's runtime and Xray frame, with no serialisation between them, so all observation surfaces (trace bus, epoch history, registrar) work unchanged. If the host page closes or reloads, the pop-out shows a notice asking you to close it. Useful when the panel is competing with the app for screen space.
 - **Returns**: `{:ok? true :window … :mode :popout …}` once the window is open, and the same state on a second call while it stays open. On failure it returns `{:ok? false :reason :popup-blocked}` when the browser blocked the window, or `{:ok? false :reason :no-substrate-adapter}`.
 
 The three verbs are **not** a mode-symmetric triplet — there is no `open-inline!` alias. Inline-vs-overlay-vs-window is a kind-of-mount axis, not a mode axis. Bare `open!` *is* the canonical default; `open-overlay!` and `popout!` each name their own surface.
@@ -42,7 +42,7 @@ The three verbs are **not** a mode-symmetric triplet — there is no `open-inlin
   ```clojure
   (xray/close!)
   ```
-- **Description**: Hide the shell — flip the container to `display: none`. The DOM tree and substrate render tree stay in place so re-opening is a CSS-only toggle (sub-80ms first paint). Use when the host wants to programmatically dismiss the panel without unmounting it.
+- **Description**: Hide the shell — flip the container to `display: none`, and collapse the layout host too, so the app takes back its width. The DOM tree and substrate render tree stay in place so re-opening is a CSS-only toggle (sub-80ms first paint). Use when the host wants to programmatically dismiss the panel without unmounting it.
 
 ### `toggle!`
 
@@ -73,7 +73,7 @@ A failed diagnostic also carries `:selector`, a `:message` saying what to do, an
 
 ## Manual install — the alternative to `:preloads`
 
-The canonical install path is wiring `day8.re-frame2-xray.preload` into shadow-cljs's `:devtools/preloads`. The preload runs six side-effects (registry, trace collector, epoch collector, browser-global install, keybinding listener, auto-open into the inline host) on app boot, all inside a `(when rf.interop/debug-enabled? …)` block and all idempotent so shadow-cljs's `:after-load` cycle re-runs them safely.
+The canonical install path is wiring `day8.re-frame2-xray.preload` into shadow-cljs's `:devtools/preloads`. The preload runs eight side-effects on app boot (load saved Settings, register Xray's handlers, the trace collector, the epoch collector, the browser globals, the keybinding listener, apply the Settings, and auto-open into the inline host), all inside a `(when rf.interop/debug-enabled? …)` block and all idempotent so shadow-cljs's `:after-load` cycle re-runs them safely.
 
 For hosts that want to control the install timing — a custom boot pipeline with steps between adapter install and Xray attach, a test harness needing fine-grained sequencing, a host that ships its own preload bundle — `init!` is the alternative.
 
@@ -86,23 +86,22 @@ For hosts that want to control the install timing — a custom boot pipeline wit
   (init!) → nil
   (init! opts) → nil
   ```
-- **Description**: Mount Xray manually. Idempotent: a second call is a no-op (each underlying side-effect is `defonce`-guarded). Bypasses the preload path. Use when the `:preloads` wiring isn't available — test harnesses, host-controlled boot pipelines, dev builds with a custom preload bundle.
+- **Description**: Install Xray manually, the alternative to the preload. It loads saved Settings and registers Xray's handlers, the trace and epoch collectors, the browser globals and the keybinding listener, then applies `opts`. It does **not** mount the shell: call `open!` (or `toggle!`) when you want it on screen. The install happens once, however many times you call it, but `opts` apply on every call. Use when the `:preloads` wiring isn't available — test harnesses, host-controlled boot pipelines, dev builds with a custom preload bundle.
 
-The `opts` map accepts these keys today (pre-alpha — additional keys land under follow-on work):
+The `opts` map accepts these keys, all optional:
 
 ```clojure
-{:target-frame  :app/main          ;; the inspected HOST frame for the scrubber
- :theme         :dark              ;; / :light / :high-contrast (TBD-impl)
- :density       :compact           ;; / :cosy (TBD-impl)
- :ai-provider   {:provider :claude ;; ...} (TBD-impl)
- :buffer-depths {:trace 200 :epoch 50}}
+{:target-frame  :app/main          ;; the inspected HOST frame
+ :theme         :dark              ;; or :light
+ :density       :compact           ;; or :cosy
+ :buffer-depths {:epoch 50}}       ;; epochs kept per frame
 ```
 
-Pre-alpha posture wires the four foundation side-effects (registry, trace collector, epoch collector, keybinding listener) and threads `:target-frame` through to `:rf.xray/set-target-frame`. The vocabulary split: `:target-frame` is the **inspected host frame**, distinct from Xray's **own** state frame (`:rf/xray`). There is no `:default-frame` key — supplying it has no effect. **Omitting `:target-frame` leaves the target unselected** (the frame picker / mount discovery policy chooses); Xray never falls back to `:rf/default`. The other keys (`:theme`, `:density`, `:ai-provider`, `:buffer-depths`) are accepted today but ignored at runtime — passing them now keeps host code forward-compatible.
+`:target-frame` is the **inspected host frame**, distinct from Xray's **own** state frame (`:rf/xray`). Omitting it leaves the target unselected until Xray observes one (see [Frame picker](#frame-picker)); Xray never falls back to `:rf/default`. `:theme`, `:density` and the epoch depth are written into Settings, so they persist like a choice made in the Settings popup.
 
 ## Frame picker
 
-A host running a single app frame selects it explicitly — via `init! {:target-frame …}`, `set-target-frame!`, or the picker chip — because Xray inspects a **carried** target, never an inferred default. Multi-frame hosts — Story, parallel-frames testbeds, story-mode chrome wrapping a tool surface — likewise tell Xray which frame the scrubber and panels are observing.
+Xray observes one host frame at a time, and the target starts unselected. Two things select it. An explicit choice: `init! {:target-frame …}`, `set-target-frame!`, `focus!`, the frame picker in the ribbon or the command palette, or focusing an event from another frame. Or evidence Xray observes while the target is still unselected: the frame of the app's events when Xray mounts, or the frame that records the first epoch Xray receives. Xray never selects `:rf/default` just because it exists. Multi-frame hosts — Story, parallel-frames testbeds, story-mode chrome wrapping a tool surface — tell Xray which frame to observe.
 
 ### `target-frame`
 
@@ -110,7 +109,7 @@ A host running a single app frame selects it explicitly — via `init! {:target-
   ```clojure
   (xray/target-frame) → keyword | nil
   ```
-- **Description**: Read the currently-selected inspected-host frame, or `nil` when no target has been selected yet (host config, the picker, or `set-target-frame!` selects it). It is **not** defaulted to `:rf/default` — `:rf/default` is an ordinary id, never an Xray fallback. One-shot read (does NOT register for reactive re-render). Reactive consumers subscribe to `:rf.xray/target-frame` directly via the framework's sub surface.
+- **Description**: Read the currently-selected inspected-host frame, or `nil` when no target has been selected yet. It is **not** defaulted to `:rf/default` — `:rf/default` is an ordinary id, never an Xray fallback. One-shot read (does NOT register for reactive re-render). Reactive consumers subscribe to `:rf.xray/target-frame` directly via the framework's sub surface.
 
 ### `set-target-frame!`
 
@@ -120,7 +119,7 @@ A host running a single app frame selects it explicitly — via `init! {:target-
   ```
 - **Description**: Set the inspected-host frame Xray targets. Dispatches `:rf.xray/set-target-frame` into the `:rf/xray` frame so the sub and every dependent panel re-fire on the standard reactive path. `set-target-frame! nil` resets to the **unselected** state (panels render their no-frame-selected state and the picker prompts a choice) — it does not reset *through* a synthesised `:rf/default`.
 
-The L1 frame picker chip in the shell's top strip is wired to this — clicking flips `set-target-frame!`, and every panel in view (Trace, Views, Machines, App-DB Diff) rescopes to the new frame. Hosts can drive the same flip programmatically from a per-route effect, a Settings-popup wire-up, or a test harness assertion.
+The frame picker in the ribbon does the same: choosing a frame there rescopes the event list and every panel to it. Hosts can drive the same flip programmatically from a per-route effect, a Settings-popup wire-up, or a test harness assertion.
 
 ## Focusing a panel from a host
 
@@ -166,7 +165,7 @@ The shell reads its palette from `--rf-xray-*` CSS custom properties, and a host
 
 ## The browser-global JS mirror
 
-The preload installs a JS-side mirror under `window.day8.re_frame2_xray.*` so JS hosts, devtools-console one-liners, and `puppeteer` automation scripts can reach the same surfaces without a CLJS compile. The exact spellings carry Closure's `_BANG_` suffix for ClojureScript-style mutating fns.
+The preload installs a JS-side mirror under `window.day8.re_frame2_xray.*` so JS hosts, devtools-console one-liners, and `puppeteer` automation scripts can reach the same surfaces without a CLJS compile. The exact spellings carry the `_BANG_` suffix that ClojureScript's name munging gives a `!` in a function name.
 
 ```javascript
 window.day8.re_frame2_xray.open_BANG_()         // (xray/open!)
@@ -225,7 +224,7 @@ That's the full boot. The preload registers Xray's listeners and auto-opens into
 
 ### Dev-only install namespace
 
-Hosts that want explicit control — a Story tool page that suppresses auto-open, an embed host that needs to bypass the preload — reach for the imperative facade above. Put it in a namespace **only your dev entry point loads**, and keep the `:require` there too:
+Hosts that want explicit control — a Story tool page that suppresses auto-open, an embed host that needs to bypass the preload — reach for the imperative facade above. The sample below keeps the preload and only suppresses its auto-open; a host without the preload calls `(xray/init!)` first. Put it in a namespace **only your dev entry point loads**, and keep the `:require` there too:
 
 ```clojure
 ;; src-dev/my/app/xray_install.cljs — on the dev build's source path only.
@@ -247,9 +246,9 @@ The release build's entry point never requires `my.app.xray-install`, so nothing
 
 **Build placement, not construction.** Xray stays out of a release build because the host doesn't load it. There are three facts, and it is worth having all three:
 
-**1. The preload path is dev-only build configuration.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace and epoch collectors gate their own entry points the same way. Separately, the framework's own instrumentation elides under that flag: the trace bus's `register-listener!` registrations and source-coord stamping (`data-rf2-source-coord`) are gone from a `goog.DEBUG=false` build whatever else is in it.
+**1. The preload path is dev-only build configuration.** `:devtools/preloads` belongs to the dev build, so a release build never loads `day8.re-frame2-xray.preload`. Its boot block is additionally wrapped in `(when rf.interop/debug-enabled? …)`, which Closure folds away under `:advanced` + `goog.DEBUG=false` — a second line of defence for that path. The trace collector also gates its own entry point the same way. Separately, the framework's own instrumentation elides under that flag: the trace bus's `register-listener!` registrations and source-coord stamping (`data-rf2-source-coord`) are gone from a `goog.DEBUG=false` build whatever else is in it.
 
-**2. `init!` and the mount verbs carry no `goog.DEBUG` gate.** `init!` registers Xray's `:rf.xray/*` handlers, the trace and epoch collectors, the browser-global exports and the keybinding listener unconditionally. `open!` gates only on a substrate adapter being installed — which every app that called `rf/init!` has, in production exactly as in dev; adapter presence is not a production discriminator. And requiring `day8.re-frame2-xray.core` at all runs load-time registrations, so wrapping `(xray/init!)` in `(when ^boolean goog.DEBUG …)` inside a namespace your release build still requires does not help. Guard the `:require`, not just the call — see [Dev-only install namespace](#dev-only-install-namespace) above.
+**2. `init!` and the mount verbs carry no `goog.DEBUG` gate.** `init!` loads Settings and registers Xray's `:rf.xray/*` handlers, the trace and epoch collectors, the browser-global exports and the keybinding listener unconditionally. `open!` gates only on a substrate adapter being installed — which every app that called `rf/init!` has, in production exactly as in dev; adapter presence is not a production discriminator. And requiring `day8.re-frame2-xray.core` at all runs load-time registrations, so wrapping `(xray/init!)` in `(when ^boolean goog.DEBUG …)` inside a namespace your release build still requires does not help. Guard the `:require`, not just the call — see [Dev-only install namespace](#dev-only-install-namespace) above.
 
 **3. No CI gate proves Xray's absence from a release bundle.** `npm run test:elision` compiles `re-frame.elision-probe` under `:advanced` twice and greps sentinels drawn from `re-frame.*` namespaces; it roots no Xray namespace, so a green run attests the *framework's* elision and says nothing about whether Xray reached your bundle. [`implementation/scripts/check-bundle-isolation.cjs`](https://github.com/day8/re-frame2/blob/main/implementation/scripts/check-bundle-isolation.cjs) pins that the counter example's *no-feature* production bundle carries no tooling-sibling or Xray-only-dependency sentinels — a leak check on a bundle that never installed Xray. If you want certainty about your own build, grep your release output for `rf-xray-root` or `rf.xray`; both survive Closure as string literals. That is a leak detector, not proof of zero retained bytes.
 
@@ -258,5 +257,5 @@ The release build's entry point never requires `my.app.xray-install`, so nothing
 - [Configuration keys](config-keys.md) — `configure!` and the per-key setters that flip the auto-open posture, the inline-host selector, the editor preference, the privacy gate.
 - [Reference](reference.md) — the complete symbol table across every Xray namespace.
 - [Xray tutorial — Installation](../01-installation.md) — the five-minute, three-edits walk-through.
-- [Framework API — Lifecycle](../../api/re-frame.core.md) — `rf/init!` and the adapter install pair. The adapter must land before Xray's auto-open path resolves the host.
-- [Framework API — Instrumentation](../../api/re-frame.core.md) — the trace bus and epoch buffer Xray renders.
+- [Framework API — Lifecycle](../../api/re-frame.core.md#lifecycle-and-configure) — `rf/init!` and the adapter install pair. The adapter must land before Xray's auto-open path resolves the host.
+- [Framework API — Instrumentation](../../api/re-frame.core.md#instrumentation-and-listeners) — the trace bus and epoch buffer Xray renders.
