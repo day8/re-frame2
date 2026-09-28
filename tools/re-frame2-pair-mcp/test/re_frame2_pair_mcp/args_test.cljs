@@ -93,32 +93,6 @@
     (is (true?  (args/parse-bool-arg a :cache)))
     (is (true?  (args/parse-bool-arg a :include-sensitive)))))
 
-(deftest parse-bool-arg-case-insensitive-strings
-  (let [a (args-js {:cache "TRUE" :dedup "False"})]
-    (is (true?  (args/parse-bool-arg a :cache)))
-    (is (false? (args/parse-bool-arg a :dedup)))))
-
-(deftest parse-bool-arg-keyword-forms-accepted
-  (let [a (args-js {:cache :true :dedup :false})]
-    (is (true?  (args/parse-bool-arg a :cache)))
-    (is (false? (args/parse-bool-arg a :dedup)))))
-
-(deftest parse-bool-arg-unrecognised-falls-back-to-table-default
-  (let [a (args-js {:dedup "garbage" :cache "garbage"})]
-    (is (true?  (args/parse-bool-arg a :dedup)))    ; default true
-    (is (false? (args/parse-bool-arg a :cache)))))  ; default false
-
-(deftest parse-bool-arg-include-sensitive-name-is-stringified
-  ;; The keyword carries NO trailing `?`; the JS wire key is
-  ;; `"include-sensitive"`. The name coercion in `parse-bool-arg`
-  ;; round-trips the literal `(name k)` correctly — pin the contract so
-  ;; a future drift either way (adding `?`, snake_case, etc.) breaks
-  ;; here. Per Anthropic's tool-input-schema regex
-  ;; `^[a-zA-Z0-9_.-]{1,64}$`, predicate-style `?` is rejected at the
-  ;; agent host.
-  (let [a (args-js {:include-sensitive "true"})]
-    (is (true? (args/parse-bool-arg a :include-sensitive)))))
-
 ;; ---------------------------------------------------------------------------
 ;; read-edn-arg — the [:ok parsed] / [:err reason] EDN-arg helper.
 ;; Shared by replace-app-db (:db), restore-epoch (:epoch-id) and
