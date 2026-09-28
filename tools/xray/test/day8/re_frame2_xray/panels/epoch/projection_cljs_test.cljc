@@ -4980,6 +4980,23 @@
                 [(handler-exception-ev :e "boom")])]
       (is (nil? (:status (first out))))))
 
+  (testing "an event its :schema rejected marks the handler skipped, with
+            the schema as the reason"
+    (let [out (proj/mark-skipped-handler
+                [{:step :handler} {:step :side-effects}]
+                [(ev :error :rf.error/schema-validation-failure
+                     {:where :event :failing-id :counter/inc})])]
+      (is (= [:skipped :skipped] (mapv :status out)))
+      (is (= [:event-schema :event-schema] (mapv :skip-reason out)))))
+
+  (testing "an :app-db schema failure does NOT mark skipped (the handler
+            ran; its write was refused at the commit)"
+    (let [out (proj/mark-skipped-handler
+                [{:step :handler}]
+                [(ev :error :rf.error/schema-validation-failure
+                     {:where :app-db :rollback? true})])]
+      (is (nil? (:status (first out))))))
+
   (testing "a clean cascade leaves steps untouched"
     (let [steps [{:step :handler} {:step :side-effects}]]
       (is (= steps (proj/mark-skipped-handler steps [(run-end-ev 1)]))))))

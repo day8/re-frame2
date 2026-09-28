@@ -1482,24 +1482,31 @@
         (is (fn? (:ref (second row)))
             ":ref callback present on the LIVE+head focused row")))))
 
-(deftest event-list-focused-row-omits-ref-in-retro
+(deftest event-list-focused-row-in-retro-never-scrolls-into-view
   (testing "clicking a row flips spine to :retro.
-            The focused row in RETRO must NOT carry a `:ref` callback
+            The focused row in RETRO must never be scrolled into view
             (the user clicked → already visible; scrolling would
-            steal the cursor)."
+            steal the cursor). The newer-events strip now shows, so the
+            row's ref is the one that only uncovers it."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:older/event]))
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:newer/event]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/focus-event 1]))
     (rf/with-frame :rf/xray
-      (let [focus @(rf/subscribe [:rf.xray/focus])
-            tree  (dynamic-shell-tree/shell-view-tree)
-            row   (find-by-testid tree "rf-xray-event-row-1")]
+      (let [focus   @(rf/subscribe [:rf.xray/focus])
+            tree    (dynamic-shell-tree/shell-view-tree)
+            row     (find-by-testid tree "rf-xray-event-row-1")
+            row-ref (:ref (second row))
+            calls   (atom 0)]
         (is (= :retro (:mode focus)) "spine is in :retro after focus-cascade")
         (is (some? row) "focused row renders")
-        (is (nil? (:ref (second row)))
-            ":ref absent on the RETRO focused row")))))
+        (is (fn? row-ref) "CONTROL — the strip shows, so the row carries a ref to call")
+        (reset! @#'shell/last-scrolled-focus-id nil)
+        (when row-ref
+          (row-ref #js {:scrollIntoView (fn [_opts] (swap! calls inc))}))
+        (is (zero? @calls)
+            "the RETRO focused row's ref never scrolls it into view")))))
 
 (deftest event-list-non-focused-row-has-no-ref
   (testing "only the focused row gets a `:ref`. Non-
@@ -2221,6 +2228,79 @@
           "CONTROL — the empty state renders")
       (is (nil? (newer-events-marker-in tree))
           "no marker beside `No events.`"))))
+
+;; ---- the sticky header and the marker keep off the focused row ----------
+;;
+;; Measured in Chromium on the list's own inline styles, at 900 and 1440
+;; wide: a sticky child sticks INSIDE its scroll box's 4px padding, so a
+;; row showed through a 4px gap above the header and below the marker;
+;; and when following paused at head and a newer event arrived, the
+;; marker painted over 18px of the 22px focused row.
+
+(defn- stale-list-tree
+  "The L2 list pinned one row behind head, so the marker paints."
+  []
+  (let [spine [{:dispatch-id 1 :frame :rf/default :event [:first/event]}
+               {:dispatch-id 2 :frame :rf/default :event [:second/event]}]]
+    (shell/event-list-tree
+      (fn [_ev])
+      {:col-widths          {:source 52 :timestamp 60 :duration 52}
+       :list-height-px      200
+       :event-bundles       spine
+       :spine-event-bundles spine
+       :focus               {:dispatch-id 1 :frame :rf/default
+                             :mode :retro :head? false}
+       :show-ungrouped?     false
+       :now-ms              0})))
+
+(deftest the-sticky-header-and-marker-sit-flush-with-the-scroll-box
+  (let [tree   (stale-list-tree)
+        box    (:style (second (find-by-testid tree "rf-xray-event-list")))
+        header (:style (second (find-by-testid tree "rf-xray-event-list-header")))
+        marker (:style (second (newer-events-marker-in tree)))]
+    (is (= "4px" (:padding box)) "CONTROL — the scroll box's padding")
+    (is (= ["sticky" "sticky"] [(:position header) (:position marker)]))
+    (is (= "-4px" (:top header))
+        "the header is offset by the padding, so no row shows above it")
+    (is (= "-4px" (:bottom marker))
+        "and so is the marker, so no row shows below it")))
+
+(deftest overlay-nudge-uncovers-a-visible-focused-row-and-never-follows
+  ;; The box spans y 0..209; the header's bottom is at 21 and the marker's
+  ;; top at 188, flush with the box as the row above pins.
+  (let [nudge (fn [top bottom]
+                (shell/overlay-nudge {:row-top top :row-bottom bottom
+                                      :view-top 0 :view-bottom 209
+                                      :clear-top 21 :clear-bottom 188}))]
+    (is (= 20 (nudge 186 208))
+        "the paused head row under the marker scrolls up clear of it")
+    (is (= 34 (nudge 200 222))
+        "a row half below the box's edge and under the marker is uncovered too")
+    (is (= -11 (nudge 10 32))
+        "a row the header half-covers scrolls down clear of it")
+    (is (= 0 (nudge 100 122)) "a row already clear stays put")
+    (is (= [0 0] [(nudge 230 252) (nudge -40 -18)])
+        "an off-screen row stays off-screen — RETRO keeps its scroll position")))
+
+(deftest the-focused-row-carries-a-reveal-ref-while-the-marker-shows
+  (reset! @#'shell/focused-row-ref-cache nil)
+  (let [row-ref (:ref (second (find-by-testid (stale-list-tree) "rf-xray-event-row-1")))]
+    (is (fn? row-ref)
+        "the stale focused row carries a ref, so its attach can uncover it"))
+  (reset! @#'shell/focused-row-ref-cache nil)
+  (let [track  (#'shell/focused-row-ref 7 true false)
+        reveal (#'shell/focused-row-ref 7 false true)
+        calls  (atom 0)]
+    (is (fn? reveal))
+    (is (not (identical? track reveal))
+        "the marker appearing over a row that STAYS focused hands React a new
+         ref, and that attach is what uncovers the row")
+    (is (identical? reveal (#'shell/focused-row-ref 7 false true))
+        "and it is stable while nothing changes")
+    (is (nil? (#'shell/focused-row-ref 7 false false))
+        "paused at head with nothing newer: no ref")
+    (reveal #js {:scrollIntoView (fn [_opts] (swap! calls inc))})
+    (is (zero? @calls) "the reveal ref never scrolls a row into view")))
 
 (deftest newer-count-locates-the-focused-row-by-frame-and-id-rf2-lh98m
   (testing "the counting domain shares the boundary's stored

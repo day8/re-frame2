@@ -152,10 +152,12 @@
 ;; ---- init! (manual install, alternative to :preloads) ------------------
 
 (defn init!
-  "Mount Xray manually — the alternative to wiring the
+  "Install Xray manually — the alternative to wiring the
   `day8.re-frame2-xray.preload` namespace into shadow-cljs's
-  `:devtools/preloads`. Safe to call repeatedly, but a second call is
-  NOT a no-op — the two halves differ:
+  `:devtools/preloads`. It installs; it does not open the shell, which
+  opens on `Ctrl+Shift+C` exactly as it does under the preload. Safe to
+  call repeatedly, but a second call is NOT a no-op — the two halves
+  differ:
 
   - INSTALLATION is deduplicated. `registry/register-xray-handlers!`,
     both `install/register-*-collector!` fns and `keybinding/attach!`

@@ -739,6 +739,41 @@
   [owned frame]
   (contains? owned frame))
 
+(def ^:private xray-view-prefix
+  "The namespace root every Xray view name starts with."
+  "day8.re-frame2-xray.")
+
+(defn- xray-view?
+  "True when a producer view row `{:view :source}` names one of Xray's own
+  declared views."
+  [{:keys [view]}]
+  (and (string? view) (string/starts-with? view xray-view-prefix)))
+
+(defn- without-xray-views
+  "`row` — a census or explanation row — with Xray's own declared views
+  taken off it, or nil when every view it declares is Xray's.
+
+  Applied only to a row whose frame is [[unknown]]. Where the frame
+  resolves, the frame is the answer — a row reading an application frame
+  is application evidence whatever namespace declared its view.
+
+  THE FRAME CANNOT ANSWER FOR A READ-FREE BOUNDARY. The producer seats a
+  boundary in the frame its reads name, so one that reads nothing — the
+  shell's `dynamic-chrome` is one — has the key `[]` and the frame
+  [[unknown]], and [[own-frame?]] rightly keeps an unresolved row. What
+  the row does carry is the declared views that hold it, and there a
+  view in Xray's namespace is the tool. Every
+  read-free boundary on the page folds onto that one `[]` row, so an
+  application's read-free view can share it with Xray's: the row is then
+  the application's and stays, carrying only the application's views."
+  [row]
+  (let [views (:views row)]
+    (if-not (and (vector? views) (some xray-view? views))
+      row
+      (let [app-views (filterv (complement xray-view?) views)]
+        (when (seq app-views)
+          (assoc row :views app-views))))))
+
 (defn- own-intent?
   "True when every frame an intent touched is Xray's own.
 
@@ -759,11 +794,29 @@
     envelope
     (update envelope k #(filterv keep? %))))
 
+(defn- without-own-boundaries
+  "`envelope` with every `k` row that is Xray's own removed: seated in one
+  of `owned`, or unresolved and declaring only Xray's views (see
+  [[without-xray-views]]). Passes a non-envelope through untouched, as
+  [[without]] does."
+  [envelope k owned]
+  (if-not (supported? envelope)
+    envelope
+    (update envelope k
+            #(into []
+                   (comp (remove (fn [row] (own-frame? owned (:frame row))))
+                         (keep (fn [row]
+                                 (if (unknown? (:frame row))
+                                   (without-xray-views row)
+                                   row))))
+                   %))))
+
 (defn without-own-frame
   "The four-envelope map with every row seated in one of `owned` — the
   set [[own-frames]] answers for the shell this panel is inside —
-  removed. Pure; the caller hands it exactly what
-  `fresco-reads/evidence` answered.
+  removed, and with every unresolved census or explanation row that
+  declares only Xray's own views removed too (see [[without-xray-views]]).
+  Pure; the caller hands it exactly what `fresco-reads/evidence` answered.
 
   `owned` IS A PARAMETER RATHER THAN A LITERAL, because Xray's shell
   frame is parameterized (008 §Parameterized shell
@@ -789,14 +842,12 @@
   would manufacture exactly that."
   [envelopes owned]
   (-> envelopes
-      (update :mounted-boundaries without :boundaries
-              #(not (own-frame? owned (:frame %))))
+      (update :mounted-boundaries without-own-boundaries :boundaries owned)
       (update :read-attribution   without :edges
               #(not (own-frame? owned (:frame-id %))))
       (update :intents            without :intents
               #(not (own-intent? owned (:frames %))))
-      (update :explain-render     without :explanations
-              #(not (own-frame? owned (:frame %))))))
+      (update :explain-render     without-own-boundaries :explanations owned)))
 
 (defn mounted-rows
   "The Mounted view's rows: one per distinct edge set, carrying the

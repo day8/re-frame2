@@ -755,6 +755,53 @@
            eat the second one, which is far worse than listing the tool's
            own rows"))))
 
+(deftest xray-read-free-chrome-is-not-application-evidence
+  (testing "a boundary that reads nothing has the key `[]` and the frame
+            `:unknown`, so its frame cannot say whose it is — the shell's
+            `dynamic-chrome` is one. Its declared view can: a row declaring
+            only Xray's views leaves Mounted and Why, while an application's
+            read-free view folded onto the same row keeps the row"
+    (let [chrome   [{:view   "day8.re-frame2-xray.shell/dynamic-chrome"
+                     :source {:ns 'day8.re-frame2-xray.shell :file "shell.cljs"
+                              :line 2989 :column 1}}]
+          layout   [{:view "app.views/layout" :source :unknown}]
+          free-key {:parent nil :key []}
+          run      (fn run
+                     ([views] (run views :unknown))
+                     ([views frame]
+                      (hh/without-own-frame
+                        {:mounted-boundaries
+                         (envelope :mounted-boundaries
+                                   {:boundaries [(first (:boundaries mounted))
+                                                 {:boundary free-key :views views
+                                                  :instances 1 :read-orders 1
+                                                  :frame frame :reads []}]})
+                         :explain-render
+                         (envelope :explain-render
+                                   {:explanations [{:boundary free-key :views views
+                                                    :frame frame :instances 1
+                                                    :snapshot :unknown :peak-epoch :unknown
+                                                    :latest-reads :unknown
+                                                    :candidates :unknown
+                                                    :loss {:reason :cap :dropped :unknown}}]})}
+                        (hh/own-frames :rf/xray))))]
+      (testing "where the frame resolves it is the answer: a row seated in an
+                application frame stays, whatever namespace declared its view"
+        (let [e (run chrome :app/main)]
+          (is (= [:app/main :app/main] (mapv :frame (hh/mounted-rows (:mounted-boundaries e)))))
+          (is (= 1 (count (hh/explain-rows (:explain-render e)))))))
+      (testing "Xray's chrome alone is dropped from the census and from Why"
+        (let [e (run chrome)]
+          (is (= [:app/main] (mapv :frame (hh/mounted-rows (:mounted-boundaries e)))))
+          (is (= [] (hh/explain-rows (:explain-render e))))))
+      (testing "an application's read-free view keeps the row, without Xray's"
+        (let [e (run (into layout chrome))]
+          (is (= [:app/main :unknown] (mapv :frame (hh/mounted-rows (:mounted-boundaries e)))))
+          (is (= ["app.views/layout"]
+                 (mapv :view (:views (second (hh/mounted-rows (:mounted-boundaries e)))))))
+          (is (= ["app.views/layout"]
+                 (mapv :view (:views (first (hh/explain-rows (:explain-render e))))))))))))
+
 (deftest the-own-frame-drop-does-not-eat-an-unresolved-or-unparseable-envelope
   (testing "two things the filter must NOT do, both of which
             would turn a STATED absence into a silent one, which is the

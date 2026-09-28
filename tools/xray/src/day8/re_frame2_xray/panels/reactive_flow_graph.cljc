@@ -56,11 +56,11 @@
 ;; ---- geometry constants ------------------------------------------------
 
 (def node-w
-  "Default node width (px). Views are a touch wider to fit the
-  `(rerendered)` sub-label."
+  "Default node width (px). Views are wider to fit the
+  `(rerendered)  ← cause · timing` sub-label."
   120)
 
-(def view-node-w 140)
+(def view-node-w 200)
 (def node-h 30)
 (def view-node-h 40)
 
@@ -69,6 +69,23 @@
 (def ^:private pad-x 20)              ; left/right canvas padding
 (def ^:private pad-y 16)              ; top canvas padding
 (def ^:private appdb-w 80)
+
+(def label-font-size
+  "Font size (px) of a node's name label."
+  11)
+
+(def meta-font-size
+  "Font size (px) of a view node's `(rerendered)` cause/timing line."
+  9)
+
+(def mono-advance
+  "One glyph's advance, in ems, that a label is budgeted at. Every face in
+  the mono stack (JetBrains Mono, SF Mono, Menlo) sets 0.6em, so a mono
+  label budgeted at it fits exactly; the Inter meta line is narrower than
+  that on average, so for it the budget is conservative."
+  0.6)
+
+(def ^:private label-inset 3)          ; px kept clear each side of a label
 
 ;; Column x-origins. app-db sits at pad-x; each subsequent column starts
 ;; after the previous column's widest node + the inter-column gap. The
@@ -92,6 +109,36 @@
   "CSS-selector-safe testid suffix — id punctuation flattened to `_`."
   [id]
   (when id (str/replace (str id) #"[^a-zA-Z0-9_]" "_")))
+
+(defn- max-chars
+  "How many glyphs fit a box `w` px wide at `font-size` px."
+  [w font-size]
+  (max 1 (int (/ (- w (* 2 label-inset)) (* mono-advance font-size)))))
+
+(defn fit-label
+  "`label` as it fits a node `w` px wide at `font-size` px: whole when it
+  fits, otherwise its TAIL behind a leading `…`, because the tail is what
+  tells two ids apart (`:app/by-id` and `:app/by-name` share their head).
+  SVG text does not clip to its box, so an unfitted label paints across
+  its neighbours; the renderer carries the whole label as the node's
+  tooltip."
+  [label w font-size]
+  (let [s (str label)
+        n (max-chars w font-size)]
+    (if (<= (count s) n)
+      s
+      (str "…" (subs s (- (count s) (dec n)))))))
+
+(defn fit-line
+  "`line` as it fits a box `w` px wide at `font-size` px, keeping its HEAD
+  with a trailing `…` — for a line that reads left to right, such as a
+  view's `(rerendered)  ← cause · timing`."
+  [line w font-size]
+  (let [s (str line)
+        n (max-chars w font-size)]
+    (if (<= (count s) n)
+      s
+      (str (subs s 0 (dec n)) "…"))))
 
 (defn- stack-y
   "Vertical centre-y for the i-th node in a column of `n` nodes, using
@@ -135,14 +182,16 @@
         n (count rows)]
     (keyed
       (for [[i row] (map-indexed vector rows)
-            :let [sid (:sub-id row)
-                  qv  (:query-v row)]]
+            :let [sid   (:sub-id row)
+                  qv    (:query-v row)
+                  label (if (and (vector? qv) (next qv)) (pr-str qv) (id->str sid))]]
         {:kind        kind
          :id          sid
          :instance    (or qv [sid])
          :query-v     qv
          :slug        (slug sid)
-         :label       (if (and (vector? qv) (next qv)) (pr-str qv) (id->str sid))
+         :label       label
+         :display-label (fit-label label node-w label-font-size)
          :changed?    (boolean (:changed? row))
          :inputs      (vec (:inputs row))
          :input-query-vs (:input-query-vs row)
@@ -177,6 +226,7 @@
          :deref-subs   (:deref-subs row)
          :slug         (slug vid)
          :label        (id->str vid)
+         :display-label (fit-label (id->str vid) view-node-w label-font-size)
          :action       (:action row)
          :triggered-by (:triggered-by row)
          :elapsed-ms   (:elapsed-ms row)

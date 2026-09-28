@@ -3589,21 +3589,37 @@
                        (= :before (common/tag-of ev :phase))))))
           events)))
 
+(defn event-schema-rejected?
+  "True iff the router refused the event against its handler's `:schema`
+  (`:rf.error/schema-validation-failure` with `:where :event`). The router
+  validates the event vector before the interceptor chain runs and skips
+  the handler on a failure, so the handler never executes."
+  [events]
+  (boolean
+    (some (fn [ev]
+            (and (= :rf.error/schema-validation-failure (op ev))
+                 (= :event (common/tag-of ev :where))))
+          events)))
+
 (defn mark-skipped-handler
   "When an upstream `:before`-chain throw skipped the handler
-  (`handler-skipped-by-upstream?`), stamp the HANDLER step + the SIDE
-  EFFECTS step (which equally never ran) with `:status :skipped`.
+  (`handler-skipped-by-upstream?`), or the router refused the event
+  against its `:schema` (`event-schema-rejected?`, stamped `:skip-reason
+  :event-schema`), stamp the HANDLER step + the SIDE EFFECTS step (which
+  equally never ran) with `:status :skipped`.
   The view reads `:skipped` to render the step as SKIPPED
   rather than 'ran, returned no :db'. Pure fn over the step vector; a
   cascade with no upstream skip returns `steps` unchanged."
   [steps events]
-  (if (handler-skipped-by-upstream? events)
-    (mapv (fn [step]
-            (if (contains? #{:handler :side-effects} (:step step))
-              (assoc step :status :skipped)
-              step))
-          steps)
-    steps))
+  (let [schema? (event-schema-rejected? events)]
+    (if (or schema? (handler-skipped-by-upstream? events))
+      (mapv (fn [step]
+              (if (contains? #{:handler :side-effects} (:step step))
+                (cond-> (assoc step :status :skipped)
+                  schema? (assoc :skip-reason :event-schema))
+                step))
+            steps)
+      steps)))
 
 ;; ---- HALTED-DEPTH record -------------------------------------------------
 ;;
@@ -3990,7 +4006,8 @@
     `:error`   — the step (or any of its rows) carries an attached
                  exception or schema violation.
     `:skipped` — the step never RAN because an upstream `:before`-chain
-                 throw aborted the cascade (`mark-skipped-handler`
+                 throw aborted the cascade or the router refused the
+                 event against its `:schema` (`mark-skipped-handler`
                  stamps `:status :skipped` on the HANDLER + SIDE EFFECTS
                  steps). Distinct from `:ok` — the step did NOT run, so it
                  must NOT read as 'ran, returned no :db'.
@@ -4488,9 +4505,10 @@
             with-errs  (attach-unclassified-errors
                          with-errs (unclassified-error-rows events))
             ;; When an upstream `:before`-chain throw (coeffect /
-            ;; interceptor :before) skipped the handler, mark the HANDLER +
-            ;; SIDE EFFECTS steps `:status :skipped` so the view renders them
-            ;; as SKIPPED rather than 'ran, returned no :db'.
+            ;; interceptor :before) or an event-schema refusal skipped the
+            ;; handler, mark the HANDLER + SIDE EFFECTS steps `:status
+            ;; :skipped` so the view renders them as SKIPPED rather than
+            ;; 'ran, returned no :db'.
             skipped    (mark-skipped-handler with-errs events)
             ;; A `:halted-depth` record's event never ran; only the
             ;; record's `:outcome` / `:halt-reason` say so. A

@@ -928,7 +928,7 @@
                     :settled-success "Focused event-bundle — settled (success)"
                     :settled-error   "Focused event-bundle — settled (error)"
                     :paused-by-tool  "Focused event-bundle — paused by tool"
-                    :stale           "Focused event-bundle — stale (replayed / RETRO)"
+                    :stale           "Focused event-bundle — stale (a replay, or pinned behind newer events)"
                     (str "Focused event-bundle — " (name status-kw)))
            :style (assoc event-bundle-status-bar-base-style :background status-hex)}]))
 
