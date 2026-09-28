@@ -17,10 +17,10 @@
   source-coords/merge-coords is shared).
 
   Coverage matches Spec 001 §Per-kind index (`reg-event` is the ONE
-  event-registration form per EP-0018; the three event rows below exercise
-  its {:db ...} return, its effect-map return, and its interceptor-carrying
-  shape):
-    reg-event ({:db}) reg-event (fx) reg-event (interceptor)
+  event-registration form per EP-0018; the two event rows below exercise
+  its plain shape and its interceptor-carrying shape — registration never
+  runs the handler, so what the handler returns cannot change the coords):
+    reg-event      reg-event (interceptor)
     reg-sub        reg-fx         reg-cofx
     make-frame      reg-view       reg-machine
     reg-flow       reg-route      reg-app-schema
@@ -162,30 +162,6 @@
     (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-sample})
                      :event :rf2-k84s/reg-event-sample))))
-
-(deftest source-coords-on-reg-event-db-return
-  (testing "reg-event with a {:db ...} return stamps :ns / :line / :file"
-    (rf/reg-event :rf2-k84s/reg-event-db-sample
-                     (fn [{:keys [db]} _] {:db db}))
-    (assert-error-coords :event :rf2-k84s/reg-event-db-sample)
-    ;; The PUBLIC registry-meta sink is dev-only:
-    ;; `source-coords/merge-coords` returns user-meta unchanged under
-    ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-db-sample})
-                     :event :rf2-k84s/reg-event-db-sample))))
-
-(deftest source-coords-on-reg-event-fx-return
-  (testing "reg-event with an effect-map return stamps :ns / :line / :file"
-    (rf/reg-event :rf2-k84s/reg-event-fx-sample
-                     (fn [_ _] {}))
-    (assert-error-coords :event :rf2-k84s/reg-event-fx-sample)
-    ;; The PUBLIC registry-meta sink is dev-only:
-    ;; `source-coords/merge-coords` returns user-meta unchanged under
-    ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when rf.interop/debug-enabled?
-      (assert-coords (rf/handler-meta {:source :store :kind :event :id :rf2-k84s/reg-event-fx-sample})
-                     :event :rf2-k84s/reg-event-fx-sample))))
 
 (deftest source-coords-on-reg-event-with-interceptor
   (testing "reg-event with a full-context interceptor stamps :ns / :line / :file"
