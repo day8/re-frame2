@@ -405,85 +405,14 @@
 
 ;; ---------------------------------------------------------------------------
 ;; 4. fail-loud pre-commit — malformed payload, NO :db commit
-;; ---------------------------------------------------------------------------
-
-(deftest malformed-payload-fails-loud-with-no-db-commit
-  (testing "a malformed payload (:sensitive :not-a-vector) is rejected FAIL-LOUD
-            on the pre-commit-transactional (FINAL-effects) boundary: it emits
-            :rf.error/classification-effect-shape and aborts the event with NO
-            :db commit (no partial commit). In-band — like the legacy-root
-            rejection — so it does not escape the drain."
-    ;; seed a known app-db value first
-    (rf/reg-event :seed
-      (fn [{:keys [db]} _] {:db (assoc db :counter 1)}))
-    (rf/dispatch-sync [:seed])
-    (is (= 1 (:counter (rf.frame/frame-app-db-value :rf/default))))
-    ;; a handler returning a malformed classification effect ALSO tries to write
-    ;; :db — the rejection must abort BEFORE the :db commit
-    (rf/reg-event :bad-classify
-      (fn [{:keys [db]} _]
-        {:db        (assoc db :counter 99)
-         :sensitive :not-a-vector}))
-    (let [recorded (record-traces! :bad-classify-probe)
-          records  (record-errors! :bad-classify-errors)]
-      (rf/dispatch-sync [:bad-classify])
-      ;; ALWAYS-ON axis: the fail-loud COUNT reads the corpus-wide
-      ;; error-emit registry, which survives -Dre-frame.debug=false.
-      (let [recs (error-records records :rf.error/classification-effect-shape)]
-        (is (= 1 (count recs))
-            "exactly one :rf.error/classification-effect-shape record fans on the always-on axis")
-        (is (= :bad-classify (:event-id (first recs)))
-            "the always-on record attributes the rejection to the offending event"))
-      ;; The dev-trace arm: the trace tags carry `:offending-key` beside the
-      ;; full diagnosis. The always-on record's `:offending-key` is pinned by
-      ;; `re-frame.classification-effect-shape-record-cljs-test`.
-      (when rf.interop/debug-enabled?
-        (let [errs (error-events recorded :rf.error/classification-effect-shape)]
-          (is (= 1 (count errs))
-              "exactly one :rf.error/classification-effect-shape error was emitted")
-          (is (= :sensitive (:offending-key (:tags (first errs))))
-              "the diagnostic names the offending effect key")))
-      (rf.error-emit/unregister-error-listener! :bad-classify-errors)
-      (rf/unregister-listener! :trace :bad-classify-probe))
-    ;; the :db commit did NOT happen — app-db is still at the pre-handler value
-    (is (= 1 (:counter (rf.frame/frame-app-db-value :rf/default)))
-        "NO :db commit happened — the malformed classification aborted pre-commit")))
-
-(deftest malformed-path-entry-fails-loud
-  (testing "a non-sequential path entry in an otherwise-vector payload also
-            fails loud pre-commit"
-    (rf/reg-event :seed2 (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
-    (rf/dispatch-sync [:seed2])
-    (rf/reg-event :bad-entry
-      (fn [{:keys [db]} _]
-        {:db (assoc db :n 2) :sensitive [:not-a-path-vector]}))
-    (let [recorded (record-traces! :bad-entry-probe)
-          records  (record-errors! :bad-entry-errors)]
-      (rf/dispatch-sync [:bad-entry])
-      ;; ALWAYS-ON axis.
-      (is (= 1 (count (error-records records :rf.error/classification-effect-shape)))
-          "a non-sequential path entry fails loud on the always-on axis (one record)")
-      ;; The dev-trace arm.
-      (when rf.interop/debug-enabled?
-        (is (= 1 (count (error-events recorded :rf.error/classification-effect-shape)))
-            "a non-sequential path entry fails loud (one error emitted)"))
-      (rf.error-emit/unregister-error-listener! :bad-entry-errors)
-      (rf/unregister-listener! :trace :bad-entry-probe))
-    (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
-        "no :db commit happened on the malformed-entry abort")))
-
-;; ---------------------------------------------------------------------------
-;; 4b. fail-loud negatives across ALL FOUR axes
 ;;     elision.cljc classification-effect-defect validates all four keys
 ;;     (:sensitive :large :clear-sensitive :clear-large) and reports a
 ;;     distinct :offending-key. A regression that skipped validation on the
-;;     clear keys (or :large) would ship a malformed clear SILENTLY. Feed each
-;;     of the three non-:sensitive keys a malformed payload — a NON-VECTOR
-;;     value and a NON-VECTOR
-;;     path entry — and assert each raises the SAME error id with its own
-;;     :offending-key, with NO :db commit. Each test feeds ONLY the one
-;;     malformed key so :offending-key is unambiguous (defect detection
-;;     iterates the key set, returning the first defect).
+;;     clear keys (or :large) would ship a malformed clear SILENTLY. Each row
+;;     feeds ONE key a malformed payload — a NON-VECTOR value, or a
+;;     NON-VECTOR path entry inside an otherwise-vector payload — so
+;;     :offending-key is unambiguous (defect detection iterates the key set,
+;;     returning the first defect).
 ;; ---------------------------------------------------------------------------
 
 (defn- assert-axis-fails-loud
@@ -520,38 +449,22 @@
   (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
       (str "no :db commit happened on the malformed " effect-key " abort")))
 
-(deftest malformed-large-payload-fails-loud
-  (testing "a non-vector :large payload fails :rf.error/classification-effect-shape
-            with :offending-key :large and no :db commit."
-    (assert-axis-fails-loud :large :not-a-vector
-                            :bad-large-probe :bad-large)))
-
-(deftest malformed-large-path-entry-fails-loud
-  (testing "a non-vector path entry inside an otherwise-vector :large payload
-            fails loud with :offending-key :large."
-    (assert-axis-fails-loud :large [:not-a-path-vector]
-                            :bad-large-entry-probe :bad-large-entry)))
-
-(deftest malformed-clear-sensitive-payload-fails-loud
-  (testing "a non-vector :clear-sensitive payload fails
-            :rf.error/classification-effect-shape with :offending-key
-            :clear-sensitive and no :db commit — the clear keys are validated
-            too, so a malformed clear is never shipped silently."
-    (assert-axis-fails-loud :clear-sensitive :not-a-vector
-                            :bad-clear-sensitive-probe :bad-clear-sensitive)))
-
-(deftest malformed-clear-large-payload-fails-loud
-  (testing "a non-vector :clear-large payload fails
-            :rf.error/classification-effect-shape with :offending-key
-            :clear-large and no :db commit."
-    (assert-axis-fails-loud :clear-large :not-a-vector
-                            :bad-clear-large-probe :bad-clear-large)))
-
-(deftest malformed-clear-large-path-entry-fails-loud
-  (testing "a non-vector path entry inside an otherwise-vector :clear-large
-            payload fails loud with :offending-key :clear-large."
-    (assert-axis-fails-loud :clear-large [:not-a-path-vector]
-                            :bad-clear-large-entry-probe :bad-clear-large-entry)))
+(deftest malformed-classification-payload-fails-loud-with-no-db-commit
+  (testing "a malformed payload on ANY of the four keys is rejected FAIL-LOUD
+            on the pre-commit-transactional (FINAL-effects) boundary: it emits
+            :rf.error/classification-effect-shape naming the offending key and
+            aborts the event with NO :db commit (no partial commit). In-band —
+            like the legacy-root rejection — so it does not escape the drain,
+            and a malformed clear is never shipped silently."
+    (doseq [[effect-key payload] [[:sensitive       :not-a-vector]
+                                  [:sensitive       [:not-a-path-vector]]
+                                  [:large           :not-a-vector]
+                                  [:large           [:not-a-path-vector]]
+                                  [:clear-sensitive :not-a-vector]
+                                  [:clear-large     :not-a-vector]
+                                  [:clear-large     [:not-a-path-vector]]]]
+      (testing (str effect-key " " (pr-str payload))
+        (assert-axis-fails-loud effect-key payload :bad-classify-probe :bad-classify)))))
 
 (deftest non-segment-path-element-is-reported-as-a-defect
   (testing "a path entry whose SEGMENT is not a valid :rf/path segment (a
