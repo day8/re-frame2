@@ -137,10 +137,9 @@
     (testing "the managed-HTTP effect is present"
       (is (map? opts) "the After block does not issue an :rf.http/managed request."))
     (testing ":decode is the always-on production gate the leaf is about"
-      (is (contains? opts :decode)
-          "the :decode gate is missing — that is the defect this whole leaf teaches against.")
       (is (vector? (:decode opts))
-          ":decode does not carry the Article schema value."))
+          (str "the :decode gate is missing or does not carry the Article schema "
+               "value — a missing gate is the defect this whole leaf teaches against.")))
     (testing "both reply branches are addressed"
       (is (= [:article/loaded] (:on-success opts)))
       (is (= [:article/load-failed] (:on-failure opts))))))
@@ -156,13 +155,12 @@
 
 (deftest success-settles-the-lifecycle-and-stores-the-validated-payload
   (let [db (:db ((handler :article/loaded) {:db @loading-db} [:article/loaded success-reply]))]
-    (testing "status leaves :loading"
-      (is (not= :loading (get-in db [:article :status]))
-          (str "a SUCCESSFUL reply leaves [:article :status] at :loading. A reader "
-               "pasting this canonical fix into a status-driven page gets a permanent "
-               "spinner after a perfectly good load."))
+    (testing "status leaves :loading for :loaded"
       (is (= :loaded (get-in db [:article :status]))
-          "the settled success status must be :loaded, matching the RemoteData slice."))
+          (str "a SUCCESSFUL reply must settle [:article :status] at :loaded, matching "
+               "the RemoteData slice. Left at :loading, a reader pasting this canonical "
+               "fix into a status-driven page gets a permanent spinner after a perfectly "
+               "good load.")))
     (testing "the validated payload is stored unchanged at the schema'd path"
       (is (= article (get-in db [:article :data]))
           ":value must land verbatim under [:article :data] — reg-app-schema sees it."))
@@ -173,12 +171,11 @@
 
 (deftest failure-settles-the-lifecycle-and-stores-the-classified-error
   (let [db (:db ((handler :article/load-failed) {:db @loading-db} [:article/load-failed failure-reply]))]
-    (testing "status leaves :loading"
-      (is (not= :loading (get-in db [:article :status]))
-          (str "a FAILED reply leaves [:article :status] at :loading. The classified "
-               "error arrived correctly; the lifecycle never closed."))
+    (testing "status leaves :loading for :error"
       (is (= :error (get-in db [:article :status]))
-          "the settled failure status must be :error."))
+          (str "a FAILED reply must settle [:article :status] at :error. Left at "
+               ":loading, the classified error arrived correctly but the lifecycle "
+               "never closed.")))
     (testing "the classified error is stored unchanged, beside the payload path"
       (is (= (:error failure-reply) (get-in db [:article :error]))
           "the classified :rf.http/* map must land verbatim under [:article :error]."))))
