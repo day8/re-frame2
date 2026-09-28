@@ -101,16 +101,10 @@
 
 ;; EP-0018: one `reg-event` macro, so a db-shape and an fx-shape body both
 ;; ride the `reg-event` form-source path `reg-event-captures-form-source`
-;; pins above. The retired-name throwing stubs (`reg-event-db` /
-;; `reg-event-fx`) register nothing, so there is no per-stub capture to pin.
-
-(deftest reg-event-full-context-interceptor-captures-form-source
-  (testing "reg-event with a full-context interceptor stamps :rf.handler/source on JVM"
-    (rf/reg-interceptor :rf2-xgfuy/ctx-probe {:before (fn [ctx] ctx)})
-    (rf/reg-event :rf2-xgfuy/event-ctx-sample
-                  {:interceptors [:rf2-xgfuy/ctx-probe]}
-                  (fn [_ _] {}))
-    (assert-source :event :rf2-xgfuy/event-ctx-sample "reg-event")))
+;; pins above, and a chain in metadata `:interceptors` rides it too
+;; (`captures-form-source-with-metadata-interceptors` below). The retired-name
+;; throwing stubs (`reg-event-db` / `reg-event-fx`) register nothing, so there
+;; is no per-stub capture to pin.
 
 ;; ---- middle slot: metadata-map / metadata :interceptors -------------------
 ;;

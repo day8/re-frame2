@@ -39,7 +39,6 @@
             [re-frame.core :as rf]
             [re-frame.events :as rf.events]
             [re-frame.frame :as rf.frame]
-            [re-frame.interceptor :as rf.interceptor]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
@@ -127,55 +126,12 @@
 
 ;; ---- tests ----------------------------------------------------------------
 
-(deftest metadata-map-interceptors-is-the-superset-form
-  ;; `:interceptors` inside the metadata-map is THE superset middle-slot
-  ;; shape: the registrar carries it on the effective `:interceptors` chain
-  ;; (user chain + the framework wrapper). Per EP-0018 there is ONE form
-  ;; (`reg-event`) and ONE wrapper id (`:rf/event-handler`), so one test
-  ;; covers it.
-  (testing "reg-event with metadata-map :interceptors threads the chain (NOT dropped)"
-    (let [recorded (record-traces! ::super)]
-      (reg-noop! :test/noop)
-      (rf/reg-event :test.bpmszk/super
-        {:doc "Superset form." :interceptors [:test/noop]}
-        (fn [{:keys [db]} _] {:db db}))
-      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
-          "the superset form does NOT fire a metadata-misuse warning")
-      (let [meta (rf/handler-meta {:source :store :kind :event :id :test.bpmszk/super})
-            ids  (chain-ids (:interceptors meta))]
-        ;; Dev-instrumentation arm (see ns docstring §Posture split). `:doc` is
-        ;; retained for tooling in dev and ELIDED in production; the chain
-        ;; threading this deftest is named for is asserted below, in both
-        ;; postures.
-        (when rf.interop/debug-enabled?
-          (is (= "Superset form." (:doc meta))
-              "the reflection metadata is retained on the registry entry"))
-        (is (not (contains? meta :interceptors-as-raw))
-            "the raw key is not duplicated under another name")
-        (is (= [:test/noop :rf/event-handler] ids)
-            "the metadata-map :interceptors chain (authored ref) sits before the runtime wrapper")
-        (is (not (contains? meta :event/kind))
-            "there is no :event/kind sub-tag (one form, no kind)")))))
-
-(deftest metadata-map-interceptors-runs-the-chain-identically
-  ;; The chain registered via the metadata-map MUST run with the interceptor
-  ;; ordering semantics: `:before` in declaration order, `:after` in reverse
-  ;; declaration order.
-  (testing "two interceptors via map :interceptors run :before in order, :after reversed"
-    (let [order (atom [])
-          reg-ord! (fn [tag]
-                     (let [id (keyword "test.bpmszk" (str "ord-" (name tag)))]
-                       (rf/reg-interceptor id
-                         {:before (fn [ctx] (swap! order conj [:before tag]) ctx)
-                          :after  (fn [ctx] (swap! order conj [:after tag]) ctx)})
-                       id))]
-      (rf/reg-event :test.bpmszk/ordered
-        {:interceptors [(reg-ord! :a) (reg-ord! :b)]}
-        (fn [{:keys [db]} _] (swap! order conj [:handler]) {:db db}))
-      (rf/dispatch-sync [:test.bpmszk/ordered])
-      (is (= [[:before :a] [:before :b] [:handler] [:after :b] [:after :a]]
-             @order)
-          ":before runs in declaration order; :after runs reversed"))))
+;; The metadata-map `:interceptors` superset form — the chain threaded as
+;; authored refs before the one `:rf/event-handler` wrapper, run `:before` in
+;; order and `:after` reversed on dispatch — is pinned on both hosts by
+;; `re-frame.reg-event-cljs-test/reg-event-metadata-interceptors-thread-the-chain`
+;; and `re-frame.reg-interceptor-cljs-test/bare-and-factory-refs-resolve-and-run-in-order`,
+;; and each accepted shape by `normalise-args-accepts-documented-shapes` below.
 
 (deftest positional-interceptor-vector-is-rejected-loudly
   ;; A positional interceptor vector middle slot is rejected as retired. The
@@ -265,24 +221,10 @@
         (is (re-find #"reference-only" (:reason data)))
         (is (re-find #"reg-interceptor" (:reason data))))))
 
-  (testing "a chain mixing a registered ref AND an inline value still fails on the inline value"
-    (let [_ (reg-noop! :test/ref-mix)
-          ex (try (rf/reg-event :test.0adhqs9/inline-mix
-                    {:interceptors [:test/ref-mix noop-icpt-value]}
-                    (fn [{:keys [db]} _] {:db db}))
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
-      (is (= :rf.error/inline-interceptor-removed (:rf.error/id (ex-data ex))))))
-
-  (testing "EP-0022: a bare-keyword ref to an UNREGISTERED interceptor throws unregistered-interceptor"
-    (let [ex (try (rf/reg-event :test.0adhqs/bad-ref
-                    {:interceptors [:not/registered]}
-                    (fn [{:keys [db]} _] {:db db}))
-                  nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex))
-      (is (= :rf.error/unregistered-interceptor (:rf.error/id (ex-data ex))))))
+  ;; A registered ref mixed with an inline value, and a ref to an UNREGISTERED
+  ;; interceptor, are pinned by `re-frame.reg-interceptor-cljs-test`'s
+  ;; `mixed-ref-and-inline-value-rejected` and
+  ;; `unknown-ref-rejected-at-registration`.
 
   (testing "the malformed rejection happens BEFORE the registry slot is written"
     (try (rf/reg-event :test.bpmszk/bad-no-side-effect
@@ -299,22 +241,6 @@
              (fn [{:keys [db]} _] {:db db}))))
     (let [ids (mapv :id (:interceptors (rf/handler-meta {:source :store :kind :event :id :test.bpmszk/empty-ok})))]
       (is (= [:rf/event-handler] ids) "no user interceptors; only the runtime wrapper"))))
-
-(deftest canonical-metadata-form-stays-silent
-  (testing "reg-event with metadata-map :interceptors does NOT warn"
-    (let [recorded (record-traces! ::db-quiet)]
-      (reg-noop! :test/noop)
-      (rf/reg-event :test.bbea/db-good
-        {:interceptors [:test/noop]}
-        (fn [{:keys [db]} _] {:db db}))
-      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map)))))
-
-  (testing "reg-event with metadata-map alone (no interceptors anywhere) does NOT warn"
-    (let [recorded (record-traces! ::db-good-3)]
-      (rf/reg-event :test.bbea/db-good-3
-        {:doc "Plain metadata-only registration."}
-        (fn [{:keys [db]} _] {:db db}))
-      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))))))
 
 ;; ---- clearing :event registrations -------------------------------------
 ;;
@@ -572,34 +498,6 @@
       (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
           "canonical shapes are well-formed; no metadata-misuse warning expected"))))
 
-(deftest reg-event-interceptor-can-set-effects-via-the-interceptor-api
-  ;; Full-context work is done with a registered interceptor (authored with
-  ;; `reg-interceptor`, referenced by id from a `reg-event` registration's
-  ;; `:interceptors` chain; the lowering constructor `->interceptor*` is
-  ;; internal-only under EP-0022). This pins that an interceptor :before can
-  ;; read a coeffect and set a :db effect via the public interceptor API,
-  ;; threaded ahead of the one `:rf/event-handler` wrapper.
-  (testing "an interceptor :before reads :db coeffect and sets the :db effect"
-    (rf/reg-interceptor :test.fuudi/ctx-marker
-      {:before (fn [ctx]
-                 (let [db (rf.interceptor/get-coeffect ctx :db)]
-                   (rf.interceptor/assoc-coeffect
-                     ctx :db (assoc db :test.fuudi/ctx-touched? true))))
-       :after  identity})
-    (rf/reg-event :test.fuudi/ctx-shape-4
-      {:doc "interceptor, metadata interceptors" :interceptors [:test.fuudi/ctx-marker]}
-      (fn [{:keys [db]} _] {:db db}))
-    (rf/dispatch-sync [:test.fuudi/ctx-shape-4])
-    (is (true? (:test.fuudi/ctx-touched? (rf/app-db-value :rf/default)))
-        "the interceptor :before ran and its db mutation committed via the handler")
-    (let [meta (rf/handler-meta {:source :store :kind :event :id :test.fuudi/ctx-shape-4})
-          ids  (chain-ids (:interceptors meta))]
-      (is (not (contains? meta :event/kind)))
-      ;; Dev-instrumentation arm (see ns docstring §Posture split).
-      (when rf.interop/debug-enabled?
-        (is (= "interceptor, metadata interceptors" (:doc meta))))
-      (is (= [:test.fuudi/ctx-marker :rf/event-handler] ids)))))
-
 (deftest normalise-args-rejects-overlong-and-malformed
   (testing "tail count > 3 throws the arity error"
     (let [ex (try
@@ -648,27 +546,6 @@
           "the auto-wrapper sits at the tail of the interceptor chain")
       (is (= true (:rf/default? auto-wrapper))
           "the auto-wrapper carries :rf/default? true"))))
-
-(deftest user-supplied-interceptors-do-not-carry-rf-default-tag
-  (testing "user-supplied interceptor refs do NOT carry :rf/default? true —
-   only the framework-auto-wrapper at the chain tail does"
-    (reg-noop! :test.twt7m/user)
-    (rf/reg-event :test.twt7m/with-user-icpt
-      {:interceptors [:test.twt7m/user]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [interceptors (-> (rf/handler-meta {:source :store :kind :event :id :test.twt7m/with-user-icpt})
-                           :interceptors)
-          user-slot    (first interceptors)
-          auto-wrapper (last interceptors)]
-      (is (= 2 (count interceptors))
-          "user interceptor ref + auto-wrapper = 2 entries")
-      ;; The stored chain holds the AUTHORED ref (a keyword) for the user
-      ;; entry; only the framework wrapper is a map carrying :rf/default?.
-      (is (= :test.twt7m/user user-slot))
-      (is (not (:rf/default? user-slot))
-          "the user interceptor ref carries no :rf/default? — `(:rf/default? keyword)` is nil")
-      (is (= true (:rf/default? auto-wrapper))
-          "only the auto-wrapper carries :rf/default? true"))))
 
 (deftest tooling-can-filter-defaults-via-rf-default-tag
   (testing "the self-describing tag lets tools filter without an id
@@ -879,85 +756,20 @@
       (is (nil? (rf.registrar/lookup :event :test.3ut12/no-side-effect))
           "registry slot is untouched when the bare-interceptor check throws"))))
 
-(deftest legitimate-interceptor-forms-still-work
-  (testing "The bare-interceptor rejection leaves the legitimate shapes working."
-    (testing "metadata :interceptors registers cleanly and the chain runs"
-      (reg-noop! :test.3ut12/bare)
-      (is (= :test.3ut12/good-interceptors
-             (rf/reg-event :test.3ut12/good-interceptors
-               {:interceptors [:test.3ut12/bare]}
-               (fn [{:keys [db]} _] {:db db}))))
-      (let [{:keys [interceptors]} (rf/handler-meta {:source :store :kind :event :id :test.3ut12/good-interceptors})
-            ids (set (chain-ids interceptors))]
-        (is (contains? ids :test.3ut12/bare)
-            "the interceptor ref reached the registered chain (NOT dropped)")))
-
-    (testing "metadata-map can carry reflection metadata and interceptors together"
-      (reg-noop! :test.3ut12/bare)
-      (is (= :test.3ut12/good-meta-interceptors
-             (rf/reg-event :test.3ut12/good-meta-interceptors
-               {:doc "metadata + interceptor ref vector"
-                :interceptors [:test.3ut12/bare]}
-               (fn [_ _] {}))))
-      (let [{:keys [interceptors]} (rf/handler-meta {:source :store :kind :event :id :test.3ut12/good-meta-interceptors})]
-        (is (contains? (set (chain-ids interceptors)) :test.3ut12/bare))))
-
-    (testing "absent interceptors (bare handler) works"
-      (is (= :test.3ut12/no-icpt
-             (rf/reg-event :test.3ut12/no-icpt
-               (fn [{:keys [db]} _] {:db db})))))
-
-    (testing "metadata-map alone (no interceptors anywhere) works"
-      (is (= :test.3ut12/meta-only
-             (rf/reg-event :test.3ut12/meta-only
-               {:doc "plain metadata"}
-               (fn [{:keys [db]} _] {:db db})))))
-
-    (testing "an empty metadata :interceptors vector (legitimate) works"
-      (is (= :test.3ut12/empty-vec
-             (rf/reg-event :test.3ut12/empty-vec
-               {:interceptors []}
-               (fn [{:keys [db]} _] {:db db}))))
-      (is (= :test.3ut12/empty-vec-3
-             (rf/reg-event :test.3ut12/empty-vec-3
-               {:doc "meta + empty interceptor vector"
-                :interceptors []}
-               (fn [_ _] {})))))))
-
 ;; ---- EP-0018 — the retired public names are throwing stubs ---------------
 ;;
 ;; `reg-event-db` / `reg-event-fx` are not public API (no alias, EP-0007
 ;; rule 2) and `reg-event-ctx` is a framework-internal primitive. The facade
 ;; names exist ONLY as `^:no-doc` throwing stubs so a stale call site fails
 ;; LOUDLY with an actionable hard error naming the replacement — never an
-;; opaque "no such var". They register NOTHING. The -db / -fx errors name
-;; `reg-event`; the -ctx error names `reg-interceptor` (the public
-;; interceptor authoring form under EP-0022 — the lowering constructor
-;; `->interceptor*` is internal-only).
+;; opaque "no such var". The error each stub raises, and the replacement its
+;; `:reason` names, are pinned on both hosts by `re-frame.reg-event-cljs-test`'s
+;; `retired-reg-event-names-throw-their-removal-stubs` and
+;; `reg-event-ctx-removed-names-reg-interceptor-not-arrow-interceptor`; the
+;; deftest below pins that they register NOTHING, reading the very registry
+;; slot each would have written.
 
-(defn- stub-throw-id
-  "Call `reg-fn` (one of the retired throwing stubs) and return the
-  `:rf.error/id` it raises, or `:no-throw` if it did not throw."
-  [reg-fn]
-  (try (reg-fn)
-       :no-throw
-       (catch clojure.lang.ExceptionInfo e
-         (:rf.error/id (ex-data e)))))
-
-(deftest retired-reg-event-names-throw-their-removal-stubs
-  (testing "Per EP-0018 — the three retired public event-registration
-            names are throwing stubs that register nothing and raise their
-            naming hard error."
-    (is (= :rf.error/reg-event-db-removed
-           (stub-throw-id #(rf/reg-event-db :test.slice-z/db (fn [_ _] nil))))
-        "reg-event-db raises :rf.error/reg-event-db-removed")
-    (is (= :rf.error/reg-event-fx-removed
-           (stub-throw-id #(rf/reg-event-fx :test.slice-z/fx (fn [_ _] nil))))
-        "reg-event-fx raises :rf.error/reg-event-fx-removed")
-    (is (= :rf.error/reg-event-ctx-removed
-           (stub-throw-id #(rf/reg-event-ctx :test.slice-z/ctx (fn [_ _] nil))))
-        "reg-event-ctx raises :rf.error/reg-event-ctx-removed"))
-
+(deftest retired-reg-event-stubs-register-nothing
   (testing "the stubs register NOTHING — no registry slot is written"
     (try (rf/reg-event-db :test.slice-z/db-noreg (fn [_ _] nil))
          (catch clojure.lang.ExceptionInfo _ nil))
@@ -967,16 +779,4 @@
          (catch clojure.lang.ExceptionInfo _ nil))
     (is (nil? (rf.registrar/lookup :event :test.slice-z/db-noreg)))
     (is (nil? (rf.registrar/lookup :event :test.slice-z/fx-noreg)))
-    (is (nil? (rf.registrar/lookup :event :test.slice-z/ctx-noreg))))
-
-  (testing "the removal errors name the replacement surface in :reason"
-    (let [db-reason  (try (rf/reg-event-db :test.slice-z/r-db (fn [_ _] nil))
-                          (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))
-          ctx-reason (try (rf/reg-event-ctx :test.slice-z/r-ctx (fn [_ _] nil))
-                          (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))]
-      (is (re-find #"reg-event" db-reason)
-          "the reg-event-db error names reg-event as the replacement")
-      (is (re-find #"reg-interceptor" ctx-reason)
-          "the reg-event-ctx error names reg-interceptor as the replacement")
-      (is (not (re-find #"->interceptor" ctx-reason))
-          "the reg-event-ctx error does NOT name ->interceptor (internal-only under EP-0022)"))))
+    (is (nil? (rf.registrar/lookup :event :test.slice-z/ctx-noreg)))))
