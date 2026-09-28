@@ -474,6 +474,17 @@
                                  :tags {:rf.cofx/id    :session
                                         :rf.cofx/value {:user-id 42}
                                         :rf.cofx/arg   :auth-token}})))))
+  (testing "coeffect value presence is KEY PRESENCE, not truthiness — a
+            supplier can produce false or nil, and `re-frame.cofx` emits
+            `:rf.cofx/value` whatever it produced"
+    (is (= ":feature/on? → false"
+           (h/target-detail (teb/cofx-run-ev :feature/on? false))))
+    (is (= ":session/user → nil"
+           (h/target-detail (teb/cofx-run-ev :session/user nil))))
+    (testing "control — a row genuinely without a value stays id-only"
+      (is (= ":session/user"
+             (h/target-detail (teb/ev :rf.cofx :rf.cofx/run
+                                      {:rf.cofx/id :session/user}))))))
   (testing "an op with no recognised subject → nil (view renders em-dash)"
     (is (nil? (h/target-detail (ev {:id 1 :op-type :rf.event
                                     :operation :rf.event/run-end :tags {}}))))))

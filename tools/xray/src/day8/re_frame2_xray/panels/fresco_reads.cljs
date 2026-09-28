@@ -21,8 +21,9 @@
   Shaping into rows happens one layer up, in the pure
   `fresco-helpers`, against the envelope a reader can still see whole.
 
-  A witness pins it: `fresco-reads-cljs-test` asserts the seam's answer is
-  `identical?` to the door's, which a reshaping seam could not be.
+  A witness pins it: `fresco-cljs-test`'s `the-seam-reshapes-nothing`
+  asserts the seam's answer prints byte-identical (`pr-str`) to the
+  door's, which a reshaping seam could not.
 
   ## Fail-soft at read time
 
@@ -135,7 +136,7 @@
   trusted-local `:rf.egress/local-raw` opt-in.
 
   This does NOT touch the byte-for-byte contract above: that contract is
-  the FOUR Fresco envelopes, whose seam is pinned `identical?` to the
+  the FOUR Fresco envelopes, whose seam is pinned byte-identical to the
   door's. This read is a second producer over Spec 009's ring, which is
   Xray's own surface to gate."
   [envelopes]

@@ -4072,9 +4072,10 @@
           rows)))
 
 (defn mark-rolled-back-downstream
-  "When the cascade carries an `:app-db` rollback violation, mark
-  every step downstream of the SIDE EFFECTS step (SUBSCRIPTIONS /
-  VIEWS) with `:rolled-back? true`.
+  "When the cascade carries a state-partition rollback violation — the
+  `:app-db` or the `:machine-data` partition, per
+  `cascade-rolled-back?` — mark every step downstream of the SIDE
+  EFFECTS step (SUBSCRIPTIONS / VIEWS) with `:rolled-back? true`.
   The view paints those steps with mute chrome. Pure fn over the step
   vector.
 

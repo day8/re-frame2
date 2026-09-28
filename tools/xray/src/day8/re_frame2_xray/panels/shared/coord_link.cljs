@@ -63,9 +63,9 @@
 (defn open-in-editor!
   "Dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`, stopping
   event propagation so a click on the affordance does not also fire an
-  enclosing row / node handler. This is the ONE dispatch every panel-
-  side click-to-source affordance routes through (coord-chip,
-  coord-link, and the SVG-node clicks in the Reactive panel).
+  enclosing row / node handler. `coord-link`, the Reactive panel's
+  SVG-node clicks and the Trace panel's source-coord button route
+  through it; `coord-chip` inlines its own stop-and-dispatch pair.
 
   `dispatch-fn` is the frame-aware dispatcher captured by
   the surrounding view body so the open-in-editor event lands on

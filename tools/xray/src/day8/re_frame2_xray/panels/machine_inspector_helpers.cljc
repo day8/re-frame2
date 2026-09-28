@@ -277,8 +277,8 @@
 (defn project-machine-rows
   "Project the registered-machine set + the live snapshots map (+
   the per-id definition map, when available) into one row per id.
-  Sorted alphabetically by `(name machine-id)` for deterministic
-  test output. Pure fn — JVM-runnable."
+  Sorted by `(str machine-id)` — the full printed id, namespace
+  included — for deterministic test output. Pure fn — JVM-runnable."
   ([machines snapshots] (project-machine-rows machines snapshots nil))
   ([machines snapshots definitions]
    (->> (or machines [])

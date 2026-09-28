@@ -411,7 +411,7 @@
      :seam "the cells' reader arrays — the reverse edge `notify!` walks"
      :basis :derivation :evidenced? false
      :holds hh/unknown :loss nil
-     :joins {:on [:frame-id :sub-id] :status :uncorrelated
+     :joins {:on [:frame-id :sub-id :query] :status :uncorrelated
              :says "the reverse-edge table is not readable on this host."}
      ;; NOT substituted from the mounted census. The census carries each
      ;; boundary's own reads, so a plausible-looking notified set could be

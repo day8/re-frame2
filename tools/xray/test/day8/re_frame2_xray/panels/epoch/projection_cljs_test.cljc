@@ -3658,10 +3658,7 @@
         "a keyword renders via ns-keyword")
     (is (= ":closed"         (fmt/orientation-value :closed)))
     (is (= "—"               (fmt/orientation-value nil))
-        "nil renders the muted em-dash placeholder"))
-  (testing "the reserved start-marker constant"
-    (is (= :rf.machine/start fmt/machine-start-marker)
-        "the marker constant is the reserved :rf.machine/start keyword")))
+        "nil renders the muted em-dash placeholder")))
 
 (deftest truncate-test
   (testing "truncate keeps short strings + ellipsises long ones"

@@ -1296,8 +1296,9 @@
     :else                                       :text-tertiary))
 
 (defn format-duration-ms
-  "Render a ms duration as `<n>ms` (or `<n.n>s` once it crosses 1s).
-  Returns `—` for nil / non-number input."
+  "Render a ms duration as `<n>ms`, always in milliseconds: truncated to
+  a whole millisecond below 1s (`250ms`), rounded to the nearest 100ms
+  from 1s up (`1500ms`). Returns `—` for nil / non-number input."
   [ms]
   (cond
     (not (number? ms)) "—"

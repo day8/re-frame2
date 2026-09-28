@@ -61,10 +61,6 @@
       :error    — `:op-type :error`     → `error` (red), strongest
       :warning  — `:op-type :warning`   → `warning` (amber)
 
-  Each row reads its 3px LEFT-BORDER + uppercase TEXT badge in its
-  severity colour per the Figma design
-  (`design-reference/xray_devtools_reference.cljs`, the `issues-panel` component).
-
   `:op-type :info` is ACTIVITY, never an issue: the
   runtime emits it for success-path lifecycle rows — `:rf.http/issued`
   on every managed request, `:rf.http/replied`, `:rf.http/retry-attempt`,
@@ -123,8 +119,7 @@
   empty (no event-bundles have settled yet)."
   (:require [clojure.string :as str]
             [day8.re-frame2-xray.panels.common-helpers :as common]
-            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]
-            [day8.re-frame2-xray.theme.tokens :as tokens]))
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- severity classification --------------------------------------------
 
@@ -149,39 +144,6 @@
   their own panels (Epoch, Reactive, Trace)."
   [{:keys [op-type] :as _ev}]
   (some? (op-type->severity op-type)))
-
-(def severity->token
-  "Pure semantic map from severity keyword to token keyword. Mirrors
-  spec/021 §8.2 + spec/022 §Semantic & change. Splitting the semantic
-  map from the hex lookup keeps the data pure + tokens consolidated."
-  {:error    :error
-   :warning  :warning
-   :advisory :advisory})
-
-(defn severity-colour
-  "Map a severity keyword to its swatch colour. Resolves the semantic
-  token keyword through `theme/tokens` so the palette has exactly one
-  source of truth. Falls back to `:text-tertiary` for
-  unknown severities.
-
-  Drives BOTH the row's 3px left-border and the uppercase text badge
-  per the Figma design."
-  [severity]
-  (get tokens/tokens
-       (get severity->token severity :text-tertiary)))
-
-(defn severity-badge-label
-  "Uppercase severity label for the per-row TEXT badge — `ERROR` /
-  `WARNING` / `ADVISORY` per the Figma design
-  (`design-reference/xray_devtools_reference.cljs`, the `issues-panel`
-  component). Pure data → string;
-  JVM-testable."
-  [severity]
-  (case severity
-    :error    "ERROR"
-    :warning  "WARNING"
-    :advisory "ADVISORY"
-    (str/upper-case (str (name (or severity :unknown))))))
 
 ;; ---- category-prefix projection -----------------------------------------
 
@@ -400,19 +362,3 @@
 
 (def resolve-focus-status focus/resolve-focus-status)
 (def find-epoch-record    focus/find-epoch-record)
-
-;; ---- selection ----------------------------------------------------------
-
-(defn find-issue
-  "Look up a projected issue by `:id` in `issues`. Returns nil when
-  not found. Pure data → row-or-nil; JVM-testable."
-  [issues issue-id]
-  (some (fn [v] (when (= issue-id (:id v)) v)) issues))
-
-;; ---- formatting ---------------------------------------------------------
-
-;; Re-export the shared `HH:MM:SS.mmm` formatter — body lives once in
-;; `common-helpers/format-time-hms`, so every helper that re-exports it
-;; (roster in `common-helpers`' ns docstring) shares a single clock
-;; format.
-(def format-time common/format-time-hms)

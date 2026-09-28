@@ -26,7 +26,7 @@
        too; reinforced here to keep the contract co-located.
 
     2. **Helpers route through the var-map** — `panel-accent`,
-       `accent-stripe-style`, `severity-colour`, `op-type-colour`,
+       `accent-stripe-style`, `op-type-colour`,
        `event-status-colour` — every public colour helper returns a
        CSS-variable string.
 
@@ -45,7 +45,6 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as string]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
-            [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues-h]
             [day8.re-frame2-xray.panels.trace-helpers :as trace-h]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
@@ -117,16 +116,6 @@
             (str tab " stripe references the canonical var() prefix"))
         (is (not (re-find #"#[0-9A-Fa-f]" border))
             (str tab " stripe has no hex literal in the border declaration"))))))
-
-(deftest severity-colour-returns-css-variable-string
-  (testing "`issues-ribbon-helpers/severity-colour` is
-            read through tokens so the per-row severity dot resolves
-            to a CSS variable."
-    (doseq [severity [:error :warning :advisory]]
-      (let [v (issues-h/severity-colour severity)]
-        (is (string? v))
-        (is (re-find #"^var\(--rf-xray-" v)
-            (str "severity-colour " severity " resolves to a CSS variable"))))))
 
 (deftest trace-band-colour-returns-css-variable-string
   (testing "`trace-helpers/op-family-colour`
