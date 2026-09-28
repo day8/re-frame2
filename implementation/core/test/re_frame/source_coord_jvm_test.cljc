@@ -152,7 +152,8 @@
 ;; ---- Q1 — dispatch-sync macro stamps; rf.router/dispatch-sync! fn does NOT --
 
 (deftest dispatch-sync-macro-stamps-call-site-on-no-such-handler
-  (testing ":rf.error/no-such-handler from dispatch-sync macro carries the call site"
+  (testing ":rf.error/no-such-handler from dispatch-sync macro carries the call
+            site: a positive :line, and a :file naming THIS test file"
     (let [{:keys [traces errors]}
           (record-both
             (fn []
@@ -165,7 +166,14 @@
       (assert-production-record errors :rf.error/no-such-handler)
       (when rf.interop/debug-enabled?
         (is (some? miss) "no-such-handler trace fired")
-        (assert-call-site-shape miss)))))
+        (assert-call-site-shape miss)
+        ;; The line number is not hardcoded (a file edit would break it);
+        ;; a positive line plus this file's name is what a jump-to-source
+        ;; needs.
+        (let [cs (:rf.trace/call-site miss)]
+          (is (pos? (:line cs)))
+          (is (re-find #"source_coord_jvm_test" (:file cs))
+              (str ":file should point at this test file — got " (:file cs))))))))
 
 (deftest dispatch-sync-owning-fn-omits-call-site-on-no-such-handler
   (testing "the owning-ns fn-form `re-frame.router/dispatch-sync!` does NOT
@@ -296,26 +304,3 @@
         ;; in the event shape.
         (is (contains? exc :rf.trace/trigger-handler)
             ":rf.trace/trigger-handler lives alongside :rf.trace/call-site")))))
-
-;; ---- call-site captures the actual source line ----------------------------
-
-(deftest call-site-line-matches-call-site
-  (testing "the captured :line is the line of the dispatch macro form
-   and :file points at this test file"
-    (let [{:keys [traces errors]}
-          (record-both
-            (fn []
-              (rf/dispatch-sync [:rf2-ts1a/missing])))   ;; ← THIS line
-          [miss] (errors-of traces :rf.error/no-such-handler)
-          cs     (:rf.trace/call-site miss)]
-      (assert-production-record errors :rf.error/no-such-handler)
-      (when rf.interop/debug-enabled?
-        (is (some? cs))
-        ;; We can't hardcode the line number (file edits would break the
-        ;; test); instead assert the line is plausible (positive integer)
-        ;; and the file points at this test file.
-        (is (integer? (:line cs)))
-        (is (pos? (:line cs)))
-        (is (string? (:file cs)))
-        (is (re-find #"source_coord_jvm_test" (:file cs))
-            (str ":file should point at this test file — got " (:file cs)))))))

@@ -8,56 +8,38 @@
   `:operation` pairs (`:rf.view/render` is an operation under
   `:op-type :rf.view`, not an op-type), never on synthetic op-types or
   invented operations."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.trace.projection :as rf.trace.projection]))
 
 ;; ---- domino-bucket --------------------------------------------------------
 
-(deftest domino-bucket-classifies-event-ops
-  (testing ":rf.event/dispatched buckets as :event (cascade root)"
-    (is (= :event
-           (rf.trace.projection/domino-bucket {:op-type :rf.event :operation :rf.event/dispatched}))))
-  (testing ":rf.event/run-start + :rf.event/run-end both bucket as :handler (cascade run markers)"
-    (is (= :handler
-           (rf.trace.projection/domino-bucket {:op-type :rf.event :operation :rf.event/run-start})))
-    (is (= :handler
-           (rf.trace.projection/domino-bucket {:op-type :rf.event :operation :rf.event/run-end}))))
-  (testing ":rf.fx :rf.fx/do-fx buckets as :fx (effects map computed)"
-    (is (= :fx
-           (rf.trace.projection/domino-bucket {:op-type :rf.fx :operation :rf.fx/do-fx}))))
-  (testing ":event :rf.event/db-changed lands in :other (not a six-domino slot)"
-    (is (= :other
-           (rf.trace.projection/domino-bucket {:op-type :rf.event :operation :rf.event/db-changed})))))
-
-(deftest domino-bucket-classifies-fx-as-effects
-  (testing "every :op-type :rf.fx event — :rf.fx/handled, override-applied, etc. — buckets as :effect"
-    (is (= :effect (rf.trace.projection/domino-bucket {:op-type :rf.fx :operation :rf.fx/handled})))
-    (is (= :effect (rf.trace.projection/domino-bucket {:op-type :rf.fx :operation :rf.fx/override-applied})))
-    (is (= :effect (rf.trace.projection/domino-bucket {:op-type :rf.fx :operation :rf.fx/skipped-on-platform})))))
-
-(deftest domino-bucket-classifies-sub-ops
-  (testing "both :rf.sub/run and :rf.sub/create bucket as :sub"
-    (is (= :sub (rf.trace.projection/domino-bucket {:op-type :rf.sub :operation :rf.sub/run})))
-    (is (= :sub (rf.trace.projection/domino-bucket {:op-type :rf.sub :operation :rf.sub/create})))))
-
-(deftest domino-bucket-classifies-view-render
-  (testing ":op-type :rf.view + :operation :rf.view/render buckets as :render"
-    (is (= :render
-           (rf.trace.projection/domino-bucket {:op-type :rf.view :operation :rf.view/render})))))
-
-(deftest domino-bucket-non-domino-events-fall-through-to-other
-  (testing "events outside the six-domino vocabulary land in :other"
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :error :operation :rf.error/no-such-handler})))
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :warning :operation :rf.warning/missing-doc})))
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :rf.machine :operation :rf.machine/transition})))
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :rf.frame :operation :rf.frame/created})))
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :flow :operation :rf.flow/computed})))
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :rf.registry :operation :rf.registry/handler-registered})))))
-
-(deftest domino-bucket-total-on-arbitrary-shapes
-  (testing "the classification is total; an unknown op-type/operation pair returns :other"
-    (is (= :other (rf.trace.projection/domino-bucket {:op-type :totally-made-up :operation :nope})))
-    (is (= :other (rf.trace.projection/domino-bucket {})))))
+(deftest domino-bucket-classifies-each-trace-event
+  (testing "each real :op-type / :operation pair lands in its six-domino
+            bucket, and the classification is total: anything outside the
+            vocabulary — or no shape at all — lands in :other"
+    (are [ev bucket] (= bucket (rf.trace.projection/domino-bucket ev))
+      ;; the cascade root, its run markers, and the computed effects map
+      {:op-type :rf.event :operation :rf.event/dispatched}                :event
+      {:op-type :rf.event :operation :rf.event/run-start}                 :handler
+      {:op-type :rf.event :operation :rf.event/run-end}                   :handler
+      {:op-type :rf.fx :operation :rf.fx/do-fx}                           :fx
+      ;; every other :rf.fx event is one handled effect
+      {:op-type :rf.fx :operation :rf.fx/handled}                         :effect
+      {:op-type :rf.fx :operation :rf.fx/override-applied}                :effect
+      {:op-type :rf.fx :operation :rf.fx/skipped-on-platform}             :effect
+      {:op-type :rf.sub :operation :rf.sub/run}                           :sub
+      {:op-type :rf.sub :operation :rf.sub/create}                        :sub
+      {:op-type :rf.view :operation :rf.view/render}                      :render
+      ;; outside the six dominoes
+      {:op-type :rf.event :operation :rf.event/db-changed}                :other
+      {:op-type :error :operation :rf.error/no-such-handler}              :other
+      {:op-type :warning :operation :rf.warning/missing-doc}              :other
+      {:op-type :rf.machine :operation :rf.machine/transition}            :other
+      {:op-type :rf.frame :operation :rf.frame/created}                   :other
+      {:op-type :flow :operation :rf.flow/computed}                       :other
+      {:op-type :rf.registry :operation :rf.registry/handler-registered}  :other
+      {:op-type :totally-made-up :operation :nope}                        :other
+      {}                                                                  :other)))
 
 ;; ---- group-by-event -------------------------------------------------------
 

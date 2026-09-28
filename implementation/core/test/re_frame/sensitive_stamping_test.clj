@@ -11,7 +11,6 @@
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
-            [re-frame.privacy :as rf.privacy]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -162,13 +161,6 @@
     (doseq [ev sens]  (is (true? (:sensitive? ev))))
     (doseq [ev plain] (is (not (true? (:sensitive? ev))))))))
 
-(deftest sensitive-predicate
-  (is (true? (rf/sensitive? {:sensitive? true})))
-  (is (false? (rf/sensitive? {:sensitive? false})))
-  (is (false? (rf/sensitive? {})))
-  (is (false? (rf/sensitive? nil)))
-  (is (identical? rf/sensitive? rf.privacy/sensitive?)))
-
 (deftest sensitive-predicate-fails-closed-on-a-malformed-stamp
   ;; The `:rf/trace-event` schema types `:sensitive?` as a
   ;; boolean, so a string / keyword / number stamp is a contract violation:
@@ -180,6 +172,9 @@
   ;; where the producer has already proved unreliable. The framework
   ;; predicate matches the MCP wire's classifier
   ;; (`re-frame.mcp-base.sensitive/sensitive-stamp?`).
+  (testing "the well-formed boolean stamp reads as itself"
+    (is (true? (rf/sensitive? {:sensitive? true}))))
+
   (testing "a non-boolean truthy stamp counts as SENSITIVE"
     (is (true? (rf/sensitive? {:sensitive? "true"})))
     (is (true? (rf/sensitive? {:sensitive? "false"}))
