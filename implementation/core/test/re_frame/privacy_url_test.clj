@@ -22,7 +22,7 @@
   `scripts/test-core-prod-gate.sh`. That is the point of it — the scrub is
   production-real, and a suite that only proved it in a dev build would prove
   nothing about the boundary it defends."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.privacy :as rf.privacy]
             [re-frame.privacy.url :as rf.privacy.url]))
 
@@ -32,56 +32,37 @@
 ;; The pure URL-carrier scrub — fast, host-symmetric.
 ;; ===========================================================================
 
-(deftest redact-url-carriers-keeps-path-redacts-query-values
-  (testing "query KEYS are preserved (shape), VALUES redacted"
-    (is (= (str "/oauth/callback?code=" sentinel-str "&state=" sentinel-str)
-           (rf.privacy.url/redact-url-carriers "/oauth/callback?code=secret123&state=xyz"))
-        "each query value → rf/redacted; keys + path intact")))
-
-(deftest redact-url-carriers-redacts-fragment-whole
-  (testing "the whole #fragment is opaque → redacted wholesale"
-    (is (= (str "/login#" sentinel-str)
-           (rf.privacy.url/redact-url-carriers "/login#access_token=abc.def.ghi"))
-        "the fragment carrier is redacted entirely")
-    (is (= (str "/search?q=" sentinel-str "#" sentinel-str)
-           (rf.privacy.url/redact-url-carriers "/search?q=ssn-123#tok"))
-        "both query values and fragment redacted")))
-
-(deftest redact-url-carriers-bare-path-rides-verbatim
-  (testing "a path with no query/fragment is not a carrier target"
-    (is (= "/admin/users/42" (rf.privacy.url/redact-url-carriers "/admin/users/42"))
-        "bare path verbatim")
-    (is (= "/" (rf.privacy.url/redact-url-carriers "/")) "root verbatim")))
-
-(deftest redact-url-carriers-value-less-flag-key-kept
-  (testing "a value-less flag query key is kept (no = → no secret)"
-    (is (= (str "/x?debug&token=" sentinel-str)
-           (rf.privacy.url/redact-url-carriers "/x?debug&token=abc"))
-        "the bare `debug` flag rides; `token=abc` value is redacted")))
-
-(deftest redact-url-carriers-nil-safe
-  (testing "a non-string input rides back unchanged"
-    (is (nil? (rf.privacy.url/redact-url-carriers nil)))))
+(deftest redact-url-carriers-scrubs-query-values-and-the-fragment
+  (testing "the path and the query KEYS are shape and ride; each query VALUE
+            and the whole opaque #fragment are carriers and redact; a bare
+            path, a value-less flag key (no `=`, so no secret) and a
+            non-string input pass through"
+    (are [url expected] (= expected (rf.privacy.url/redact-url-carriers url))
+      "/oauth/callback?code=secret123&state=xyz" (str "/oauth/callback?code=" sentinel-str
+                                                      "&state=" sentinel-str)
+      "/login#access_token=abc.def.ghi"          (str "/login#" sentinel-str)
+      "/search?q=ssn-123#tok"                    (str "/search?q=" sentinel-str "#" sentinel-str)
+      "/admin/users/42"                          "/admin/users/42"
+      "/"                                        "/"
+      "/x?debug&token=abc"                       (str "/x?debug&token=" sentinel-str)
+      nil                                        nil
+      ;; Wrong-SHAPED edges whose output is cosmetically odd but never a
+      ;; leak: an empty query keeps its bare `?`, and an empty fragment
+      ;; still redacts to the sentinel.
+      "/x?"                                      "/x?"
+      "/x#"                                      (str "/x#" sentinel-str))))
 
 ;; ===========================================================================
 ;; ADVERSARIAL-INPUT battery for redact-url-carriers.
 ;;
-;; The core cases above cover the happy path; these pin the wrong-SHAPED edge
-;; inputs. Every one is redaction-SAFE (no secret leaks), but each
-;; produces a cosmetically odd output a refactor could turn LEAKY — so
-;; they are refactor-fragility guards. The two load-bearing ones (a
-;; parsing-order regression COULD expose a value):
+;; The table above ends with the two cosmetic edges; these pin the
+;; wrong-SHAPED edge inputs a refactor could turn LEAKY — refactor-fragility
+;; guards, where a parsing-order regression COULD expose a value:
 ;;   - trailing `&`: the empty trailing pair must not resurrect a raw value;
 ;;   - fragment-before-query ordering (`#a=1?b=2`): the `?` lives INSIDE the
 ;;     fragment, so the whole fragment must redact wholesale — the query-split
 ;;     must NOT reach across the `#` boundary and treat `b=2` as a live query.
 ;; ===========================================================================
-
-(deftest redact-url-carriers-empty-query-rides-bare-question-mark
-  (testing "`/x?` (empty query) keeps the bare `?` — no pair to
-            redact, nothing leaks (shape is cosmetic, not a carrier)"
-    (is (= "/x?" (rf.privacy.url/redact-url-carriers "/x?"))
-        "an empty query string rides as a bare `?` (no `key=value` to scrub)")))
 
 (deftest redact-url-carriers-trailing-ampersand-drops-empty-pair
   (testing "`/x?a=1&` (trailing &) redacts the real pair and drops
@@ -94,12 +75,6 @@
       ;; Two trailing ampersands collapse the same way — still no raw value.
       (is (not (re-find #"=1" (rf.privacy.url/redact-url-carriers "/x?a=1&&")))
           "GUARD: doubled trailing `&` still drops the raw value"))))
-
-(deftest redact-url-carriers-empty-fragment-synthesizes-sentinel
-  (testing "`/x#` (empty fragment) synthesizes `/x#rf/redacted` —
-            cosmetic noise on an empty fragment, but never a leak"
-    (is (= (str "/x#" sentinel-str) (rf.privacy.url/redact-url-carriers "/x#"))
-        "an empty fragment still redacts to the sentinel (the whole fragment is opaque)")))
 
 (deftest redact-url-carriers-question-mark-inside-fragment-redacts-whole
   (testing "`/p#a=1?b=2` — the `?` lives INSIDE the fragment, so the

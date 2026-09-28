@@ -67,7 +67,7 @@
   and `merge-coords` returns user-meta unchanged there). It is `:doc` that
   does not — `rf.registrar/register!` strips the pure-documentation keys under
   the same gate."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             ;; Exercise the view-macro expander directly to
@@ -398,30 +398,19 @@
         (is (not (.contains ^String uri "/fake/project/root"))
             "URI must NOT contain the project-root (absolute path passes through)")))))
 
-(deftest absolutise-file-passes-through-already-absolute
-  (testing "already-absolute paths pass through unchanged"
-    ;; Windows-style drive letter
-    (is (= "C:/foo/bar.cljs"
-           (#'rf.source-coords/absolutise-file "C:/foo/bar.cljs")))
-    ;; POSIX absolute
-    (is (= "/foo/bar.cljs"
-           (#'rf.source-coords/absolutise-file "/foo/bar.cljs")))
-    ;; file: URL
-    (is (= "file:/foo/bar.cljs"
-           (#'rf.source-coords/absolutise-file "file:/foo/bar.cljs")))))
-
-(deftest absolutise-file-passes-through-unresolvable
-  (testing "classpath-relative paths not on classpath fall
-  through unchanged (synthetic coords, REPL eval, fabricated test
-  paths shouldn't break)"
-    (is (= "no/such/file/exists.cljs"
-           (#'rf.source-coords/absolutise-file "no/such/file/exists.cljs")))))
-
-(deftest absolutise-file-handles-nil-and-blank
-  (testing "nil / empty input passes through (the macro
-  call-sites already gate on non-nil, but defense-in-depth)"
-    (is (nil? (#'rf.source-coords/absolutise-file nil)))
-    (is (= "" (#'rf.source-coords/absolutise-file "")))))
+(deftest absolutise-file-passes-through-what-it-cannot-resolve
+  (testing "an already-absolute path (drive letter, POSIX, file: URL), a
+            classpath-relative path NOT on the classpath (synthetic coords,
+            REPL eval, fabricated test paths) and nil / empty input all pass
+            through unchanged — the macro call-sites already gate on non-nil,
+            so the last two rows are defense-in-depth"
+    (are [path] (= path (#'rf.source-coords/absolutise-file path))
+      "C:/foo/bar.cljs"
+      "/foo/bar.cljs"
+      "file:/foo/bar.cljs"
+      "no/such/file/exists.cljs"
+      nil
+      "")))
 
 ;; ---- a literal `+` in the classpath path survives -------------------------
 ;;
