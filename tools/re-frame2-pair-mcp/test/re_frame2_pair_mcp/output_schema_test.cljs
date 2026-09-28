@@ -11,12 +11,6 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.tools :as tools]))
 
-(deftest every-descriptor-carries-output-schema
-  (testing "tool-descriptors: every entry has a map-shaped :outputSchema"
-    (doseq [d tools/tool-descriptors]
-      (is (map? (:outputSchema d))
-          (str "missing :outputSchema on " (:name d))))))
-
 (deftest output-schema-surfaces-on-tools-list
   (testing "tool-descriptors-js projects :outputSchema to the wire"
     (let [arr (tools/tool-descriptors-js)

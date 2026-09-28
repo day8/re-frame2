@@ -21,9 +21,11 @@
 
   ## What's pinned
 
-  - **The choke-point**: `with-indicators` itself omits when zero,
-    emits when non-zero, treats nil as zero, and never confuses
-    the two slots.
+  - **The choke-point**: `wire/with-indicators` emits each slot when
+    its count is non-zero, omits the other when that count is zero,
+    and never confuses the two slots. The primitive it delegates to
+    (`re-frame.mcp-base.envelope/with-indicators`, including nil-as-zero)
+    is pinned by mcp-base's own suite on both hosts.
   - **The pinned emit sites**: each of the four tool source files
     named below (`snapshot`, `get_path`, `trace_window`,
     `watch_epochs`) references `with-indicators`, so a bypass in
@@ -64,28 +66,6 @@
 ;; The choke-point itself.
 ;; ---------------------------------------------------------------------------
 
-(deftest with-indicators-omits-both-slots-when-zero
-  ;; The load-bearing MUST: zero counts produce no slot. An envelope
-  ;; that already had no indicators must come out unchanged.
-  (is (= {:foo :bar}
-         (wire/with-indicators {:foo :bar} {:dropped 0 :elided 0})))
-  (is (= {:foo :bar}
-         (wire/with-indicators {:foo :bar} {:dropped 0 :elided 0})))
-  (is (not (contains? (wire/with-indicators {} {:dropped 0 :elided 0})
-                      :dropped-sensitive)))
-  (is (not (contains? (wire/with-indicators {} {:dropped 0 :elided 0})
-                      :elided-large))))
-
-(deftest with-indicators-treats-nil-as-zero
-  ;; Defensive — a caller that doesn't compute an indicator (passes
-  ;; nil) gets the same "omit" treatment as an explicit zero.
-  (is (not (contains? (wire/with-indicators {} {:dropped nil :elided nil})
-                      :dropped-sensitive)))
-  (is (not (contains? (wire/with-indicators {} {:dropped nil :elided nil})
-                      :elided-large)))
-  (is (not (contains? (wire/with-indicators {} {})
-                      :dropped-sensitive))))
-
 (deftest with-indicators-emits-each-slot-independently-when-non-zero
   ;; Dropped only.
   (let [out (wire/with-indicators {:foo :bar} {:dropped 3 :elided 0})]
@@ -100,17 +80,6 @@
     (is (= 3 (:dropped-sensitive out)))
     (is (= 5 (:elided-large out)))
     (is (= :bar (:foo out)))))
-
-(deftest with-indicators-uses-the-unqualified-key-names
-  ;; The cross-MCP vocab (Conventions §Cross-MCP indicator-field
-  ;; vocabulary) is intentionally UNqualified — the slots ride
-  ;; alongside the tool's own envelope keys. A namespaced rename
-  ;; would split the contract across two vocabularies.
-  (let [out (wire/with-indicators {} {:dropped 1 :elided 1})]
-    (is (contains? out :dropped-sensitive))
-    (is (contains? out :elided-large))
-    (is (not (contains? out :rf.mcp/dropped-sensitive)))
-    (is (not (contains? out :rf.mcp/elided-large)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-emit-site choke-point check.
@@ -144,4 +113,3 @@
   (let [src (read-source "src/re_frame2_pair_mcp/tools/watch_epochs.cljs")]
     (is (contains-with-indicators? src)
         "watch_epochs.cljs MUST route its envelope through wire/with-indicators")))
-

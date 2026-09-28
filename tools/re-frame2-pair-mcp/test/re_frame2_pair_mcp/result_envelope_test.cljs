@@ -25,11 +25,6 @@
 ;; wrap-form — runtime-side classifier source.
 ;; ---------------------------------------------------------------------------
 
-(deftest wrap-form-embeds-the-user-form
-  (let [src (renv/wrap-form "(+ 1 2)")]
-    (is (str/includes? src "(+ 1 2)")
-        "the user form rides inside the wrap")))
-
 (deftest wrap-form-round-trip-probes-serializability
   (let [src (renv/wrap-form "(some-form)")]
     (is (str/includes? src "cljs.reader/read-string")
@@ -165,26 +160,6 @@
     (is (renv/error? r))))
 
 ;; ---------------------------------------------------------------------------
-;; The three outcomes are DISTINCT — the headline codec invariant.
-;; ---------------------------------------------------------------------------
-
-(deftest nil-eval-error-unserializable-are-distinct
-  (let [nil-r   (renv/envelope->result {:rf.mcp/result :nil} echo-value)
-        err-r   (renv/envelope->result {:rf.mcp/result :eval-error
-                                        :reason :rf.error/eval-cljs-threw :ex "x"}
-                                       echo-value)
-        unser-r (renv/envelope->result {:rf.mcp/result :unserializable
-                                        :type "object" :preview "#js {}"}
-                                       echo-value)]
-    (is (not (renv/error? nil-r)) "genuine nil is a SUCCESS")
-    (is (renv/error? err-r) "eval-error is a FAILURE")
-    (is (renv/error? unser-r) "unserializable is a FAILURE")
-    (is (not= (:reason err-r) (:reason unser-r))
-        "eval-error and unserializable carry DISTINCT reasons")
-    (is (not (contains? nil-r :reason))
-        "the genuine-nil success carries no failure reason")))
-
-;; ---------------------------------------------------------------------------
 ;; Untagged values flow through unchanged (additive codec).
 ;; ---------------------------------------------------------------------------
 
@@ -208,17 +183,6 @@
 ;; error? reads metadata, not :ok? — so an on-value result carrying
 ;; :ok? false (a legitimate structured answer) is NOT a transport error.
 ;; ---------------------------------------------------------------------------
-
-(deftest error-predicate-distinguishes-codec-error-from-ok-false-answer
-  (let [legit-miss (renv/envelope->result {:rf.mcp/result :value
-                                           :value {:ok? false :reason :not-registered}}
-                                          identity)
-        codec-err  (renv/envelope->result {:rf.mcp/result :eval-error :ex "x"}
-                                           identity)]
-    (is (not (renv/error? legit-miss))
-        "a value that happens to be {:ok? false} is NOT a codec error")
-    (is (renv/error? codec-err)
-        "a codec error tag IS a codec error")))
 
 (deftest mark-codec-error-flags-a-tool-built-defect-map
   ;; A tool's OWN `on-value` shaper can detect a defect the

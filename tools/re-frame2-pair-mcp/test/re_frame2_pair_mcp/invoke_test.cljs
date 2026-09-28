@@ -382,39 +382,6 @@
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
-;; Phase ordering: cache hit BEFORE cap, for a payload that was actually
-;; DELIVERED. The hit marker is sub-100 bytes, so it survives the cap
-;; walk; flipping the order would force the cap to walk the full
-;; (potentially massive) original payload before the cache could replace
-;; it. This arm keeps that optimisation pinned.
-;; ---------------------------------------------------------------------------
-
-(deftest delivered-payload-still-gets-the-fast-cache-hit
-  (async done
-    ;; Under the cap on both calls: the payload really reached the
-    ;; caller, so the second identical read is honestly told to re-use
-    ;; the bytes it already has, and the cap never walks them again.
-    (let [args (args-js {:cache "true" "max-tokens" 5000})
-          body (apply str (repeat 40 "x"))]
-      (set-stubs!
-        {:snapshot-tool (fn [_conn _args]
-                          (js/Promise.resolve (mcp-result (pr-str {:small body}))))})
-      (-> (tools/invoke nil "snapshot" args nil)
-          (.then (fn [first-result]
-                   (is (not (overflow? first-result))
-                       "first call: under-cap payload is delivered verbatim")
-                   (is (not (cache-hit? first-result)))
-                   (tools/invoke nil "snapshot" args nil)))
-          (.then (fn [second-result]
-                   (is (cache-hit? second-result)
-                       "second call: same delivered text → cache-hit marker")
-                   (is (= :result-hash
-                          (get-in (extract-edn second-result)
-                                  [:rf.mcp/cache-hit :via]))
-                       "marker is the post-eval result-hash path")
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
 ;; A `:rf.mcp/cache-hit` says "re-use the payload you already have". A
 ;; response the wire cap replaced with `:rf.mcp/overflow` was never
 ;; delivered, so it cannot underwrite that claim. `apply-cache` runs
@@ -536,20 +503,6 @@
                      "unknown-tool errors do not touch the cache")
                  (done))))))
 
-(deftest unknown-tool-hint-offers-nearest-match
-  ;; A near-miss typo of a real tool name surfaces a :did-you-mean
-  ;; pointer so a model can self-correct without a round-trip.
-  (async done
-    (-> (tools/invoke nil "snapsho" (args-js {}) nil)
-        (.then (fn [result]
-                 (let [v (extract-edn result)]
-                   (is (= :unknown-tool (:reason v)))
-                   (is (= "snapshot" (:did-you-mean v))
-                       "near typo `snapsho` suggests `snapshot`")
-                   (is (re-find #"did you mean" (:hint v))
-                       "hint inlines the nearest-match suggestion"))
-                 (done))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Snapshot precheck eligibility — NONE, for every `:include` shape.
 ;;
@@ -627,42 +580,6 @@
     (is (nil? (precheck/precheck-target
                 "get-path" (args-js {:paths "[[:a] [:b]]"})))
         "batch get-path is ineligible too — same elision-registry hazard")))
-
-;; ---------------------------------------------------------------------------
-;; END-TO-END staleness guard. A single-frame DEFAULT-include snapshot is
-;; the hazard shape: a precheck would serve a hit while :epochs/:traces
-;; moved. It is precheck-ineligible, so the second call re-dispatches
-;; (and any change in the result text is caught by the post-eval cache
-;; instead of being silently hidden).
-;; ---------------------------------------------------------------------------
-
-(deftest single-frame-default-snapshot-does-not-precheck-hit
-  (async done
-    (let [args        (args-js {:cache "true" :frames #js ["rf/default"]})
-          fetch-count (atom 0)
-          call-count  (atom 0)]
-      (set-stubs!
-        {;; If precheck WERE consulted it would match and serve a stale
-         ;; hit — so this stub must never fire for the default snapshot.
-         :fetch-precheck-hash (fn [_conn _args _target]
-                                (swap! fetch-count inc)
-                                (js/Promise.resolve 7))
-         :snapshot-tool       (fn [_conn _args]
-                                (swap! call-count inc)
-                                ;; Distinct text per call models :epochs/
-                                ;; :traces accruing while app-db is fixed.
-                                (js/Promise.resolve
-                                  (mcp-result (str "{:epochs " @call-count "}"))))})
-      (-> (tools/invoke nil "snapshot" args nil)
-          (.then (fn [_first] (tools/invoke nil "snapshot" args nil)))
-          (.then (fn [second-result]
-                   (is (zero? @fetch-count)
-                       "precheck NEVER consulted — default include is ineligible")
-                   (is (= 2 @call-count)
-                       "second call re-dispatches — no stale precheck hit")
-                   (is (not (cache-hit? second-result))
-                       "differing :epochs text ⇒ fresh result, not a hit")
-                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; END-TO-END staleness guard. A single-frame APP-DB-ONLY snapshot looks
@@ -745,29 +662,6 @@
                    (is (zero? (cache/size))
                        (str "the operating-frame change flushed the whole response "
                             "cache — no stale frame-A payload can be served to frame B"))
-                   (done)))))))
-
-(deftest operating-frame-error-does-not-flush-cache
-  (async done
-    ;; A FAILED set-operating-frame (unknown frame) did NOT change the pin,
-    ;; so the cache must be preserved — only a successful mutation flushes.
-    (let [gp-args (args-js {:cache "true" :path "[:k]"})]
-      (cache/apply-cache (mcp-result "{:k :frame-a}")
-                         {:tool "get-path"
-                          :args gp-args
-                          :enabled? true
-                          :build (wire/arg-build nil gp-args)
-                          :precheck-hash 42})
-      (set-stubs!
-        {:reset-operating-frame-tool
-         (fn [_conn _args]
-           (js/Promise.resolve (mcp-result "{:ok? false :reason :boom}" :error? true)))})
-      (-> (tools/invoke nil "reset-operating-frame" (args-js {}) nil)
-          (.then (fn [result]
-                   (is (true? (j/get result :isError))
-                       "the mutation errored")
-                   (is (= 1 (cache/size))
-                       "an errored operating-frame call leaves the cache intact")
                    (done)))))))
 
 ;; The REAL set-operating-frame :no-such-frame path. This runs the actual

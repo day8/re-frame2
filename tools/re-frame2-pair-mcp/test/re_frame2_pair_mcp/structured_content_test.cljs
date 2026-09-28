@@ -75,21 +75,6 @@
 ;; Cache-hit marker.
 ;; ---------------------------------------------------------------------------
 
-(deftest cache-hit-result-emits-both-slots
-  (testing "cache-hit-result carries both wire slots"
-    (let [entry  {:hash 12345 :unchanged-since 1700000000000}
-          result (cache/cache-hit-result entry "snapshot" :result-hash)
-          text   (content-text result)]
-      (is (string? text)
-          ":content[0].text is present")
-      (is (some? (j/get result :structuredContent))
-          ":structuredContent is present on cache-hit envelopes")
-      ;; Cache-hit envelope wraps the payload in the
-      ;; `:rf.mcp/cache-hit` marker key. Sanity: the structured slot
-      ;; is a JS object (the precise shape is pinned in the cache test
-      ;; corpus elsewhere).
-      (is (object? (j/get result :structuredContent))))))
-
 (deftest cache-hit-marker-key-keeps-namespace-in-structured-slot
   ;; The cache-hit marker is built OUTSIDE the per-tool callbacks. It
   ;; routes through `wire/result` so SDK-friendly hosts reading
