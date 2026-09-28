@@ -1368,7 +1368,9 @@
            publish a leg of 4.0 / 3.0 and say they carry the arm; M2 and
            narrow publish no leg, no ratom floor, no leg verdict and no
            comparability note, and say they carry no arm — and no row
-           emits a non-finite number anywhere in its record"
+           emits a non-finite number anywhere in its record. A record is
+           per row, so this also answers `FRESCO_RATOM=on
+           FRESCO_ONLY=M2,narrow`, the selection nobody publishes from"
     (doseq [row flagged-rows]
       (let [rec (flagged-record row)]
         (if (contains? rows-carrying-the-arm row)
@@ -1387,18 +1389,3 @@
               (is (nil? (:reactive-leg-segment-order rec)) (str row))))
         (is (empty? (non-finite rec))
             (str row " emitted non-finite numbers: " (pr-str (non-finite rec))))))))
-
-(deftest an-m2-or-narrow-only-flagged-selection-emits-no-leg-and-no-infinity
-  (testing "`FRESCO_RATOM=on FRESCO_ONLY=M2,narrow` — the selection
-           nobody publishes from, CI never runs and the quality gates never
-           exercise, which is precisely why it is pinned here. Both
-           rows must answer with no leg at all rather than with a division
-           by a denominator they never measured"
-    (doseq [row [:M2 :narrow]]
-      (let [rec (flagged-record row)]
-        (is (nil? (:reactive-leg rec)) (str row " must publish no leg"))
-        (is (false? (:ratom-arm? rec)) (str row " must not claim the arm"))
-        (is (empty? (non-finite rec))
-            (str row " emitted non-finite numbers: " (pr-str (non-finite rec))))
-        (is (some? (:red-zone rec))
-            (str row " still publishes its ordinary red-zone"))))))

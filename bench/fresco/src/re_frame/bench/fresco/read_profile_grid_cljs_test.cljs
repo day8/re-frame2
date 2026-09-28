@@ -27,17 +27,20 @@
 
   ## What is pinned, and what deliberately is not
 
-  Rows 1–2 pin the MECHANISM — `rf.bench.fresco.lane/summarise`'s parity behaviour — at
-  the level the derivation depends on, because a change there is the
-  other way the printed grid could quietly stop being true.
+  The MECHANISM — `rf.bench.fresco.lane/summarise`'s parity behaviour, a
+  single order statistic at an odd count and the mean of the two middle
+  ones at an even count — is pinned beside the function, in
+  `lane_quantile_cljs_test`'s `quantile-at-one-half-is-summarise-s-p50`,
+  because a change there is the other way the printed grid could quietly
+  stop being true.
 
-  Row 3 pins the DERIVATION at both parities, and row 4 pins that the
+  Row 1 pins the DERIVATION at both parities, and row 2 pins that the
   design line prints what the derivation returns rather than a constant
-  standing next to it. Row 4 is the one that actually forecloses the
+  standing next to it. Row 2 is the one that actually forecloses the
   defect: it drives the line at an ODD kept count, which the live shape
   is not, so it fails the moment the number becomes a literal.
 
-  Row 5 reads the LIVE shape through `rf.bench.fresco.read-profile-app/phase-b-shape` and states its
+  Row 3 reads the LIVE shape through `rf.bench.fresco.read-profile-app/phase-b-shape` and states its
   parity and grid. It is not a bar on the shape — the instrument is free
   to move to any parity, and the point of deriving is that it may — it
   simply records which arm of the derivation the shipped window is on,
@@ -48,52 +51,10 @@
   claim is arithmetic."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]
             [re-frame.bench.fresco.read-profile-app :as rf.bench.fresco.read-profile-app]))
 
-(defn- multiple-of?
-  "`x` is a multiple of `g`, to within the float slop of dividing two
-  decimal quantities that are exact in neither base."
-  [g x]
-  (let [q (/ x g)]
-    (< (js/Math.abs (- q (js/Math.round q))) 1e-9)))
-
 ;; ===========================================================================
-;; 1 — an ODD kept count leaves the p50 on the raw clock grid
-;; ===========================================================================
-
-(deftest an-odd-sample-count-keeps-the-p50-on-the-full-clock-grid
-  (testing "`rf.bench.fresco.lane/summarise` on an odd count answers a member of its own
-           input, so a set of clamp-multiples summarises to a
-           clamp-multiple and nothing finer is reachable"
-    (let [xs [0.1 0.2 0.2 0.3 0.5]
-          p  (:p50 (rf.bench.fresco.lane/summarise xs))]
-      (is (= 5 (count xs)) "the fixture is odd, which is the whole point")
-      (is (some #{p} xs)
-          "an odd-count p50 IS one of the readings, not a blend of two")
-      (is (multiple-of? rf.bench.fresco.read-profile-app/clock-clamp-ms p)
-          "so it lands on the full 0.1 ms clock grid"))))
-
-;; ===========================================================================
-;; 2 — an EVEN kept count halves it, and can land BETWEEN two clock ticks
-;; ===========================================================================
-
-(deftest an-even-sample-count-halves-the-grid
-  (testing "`rf.bench.fresco.lane/summarise` on an even count averages the two middle
-           readings, which reaches values no single clock reading can
-           take — that is the halving the design line depends on"
-    (let [xs [0.1 0.2 0.3 0.5]
-          p  (:p50 (rf.bench.fresco.lane/summarise xs))]
-      (is (= 4 (count xs)) "the fixture is even")
-      (is (multiple-of? (/ rf.bench.fresco.read-profile-app/clock-clamp-ms 2.0) p)
-          "the p50 is on the half-clamp grid")
-      (is (not (multiple-of? rf.bench.fresco.read-profile-app/clock-clamp-ms p))
-          "and this one is strictly OFF the full-clamp grid — 0.25 is a
-           p50 no individual reading could have produced, which is what
-           makes the halving real rather than nominal"))))
-
-;; ===========================================================================
-;; 3 — the derivation follows the parity
+;; 1 — the derivation follows the parity
 ;; ===========================================================================
 
 (deftest the-derived-grid-follows-the-kept-counts-parity
@@ -119,7 +80,7 @@
                   (rf.bench.fresco.read-profile-app/phase-b-grid-ms 8 {:warmup 2 :samples 8} 32))))))
 
 ;; ===========================================================================
-;; 4 — the design LINE prints the derivation, not a constant
+;; 2 — the design LINE prints the derivation, not a constant
 ;; ===========================================================================
 
 (deftest the-design-line-prints-the-derived-grid-at-both-parities
@@ -156,7 +117,7 @@
             (str "shape " r "x" s " over " f " frames"))))))
 
 ;; ===========================================================================
-;; 5 — which arm of the derivation the SHIPPED window is on
+;; 3 — which arm of the derivation the SHIPPED window is on
 ;; ===========================================================================
 
 (deftest the-live-shape-is-recorded-with-its-parity
