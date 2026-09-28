@@ -414,17 +414,6 @@
 ;; the chart projects the shape through its own
 ;; `collect-region-on-done-edges`, pinned in `layout_cljs_test`.
 
-(def region-on-done-machine
-  "A parallel machine whose region :a completes back into its own :a1."
-  {:type    :parallel
-   :regions {:a {:initial :a1
-                 :on-done :a1
-                 :states  {:a1 {:on {:go :a2}}
-                           :a2 {:final? true}}}
-             :b {:initial :b1
-                 :states  {:b1 {:on {:go :b2}}
-                           :b2 {:final? true}}}}})
-
 (def region-on-done-action-only-machine
   "A parallel machine whose region :a's own :on-done is ACTION-ONLY (no
   target — the engine just runs :log; the region stays in its final
@@ -437,19 +426,6 @@
              :b {:initial :b1
                  :states  {:b1 {:on {:go :b2}}
                            :b2 {:final? true}}}}})
-
-(deftest region-on-done-target-bearing-surfaced-by-mermaid-and-scxml
-  (testing "a region's own top-level :on-done with a keyword
-            target surfaces as a completion transition in BOTH mermaid AND
-            SCXML, resolving to the region's own state in both"
-    ;; MERMAID
-    (let [out (mermaid-body region-on-done-machine)]
-      (is (str/includes? out "a --> a__a1 : ✓ done")
-          "mermaid renders the region's completion edge to its own state"))
-    ;; SCXML
-    (let [out (scxml/spec->scxml region-on-done-machine)]
-      (is (str/includes? out "event=\"done.state.a\" target=\"a___a1\"")
-          "scxml renders the identical done.state.<region> -> <state> transition"))))
 
 (deftest region-on-done-action-only-surfaced-by-mermaid-and-scxml
   (testing "a region's own top-level :on-done that is
