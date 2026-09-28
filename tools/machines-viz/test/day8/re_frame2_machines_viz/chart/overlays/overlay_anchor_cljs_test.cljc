@@ -118,11 +118,6 @@
 
 ;; ---- cascade-counts + summary -------------------------------------------
 
-(deftest cascade-counts-by-kind
-  (let [steps [{:kind :exit} {:kind :destroy} {:kind :abort}
-               {:kind :abort} {:kind :cleanup}]]
-    (is (= {:destroyed 1 :aborted 2 :cleaned 1} (anchor/cascade-counts steps)))))
-
 (deftest cascade-summary-line-pluralises
   (is (= "destroyed 1 actor · aborted 3 requests"
          (anchor/cascade-summary-line

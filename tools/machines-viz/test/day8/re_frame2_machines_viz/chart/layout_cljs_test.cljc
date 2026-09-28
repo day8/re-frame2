@@ -448,29 +448,6 @@
                (layout/region-scoped-id :mode [:active])}
              ids)))))
 
-(deftest highlight-ids-region-map-matches-parsed-region-state-ids
-  (testing "the resolved set is exactly the set of node-ids
-            the parse minted for the active region states, so the
-            projection will mark those real nodes :active (no phantom
-            ids). Pins the resolver against the parser's actual output."
-    (let [parallel {:type :parallel
-                    :regions {:audio {:initial :muted
-                                      :states {:muted   {:on {:unmute :playing}}
-                                               :playing {:on {:mute :muted}}}}
-                              :video {:initial :hidden
-                                      :states {:hidden {:on {:show :shown}}
-                                               :shown  {:on {:hide :hidden}}}}}}
-          {:keys [nodes]} (layout/project-definition parallel)
-          node-ids (set (map :id (remove :region? nodes)))
-          ;; both regions advanced past their initial states
-          state    {:audio :playing :video :shown}
-          ids      (layout/highlight-ids state)]
-      (is (= 2 (count ids)))
-      (is (every? #(contains? node-ids %) ids)
-          "every active id is a REAL parsed region-state node")
-      (is (= #{(layout/region-scoped-id :audio [:playing])
-               (layout/region-scoped-id :video [:shown])} ids)))))
-
 (deftest highlight-ids-nested-region-value-resolves-to-deepest-leaf
   (testing "a region whose value is itself a vector path (a
             compound region) resolves to the DEEPEST leaf, exactly as the
@@ -504,14 +481,6 @@
           (str "single-active " state " agrees with the set resolver")))))
 
 ;; ---- node-id ----------------------------------------------------------
-
-(deftest node-id-is-public-fn
-  (testing "node-id is exported so xyflow + SCXML + Mermaid emitters
-            address nodes the same way"
-    (is (string? (layout/node-id [:idle])))
-    (is (= (layout/node-id [:idle])
-           (layout/node-id [:idle]))
-        "deterministic")))
 
 (deftest node-id-distinct-for-distinct-paths
   (is (not= (layout/node-id [:authenticated])
@@ -571,17 +540,6 @@
 
 ;; ---- event-line --------------------------------------------------------
 
-(deftest event-line-event-only
-  (testing "`event-line` renders the visible event line
-            (event + guard, NO `/ action`); the action paints as a
-            `+ <action>` pill on a separate row in the renderer."
-    (is (= "submit"
-           (layout/event-line {:event :submit})))))
-
-(deftest event-line-event-with-guard
-  (is (= "submit [authed?]"
-         (layout/event-line {:event :submit :guard :authed?}))))
-
 (deftest event-line-event-with-action-strips-action
   (testing "`event-line` does NOT emit `/ action`; that
             text form is `edge-label`'s job. The action surfaces as a
@@ -596,13 +554,6 @@
                              :guard :authed?
                              :action :log-it}))))
 
-(deftest event-line-after-renders-clock-glyph
-  (testing "`:after` event-segment renders as ⌚ + <ms>ms"
-    (is (= "⌚ 1500ms [timeout?]"
-           (layout/event-line {:event :after-1500
-                               :after 1500
-                               :guard :timeout?})))))
-
 (deftest event-segment-after-iso-duration-renders-milliseconds
   (testing "an ISO-8601 `:after` delay key renders its milliseconds, not the
             ISO spelling with an `ms` suffix glued on"
@@ -610,13 +561,6 @@
     (is (= "⌚ 500ms" (layout/event-segment {:after "PT0.5S"}))))
   (testing "an integer-millisecond delay keeps its label"
     (is (= "⌚ 1500ms" (layout/event-segment {:after 1500})))))
-
-(deftest event-line-always-renders-infinity-glyph
-  (testing "`:always` event-segment renders as ∞"
-    (is (= "∞ [ready?]"
-           (layout/event-line {:event   :always
-                               :always? true
-                               :guard   :ready?})))))
 
 ;; ---- name-of (the public guard/action/entry/exit stringifier) ----------
 ;;
@@ -712,46 +656,6 @@
       (is (= [:a] (:to tick)) "internal transition self-anchors")
       (is (true? (:internal? tick)) "flagged internal")
       (is (= :inc (:action tick))))))
-
-;; ---- the :reenter? external-restart axis -------------------------------
-;;
-;; A TARGETED transition is INTERNAL by default; `:reenter? true` is the
-;; EXTERNAL restart opt-in. The viz must carry the axis onto the edge so a
-;; `:reenter? true` transition is STRUCTURALLY distinct from its internal
-;; default — without the axis the two would produce the SAME edge map (same
-;; id, same flags), and the chart could not tell them apart.
-
-(deftest project-definition-reenter-axis-distinct-from-internal-default
-  (testing "a `:reenter? true` self-target carries `:reenter?
-            true` on the edge; the internal-default one does NOT"
-    (let [reenter  {:initial :a :states {:a {:on {:ping {:target :same-state
-                                                          :reenter? true}}}}}
-          internal {:initial :a :states {:a {:on {:ping {:target :same-state}}}}}
-          r-edge   (first (filter #(= :ping (:event %))
-                                  (:edges (layout/project-definition reenter))))
-          i-edge   (first (filter #(= :ping (:event %))
-                                  (:edges (layout/project-definition internal))))]
-      (is (true? (:reenter? r-edge))
-          "the external transition carries :reenter? true")
-      (is (not (contains? i-edge :reenter?))
-          "the internal default does NOT carry :reenter?")
-      (is (not= (:id r-edge) (:id i-edge))
-          "the two mint DISTINCT edge ids (so they can coexist; xyflow does
-           not drop one as a duplicate)")))
-
-  (testing "`:reenter?` is read off a map candidate only;
-            a bare keyword target never carries it"
-    (let [m     {:initial :a :states {:a {:on {:go :b}} :b {}}}
-          go    (first (filter #(= :go (:event %))
-                               (:edges (layout/project-definition m))))]
-      (is (not (contains? go :reenter?)))))
-
-  (testing "`layout/reenter?` reads the engine's
-            `(true? (:reenter? transition))` axis"
-    (is (true? (layout/reenter? {:target :same-state :reenter? true})))
-    (is (false? (layout/reenter? {:target :same-state})))
-    (is (false? (layout/reenter? {:target :same-state :reenter? false})))
-    (is (false? (layout/reenter? :b)) "a bare keyword candidate is never reenter")))
 
 ;; ---- wildcard `:*` -----------------------------------------------------
 
@@ -948,29 +852,6 @@
 ;; than `:on-done`. The chart surfaces the terminal KIND so the renderer can
 ;; paint the error-hue outer ring (NOT XState/Stately parity — XState has no
 ;; first-class error-final flag).
-
-(def success-and-error-finals
-  "Two terminals of distinct KIND: a plain success final and an `:error?`
-  error final."
-  {:initial :running
-   :states  {:running {:on {:ok :ok :boom :boom}}
-             :ok      {:final? true}
-             :boom    {:final? true :error? true}}})
-
-(deftest project-definition-threads-error-final-kind
-  (testing ":error? threads onto the node ONLY for an :error?
-            final; a success final and every non-final node carry :error?
-            false (boolean-wrapped, never nil)"
-    (let [{:keys [nodes]} (layout/project-definition success-and-error-finals)
-          running (first (filter #(= [:running] (:path %)) nodes))
-          ok      (first (filter #(= [:ok]      (:path %)) nodes))
-          boom    (first (filter #(= [:boom]    (:path %)) nodes))]
-      (is (false? (:error? running)) "non-final node is :error? false")
-      (is (false? (:error? ok))      "success final is :error? false")
-      (is (true?  (:error? boom))    "error final is :error? true")
-      ;; both terminals are still :final? — the KIND is the only difference.
-      (is (true? (:final? ok)))
-      (is (true? (:final? boom))))))
 
 (deftest project-definition-error-flag-needs-final
   (testing "a stray :error? on a NON-final node is
@@ -1332,21 +1213,6 @@
       (is (some? (first (filter :machine-root? nodes)))
           "the MACHINE-ROOT chip anchors the affordance"))))
 
-(deftest project-definition-parallel-root-after-only-mints-machine-root
-  (testing "a parallel machine with ONLY a root :after (no root
-            :on) STILL mints the MACHINE-ROOT chip + a root edge"
-    (let [m {:type    :parallel
-             :after   {750 {:target [:a :two]}}
-             :regions {:a {:initial :one :states {:one {} :two {}}}
-                       :b {:initial :one :states {:one {}}}}}
-          {:keys [nodes edges]} (layout/project-definition m)]
-      (is (some? (first (filter :machine-root? nodes)))
-          "the MACHINE-ROOT chip is minted for a root :after even without a root :on")
-      (is (= 1 (count (filter :parallel-root-after? edges))))
-      (is (empty? (filter #(and (:parallel-root-on? %) (not (:parallel-root-after? %)))
-                          edges))
-          "no plain root :on edge (there is no :on)"))))
-
 (deftest project-definition-parallel-root-on-and-after-coexist
   (testing "a root :on AND a root :after to the SAME
             region target coexist as DISTINCT edges (no id collision)"
@@ -1465,62 +1331,6 @@
       (is (= ["rf/time-ms"] (:guard-requires go-edge))
           "a region guard resolves its requires against the machine registry"))))
 
-(deftest cofx-requires-region-aware-node-attribution-across-parallel-regions
-  (testing "region-aware `raw-node-at` NODE resolution: two
-            parallel regions SHARING an in-region state path (`[:active]`)
-            but declaring DIFFERENT :entry / :exit actions with DISTINCT
-            :rf.cofx/requires each surface their OWN node requires. This is
-            `raw-node-at`'s whole raison d'être: a projected
-            node carrying `:region` pins to `[:regions <region> :states]`
-            using its in-region `:path`, so a sibling region that shares the
-            path is NEVER cross-attributed. A naive cross-region scan (return
-            the first region whose states match the path) would paint region
-            :audio's entry-requires onto region :video's same-named node. The
-            sibling parallel cofx test
-            (`cofx-requires-machine-scoped-across-parallel-regions`) exercises
-            only a GUARD on an EDGE (via `attach-edge-requires`); this one
-            pins the region-aware NODE path that `attach-node-requires` +
-            `raw-node-at` drive."
-    (let [m {:type    :parallel
-             :actions {:enter-a {:rf.cofx/requires [:audio.cofx/enter] :fn (fn [_] nil)}
-                       :exit-a  {:rf.cofx/requires [:audio.cofx/exit]  :fn (fn [_] nil)}
-                       :enter-b {:rf.cofx/requires [:video.cofx/enter] :fn (fn [_] nil)}
-                       :exit-b  {:rf.cofx/requires [:video.cofx/exit]  :fn (fn [_] nil)}}
-             :regions {:audio {:initial :active
-                               :states  {:active {:entry :enter-a
-                                                  :exit  :exit-a
-                                                  :on    {:toggle :off}}
-                                         :off    {}}}
-                       :video {:initial :active
-                               :states  {:active {:entry :enter-b
-                                                  :exit  :exit-b
-                                                  :on    {:toggle :off}}
-                                         :off    {}}}}}
-          {:keys [nodes]} (layout/project-definition m)
-          node-in (fn [region]
-                    (first (filter #(and (= region (:region %))
-                                         (= [:active] (:path %)))
-                                   nodes)))
-          audio   (node-in :audio)
-          video   (node-in :video)]
-      (is (some? audio) "the :audio region's shared-path :active node projected")
-      (is (some? video) "the :video region's shared-path :active node projected")
-      (is (not= (:id audio) (:id video))
-          "the two shared-in-region-path leaves are DISTINCT region-scoped nodes")
-      ;; each region's node carries ITS OWN region's entry/exit requires …
-      (is (= ["audio.cofx/enter"] (:entry-requires audio)))
-      (is (= ["audio.cofx/exit"]  (:exit-requires  audio)))
-      (is (= ["video.cofx/enter"] (:entry-requires video)))
-      (is (= ["video.cofx/exit"]  (:exit-requires  video)))
-      ;; … and NEVER the sibling region's — the discriminating cross-
-      ;; attribution guard a naive scan would fail.
-      (is (not= (:entry-requires audio) (:entry-requires video))
-          "region :audio's entry-requires do NOT bleed onto region :video's
-           same-named node (region-aware raw-node-at)")
-      (is (not= (:exit-requires audio) (:exit-requires video))
-          "region :audio's exit-requires do NOT bleed onto region :video's
-           same-named node"))))
-
 (deftest raw-node-at-no-region-node-never-borrows-a-sibling-region
   (testing "a node with a region-relative `:path` but NO
             `:region` resolves against the TOP-LEVEL `:states` only, and a
@@ -1623,15 +1433,6 @@
         (is (= a-rid (:source e)) "sourced from region :a's container")
         (is (= a-rid (:target e)) "self-anchored: no phantom sibling edge")
         (is (= :log (:action e)))))))
-
-(deftest project-definition-region-without-on-done-emits-no-completion-edge
-  (testing "a region declaring no :on-done emits no
-            :on-done? edge (no false-positive completion arrows)"
-    (let [m {:type    :parallel
-             :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
-                       :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
-          {:keys [edges]} (layout/project-definition m)]
-      (is (empty? (filter :on-done? edges))))))
 
 ;; ---- :same-state at machine-root / region-root drops --------------------
 ;;

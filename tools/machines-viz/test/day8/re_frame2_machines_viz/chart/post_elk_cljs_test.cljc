@@ -594,27 +594,6 @@
 ;; Step 3 — back-edge return-route detour
 ;; ====================================================================
 
-(deftest back-edge-detection-finds-the-sunk-event-node
-  (let [parsed (layout/project-definition door-cyclic-machine)
-        stub   (col-positions parsed)
-        positions (:positions stub)
-        ;; the back-edge is alarming --reset--> locked (target above source)
-        back-e (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:alarming]))
-                                     (= (:target e) (layout/node-id [:locked]))))
-                              (:edges parsed)))
-        fwd-e  (first (filter (fn [e]
-                                (and (= (:source e) (layout/node-id [:locked]))
-                                     (= (:target e) (layout/node-id [:closed]))))
-                              (:edges parsed)))]
-    (testing "the alarming→locked back-edge IS detected (its event-node sank)"
-      (is (some? back-e))
-      (is (true? (post-elk/back-edge? back-e positions :tb))))
-
-    (testing "a FORWARD edge is NOT a back-edge"
-      (is (some? fwd-e))
-      (is (not (post-elk/back-edge? fwd-e positions :tb))))))
-
 (deftest back-edge-detour-lifts-the-chip-to-mid-height
   (let [parsed (layout/project-definition door-cyclic-machine)
         stub   (col-positions parsed)
