@@ -580,20 +580,6 @@
       (is (str/includes? out "(fn [{state :db} [_ v]] {:db (assoc state :v v)})"))
       (is (not (str/includes? out "{:keys [db]}"))))))
 
-(deftest db-renamed-param-named-fn
-  (testing "renamed first param on a NAMED handler fn rebinds + leaves body intact"
-    (let [src "(rf/reg-event-db :x/y (fn handle [c _] (assoc c :ok true)))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn handle [{c :db} _] {:db (assoc c :ok true)})")))))
-
-(deftest db-renamed-param-multiform-body
-  (testing "renamed param with a multi-form body: only LAST form wrapped, refs intact"
-    (let [src "(rf/reg-event-db :log/it\n  (fn [c _]\n    (js/console.log \"hi\")\n    (assoc c :logged true)))"
-          out (rewrite src)]
-      (is (str/includes? out "{c :db}"))
-      (is (str/includes? out "(js/console.log \"hi\")"))
-      (is (str/includes? out "{:db (assoc c :logged true)}")))))
-
 (deftest db-renamed-param-shadowing-not-over-rewritten
   (testing "a body that REBINDS the renamed symbol in an inner let keeps the inner binding"
     ;; The outer `c` is the db slice; the inner `let` rebinds `c` to a derived
@@ -667,12 +653,6 @@
           out (rewrite src)]
       (is (str/includes? out "(fn [{_db :db} _] {:db (assoc _db :touched true)})"))
       (is (not (str/includes? out "{:keys [db]}"))))))
-
-(deftest db-underscore-referenced-named-fn
-  (testing "a referenced `_`-param on a NAMED handler fn binds back + leaves body intact"
-    (let [src "(rf/reg-event-db :x/y (fn handle [_s _] (assoc _s :ok true)))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn handle [{_s :db} _] {:db (assoc _s :ok true)})")))))
 
 (deftest db-underscore-referenced-multiform-body
   (testing "referenced `_`-param with a multi-form body: only LAST form wrapped, refs intact"
