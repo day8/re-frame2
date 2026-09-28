@@ -100,6 +100,8 @@ const APPS = {
  */
 async function openFailingRun(page) {
   await page.evaluate(() => {
+    // The dev bundle's ClojureScript namespaces, as page globals.
+    const { cljs, re_frame } = window;
     const body = cljs.reader.read_string(
       '{:extends :story.login-form/error ' +
         ':script [[:assert [:rf.assert/state-is :login/flow :idle]]] ' +
