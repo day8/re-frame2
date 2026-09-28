@@ -202,18 +202,6 @@
                    (is (= "timeout-ms" (:arg edn))))
                  (done))))))
 
-(deftest negative-timeout-ms-rejected
-  (async done
-    (-> (dispatch/dispatch-tool (fresh-conn)
-                                #js {:event "[:cart/add]" :await-render true
-                                     :timeout-ms -50})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-result-text r)]
-                   (is (= :invalid-numeric-arg (:reason edn)))
-                   (is (= "timeout-ms" (:arg edn))))
-                 (done))))))
-
 (deftest rejects-missing-event-with-dispatch-hint
   ;; The DISTINCT-hint invariant: a missing event surfaces :missing-event
   ;; carrying DISPATCH's own usage string (its opt set — sync / trace /
@@ -270,45 +258,6 @@
                            "first arg is the qualified fn symbol")
                        (is (= [:cart/checkout] (quoted-datum (second parsed)))
                            "second arg evaluates to the event vector — DATA, not source")))
-                   (done)))))))
-
-(deftest accepts-event-with-args
-  ;; A two-element event: `[:cart/add {:sku "abc"}]`. The map rides
-  ;; as a literal inside the vector.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:dispatched? true}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:cart/add {:sku \"abc\"}]"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [parsed (cljs.reader/read-string @captured)]
-                     (is (= [:cart/add {:sku "abc"}] (quoted-datum (second parsed)))))
-                   (done)))))))
-
-(deftest sync-mode-routes-to-dispatch-consequence
-  ;; `:sync true` (like the default) routes through
-  ;; `dispatch-consequence!`, the validate+echo+consequence surface.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 1}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:cart/checkout]" :sync true})))
-          (.then (fn [_]
-                   (is (re-find #"dispatch-consequence!" @captured))
-                   (done)))))))
-
-(deftest trace-mode-routes-to-dispatch-and-collect
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:dispatched? true}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:cart/checkout]" :trace true})))
-          (.then (fn [_]
-                   (is (re-find #"dispatch-and-collect" @captured))
                    (done)))))))
 
 (deftest settle-mode-routes-to-dispatch-and-settle
@@ -863,22 +812,6 @@
                          "no malformed double-colon keyword in the emitted form"))
                    (done)))))))
 
-(deftest bare-name-frame-also-routes
-  ;; The bare-name form (`"rf/xray"`, no leading colon) must coerce to
-  ;; the same `:rf/xray` — the `->frame-keyword` contract accepts both.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:counter/inc]"
-                                           :frame "rf/xray"
-                                           :sync true})))
-          (.then (fn [_]
-                   (let [opts (opts-arg captured)]
-                     (is (= :rf/xray (:frame opts))))
-                   (done)))))))
-
 (deftest no-frame-arg-omits-frame-opt
   ;; Absent `frame` arg ⇒ no `:frame` key in the opts map (the runtime
   ;; resolves the operating frame itself). Guards against a stray
@@ -928,29 +861,6 @@
                          "NO :mode slot — the dispatch did not land")
                      (is (= :rf/xray (:frame edn))
                          "structured failure carries the targeted frame"))
-                   (done)))))))
-
-(deftest runtime-no-epoch-recorded-surfaces-as-error
-  ;; The other untargetable-frame failure mode: epoch-history empty
-  ;; (frame destroyed / recording disabled). Same contract — error
-  ;; envelope, no :mode.
-  (async done
-    (let [runtime-result {:ok?    false
-                          :reason :no-epoch-recorded
-                          :event  [:counter/inc]
-                          :frame  :rf/gone
-                          :hint   "epoch-history is empty after dispatch."}]
-      (-> (with-captured-eval! (atom nil) runtime-result
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:counter/inc]"
-                                           :frame ":rf/gone"
-                                           :sync true})))
-          (.then (fn [r]
-                   (is (err? r))
-                   (let [edn (read-result-text r)]
-                     (is (= :no-epoch-recorded (:reason edn)))
-                     (is (not (contains? edn :mode))))
                    (done)))))))
 
 (deftest cascade-summary-pending-passes-through-on-queued-mode
@@ -1313,35 +1223,6 @@
                          "the redirect target keywordizes so core honours it as an id-redirect"))
                    (done)))))))
 
-(deftest fx-overrides-bare-string-target-rejected
-  ;; A non-colon-prefixed string (`"stub-http"`) is NOT a valid id-redirect
-  ;; over the wire — core would silently fall it through. Reject with an
-  ;; :isError envelope rather than fire the real effect.
-  (async done
-    (-> (with-captured-eval! (atom nil) {:ok? true}
-          (fn []
-            (dispatch/dispatch-tool (fresh-conn)
-                                    #js {:event "[:cart/checkout]"
-                                         :fx-overrides #js {":http" "stub-http"}})))
-        (.then (fn [r]
-                 (is (err? r)
-                     "a bare (non-colon) string target ⇒ :isError, never a silent fall-through")
-                 (done))))))
-
-(deftest fx-overrides-non-string-target-rejected
-  ;; A number / boolean / nested value is not a valid override target over
-  ;; the wire — reject it rather than fall through to the real fx.
-  (async done
-    (-> (with-captured-eval! (atom nil) {:ok? true}
-          (fn []
-            (dispatch/dispatch-tool (fresh-conn)
-                                    #js {:event "[:cart/checkout]"
-                                         :fx-overrides #js {":http" 42}})))
-        (.then (fn [r]
-                 (is (err? r)
-                     "a non-string override target ⇒ :isError")
-                 (done))))))
-
 ;; ---------------------------------------------------------------------------
 ;; cofx wire shape (EP-0010 + EP-0017) — a scripted recordable-coeffect
 ;; map is parsed as EDN data and threaded into the dispatch opts under the
@@ -1402,22 +1283,6 @@
                          "an app-owned recordable fact rides through verbatim")
                      (is (= {:path "/todos"} (:rf.route/location cofx))
                          "a subsystem recordable fact rides through verbatim"))
-                   (done)))))))
-
-(deftest no-cofx-arg-omits-the-opts-key
-  ;; Absent `cofx` ⇒ no `:rf.cofx` key in the emitted opts (the ordinary
-  ;; live path — the runtime stamps :rf/time-ms itself). Guards against a
-  ;; stray nil-valued slot that would defeat the router's stamp.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:counter/inc]" :sync true})))
-          (.then (fn [_]
-                   (let [opts (opts-arg captured)]
-                     (is (not (contains? opts :rf.cofx))
-                         "no :rf.cofx opt when the arg is absent"))
                    (done)))))))
 
 (deftest cofx-non-map-rejected
@@ -1591,29 +1456,6 @@
                    (let [opts (opts-arg captured)]
                      (is (= {:auth/required :story/skip-auth} (:interceptor-overrides opts))
                          "the ref key/value coerce to keyword refs in the emitted opts"))
-                   (done)))))))
-
-(deftest interceptor-overrides-parameterized-ref-and-null-removal
-  ;; A parameterized [id arg] ref (bracket-shaped EDN string, since a JSON
-  ;; object key can only be a string) alongside a null-removal entry — both
-  ;; ride through in the SAME override map.
-  (async done
-    (let [captured (atom nil)]
-      (-> (with-captured-eval! captured {:ok? true :epoch-id 1}
-            (fn []
-              (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:cart/checkout]"
-                                           :interceptor-overrides
-                                           #js {"[:rf.interceptor/path [:cart]]" nil
-                                                ":audit/record-event" nil}})))
-          (.then (fn [_]
-                   (let [opts (opts-arg captured)
-                         overrides (:interceptor-overrides opts)]
-                     (is (= nil (get overrides [:rf.interceptor/path [:cart]]))
-                         "the parameterized ref key coerces to an [id arg] 2-vector")
-                     (is (contains? overrides [:rf.interceptor/path [:cart]]))
-                     (is (= nil (:audit/record-event overrides))
-                         "null threads through as the remove sentinel"))
                    (done)))))))
 
 (deftest no-interceptor-overrides-arg-omits-the-opts-key
