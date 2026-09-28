@@ -82,8 +82,7 @@
 (defn- pool-row [id] (get (deref @provenance) id))
 
 (def ^:private ids
-  [:pool-race/target :pool-race/rollback :pool-race/nil-pool :pool-race/adopted
-   :pool-race/after-release])
+  [:pool-race/target :pool-race/rollback :pool-race/nil-pool :pool-race/adopted])
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
@@ -354,6 +353,8 @@
       (is (= pool-v1 (pool-row id)) "the row names the pool that was admitted")
       (is (= ::inc-v1 (inc-impl id)) "and the frame is running it")
 
-      ;; The outer owner compare-released, so ordinary construction resumes.
-      (is (some? (rf/make-frame {:id :pool-race/after-release}))
-          "the adopted reservation was not released early by make-frame"))))
+      ;; The outer owner compare-released, so ordinary construction of the SAME
+      ;; id resumes.
+      (is (some? (rf/make-frame {:id id}))
+          (str "the outer owner's release freed the id — adopting the hand-off "
+               "left no reservation of make-frame's own behind")))))

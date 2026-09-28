@@ -339,10 +339,18 @@
             — with :rf.error/replace-frame-state-bad-keys rather than
             silently no-opping while returning true"
     (rf/make-frame {:id :pp/bad-keys-empty :doc "bad-keys-empty"})
-    (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {}))
-        "an empty map carries no recognized partition key — rejected")
-    (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1}))
-        "a map of only unrelated keys carries no recognized partition key — rejected")))
+    (let [errors (atom [])]
+      (rf/register-listener! :trace ::bad-keys
+        (fn [ev] (when (= :error (:op-type ev)) (swap! errors conj ev))))
+      (try
+        (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {}))
+            "an empty map carries no recognized partition key — rejected")
+        (is (false? (rf/replace-frame-state! :pp/bad-keys-empty {:unrelated 1}))
+            "a map of only unrelated keys carries no recognized partition key — rejected")
+        (finally (rf/unregister-listener! :trace ::bad-keys)))
+      (is (= [:rf.error/replace-frame-state-bad-keys :rf.error/replace-frame-state-bad-keys]
+             (mapv :operation @errors))
+          "each rejection is reported under :rf.error/replace-frame-state-bad-keys"))))
 
 (deftest replace-frame-state-rejects-unknown-keys
   (testing "replace-frame-state! rejects a map carrying an unrecognized key

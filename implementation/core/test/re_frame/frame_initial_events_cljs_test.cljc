@@ -29,11 +29,10 @@
       Runtime traced-and-recover leniency does NOT apply during construction;
     * the HANDLER-TIME guard — constructing a frame inside an event handler fails
       `:rf.error/frame-construction-in-handler`. The guard keys on
-      `trace/*handler-scope*` being bound, which the router holds across the
-      DIRECT handler body, the `:fx` `:dispatch` re-entry, AND any queued nested
-      dispatch — so construction is forbidden on ALL THREE mid-cascade routes
-      (this ns pins the body and the `:fx` `:dispatch` re-entry, which queues a
-      nested dispatch).
+      `trace/*handler-scope*` being bound, and this ns pins it on two
+      mid-cascade routes: the DIRECT handler body, and an event the handler
+      queues through `:fx` `:dispatch`, which runs as a nested dispatch inside
+      the same cascade.
 
   Each fail-loud assertion checks the `:rf.error/id` discriminator, NEVER the
   message bytes (Spec 009 §The thrown-error shape rule 3).
