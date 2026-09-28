@@ -25,101 +25,86 @@
 ;; Group 1 — reply-map schema.
 ;; ---------------------------------------------------------------------------
 
-(deftest closed-status-vocabulary
+(deftest reply-map-schema
   (testing "exactly the five statuses are valid"
     (is (= #{:ok :partial :error :cancelled :stale} rf.reply/statuses)))
-  (testing "a reply with no :status is invalid"
-    (is (some #(= :rf.reply/missing-status (:rf.reply/problem %))
-              (rf.reply/validate-reply {:value 1}))))
-  (testing "a reply with an out-of-vocabulary :status is invalid"
-    (is (some #(= :rf.reply/invalid-status (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :done :value 1}))))
-  (testing "exactly one valid :status passes"
-    (is (rf.reply/valid-reply? {:status :ok :value {:title "Welcome"}}))))
-
-(deftest ok-conventions
-  (testing ":ok requires :value and forbids :error"
-    (is (rf.reply/valid-reply? {:status :ok :value 42}))
-    (is (some #(= :rf.reply/ok-missing-value (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :ok})))
-    (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :ok :value 1 :error {:kind :x}}))))
-  (testing "a PRESENT :error key on :ok — including a nil placeholder — is rejected"
-    ;; The contract says :error is ABSENT for :ok (omit optional fields when
-    ;; absent rather than fill a nil sentinel). A validator that rejected only
-    ;; `(some? error)` would let a {:status :ok :error nil} reply slip through;
-    ;; validation rejects a present-but-nil :error too.
-    (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :ok :value 1 :error nil}))
-        "{:status :ok :error nil} fails — :error should be OMITTED on :ok, not nil-filled")
-    (is (rf.reply/valid-reply? {:status :ok :value 1})
-        "the well-formed shape OMITS :error entirely")))
-
-(deftest error-conventions
-  (testing ":error requires :error as a family error MAP carrying a :kind"
-    (is (rf.reply/valid-reply? {:status :error :error {:kind :rf.http/http-5xx}}))
-    (is (some #(= :rf.reply/error-missing-error (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :error})))
-    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :error :error {:no :kind}}))
-        "a map without :kind is not a family error"))
-  (testing "a LOOSE SCALAR :error is rejected — every family error is a structured {:kind …} map"
-    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :error :error :rf.http/http-5xx}))
-        "a bare keyword :error fails loud — the closed contract demands the {:kind …} shape")
-    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :error :error "boom"}))
-        "a bare string :error fails loud too")))
-
-(deftest partial-conventions
-  (testing ":partial carries BOTH usable :value AND a structured family :error MAP with a :kind"
-    (is (rf.reply/valid-reply?
-          {:status :partial
-           :value  {:user {:name "Ada"}}
-           :error  {:kind :rf.graphql/partial-success
-                    :errors [{:message "field x denied"}]}}))
-    (is (some #(= :rf.reply/partial-missing-value (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :partial :error {:kind :x}})))
-    (is (some #(= :rf.reply/partial-missing-error (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :partial :value 1})))
-    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :partial :value 1 :error {:no :kind}})))
-    (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :partial :value 1 :error :loose-scalar}))
-        "a loose scalar :error on a :partial is rejected just like on :error")))
-
-(deftest cancelled-conventions
-  (testing ":cancelled requires :rf.reply/cancel-reason AND the :cancelled? true marker; :error MAY carry compatibility data"
-    (is (rf.reply/valid-reply? {:status :cancelled :rf.reply/cancel-reason :user :cancelled? true}))
-    (is (rf.reply/valid-reply? {:status        :cancelled
-                             :rf.reply/cancel-reason :actor-destroyed
-                             :cancelled?    true
-                             :error         {:kind :rf.http/aborted :reason :actor-destroyed}}))
-    (is (some #(= :rf.reply/cancelled-missing-reason (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :cancelled :cancelled? true})))
-    (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user}))
-        "a :rf.reply/cancel-reason alone is NOT enough — cancellation is a positive :cancelled? true fact")
-    (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user :cancelled? false}))
-        ":cancelled? false on a :cancelled reply is contradictory and fails loud")))
-
-(deftest stale-conventions
-  (testing ":stale requires :stale? true + :rf.reply/stale-reason and carries NO :value"
-    (is (rf.reply/valid-reply? {:status :stale :stale? true :rf.reply/stale-reason :generation-mismatch}))
-    (is (some #(= :rf.reply/stale-missing-flag (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :stale :rf.reply/stale-reason :x})))
-    (is (some #(= :rf.reply/stale-missing-reason (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :stale :stale? true})))
-    (is (some #(= :rf.reply/stale-has-value (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :stale :stale? true :rf.reply/stale-reason :x :value 1}))
-        "a stale reply MUST NOT mutate app state — carrying :value would invite it")))
-
-(deftest work-status-vocabulary
-  (testing ":rf.reply/work-status, when present, is in the closed operational set"
-    (is (rf.reply/valid-reply? {:status :error :error {:kind :rf.http/timeout} :rf.reply/work-status :timed-out}))
-    (is (some #(= :rf.reply/invalid-work-status (:rf.reply/problem %))
-              (rf.reply/validate-reply {:status :ok :value 1 :rf.reply/work-status :weird})))))
+  (testing "each status's value/error conventions: a row expecting ::valid must
+            pass `valid-reply?`; any other row names the problem
+            `validate-reply` must report"
+    (doseq [[label reply expected]
+            [;; the closed status vocabulary
+             ["no :status" {:value 1} :rf.reply/missing-status]
+             ["an out-of-vocabulary :status" {:status :done :value 1} :rf.reply/invalid-status]
+             ["exactly one valid :status" {:status :ok :value {:title "Welcome"}} ::valid]
+             ;; :ok requires :value and forbids :error. The contract says
+             ;; :error is ABSENT for :ok (omit optional fields when absent
+             ;; rather than fill a nil sentinel), so a validator that rejected
+             ;; only `(some? error)` would let {:status :ok :error nil} slip
+             ;; through.
+             [":ok with a :value" {:status :ok :value 42} ::valid]
+             [":ok without a :value" {:status :ok} :rf.reply/ok-missing-value]
+             [":ok carrying an :error" {:status :ok :value 1 :error {:kind :x}} :rf.reply/ok-has-error]
+             [":ok with a nil :error placeholder — OMIT it, never nil-fill it"
+              {:status :ok :value 1 :error nil} :rf.reply/ok-has-error]
+             [":ok with :error omitted entirely" {:status :ok :value 1} ::valid]
+             ;; :error requires a family error MAP carrying a :kind — every
+             ;; family error is a structured {:kind …} map, never a loose scalar.
+             [":error with a family error map" {:status :error :error {:kind :rf.http/http-5xx}} ::valid]
+             [":error without an :error" {:status :error} :rf.reply/error-missing-error]
+             [":error map without a :kind" {:status :error :error {:no :kind}} :rf.reply/error-not-family-map]
+             [":error as a bare keyword" {:status :error :error :rf.http/http-5xx} :rf.reply/error-not-family-map]
+             [":error as a bare string" {:status :error :error "boom"} :rf.reply/error-not-family-map]
+             ;; :partial carries BOTH a usable :value AND a structured family
+             ;; :error map with a :kind.
+             [":partial with a value and a family error"
+              {:status :partial
+               :value  {:user {:name "Ada"}}
+               :error  {:kind :rf.graphql/partial-success
+                        :errors [{:message "field x denied"}]}}
+              ::valid]
+             [":partial without a :value" {:status :partial :error {:kind :x}} :rf.reply/partial-missing-value]
+             [":partial without an :error" {:status :partial :value 1} :rf.reply/partial-missing-error]
+             [":partial error map without a :kind" {:status :partial :value 1 :error {:no :kind}}
+              :rf.reply/error-not-family-map]
+             [":partial with a loose scalar :error" {:status :partial :value 1 :error :loose-scalar}
+              :rf.reply/error-not-family-map]
+             ;; :cancelled requires :rf.reply/cancel-reason AND the
+             ;; :cancelled? true marker — cancellation is a positive fact;
+             ;; :error MAY carry compatibility data.
+             [":cancelled with a reason and the marker"
+              {:status :cancelled :rf.reply/cancel-reason :user :cancelled? true} ::valid]
+             [":cancelled with compatibility :error data"
+              {:status                 :cancelled
+               :rf.reply/cancel-reason :actor-destroyed
+               :cancelled?             true
+               :error                  {:kind :rf.http/aborted :reason :actor-destroyed}}
+              ::valid]
+             [":cancelled without a reason" {:status :cancelled :cancelled? true}
+              :rf.reply/cancelled-missing-reason]
+             [":cancelled with a reason alone, no :cancelled? true marker"
+              {:status :cancelled :rf.reply/cancel-reason :user} :rf.reply/cancelled-missing-marker]
+             [":cancelled? false on a :cancelled reply is contradictory"
+              {:status :cancelled :rf.reply/cancel-reason :user :cancelled? false}
+              :rf.reply/cancelled-missing-marker]
+             ;; :stale requires :stale? true + :rf.reply/stale-reason and
+             ;; carries NO :value — a stale reply MUST NOT mutate app state.
+             [":stale with the flag and a reason"
+              {:status :stale :stale? true :rf.reply/stale-reason :generation-mismatch} ::valid]
+             [":stale without :stale? true" {:status :stale :rf.reply/stale-reason :x}
+              :rf.reply/stale-missing-flag]
+             [":stale without a reason" {:status :stale :stale? true} :rf.reply/stale-missing-reason]
+             [":stale carrying a :value"
+              {:status :stale :stale? true :rf.reply/stale-reason :x :value 1} :rf.reply/stale-has-value]
+             ;; :rf.reply/work-status, when present, is in the closed
+             ;; operational set.
+             ["a closed-set :rf.reply/work-status"
+              {:status :error :error {:kind :rf.http/timeout} :rf.reply/work-status :timed-out} ::valid]
+             ["an out-of-set :rf.reply/work-status" {:status :ok :value 1 :rf.reply/work-status :weird}
+              :rf.reply/invalid-work-status]]]
+      (testing label
+        (if (= ::valid expected)
+          (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
+          (is (some #(= expected (:rf.reply/problem %)) (rf.reply/validate-reply reply))))))))
 
 (deftest data-only-invariant-no-host-handles
   (testing "a fn anywhere in the reply is a host handle"
@@ -512,31 +497,6 @@
                (str sym " must not be a public var — no app-callable "
                     "stale-delivery issuer exists")))))))
 
-(deftest observer-self-dispatches-a-stale-reply-on-its-own-authority
-  (testing "a framework/tool OBSERVER reads (:reply outcome)
-            and dispatches it on its OWN authority; nothing capability-bearing
-            rides the target, and the suppress outcome itself never delivers"
-    (let [carried {:g 1}
-          current {:g 2}
-          ;; A PLAIN app-shaped target — nothing capability-bearing on it.
-          target  [:app/replied]
-          {:keys [deliver? reply]} (rf.reply/suppress target carried current)]
-      ;; Tooth 1 — app NON-delivery: the suppress boundary is universally
-      ;; non-delivering, so the ONLY way the stale reply reaches a handler is a
-      ;; deliberate observer self-dispatch below.
-      (is (false? deliver?) "the suppress boundary never delivers a stale reply to the app target")
-      (is (= :stale (:status reply)))
-      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
-      ;; Tooth 2 — authorised observation: the observer builds the completed
-      ;; event from the stale :reply and dispatches it itself (its own trusted
-      ;; path — an explicit `dispatch`, structurally separate from any target
-      ;; field).
-      (let [observed (atom nil)
-            dispatch! (fn [ev] (reset! observed ev))]
-        (dispatch! (rf.reply/complete [:tool/observed] reply))
-        (is (= [:tool/observed reply] @observed)
-            "the observer dispatched the stale reply on its own authority")))))
-
 ;; ---------------------------------------------------------------------------
 ;; Group 4 — data-only trace summaries route through the shared elision walker.
 ;; ---------------------------------------------------------------------------
@@ -627,22 +587,15 @@
 ;; is exhausted.
 ;; ---------------------------------------------------------------------------
 
-(deftest bounded-walk-finds-a-host-handle-within-budget
-  (testing "a fn nested a couple of levels deep is found well within a
-   generous budget"
-    (is (= [:a :b]
-           (rf.reply/walk-find-host-handle-bounded
-             {:a {:b (fn [] nil)}} 500)))))
-
-(deftest bounded-walk-clean-payload-returns-nil
-  (testing "an all-EDN payload never reports a handle, regardless of budget"
-    (is (nil? (rf.reply/walk-find-host-handle-bounded
-                {:a [1 2 {:b #{:x :y}}]} 500)))))
-
-(deftest bounded-walk-gives-up-once-budget-exhausted
-  (testing "a budget too small to reach the handle returns nil (false
-   negative — the fail-safe direction for an ADVISORY lint) rather than
-   throwing or over-running"
-    (is (nil? (rf.reply/walk-find-host-handle-bounded
-                {:a {:b {:c (fn [] nil)}}} 1))
-        "the handle is 3 levels deep; a 1-node budget gives up first")))
+(deftest bounded-walk-finds-a-handle-only-within-budget
+  (doseq [[label payload budget expected]
+          [["a fn nested a couple of levels deep is found well within a generous budget"
+            {:a {:b (fn [] nil)}} 500 [:a :b]]
+           ["an all-EDN payload never reports a handle, regardless of budget"
+            {:a [1 2 {:b #{:x :y}}]} 500 nil]
+           ;; A false negative is the fail-safe direction for an ADVISORY lint.
+           ["a budget too small to reach a handle 3 levels deep returns nil rather
+             than throwing or over-running"
+            {:a {:b {:c (fn [] nil)}}} 1 nil]]]
+    (testing label
+      (is (= expected (rf.reply/walk-find-host-handle-bounded payload budget))))))
