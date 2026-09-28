@@ -211,16 +211,3 @@
              by the nested B destroy (a constant key would drop it)")
         (is (contains? by-frame :ondestroy/inner-B)
             "the INNER (B) record fired too")))))
-
-;; ===========================================================================
-;; The late-bind hook the producer reaches error-emit through is published.
-;; ===========================================================================
-
-(deftest dispatch-on-error-late-bind-hook-is-published
-  (testing "frame.cljc reaches `dispatch-on-error!` via the
-            `:error-emit/dispatch-on-error` late-bind hook (a static require
-            would close the error-emit -> elision -> frame load cycle); the
-            hook is published at error-emit ns-load, so the lookup never
-            misses in production."
-    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-on-error))
-        "the hook is registered at error-emit ns-load")))

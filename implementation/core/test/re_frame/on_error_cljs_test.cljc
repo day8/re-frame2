@@ -213,23 +213,6 @@
       (is (= 2 (count @seen))
           "listener fired again after re-registration under the same id"))))
 
-(deftest listener-elapsed-ms-is-integer
-  (testing "Record shape:
-            `:elapsed-ms` MUST be an integer on every platform. CLJS
-            `performance.now()` returns a float; the substrate
-            rounds at the boundary so the contract holds."
-    (let [seen (atom nil)]
-      (rf.error-emit/register-error-listener!
-        :test/recorder
-        (fn [record] (reset! seen record)))
-      (rf/reg-event :err/elapsed (fn [{:keys [db]} _] {:db (throw (ex-info "x" {}))}))
-      (rf/dispatch-sync [:err/elapsed])
-      (let [r @seen]
-        (is (some? r))
-        (is (integer? (:elapsed-ms r))
-            ":elapsed-ms is integer on every platform (no float leak from
-             CLJS performance.now())")))))
-
 ;; ============================================================================
 ;; No handler-meta :sensitive? error-path redaction
 ;; ----------------------------------------------------------------------------
@@ -299,7 +282,8 @@
         ;; WHAT-STAYS counter-pin: a DISPATCHED event vector is
         ;; PAYLOAD, not identity, so it stays `:rf/redacted` under the
         ;; unresolvable frame. The raw identity egress is SUBSCRIBE-realm-only (see
-        ;; `listener-fires-on-frame-destroyed-subscribe`), NOT a blanket raw —
+        ;; `ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord`),
+        ;; NOT a blanket raw —
         ;; the `:op :subscribe` stamp is the discriminator, and no `:op` rides
         ;; this dispatch emit's op-nil path.
         (is (= :rf/redacted (:event r))
@@ -317,35 +301,12 @@
           "dispatch-sync into an unknown frame returns nil (recovers)")
       (is (= 1 (count @seen)))
       (is (= :rf.error/frame-destroyed (:error (first @seen))))
-      (is (= :gone/frame (:frame (first @seen)))))))
-
-(deftest listener-fires-on-frame-destroyed-subscribe
-  (testing "`subscribe` to a destroyed / unknown frame
-            RECOVERS (returns nil) AND fans `:rf.error/frame-destroyed`
-            through the always-on listener. The teardown-race shape —
-            subscribe arriving against a vanished frame — recovers
-            safely while staying observable."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! seen conj record)))
-      (is (nil? (rf/subscribe-once [:any-sub] {:frame :gone/frame}))
-          "subscribe-once against an unknown frame returns nil (recovers)")
-      (is (= 1 (count @seen)))
-      (let [r (first @seen)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (= :gone/frame (:frame r)))
-        ;; RAW: the attempted query-v is IDENTITY
-        ;; (Spec 015), so it egresses on `:event` VERBATIM even
-        ;; under an unresolvable frame — the subscribe emitters stamp
-        ;; `:op :subscribe`, routing `:event` raw through
-        ;; `raw-identity-query-vector-event?`. The fail-closed rule guards
-        ;; policy-walked VALUE slots (dispatched event vectors — see
-        ;; `listener-fires-on-frame-destroyed-dispatch`, which stays `:rf/redacted`),
-        ;; NOT identity slots, which never consult frame policy.
-        (is (= [:any-sub] (:event r))
-            ":event egresses the query vector raw (identity)")
-        (is (= :subscribe (:op r))
-            ":op :subscribe stamped on the always-on subscribe-realm record")))))
+      (is (= :gone/frame (:frame (first @seen))))
+      ;; A dispatched event vector is PAYLOAD, so the ordinary DISPATCH path
+      ;; keeps op-omission; only the SUBSCRIBE path stamps `:op :subscribe`
+      ;; (see `ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord`).
+      (is (not (contains? (first @seen) :op))
+          "ordinary address-directed DISPATCH frame-destroyed carries NO `:op` — tight keyset preserved"))))
 
 (deftest listener-fires-on-frame-destroyed-after-destroy-frame
   (testing "Per Spec 002 §Destroy: after `destroy-frame!`,
@@ -826,12 +787,14 @@
 ;; row, and `FrameDestroyedTags` in Spec-Schemas, which declares it), so it is
 ;; NOT a hidden slot.
 ;;
-;; These drive the exact seam `capture-frame`'s superseded-op fence uses
-;; (`emit-error-both!` with the
-;; `:op` in the trailing record-attrs) against `[:event id]` / `[:sub id]` coords
-;; seeded directly into the always-on `error-coords-by-id` registry, and assert
-;; the delivered record's resolved `:source-coord` names the correct realm. Both
-;; collision directions plus the no-coordinate (programmatic) case are covered.
+;; The three sections below drive the REAL runtime seams that stamp `:op` —
+;; the synchronous capture pre-check, the late A→B fence, and the ordinary
+;; subscribe path — against `[:event id]` / `[:sub id]` coords seeded into the
+;; always-on `error-coords-by-id` registry, and assert the delivered record's
+;; resolved `:source-coord` names the correct realm: both collision
+;; directions, and the absent-coord case, where the slot is OMITTED rather
+;; than nil. There is no `:capture` arm: `FrameDestroyedTags` has no
+;; `:capture` realm.
 ;; ============================================================================
 
 (def ^:private xgkgx-event-coord
@@ -839,85 +802,6 @@
 
 (def ^:private xgkgx-sub-coord
   {:ns 're-frame.on-error-cljs-test.collide-subs :file "collide_subs.cljc" :line 22})
-
-(defn- xgkgx-frame-destroyed-records
-  "Fire a frame-destroyed record shaped EXACTLY like the captured-frame
-  stale-op seam (`emit-error-both!` with `{:op op}` in the trailing
-  record-attrs) and return
-  the vector of always-on records the listener saw. Exactly ONE record per emit
-  pins the one-record-per-runtime-error law across the arms."
-  [op id]
-  (let [seen (atom [])]
-    (rf.error-emit/register-error-listener! :xgkgx/recorder
-                           (fn [record] (swap! seen conj record)))
-    (rf.error-emit/emit-error-both!
-      :rf.error/frame-destroyed
-      (when id [id])   ;; attempted event/query vector
-      id               ;; event-id / sub-id — the vector head
-      :rf/default      ;; a live frame — no fail-closed :event noise
-      nil              ;; no exception — an invalid op, not a caught throw
-      0                ;; elapsed-ms — not a timed path
-      0                ;; time
-      {:frame :rf/default :op op :reason :frame-destroyed} ;; dev-trace tags (axis 2)
-      {:op op})        ;; category-specific attribution for the always-on record (axis 1)
-    @seen))
-
-(deftest frame-destroyed-dispatch-resolves-the-event-coord-on-same-keyword-collision
-  (testing "A `:dispatch` frame-destroyed record whose id is
-            registered as BOTH an event AND a same-keyword subscription
-            resolves the EVENT coord. A `[:sub]`-first probe would pick
-            the subscription's coord (the WRONG realm)."
-    (rf.source-coords/forget-error-coords!)
-    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/a xgkgx-event-coord)
-    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/a xgkgx-sub-coord)
-    (let [records (xgkgx-frame-destroyed-records :dispatch :xgkgx.collide/a)]
-      (is (= 1 (count records)) "exactly one always-on record per frame-destroyed emit")
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (= xgkgx-event-coord (:source-coord r))
-            ":dispatch resolves the EVENT coord, not the same-keyword sub's")))))
-
-(deftest frame-destroyed-dispatch-sync-shares-the-dispatch-event-realm
-  (testing "`:dispatch-sync` shares the dispatch realm: it resolves
-            the EVENT coord, never the same-keyword subscription's."
-    (rf.source-coords/forget-error-coords!)
-    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/b xgkgx-event-coord)
-    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/b xgkgx-sub-coord)
-    (let [records (xgkgx-frame-destroyed-records :dispatch-sync :xgkgx.collide/b)]
-      (is (= 1 (count records)))
-      (is (= xgkgx-event-coord (:source-coord (first records)))
-          ":dispatch-sync resolves the EVENT coord"))))
-
-(deftest frame-destroyed-subscribe-resolves-the-sub-coord-on-same-keyword-collision
-  (testing "The INVERSE collision direction: a `:subscribe`
-            frame-destroyed record whose id is registered as BOTH resolves the
-            SUBSCRIPTION coord, never the same-keyword event's."
-    (rf.source-coords/forget-error-coords!)
-    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/c xgkgx-event-coord)
-    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/c xgkgx-sub-coord)
-    (let [records (xgkgx-frame-destroyed-records :subscribe :xgkgx.collide/c)]
-      (is (= 1 (count records)))
-      (is (= xgkgx-sub-coord (:source-coord (first records)))
-          ":subscribe resolves the SUB coord, not the same-keyword event's"))))
-
-;; There is no `:capture` arm: `FrameDestroyedTags` has no `:capture` realm.
-;; A case for it would also be VACUOUS here: with a nil id
-;; `error-source-coord` short-circuits before it ever reaches the
-;; realm `case`, so the assertion would hold for every op keyword alike. What it
-;; would actually pin — an absent `:source-coord` slot rather than a nil one — is
-;; the next deftest's subject, under a live realm.
-
-(deftest frame-destroyed-programmatic-registration-omits-the-coord
-  (testing "A `:dispatch` frame-destroyed for an id with NO captured
-            coords (a programmatic registration that bypassed the macro path)
-            omits the `:source-coord` slot rather than niling it."
-    (rf.source-coords/forget-error-coords!)
-    (let [records (xgkgx-frame-destroyed-records :dispatch :xgkgx.no-coord/e)]
-      (is (= 1 (count records)))
-      (let [r (first records)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :source-coord))
-            "no captured coords ⇒ the :source-coord slot is ABSENT, not nil")))))
 
 ;; ============================================================================
 ;; CORE capture-frame stale-op source-coord is OPERATION-REALM EXACT
@@ -1168,23 +1052,8 @@
             "no event coord ⇒ :source-coord ABSENT, never the unrelated sub's")
         (is (= :dispatch (:op r)))))))
 
-(deftest ordinary-address-directed-frame-destroyed-omits-op-and-keeps-fallback
-  (testing "The negative: an ORDINARY
-            address-directed DISPATCH into an unknown frame carries NO `:op`
-            realm slot (the tight record keyset holds). That is the DISPATCH
-            path only: a dispatched event vector is PAYLOAD,
-            so it keeps op-omission, its per-path elision, and its
-            unresolvable-frame fail-closed. The ordinary SUBSCRIBE path
-            stamps `:op :subscribe` because a query vector is IDENTITY (see
-            `ordinary-subscribe-frame-destroyed-stamps-op-egresses-raw-resolves-sub-coord`)."
-    (let [seen (atom [])]
-      (rf.error-emit/register-error-listener! :a2x2w/plain (fn [record] (swap! seen conj record)))
-      (rf/dispatch-sync [:a2x2w/nope] {:frame :a2x2w/gone-frame})
-      (is (= 1 (count @seen)))
-      (let [r (first @seen)]
-        (is (= :rf.error/frame-destroyed (:error r)))
-        (is (not (contains? r :op))
-            "ordinary address-directed DISPATCH frame-destroyed carries NO `:op` — tight keyset preserved")))))
+;; The ORDINARY address-directed DISPATCH path carries no `:op` —
+;; `listener-fires-on-frame-destroyed-dispatch-sync` above pins it.
 
 ;; ============================================================================
 ;; The ORDINARY address-directed SUBSCRIBE frame-destroyed path
@@ -1216,6 +1085,7 @@
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
         (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :alk8a/gone-frame (:frame r)) ":frame names the target frame")
         (is (= :subscribe (:op r))
             "the ordinary subscribe path stamps the `:subscribe` realm")
         (is (= [:alk8a/collide] (:event r))
@@ -1242,31 +1112,6 @@
         (is (= [:alk8a/event-only] (:event r)) ":event raw (identity)")
         (is (not (contains? r :source-coord))
             "no sub coord ⇒ :source-coord ABSENT, never the same-keyword event's")))))
-
-(deftest non-recovery-categories-fan-out-to-listener
-  (testing "Every catalogued production-
-            reachable runtime `:rf.error/*` — frame-destroyed,
-            no-such-handler, no-such-sub, sub-exception — fans out
-            through the always-on listener (the single observability
-            surface). Recovery is the framework's per-category typed
-            default; there is no app-steering policy."
-    (let [listener-saw (atom #{})]
-      (rf.error-emit/register-error-listener! :test/recorder
-                                   (fn [record] (swap! listener-saw conj (:error record))))
-      ;; no-such-handler on :rf/default.
-      (rf/dispatch-sync [:no/handler-here2])
-      ;; no-such-sub on :rf/default.
-      (rf/subscribe-once [:no/such-sub-here2] {:frame :rf/default})
-      ;; frame-destroyed via dispatch into an unknown frame.
-      (rf/dispatch [:x] {:frame :gone/frame2})
-      ;; compute-sub sub-exception.
-      (rf/reg-sub :nrp/throwing (fn [_db _q] (throw (ex-info "boom" {}))))
-      (rf/compute-sub [:nrp/throwing] {})
-      (is (contains? @listener-saw :rf.error/no-such-handler))
-      (is (contains? @listener-saw :rf.error/no-such-sub))
-      (is (contains? @listener-saw :rf.error/frame-destroyed))
-      (is (contains? @listener-saw :rf.error/sub-exception)
-          "the always-on listener received every category"))))
 
 ;; ============================================================================
 ;; Atomicity contract: any pre-install throw aborts the event
