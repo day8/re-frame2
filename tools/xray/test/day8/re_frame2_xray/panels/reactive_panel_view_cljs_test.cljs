@@ -53,6 +53,12 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
+(def ^:private pinned-focus
+  "The focus the spine composes for a pinned bundle — the shape
+  `:rf.xray/reactive-data` hands the view — so a seeded fixture carries
+  the keys the view reads rather than ones the real focus never has."
+  (spine/compose-focus {:mode :retro :dispatch-id 1} []))
+
 (deftest reactive-panel-mounts-with-root-testid
   (testing "the panel root surfaces `rf-xray-reactive` data-testid"
     (facade/install!)
@@ -121,7 +127,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {}
        :level-1-subs [{:sub-id :cart/state :changed? true
                        :readers [:cart/Summary]}]
@@ -149,7 +155,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [] :destroyed-subs []})
     (let [tree (panel-tree)
@@ -172,7 +178,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {}
        :level-1-subs [{:sub-id :cart/state :changed? true}]
        :level-2-subs [] :view-rows []})
@@ -191,7 +197,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/state :changed? true}]})
     (let [tree (panel-tree)
@@ -208,7 +214,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-2-subs [] :view-rows []
        :level-1-subs [{:sub-id :cart/title :changed? false}]})
     (let [tree (panel-tree)
@@ -222,7 +228,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :reactive :subs [:cart/total]}
@@ -242,7 +248,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Badge :action :rerender
                     :reason {:kind :structural} :elapsed-ms 0.5}]})
@@ -260,7 +266,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Fresh :action :mount
                     :reason {:kind :structural}}]})
@@ -276,7 +282,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-2-subs []
        :level-1-subs [{:sub-id :app/session :changed? true
                        :readers [:app/Header :app/Sidebar]}]
@@ -294,7 +300,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs []
        :view-rows [{:view-id :cart/Summary :action :rerender
                     :reason {:kind :structural}}]})
@@ -312,7 +318,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (panel-tree)]
       (is (has-testid? tree "rf-xray-reactive-graph-empty")
@@ -328,7 +334,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views [{:view-id :app/Modal} {:view-id :app/Tooltip}]})
     (let [tree (panel-tree)]
@@ -346,7 +352,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :unmounted-views []})
     (let [tree (panel-tree)]
@@ -359,7 +365,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :destroyed-subs [{:sub-id :app/modal-state}]})
     (let [tree (panel-tree)]
@@ -381,7 +387,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []})
     (let [tree (panel-tree)
           legend-text (text-of tree "rf-xray-reactive-legend")]
@@ -399,7 +405,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-2-subs []
        :level-1-subs (vec (for [id [1 2 3]]
                             {:sub-id :todo/by-id :query-v [:todo/by-id id]
@@ -431,7 +437,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id :item/derived :query-v [:item/derived 1]
@@ -471,7 +477,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id :item/derived :query-v [:item/derived :a-b]
@@ -503,7 +509,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id :item/derived :query-v [:item/derived " @"]
@@ -533,7 +539,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id :cfg/derived :query-v [:cfg/derived {:a 1 :b 2}]
@@ -573,7 +579,7 @@
     (is (not= (->RecA 1) (->RecB 1)) "premise — the two record types are unequal")
     (is (not= (->RecA 1) {:x 1}) "premise — record and plain map are unequal")
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id :cfg/derived :query-v [:cfg/derived (->RecA 1)]
@@ -606,7 +612,7 @@
     (is (= (assoc (->RecA 1) :b 2 :c 3) (assoc (->RecA 1) :c 3 :b 2))
         "premise — the two extension orders are value-equal")
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id  :cfg/derived
@@ -636,7 +642,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id  :cfg/derived
@@ -666,7 +672,7 @@
     (facade/install!)
     (rf/make-frame {:id :rf/xray})
     (seed-reactive-data!
-      {:has-event-bundle? true :frame :rf/app :focus {:current :ep-1}
+      {:has-event-bundle? true :frame :rf/app :focus pinned-focus
        :counts {} :level-1-subs [] :level-2-subs [] :view-rows []
        :show-unchanged? true
        :subs-skipped [{:sub-id :user/name :query-v [:user/name]

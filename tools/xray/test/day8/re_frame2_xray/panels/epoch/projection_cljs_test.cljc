@@ -3492,10 +3492,10 @@
       (is (not (contains? proj/badge-set :APP-DB-DIFF))
           "no APP-DB-DIFF badge in badge-set")
       ;; There is no SCHEMA HOT-RELOAD pipeline step (hot-reload drift
-      ;; surfaces in the Issues panel, never as a cascade step).
-      ;; `hot-reload-violation-no-tail-step-test` pins that the STEP is
-      ;; not appended; this pins that the inventory does not advertise
-      ;; its BADGE.
+      ;; surfaces on the issues ribbon, never as a cascade step).
+      ;; `project-attaches-app-db-violation-to-fx-db-row-test` pins that
+      ;; the STEP is not appended; this pins that the inventory does not
+      ;; advertise its BADGE.
       (is (not (contains? proj/badge-set :SCHEMA-HOT-RELOAD))
           "no SCHEMA-HOT-RELOAD badge in badge-set")))
 
@@ -3924,13 +3924,13 @@
 ;; There is no SCHEMA HOT-RELOAD pipeline step. Hot-reload drift is a
 ;; dev-time event, not a cascade event; a standalone pipeline tail step
 ;; would be opaque, lacking the rich context the operator needs (pre/post
-;; schema, file:line of re-registration). The Issues panel — which
-;; consumes `:rf.schema/violation` trace events — is its natural home, so
-;; there is nothing to test at the projection layer. The runtime-boundary
-;; attachment path is covered by `attach-violations-*-test` above
-;; + `project-attaches-app-db-violation-to-handler-test` below; the
-;; negative assertion `not-any? :schema-hot-reload` in that test
-;; pins down that no tail step is appended.
+;; schema, file:line of re-registration). The issues ribbon — which
+;; harvests those `:rf.schema/violation` trace events — is its natural
+;; home, so there is nothing to test at the projection layer. The
+;; runtime-boundary attachment path is covered by `attach-violations-*-test`
+;; below + `project-attaches-app-db-violation-to-fx-db-row-test`; the
+;; negative assertions `not-any? :schema-hot-reload` in that test
+;; pin down that no tail step is appended.
 
 (deftest attach-violations-event-test
   (testing "`:event` violation attaches to the DISPATCH step"
@@ -5010,17 +5010,20 @@
                                      :errors [{:message "x"}]})))))
 
 (deftest skipped-handler-not-flagged-error-test
-  (testing "the SKIPPED handler does NOT inflate the epoch
-            outcome (the failing COEFFECT/INTERCEPTOR step is the :error
-            signal; a skip is neutral)"
-    (let [;; clean handler step that was skipped + no real exception on it
-          steps [{:step :coeffect :badge :COEFFECT :id :c :status :error
+  (testing "a skip is neutral: a cascade whose only non-ok steps are the
+            SKIPPED handler and side effects reads :ok"
+    (let [steps [{:step :dispatch :badge :DISPATCH}
+                 {:step :handler :status :skipped}
+                 {:step :side-effects :status :skipped}]]
+      (is (= [:ok :skipped :skipped] (mapv proj/step-status steps))
+          "the outcome is judged over a skip and nothing worse")
+      (is (= :ok (proj/epoch-outcome steps)))))
+  (testing "beside a failing COEFFECT step the failure, not the skip,
+            drives :error"
+    (let [steps [{:step :coeffect :badge :COEFFECT :id :c :status :error
                   :errors [{:message "boom"}]}
-                 {:step :handler :status :skipped}]
-          out   (proj/epoch-outcome steps)]
-      (is (= :error out) "the coeffect error drives the outcome")
-      (is (= :skipped (proj/step-status (second steps)))
-          "the skipped handler reads :skipped, not :error"))))
+                 {:step :handler :status :skipped}]]
+      (is (= :error (proj/epoch-outcome steps))))))
 
 ;; -- HALTED-DEPTH record ---------------------------------------------------
 

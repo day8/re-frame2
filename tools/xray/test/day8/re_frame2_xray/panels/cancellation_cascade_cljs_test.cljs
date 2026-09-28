@@ -335,17 +335,24 @@
 ;; ---- (6) frame isolation ----------------------------------------------
 
 (deftest popover-state-isolated-on-rf-xray
-  (testing "the popover slot lives on :rf/xray, not on the default
-            frame — the host's app-db never sees these keys"
+  (testing "the popover slot lives on :rf/xray, not on the host frame —
+            the host's app-db never sees these keys"
     (setup-xray-frame!)
+    (rf/reg-event :host/seed (fn [{:keys [db]} _] {:db (assoc db :host/ready? true)}))
+    (rf/make-frame {:id :host/app})
+    (rf/with-frame :host/app
+      (rf/dispatch-sync [:host/seed]))
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/cancellation-cascade-open nil])
       (is (true? @(rf/subscribe [:rf.xray/cancellation-cascade-popover-open?]))
           "open slot reads true under the :rf/xray frame"))
-    (rf/with-frame :rf/default
-      (let [db @(rf/subscribe [:rf/app-db])]
-        (is (not (contains? db :cancellation-cascade-popover-open?))
-            "no leak into the host's :rf/default frame")))))
+    (is (true? (:cancellation-cascade-popover-open? (rf/app-db-value :rf/xray)))
+        "the key the check below looks for is the one the open event writes")
+    (let [host-db (rf/app-db-value :host/app)]
+      (is (true? (:host/ready? host-db))
+          "the host's app-db is read for real, not a nil that contains nothing")
+      (is (not (contains? host-db :cancellation-cascade-popover-open?))
+          "no leak into the host frame's app-db"))))
 
 ;; ---- (7) Modal positioning ---------------------------------------------
 

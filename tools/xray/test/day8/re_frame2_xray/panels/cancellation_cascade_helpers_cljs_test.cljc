@@ -199,14 +199,13 @@
                  (lifecycle-destroy-ev {:machine-id :x}))))))
 
 (deftest cancellation-anchor?-false-for-non-cancellation-reasons
-  (testing "a natural :final? termination is not a cancellation"
-    (is (false? (h/cancellation-anchor?
-                  (destroy-ev {:machine-id :x
-                               :reason :rf.machine/finished})))))
-  (testing "post-terminal join cleanup is not a cancellation"
-    (is (false? (h/cancellation-anchor?
-                  (destroy-ev {:machine-id :x
-                               :reason :rf.machine/join-reaped}))))))
+  (testing "a natural :final? termination — which is also how a folded
+            :spawn-all join child tears itself down — is an EMITTABLE destroy
+            whose REASON rules it out as a cancellation"
+    (let [ev (destroy-ev {:machine-id :x :reason :rf.machine/finished})]
+      (is (true? (h/emittable-destroy? ev))
+          "the tuple is one the runtime emits, so the reason is what decides")
+      (is (false? (h/cancellation-anchor? ev))))))
 
 (deftest cancellation-anchor?-rejects-impossible-channel-reason-tuples
   ;; Validating channel membership and reason membership INDEPENDENTLY

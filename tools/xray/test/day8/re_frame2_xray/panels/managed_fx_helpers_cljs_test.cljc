@@ -191,6 +191,26 @@
         (is (nil? (:duration-ms rec)))
         (is (nil? (:http-status rec)))))))
 
+(deftest http-adapter-resolves-the-configured-reply-target
+  (testing "`:reply-to` is the unified reply-target key and wins over the
+            routing sugar; the sugar and the machine surface's `:on-done`
+            answer only when it is absent; `:on-reply` is a derivation
+            policy value, never a target"
+    (are [reply-keys handler]
+         (= handler
+            (:handler (h/http-adapter
+                        (fx-handled :rf.http/managed
+                                    (merge {:request {:method :get :url "/api/x"}
+                                            :request-id :req-3}
+                                           reply-keys))
+                        [])))
+      {:reply-to [:x/reply]}                                       [:x/reply]
+      {:reply-to [:x/reply] :on-success [:x/ok] :on-failure [:x/no]} [:x/reply]
+      {:on-failure [:x/no]}                                        [:x/no]
+      {:on-done [:m/done]}                                         [:m/done]
+      {:on-reply :on-route}                                        nil
+      {}                                                           nil)))
+
 (deftest http-adapter-failure-record
   (testing "The ONE HTTP failure that can land in the issuing bundle is a
             SYNCHRONOUS request-body-prep failure — `prepare-body!` runs inside
