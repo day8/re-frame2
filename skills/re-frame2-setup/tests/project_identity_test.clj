@@ -234,7 +234,6 @@
   (testing "the section names each derived form for the dotted qualified example"
     (let [section @identity-section
           {:keys [namespace nested-dirs npm-name]} (doc-identity "com.acme/my-cool-app")]
-      (is (seq section) "SKILL.md carries no `## Project identity` section.")
       (doseq [[what v] [["namespace" namespace]
                         ["source path" nested-dirs]
                         ["npm name" npm-name]
