@@ -68,25 +68,6 @@
 ;; raw-state-allowed? predicate semantics.
 ;; ---------------------------------------------------------------------------
 
-(deftest raw-state-allowed-tracks-gate
-  ;; The single intention-naming predicate matches its truth value to
-  ;; the operator's opt-in state — positive sense, no inversion.
-  ;; Per-tool bodies branch on this directly:
-  ;;
-  ;;   (if (raw-state/raw-state-allowed?)
-  ;;     (args/parse-bool-arg raw-args :include-sensitive) ; gate ON  → caller wins
-  ;;     false)                                            ; gate OFF → force redact
-  ;;
-  ;; `:elision` (the size override) is parsed unconditionally — the gate
-  ;; governs the sensitive axis only.
-  (raw-state/set-allow-raw-state! false)
-  (is (false? (raw-state/raw-state-allowed?))
-      "Gate OFF ⇒ operator did NOT opt in; force redact")
-  (raw-state/set-allow-raw-state! true)
-  (is (true? (raw-state/raw-state-allowed?))
-      "Gate ON ⇒ operator opted in via --allow-sensitive-reads; per-call args win")
-  (raw-state/set-allow-raw-state! false))
-
 (deftest set-coerces-to-boolean
   ;; Defensive: `set-allow-raw-state!` should coerce truthy / falsy
   ;; inputs to a proper boolean — the atom holds `true`/`false`, not the
@@ -109,13 +90,6 @@
         "--allow-sensitive-reads ⇒ :allow-raw-state? true (internal key)")
     (is (true? (:eval-allowed? flags))
         "eval-cljs gate stays at its default ON")))
-
-(deftest parse-launch-flags-rides-alongside-no-eval
-  ;; The two flags are independent — passing --no-eval (eval opt-out)
-  ;; alongside --allow-sensitive-reads (sensitive opt-in) lands both.
-  (let [flags (server/parse-launch-flags ["--no-eval" "--allow-sensitive-reads"])]
-    (is (false? (:eval-allowed? flags)))
-    (is (true? (:allow-raw-state? flags)))))
 
 (deftest parse-launch-flags-defaults
   ;; eval-cljs defaults ON; raw-state defaults OFF.

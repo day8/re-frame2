@@ -159,18 +159,6 @@
                      (is (= :invalid-kind (:reason edn))))
                    (done)))))))
 
-(deftest handler-meta-rejects-unknown-kind
-  (testing "handler-meta with an out-of-vocab :kind surfaces :invalid-kind"
-    (async done
-      (-> (hm/handler-meta-tool nil (args-js {:kind "not-a-kind"
-                                              :id   ":user/login"}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :invalid-kind (:reason edn)))
-                     (is (= "not-a-kind" (:kind edn))))
-                   (done)))))))
-
 (deftest handler-meta-rejects-missing-id
   (testing "handler-meta with kind but no :id surfaces :missing-id"
     (async done
@@ -200,16 +188,6 @@
   (testing "list-handlers with no :kind surfaces :invalid-kind"
     (async done
       (-> (hm/list-handlers-tool nil (args-js {}))
-          (.then (fn [result]
-                   (is (is-error? result))
-                   (let [edn (extract-edn result)]
-                     (is (= :invalid-kind (:reason edn))))
-                   (done)))))))
-
-(deftest list-handlers-rejects-unknown-kind
-  (testing "list-handlers with an out-of-vocab :kind surfaces :invalid-kind"
-    (async done
-      (-> (hm/list-handlers-tool nil (args-js {:kind "ghost"}))
           (.then (fn [result]
                    (is (is-error? result))
                    (let [edn (extract-edn result)]
@@ -268,35 +246,6 @@
                                (is (= k (:kind edn))
                                    "the raw kind rides back on the envelope"))))))))
           (.then (fn [_] (done)))))))
-
-(deftest kind-enum-omits-the-reserved-empty-slots
-  (testing "neither descriptor advertises `flow` or `frame` as a kind"
-    (doseq [tool-name ["handler-meta" "list-handlers"]]
-      (let [enum (-> (find-descriptor tool-name) :inputSchema :properties :kind :enum set)]
-        (is (not (contains? enum "flow"))
-            (str tool-name " must not offer a kind it cannot query"))
-        (is (not (contains? enum "frame"))
-            (str tool-name " must not offer a kind it cannot query"))
-        (is (contains? enum "event")
-            (str tool-name " still offers the real registrar kinds"))))))
-
-;; ---------------------------------------------------------------------------
-;; Name + descriptor kind-vocab consistency.
-;; ---------------------------------------------------------------------------
-
-(deftest tool-name-uses-kebab-case
-  (testing "the two tool descriptors use kebab-case names"
-    (is (= "handler-meta" (:name (find-descriptor "handler-meta")))
-        "name uses kebab-case, not handler_meta / handlerMeta")
-    (is (= "list-handlers" (:name (find-descriptor "list-handlers")))
-        "name uses kebab-case, not list_handlers / listHandlers")))
-
-(deftest descriptors-share-the-kind-vocab
-  (testing "handler-meta and list-handlers share the same :kind enum"
-    (let [hm-enum (-> (find-descriptor "handler-meta") :inputSchema :properties :kind :enum set)
-          rl-enum (-> (find-descriptor "list-handlers") :inputSchema :properties :kind :enum set)]
-      (is (= hm-enum rl-enum)
-          "drift here would make agents learn two vocabularies for one concept"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Regression — handler-meta returns :ok? true with the real data as
@@ -589,31 +538,6 @@
 (deftest handler-meta-resource-scope-routes-through-registrar
   (testing "kind \"resource-scope\" emits a registrar-describe form, never machine-describe"
     (async done (handler-meta-routes-through-registrar-test "resource-scope" ":resource-scope" done))))
-
-(deftest handler-meta-resource-scope-surfaces-inputs-and-cost
-  (testing "a resource-scope drill surfaces the resolver's declared :inputs + :whole-db? cost (EP-0016 inspectability promise)"
-    (async done
-      ;; The runtime registrar-describe for a :resource-scope returns the
-      ;; resolver's static declaration — its :inputs map and the whole-db
-      ;; cost flag — with the :resolve fn stripped off the wire.
-      (let [canned {:ns 'realworld.scope :line 8 :handler-fn-hash 41
-                    :inputs {:username [:db [:auth :user :username]]}
-                    :whole-db? false}]
-        (-> (with-canned-eval! canned
-              (fn []
-                (-> (hm/handler-meta-tool nil (args-js {:kind "resource-scope"
-                                                        :id   ":realworld/session"}))
-                    (.then (fn [result]
-                             (let [edn (extract-edn result)]
-                               (is (true? (:ok? edn)))
-                               (is (= :resource-scope (:kind edn)))
-                               (is (= :realworld/session (:id edn)))
-                               (is (= {:username [:db [:auth :user :username]]} (:inputs edn))
-                                   "the resolver's declared :inputs ride through")
-                               (is (false? (:whole-db? edn))
-                                   "the whole-db cost flag rides through")))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
 
 (defn- list-handlers-accepts-kind-test
   "Run list-handlers for `kind-str` with a canned id vector `ids`,

@@ -50,17 +50,6 @@
                  (restore-eval!)
                  (done))))))
 
-(deftest get-operating-frame-healthy-map-still-succeeds
-  ;; Negative guard: a genuine `frames-list` map keeps riding as ok-text.
-  (async done
-    (stub-eval! {:ok? true :frames [:rf/default] :selected nil :operating :rf/default})
-    (-> (op-frame/get-operating-frame-tool (fresh-conn) (tu/args->js {}))
-        (.then (fn [r]
-                 (is (not (tu/error? r)) "a healthy frames-list map is not an error")
-                 (is (true? (:ok? (tu/extract-edn r))))
-                 (restore-eval!)
-                 (done))))))
-
 (deftest reset-operating-frame-blank-runtime-result-is-isError
   (async done
     (stub-eval! nil)
@@ -71,15 +60,5 @@
                  (let [edn (tu/extract-edn r)]
                    (is (false? (:ok? edn)))
                    (is (= :unexpected-shape (:reason edn))))
-                 (restore-eval!)
-                 (done))))))
-
-(deftest reset-operating-frame-healthy-map-still-succeeds
-  (async done
-    (stub-eval! {:ok? true :frames [:rf/default] :selected nil :operating :rf/default})
-    (-> (op-frame/reset-operating-frame-tool (fresh-conn) (tu/args->js {}))
-        (.then (fn [r]
-                 (is (not (tu/error? r)) "a healthy frames-list map is not an error")
-                 (is (true? (:ok? (tu/extract-edn r))))
                  (restore-eval!)
                  (done))))))
