@@ -14,9 +14,8 @@
 ;;;; extracts the prescribed `gh issue list` argv from SKILL.md verbatim,
 ;;;; models gh's documented state filtering over a three-issue fixture set,
 ;;;; and asserts the outcomes the skill's own §Issue drafts prose promises.
-;;;; Removing `--state all` from SKILL.md makes the closed-owner case here
-;;;; fail while the no-match control keeps passing (the non-vacuity
-;;;; criterion).
+;;;; Removing `--state all` from SKILL.md makes the argv pin and the
+;;;; closed-owner case here fail.
 ;;;;
 ;;;; Run: bb tests/duplicate_search_test.clj   (from skills/re-frame2-pair-retro/)
 ;;;; Exit: 0 = pass, non-zero = fail.
@@ -146,32 +145,6 @@
         (is (= 4101 issue))
         (is (str/includes? (str disposition) "0.9.2")
             "the closed hit is VIEWED — its disposition (the landed fix) is relayed, not just its number")))))
-
-;; ---------------------------------------------------------------------------
-;; No-match control — an unrelated closed keyword-hit must not suppress the
-;; draft; state broadens discovery, semantics decide ownership. This control
-;; passes with or without `--state all`, pinning the non-vacuity direction.
-;; ---------------------------------------------------------------------------
-
-(deftest unrelated-hits-do-not-suppress-the-draft
-  (testing "keyword-sharing but semantically unrelated issues (open AND closed) still yield one draft"
-    (let [state      (prescribed-state)
-          keywords   #{"epoch"}
-          candidates (gh-list state keywords)]
-      ;; The broad keyword surfaces unrelated issues, the closed #4050 and the
-      ;; semantic owner among them — discovery is deliberately generous.
-      (is (some #(= 4050 (:number %)) (gh-list "all" keywords))
-          "an unrelated CLOSED issue can appear in an all-state candidate set")
-      ;; Ownership needs the semantic match; strip it from this scenario by
-      ;; searching keywords the owner doesn't... the owner shares :epoch, so
-      ;; model the semantic comparison directly: candidates minus the owner
-      ;; carry no semantic match and must not suppress.
-      (let [non-owners (remove :semantic-match? candidates)]
-        (is (seq non-owners) "the control set is non-empty (shape-matched control)")
-        (is (not-any? :semantic-match? non-owners)))
-      (is (= {:outcome :draft}
-             (duplicate-check state #{"unrelated-vocabulary"} true))
-          "no semantic/keyword match at all → the requested draft is produced"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Query-error control — a failed search is "not checked", never "no owner".

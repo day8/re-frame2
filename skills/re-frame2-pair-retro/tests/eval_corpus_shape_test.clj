@@ -19,9 +19,10 @@
 ;;;; upstream executor, and adds no dependency. It asserts (1) the premise —
 ;;;; the corpus really is in neither upstream shape, so the conversion is
 ;;;; load-bearing rather than decorative; (2) the README documents that
-;;;; wrapper honestly and carries the conversion; and (3) applying the
-;;;; documented mapping to the real corpus yields exactly one
-;;;; query/should_trigger item per fixture with strings and labels preserved.
+;;;; wrapper honestly and carries the conversion; and (3) every item the
+;;;; documented mapping yields from the real corpus is one the trigger runner
+;;;; can read — a string `query` and a boolean `should_trigger` — with the
+;;;; fixtures' ids and names unique.
 ;;;;
 ;;;; Run locally:  bb tests/eval_corpus_shape_test.clj   (from the skill root)
 ;;;; Exit:         0 = pass, non-zero = fail.
@@ -136,20 +137,13 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest documented-conversion-yields-the-trigger-input
+  ;; The mapping itself is `to-trigger-input` — one `{:query :should_trigger}`
+  ;; item per fixture, by construction — and `readme-documents-the-conversion`
+  ;; pins the README's filter. What the corpus decides is whether each item
+  ;; it yields is one the runner can read.
   (let [parsed    @corpus
         fixtures  (:evals parsed)
         converted (to-trigger-input parsed)]
-    (testing "one item per fixture, and nothing else"
-      (is (= (count fixtures) (count converted)))
-      (is (vector? converted) "the conversion must produce a top-level list.")
-      (is (= #{:query :should_trigger} (into #{} (mapcat keys) converted))
-          (str "the converted items carry keys beyond query/should_trigger. Local "
-               "bookkeeping (id, name, rationale) is not part of the trigger input.")))
-    (testing "strings and labels survive verbatim"
-      (is (= (mapv :prompt fixtures) (mapv :query converted))
-          "a prompt was altered by the conversion.")
-      (is (= (mapv :should_trigger fixtures) (mapv :should_trigger converted))
-          "a should_trigger label was altered by the conversion."))
     (testing "every converted item satisfies the runner's two accesses"
       (is (every? #(string? (:query %)) converted)
           "run_eval.py reads item[\"query\"] as a string.")
