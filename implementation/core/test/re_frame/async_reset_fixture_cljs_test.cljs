@@ -21,9 +21,10 @@
   down and restores the baselines after the test's `done`.
 
   These tests prove: (1) a bare dispatch-sync drains in an async body; (2) the
-  map fixture also serves synchronous bodies; (3) the two return shapes; (4) the
-  fn-form drains a bare dispatch-sync; (5) the fn/map mixing hazard the
-  async `:before`'s per-test re-ensure guards against."
+  map fixture also serves synchronous bodies; (4) the fn-form drains a bare
+  dispatch-sync; (5) the fn/map mixing hazard the async `:before`'s per-test
+  re-ensure guards against. (3) The two return shapes are pinned per host by
+  `re-frame.async-fixture-platform-shape-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -75,18 +76,6 @@
     (rf/dispatch-sync [:ar/set 7])
     (is (= 7 (:n (rf/app-db-value :rf/default)))
         "a synchronous bare dispatch-sync landed under the :async? map fixture")))
-
-;; ---- 3. the two return shapes ---------------------------------------------
-
-(deftest fixture-return-shapes
-  (testing ":async? false → a fn-form fixture; :async? true → a {:before :after} map"
-    (is (fn? (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
-        "the default is the synchronous fn-form fixture")
-    (let [m (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter
-                                                      :async?  true})]
-      (is (map? m) ":async? true returns a cljs.test map fixture")
-      (is (fn? (:before m)) "…with a zero-arg :before")
-      (is (fn? (:after m))  "…and a zero-arg :after"))))
 
 ;; ---- 4. the fn-form drains a bare dispatch-sync ---------------------------
 ;;

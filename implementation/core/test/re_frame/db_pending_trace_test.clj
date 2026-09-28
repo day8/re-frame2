@@ -85,6 +85,10 @@
                 ":op-type rides the :rf.event family")
             (is (= {:counter 42 :seeded? true} (-> p :tags :rf.event/db))
                 ":tags :rf.event/db carries the handler-returned value")
+            (is (not (contains? p :rf.event/db))
+                ":rf.event/db rides under :tags, not at top level (top level is
+                 reserved for substrate-hoisted slots, as with :rf.event/fx on
+                 :rf.fx/do-fx)")
             (is (= :rf/default (-> p :tags :frame))
                 ":tags :frame is canonical (per Spec 009 §canonical per-frame routing key)")))
         (finally
@@ -177,26 +181,3 @@
               "no :rf.event/db-pending-post-flow without the flows artefact"))
         (finally
           (rf/unregister-listener! :trace ::t2-no-flows))))))
-
-;; ---- payload-shape pin ---------------------------------------------------
-
-(deftest ^:requires-debug db-pending-payload-rides-under-tags
-  (testing "payload-shaped slots (:rf.event/db, :frame) ride under :tags
-   — top level is reserved for substrate-hoisted slots
-   (:rf.trace/call-site, :rf.trace/trigger-handler, :source, etc.).
-   Mirrors the placement of :rf.event/fx on :rf.fx/do-fx."
-    (rf/reg-event :t1/payload-shape
-      (fn [{:keys [db]} _] {:db {:x 9}}))
-    (let [acc (collect-traces! ::payload-shape)]
-      (try
-        (rf/dispatch-sync [:t1/payload-shape])
-        (let [[p] (filterv #(= :rf.event/db-pending (:operation %)) @acc)]
-          (is (some? p) ":rf.event/db-pending fired")
-          (is (contains? (:tags p) :rf.event/db)
-              ":rf.event/db lives under :tags")
-          (is (contains? (:tags p) :frame)
-              ":frame lives under :tags (Spec 009 canonical routing key)")
-          (is (not (contains? p :rf.event/db))
-              ":rf.event/db is NOT at top level"))
-        (finally
-          (rf/unregister-listener! :trace ::payload-shape))))))

@@ -77,8 +77,6 @@
 ;; ===========================================================================
 
 (deftest args-map-shape-is-closed
-  (testing "a well-formed spec validates"
-    (is (true? (rf.timer-probe/valid-args? base-args))))
   (testing "the reply target is pinned under the CANONICAL :rf/reply-to key
             (Managed-Effects §The reply target — the single property-9 spelling)"
     (is (true? (rf.timer-probe/valid-args? base-args)) "the canonical :rf/reply-to validates")
@@ -91,7 +89,6 @@
          so a fresh consumer copying it inherits the canonical spelling"))
   (testing "missing / malformed required fields are rejected as data (no throw)"
     (is (false? (rf.timer-probe/valid-args? (dissoc base-args :timer/id))))
-    (is (false? (rf.timer-probe/valid-args? (dissoc base-args :rf/reply-to))))
     (is (false? (rf.timer-probe/valid-args? (assoc base-args :after 0))) "delay must be positive")
     (is (false? (rf.timer-probe/valid-args? (assoc base-args :after -5))))
     (is (false? (rf.timer-probe/valid-args? (assoc base-args :generation :nope))))

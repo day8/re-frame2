@@ -111,32 +111,9 @@
     (is (= [:seed :ext :plain] @run-log)
         "both unflagged dispatches ran in arrival order (no leap-frog)")))
 
-;; ---- (3) sibling machine-internal dispatches preserve source order --------
-
-(deftest sibling-machine-internal-preserve-source-order
-  (testing "multiple machine-internal dispatches from one macrostep keep
-   their emit order at the front (first emitted is dequeued first), ahead
-   of the external event"
-    (reset! run-log [])
-    (reg-marker :ext)
-    (reg-marker :a)
-    (reg-marker :b)
-    (rf/reg-event :seed
-      (fn [_ _]
-        (log! :seed)
-        (rf.router/dispatch! [:ext] {})
-        ;; Two machine-internal continuations, emitted :a then :b. Each
-        ;; front-inserts onto the head of the EXISTING queue, so the net
-        ;; head order is [:a :b ...], not the reversed [:b :a ...].
-        (rf.router/dispatch! [:a] {:rf.machine/internal? true})
-        (rf.router/dispatch! [:b] {:rf.machine/internal? true})
-        {}))
-    (rf/dispatch-sync [:seed] {:frame :rf/default})
-    (is (= [:seed :a :b :ext] @run-log)
-        ":a before :b (source order) at the front, both ahead of :ext")))
-
-;; ---- (4) epoch-per-event preserved: each leap-frogged event runs its own
-;;          full handler cascade (its own :run-start), not collapsed --------
+;; ---- (3) + (4) sibling machine-internal dispatches keep source order, and
+;;          each leap-frogged event runs its own full handler cascade (its
+;;          own :run-start), not collapsed ----------------------------------
 
 (defn- run-starts-of
   "Filter recorded trace events down to per-event :rf.event/run-start
@@ -167,8 +144,11 @@
       (try
         (rf/dispatch-sync [:seed] {:frame :rf/default})
         (finally (rf/unregister-listener! :trace ::epoch-rec)))
-      ;; Run order reflects the leap-frog.
-      (is (= [:seed :c1 :c2 :ext] @run-log))
+      ;; Run order reflects the leap-frog. Each machine-internal dispatch
+      ;; front-inserts onto the head of the EXISTING queue, so the net head
+      ;; order is [:c1 :c2 ...], not the reversed [:c2 :c1 ...].
+      (is (= [:seed :c1 :c2 :ext] @run-log)
+          ":c1 before :c2 (source order) at the front, both ahead of :ext")
       ;; Dev-instrumentation arm (see ns header §Posture split).
       ;; One :run-start per dequeued event — four distinct events, none
       ;; collapsed by the front-insertion. The always-on partner is the
