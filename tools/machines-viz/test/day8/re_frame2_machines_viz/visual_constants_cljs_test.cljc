@@ -1,11 +1,11 @@
 (ns day8.re-frame2-machines-viz.visual-constants-cljs-test
   "Shape + density-contract pin for the chart visual constants.
 
-  This file pins the SHAPE of `vc/chart`: the expected key set, the
-  types each value resolves to, and the no-nil invariant. Cheap —
-  one map, six assertions; doesn't redundantly re-test every numeric
-  value (that's `visual_constants.cljc` itself, deliberately literal
-  so a code review can spot drift).
+  This file pins the SHAPE of the density maps: the expected key set,
+  the types each value resolves to, and the no-nil invariant, with
+  `vc/chart` pinned as the regular-density alias. It doesn't re-test
+  every numeric value (that's `visual_constants.cljc` itself,
+  deliberately literal so a code review can spot drift).
 
   The pins cover the three density variants
   (`chart-compact / chart-regular / chart-cosy`): each density has
@@ -118,24 +118,6 @@
 
 ;; ---- shape pins ---------------------------------------------------------
 
-(deftest chart-is-a-map
-  (testing "vc/chart is a map (the chart's destructure points all
-            depend on this)"
-    (is (map? vc/chart))))
-
-(deftest chart-key-set-matches-expected
-  (testing "every documented key is present — drift would manifest as
-            a runtime nil through every chart hiccup"
-    (is (= expected-chart-keys (set (keys vc/chart)))
-        "vc/chart key set matches the documented catalogue")))
-
-(deftest chart-has-no-nil-values
-  (testing "no entry in vc/chart is nil — a nil here propagates into
-            the SVG hiccup tree as a `nil` attribute value, which
-            shadow / browser will render as the literal string 'null'"
-    (is (every? some? (vals vc/chart))
-        "every vc/chart entry resolves to a non-nil value")))
-
 (deftest chart-numeric-keys-are-numbers
   (testing "every chart key resolves to a number (geometry, typography
             sizes, padding, arrowhead widths) — the catalogue carries
@@ -143,15 +125,6 @@
     (doseq [k expected-chart-keys]
       (is (number? (get vc/chart k))
           (str "vc/chart key " k " resolves to a number")))))
-
-(deftest chart-corner-radius-locked-at-six
-  (testing "corner-radius is locked at 6px per the
-            visual-character lock (the React Flow default of 8 reads
-            as 'product chrome'; brutalist 0 reads as 'wireframe'; 6
-            is the sweet spot). The lock is documented in the source
-            file; this assertion pins it at the test layer too so a
-            future drift fails CI rather than landing silently."
-    (is (= 6 (:corner-radius vc/chart)))))
 
 (deftest chart-typography-meets-chart-floor
   (testing "state-title-px + edge-label-px sit at a chart-

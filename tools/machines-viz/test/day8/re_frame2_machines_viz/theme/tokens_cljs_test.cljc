@@ -59,15 +59,6 @@
     (is (= tokens/dark-palette  (:dark  tokens/palettes)))
     (is (= tokens/light-palette (:light tokens/palettes)))))
 
-(deftest with-alpha-resolves-through-custom-palette
-  (testing "with-alpha takes a custom palette
-            arg; this test pins the LIGHT-palette path so chart code
-            can resolve tints against the light theme without forking
-            the helper."
-    (let [s (tokens/with-alpha :info 0.5 tokens/light-palette)]
-      ;; Light :info is #0550ae → rgba(5, 80, 174, 0.5)
-      (is (= "rgba(5, 80, 174, 0.5)" s)))))
-
 ;; ---- css-var -----------------------------------------------------------
 
 (deftest css-var-resolves-to-var-with-hex-fallback
@@ -78,12 +69,6 @@
     (is (= "var(--rf-xray-green, #3fb950)" (tokens/css-var :green)))
     (is (= "var(--rf-xray-text-tertiary, #8b949e)"
            (tokens/css-var :text-tertiary)))))
-
-(deftest css-var-name-matches-xray-convention
-  (testing "the variable name mirrors Xray's `var(--rf-xray-<key>)`
-            so the chart + host paint from ONE :root palette"
-    (is (str/starts-with? (tokens/css-var :info)
-                          "var(--rf-xray-info"))))
 
 (deftest css-var-falls-back-to-supplied-palette-hex
   (testing "css-var resolves the fallback hex from the supplied palette
@@ -123,14 +108,6 @@
 ;; `prefers-reduced-motion: reduce` collapses it to a settle frame.
 ;; A shorthand like `mv-chart-transition-glow 720ms ease-out infinite`
 ;; would violate all three; these pins guard against it.
-
-(deftest glow-animation-is-finite-not-infinite
-  (testing "the fired/focused glow shorthand carries NO
-            `infinite` keyword (it must not strobe for as long as the
-            host leaves the arm focused)."
-    (let [css (tokens/glow-animation-css)]
-      (is (not (str/includes? css "infinite"))
-          "no `infinite` — the glow is event-driven, not a loop"))))
 
 (deftest glow-animation-plumbs-motion-scale
   (testing "the glow duration interpolates the

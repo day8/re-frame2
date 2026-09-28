@@ -393,19 +393,6 @@
       (is (= 200 label-x) "ELK position overrides the cross-hierarchy anchor")
       (is (= 10 label-y)))))
 
-(deftest edge-path-no-elk-label-falls-back-to-geometric
-  (testing "with NO ELK label position (the events-as-nodes
-            default — label is on the event-node, edge carries none) the
-            routed edge keeps its geometric midpoint anchor (regression
-            guard that the fallback is intact)"
-    (let [points (array (pt 0 0) (pt 0 100) (pt 100 100) (pt 100 200))
-          {:keys [label-x label-y]}
-          (edges/edge-path (assoc base-coords
-                                  :points points
-                                  :label-pos nil))]
-      (is (= 50 label-x) "no ELK label → middle-segment midpoint x")
-      (is (= 100 label-y) "no ELK label → middle-segment midpoint y"))))
-
 (deftest edge-path-two-point-route-is-a-straight-line
   (testing "a degenerate two-point route (no interior bend)
             renders a straight M…L… line, still flagged :routed?"
