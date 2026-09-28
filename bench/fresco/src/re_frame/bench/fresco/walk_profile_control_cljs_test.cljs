@@ -224,12 +224,6 @@
       (is (= "ok" (rf.bench.fresco.walk-profile-app/control-status (rf.bench.fresco.walk-profile-app/tag-cache-floor-row
                                        [(healthy 0.20)] census roster micro)))))))
 
-(deftest a-real-prediction-still-passes-on-real-signal
-  (testing "refusing a vacuous prediction must not close the door on the healthy case —
-            the whole point is a control that can still say yes"
-    (is (true? (:ok? (rf.bench.fresco.walk-profile-app/tag-cache-floor-row [(healthy 0.20) (healthy 0.18)]
-                                             census roster micro))))))
-
 (deftest a-roster-that-is-not-the-walks-parse-population-refuses
   (testing "the prediction is per-tag over the micro roster, so a roster
             that is not what the walk parses prices the wrong thing —

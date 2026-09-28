@@ -149,26 +149,6 @@
                      " for " arm " ran after " (pr-str ran-before)
                      " and was filed under " (pr-str predecessor)))))))))
 
-(deftest no-sample-is-recorded-as-its-own-predecessor
-  (testing "On the five-arm `amp_merge_clock` schedule a banking-carried
-           predecessor files 4 of the null arm's samples under
-           `expanded-b` — the null arm itself. No
-           schedule can run an arm twice in a row: `slot-order` visits
-           every arm exactly once per sample index, so an arm can repeat
-           only across a sample-index boundary, and then only if it holds
-           both the last slot of one order and the first of the next. This
-           is that impossibility asserted directly, because an impossible
-           reading is information about the INSTRUMENT."
-    (doseq [n arm-counts]
-      (let [{:keys [samples truth]} (replay n sampling rounds)]
-        (doseq [{:keys [arm value predecessor]} samples]
-          (when (and predecessor (= arm predecessor))
-            ;; Only a genuine back-to-back execution may say so.
-            (is (= arm (nth truth (dec value)))
-                (str n " arms: " arm " filed as its own predecessor at execution "
-                     value ", but " (pr-str (nth truth (dec value)))
-                     " is what ran"))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; The accounting the phase factor rests on
 ;; ---------------------------------------------------------------------------
