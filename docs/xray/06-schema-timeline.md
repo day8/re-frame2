@@ -14,9 +14,9 @@ There is no separate list of violations: each one is shown with the event that p
 
 ## A small example
 
-The standard-epochs testbed has two steps that fail a schema check on purpose. Click **18. Bad event args**, and the event `[:standard-epochs/bad-event-args "not-a-number"]` fails its `pos-int?` argument schema: the row turns pink, and Epoch shows the failure under DISPATCH with the **rejected** chip. Click **19. Bad app-db write** for the `:app-db` case, where the handler's write is aborted and app-db keeps its value from before the event. Open Trace if you need the raw validation record.
+The standard-epochs testbed has two steps that fail a schema check on purpose. Click **18. Bad event args**, and the event `[:standard-epochs/bad-event-args "not-a-number"]` fails its `pos-int?` argument schema: the row turns pink (1 in the screenshot), and Epoch shows the failure under DISPATCH (2) with the **rejected** chip (3). Click **19. Bad app-db write** for the `:app-db` case, where the handler's write is aborted and app-db keeps its value from before the event. Open Trace if you need the raw validation record.
 
-![The Epoch tab showing a Schema Violation Error block under DISPATCH for an event whose argument failed its schema](../images/xray/xray-tutorial-schema.png)
+![The Epoch tab for an event whose argument failed its schema, numbered: 1 the event's pink row, 2 the Schema Violation Error block under DISPATCH, 3 the rejected chip](../images/xray/xray-tutorial-schema.png)
 
 ## What the Epoch tab shows
 

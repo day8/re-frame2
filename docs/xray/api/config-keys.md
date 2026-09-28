@@ -217,7 +217,7 @@ The settings persist under the localStorage key `re-frame2.xray.settings.v2` (al
 
 ## Filters cluster
 
-The event list's **+ filter** control adds pattern pills that include (IN) or exclude (OUT) events; [Filters keep the spine useful](../03-time-travel.md#filters-keep-the-spine-useful) describes the patterns. Nothing stores a developer's own pills, so a reload starts unfiltered. A host that wants every load to start from a known set of filters supplies a seed.
+The event list's **+ filter** control adds pattern pills that include (IN) or exclude (OUT) events; [Filters](../02-panel-tour.md#filters) in the panel tour describes the patterns. Nothing stores a developer's own pills, so a reload starts unfiltered. A host that wants every load to start from a known set of filters supplies a seed.
 
 ### `set-filter-seed!`
 

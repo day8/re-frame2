@@ -6,7 +6,7 @@ The Graph tab draws all of that as one picture. Every subscription, flow, resour
 
 Open **Graph** from the Dynamic tab strip. It does not follow the event you pick. Its header, **Derivation / process graph**, carries a **static** / **live** toggle, which starts on static, and a count of what the graph holds; the node rows follow, grouped by family.
 
-## The two superkinds
+## Derivations and processes
 
 Every node is one of two kinds:
 
@@ -39,9 +39,9 @@ Beyond its id and family, each row carries the classification axes that make the
 
 Below the family sections, the **edges** list the dependency records — `:input`, `:param`, and `:selector` edges, each as a `from → to` pair. A machine-selector edge points at exactly the machine(s) the selector reads, never the cross product of every selector against every machine.
 
-## Static vs live
+## Static and live
 
-A toggle in the panel header, **static** and **live**, switches two modes:
+The header's toggle switches between two graphs:
 
 - **Static** is the registration-derived graph: every registered fact and process plus the edges known from registration alone. It is process-global and frame-agnostic — the map of what *can* exist. A parametric subscription appears with its marker but contributes no static edges.
 - **Live** is the graph realized in the *observed frame* at this moment: concrete subscription query vectors with their realized input edges, the active resource cache entries keyed by scoped key, live machine instances and spawned actors, and the materialized route slice with its nav-token owner. Live mode is dev-only — it is empty for a missing or destroyed frame, and its machinery is compiled out of production builds.
@@ -50,12 +50,20 @@ Use static when you want the structural map; use live when you want to see what 
 
 Under the toggle, the header counts what the current mode found: the mode, nodes, edges, how many nodes are derivations and how many processes, and the edges of each kind. An app with nothing to draw reads "No derivation/process nodes in the host app." A graph whose nodes have no edges between them, such as one made only of subscriptions over app-db and parametric subscriptions in static mode, says so under the edge list.
 
-## Reading off-box is redacted
-
-On your own box, in your own browser, the panel shows **raw** value summaries — that is the in-process truth, and read-only inspection of your own app is fine (the summaries are bounded only so a multi-megabyte value can't wreck the panel). The Graph tab shows the graph only there, in your browser; the rest of this section is about a tool that ships it off-box.
-
-The boundary matters the moment a value-bearing graph leaves your machine — a capture streamed to a remote agent, serialized to disk, or posted to a service. At that egress the graph is projected through `project-egress` under the observed frame's **classification registry**, and value-bearing leaf fields (a node's `:value`, `:params`, `:query`, `:state`) are redacted **path-by-path**: the runtime substitutes `:rf/redacted` at each path the frame declared sensitive (and a size marker at each large path). Those declarations are the frame's own classification — durable `app-db` paths classified by the commit-plane `:sensitive` / `:large` effects (a `reg-event` returning them alongside `:db`), plus the `:sensitive` / `:large` paths a `reg-machine` or `reg-resource` declares for its own data. (Schemas describe *shape*, not durable-`app-db` egress policy — there is no schema-driven classification of an app-db path.) Projection is **path-based, never value-match**: a secret re-keyed onto an *unclassified* path is not chased by value — it ships raw, the intended fail-open, until you classify *that* path too. The projector itself **fails closed on the frame**: if the named frame isn't live, the whole value redacts to a `:rf/redacted` sentinel rather than ship raw under no registry. Crucially, **redaction never loses structure** — a redacted param is still an edge. A live resource node carries its scope and params in its id, so an off-box graph replaces them with one-way handles: the same key gets the same handle for the life of the runtime, so the edges naming that node still connect, but the raw scope and params never leave. Apart from those handles, node ids, the edge topology, the storage/evaluation/lifecycle classifications, and the source forms all ride through untouched; only the value leaves are elided. You keep the shape of the graph; you just don't leak its data.
-
 ## Read-only
 
 Drawing the graph dispatches nothing, keeps nothing alive, and changes no app state. It reads registrations and the observed frame's state, like the rest of Xray.
+
+## Advanced
+
+### When the graph leaves your machine
+
+In your own browser the Graph tab shows value summaries as they are, cut short only so that a very large value cannot swamp the panel. The tab never sends the graph anywhere. This section matters when another tool does: a capture streamed to a remote agent, saved to disk, or posted to a service.
+
+On the way out, the graph passes through the framework's `project-egress` under the observed frame's classification. Each value-bearing field of a node (`:value`, `:params`, `:query` and `:state`) is redacted path by path: `:rf/redacted` replaces each path the frame declared sensitive, and a size marker replaces each path it declared large.
+
+Those declarations are the frame's own. App-db paths are classified by the `:sensitive` and `:large` effects a `reg-event` returns alongside `:db`, and a `reg-machine` or `reg-resource` declares the paths of its own data. Schemas describe shape; they classify nothing.
+
+Redaction follows paths, not values. A secret copied onto a path nobody classified goes out as it is, until you classify that path too. If the named frame is not live, there is no classification to apply, so the whole value is redacted.
+
+Redaction keeps the graph's shape. A live resource node carries its scope and params in its id, so an exported graph replaces them with one-way handles: the same key gets the same handle while the app runs, so the edges naming that node still connect, but the raw scope and params never leave. Node ids, edges, the storage, evaluation and lifecycle labels, and the source forms go out unchanged; only the values are removed.

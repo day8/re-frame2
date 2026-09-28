@@ -126,10 +126,11 @@ wired into the build, and consumers can use it today.
   installing Xray from app code keeps the `:require` and the calls in a
   dev-only namespace; see
   [`tools/xray/README.md`](./xray/README.md) §Bundle isolation.
-  Panel inventory: event-detail, causality graph, time-travel
-  scrubber, slice-centric app-db, machine inspector, schema-violation
-  timeline, hydration debugger, issues ribbon, AI co-pilot rail. See
-  [`tools/xray/spec/000-Vision.md`](./xray/spec/000-Vision.md).
+  Panel inventory: ten Dynamic tabs (Epoch, app-db, Views, Trace,
+  Machine, Routes, Resources, Graph, Frames, Fresco) over an event list
+  that is also the time-travel scrubber, and five Static catalogues
+  (Machines, Routes, Schemas, Flows, Interceptors). The
+  [Xray guide](../docs/xray/index.md) walks through them.
 
 - `tools/machines-viz/` — `day8/re-frame2-machines-viz`. The
   substrate-agnostic `MachineChart` state-chart component (xyflow +

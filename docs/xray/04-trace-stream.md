@@ -2,7 +2,7 @@
 
 Epoch has told you the story of an event, but you need the exact records underneath it. The Trace tab lists the focused epoch's runtime records in the order they were emitted, with nothing summarised.
 
-![The Trace tab for :standard-epochs/increment-fx, one row per record from the dispatch through the handler and its effects](../images/xray/xray-tutorial-trace.png)
+![The Trace tab for :standard-epochs/increment-fx, one row per record from the dispatch through the handler and its effects, numbered: 1 the Stage column, 2 the Area badges, 3 a source link](../images/xray/xray-tutorial-trace.png)
 
 ## When to open Trace
 
@@ -22,15 +22,15 @@ Trace shows the focused epoch. If `:standard-epochs/increment-fx` is focused, Tr
 Each row has six columns:
 
 - **Δt**: milliseconds since the epoch's first record.
-- **Stage**: the Epoch tab's step names, such as DISPATCH, EVENT HANDLER, FLOW, EFFECT HANDLERS, SUBSCRIPTIONS and VIEWS.
-- **Area**: a badge naming the runtime area: EVENT, COEFFECT, DB, FX, FLOW, SUB, VIEW, MACHINE, ROUTING, RESOURCE, EPOCH, ERROR or WARNING.
+- **Stage** (1 in the screenshot): the Epoch tab's step names, such as DISPATCH, EVENT HANDLER, FLOW, EFFECT HANDLERS, SUBSCRIPTIONS and VIEWS.
+- **Area** (2): a badge naming the runtime area: EVENT, COEFFECT, DB, FX, FLOW, SUB, VIEW, MACHINE, ROUTING, RESOURCE, EPOCH, ERROR or WARNING.
 - **What**: the operation that happened.
 - **Target**: the event id, sub id, view id, path, fx id, machine id, or route id.
 - **Duration**: present where the substrate has timing.
 
 The left edge of each row takes its Epoch step's colour, so you can see where each step starts and ends. An error or warning row takes its severity colour instead.
 
-Click a row to open the raw trace record beneath it, and click again to close it. A row that changed app-db lists the changed paths under it. A **↗** after the target opens the code that emitted the record in your editor.
+Click a row to open the raw trace record beneath it, and click again to close it. A row that changed app-db lists the changed paths under it. A **↗** after the target (3) opens the code that emitted the record in your editor.
 
 ## Cancellation cascades
 

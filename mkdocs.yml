@@ -456,6 +456,11 @@ nav:
     - "9. The app-db tab": xray/09-app-db-diff.md
     - "10. Derivation graph": xray/10-derivation-graph.md
     - "11. The Fresco tab": xray/11-fresco-tab.md
+    # 12-14 are appended rather than slotted by topic, so that no existing
+    # page is renamed and no inbound link or anchor moves.
+    - "12. Routes": xray/12-routes.md
+    - "13. Resources": xray/13-resources.md
+    - "14. Xray, Story and tests": xray/14-story-and-tests.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes).
       - xray/api/index.md

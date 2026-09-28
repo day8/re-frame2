@@ -4,9 +4,9 @@ Your page was rendered on the server and now hydrates in the browser. Xray shows
 
 ## The hydrate epoch
 
-Hydration is an ordinary event. The client dispatches `:rf/hydrate`, which installs the server's state into app-db, and Xray lists it in the event list like any other event. Its Epoch tab shows the state landing in app-db, the effects it ran, and the subscriptions that computed their first values. The app-db tab shows the state the client's first render reads.
+Hydration is an ordinary event. The client dispatches `:rf/hydrate`, which installs the server's state into app-db, and Xray lists it in the event list like any other event (1 in the screenshot). Its Epoch tab shows the state landing in app-db (2), the effects it ran, and the subscriptions that computed their first values (3). The app-db tab shows the state the client's first render reads.
 
-![The Epoch tab for an :rf/hydrate event, showing the state it installs, its effects and the subscriptions it computes](../images/xray/xray-tutorial-hydration.png)
+![The Epoch tab for an :rf/hydrate event, numbered: 1 the :rf/hydrate event, 2 the state it writes into app-db, 3 the subscriptions it computes](../images/xray/xray-tutorial-hydration.png)
 
 ## Where a mismatch is reported
 
