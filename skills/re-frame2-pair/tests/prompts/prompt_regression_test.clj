@@ -44,6 +44,7 @@
 (def ^:private skill-md (delay (slurp-rel "SKILL.md")))
 (def ^:private errors-md (delay (slurp-rel "references/errors.md")))
 (def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
+(def ^:private mcp-transport-md (delay (slurp-rel "references/mcp-transport.md")))
 
 ;; User-facing docs + the variant leaf the MCP-surface
 ;; conformance drift guards assert against.
@@ -634,7 +635,10 @@
   (testing "the skill does not frame the raw eval write forms as the DEFAULT-reachable path"
     (doseq [[label md] [["SKILL.md" @skill-md]
                         ["ops.md" @ops-md]
-                        ["recipes.md" @recipes-md]]]
+                        ["recipes.md" @recipes-md]
+                        ;; Its tool reference states the write-tools-canonical,
+                        ;; eval-as-backstop framing in its own words.
+                        ["mcp-transport.md" @mcp-transport-md]]]
       (is (not (re-find #"(?i)default-reachable\s+write\s+path" md))
           (str label " calls the raw eval form the 'default-reachable "
                "write path' — the dedicated `restore-epoch` / `replace-app-db` "

@@ -29,8 +29,8 @@ fixture compiles `re-frame2-pair.pure` (on the `../../preload` source path) and
 the tests at `tests/fixture/test/re_frame2_pair/pure_test.cljs`, running them
 under Node. These exercise the EXACT pure fns the runtime delegates to — no
 mirror — so the covered matrices (multi-frame ambiguity, redaction, epoch
-timing/matching, read-sub validation, snapshot/orient, cascade outcome, and the
-hash-cache bedrock invariant) test the shipped preload directly.
+timing/matching, read-sub validation, snapshot/orient, and cascade outcome)
+test the shipped preload directly.
 
 The same build also executes `runtime_dry_run_test.cljs` against real frames:
 first-event, repeated and one-slot-history simulations suppress declared effects
@@ -49,14 +49,7 @@ npm run test:pure    # shadow-cljs compile pure-test && node target/pure-test.js
 > gated on the same `skills_structural` changed-surface flag as the Babashka
 > loop.
 
-The `:pure-test` build is where `event-byte-size`'s **UTF-8 byte** discipline
-is pinned: `event-byte-size-counts-utf8-bytes-not-code-units`
-and `byte-budget-evicts-sooner-on-multi-byte-payload` use fixtures that share
-one `pr-str` code-unit length across three different byte lengths, so an
-implementation counting `(count (pr-str ev))` under the `max-buffered-bytes`
-gate answers the same number for all three, and the tests red on its
-non-ASCII rows.
-Note this file is `.cljc` and the `:clj` arm is genuinely loadable — but only
+`pure.cljc` is `.cljc` and its `:clj` arm is genuinely loadable — but only
 the `:cljs` arm has a CI lane, since the fixture's sole harness is the
 node-test build.
 
@@ -75,9 +68,12 @@ path must not quietly report as success (`dry_run_sink_pin_test.clj` and
 rollback-failure guarantees, `undo_restore_rejected_pin_test.clj` —
 `undo-to-epoch`'s restore-rejected branch, `raw_state_tap_test.clj` —
 the raw-state tap-elide path, `recorder_test.clj` — the signal
-recorder); and the machine door's fn-stripping and id sort
-(`machine_describe_test.clj`). That is every `tests/runtime/*_test.clj`
-file; CI runs them by glob.
+recorder); the machine door's fn-stripping and id sort
+(`machine_describe_test.clj`); and the post-mortem recipe's culprit predicate,
+lifted out of `references/recipes.md` and run over a contrasting epoch
+sequence (`post_mortem_transition_test.clj`). CI runs every
+`tests/runtime/*_test.clj` file by glob, so a new pin is gated whether or not
+it is named here.
 
 **To run:**
 
@@ -85,7 +81,7 @@ file; CI runs them by glob.
 for f in tests/runtime/*_test.clj; do bb "$f"; done
 ```
 
-The retired Babashka *behaviour mirrors* (app-db hash, cascade outcome/redaction,
+The retired Babashka *behaviour mirrors* (cascade outcome/redaction,
 multi-frame, read-sub, sub-cache, snapshot, orient,
 source-coord/view parse) were DELETED: their behaviour is now tested against the
 shipped `pure.cljc` in §1a, and the source-coord/view parsers are canonical

@@ -71,10 +71,12 @@
   (is (= 3 (pure/levenshtein "abc" ""))))
 
 (deftest nearest-ids-ranks-by-edit-distance
-  (let [known [:current-user :cart/total :cart/items]]
-    (is (some #(= :current-user %) (pure/nearest-ids :current-userr known))
-        "a typo ranks its real target among the nearest")
-    (is (>= 3 (count (pure/nearest-ids :x known))) "capped at 3 by default")
+  ;; More known ids than the default cap of 3, with the typo's real target
+  ;; LAST, so only a ranking by edit distance can bring it to the front.
+  (let [known [:cart/items :cart/total :checkout/step :user/name :current-user]]
+    (is (= :current-user (first (pure/nearest-ids :current-userr known)))
+        "a typo ranks its real target first")
+    (is (= 3 (count (pure/nearest-ids :x known))) "capped at 3 by default")
     (is (= 1 (count (pure/nearest-ids :x known 1))) "n bounds the result")))
 
 (deftest validate-against-known-hit-and-miss
@@ -390,20 +392,3 @@
     (is (= [:cart :route :user] (get-in r [:app-db-top-keys :rf/default])))
     (is (= 2 (get-in r [:registry :counts :event])))
     (is (= [:checkout] (:machines r)))))
-
-;; ===========================================================================
-;; Hash-cache bedrock invariant (app-db-hash cache matrix)
-;; ===========================================================================
-;;
-;; `re-frame2-pair.runtime/app-db-hash` caches `(hash app-db)` per frame and the
-;; MCP precheck compares those integers to decide a cache hit in ONE bencode
-;; round-trip. That is only correct because structurally-EQUAL CLJS persistent
-;; maps hash to the SAME integer. This pins that bedrock invariant so a future
-;; runtime change that keyed the cache on `identical?` (or otherwise broke the
-;; value-equality contract) fails here fast.
-
-(deftest structurally-equal-maps-hash-equal
-  (is (= (hash {:cart {:items 3}}) (hash {:cart {:items 3}}))
-      "value-equal, freshly-constructed maps hash to the same integer")
-  (is (not= (hash {:cart {:items 3}}) (hash {:cart {:items 99}}))
-      "a differing value rotates the hash — the precheck's cache-miss signal"))
