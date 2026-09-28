@@ -444,9 +444,10 @@
         (is (= :rf.error/fresco-bad-head (:rf.error/id (ex-data e))))))))
 
 (deftest an-empty-hiccup-vector-and-a-nonsense-head-are-loud-errors
-  ;; The prose is the CATALOGUED prose (the package's refusals are minted
-  ;; by `impl.error/fail!` under `check_complaint_catalogue.py`),
-  ;; so each row pins the id — the stable contract — beside the wording.
+  ;; The package's refusals are minted by `impl.error/fail!`, and
+  ;; `scripts/check_keyword_catalogue_drift.py` holds each emitted id and its
+  ;; Spec 009 row in step, so each row pins the id — the stable contract —
+  ;; beside the wording.
   (is (thrown-with-msg? js/Error #"must have a head" (rf.fresco.impl.codec/as-element [])))
   (is (= :rf.error/fresco-empty-vector
          (try (rf.fresco.impl.codec/as-element []) nil (catch :default e (:rf.error/id (ex-data e))))))
