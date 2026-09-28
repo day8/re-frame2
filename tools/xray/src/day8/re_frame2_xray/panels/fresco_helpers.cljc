@@ -153,9 +153,8 @@
   counting a skip as a memo hit and deriving *searched?* from recompute
   runs alone, `fresco-causal` collecting every tagged item in the same
   `:subs` slot without filtering operation — one tagged skip would make
-  the advisor report `:basis :cap` — *no search happened, raise the
-  retention knob* — about a window that had retained exactly that
-  evidence, while the causal slice reported the same event as an
+  the advisor report `:basis :cap` — *no search happened, reproduce and
+  read again* — about a window that had retained exactly that evidence, while the causal slice reported the same event as an
   evidenced *subscription recomputed*. Two definitions of *did work
   happen* produce that disagreement, and a third would be worse."
   #{:rf.sub/run})

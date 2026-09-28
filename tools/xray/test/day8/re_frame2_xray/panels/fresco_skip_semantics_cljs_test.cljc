@@ -10,8 +10,8 @@
   signal there is*. An advisor that derived `searched?` from recompute
   runs alone would report a retained window holding nothing but one
   tagged skip as `:basis :cap`, say *no search happened*, and tell the
-  programmer to **raise `:rf.trace/events-retained`** — enlarge a window
-  that had already retained the evidence. A link 2 that collected every
+  programmer the window is empty and to **reproduce the interaction** —
+  for evidence the window had already retained. A link 2 that collected every
   `:subs` item carrying an `:rf.sub/id` without filtering the operation
   would put the same skip in a roster labelled *subscriptions
   recomputed* under an `evidenced` chip. With exactly one skip, that
@@ -19,9 +19,9 @@
 
       {:memo-hits 1 :advisor-basis :cap :causal-holds [:a] :causal-evidenced true}
 
-  An advisor that sends a reader to the retention knob when the evidence
-  was already retained is worse than no advisor: it sends them to fix the
-  instrument instead of the code.
+  An advisor that calls a window empty when the evidence was already
+  retained is worse than no advisor: it sends the reader back to the
+  instrument instead of to the code.
 
   ## Why the rows below drive BOTH views from ONE window
 
@@ -159,15 +159,15 @@
                "what the window held"))
       (is (not= :cap (:basis cls))))
 
-    (testing "so the remedy is a change of INSTRUMENT, not a bigger ring"
+    (testing "so the remedy is a change of INSTRUMENT, not a fresh reproduction"
       (let [advice (:advice row)]
         (is (= :measure-first (:route advice)))
         (is (= :host-opaque (get-in advice [:refusal :reason])))
-        (is (not (string/includes? (:says cls) "events-retained"))
-            (str "the classification must not send the reader to the retention "
-                 "knob — the evidence it would be reaching for is already in "
-                 "the window"))
-        (is (not (string/includes? (:says advice) "events-retained"))
+        (is (not (string/includes? (:says cls) "reproduce the interaction"))
+            (str "the classification must not give the empty-window advice — "
+                 "the evidence it would be reaching for is already in the "
+                 "window"))
+        (is (not (string/includes? (:says advice) "reproduce the interaction"))
             "and neither must the remedy")))
 
     (testing "and the causal slice does NOT report the skip as a recompute"
@@ -389,14 +389,17 @@
 ;; The three states stay apart — a skip-only window is neither of the others
 ;; ---------------------------------------------------------------------------
 
-(deftest an-EMPTY-window-still-says-cap-and-still-sends-the-reader-to-the-knob
-  ;; The `:cap` sentence is right for a window that retained NOTHING — a
-  ;; boundary with no activity at all really does need a bigger ring.
+(deftest an-EMPTY-window-still-says-cap-and-sends-the-reader-to-reproduce
+  ;; The `:cap` sentence is right for a window that retained NOTHING — and
+  ;; a bigger ring cannot fill an empty window, so the remedy is to
+  ;; reproduce the interaction and read again, never to raise retention.
   (let [{:keys [row]} (both [[:app/main :a]] {:app/main []})
         cls (:class row)]
     (is (= :nothing (:observed cls)))
     (is (= :cap (:basis cls)))
-    (is (string/includes? (:says cls) "events-retained"))
+    (is (string/includes? (:says cls) "reproduce the interaction and read again"))
+    (is (not (string/includes? (:says cls) "events-retained"))
+        "a bigger buffer is not the remedy for an empty window")
     (is (string/includes? (:says cls) "no recompute and no memo hit")
         "and it names both absences, because both are absent")))
 
@@ -421,8 +424,8 @@
         (str "a registration is not activity. Nothing in this window touched "
              "the boundary's reads — no recompute and no memo hit"))
     (is (= :cap (:basis reg-only))
-        "so the honest answer is the FREE remedy: widen the window")
-    (is (string/includes? (:says reg-only) "events-retained"))
+        "so the honest answer is the FREE remedy: reproduce and read again")
+    (is (string/includes? (:says reg-only) "reproduce the interaction and read again"))
     (is (not (string/includes? (:says reg-only) "lowering, React or layout"))
         (str "and emphatically NOT the change-of-instrument sentence — a "
              "reader told to open React DevTools over a `reg-sub` has been "
@@ -452,9 +455,13 @@
         "what was OBSERVED is the axis, and it is carried in data")
     (is (= 3 (count (into #{} (map :says) all)))
         "three states, three sentences")
-    (is (= 1 (count (filter #(string/includes? (:says %) "events-retained") all)))
-        (str "and exactly ONE of them sends the reader to the retention knob — "
-             "the one whose window really is empty"))))
+    (is (= [true false false]
+           (mapv #(string/includes? (:says %) "reproduce the interaction") all))
+        (str "and exactly ONE of them sends the reader to reproduce the "
+             "interaction — the one whose window really is empty"))
+    (is (= 0 (count (filter #(string/includes? (:says %) "events-retained") all)))
+        (str "and none sends the reader to the retention knob: a bigger "
+             "buffer cannot fill an empty window"))))
 
 ;; ---------------------------------------------------------------------------
 ;; What holds independently of the skip rules
