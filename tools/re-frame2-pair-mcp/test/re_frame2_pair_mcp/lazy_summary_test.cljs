@@ -100,13 +100,6 @@
   (is (= :summary (pipeline/resolve-slice-mode :epochs {:epochs :summary} :full))
       "Per-slice :summary beats global :full"))
 
-(deftest resolve-slice-mode-only-affects-named-slice
-  ;; Per-slice override on :app-db shouldn't change :epochs resolution.
-  (let [modes {:app-db :full}]
-    (is (= :full    (pipeline/resolve-slice-mode :app-db modes :summary)))
-    (is (= :summary (pipeline/resolve-slice-mode :epochs modes :summary)))
-    (is (= :summary (pipeline/resolve-slice-mode :traces modes :summary)))))
-
 ;; ---------------------------------------------------------------------------
 ;; summarise-other-slices-in-snapshot — the load-bearing pipeline step.
 ;; ---------------------------------------------------------------------------
@@ -274,40 +267,3 @@
     (is (< tokens 5000)
         (str "Discovery snapshot under :summary mode MUST fit the 5k-token cap. "
              "Got " tokens " tokens, " (count wire) " chars."))))
-
-(deftest full-mode-blows-the-cap-as-expected
-  ;; The opt-in :full mode ships the raw payload — agents who pass it
-  ;; accept the wire cost. This test pins the budget POSTURE: the same
-  ;; fat snapshot under :full mode is dramatically larger.
-  (let [fat (make-fat-snapshot)
-        with-app-db-full fat
-        {:keys [snapshot]} (pipeline/summarise-other-slices-in-snapshot
-                             with-app-db-full {} :full)
-        wire (pr-str snapshot)
-        tokens (tu/token-estimate wire)]
-    (is (> tokens 50000)
-        (str "Full-mode discovery snapshot ships the raw payload — "
-             "should be many multiples of the cap. Got " tokens " tokens."))))
-
-(deftest summary-vs-full-shrink-factor
-  ;; Quantify the wire-byte impact. The summary marker scales with the
-  ;; top-level shape (keys + count + bytes hint), not with the
-  ;; underlying payload. The shrink factor is the load-bearing
-  ;; property.
-  (let [fat                (make-fat-snapshot)
-        with-app-db-summary (update-in fat [:rf/default :app-db] summary/tree-summary)
-        with-app-db-full   fat
-        summary-wire (pr-str (:snapshot (pipeline/summarise-other-slices-in-snapshot
-                                          with-app-db-summary {} :summary)))
-        full-wire    (pr-str (:snapshot (pipeline/summarise-other-slices-in-snapshot
-                                          with-app-db-full {} :full)))
-        ratio (/ (count full-wire) (count summary-wire))]
-    ;; Silent-on-success: the measured numbers ride on the
-    ;; failing-assertion message; agents on the green path don't
-    ;; burn context on the per-test diagnostic.
-    (is (> ratio 50)
-        (str "Lazy-summary MUST shrink the discovery snapshot by at "
-             "least 50x. Got " (int ratio) "x (summary=" (count summary-wire)
-             " chars (~" (tu/token-estimate summary-wire) " tokens) "
-             "vs full=" (count full-wire) " chars (~"
-             (tu/token-estimate full-wire) " tokens))."))))

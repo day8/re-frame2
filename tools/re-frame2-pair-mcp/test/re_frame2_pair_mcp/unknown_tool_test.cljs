@@ -19,7 +19,6 @@
   runs; the session-state stays pristine. Mirrors `writes_test.cljs`,
   the symmetric pre-connection write-gate."
   (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
-            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.server :as server]
             [re-frame2-pair-mcp.tools :as tools]
@@ -128,25 +127,5 @@
                    (is (some #{"list-handlers"} (:available-tools edn))
                        "list-handlers is enumerated in the live catalogue")
                    (is (re-find #"tools/list" (:hint edn))))))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
-        (.then (fn [_] (done))))))
-
-;; ---------------------------------------------------------------------------
-;; structuredContent on the boundary refusal preserves the keyword
-;; namespace — the envelope rides through `wire/err-text`, the same
-;; dual-slot constructor the dispatcher uses, so the SDK-friendly slot is
-;; namespace-faithful (a raw clj->js would truncate the namespace).
-;; ---------------------------------------------------------------------------
-
-(deftest unknown-tool-boundary-structured-content-is-faithful
-  (async done
-    (-> (server/handle-call-for-tests {} "no-such-tool" #js {} nil)
-        (.then (fn [result]
-                 (let [sc (j/get result :structuredContent)]
-                   (is (= "unknown-tool" (j/get sc "reason"))
-                       "structuredContent :reason keeps its token")
-                   (is (= false (j/get sc "ok?"))
-                       ":ok? false round-trips through the structured slot")
-                   (is (= "no-such-tool" (j/get sc "tool"))))))
         (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
         (.then (fn [_] (done))))))

@@ -60,14 +60,13 @@
 ;;
 ;; Eval-form composition for the snapshot tool (walking BOTH `:app-db`
 ;; and `:sub-cache` through `re-frame.core/project-egress`, threading
-;; `:include-sensitive` into the walker's opt) is pinned in
-;; `re-frame2-pair-mcp.elision-test` via the production `build-snapshot-form`
-;; mirror — see `snapshot-form-walks-both-app-db-and-sub-cache` and
-;; `snapshot-form-threads-include-sensitive`.
+;; `:include-sensitive` into the walker's opt) is pinned against the real
+;; tool form by the conformance corpus's `:raw-state/snapshot-*` fixtures
+;; and by `re-frame2-pair-mcp.egress-elision-test`'s `snapshot-*` tests.
 ;;
 ;; Async stub isolation: tests that stub a tool fn restore it from a
 ;; `use-fixtures` `:after` step rather than a Promise `.finally`, so
 ;; cleanup is Promise-chain-independent and a `.finally` can't outrun a
-;; test's `(done)` and leak the stub into the next async test. The
-;; mirror approach here keeps this suite stub-free for full isolation.
+;; test's `(done)` and leak the stub into the next async test. This
+;; suite stubs nothing, so it needs no such fixture.
 ;; ---------------------------------------------------------------------------

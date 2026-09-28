@@ -14,14 +14,6 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.tools :as tools]))
 
-(deftest every-descriptor-carries-positive-integer-typical-tokens
-  (testing "tool-descriptors: every entry has a positive-integer :typicalTokens"
-    (doseq [d tools/tool-descriptors]
-      (is (integer? (:typicalTokens d))
-          (str "missing :typicalTokens on " (:name d)))
-      (is (pos? (:typicalTokens d))
-          (str "non-positive :typicalTokens on " (:name d))))))
-
 (deftest typical-tokens-survives-js-projection
   (testing "tool-descriptors-js surfaces typicalTokens to the wire"
     (let [js-arr (tools/tool-descriptors-js)

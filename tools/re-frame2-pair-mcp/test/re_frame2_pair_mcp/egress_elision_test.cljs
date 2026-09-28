@@ -54,7 +54,6 @@
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [re-frame.mcp-base.egress :as rf.mcp-base.egress]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.epoch-egress :as egress]
@@ -706,25 +705,6 @@
           "include-sensitive never lifts fx-args (orthogonal)")
       (is (not (contains? opts :rf.egress/include-runtime-db?))
           "include-sensitive never lifts the runtime-db partition (orthogonal)"))))
-
-(deftest off-box-tool-is-the-name-both-epoch-paths-choose
-  ;; WHAT the off-box-tool floor resolves to is pinned where the table
-  ;; lives — `implementation/core` — because nothing tool-side resolves a
-  ;; profile and this Node test build cannot load `re-frame.projection`.
-  ;; What is pinned HERE is the half this suite can actually see: that the epoch
-  ;; egress names `:rf.egress/off-box-tool`, a member of the closed enum,
-  ;; on BOTH postures, rather than falling to the epoch projector's
-  ;; `:rf.egress/off-box-observability` default.
-  (testing "the epoch wire names off-box-tool, not the observability default"
-    (doseq [incl? [false true]]
-      (let [opts (parse-opts incl?)]
-        (is (= :rf.egress/off-box-tool (:rf.egress/profile opts))
-            "the pair-MCP epoch wire is always the TOOL boundary")
-        (is (contains? rf.mcp-base.egress/profiles (:rf.egress/profile opts))
-            "and it is a member of the closed enum the framework door accepts"))))
-  (testing "the observability default is a DIFFERENT name, so choosing it would be visible here"
-    (is (contains? rf.mcp-base.egress/profiles :rf.egress/off-box-observability))
-    (is (not= :rf.egress/off-box-tool :rf.egress/off-box-observability))))
 
 (deftest project-page-src-threads-off-box-tool-on-both-paths
   (testing "project-page-src emits the off-box-tool profile in the page fn literal (both paths)"

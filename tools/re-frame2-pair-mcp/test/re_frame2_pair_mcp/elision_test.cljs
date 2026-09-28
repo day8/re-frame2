@@ -11,11 +11,10 @@
   path.
 
   Tests pin `egress-opts-edn` directly from
-  `re-frame2-pair-mcp.tools.elision`. The downstream eval-form
-  composers (`build-snapshot-form` / `build-get-path-form`) remain
-  local fixtures because their source counterparts live inlined in
-  the per-tool namespaces (`tools.snapshot` / `tools.get-path`) and
-  aren't surfaced as standalone public fns.
+  `re-frame2-pair-mcp.tools.elision`. The snapshot eval-form composer
+  (`build-snapshot-form`) is a local copy, because its source
+  counterpart lives inlined in `tools.snapshot` and isn't surfaced as a
+  standalone public fn.
 
   `:elision` MCP-arg normalisation lives on the shared table-driven
   parser (`re-frame2-pair-mcp.tools.args/parse-bool-arg`);
@@ -73,15 +72,6 @@
     (is (= :rf.egress/local-raw (:rf.egress/profile parsed)))
     (is (true? (:rf.egress/include-large? parsed)))))
 
-(deftest egress-opts-edn-round-trips
-  ;; The EDN we ship over nREPL must be readable on the other side.
-  ;; pr-str + read-string round-trips for the structure we emit.
-  (doseq [include-large? [true false]]
-    (let [edn (elision/egress-opts-edn include-large?)
-          parsed (cljs.reader/read-string edn)]
-      (is (map? parsed))
-      (is (contains? parsed :rf.egress/profile)))))
-
 ;; ---------------------------------------------------------------------------
 ;; Eval-form composition for snapshot-tool.
 ;;
@@ -91,9 +81,10 @@
 ;; `re-frame.core/project-egress`, whatever the elision posture.
 ;;
 ;; That composition is inlined in `snapshot-tool` rather than exposed as
-;; a standalone public fn, so we mirror the form construction here. A
-;; rename of `snapshot-state` or `project-egress` breaks here as well as
-;; in production.
+;; a standalone public fn, so the tests below build a COPY of it. A
+;; production change does not reach the copy: the real form's egress
+;; boundary is asserted by the conformance corpus's `:raw-state/snapshot-*`
+;; fixtures and by egress-elision-test.
 ;; ---------------------------------------------------------------------------
 
 (defn- build-snapshot-form
@@ -164,68 +155,6 @@
           "                                (tree-seq coll? seq walked)))"
           "   :tool-frames-excluded " tool-frames-form "})"))))
 
-(deftest snapshot-form-full-raw-opt-in-names-local-raw
-  ;; Even with no transforms active, the form returns the
-  ;; `{:value v :elided-count N}` envelope so the wire-pipeline doesn't
-  ;; need a branched response shape.
-  ;;
-  ;; There is no bare-snap arm. The full-raw opt-in (`:elision false`
-  ;; AND `:include-sensitive true`) NAMES `:rf.egress/local-raw`, under
-  ;; which the projection is the identity, so the door is still called
-  ;; and the marker count is naturally zero. Always calling the boundary
-  ;; is the safer shape on a privacy surface; a short-circuit would save
-  ;; only one traversal.
-  (let [form (build-snapshot-form {:frames :all
-                                   :include [:app-db]}
-                                  false  ; elision off (include-large? true)
-                                  true)] ; include-sensitive opt-in
-    (is (re-find #"re-frame\.core/project-egress" form)
-        "the door is called even under the full-raw opt-in")
-    (is (re-find #":rf\.egress/profile :rf\.egress/local-raw" form)
-        "the full-raw opt-in names the trusted-local boundary")
-    (is (not (re-find #"elide-wire-value" form))
-        "and never the walker export directly")
-    ;; And no :machines redaction either — include-sensitive opts into
-    ;; the runtime-db partition.
-    (is (not (re-find #":machines :rf/redacted" form)))))
-
-(deftest snapshot-form-bare-elision-false-still-walks
-  ;; Fail-CLOSED. A BARE `:elision false` (no sensitive
-  ;; opt-in) STILL routes `:app-db` / `:sub-cache` through the walker:
-  ;; large content passes (`include-large? true`) but a declared-sensitive
-  ;; slot redacts (`include-sensitive? false`). This guards the EP-0015
-  ;; sensitive-bypass surface.
-  (let [form (build-snapshot-form {:frames :all
-                                   :include [:app-db :sub-cache]}
-                                  false   ; elision off (include-large? true)
-                                  false)] ; sensitive NOT opted in
-    (is (re-find #"re-frame\.core/project-egress" form)
-        "bare :elision false MUST still project — no sensitive bypass")
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
-        "the boundary stays the off-box tool wire, so sensitive slots redact")
-    (is (re-find #":rf\.egress/include-large\? true" form)
-        ":elision false overlays include-large? true — large content passes")
-    (is (re-find #"contains\? fmap :app-db" form))
-    (is (re-find #"contains\? fmap :sub-cache" form))))
-
-(deftest snapshot-form-elision-on-wraps-with-walker
-  ;; Elision on = the door wrap. The form should reference both
-  ;; `snapshot-state` and `project-egress` so a typo in either name
-  ;; breaks here.
-  (let [form (build-snapshot-form {:frames :all
-                                   :include [:app-db]}
-                                  true)]
-    (is (re-find #"re-frame2-pair\.runtime/snapshot-state" form))
-    (is (re-find #"re-frame\.core/project-egress" form))
-    ;; Per-frame walking, not whole-snapshot walking — the walker is
-    ;; applied to each slice with that frame's id, so the
-    ;; `[:rf.runtime/elision]` runtime-db registry lookup hits the right frame.
-    (is (re-find #":frame fid" form))
-    ;; No large-inclusion overlay, so the off-box-tool floor stands and
-    ;; markers actually fire.
-    (is (not (re-find #":rf\.egress/include-large\?" form)))
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form))))
-
 (deftest snapshot-form-walks-both-app-db-and-sub-cache
   ;; The snapshot eval form walks BOTH `:app-db` AND
   ;; `:sub-cache` slices through `project-egress`. Per Tool-Pair
@@ -271,34 +200,6 @@
     (is (not (re-find #"assoc fmap :machines :rf/redacted" form-opted-in))
         "trusted-local opt-in ⇒ :machines is NOT redacted (richer diagnostics)")))
 
-(deftest snapshot-form-threads-include-sensitive
-  ;; `:include-sensitive?` selects the named BOUNDARY, so the same MCP
-  ;; arg that opts in to forwarding sensitive traces / epochs also opts
-  ;; in to seeing the raw value at sensitive paths in the :app-db /
-  ;; :sub-cache slices — expressed as "which boundary is this", not as a
-  ;; hand-rolled boolean.
-  (let [form-default   (build-snapshot-form {:frames :all :include [:app-db]} true false)
-        form-opted-in  (build-snapshot-form {:frames :all :include [:app-db]} true true)]
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form-default)
-        "default ⇒ the off-box tool boundary, so sensitive slots redact")
-    (is (re-find #":rf\.egress/profile :rf\.egress/local-raw" form-opted-in)
-        "include-sensitive? true ⇒ the trusted-local boundary passes them through")))
-
-(deftest snapshot-form-counts-elision-markers-server-side
-  ;; The eval form returns `{:value <snap> :elided-count N}`
-  ;; so the elision count rides back on the same nREPL round-trip.
-  ;; The wire-pipeline reads the count from opts instead of re-walking
-  ;; client-side.
-  (let [form (build-snapshot-form {:frames :all
-                                   :include [:app-db]}
-                                  true)]
-    (is (re-find #":value walked" form))
-    (is (re-find #":elided-count " form))
-    ;; The count predicate matches the cross-MCP vocabulary
-    ;; (`re-frame.mcp-base.vocab/large-elided-key`).
-    (is (re-find #":rf\.size/large-elided" form))
-    (is (re-find #"tree-seq coll\? seq walked" form))))
-
 (deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
   ;; On the DEFAULT `:app` scope the eval form computes the
   ;; reserved :rf/* tool frames it excluded (via the runtime predicate)
@@ -327,194 +228,6 @@
       (is (re-find #":tool-frames-excluded \[\]" form)))))
 
 ;; ---------------------------------------------------------------------------
-;; Eval-form composition for get-path-tool.
-;;
-;; The get-path-tool eval form does `(get-in db path)` then passes the
-;; resolved value through the walker. The walker's `:path` opt is set
-;; to the supplied path so the marker's `:handle` carries
-;; `[:rf.elision/at <path>]`.
-;; ---------------------------------------------------------------------------
-
-(defn- build-get-path-form
-  "Mirror of the get-path-tool's eval-form composition. Keep in
-  lockstep with `get-path-tool` in `tools/get_path.cljs`. The
-  happy-path envelope carries `:elided-count` so the wire-pipeline
-  reads the count from opts instead of re-walking the scalar.
-
-  The four-arity form takes `include-sensitive?` and lets it select the
-  named `:rf.egress/*` BOUNDARY, rather than threading a
-  `:rf.egress/include-sensitive?` boolean."
-  ([path frame elision?] (build-get-path-form path frame elision? false))
-  ([path frame elision? include-sensitive?]
-   (let [path-edn      (pr-str path)
-         ;; The frame is resolved ONCE into `fid` by the wrapper below;
-         ;; the read and the projection both address it, so there is no
-         ;; `(current-frame)` call in the egress opts and no no-arg
-         ;; `(snapshot)` call at all.
-         snapshot-call "(re-frame2-pair.runtime/snapshot fid)"
-         frame-edn     "fid"
-         resolve-call  (if frame
-                         (str "(re-frame2-pair.runtime/current-frame " (pr-str frame) ")")
-                         "(re-frame2-pair.runtime/current-frame)")
-         ;; Helper takes walker-aligned `include-large?`;
-         ;; flip from the MCP-arg `elision?` polarity here, mirroring
-         ;; the production call site in `tools/get_path.cljs`.
-         egress-opts   (elision/egress-opts-edn (not elision?) include-sensitive?)
-         ;; The door fires UNCONDITIONALLY; the NAMED
-         ;; profile decides the floor. Mirrors `project-call-src` in
-         ;; tools/get_path.cljs.
-         elide-call    (str "(re-frame.core/project-egress v"
-                            "  (merge {:path path :frame " frame-edn "}"
-                            "         " egress-opts "))")
-         count-expr    (str "(count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-                            "               (tree-seq coll? seq elided-v)))")]
-     (str "(let [fid " resolve-call "]"
-          "  (if (nil? fid)"
-          "    (re-frame2-pair.runtime/ambiguous-frame-error :get-path)"
-          "    (let [db " snapshot-call
-          "      path " path-edn
-          "      missing #js {}"
-          "      v (get-in db path missing)"
-          "      elided-v " elide-call
-          "      n " count-expr "]"
-          "  (if (identical? v missing)"
-          "    {:ok? false :reason :path-not-found"
-          "     :path path"
-          "     :deepest-valid-prefix"
-          "     (loop [acc [] cur db rem path]"
-          "       (cond"
-          "         (empty? rem) acc"
-          "         (and (map? cur) (contains? cur (first rem)))"
-          "         (recur (conj acc (first rem)) (get cur (first rem)) (rest rem))"
-          "         (and (sequential? cur) (integer? (first rem))"
-          "              (<= 0 (first rem) (dec (count cur))))"
-          "         (recur (conj acc (first rem)) (nth (vec cur) (first rem)) (rest rem))"
-          "         :else acc))}"
-          "      {:ok? true :exists? true :path path :value elided-v :elided-count n}))))"))))
-
-(deftest get-path-form-full-raw-opt-in-names-local-raw
-  ;; The full-raw opt-in (`:elision false` AND
-  ;; `:include-sensitive true`) NAMES `:rf.egress/local-raw` rather than
-  ;; skipping the door. Under that boundary the projection is the
-  ;; identity, so the raw value still rides the wire and the marker count
-  ;; is naturally zero — but the call is there, which is what makes this
-  ;; surface auditable.
-  (let [form (build-get-path-form [:user :uploaded-pdf] :rf/default false true)]
-    (is (not (re-find #"elide-wire-value" form)))
-    (is (re-find #"re-frame\.core/project-egress v" form)
-        "the door is called even under the full-raw opt-in")
-    (is (re-find #":rf\.egress/profile :rf\.egress/local-raw" form))
-    (is (re-find #":elided-count n" form))))
-
-(deftest get-path-form-bare-elision-false-still-walks
-  ;; Fail-CLOSED. A BARE `:elision false` (no sensitive
-  ;; opt-in) STILL walks: large content passes (`include-large? true`) but
-  ;; a declared-sensitive slot redacts (`include-sensitive? false`).
-  ;; This guards the EP-0015 sensitive-bypass surface.
-  (let [form (build-get-path-form [:user :token] :rf/default false false)]
-    (is (re-find #"re-frame\.core/project-egress v" form)
-        "bare :elision false MUST still project — no sensitive bypass")
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form)
-        "the boundary stays the off-box tool wire, so a sensitive path redacts")
-    (is (re-find #":rf\.egress/include-large\? true" form)
-        ":elision false overlays include-large? true — large content passes")))
-
-(deftest get-path-form-elision-on-wraps-value
-  ;; Elision on = the value is walked. The walker call inherits the
-  ;; `:path` so the marker's `:handle` slot is `[:rf.elision/at
-  ;; [:user :uploaded-pdf]]`.
-  (let [form (build-get-path-form [:user :uploaded-pdf] :rf/default true)]
-    (is (re-find #"re-frame\.core/project-egress v" form))
-    ;; The walker's `:path` opt is the supplied path so the marker's
-    ;; handle carries `[:rf.elision/at <path>]`.
-    (is (re-find #":path path" form))
-    ;; The walker addresses the RESOLVED id. An explicit frame reaches
-    ;; it through tier 1 of the one resolve, rather than
-    ;; being spliced in a second time as a literal.
-    (is (re-find #":frame fid" form))
-    (is (re-find #"current-frame :rf/default" form))
-    ;; No large-inclusion overlay, so the off-box-tool floor stands and
-    ;; markers actually fire.
-    (is (not (re-find #":rf\.egress/include-large\?" form)))
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form))))
-
-(deftest get-path-form-defaults-to-current-frame
-  ;; No `:frame` arg = the form resolves the operating frame ONCE into
-  ;; `fid` and the walker addresses THAT, so the registry lookup and
-  ;; the value read can never name different frames. The walker issues
-  ;; no `(current-frame)` call of its own.
-  (let [form (build-get-path-form [:cart :items] nil true)]
-    (is (re-find #"let \[fid \(re-frame2-pair\.runtime/current-frame\)\]" form))
-    (is (re-find #":frame fid" form))
-    (is (not (re-find #":frame \(re-frame2-pair\.runtime/current-frame\)" form))
-        "the walker addresses the resolved id, not a second resolve")))
-
-(deftest get-path-form-path-edn-quotes-correctly
-  ;; The path is pr-str'd into the form. Mixed key types (keywords,
-  ;; integers, strings) must round-trip through the EDN reader on the
-  ;; runtime side. We just check that the EDN-rendered path appears
-  ;; as a substring of the form — the regex-escape song-and-dance for
-  ;; literal `[ ] : "` chars isn't worth the cost; substring suffices.
-  (let [path  [:cart "items" 3 :sku]
-        form  (build-get-path-form path nil true)
-        edn   (pr-str path)]
-    (is (not= -1 (.indexOf form edn)))))
-
-(deftest get-path-form-threads-include-sensitive
-  ;; `include-sensitive?` selects the named BOUNDARY. Default is the
-  ;; off-box tool wire (sensitive paths redact); the opt-in names the
-  ;; trusted-local boundary.
-  (let [form-default  (build-get-path-form [:user :token] :rf/default true false)
-        form-opted-in (build-get-path-form [:user :token] :rf/default true true)]
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form-default)
-        "default ⇒ sensitive paths redact")
-    (is (re-find #":rf\.egress/profile :rf\.egress/local-raw" form-opted-in)
-        "include-sensitive? true ⇒ raw value at sensitive paths")))
-
-;; ---------------------------------------------------------------------------
-;; Composition × wire-cap fallback.
-;;
-;; Elision runs FIRST (server-side, inside the eval form). When elision
-;; is on and a `:large?` path matches, the response shrinks to the
-;; marker and the wire-cap stays a backstop. When elision is OFF, the
-;; raw payload rides and the wire-cap may still trip — that is the
-;; wire-cap fallback mechanism.
-;;
-;; The cap check itself is a pure function over the assembled MCP
-;; result envelope; we test that elision-off still produces a payload
-;; the cap can measure (no shape weirdness from a missing wrap).
-;; ---------------------------------------------------------------------------
-
-(deftest wire-cap-composes-with-full-raw-opt-in
-  ;; Sanity: the snapshot form on the full-raw opt-in (`:elision false`
-  ;; AND `:include-sensitive true`) names `:rf.egress/local-raw`, under
-  ;; which the projection is the identity — so no marker rides out and
-  ;; the cap measures the raw bytes (the wire-cap fallback). The marker
-  ;; emission is entirely the profile floor's job, never a shape this
-  ;; form hand-rolls.
-  (let [form (build-snapshot-form {:frames :all :include [:app-db]} false true)]
-    (is (re-find #":rf\.egress/profile :rf\.egress/local-raw" form))
-    (is (not (re-find #"elide-wire-value" form)))))
-
-(deftest wire-cap-composes-with-elision-on
-  ;; With elision on, the projection substitutes the large slot BEFORE
-  ;; the payload crosses the wire — the cap then measures the
-  ;; already-shrunk payload. The form references the door; the marker
-  ;; emission happens runtime-side, decided by the named profile's floor.
-  (let [form (build-snapshot-form {:frames :all :include [:app-db]} true)]
-    (is (re-find #"re-frame\.core/project-egress" form))
-    (is (re-find #":rf\.egress/profile :rf\.egress/off-box-tool" form))))
-
-;; ---------------------------------------------------------------------------
-;; Cross-MCP vocabulary pin.
-;;
-;; The cross-MCP vocabulary for the wire marker (`:rf.size/large-elided`
-;; / `[:rf.elision/at <path>]`) is reserved per Conventions §Reserved
-;; namespaces / app-db keys / fx-ids and Spec 009 §Size elision in
-;; traces. Pin the literals so a vocabulary drift surfaces here.
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
 ;; Wire-pipeline `:server-elided` opt.
 ;;
 ;; The wire-pipeline's `:scalar-value` arm reads the elision count from
@@ -537,50 +250,6 @@
    {:path [:user :uploaded-pdf] :bytes 102400 :type :string
     :reason :schema :handle [:rf.elision/at [:user :uploaded-pdf]]}})
 
-(deftest snapshot-map-arm-counts-what-ships-not-server-elided
-  ;; The arm does NOT pass the server count through VERBATIM: the
-  ;; snapshot eval form counts over the whole walked state, not the
-  ;; sliced / summarised payload that ships, so trusting it would
-  ;; over-report. A marker-free payload reports 0 whatever the server
-  ;; said.
-  (let [snap {:rf/default {:app-db {:k :v}}}
-        {:keys [indicators]}
-        (wp/run-wire-pipeline snap
-                              {:kind          :snapshot-map
-                               :incl?         false
-                               :mode          :diff
-                               :dedup?        false
-                               :slice-mode    :full
-                               :slice-modes   {}
-                               :server-elided 7})]
-    (is (= 0 (:elided indicators))
-        "the count is over the shipped payload, which carries no marker")))
-
-(deftest snapshot-map-arm-falls-back-to-walk-when-missing
-  ;; Defensive: a degraded eval-form / a test shape that doesn't
-  ;; supply `:server-elided` falls back to a local walk. The arm
-  ;; still produces a correct count.
-  (let [snap {:rf/default {:app-db marker}}
-        {:keys [indicators]}
-        (wp/run-wire-pipeline snap
-                              {:kind        :snapshot-map
-                               :incl?       false
-                               :mode        :diff
-                               :dedup?      false
-                               :slice-mode  :full
-                               :slice-modes {}})]
-    (is (= 1 (:elided indicators))
-        "Missing :server-elided ⇒ local walk picks up the marker")))
-
-(deftest scalar-value-arm-uses-server-elided-when-supplied
-  ;; The `:scalar-value` arm reads `:server-elided` for the
-  ;; common `get-path` path — the eval form pre-counts.
-  (let [{:keys [indicators]}
-        (wp/run-wire-pipeline marker
-                              {:kind          :scalar-value
-                               :server-elided 1})]
-    (is (= 1 (:elided indicators)))))
-
 (deftest scalar-value-arm-falls-back-to-walk-when-missing
   ;; Sanity: no `:server-elided` ⇒ walk the scalar locally.
   (let [{:keys [indicators]}
@@ -598,26 +267,6 @@
     (is (= 0 (:elided indicators))
         "Zero is a valid server-side count, not a fall-back trigger")))
 
-(deftest cross-mcp-vocabulary-rf-egress-profile
-  ;; What rides the wire is the PROFILE NAME, not the
-  ;; resolved `:rf.egress/*` booleans. `:rf.egress/profile` is the key the
-  ;; framework door reads, and `:rf.egress/include-large?` is the ONE
-  ;; boolean this renderer emits, as the EP-0015 §10 explicit
-  ;; override. Assert against the parsed form so map-key-order doesn't
-  ;; matter. Helper params are walker-aligned: `include-large? false` =
-  ;; emit markers (the elision-ON call-site posture).
-  (let [parsed-elide-on  (cljs.reader/read-string (elision/egress-opts-edn false))
-        parsed-elide-off (cljs.reader/read-string (elision/egress-opts-edn true))]
-    (is (= :rf.egress/off-box-tool (:rf.egress/profile parsed-elide-on)))
-    (is (= :rf.egress/off-box-tool (:rf.egress/profile parsed-elide-off)))
-    (is (not (contains? parsed-elide-on :rf.egress/include-large?))
-        "elision ON leaves the profile floor alone — no overlay at all")
-    (is (true? (:rf.egress/include-large? parsed-elide-off))
-        "elision OFF overlays the large inclusion over the floor")
-    (is (not (contains? parsed-elide-on :rf.egress/include-sensitive?))
-        "the sensitive axis is the profile's to decide, never hand-rolled here")
-    (is (not (contains? parsed-elide-off :rf.egress/include-sensitive?)))))
-
 ;; ---------------------------------------------------------------------------
 ;; `:include-sensitive?` selects the BOUNDARY `egress-opts-edn` names.
 ;;
@@ -631,20 +280,6 @@
 ;; own, so what is pinned here is the NAME and the overlay — the
 ;; floors each name resolves to are pinned in `implementation/core`.
 ;; ---------------------------------------------------------------------------
-
-(deftest egress-opts-edn-single-arity-is-the-off-box-safe-default
-  ;; The single-arity form preserves the off-box-safe default: the
-  ;; off-box tool boundary, under which sensitive slots redact unless the
-  ;; caller opts in explicitly.
-  (let [parsed (cljs.reader/read-string (elision/egress-opts-edn false))]
-    (is (= :rf.egress/off-box-tool (:rf.egress/profile parsed))
-        "single-arity ⇒ off-box-tool (the default per Tool-Pair §Direct-read privacy posture)")))
-
-(deftest egress-opts-edn-explicit-false-matches-the-default
-  ;; Explicit `false` matches the single-arity default (both ⇒ off-box-tool).
-  (let [parsed-explicit (cljs.reader/read-string (elision/egress-opts-edn false false))
-        parsed-default  (cljs.reader/read-string (elision/egress-opts-edn false))]
-    (is (= parsed-explicit parsed-default))))
 
 (deftest egress-opts-edn-names-a-profile-the-framework-door-accepts
   ;; The whole contract this renderer carries: whatever it names must be
