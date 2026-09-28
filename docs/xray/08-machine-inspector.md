@@ -4,11 +4,11 @@ A state machine did something you did not expect. A generic logger can tell you 
 
 ## Dynamic Machine
 
-The Dynamic Machine tab shows the one machine the focused event targeted. A header line names the trigger event, the machine and the state it was in, and numbered rows follow in the order the machine ran them, the same rows the Epoch tab shows under EVENT HANDLER:
+The Dynamic Machine tab shows the one machine the focused event targeted. A header line (1 in the screenshot) names the trigger event, the machine and the state it was in, and numbered rows follow in the order the machine ran them, the same rows the Epoch tab shows under EVENT HANDLER:
 
 - **GUARD** for each guard the machine checked;
 - **ACTION** for each action, labelled by when it ran, such as **EXIT ACTION** or **ENTRY ACTION**, with the data it produced;
-- **TRANSITION** with the state and tags before and after;
+- **TRANSITION** with the state and tags before and after (2);
 - **ALWAYS** for an eventless `:always` transition, and **TIMER** for an `:after` timer;
 - **START** when the event created the machine, and **NO OP** when the machine had no transition for the event.
 
@@ -16,9 +16,9 @@ When a destroyed child actor aborts work it had in flight, that cancellation cas
 
 If the focused event did not target a machine, the tab reads only "This event does not target a state machine".
 
-Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. The chart has its own zoom, pan and fit controls. **◀ Prev** and **Next ▶** step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
+Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. The chart has its own zoom, pan and fit controls. **◀ Prev** and **Next ▶** (3) step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
 
-![The Machine tab for a :door/push event: an exit action, the :closed → :open transition, and an entry action, with the chart below](../images/xray/xray-tutorial-machine.png)
+![The Machine tab for a :door/push event, numbered: 1 the header naming the trigger, machine and state, 2 the :closed → :open transition between an exit action and an entry action, 3 the Prev and Next buttons](../images/xray/xray-tutorial-machine.png)
 
 ## Static machines
 

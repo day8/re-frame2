@@ -107,9 +107,9 @@ cd implementation
 npx shadow-cljs watch :examples/standard-epochs
 ```
 
-Open `http://localhost:8031` and press **⏭ Step** on the left a few times. Xray is open on the right, and its event list fills with rows.
+Open `http://localhost:8031` and press **⏭ Step** on the left a few times. Xray is open on the right: its ribbon (1 in the screenshot), the event list (2), which fills with a row per event, the tab strip (3) and the detail panel (4).
 
-![The standard-epochs testbed on the left after five steps, with Xray open on the right](../images/xray/xray-tutorial-shell.png)
+![The standard-epochs testbed on the left after five steps, with Xray open on the right and its four parts numbered: 1 the ribbon, 2 the event list, 3 the tab strip, 4 the detail panel](../images/xray/xray-tutorial-shell.png)
 
 ## Troubleshooting
 
@@ -129,19 +129,13 @@ Then run `window.day8.re_frame2_xray.status()` in the browser console. Its `:dia
 
 ## Clickable jump-to-source
 
-Every panel that surfaces a source-coord renders it as a link, such as `reg-event ↗` in Epoch or a ↗ after a Trace row's target. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, no editor is configured: the link targets the `:vscode` default scheme, but if that is not your editor the OS has no handler for it and the click would silently go nowhere. So an unconfigured click shows a **"No editor configured" hint** instead: a small bottom-corner toast with an **Open Settings** button that lands you on the editor picker. Once an editor is configured, in Settings or at boot, the click navigates straight to source and the hint never fires.
-
-Set your editor either in **Xray Settings** (the "Click-to-source links open in" picker on the General tab, stored per developer in localStorage, so each teammate can pick their own), or once at boot in code:
+Source locations in Xray are links, such as `reg-event ↗` in Epoch or a ↗ after a Trace row's target. They open in your editor once Xray knows which editor you use; until then, a click shows a "No editor configured" hint with a button to the editor picker. Pick your editor in Settings → General, or set a project default at boot:
 
 ```clojure
-(require '[day8.re-frame2-xray.config :as xray-config])
 (xray-config/configure! {:rf.xray/editor :cursor})
-;; :vscode (default) | :cursor | :windsurf | :zed | :idea | {:custom "<uri-template>"}
 ```
 
-The Settings picker overrides the boot-time `configure!` value on that machine, so a mixed-editor team sets a project default in code and each developer overrides it locally.
-
-`:rf.xray/project-root` is **only** needed when your stamped source-coords are classpath-*relative* (an editor cannot resolve a relative path). The normal `reg-*` / `reg-machine` registration path stamps **absolute** coords, which Xray ships verbatim — leave `:rf.xray/project-root` unset in that case. Do not hardcode a machine-specific path "to make Open work"; if absolute coords already open, you do not need it.
+Leave `:rf.xray/project-root` unset unless your source coordinates are relative paths. [Tell Xray which editor](05-click-to-source.md#tell-xray-which-editor) covers the supported editors, custom URI templates and `:rf.xray/project-root`.
 
 ## Keep it out of production
 

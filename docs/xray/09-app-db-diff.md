@@ -4,9 +4,9 @@ You know which event ran; now you need to know what state it changed. The app-db
 
 ## Changes marked in place
 
-The tree is app-db as the focused event left it. Each value the event changed is marked `← was` with its old value, and the maps above every change are expanded for you, so the changes are what you see first.
+The tree is app-db as the focused event left it. Each value the event changed is marked `← was` with its old value (2 in the screenshot), and the maps above every change are expanded for you, so the changes are what you see first.
 
-![The app-db tab after a flow event: :base and :derived are marked with their old values](../images/xray/xray-tutorial-app-db.png)
+![The app-db tab after a flow event, numbered: 1 the app-db card, 2 :base and :derived marked with their old values](../images/xray/xray-tutorial-app-db.png)
 
 Use app-db when you are asking:
 
@@ -18,11 +18,11 @@ Use app-db when you are asking:
 
 ## Your state and the runtime's state
 
-Your own keys sit in the top **app-db** card. A flow's output is written into your app-db, at the path the flow declares, so it shows there too, like `:derived` above.
+Your own keys sit in the top **app-db** card (1). A flow's output is written into your app-db, at the path the flow declares, so it shows there too, like `:derived` above.
 
 Machines and routing keep their state beside your app-db rather than inside it, in the frame's runtime state. It follows in cards of its own: one per machine instance under `:rf/machines` and `:rf/spawned`, then `:rf/route`, `:rf/pending-navigation` and `:rf/elision`. A card appears only when that state exists. Your handlers read this state but never write it directly, so when a runtime card changed, look for the event or effect that asked the runtime to advance the machine or the route.
 
-Resource state is not shown here; the [Resources tab](02-panel-tour.md#resources) covers it.
+Resource state is not shown here; [13. Resources](13-resources.md) covers it.
 
 ## Zoom into a path
 

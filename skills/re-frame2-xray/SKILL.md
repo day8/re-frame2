@@ -258,9 +258,10 @@ it nowhere; the contract behind that claim is owned by
  grammar, click-to-source, time-travel scrubbing, schema and hydration
  debugging walkthroughs). For a human who wants the walkthrough, send them
  to the chapter of the [Xray guide](https://github.com/day8/re-frame2/blob/main/docs/xray/index.md)
- (installation, panel tour, time-travel, trace stream, click-to-source,
- schema timeline, hydration, machine inspector, app-db diff, derivation
- graph, Fresco tab). For normative detail the source of truth is
+ (installation, panel tour, time-travel scrubbing, trace stream,
+ click-to-source, schema violations, SSR hydration, machine inspector,
+ the app-db tab, derivation graph, the Fresco tab, routes, resources,
+ and Xray with Story and tests). For normative detail the source of truth is
  [`tools/xray/spec/007-UX-IA.md`](https://github.com/day8/re-frame2/blob/main/tools/xray/spec/007-UX-IA.md)
  and the per-panel specs.
 - **Agent runtime access** — inspecting or driving the running app on the

@@ -19,7 +19,7 @@ A registration records its coordinate as a map of `:ns`, `:file`, `:line` and `:
 
 ## From the DOM back to the view
 
-In dev mode, each registered view's root element carries `data-rf2-source-coord`, which points at the view code that produced it, and `data-rf-view`, which names the view. Only the root element carries them; the elements inside it do not.
+In dev mode, each registered view's root element (1 in the screenshot below) carries `data-rf2-source-coord`, which points at the view code that produced it, and `data-rf-view`, which names the view. Only the root element carries them; the elements inside it do not.
 
 In browser DevTools, inspect an element and look for the nearest ancestor carrying:
 
@@ -34,7 +34,7 @@ The value is the namespace, the view's name, the line and the column.
 
 Going the other way, hover a view in the Epoch or Views tab and Xray highlights that view's element on the page.
 
-![A step row of the standard-epochs testbed outlined in red, labelled as the element carrying data-rf2-source-coord](../images/xray/xray-tutorial-source-coord.png)
+![The standard-epochs testbed with one step row outlined and numbered 1: the view's root element, which carries data-rf2-source-coord](../images/xray/xray-tutorial-source-coord.png)
 
 ## From Xray to your editor
 

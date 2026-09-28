@@ -15,7 +15,9 @@
  *   npm install
  *   npx shadow-cljs compile :examples/standard-epochs \
  *                           :examples/machine-epochs \
- *                           :testbeds/ssr-hydration-mismatch
+ *                           :testbeds/ssr-hydration-mismatch \
+ *                           :examples/routes-epochs \
+ *                           :testbeds/tenant-switcher
  *   cd ..
  *   node docs/scripts/generate-tutorial-screenshots.cjs
  *
@@ -91,6 +93,19 @@ const APPS = {
     build: ':testbeds/ssr-hydration-mismatch',
     html: path.join(REPO_ROOT, 'testbeds', 'ssr_hydration_mismatch', 'index.html'),
     out: path.join(IMPL_ROOT, 'out', 'examples', 'testbed-ssr-hydration-mismatch'),
+  },
+  // Served at the site root rather than under its key: its router matches
+  // the page's whole path, and `/routes-epochs/` is no route of its own.
+  '/routes-epochs': {
+    atRoot: true,
+    build: ':examples/routes-epochs',
+    html: path.join(REPO_ROOT, 'tools', 'xray', 'testbeds', 'routes_epochs', 'index.html'),
+    out: path.join(IMPL_ROOT, 'out', 'examples', 'routes-epochs'),
+  },
+  '/tenant-switcher': {
+    build: ':testbeds/tenant-switcher',
+    html: path.join(REPO_ROOT, 'testbeds', 'tenant_switcher', 'index.html'),
+    out: path.join(IMPL_ROOT, 'out', 'testbeds', 'tenant-switcher'),
   },
 };
 
@@ -382,7 +397,7 @@ async function selectTab(page, tabId) {
 
 // ---------------------------------------------------------------------------
 // Scenes — one per output screenshot. Each declares:
-//   { id, app, clip?, before(page) }
+//   { id, app, clip?, clipHeight?, before(page) }
 //
 // The output file is `<id>.png`, and the annotation regions are looked up
 // by `id` in the annotation spec. `before` drives the page into the target
@@ -401,6 +416,21 @@ const SE_STEPS = {
   badEventArgs: [17, ':standard-epochs/bad-event-args'],
 };
 const FIRST_FIVE = ['increment', 'cofx', 'fx', 'cascade', 'flow'].map((k) => SE_STEPS[k]);
+
+const RE = 'routes-epochs';
+const RE_STEPS = {
+  home: [0, ':routes-epochs/go'],
+  article: [2, ':routes-epochs/go'],
+};
+
+// Press the tenant-switcher testbed's load button and wait until the
+// active tenant's dashboard reads loaded.
+async function loadDashboard(page, tenant) {
+  await page.locator('[data-testid="load"]').click();
+  await page
+    .locator(`[data-testid="witness-status-${tenant}"]`, { hasText: 'loaded' })
+    .waitFor({ state: 'visible', timeout: WAIT_TIMEOUT_MS });
+}
 
 const SCENES = [
   {
@@ -431,6 +461,7 @@ const SCENES = [
     id: 'xray-tutorial-views',
     app: '/standard-epochs',
     clip: 'xray',
+    clipHeight: 660,
     before: async (page) => {
       await runSteps(page, SE, [SE_STEPS.mountA, SE_STEPS.threshold]);
       await focusRow(page, ':standard-epochs/set-threshold');
@@ -446,6 +477,7 @@ const SCENES = [
     id: 'xray-tutorial-trace',
     app: '/standard-epochs',
     clip: 'xray',
+    clipHeight: 520,
     before: async (page) => {
       await runSteps(page, SE, [SE_STEPS.increment, SE_STEPS.cofx, SE_STEPS.fx]);
       await focusRow(page, ':standard-epochs/increment-fx');
@@ -456,6 +488,7 @@ const SCENES = [
     id: 'xray-tutorial-app-db',
     app: '/standard-epochs',
     clip: 'xray',
+    clipHeight: 530,
     before: async (page) => {
       await runSteps(page, SE, FIRST_FIVE);
       await focusRow(page, ':standard-epochs/increment-flow');
@@ -467,6 +500,7 @@ const SCENES = [
     id: 'xray-tutorial-schema',
     app: '/standard-epochs',
     clip: 'xray',
+    clipHeight: 530,
     before: async (page) => {
       await runSteps(page, SE, [SE_STEPS.increment, SE_STEPS.badEventArgs]);
       await focusRow(page, ':standard-epochs/bad-event-args');
@@ -503,6 +537,49 @@ const SCENES = [
         .waitFor({ state: 'visible', timeout: WAIT_TIMEOUT_MS });
       await focusRow(page, ':rf/hydrate');
       await selectTab(page, 'epoch');
+    },
+  },
+  {
+    // The Dynamic Routes tab after the routes-epochs testbed navigates home
+    // and then to `/articles/intro`.
+    id: 'xray-tutorial-routes',
+    app: '/routes-epochs',
+    clip: 'xray',
+    clipHeight: 730,
+    before: async (page) => {
+      await runSteps(page, RE, [RE_STEPS.home, RE_STEPS.article]);
+      await selectTab(page, 'routing');
+    },
+  },
+  {
+    // Static mode's Routes tab matching `/articles/intro` against the
+    // route table.
+    id: 'xray-tutorial-routes-static',
+    app: '/routes-epochs',
+    clip: 'xray',
+    clipHeight: 500,
+    before: async (page) => {
+      await runSteps(page, RE, [RE_STEPS.home]);
+      await page.locator('[data-testid="rf-xray-mode-pill"]').selectOption('static');
+      await page.locator('[data-testid="rf-xray-static-tab-routes"]').click();
+      await page.locator('[data-testid="rf-xray-static-routes-sim-input"]').fill('/articles/intro');
+      await page
+        .locator('[data-testid="rf-xray-static-routes-sim-result"]')
+        .waitFor({ state: 'visible', timeout: WAIT_TIMEOUT_MS });
+    },
+  },
+  {
+    // The tenant-switcher testbed after both tenants' dashboards loaded:
+    // one resource, two cache entries under two tenant scopes.
+    id: 'xray-tutorial-resources',
+    app: '/tenant-switcher',
+    clip: 'xray',
+    clipHeight: 670,
+    before: async (page) => {
+      await loadDashboard(page, 'acme');
+      await page.locator('[data-testid="switch-globex"]').click();
+      await loadDashboard(page, 'globex');
+      await selectTab(page, 'resources');
     },
   },
   {
@@ -549,9 +626,17 @@ function makeServer() {
   return http.createServer((req, res) => {
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
-      const base = Object.keys(APPS).find((candidate) =>
+      let base = Object.keys(APPS).find((candidate) =>
         url.pathname === candidate || url.pathname.startsWith(candidate + '/'),
       );
+      let rel;
+      if (base) {
+        rel = url.pathname.slice(base.length);
+      } else {
+        // Any other path belongs to the testbed served at the site root.
+        base = Object.keys(APPS).find((candidate) => APPS[candidate].atRoot);
+        rel = url.pathname;
+      }
       if (!base) {
         res.writeHead(404);
         res.end('No Xray testbed for this path.');
@@ -559,7 +644,6 @@ function makeServer() {
       }
 
       const app = APPS[base];
-      let rel = url.pathname.slice(base.length);
       if (rel === '' || rel === '/' || rel === '/index.html') {
         res.writeHead(200, { 'content-type': 'text/html' });
         res.end(fs.readFileSync(app.html));
@@ -601,7 +685,8 @@ async function captureScene(browser, baseUrl, scene, annotations) {
         document.head.appendChild(style);
       });
     }, XRAY_WIDTH);
-    await page.goto(`${baseUrl}${scene.app}/`, { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
+    const entry = APPS[scene.app].atRoot ? '/' : `${scene.app}/`;
+    await page.goto(`${baseUrl}${entry}`, { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
     await openXray(page);
     await scene.before(page);
     // Let transitions and fades settle.
@@ -625,7 +710,10 @@ async function captureScene(browser, baseUrl, scene, annotations) {
     if (scene.clip === 'xray') {
       const box = await boxOf(page, '[data-rf-xray-host]');
       if (!box) throw new Error('clip target [data-rf-xray-host] not found');
-      shot.clip = { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, VIEWPORT.height) };
+      // `clipHeight` trims empty panel space below the content, which keeps
+      // the committed PNG small.
+      const height = Math.min(box.height, VIEWPORT.height, scene.clipHeight || VIEWPORT.height);
+      shot.clip = { x: box.x, y: box.y, width: box.width, height };
     }
     await page.screenshot(shot);
     return { out, annotations: resolved.length };

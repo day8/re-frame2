@@ -3,6 +3,9 @@
     "Data-driven annotation spec for the Xray tutorial screenshot pipeline.",
     "Each entry maps a scene id to a list of regions overlaid on its screenshot.",
     "A region that does not resolve fails its scene.",
+    "Labels start with the number the tutorial's prose refers to; change a",
+    "label and its page together. Coordinates are for the script's 1440x900",
+    "viewport, before any clip; the Xray host spans x 540-1440.",
     "",
     "Region fields:",
     "  selector  CSS / data-testid selector resolved at runtime by Playwright.",
@@ -10,6 +13,7 @@
     "            Use `{ selector: \"...\", inset: { x, y, w, h } }` to nudge.",
     "  xy        Absolute viewport coordinates `{x,y,w,h}` (for anchors",
     "            that have no DOM hook).",
+    "  groupExtendTo  A second selector; the box grows to cover both.",
     "  label     Caption text painted next to the region.",
     "  colour    Hex stroke + label background (default `#e53935` red).",
     "  arrow     Optional `{from: {x,y}, to: {x,y}}` SVG arrow overlay.",
@@ -24,13 +28,120 @@
     "down after. Crisp anti-aliased strokes, drop-shadowed labels."
   ],
 
+  "xray-tutorial-shell": [
+    { "selector": "[data-testid=\"rf-xray-ribbon\"]", "inset": { "x": 3, "y": 2, "w": -6, "h": -4 },
+      "colour": "#1976d2", "label": "1  Ribbon", "labelAt": { "x": 900, "y": 6 } },
+    { "selector": "[data-testid=\"rf-xray-event-list-wrap\"]", "inset": { "x": 3, "y": 3, "w": -6, "h": -3 },
+      "colour": "#43a047", "label": "2  Event list", "labelAt": { "x": 900, "y": 128 } },
+    { "selector": "[data-testid=\"rf-xray-tab-bar\"]", "inset": { "x": 3, "y": 2, "w": -6, "h": -3 },
+      "colour": "#7e57c2", "label": "3  Tab strip", "labelAt": { "x": 1010, "y": 297 } },
+    { "selector": "[data-testid=\"rf-xray-detail-panel-epoch\"]", "inset": { "x": 3, "y": 5, "w": -6, "h": 602 },
+      "colour": "#e53935", "label": "4  Detail panel", "labelAt": { "x": 1290, "y": 380 } }
+  ],
+
+  "xray-tutorial-epoch": [
+    { "selector": "[data-testid^=\"rf-xray-event-row-\"][aria-pressed=\"true\"]",
+      "colour": "#e53935", "label": "1  Focused event", "labelAt": { "x": 900, "y": 145 } },
+    { "selector": "[data-testid=\"rf-xray-newer-events\"]",
+      "colour": "#43a047", "label": "2  Newer events", "labelAt": { "x": 1000, "y": 218 } },
+    { "selector": "[data-testid=\"rf-xray-ribbon-nav\"]", "padding": 3,
+      "colour": "#1976d2", "label": "3  Step and follow", "labelAt": { "x": 790, "y": 6 } },
+    { "selector": "[data-testid=\"rf-xray-epoch-circle-1\"]", "groupExtendTo": "[data-testid=\"rf-xray-epoch-circle-4\"]",
+      "padding": 5, "colour": "#7e57c2", "label": "4  Numbered steps", "labelAt": { "x": 606, "y": 419 } },
+    { "selector": "[data-testid=\"rf-xray-tab-bar-reset\"]", "padding": 3,
+      "colour": "#f57c00", "label": "5  Reset", "labelPos": "below" }
+  ],
+
+  "xray-tutorial-views": [
+    { "selector": "[data-testid=\"rf-xray-reactive-appdb-node\"]", "padding": 3,
+      "colour": "#1976d2", "label": "1  app-db", "labelAt": { "x": 592, "y": 404 } },
+    { "selector": "[data-testid^=\"rf-xray-reactive-node-l2-\"]", "padding": 2,
+      "colour": "#7e57c2", "label": "2  Subscription", "labelAt": { "x": 886, "y": 404 } },
+    { "selector": "[data-testid^=\"rf-xray-reactive-view-node-\"]", "padding": 2,
+      "colour": "#43a047", "label": "3  Re-rendered view", "labelAt": { "x": 1104, "y": 404 } }
+  ],
+
+  "xray-tutorial-trace": [
+    { "selector": "[data-testid=\"rf-xray-trace-rows\"]", "inset": { "x": 63, "w": 101 }, "padding": 2,
+      "colour": "#1976d2", "label": "1  Stage", "labelPos": "below" },
+    { "selector": "[data-testid=\"rf-xray-trace-rows\"]", "inset": { "x": 171, "w": 64 }, "padding": 2,
+      "colour": "#7e57c2", "label": "2  Area", "labelPos": "below" },
+    { "selector": "[data-testid^=\"rf-xray-trace-row-\"][data-testid$=\"-source-coord\"]", "padding": 3,
+      "colour": "#e53935", "label": "3  Source link", "labelPos": "right" }
+  ],
+
+  "xray-tutorial-app-db": [
+    { "selector": "[data-testid=\"rf-xray-edn-inspector-app-db-app-db-state/top\"]", "padding": 2,
+      "colour": "#1976d2", "label": "1  app-db card", "labelAt": { "x": 640, "y": 309 } },
+    { "selector": "[data-rf-diff-wash=\"1\"]", "padding": 2,
+      "colour": "#e53935", "label": "2  Changed values", "labelAt": { "x": 830, "y": 390 } },
+    { "selector": "[data-rf-diff-wash=\"1\"] >> nth=1", "padding": 2,
+      "colour": "#e53935", "label": "2", "labelAt": { "x": 830, "y": 443 } }
+  ],
+
+  "xray-tutorial-schema": [
+    { "selector": "[data-testid^=\"rf-xray-event-row-\"][aria-pressed=\"true\"]",
+      "colour": "#1976d2", "label": "1  Pink event row", "labelAt": { "x": 900, "y": 156 } },
+    { "selector": "[data-testid=\"rf-xray-epoch-violation-dispatch-0\"]", "padding": 3,
+      "colour": "#7e57c2", "label": "2  Schema violation", "labelAt": { "x": 880, "y": 370 } },
+    { "selector": "[data-testid=\"rf-xray-epoch-violation-dispatch-0-recovery\"]", "padding": 3,
+      "colour": "#e53935", "label": "3  Rejected", "labelPos": "left" }
+  ],
+
+  "xray-tutorial-machine": [
+    { "selector": "[data-testid=\"rf-xray-epoch-event-handler-orientation\"]", "padding": 3,
+      "colour": "#1976d2", "label": "1  Trigger, machine, state", "labelAt": { "x": 1000, "y": 366 } },
+    { "selector": "[data-testid=\"rf-xray-epoch-machine-cascade-row-2\"]", "inset": { "y": 2, "h": -4 },
+      "colour": "#7e57c2", "label": "2  Transition", "labelAt": { "x": 1000, "y": 498 } },
+    { "selector": "[data-testid=\"rf-xray-machine-inspector-prev-next-nav\"]", "padding": 3,
+      "colour": "#e53935", "label": "3  Prev and Next", "labelPos": "left" }
+  ],
+
+  "xray-tutorial-hydration": [
+    { "selector": "[data-testid^=\"rf-xray-event-row-\"][aria-pressed=\"true\"]",
+      "colour": "#1976d2", "label": "1  :rf/hydrate", "labelAt": { "x": 900, "y": 60 } },
+    { "selector": "[data-testid=\"rf-xray-epoch-handler-db-diff\"]", "padding": 3,
+      "colour": "#43a047", "label": "2  State into app-db", "labelAt": { "x": 1200, "y": 494 } },
+    { "selector": "[data-testid=\"rf-xray-epoch-step-subscriptions\"]", "inset": { "h": 146 }, "padding": 4,
+      "colour": "#7e57c2", "label": "3  Subscriptions", "labelAt": { "x": 1000, "y": 745 } }
+  ],
+
+  "xray-tutorial-routes": [
+    { "selector": "[data-testid=\"rf-xray-routing-current\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#1976d2", "label": "1  Current route", "labelAt": { "x": 1000, "y": 318 } },
+    { "selector": "[data-testid=\"rf-xray-routing-nav\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#43a047", "label": "2  Navigation", "labelAt": { "x": 1250, "y": 382 } },
+    { "selector": "[data-testid=\"rf-xray-routing-table\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#7e57c2", "label": "3  Route table", "labelAt": { "x": 1000, "y": 424 } }
+  ],
+
+  "xray-tutorial-routes-static": [
+    { "selector": "[data-testid=\"rf-xray-static-routes-sim-input\"]", "padding": 3,
+      "colour": "#1976d2", "label": "1  URL box", "labelAt": { "x": 1240, "y": 96 } },
+    { "selector": "[data-testid^=\"rf-xray-static-routes-sim-candidate-\"]", "padding": 2,
+      "colour": "#43a047", "label": "2  Winning route", "labelAt": { "x": 1200, "y": 161 } },
+    { "selector": "[data-testid=\"rf-xray-static-routes-list\"]", "inset": { "x": 4, "w": -8 },
+      "colour": "#7e57c2", "label": "3  Route list and badges", "labelPos": "below" }
+  ],
+
+  "xray-tutorial-resources": [
+    { "selector": "[data-testid=\"rf-xray-resources-registry\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#1976d2", "label": "1  Registry", "labelAt": { "x": 1250, "y": 297 } },
+    { "selector": "[data-testid=\"rf-xray-resources-scope-resolvers\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#43a047", "label": "2  Scope resolver", "labelAt": { "x": 1250, "y": 366 } },
+    { "selector": "[data-testid=\"rf-xray-resources-instances\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#7e57c2", "label": "3  Live instances", "labelAt": { "x": 1250, "y": 434 } },
+    { "selector": "[data-testid=\"rf-xray-resources-work\"]", "inset": { "x": 6, "y": 4, "w": -12, "h": -6 },
+      "colour": "#e53935", "label": "4  Work ledger", "labelAt": { "x": 1250, "y": 578 } }
+  ],
+
   "xray-tutorial-source-coord": [
     {
       "selector": "#app [data-rf2-source-coord^=\"runner.core:step-row:\"]",
       "padding": 4,
       "colour": "#e53935",
-      "label": "data-rf2-source-coord on the view's root element",
-      "labelPos": "below"
+      "label": "1  data-rf2-source-coord",
+      "labelAt": { "x": 300, "y": 187 }
     }
   ]
 }
