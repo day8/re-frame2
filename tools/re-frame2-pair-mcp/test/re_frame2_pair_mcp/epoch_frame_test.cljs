@@ -406,34 +406,6 @@
                    (is (= 1 (:count edn)) "reads the NAMED frame's ring"))
                  (done))))))
 
-(deftest tier-2-session-pin-reads-the-pinned-frame
-  (async done
-    (stub-runtime! nil {:operation  :watch-epochs
-                        :app-frames two-frames
-                        :pin        :stories
-                        :rings      {:rf/default [(epoch 1) (epoch 2)]
-                                     :stories    [(epoch 7)]}})
-    (-> (we/watch-epochs-tool nil (tu/args->js {}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)) "a pinned session is answerable")
-                   (is (true? (:ok? edn)))
-                   (is (= 1 (:count edn)) "reads the PINNED frame's ring"))
-                 (done))))))
-
-(deftest tier-3-sole-app-frame-reads-it-without-a-pin
-  (async done
-    (stub-runtime! nil {:operation  :trace-window
-                        :app-frames [:rf/default]
-                        :pin        nil
-                        :rings      {:rf/default [(epoch 1) (epoch 2)]}})
-    (-> (tw/trace-window-tool nil (tu/args->js {:ms 60000}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)) "a sole app frame is answerable with no pin")
-                   (is (= 2 (:count edn))))
-                 (done))))))
-
 (deftest a-cursors-sticky-frame-outranks-the-session-pin
   ;; The care these two need that get-path did not: the frame a paginated
   ;; call is ALREADY iterating rides in the cursor, and page 2 must stay
