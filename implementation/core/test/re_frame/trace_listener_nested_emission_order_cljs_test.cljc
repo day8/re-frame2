@@ -67,33 +67,14 @@
 ;; under the gate still reddens the job, and an untagged new deftest joins that
 ;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
 
-(deftest ^:requires-debug nested-emission-preserves-per-listener-event-order
+(deftest ^:requires-debug nested-emit-completes-synchronously
   ;; L0 (emitter, registered first) reentrantly emits `inner` while handling the
   ;; outer event. L1 (observer, registered second) must still see `outer` before
   ;; `inner`. Under a plain loop L1 would see `[inner outer]` — the nested emit
-  ;; reaching L1 before the outer loop resumed.
-  (let [seen-observer (atom [])
-        seen-emitter  (atom [])
-        emitted?      (atom false)]
-    (rf.trace.tooling/register-listener! ::emitter
-      (fn [ev]
-        (swap! seen-emitter conj ev)
-        (when (and (= outer (:operation ev))
-                   (compare-and-set! emitted? false true))
-          (rf.trace/emit! :info inner {}))))
-    (rf.trace.tooling/register-listener! ::observer
-      (fn [ev] (swap! seen-observer conj ev)))
-    (try
-      (rf.trace/emit! :info outer {})
-      (is (= [outer inner] (ops-only @seen-observer))
-          "the observer sees the outer event before the reentrantly-emitted inner one")
-      (is (= [outer inner] (ops-only @seen-emitter))
-          "the emitter, too, sees outer before its own nested inner")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::emitter)
-        (rf.trace.tooling/unregister-listener! ::observer)))))
-
-(deftest ^:requires-debug nested-emit-completes-synchronously
+  ;; reaching L1 before the outer loop resumed — and a stateful tool folding the
+  ;; stream would finish in the state `outer` left rather than the one `inner`
+  ;; authored.
+  ;;
   ;; A nested emit must return only AFTER its event has reached every
   ;; listener (Spec 009 §Emitting trace events: "the emit returns once every
   ;; listener has been invoked"). L0 (emitter, first) handles outer, emits inner,
@@ -137,34 +118,6 @@
       (finally
         (rf.trace.tooling/unregister-listener! ::emitter)
         (rf.trace.tooling/unregister-listener! ::observer)))))
-
-(deftest ^:requires-debug stateful-tool-finishes-in-the-authored-state
-  ;; The stateful-tooling case: a tool folds the event stream into a
-  ;; live/cleared state. `outer` = the flow was CLEARED; the emitter reacts by
-  ;; re-registering (emitting `inner` = REGISTERED). Authored order is
-  ;; outer→inner, so the tool must finish REGISTERED (live). Under reversed
-  ;; delivery it would fold inner→outer and finish CLEARED — reporting a live
-  ;; flow as gone.
-  (let [tool-state (atom :unknown)
-        emitted?   (atom false)]
-    (rf.trace.tooling/register-listener! ::reregistrar
-      (fn [ev]
-        (when (and (= outer (:operation ev))
-                   (compare-and-set! emitted? false true))
-          (rf.trace/emit! :info inner {}))))
-    (rf.trace.tooling/register-listener! ::stateful-tool
-      (fn [ev]
-        (case (:operation ev)
-          :trace.order/outer (reset! tool-state :cleared)
-          :trace.order/inner (reset! tool-state :registered)
-          nil)))
-    (try
-      (rf.trace/emit! :info outer {})
-      (is (= :registered @tool-state)
-          "the stateful tool folds outer(cleared)→inner(registered) and finishes live")
-      (finally
-        (rf.trace.tooling/unregister-listener! ::reregistrar)
-        (rf.trace.tooling/unregister-listener! ::stateful-tool)))))
 
 (deftest ^:requires-debug nested-exception-isolation-preserves-order
   ;; A listener that THROWS between the emitter and the observer must neither

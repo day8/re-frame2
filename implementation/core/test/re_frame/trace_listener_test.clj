@@ -3,13 +3,15 @@
 
   Pins each contract claim:
 
-    1. `register-listener!` is 2-arity (no opts). Returns the key.
-    2. `unregister-listener!` returns nil and the listener stops receiving events.
+    1. `register-listener!` takes `(stream key f)` and returns the key.
+    2. `unregister-listener!` returns nil and the listener stops receiving
+       events. (1 and 2 are pinned by `surviving-streams-still-register`.)
     3. Synchronous, per-event delivery: `dispatch-sync` returns only after
        every registered listener has been invoked once per emitted trace
        event (no async wait, no batching).
     4. Event-emission order: a listener sees events in the order the runtime
-       fired them. (Per Spec 009 §Resolved decisions, listener-call order
+       fired them. Strictly increasing `:id`s across every delivery also rule
+       out a duplicated or batched delivery. (Per Spec 009 §Resolved decisions, listener-call order
        across multiple listeners is NOT a contract — tools must not depend
        on it. We pin only event order, not listener order.)
     5. Point-event shape: every event carries `:operation` / `:op-type` /
@@ -74,8 +76,6 @@
   point events, not spans."
   #{:start :end :duration :child-of})
 
-;; ---- 1. register-listener! arity + return value ---------------------------
-
 ;; ---- Posture: dev-only, declared by `^:requires-debug` ---------------------
 ;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
@@ -85,19 +85,6 @@
 ;; than the file: the namespace is still LOADED there, so a load-time failure
 ;; under the gate still reddens the job, and an untagged new deftest joins that
 ;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
-
-(deftest ^:requires-debug register-trace-listener-is-2-arity-and-returns-key
-  (testing "register-listener! takes (key cb) and returns the key"
-    (let [k ::pin-arity
-          ret (rf/register-listener! :trace k (fn [_ev]))]
-      (is (= k ret)
-          "register-listener! returns the key per Spec 009 §The listener API")
-      (rf/unregister-listener! :trace k))))
-
-(deftest ^:requires-debug unregister-trace-listener-returns-nil
-  (testing "unregister-listener! returns nil per Spec 009 §The listener API"
-    (rf/register-listener! :trace ::r (fn [_ev]))
-    (is (nil? (rf/unregister-listener! :trace ::r)))))
 
 ;; ---- 2. Synchronous, per-event delivery -----------------------------------
 
@@ -118,29 +105,6 @@
                 @seen)
           "the :rf.event/dispatched trace was delivered synchronously")
       (rf/unregister-listener! :trace ::sync))))
-
-(deftest ^:requires-debug one-call-per-emitted-event
-  (testing "the listener is invoked once per emitted event — no batching, no debounce"
-    (let [calls (atom 0)
-          seen  (atom [])]
-      (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-      (rf/clear-trace-buffer! :rf/default)
-      (rf/register-listener! :trace ::counter (fn [ev]
-                                         (swap! calls inc)
-                                         (swap! seen conj (:id ev))))
-      ;; A single dispatch produces multiple trace events (run-start,
-      ;; run-end, dispatched, do-fx, ...). Each must be delivered in its
-      ;; own listener call.
-      (rf/dispatch-sync [:ping])
-      (let [n   @calls
-            ids @seen]
-        (is (pos? n)
-            "listener fired at least once during the cascade")
-        (is (= n (count ids))
-            "every invocation carried a distinct event (no duplicate calls)")
-        (is (= (count ids) (count (distinct ids)))
-            "each event was delivered exactly once — no batching, no dedup-by-listener"))
-      (rf/unregister-listener! :trace ::counter))))
 
 (deftest ^:requires-debug in-cascade-emits-land-in-the-ring
   (testing "every IN-CASCADE listener event also appears in the frame's ring

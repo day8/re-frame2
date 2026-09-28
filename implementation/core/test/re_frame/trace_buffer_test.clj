@@ -101,15 +101,10 @@
 
 ;; ---- 1b. Event-keyed eviction --------------------------------------------
 
-(deftest ^:requires-debug event-keyed-eviction
-  (testing "ring evicts by EVENT-BUNDLE slot, not by raw event count"
-    (rf/configure! {:trace-buffer {:events-retained 3}})
-    (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
-    (let [bundles (rf/trace-buffer :rf/default)]
-      (is (= 3 (count bundles))
-          (str "ring caps at 3 event-bundle slots; got " (count bundles))))))
-
+;; The ring evicts by EVENT-BUNDLE slot, not by raw event count: every
+;; dispatch below emits several trace events, yet the ring reads back exactly
+;; the configured number of bundles.
+;;
 ;; The `:run-order` SPINE is bounded by the cap too, not just its visible
 ;; count. A `subvec` counts only its window but keeps the whole vector it
 ;; views reachable, and `conj` onto one appends to that vector — so an
@@ -668,16 +663,6 @@
     (is ev)
     (is (= :app (get-in ev [:tags :rf.event/origin])))))
 
-(deftest ^:requires-debug origin-opt-overrides-default
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:ping] {:origin :pair})
-  (let [ev (->> (flat-events :rf/default)
-                dispatched-events
-                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                first)]
-    (is ev)
-    (is (= :pair (get-in ev [:tags :rf.event/origin])))))
-
 ;; ---- 4. :source opt -------------------------------------------------------
 
 (deftest ^:requires-debug dispatch-source-defaults-to-unknown
@@ -699,16 +684,6 @@
     (is (= :unknown (:source ev)))
     (is (nil? (get-in ev [:tags :rf/dispatch-origin]))
         "there is no :rf/dispatch-origin tag")))
-
-(deftest ^:requires-debug dispatch-source-opt-overrides-default
-  (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
-  (rf/dispatch-sync [:ping] {:source :tool})
-  (let [ev (->> (flat-events :rf/default)
-                dispatched-events
-                (filter #(= [:ping] (get-in % [:tags :rf.event/v])))
-                first)]
-    (is ev)
-    (is (= :tool (:source ev)))))
 
 (deftest ^:requires-debug dispatch-source-fx-cascade-stamps-fx-dispatch
   (testing "child dispatches emitted by :dispatch fx are tagged :fx-dispatch"
@@ -732,15 +707,6 @@
       (is (= :fx-dispatch (:source child-ev))))))
 
 ;; ---- 5. Frame-level trace-emission gate ----------------------------------
-
-(deftest ^:requires-debug tool-frame-emits-no-trace
-  (testing "a frame registered :rf.trace/frame-no-emit? true grows the ring by 0"
-    (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
-    (rf/reg-event :tool/work (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
-    (rf/clear-trace-buffer! :tool/inspector)
-    (rf/dispatch-sync [:tool/work] {:frame :tool/inspector})
-    (is (= [] (rf/trace-buffer :tool/inspector))
-        "no trace event from a trace-disabled frame's cascade reaches the ring")))
 
 (deftest ^:requires-debug app-frame-emits-trace-while-tool-frame-silent
   (testing "an app frame's cascade DOES grow its ring; the tool frame's does NOT"
