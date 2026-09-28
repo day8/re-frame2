@@ -166,57 +166,14 @@
       (is (= :keep (get-in db [:a :sib]))
           "siblings under the outer focus are preserved"))))
 
-;; The `:after` arm of the path interceptor
-;; only writes `:effects :db` when the handler actually produced
-;; one. When the handler emits no `:db` effect (an `:fx`-only handler
-;; return, or any handler that returns `{}`), the path
-;; interceptor passes through cleanly — no spurious `:db` effect, no
-;; allocation. Pins the "no `:db` effect = no DB write" contract.
+;; The `:after` arm of the path interceptor only writes `:effects :db` when the
+;; handler actually produced one (std_interceptors.cljc gates the splice-back
+;; on `(contains? (:effects ctx) :db)`): no `:db` effect = no DB write.
+;; `path-interceptor-no-db-effect-preserves-root-under-flows` below pins the
+;; whole root surviving nil, `{}` and `:fx`-only focused handlers, and
+;; `re-frame.interceptor-runtime-complete-cljs-test` pins the app-db object
+;; staying `identical?`.
 ;;
-;; Source: std_interceptors.cljc — :after arm gates the splice-back on
-;; `(contains? (:effects ctx) :db)`.
-
-(deftest path-interceptor-passes-through-when-handler-emits-no-db
-  (testing "(path ...) does NOT synthesise a :db effect when the handler
-            emits none — `:fx`-only handlers stay `:fx`-only through
-            the path interceptor"
-    (let [final-ctx (atom nil)]
-      (rf/reg-event :path-noop/init
-                       (fn [{:keys [db]} _] {:db {:foo {:bar 10} :other :preserved}}))
-      ;; A reg-event handler that emits ONLY `:fx`, no `:db`.
-      ;; A splice-back that ignored that would write the unchanged
-      ;; slice into `:effects :db` regardless — a
-      ;; spurious DB write the handler never asked for.
-      ;; Sandwich-spy that captures the effects map produced by the
-      ;; handler-side chain — i.e. AFTER the handler ran and BEFORE the
-      ;; path interceptor's :after re-runs.
-      (rf/reg-interceptor :path-noop/spy
-                           {:after (fn [ctx]
-                                     (reset! final-ctx ctx)
-                                     ctx)})
-      (rf/reg-event :path-noop/fx-only
-                       {:interceptors [[:rf.interceptor/path [:foo :bar]]
-                                       :path-noop/spy]}
-                       (fn [_cofx _ev]
-                         ;; No `:db` in the returned effect map.
-                         {:fx []}))
-      (rf/dispatch-sync [:path-noop/init])
-      (rf/dispatch-sync [:path-noop/fx-only])
-
-      ;; The spy's view sits between the handler and `path`'s :after —
-      ;; if the handler emitted no `:db`, neither does the chain at
-      ;; this point.
-      (is (not (contains? (:effects @final-ctx) :db))
-          "handler that returned no :db produced no :db effect mid-chain")
-
-      ;; Final app-db value is unchanged — the handler asked for
-      ;; nothing and got nothing.
-      (let [db (rf/app-db-value :rf/default)]
-        (is (= 10 (get-in db [:foo :bar]))
-            "slice value is preserved when handler emits no :db effect")
-        (is (= :preserved (:other db))
-            "the path didn't touch the rest of app-db either")))))
-
 ;; The `:before` arm focuses `[:coeffects :db]` on the slice. That
 ;; focus is HANDLER-scoped: the `:after` unwind must put the original full
 ;; app-db object back, or every stage that runs after the path interceptor
@@ -296,19 +253,6 @@
           (str "a path-focused handler returning no :db effect (" event-id
                ") preserves every root key and the flow's root-derived value")))))
 
-(deftest path-interceptor-still-splices-back-when-handler-emits-db
-  (testing "(path ...) splices when the handler DOES emit :db — the happy path"
-    (rf/reg-event :path-emit/init (fn [{:keys [db]} _] {:db {:foo {:bar 10}}}))
-    (rf/reg-event :path-emit/inc
-                     {:interceptors [[:rf.interceptor/path [:foo :bar]]]}
-                     (fn [{:keys [db]} _]
-                       ;; Explicitly emit `:db` (the slice + 1).
-                       {:db (inc db)}))
-    (rf/dispatch-sync [:path-emit/init])
-    (rf/dispatch-sync [:path-emit/inc])
-    (is (= 11 (get-in (rf/app-db-value :rf/default) [:foo :bar]))
-        "handler that emits :db gets its slice spliced back")))
-
 ;; When an EARLIER interceptor's `:before` throws,
 ;; `execute-chain` short-circuits all downstream `:before` stages
 ;; (including the path interceptor's) yet still runs every `:after` in reverse
@@ -360,10 +304,10 @@
 ;; canonical spelling is handler-payload
 ;; destructuring, or — for genuine chain-wide reshaping — a PROJECT-registered
 ;; `:app/unwrap` interceptor with the project's own `:before` / `:after`.
-;; These deftests register exactly such a project-local interceptor and
-;; reference it by id, so they pin the chain mechanics (event-coeffect rewrite
-;; + restore, bad-shape diagnostic) WITHOUT depending on a framework-owned
-;; value. The diagnostic category is project-owned
+;; The deftest below registers exactly such a project-local interceptor and
+;; references it by id, so it pins the chain mechanics (the event-coeffect
+;; rewrite) WITHOUT depending on a framework-owned value. The fixture's
+;; bad-shape diagnostic category is project-owned
 ;; (`:test.app/unwrap-bad-event-shape`); the framework catalogue carries no
 ;; unwrap category (Spec 009 §Error event catalogue).
 
@@ -416,98 +360,14 @@
       (is (map? @seen-event)
           "the unwrapped event arg is a map, not a vector"))))
 
-;; The negative path: when the event does NOT match the canonical
-;; [event-id payload-map] shape, the project interceptor emits its
-;; bad-shape diagnostic and returns ctx unchanged (no recovery — the handler
-;; still runs, but it sees the original event vector). The trace's diagnostic
-;; tags carry `:expected` / `:recovery` so tooling can surface the misuse.
-
-(deftest project-unwrap-bad-event-shape-traces-and-keeps-event-unchanged
-  (testing "a project :app/unwrap with a non-[id payload-map] event emits
-            :test.app/unwrap-bad-event-shape and leaves the :event
-            coeffect unchanged"
-    (let [traces     (atom [])
-          seen-event (atom ::not-set)]
-      (rf/register-listener! :trace ::unwrap-bad (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
-      (rf/reg-event :unwrap-bad-test/consume
-                       {:interceptors [:app/unwrap]}
-                       (fn [_cofx event-arg]
-                         (reset! seen-event event-arg)
-                         {}))
-      ;; A malformed event: second slot is :not-a-map (a keyword, not a map).
-      (rf/dispatch-sync [:unwrap-bad-test/consume :not-a-map])
-      (rf/unregister-listener! :trace ::unwrap-bad)
-
-      ;; The handler still ran — the bad path is a trace-and-continue,
-      ;; not a throw — but it saw the ORIGINAL event vector (ctx unchanged),
-      ;; not the payload.
-      (is (= [:unwrap-bad-test/consume :not-a-map] @seen-event)
-          "handler runs with the original event vector when the shape check fails")
-
-      ;; The structured trace fired.
-      ;; Dev-instrumentation arm (see ns docstring). The
-      ;; "keeps-event-unchanged" half of this deftest's name is the
-      ;; `@seen-event` assertion above, which runs in both postures.
-      (when rf.interop/debug-enabled?
-        (let [bad-shape (filterv #(= :test.app/unwrap-bad-event-shape (:operation %))
-                                 @traces)]
-          (is (= 1 (count bad-shape))
-              "exactly one :test.app/unwrap-bad-event-shape trace was emitted")
-          (let [ev (first bad-shape)]
-            (is (= :error (:op-type ev)))
-            (is (= [:unwrap-bad-test/consume :not-a-map]
-                   (get-in ev [:tags :event]))
-                ":event tag carries the offending event vector")
-            (is (= "[event-id payload-map]"
-                   (get-in ev [:tags :expected]))
-                ":expected describes the canonical envelope shape")
-            (is (= :no-recovery (:recovery ev))
-                ":recovery is :no-recovery — the bad path is documented as not-recoverable"))))))
-
-  (testing "a project :app/unwrap with a 3-element vector (correct id, wrong arity) traces"
-    (let [traces     (atom [])
-          seen-event (atom ::not-set)]
-      (rf/register-listener! :trace ::unwrap-arity (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
-      (rf/reg-event :unwrap-bad-test/arity
-                       {:interceptors [:app/unwrap]}
-                       (fn [_cofx event-arg]
-                         (reset! seen-event event-arg)
-                         {}))
-      ;; Wrong arity — three elements instead of two.
-      (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
-      (rf/unregister-listener! :trace ::unwrap-arity)
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some #(= :test.app/unwrap-bad-event-shape (:operation %)) @traces)
-            ":test.app/unwrap-bad-event-shape fires for arity mismatch too"))
-      (is (= [:unwrap-bad-test/arity {:ok :map} :extra] @seen-event)
-          "handler sees the original (still-wrongly-shaped) event")))
-
-  (testing "a project :app/unwrap on the happy [id payload-map] path does NOT emit the bad-shape trace"
-    ;; Sanity: confirm the trace is silent on a well-shaped event so the
-    ;; coverage above is genuinely catching the negative branch.
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::unwrap-ok (fn [ev] (swap! traces conj ev)))
-      (rf/reg-interceptor :app/unwrap project-unwrap-interceptor)
-      (rf/reg-event :unwrap-bad-test/ok
-                       {:interceptors [:app/unwrap]}
-                       (fn [_ _] {}))
-      (rf/dispatch-sync [:unwrap-bad-test/ok {:k 1}])
-      (rf/unregister-listener! :trace ::unwrap-ok)
-      (is (empty? (filter #(= :test.app/unwrap-bad-event-shape (:operation %))
-                          @traces))
-          "no bad-shape trace on the canonical [id payload-map] event"))))
-
 ;; ---- cofx delivery (EP-0017: declared-only, value-returning) --------------
 ;;
 ;; There is no `inject-cofx` (EP-0017). Coeffect delivery is context
 ;; assembly, not a chain member: a handler declares `:rf.cofx/requires` and the
 ;; value-returning supplier's result arrives flat. The full cofx behaviour /
-;; error family is pinned in `re-frame.cofx-test`; here is a thin
-;; smoke that the delivery threads into a handler alongside the standard
-;; `:db` / `:event` coeffects.
+;; error family — the `[id arg]` declaration included — is pinned in
+;; `re-frame.cofx-cljs-test`; here is a thin smoke that the delivery threads
+;; into a handler alongside the standard `:db` / `:event` coeffects.
 
 (deftest cofx-declared-delivery
   (testing "a declared value-returning cofx is delivered flat under its id,
@@ -525,61 +385,14 @@
       (is (contains? @seen-cofx :db)
           "standard :db coeffect is present alongside the declared :now")
       (is (contains? @seen-cofx :event)
-          "standard :event coeffect is present")))
-
-  (testing "a `[id arg]` declaration passes the arg to the supplier's 1-arity"
-    (rf/reg-cofx :greeting (fn [greeting] greeting))
-    (let [seen (atom nil)]
-      (rf/reg-event :cofx-test/use-greeting
-                       {:rf.cofx/requires [[:greeting "hello"]]}
-                       (fn [cofx _]
-                         (reset! seen (:greeting cofx))
-                         {}))
-      (rf/dispatch-sync [:cofx-test/use-greeting])
-      (is (= "hello" @seen)
-          "the parameterized declaration threads the arg into the supplier"))))
-
-;; ---- custom interceptors: chain order ---------------------------------------
-
-(deftest make-interceptor-via-primitive
-  (testing "registered custom interceptors run :before in chain order and
-            :after in reverse — both can mutate the context."
-    (let [trail (atom [])
-          ;; Three custom interceptors, named A / B / C, that each push a
-          ;; tagged entry into `trail` from both their :before and :after
-          ;; slots. The handler itself pushes :handler. Chains are
-          ;; reference-only (EP-0022), so `mk` REGISTERS the interceptor under
-          ;; its tag id and RETURNS the id keyword for the chain to reference.
-          mk (fn [tag]
-               (rf/reg-interceptor
-                 tag
-                 {:before (fn [ctx]
-                            (swap! trail conj [:before tag])
-                            (assoc ctx tag :touched))
-                  :after  (fn [ctx]
-                            (swap! trail conj [:after tag])
-                            ctx)})
-               tag)]
-      (rf/reg-event :primitive/run
-                       {:interceptors [(mk :a) (mk :b) (mk :c)]}
-                       (fn [_ _]
-                         (swap! trail conj :handler)
-                         {}))
-      (rf/dispatch-sync [:primitive/run])
-      (is (= [[:before :a]
-              [:before :b]
-              [:before :c]
-              :handler
-              [:after :c]
-              [:after :b]
-              [:after :a]]
-             @trail)
-          ":before runs in declaration order, :after in reverse"))))
+          "standard :event coeffect is present"))))
 
 ;; ---- chain composition ----------------------------------------------------
 ;;
 ;; Driven directly through rf.interceptor/execute-chain so the test pins the
-;; chain runtime's contract without leaning on the dispatch path.
+;; chain runtime's contract without leaning on the dispatch path. The same
+;; order through registered refs on a real dispatch is pinned by
+;; `re-frame.reg-interceptor-cljs-test/bare-and-factory-refs-resolve-and-run-in-order`.
 
 (deftest chain-composition
   (testing "execute-chain runs every :before in order then every :after in
