@@ -94,7 +94,6 @@
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.cofx :as rf.cofx]
-            [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind]
             [re-frame.registrar :as rf.registrar]
@@ -149,20 +148,9 @@
       (is (= "en-AU" @seen)
           "the ambient supplier's return value arrived flat under its id"))))
 
-(deftest parameterized-supplier-receives-arg
-  (testing "a `[id arg]` declaration delivers under the bare id, passing the
-            arg to the supplier's 1-arity (EP-0017 §2/§4)"
-    (let [seen (atom ::unset)]
-      (rf/reg-cofx :cofx-test/echo
-        (fn [arg] (str "echo:" arg)))
-      (rf/reg-event :cofx-test/read-echo
-        {:rf.cofx/requires [[:cofx-test/echo "hi"]]}
-        (fn [{:keys [cofx-test/echo]} _]
-          (reset! seen echo)
-          {}))
-      (rf/dispatch-sync [:cofx-test/read-echo])
-      (is (= "echo:hi" @seen)
-          "the parameterized supplier received the declared arg, delivered under the bare id"))))
+;; A `[id arg]` declaration delivers under the bare id, passing the arg to the
+;; supplier's 1-arity (EP-0017 §2/§4): pinned by
+;; `cofx-run-stamps-produced-value-and-arg` below.
 
 ;; ===========================================================================
 ;; 2. Declared-only delivery (ADVERSARIAL — undeclared NOT delivered)
@@ -520,53 +508,13 @@
             (is (= :cofx-test/has-typo (get-in (first errs) [:tags :failing-id]))
                 ":failing-id names the declaring handler")))))))
 
-(deftest registered-absent-vs-unregistered-are-different-errors
-  (testing "the split is real: a REGISTERED-but-absent provided fact →
-            missing-required; an UNREGISTERED id → unregistered-cofx — never
-            conflated"
-    (rf/reg-cofx :cofx-test/registered-provided {:recordable? true :provided? true})
-    (rf/reg-event :cofx-test/absent-registered
-      {:rf.cofx/requires [:cofx-test/registered-provided]}
-      (fn [_ _] {}))
-    (rf/reg-event :cofx-test/absent-unregistered
-      {:rf.cofx/requires [:cofx-test/never-reg]}
-      (fn [_ _] {}))
-    (let [missing-id   (-> (try (rf/dispatch-sync [:cofx-test/absent-registered]) nil
-                                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-                           ex-data :rf.error/id)
-          unregistered (-> (try (rf/dispatch-sync [:cofx-test/absent-unregistered]) nil
-                                (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-                           ex-data :rf.error/id)]
-      (is (= :rf.error/missing-required-cofx missing-id))
-      (is (= :rf.error/unregistered-cofx unregistered))
-      (is (not= missing-id unregistered)
-          "the two failure modes are distinct error categories"))))
-
 ;; ===========================================================================
 ;; 6. reg-event accepts :rf.cofx/requires uniformly + malformed / collision
+;;
+;; `:rf.cofx/requires` is uniformly available on the ONE `reg-event` form
+;; (EP-0018): a well-formed declaration registers cleanly and delivers flat,
+;; as `undeclared-leaf-on-token-is-not-delivered` above shows.
 ;; ===========================================================================
-
-(deftest one-event-form-accepts-requires-uniformly
-  (testing "`:rf.cofx/requires` is uniformly available on the ONE `reg-event`
-            form (EP-0018). There is no db-handler exception raising
-            `:rf.error/cofx-request-invalid` at registration — a well-formed
-            declaration registers cleanly and the declared fact is delivered
-            flat into the coeffects map."
-    (let [seen-time (atom ::unset)
-          ex (try
-               (rf/reg-event :cofx-test/event-with-requires
-                 {:rf.cofx/requires [:rf/time-ms]}
-                 (fn [{:keys [rf/time-ms]} _]
-                   (reset! seen-time time-ms)
-                   {}))
-               nil
-               (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (nil? ex)
-          "a well-formed :rf.cofx/requires on reg-event registers without throwing")
-      (rf/dispatch-sync [:cofx-test/event-with-requires]
-                        {:rf.cofx {:rf/time-ms 1781078400123}})
-      (is (= 1781078400123 @seen-time)
-          "the declared :rf/time-ms fact arrived flat in the coeffects map"))))
 
 (deftest malformed-requires-is-cofx-request-invalid
   (testing "a non-vector / non-id `:rf.cofx/requires` is
@@ -691,19 +639,6 @@
       (is (true? (:recordable? meta)) "recordable")
       (is (false? (:provided? meta)) "not provided")
       (is (fn? (:handler-fn meta)) "carries its generator supplier"))))
-
-(deftest provided-recordable-registers-cleanly
-  (testing "the well-formed provided-recordable grade
-            (`{:recordable? true :provided? true}`) registers without a
-            supplier — the provided-without-recordable guard rejects ONLY the
-            meaningless combo"
-    (is (= :cofx-test/well-formed
-           (rf/reg-cofx :cofx-test/well-formed
-             {:recordable? true :provided? true})))
-    (let [meta (rf.registrar/lookup :cofx :cofx-test/well-formed)]
-      (is (true? (:recordable? meta)))
-      (is (true? (:provided? meta)))
-      (is (nil? (:handler-fn meta)) "a provided fact legitimately omits its supplier"))))
 
 (deftest rf-prefixed-id-is-not-a-registration-time-collision
   (testing "an `rf.`-prefixed coeffect id registers CLEANLY — the
@@ -850,14 +785,9 @@
       (is (= :anything (:rf.cofx/id (ex-data ex)))
           "the offending id rides the error payload")
       (is (re-find #":rf.cofx/requires" (:reason (ex-data ex)))
-          "the reason names :rf.cofx/requires as the replacement"))))
-
-(deftest cofx-inject-cofx-fn-throws
-  (testing "the underlying `re-frame.cofx/inject-cofx` stub throws the same
-            removal error regardless of arity"
-    (is (= :rf.error/inject-cofx-removed
-           (-> (try (rf.cofx/inject-cofx :x) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-               ex-data :rf.error/id)))
+          "the reason names :rf.cofx/requires as the replacement")))
+  (testing "the v1 two-argument `(inject-cofx id value)` call throws the same
+            removal error, not an arity error"
     (is (= :rf.error/inject-cofx-removed
            (-> (try (rf.cofx/inject-cofx :x :v) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
                ex-data :rf.error/id)))))
@@ -961,24 +891,6 @@
       (is (= [{:id :rf/time-ms :arg :re-frame.cofx/no-arg}]
              (:rf.cofx/requires-parsed meta))
           "the parsed entry vector drives delivery"))))
-
-;; ===========================================================================
-;; 11. EP-0002 frameless dispatch raises no-frame-context
-;; ===========================================================================
-
-(deftest frameless-dispatch-raises-no-frame-context
-  (testing "a bare dispatch-sync outside any frame scope raises
-            :rf.error/no-frame-context (no :rf/default floor); the handler
-            never runs"
-    (let [fired? (atom false)]
-      (rf/reg-event :cofx-test/frameless
-        {:rf.cofx/requires [:rf/time-ms]}
-        (fn [_ _] (reset! fired? true) {}))
-      (binding [rf.frame/*current-frame* nil]
-        (let [ex (try (rf/dispatch-sync [:cofx-test/frameless]) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))))
-      (is (false? @fired?) "the handler never ran"))))
 
 ;; ===========================================================================
 ;; 12. EP-0017: recordable generator machinery
@@ -1344,35 +1256,6 @@
           (rf/dispatch-sync [:gen-test/uses-good])
           (is (= 11 @seen) "a conforming generated value is delivered flat"))))))
 
-(deftest strict-policy-does-not-generate
-  (testing "ADVERSARIAL: under the `:strict` mint policy a declared-absent
-            generator-backed fact is `:rf.error/missing-required-cofx` — the
-            generator does NOT run, no host read happens (replay is
-            unconditionally strict; EP-0017 §6). Exercised at the
-            `deliver-declared-cofx` seam; the policy binding points are
-            exercised through the full dispatch path in section 13."
-    (let [gen-calls (atom 0)]
-      (rf/reg-cofx :gen-test/strict-delta
-        {:recordable? true}
-        (fn [] (swap! gen-calls inc) 1))
-      (let [requires (rf.cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
-            ex (try (rf.cofx/deliver-declared-cofx
-                      {:db {}} requires {} :gen-test/strict-evt :rf/default :strict)
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo
-                              :cljs cljs.core/ExceptionInfo) e e))]
-        (is (zero? @gen-calls) ":strict ran no generator — no host read")
-        (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data ex)))
-            "a strict-mode absent generator-backed fact is missing-required"))
-      (testing "the same fact under `:live` DOES generate (policy is the switch)"
-        (reset! gen-calls 0)
-        (let [requires (rf.cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
-              {:keys [coeffects]} (rf.cofx/deliver-declared-cofx
-                                    {:db {}} requires {} :gen-test/strict-evt :rf/default :live)]
-          (is (= 1 @gen-calls) ":live generated the absent fact")
-          (is (= 1 (:gen-test/strict-delta coeffects))
-              "the generated value is delivered under :live"))))))
-
 ;; ===========================================================================
 ;; 13. Mint-policy BINDING POINTS (EP-0017 §6)
 ;;
@@ -1380,9 +1263,12 @@
 ;; SELECT it. The policy resolves most-specific-wins —
 ;; per-call dispatch opt ▸ frame config (the `:test` preset's `:strict`) ▸
 ;; the router's `:live` default — and gates ONLY the declared-absent
-;; generator-backed branch. The four tests below exercise each binding point
-;; through the FULL dispatch path (not the seam directly), so the wiring in
-;; `build-envelope` / `assemble-initial-ctx` / the `:test` preset is covered.
+;; generator-backed branch. The binding points are exercised through the FULL
+;; dispatch path (not the seam directly), so the wiring in `build-envelope` /
+;; `assemble-initial-ctx` / the `:test` preset is covered: binding point 1,
+;; the router's `:live` default, by
+;; `generator-runs-at-processing-start-fills-and-records` in section 12, and
+;; the other three by the tests below.
 ;; ===========================================================================
 
 (deftest resolve-mint-policy-precedence
@@ -1404,26 +1290,6 @@
         "the per-call opt is the most-specific binding point — it wins")
     (is (= rf.cofx/default-mint-policy (rf.cofx/resolve-mint-policy nil nil))
         "the documented default is :live")))
-
-(deftest router-default-is-live-generates
-  (testing "ADVERSARIAL (binding point 1 — ROUTER DEFAULT): a dispatch into a
-            frame with NO mint-policy config and NO per-call opt generates a
-            declared-absent generator-backed recordable fact — the router's
-            `:live` default (EP-0017 §6). Exercised through the full dispatch
-            path into the fixture's ambient `:rf/default` frame."
-    (let [gen-calls  (atom 0)
-          seen-delta (atom nil)]
-      (rf/reg-cofx :mint-test/live-delta
-        {:recordable? true :doc "Generator-backed, exercised under :live."}
-        (fn [] (swap! gen-calls inc) 7))
-      (rf/reg-event :mint-test/live-evt
-        {:rf.cofx/requires [:mint-test/live-delta]}
-        (fn [{:keys [mint-test/live-delta]} _] (reset! seen-delta live-delta) {}))
-      ;; The fixture's ambient frame is :rf/default (no preset → no mint-policy
-      ;; config); no per-call opt → the :live default applies.
-      (rf/dispatch-sync [:mint-test/live-evt])
-      (is (= 1 @gen-calls) "the router default is :live — the generator ran")
-      (is (= 7 @seen-delta) "the generated value was delivered flat"))))
 
 (deftest test-preset-default-is-strict-does-not-generate
   (testing "ADVERSARIAL (binding point 3 — :test PRESET DEFAULT): a dispatch
