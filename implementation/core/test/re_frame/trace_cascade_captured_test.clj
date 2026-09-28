@@ -375,7 +375,10 @@
           events))
 
 (deftest sub-run-value-changed-attribution
-  (testing "a layer-1 recompute whose value CHANGED stamps :rf.sub/value-changed? true + :prev/:value, :rf.sub/cascade? false, :rf.sub/cause-sub nil"
+  (testing "a layer-1 recompute whose value CHANGED, against an already-allocated
+            cache slot, stamps :rf.sub/value-changed? true + :prev/:value,
+            :rf.sub/cascade? false, :rf.sub/cause-sub nil and
+            :rf.sub/first-run? false, alongside the base :rf.sub/run tags"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
@@ -397,12 +400,18 @@
       (is (= 2 @after) "the sub projects 2 after the dispatch, in this posture")
       (when rf.interop/debug-enabled?
         (is (seq runs) "expected a :rf.sub/run for :n on the value-changing recompute")
-        (let [t (:tags (first runs))]
+        (let [ev (first runs)
+              t  (:tags ev)]
           (is (true? (:rf.sub/value-changed? t)) "value changed 1 -> 2")
           (is (= 1 (:rf.sub/prev-value t)) ":rf.sub/prev-value is the prior computed value")
           (is (= 2 (:rf.sub/value t)) ":value is the freshly computed value")
           (is (false? (:rf.sub/cascade? t)) "layer-1 sub is app-db-driven, not a cascade")
-          (is (nil? (:rf.sub/cause-sub t)) "layer-1 has no upstream sub to attribute"))))))
+          (is (nil? (:rf.sub/cause-sub t)) "layer-1 has no upstream sub to attribute")
+          (is (false? (:rf.sub/first-run? t))
+              ":rf.sub/first-run? flips to false on a recompute against an existing slot")
+          (is (= :rf.sub (:op-type ev)) "the base :op-type rides alongside the attribution tags")
+          (is (= [:n] (:rf.sub/query-v t)))
+          (is (contains? t :frame)))))))
 
 (deftest sub-run-value-unchanged-attribution
   (testing "a recompute whose value did NOT change stamps :rf.sub/value-changed? false"
@@ -542,40 +551,6 @@
                 ":rf.sub/prev-value is nil on the first recompute (the
                  ::unset sentinel projects to nil per the emit-site cond)")))))))
 
-(deftest sub-run-first-run-flag-false-on-recompute-against-existing-slot
-  (testing "every subsequent recompute (against an
-            already-existing cache slot) stamps :rf.sub/first-run? false.
-            Pairs with the true-case test above — the boolean must
-            actually flip on the second run, not stay true."
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r      (rf/subscribe [:n])
-          before @r ;; force the first recompute (creates the slot, value 1)
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     (rf/dispatch-sync [:inc]) ;; n 1 -> 2, existing-slot recompute
-                     (reset! after @r)))
-          runs   (sub-runs events :n)]
-      ;; ALWAYS-ON: "the slot already existed" is witnessed by
-      ;; the prior deref having produced a value at all — this recompute is
-      ;; the second, and it still tracks the write.
-      (is (= 1 before) "the slot was already allocated by this deref")
-      (is (= 2 @after) "the second recompute tracks the write, in this posture")
-      (when rf.interop/debug-enabled?
-        (is (seq runs)
-            "expected a :rf.sub/run for :n on the value-changing recompute")
-        (let [t (:tags (first runs))]
-          (is (false? (:rf.sub/first-run? t))
-              ":rf.sub/first-run? flips to false on a subsequent recompute")
-          (is (true? (:rf.sub/value-changed? t))
-              ":n changed 1 -> 2 — value-changed? still true")
-          (is (= 1 (:rf.sub/prev-value t))
-              ":rf.sub/prev-value carries the real prior value")
-          (is (= 2 (:rf.sub/value t))))))))
-
 (deftest sub-run-first-run-flag-true-on-layer-2-cache-creation
   (testing "layer-2 subs (cascade path) also stamp
             :rf.sub/first-run? true on the run that allocated their
@@ -603,31 +578,6 @@
           (is (true? (:rf.sub/first-run? t))
               "layer-2 sub: first-run? true on cache-slot creation")
           (is (= 4 (:rf.sub/value t))))))))
-
-(deftest sub-run-base-shape-still-emitted
-  (testing "the :rf.sub/run op-type vocabulary carries the base tags alongside the attribution tags"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:seed])
-    (let [r      (rf/subscribe [:n])
-          before @r
-          after  (atom nil)
-          events (collect-trace
-                   (fn []
-                     (rf/dispatch-sync [:inc])
-                     (reset! after @r)))
-          runs   (sub-runs events :n)]
-      ;; ALWAYS-ON: the recompute the base shape describes.
-      (is (= 1 before))
-      (is (= 2 @after) "the recompute the :rf.sub/run row describes really happened")
-      (when rf.interop/debug-enabled?
-        (is (seq runs))
-        (let [ev (first runs)]
-          (is (= :rf.sub (:op-type ev)))
-          (is (= :n (get-in ev [:tags :rf.sub/id])))
-          (is (= [:n] (get-in ev [:tags :rf.sub/query-v])))
-          (is (contains? (:tags ev) :frame)))))))
 
 ;; ---- :rf.sub/cause-event-id ----------------------------------------------
 ;;
