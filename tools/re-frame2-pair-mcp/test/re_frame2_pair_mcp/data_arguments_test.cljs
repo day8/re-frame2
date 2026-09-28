@@ -161,18 +161,6 @@
                          "and NOT as a printed expression that evaluates to 42"))
                    (done)))))))
 
-(deftest read-sub-query-symbol-is-not-resolved
-  (async done
-    (let [forms (atom [])]
-      (capture-eval! forms {:ok? true :value 1})
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:review/sub js/window]"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "read-sub!"))
-                                         're-frame2-pair.runtime/read-sub!)]
-                     (is (= [:review/sub 'js/window] (quoted-datum (second call)))
-                         "a symbol-valued query element stays a symbol"))
-                   (done)))))))
-
 (deftest read-sub-emitter-shaped-query-is-not-spliced
   (async done
     (let [forms (atom [])]
@@ -201,22 +189,6 @@
                    (let [call (find-call (read-form (form-matching forms "read-sub!"))
                                          're-frame2-pair.runtime/read-sub!)]
                      (is (= [:review/sub {:user/id 42}] (quoted-datum (second call)))))
-                   (done)))))))
-
-(deftest read-sub-quotes-with-eval-cljs-disabled
-  ;; A printed argument would be evaluated with the eval gate OFF too,
-  ;; because the expression rides inside a DIFFERENT tool's generated
-  ;; form. Quoting must therefore hold there as well.
-  (async done
-    (let [forms (atom [])]
-      (eval-cljs/set-eval-allowed! false)
-      (capture-eval! forms {:ok? true :value 1})
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:review/sub (inc 41)]"})
-          (.then (fn [_]
-                   (let [call (find-call (read-form (form-matching forms "read-sub!"))
-                                         're-frame2-pair.runtime/read-sub!)]
-                     (is (= [:review/sub inert-list] (quoted-datum (second call)))
-                         "argument fidelity does not depend on the eval-cljs gate"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------

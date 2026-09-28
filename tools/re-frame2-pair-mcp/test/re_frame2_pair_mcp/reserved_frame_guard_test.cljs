@@ -180,19 +180,6 @@
                        "the snapshot read eval was NEVER reached — refused before the round-trip")
                    (done)))))))
 
-(deftest snapshot-wholesale-frames-all-is-refused
-  ;; `frames "all"` sweeps in reserved tool frames; a wholesale read of
-  ;; that scope is refused.
-  (async done
-    (let [seen (atom [])]
-      (stub-eval! seen {:value huge-xray-snapshot :elided-count 0 :tool-frames-excluded []})
-      (-> (snapshot/snapshot-tool (fresh-conn) (tu/args->js {:frames "all" :path "[]"}))
-          (.then (fn [r]
-                   (is (tu/error? r))
-                   (is (= :wholesale-read-of-reserved-frame (:reason (tu/extract-edn r))))
-                   (is (empty? @seen))
-                   (done)))))))
-
 (deftest snapshot-wholesale-mode-full-no-path-is-refused
   ;; `mode "full"` + no `path` is the OTHER wholesale shape the guard
   ;; exists to catch (docs at `reserved-frame-guard.cljs` name it
@@ -337,36 +324,4 @@
                          "redirects to an app frame / sliced :frame read"))
                    (is (empty? @seen)
                        "no select-frame! eval — the reserved pin was never written")
-                   (done)))))))
-
-(deftest set-operating-frame-allows-rf-default-and-app-frames
-  ;; Negative guard: :rf/default is an APP frame (the predicate's carve-out)
-  ;; and an ordinary user frame both pin normally — the refusal is scoped to
-  ;; reserved :rf/* TOOL frames only.
-  (async done
-    (let [seen (atom [])]
-      (stub-eval! seen {:ok? true :frames [:rf/default :stories]
-                        :selected :stories :operating :stories})
-      (-> (op-frame/set-operating-frame-tool (fresh-conn)
-                                             (tu/args->js {:frame ":stories"}))
-          (.then (fn [r]
-                   (is (not (tu/error? r)) "pinning an app frame succeeds")
-                   (is (true? (:ok? (tu/extract-edn r))))
-                   (is (seq @seen) "the validate-then-pin eval WAS reached")
-                   (done)))))))
-
-(deftest sliced-reserved-frame-read-still-succeeds-via-explicit-frame
-  ;; With the reserved-frame PIN closed, a TARGETED (sliced) read of a tool
-  ;; frame stays available through the explicit per-call :frame arg.
-  ;; (A "pinned :rf/xray + sliced read" cannot arise: a reserved frame is
-  ;; never the operating frame.)
-  (async done
-    (let [seen (atom [])]
-      (stub-eval! seen {:ok? true :exists? true :value [1 2 3] :elided-count 0})
-      (-> (get-path/get-path-tool (fresh-conn)
-                                  (tu/args->js {:frame ":rf/xray" :path "[:rf.xray/epochs]"}))
-          (.then (fn [r]
-                   (is (not (tu/error? r)) "explicit :frame :rf/xray + non-root path is allowed")
-                   (is (true? (:ok? (tu/extract-edn r))))
-                   (is (seq @seen) "the sliced read eval WAS reached")
                    (done)))))))

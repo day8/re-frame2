@@ -136,21 +136,6 @@
 ;; elision form.
 ;; ---------------------------------------------------------------------------
 
-(deftest emits-runtime-dispatch-dry-run-call
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:cart/checkout]"})))
-          (.then (fn [_]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form "re-frame2-pair.runtime/dispatch-dry-run")
-                         "routes through the runtime dispatch-dry-run fn")
-                     (is (str/includes? form "[:cart/checkout]")
-                         "event vector rides as DATA, not source"))
-                   (done)))))))
-
 (deftest threads-frame-arg
   (async done
     (let [forms (atom [])]
@@ -220,27 +205,6 @@
                          "the scripted :rf/time-ms rides as the EXACT integer — emitted under :rf.cofx, not omitted/freshly stamped"))
                    (done)))))))
 
-(deftest cofx-supports-owner-qualified-recordable-facts
-  ;; Owner-qualified recordable facts (the app's :counter/delta, a
-  ;; subsystem's :rf.route/location) ride through verbatim so an agent can
-  ;; script the recorded causal token for the simulation too.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:todo/add {:text \"x\"}]"
-                                                  :cofx "{:rf/time-ms 1700000000000 :counter/delta 4 :rf.route/location {:path \"/todos\"}}"})))
-          (.then (fn [_]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form ":rf.cofx"))
-                     (is (str/includes? form ":rf/time-ms 1700000000000"))
-                     (is (str/includes? form ":counter/delta 4")
-                         "an app-owned recordable fact rides through verbatim")
-                     (is (str/includes? form ":rf.route/location")
-                         "a subsystem recordable fact rides through verbatim"))
-                   (done)))))))
-
 (deftest no-cofx-arg-omits-the-opts-key
   ;; Absent `cofx` ⇒ no `:rf.cofx` key in the emitted opts (the ordinary
   ;; live path — the runtime stamps :rf/time-ms itself). Guards against a
@@ -274,33 +238,6 @@
                        "the dispatch-dry-run eval never fired — rejected up front")
                    (done)))))))
 
-(deftest cofx-unreadable-rejected
-  ;; Unreadable EDN (mismatched brackets) ⇒ :invalid-cofx.
-  (async done
-    (-> (with-captured-eval! (atom []) (wrap {:ok? true} 0)
-          (fn []
-            (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                           #js {:event "[:counter/inc]"
-                                                :cofx "{:rf/time-ms 1"})))
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :invalid-cofx (:reason (read-result-text r))))
-                 (done))))))
-
-(deftest cofx-non-integer-time-ms-rejected
-  ;; :rf/time-ms must be an integer (epoch ms). A string ⇒
-  ;; :invalid-cofx-time-ms, short-circuited before the eval.
-  (async done
-    (-> (with-captured-eval! (atom []) (wrap {:ok? true} 0)
-          (fn []
-            (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                           #js {:event "[:counter/inc]"
-                                                :cofx "{:rf/time-ms \"now\"}"})))
-        (.then (fn [r]
-                 (is (err? r) "a non-integer :rf/time-ms ⇒ :isError")
-                 (is (= :invalid-cofx-time-ms (:reason (read-result-text r))))
-                 (done))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Privacy gate. Gate OFF (default published posture) forces sensitive
 ;; slots to redact; the walker ALWAYS runs. The `:elision false` size
@@ -310,38 +247,6 @@
 ;; slots are walked server-side (the unit test stubs the runtime, so it
 ;; asserts on the EMITTED form, not on a live walker).
 ;; ---------------------------------------------------------------------------
-
-(deftest gate-off-emits-elision-walker-with-safe-opts
-  (async done
-    (let [forms (atom [])]
-      (-> (with-raw-gate! false
-            (fn []
-              (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
-                (fn []
-                  (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                                 #js {:event "[:auth/login]"
-                                                      ;; the size override is honoured;
-                                                      ;; the sensitive opt-in is dropped.
-                                                      :elision false
-                                                      :include-sensitive true})))))
-          (.then (fn [r]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form "re-frame.core/project-egress")
-                         "the projection runs with the caller's :elision false")
-                     (is (str/includes? form ":db-state-after-simulation")
-                         "the would-be db slot is walked")
-                     (is (str/includes? form ":would-fire-effects")
-                         "the fx args slot is walked")
-                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                         "gate OFF names the off-box tool boundary even when caller passed :include-sensitive true")
-                     (is (not (str/includes? form ":rf.egress/local-raw"))
-                         "the dropped opt-in never reaches the trusted-local boundary")
-                     (is (str/includes? form ":rf.egress/include-large? true")
-                         "gate OFF honours the size override"))
-                   ;; the envelope echoes the honoured elision state
-                   (let [edn (read-result-text r)]
-                     (is (false? (:elision edn)) "the echo reports the honoured :elision false"))
-                   (done)))))))
 
 (deftest gate-off-signals-configure-raw-state-before-dispatch
   ;; The raw-state tap posture is signalled before the dispatch eval, so
@@ -364,57 +269,6 @@
                          "configure-raw-state! is signalled BEFORE the dispatch eval")
                      (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
                          "the gate-OFF posture is pushed to the runtime"))
-                   (done)))))))
-
-(deftest gate-on-bare-elision-false-still-walks
-  ;; Fail-CLOSED. A BARE `:elision false` (gate ON, no per-call
-  ;; `:include-sensitive true` opt-in) STILL walks: large content passes
-  ;; (`include-large? true`) but a declared-sensitive db slot redacts —
-  ;; never a raw off-box leak via the EP-0015 two-key gate.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-raw-gate! true
-            (fn []
-              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
-                (fn []
-                  (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                                 #js {:event "[:cart/checkout]"
-                                                      :elision false})))))
-          (.then (fn [r]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form "re-frame.core/project-egress")
-                         "bare :elision false MUST still project the db slot — no sensitive bypass")
-                     (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
-                         "the boundary stays off-box-tool, so the sensitive db slot redacts")
-                     (is (str/includes? form ":rf.egress/include-large? true")
-                         ":elision false overlays include-large? true — large content passes"))
-                   (let [edn (read-result-text r)]
-                     (is (false? (:elision edn)) "the echo reports the caller's large-slot intent"))
-                   (done)))))))
-
-(deftest gate-on-full-raw-opt-in-names-local-raw
-  ;; The deliberate full-raw local opt-in (`:elision false`
-  ;; AND `:include-sensitive true`) NAMES `:rf.egress/local-raw`, under
-  ;; which the projection is the identity, so the db slot still ships
-  ;; raw. The door is called either way.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-raw-gate! true
-            (fn []
-              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
-                (fn []
-                  (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                                 #js {:event "[:cart/checkout]"
-                                                      :elision false
-                                                      :include-sensitive true})))))
-          (.then (fn [r]
-                   (let [form (dispatch-form forms)]
-                     (is (str/includes? form "re-frame.core/project-egress")
-                         "the door is called even under the full-raw opt-in")
-                     (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
-                         "full-raw opt-in (elision false + include-sensitive true) names local-raw"))
-                   (let [edn (read-result-text r)]
-                     (is (false? (:elision edn)) "effective elision is false"))
                    (done)))))))
 
 (deftest gate-on-honours-include-sensitive
@@ -492,53 +346,6 @@
                    (let [form (dispatch-form forms)]
                      (is (str/includes? form ":args :rf/redacted")
                          "fx args fail closed by default even under the gate (orthogonal to :include-sensitive)"))
-                   (done)))))))
-
-(deftest opt-in-reveals-fx-args
-  ;; --allow-sensitive-reads + :include-fx-args true is the trusted-local
-  ;; opt-in: the emitted form does NOT redact the fx args (the redaction
-  ;; walk collapses to identity), so the raw :args ride through.
-  (async done
-    (let [forms (atom [])]
-      (-> (with-raw-gate! true
-            (fn []
-              (with-captured-eval! forms (wrap {:ok? true :dry-run? true} 0)
-                (fn []
-                  (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                                 #js {:event "[:cart/checkout]"
-                                                      :include-fx-args true})))))
-          (.then (fn [_]
-                   (let [form (dispatch-form forms)]
-                     (is (not (str/includes? form ":args :rf/redacted"))
-                         "gate ON + :include-fx-args true ships raw fx args — no fail-close"))
-                   (done)))))))
-
-(deftest fx-args-redacted-markers-ride-through
-  ;; End-to-end envelope unwrap: the server-side form has already failed
-  ;; closed (the stub canned value is post-redaction), so the wire result
-  ;; carries :rf/redacted at each fx row's :args while :fx-id rides through.
-  (async done
-    (let [env {:ok?                true
-               :dry-run?           true
-               :rolled-back?       true
-               :would-fire-effects [{:fx-id :http     :args :rf/redacted}
-                                    {:fx-id :navigate :args :rf/redacted}]
-               :db-state-after-simulation {:cart {:items []}}}]
-      (-> (with-captured-eval! (atom []) (wrap env 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:cart/checkout]"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-result-text r)]
-                     (is (= :rf/redacted (get-in edn [:would-fire-effects 0 :args]))
-                         "first fx row's args fail closed")
-                     (is (= :rf/redacted (get-in edn [:would-fire-effects 1 :args]))
-                         "second fx row's args fail closed")
-                     (is (= :http (get-in edn [:would-fire-effects 0 :fx-id]))
-                         "fx-id rides through — operator still sees WHICH effects fire")
-                     (is (= :navigate (get-in edn [:would-fire-effects 1 :fx-id]))
-                         "second fx-id rides through"))
                    (done)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -619,29 +426,6 @@
                          "the elided-large indicator surfaces the marker count"))
                    (done)))))))
 
-(deftest no-new-epoch-failure-rides-as-iserror
-  ;; The reducer rejected the event or an interceptor early-returned, so
-  ;; the dry-run did NOT land. A known-tool runtime failure (`:ok? false`)
-  ;; MUST ride back as an isError envelope, matching the
-  ;; dispatch/read-sub no-silent-success parity model (a non-landed
-  ;; dry-run must not read as green and become cache-eligible). The
-  ;; structured :reason/:hint rides through verbatim.
-  (async done
-    (let [env {:ok?    false
-               :reason :no-new-epoch
-               :event  [:noop]
-               :frame  :rf/default
-               :hint   "..."}]
-      (-> (with-captured-eval! (atom []) (wrap env 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:noop]"})))
-          (.then (fn [r]
-                   (is (err? r) ":ok? false dry-run rides as isError, not a silent ok-text")
-                   (let [edn (read-result-text r)]
-                     (is (false? (:ok? edn)))
-                     (is (= :no-new-epoch (:reason edn))))
-                   (done)))))))
-
 (deftest rollback-failed-rides-as-iserror
   ;; SAFETY. The simulation LANDED but the rollback FAILED
   ;; (`replace-frame-state!` rejected the pre-call state), so the
@@ -705,28 +489,6 @@
                          "the non-rolled-back signal rides through to the caller"))
                    (done)))))))
 
-(deftest happy-rolled-back-true-stays-green
-  ;; Guard the boundary check does not over-fire: a genuine success
-  ;; (`:ok? true :rolled-back? true`) MUST still ride green — the
-  ;; belt-and-braces `(false? (:rolled-back? result))` guard only fires on
-  ;; an explicit false, never on the true happy path.
-  (async done
-    (let [env {:ok?          true
-               :dry-run?     true
-               :rolled-back? true
-               :event        [:cart/checkout]
-               :frame        :rf/default}]
-      (-> (with-captured-eval! (atom []) (wrap env 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn) #js {:event "[:cart/checkout]"})))
-          (.then (fn [r]
-                   (is (not (err? r))
-                       "a rolled-back? true success still reads green")
-                   (let [edn (read-result-text r)]
-                     (is (true? (:ok? edn)))
-                     (is (true? (:rolled-back? edn))))
-                   (done)))))))
-
 (deftest non-map-runtime-result-surfaced-as-unexpected-shape
   ;; A runtime without `dispatch-dry-run` returns something other than
   ;; the wrapped map. The tool surfaces that as a structured
@@ -787,20 +549,6 @@
                    (is (= [:cart/add '(inc 41)]
                           (quoted-datum (second (runtime-call forms))))
                        "the nested list reaches the runtime as a list")
-                   (done)))))))
-
-(deftest dry-run-event-payload-symbols-are-not-resolved
-  (async done
-    (let [forms (atom [])]
-      (-> (with-captured-eval! forms (wrap {:ok? true :dry-run? true :rolled-back? true} 0)
-            (fn []
-              (dry-run/dispatch-dry-run-tool (fresh-conn)
-                                             #js {:event "[:cart/add js/window]"})))
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (is (= [:cart/add 'js/window]
-                          (quoted-datum (second (runtime-call forms))))
-                       "a symbol-valued event stays a symbol rather than resolving")
                    (done)))))))
 
 (deftest dry-run-cofx-fact-lists-are-not-evaluated

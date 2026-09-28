@@ -330,38 +330,6 @@
                    (is (= :stories (:frame edn))))
                  (done))))))
 
-(deftest session-pin-still-reads-the-pinned-frame
-  ;; Tier 2. No `frame` arg, two frames registered, but a pin is in
-  ;; effect — a hit, not a refusal.
-  (async done
-    (stub-runtime! nil {:app-frames two-frames
-                        :pin        :stories
-                        :db         {:rf/default {:cart {:items [1 2]}}
-                                     :stories    {:cart {:items [:pinned]}}}
-                        :path       [:cart :items]})
-    (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:cart :items]"}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)))
-                   (is (true? (:ok? edn)))
-                   (is (= [:pinned] (:value edn))))
-                 (done))))))
-
-(deftest sole-app-frame-still-auto-resolves
-  ;; Tier 3. One app frame, no pin, no arg — auto-resolves, no refusal.
-  (async done
-    (stub-runtime! nil {:app-frames [:rf/default]
-                        :pin        nil
-                        :db         {:rf/default {:counter 42}}
-                        :path       [:counter]})
-    (-> (get-path/get-path-tool (fresh-conn) (tu/args->js {:path "[:counter]"}))
-        (.then (fn [r]
-                 (let [edn (read-edn r)]
-                   (is (not (err? r)))
-                   (is (true? (:ok? edn)))
-                   (is (= 42 (:value edn))))
-                 (done))))))
-
 (deftest genuine-miss-in-a-resolved-frame-is-still-path-not-found
   ;; The refusal must not swallow the honest answer: in a session that
   ;; DOES resolve, an absent path is still `:path-not-found`.

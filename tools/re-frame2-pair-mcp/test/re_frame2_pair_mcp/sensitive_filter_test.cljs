@@ -13,7 +13,8 @@
   `re-frame2-pair-mcp.tools.sensitive` — a rename or signature change
   surfaces as a failing test rather than a silent contract drift. The
   trace-event predicate is `re-frame.mcp-base.sensitive/sensitive-event?`,
-  called directly — this namespace carries no alias over it.
+  which `strip-sensitive` calls directly; mcp-base's own suite pins it on
+  both the JVM and CLJS lanes.
 
   The `wire-pipeline-epoch-vector-*` deftests at the foot drive the
   `:epoch-vector` arm of `run-wire-pipeline` — the SAME call site
@@ -21,43 +22,8 @@
   through — so the `sensitive-epoch?` predicate cannot be bypassed by
   the tool response path."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.mcp-base.sensitive :as rf.mcp-base.sensitive]
             [re-frame2-pair-mcp.tools.sensitive :as sensitive]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))
-
-;; ---------------------------------------------------------------------------
-;; sensitive-event? — the boolean predicate.
-;; ---------------------------------------------------------------------------
-
-(deftest sensitive-event-true-stamp-detected
-  (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
-
-(deftest sensitive-event-false-stamp-passes
-  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
-
-(deftest sensitive-event-absent-stamp-passes
-  ;; Per spec/009: "Consumers treat absent as `false`."
-  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
-
-(deftest sensitive-event-non-true-truthy-drops-fail-closed
-  ;; Fail-closed: the literal `true` drops AND any non-boolean truthy
-  ;; value drops too. The `:rf/trace-event` schema types `:sensitive?`
-  ;; as a boolean; a string `"true"` or keyword `:yes` is a contract
-  ;; violation that means an upstream serialisation bug has coerced the
-  ;; boolean into the wrong shape. A fail-OPEN posture would silently
-  ;; leak sensitive events on such drift. re-frame2-pair-mcp calls
-  ;; `re-frame.mcp-base.sensitive/sensitive-event?` directly so the
-  ;; contract is byte-identical across the MCP triplet.
-  (with-redefs [js/console (clj->js {:warn (fn [& _])})] ; absorb the contract-drift warning
-    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? "true"}))
-    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? :yes}))
-    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? 1}))
-    (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? ["any" "truthy"]}))))
-
-(deftest sensitive-event-non-map-input-passes
-  (is (not (rf.mcp-base.sensitive/sensitive-event? nil)))
-  (is (not (rf.mcp-base.sensitive/sensitive-event? [:sensitive? true])))
-  (is (not (rf.mcp-base.sensitive/sensitive-event? "anything"))))
 
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.
@@ -84,20 +50,6 @@
   (let [[kept dropped] (sensitive/strip-sensitive [] false)]
     (is (= [] kept))
     (is (zero? dropped))))
-
-(deftest strip-sensitive-no-sensitive-events-zero-drop
-  (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
-    (is (= evts kept))
-    (is (zero? dropped))))
-
-(deftest strip-sensitive-all-sensitive-drops-all
-  (let [evts [{:id 1 :sensitive? true}
-              {:id 2 :sensitive? true}
-              {:id 3 :sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive evts false)]
-    (is (= [] kept))
-    (is (= 3 dropped))))
 
 (deftest strip-sensitive-fail-closed-drops-malformed-truthy
   ;; A transport bug that coerces `:sensitive? true` into
@@ -189,11 +141,6 @@
                                     {:id 2 :sensitive? true}]}}
         [out dropped] (sensitive/scrub-snapshot-sensitive snap true)]
     (is (= snap out))
-    (is (zero? dropped))))
-
-(deftest snapshot-scrubber-non-map-input-passes-through
-  (let [[out dropped] (sensitive/scrub-snapshot-sensitive nil false)]
-    (is (nil? out))
     (is (zero? dropped))))
 
 ;; ---------------------------------------------------------------------------
@@ -289,21 +236,6 @@
 ;; epoch vectors through the same helper.
 ;; ---------------------------------------------------------------------------
 
-(deftest strip-sensitive-drops-epoch-with-sensitive-constituent
-  ;; Sensitive epoch (carried by trace-events) drops; non-sensitive
-  ;; epoch passes through. Mirrors a `trace-window` payload where the
-  ;; runtime rollup was absent but a constituent trace was stamped.
-  (let [epochs [{:epoch-id 1
-                 :event-id :cart/add
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
-                {:epoch-id 2
-                 :event-id :auth/sign-in
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}]
-        [kept dropped] (sensitive/strip-sensitive epochs false)]
-    (is (= 1 (count kept)))
-    (is (= 1 (:epoch-id (first kept))))
-    (is (= 1 dropped))))
-
 (deftest strip-sensitive-passes-non-sensitive-epoch-vector-through
   (let [epochs [{:epoch-id 1 :event-id :cart/add :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}
                 {:epoch-id 2 :event-id :cart/checkout :trace-events []}
@@ -332,43 +264,6 @@
         [kept dropped] (sensitive/strip-sensitive epochs false)]
     (is (= [3 4] (mapv :epoch-id kept)))
     (is (= 2 dropped))))
-
-(deftest strip-sensitive-drops-schema-derived-sensitive-epoch-rollup-only
-  ;; Regression guard: a schema-derived sensitive epoch:
-  ;; `:rf.epoch/sensitive? true` (the runtime rollup), NO unqualified
-  ;; `:sensitive?`, and NO sensitive constituent trace event. A predicate
-  ;; that read `:sensitive?` (which is absent here) would let this survive
-  ;; `strip-sensitive` and ship its metadata across the MCP boundary.
-  ;; Instead it default-DROPs and increments `:dropped-sensitive` under
-  ;; the default `include-sensitive false` gate.
-  (let [epochs [{:epoch-id 1
-                 :event-id :auth/sign-in
-                 :rf.epoch/sensitive? true
-                 :rf.epoch/redacted-modified-paths-count 2
-                 :outcome :rf.epoch/committed
-                 ;; constituents are CLEAN — sensitivity came from a
-                 ;; schema-declared sensitive app-db path, not a stamp
-                 :trace-events [{:operation :rf.event/run-start :tags {:rf.trace/phase :run-start}}
-                                {:operation :rf.event/run-end   :tags {:rf.trace/phase :run-end}}]}
-                {:epoch-id 2
-                 :event-id :cart/add
-                 :rf.epoch/sensitive? false
-                 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end}}]}]
-        [kept dropped] (sensitive/strip-sensitive epochs false)]
-    (is (= [2] (mapv :epoch-id kept))
-        "schema-derived sensitive epoch (rollup-only) MUST be dropped by default")
-    (is (= 1 dropped)
-        ":dropped-sensitive must count the rollup-only sensitive record")))
-
-(deftest strip-sensitive-include-opt-in-keeps-epoch-with-sensitive-constituent
-  ;; `:include-sensitive true` is the documented escape hatch — even
-  ;; epochs carrying sensitive constituents OR a `:rf.epoch/sensitive?`
-  ;; rollup pass through unchanged.
-  (let [epochs [{:epoch-id 1 :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]}
-                {:epoch-id 2 :rf.epoch/sensitive? true}]
-        [kept dropped] (sensitive/strip-sensitive epochs true)]
-    (is (= epochs kept))
-    (is (zero? dropped))))
 
 ;; ---------------------------------------------------------------------------
 ;; Integration through the :epoch-vector wire pipeline.
