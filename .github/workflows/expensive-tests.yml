@@ -153,10 +153,11 @@ jobs:
 
       # A build NAMED for the nightly has to run in the nightly.
       # `:node-test-perf-nightly` selects `-emit-nightly-test$`, which the
-      # consolidated `:node-test` build's `cljs-test$` does not match, so the
-      # two `*_emit_nightly_test.cljs` namespaces (core's
-      # performance_emit_nightly_test, and the fresco bench tree's
-      # render_measure_emit_nightly_test) run in this lane ALONE.
+      # consolidated `:node-test` build's `cljs-test$` does not match, so
+      # core's performance_emit_nightly_test runs in this lane ALONE. The
+      # fresco bench tree's render_measure_emit_nightly_test carries the same
+      # suffix but is off this build's classpath: it runs in the bench lane's
+      # own `:fresco-bench-test-perf` build, in `fresco-bench-compile` below.
       # `check_test_lane_bijection.py` cannot tell whether it runs: the lane
       # has a selector and the selector reaches files, so the bijection holds
       # either way. What it does not assert is that the lane is ever RUN —
@@ -780,7 +781,7 @@ jobs:
           RF2_KSBUR_STRESS_ITERS: ${{ matrix.artefact == 'routing' && '500' || '' }}
         run: clojure -M:slow-test
 
-  # THE ONLY THING IN CI THAT COMPILES THE FRESCO BENCH LANE.
+  # THE ONLY THING IN CI THAT COMPILES THE FRESCO BENCH LANE OR RUNS ITS TESTS.
   # NIGHTLY, AND NIGHTLY ONLY: `bench/*` is deliberately kept off every
   # per-PR lane, and a nightly is not a PR gate. Nothing here may be
   # promoted to `test.yml`, whose `pull_request` trigger is unfiltered.
@@ -950,6 +951,24 @@ jobs:
             }
             console.log(";; " + (chain.length - 1) + " members ran");
           '
+
+      # THE LANE'S CLJS TESTS, EXECUTED. The compile steps above build every
+      # `*_cljs_test.cljs` suite in the tree and nothing else in CI runs one.
+      # `cljs_test_run.cjs` (`npm test` locally) compiles two `:node-test`
+      # builds from `bench/fresco/shadow-cljs.edn` through `lane_build.cjs`
+      # and runs each under Node: `:fresco-bench-test` for the `-cljs-test`
+      # suites, `:fresco-bench-test-perf` for the `-emit-nightly-test` suite
+      # with the perf brackets compiled in. It passes only on exit 0, a
+      # zero-failure summary, and exactly the lane's selected namespaces having
+      # run. Under Node the `-dom-cljs-test` suites' DOM claims are stated
+      # skips; no job runs them in a browser.
+      #
+      # `!cancelled()`, so a red step above does not hide this verdict, and
+      # LAST, so a red here does not hide theirs.
+      - name: Run the lane's CLJS tests under Node (:fresco-bench-test, :fresco-bench-test-perf)
+        if: ${{ !cancelled() }}
+        working-directory: bench/fresco
+        run: node src/re_frame/bench/fresco/cljs_test_run.cjs
 
   # THE GATE-SCHEDULING AUDIT IS NOT HERE. `scripts/check_gate_scheduling.py`
   # asserts that every `test:*` / `bench:*` / `build:*` command in
