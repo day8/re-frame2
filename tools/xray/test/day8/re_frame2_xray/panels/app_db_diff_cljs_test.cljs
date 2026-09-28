@@ -331,6 +331,43 @@
           (when registered?
             (try (rf/destroy-frame! nil) (catch :default _ nil))))))))
 
+;; ---- (7c) the on-box section model redacts -------------------------------
+;;
+;; The panel renders what `:rf.xray/app-db-state` returns, so the redaction
+;; inside that sub is the one between a declared secret and the operator's
+;; screen. This row drives the REAL sub over a focused epoch whose
+;; pre-image and post-image both carry the secret, rather than calling the
+;; projection it delegates to.
+
+(deftest app-db-state-redacts-the-observed-frames-sensitive-slot-on-both-sides
+  (testing "a slot the observed frame declared :sensitive reads :rf/redacted
+            in the section model, in the value AND the diff pre-image, while
+            an undeclared sibling reads raw"
+    (registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/make-frame {:id :rf/default})
+    (rf/with-frame :rf/default (seed-sensitive-schema!))
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-frame :rf/default])
+      (rf/dispatch-sync
+        [:rf.xray/sync-epoch-history
+         [(mk-record :e1 [:auth/rotate]
+                     {:auth {:username "ada" :password "old-secret"}}
+                     {:auth {:username "ada" :password "new-secret"}})]])
+      (rf/dispatch-sync [:rf.xray/select-epoch :e1])
+      (let [input (pr-str @(rf/subscribe [:rf.xray/app-db-current+diff]))
+            model (pr-str @(rf/subscribe [:rf.xray/app-db-state]))]
+        (is (and (re-find #"old-secret" input) (re-find #"new-secret" input))
+            "the sub's input carries both secrets, so what removes them is the sub")
+        (is (re-find #":rf/redacted" model)
+            (str "the sensitive slot must read :rf/redacted. model: " model))
+        (is (not (re-find #"new-secret" model))
+            (str "the focused value's secret reached the section model. model: " model))
+        (is (not (re-find #"old-secret" model))
+            (str "the pre-image's secret reached the section model. model: " model))
+        (is (re-find #"ada" model)
+            "the undeclared sibling reads raw")))))
+
 ;; ---- (8) view renders — current-state inspector -------------------------
 ;;
 ;; The app-db tab is a CURRENT-STATE inspector, not a diff. The Panel

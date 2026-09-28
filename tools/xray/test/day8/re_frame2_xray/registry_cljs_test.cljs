@@ -1042,6 +1042,26 @@
         (is (= {} duplicates)
             (str "duplicate event registrations: " duplicates))))))
 
+(deftest registry-registers-no-resource-event
+  (testing "Xray registers no :rf.resource/* event: observing pins no
+            resource (Spec 016 §Active owners and causes; 024 §Read-only).
+            The registrar may hold the Resources runtime's own events, so
+            this reads what Xray's install WRITES, not what is registered"
+    (let [written            (atom #{})
+          original-register! rf.registrar/register!]
+      (with-redefs [rf.registrar/register!
+                    (fn [kind id metadata]
+                      (when (= :event kind) (swap! written conj id))
+                      (original-register! kind id metadata))]
+        (registry/reset-for-test!)
+        (registry/register-xray-handlers!))
+      (let [resource-writes (filter #(and (keyword? %) (= "rf.resource" (namespace %)))
+                                    @written)]
+        (is (contains? @written :rf.xray/select-epoch)
+            "the capture sees Xray's own event writes")
+        (is (empty? resource-writes)
+            (str "Xray wrote a :rf.resource/* event: " (vec resource-writes)))))))
+
 (deftest registry-installs-every-fx
   (testing "register-xray-handlers! resolves every :rf.xray.fx/* fx"
     (registry/register-xray-handlers!)

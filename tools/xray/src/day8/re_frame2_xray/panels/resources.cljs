@@ -1385,7 +1385,7 @@
 
   Each slot
   egresses at its ABSOLUTE runtime-db path (`[:rf.runtime/resources :entries
-  <key-id> …]`, re-rooted by `h/resource-payload-path-suffix`) so the
+  <key-id> …]`, `h/slot-egress-path`) so the
   resources registry's per-instance lowered `:sensitive?` declarations
   match. The posture is the on-box
   redacted-but-locally-visible one: a sensitive slot redacts while large
@@ -1395,9 +1395,7 @@
   [observed-frame]
   (fn [value slot-key key-id]
     (local-render/local-render-value-at
-      value observed-frame
-      (into (conj (vec h/entries-rel-path) key-id)
-            (h/resource-payload-path-suffix slot-key)))))
+      value observed-frame (h/slot-egress-path key-id slot-key))))
 
 ;; ---- registration entry --------------------------------------------------
 

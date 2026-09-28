@@ -17,12 +17,19 @@
   on-box LOCAL-render default actually redacts a RAW frame-classified
   resource value the way EP-0015 requires.
 
-  This test covers that arm: a RAW resource value carrying a frame-declared
-  `:sensitive` slot and a frame-declared `:large` slot is projected through
-  the EP-0015 on-box default `local-render/local-render-value` (keyed on the
-  OBSERVED frame), then through the Resources projection algebra
+  This test covers that arm through the pieces the panel really uses: the
+  resource's `:sensitive` / `:large` declarations are LOWERED by the
+  resources registry (`re-frame.resources.classification/reconcile-registry`)
+  onto the entry's absolute runtime-db coordinates, and each payload slot is
+  projected through the EP-0015 on-box default
+  `local-render/local-render-value-at` at `resources-helpers/slot-egress-path`
+  (keyed on the OBSERVED frame and the entry's own key-id, which
+  `instance-row` threads), then through the Resources projection algebra
   (`resources-helpers/summarize` + `instance-row`) the
-  panel hands to the view. We assert the panel-facing summaries NEVER preview
+  panel hands to the view. The closure composing those two in
+  `resources/on-box-resource-egress-fn` is CLJS; its end-to-end pin is
+  `resources_cljs_test/on-box-render-redacts-raw-sensitive-payload`. We
+  assert the panel-facing summaries NEVER preview
   raw classified scope / params / data — the sensitive slot summarizes as the
   `[redacted]` sentinel preview, the large value rides through for the local
   operator, and an unreachable observed frame fails closed (the whole value
@@ -57,23 +64,63 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
+            [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.panels.local-render :as local-render]
             [day8.re-frame2-xray.panels.resources-helpers :as h]))
 
 ;; ---------------------------------------------------------------------------
-;; Runtime fixture — mirror `local_render_cljs_test`: two frames, one with a
-;; declared :sensitive / :large policy. The classification declares paths into
-;; the OBSERVED frame's value; the resource VALUES (entry :data, scoped-key
-;; scope/params) we project are shaped so the declared paths land on them, so
-;; the local-render walk redacts the resource value's classified slots exactly
-;; as it would an app-db slot.
+;; Fixture data — the shape the Resources tab projects: an `:entries` map
+;; keyed by the entry's opaque byte key-id STRING, the kind-preserving scoped
+;; key `[scope resource-id params]` riding on the entry as `:resource/key`. We
+;; seed RAW classified values (a sensitive `:secret`, a large `:rows`) so the
+;; local-render seam — not an upstream runtime elision — is what redacts them.
+;; ---------------------------------------------------------------------------
+
+(def ^:private secret-token "secret-session-jwt-abc123")
+
+;; A scope that itself carries a sensitive slot (scope is PII).
+(def ^:private sensitive-scope
+  [:rf.scope/session {:secret secret-token :tenant "t-1"}])
+
+;; Params carrying a sensitive slot (params identify the remote read).
+(def ^:private sensitive-params {:secret secret-token :id 42})
+
+(def ^:private scoped-key
+  [sensitive-scope :article/by-slug sensitive-params])
+
+(def ^:private key-id "kid-article-welcome-1")
+
+;; A resource entry whose payload carries BOTH a sensitive slot and a large
+;; slot, plus a plain sibling — the shape the live instance table renders.
+(def ^:private raw-entry
+  {:resource/id   :article/by-slug
+   :resource/key  scoped-key
+   :status        :loaded
+   :data          {:secret secret-token
+                   :title  "Welcome"
+                   :rows   (vec (range 300))}
+   :generation    4
+   :active-owners #{[:route :route/article "nav-1"]}
+   :tags          #{[:article "welcome"]}
+   :request-id    [:w 4]})
+
+;; The resource's projection-relative classification, as `reg-resource`
+;; declares it: the data's `:secret` and `:rows`, the params' `:secret`, and
+;; the scope's `:secret` (index 1 of the scope vector).
+(def ^:private article-classification
+  {:sensitive [[:data :secret] [:params :secret] [:scope 1 :secret]]
+   :large     [[:data :rows]]})
+
+;; ---------------------------------------------------------------------------
+;; Runtime fixture — two frames, one holding the live entry with its
+;; declarations LOWERED by the resources registry onto the entry's absolute
+;; runtime-db coordinates (`[:rf.runtime/resources :entries <key-id> …]`),
+;; exactly as a resource handler's commit leaves them.
 ;;
-;;   :app/secure — declares [:secret] sensitive (lands on a resource data /
-;;                 scope / params slot named :secret) and [:rows] large.
+;;   :app/secure — holds the entry; its declarations are lowered.
 ;;   :app/plain  — no classification (every value renders verbatim).
 ;; ---------------------------------------------------------------------------
 
@@ -81,12 +128,12 @@
 (def plain-frame  :app/plain)
 
 (defn- install-policy! []
-  ;; EP-0025: durable app-db classification rides the commit-plane
-  ;; classification effects (`:source :effect`) — there is no frame annotation.
   (rf.frame/swap-runtime-db! secure-frame
-    (fn [rt] (rf.elision/apply-classification-effects rt
-               {:sensitive [[:secret]]
-                :large     [[:rows]]}))))
+    (fn [rt]
+      (-> rt
+          (assoc-in [:rf.runtime/resources :entries] {key-id raw-entry})
+          (rf.resources.classification/reconcile-registry
+            {:article/by-slug article-classification})))))
 
 (defn- init-fn []
   (rf/make-frame {:id plain-frame})
@@ -104,48 +151,13 @@
      :ambient-frame nil
      :init-fn init-fn}))
 
-;; ---------------------------------------------------------------------------
-;; Fixture data — the shape the Resources tab projects: a {scoped-key entry}
-;; map. The scoped key is `[scope resource-id params]`; the entry carries
-;; `:data` + lifecycle metadata. We seed RAW classified values (a sensitive
-;; `:secret`, a large `:rows`) so the local-render seam — not an upstream
-;; runtime elision — is what redacts them.
-;; ---------------------------------------------------------------------------
-
-(def ^:private secret-token "secret-session-jwt-abc123")
-
-;; A scope that itself carries a frame-declared sensitive slot (scope is PII).
-(def ^:private sensitive-scope
-  [:rf.scope/session {:secret secret-token :tenant "t-1"}])
-
-;; Params carrying a sensitive slot (params identify the remote read).
-(def ^:private sensitive-params {:secret secret-token :id 42})
-
-;; A resource entry whose payload carries BOTH a sensitive slot and a large
-;; slot, plus a plain sibling — the shape the live instance table renders.
-(def ^:private raw-entry
-  {:resource/id   :article/by-slug
-   :status        :loaded
-   :data          {:secret secret-token
-                   :title  "Welcome"
-                   :rows   (vec (range 300))}
-   :generation    4
-   :active-owners #{[:route :route/article "nav-1"]}
-   :tags          #{[:article "welcome"]}
-   :request-id    [:w 4]})
-
-;; The per-(scoped-key, entry) pair the panel projects, keyed under a scope +
-;; params that ALSO carry sensitive slots.
-(def ^:private scoped-key
-  [sensitive-scope :article/by-slug sensitive-params])
-
-;; A frame-keyed egress fn matching how the Resources panel SHOULD route a
-;; frame-sourced value through the EP-0015 on-box default before summarizing —
-;; the `instance-row` egress-fn seam wired to the local-render
-;; profile. `slot` / `key-id` are ignored: the observed frame's path policy
-;; governs which nested slots redact, exactly as the App-DB local render does.
+;; The `instance-row` egress-fn the Resources panel threads: each payload slot
+;; egresses under the observed frame at the absolute coordinate its
+;; declarations were lowered to — the entry's key-id, which `instance-row`
+;; passes, re-rooted per slot by `slot-egress-path`.
 (defn- local-egress-fn [observed-frame]
-  (fn [v _slot _key-id] (local-render/local-render-value v observed-frame)))
+  (fn [v slot key-id]
+    (local-render/local-render-value-at v observed-frame (h/slot-egress-path key-id slot))))
 
 (defn- no-raw-secret?
   "The render-safe summary must NEVER carry the raw secret in ANY of its
@@ -170,7 +182,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest resources-local-render-redacts-sensitive-data-keeps-large
-  (let [row (h/instance-row [scoped-key raw-entry] nil (local-egress-fn secure-frame))
+  (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn secure-frame))
         data-summary (:data row)]
     (testing "(1) the frame-declared sensitive data slot redacts under the
               on-box default — the panel's :data summary shows the sensitive
@@ -196,10 +208,19 @@
   ;; entitled to big values; only secrets are withheld (the include-large?
   ;; overlay). The summary's bounded preview is display ergonomics, NOT an
   ;; egress redaction, so the value is NOT a large-elided sentinel.
-  (let [large-entry  (assoc raw-entry :data {:rows (vec (range 300))})
-        row          (h/instance-row [[sensitive-scope :catalog/rows {:page 1}] large-entry]
+  (let [large-data   {:rows (vec (range 300))}
+        row          (h/instance-row [key-id (assoc raw-entry :data large-data)]
                                      nil (local-egress-fn secure-frame))
         data-summary (:data row)]
+    (testing "the slot IS declared large: an off-box profile at the same
+              coordinate elides it, so the on-box keep below is the overlay
+              at work, not a declaration that missed"
+      (is (contains? (:rows (rf/project-egress
+                              large-data
+                              {:rf.egress/profile :rf.egress/off-box-tool
+                               :frame             secure-frame
+                               :path              (h/slot-egress-path key-id :data)}))
+                     :rf.size/large-elided)))
     (testing "(2) a frame-declared LARGE data slot is NOT elided on-box — the
               value rides through (no :rf.size/large-elided sentinel)"
       (is (false? (:large? data-summary))
@@ -213,7 +234,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest resources-local-render-redacts-sensitive-scope-and-params
-  (let [row           (h/instance-row [scoped-key raw-entry] nil (local-egress-fn secure-frame))
+  (let [row           (h/instance-row [key-id raw-entry] nil (local-egress-fn secure-frame))
         scope-summary  (:scope row)
         params-summary (:params row)]
     (testing "(3) the scope's sensitive slot redacts — the scope carries PII
@@ -242,7 +263,7 @@
             whole resource value — every value-bearing summary is [redacted],
             never a raw preview"
     (doseq [unreachable [:app/does-not-exist nil]]
-      (let [row (h/instance-row [scoped-key raw-entry] nil (local-egress-fn unreachable))]
+      (let [row (h/instance-row [key-id raw-entry] nil (local-egress-fn unreachable))]
         (is (= "[redacted]" (:preview (:data row)))
             (str "data fails closed under " (pr-str unreachable)))
         (is (= "[redacted]" (:preview (:scope row)))
@@ -266,7 +287,7 @@
   (testing "under a PLAIN frame (no :sensitive decl) the SAME raw resource
             value renders verbatim — the policy is per-frame, applied from the
             observed frame, never borrowed or ambient"
-    (let [row          (h/instance-row [scoped-key raw-entry] nil (local-egress-fn plain-frame))
+    (let [row          (h/instance-row [key-id raw-entry] nil (local-egress-fn plain-frame))
           data-summary (:data row)]
       (is (false? (:redacted? data-summary))
           "no sensitive decl on :app/plain ⇒ the data is not redacted")
@@ -274,6 +295,6 @@
           "the plain-frame preview renders the (unredacted) value")
       ;; And the SECURE frame redacts the SAME value — proving the divergence
       ;; is the observed frame's policy, not an artefact of the value.
-      (is (leaf-redacted? (:data (h/instance-row [scoped-key raw-entry] nil
+      (is (leaf-redacted? (:data (h/instance-row [key-id raw-entry] nil
                                                  (local-egress-fn secure-frame))))
           "the SAME value redacts under the secure frame — per-frame policy"))))

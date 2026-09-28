@@ -91,9 +91,8 @@
   there too — a harmless no-match that stays correct if the registry ever
   classifies them.
 
-  The absolute egress `:path` for a slot is
-  `(into (conj (vec entries-rel-path) key-id) (resource-payload-path-suffix
-  slot-key))`. Canonical home for the pure path logic so every caller — the
+  The absolute egress `:path` for a slot is `slot-egress-path`. Canonical
+  home for the pure path logic so every caller — the
   on-box Resources-panel
   egress (`resources/on-box-resource-egress-fn`) — re-roots each slot
   to the SAME absolute coordinate the resources artefact lowers its per-instance
@@ -103,6 +102,15 @@
     :scope  [:resource/key 0]
     :params [:resource/key 2]
     [slot-key]))
+
+(defn slot-egress-path
+  "The absolute runtime-db path the payload `slot-key` of the entry at
+  `key-id` egresses at: the entry's own path, re-rooted by
+  `resource-payload-path-suffix`. A slot-only path, missing the key-id,
+  matches no lowered declaration."
+  [key-id slot-key]
+  (into (conj (vec entries-rel-path) key-id)
+        (resource-payload-path-suffix slot-key)))
 
 (def tag-index-rel-path
   "Runtime-db-relative path to the reverse tag index."
