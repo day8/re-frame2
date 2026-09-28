@@ -181,9 +181,10 @@
   (testing "the documented :local/root is anchored to the checkout, not to the command's cwd"
     (let [root (or @local-root-form "")]
       ;; Whether the root lands on the reviewed template is the resolution
-      ;; arm's job below; these two pin what it cannot see from any one
-      ;; machine — a root that only resolves where the author's checkout
-      ;; happens to live, and a separator EDN would read as an escape.
+      ;; arm's job below. These two pin what that arm can pass on one machine
+      ;; and fail everywhere else: a root that resolves only where this
+      ;; checkout happens to live, and a backslash an EDN string reads as an
+      ;; escape.
       (is (str/includes? root checkout-placeholder)
           (str "The documented :local/root is \"" root "\" — it does not name the "
                "re-frame2 checkout. A root that is not anchored to the checkout "
