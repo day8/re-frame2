@@ -34,11 +34,10 @@
      not demonstrate. It is staged here against a real React root, and
      the assertion is the honest one: the committed DOM is not stale.
 
-  Runtime: `-dom-cljs-test`, written against a real React DOM; under
-  `:node-test` every claim would degrade to a stated skip. No lane runs
-  it — the bench project defines no test build — so it is compile-checked
-  only, by `compile_gate.cjs` (`npm run check` and the nightly
-  `fresco-bench-compile` job).
+  Runtime: `-dom-cljs-test`, written against a real React DOM. The lane's
+  `:fresco-bench-test` build runs it under Node (`npm test`, and nightly
+  in the `fresco-bench-compile` job), where every claim degrades to a
+  stated skip; no lane runs it in a browser.
   The fence's own algebra is proved without a browser in
   `arm1/runtime_cljs_test`."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]

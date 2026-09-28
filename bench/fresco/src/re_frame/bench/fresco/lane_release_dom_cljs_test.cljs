@@ -15,11 +15,10 @@
   behaviour, cheaply and deterministically.
 
   Runtime: these are DOM claims. The file carries the `-dom-cljs-test`
-  suffix and every test degrades to a stated skip under `:node-test`,
-  which is the posture the other `*-dom` suites keep. No lane runs it —
-  the bench project defines no test build — so it is compile-checked
-  only, by `compile_gate.cjs` (`npm run check` and the nightly
-  `fresco-bench-compile` job)."
+  suffix and every test degrades to a stated skip under Node, which is the
+  posture the other `*-dom` suites keep. The lane's `:fresco-bench-test`
+  build runs it there (`npm test`, and nightly in the
+  `fresco-bench-compile` job); no lane runs it in a browser."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.fresco.lane :as rf.bench.fresco.lane]))
 

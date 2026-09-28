@@ -14,10 +14,10 @@
                      re-frame.performance/retain-entries? true}` — the
   vehicle core's `re-frame.performance-emit-nightly-test` rides, whose
   `:node-test-perf-nightly` build selects `\"-emit-nightly-test$\"`.
-  This ns carries that suffix, but that build's classpath does not reach
-  the bench tree and the bench lane's own `shadow-cljs.edn` has no
-  perf-flag build, so running it takes a build that merges those
-  `:closure-defines` in.
+  That build's classpath does not reach the bench tree, so this ns runs
+  in the bench lane's own `:fresco-bench-test-perf` build, which carries
+  those `:closure-defines` (`npm test`, and nightly in the
+  `fresco-bench-compile` job).
 
   `retain-entries? true` is what makes a synchronous read possible at
   all: the bracket clears each measure by name right after emit
