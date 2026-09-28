@@ -524,6 +524,23 @@
           (not rf.story.config/static-mode?))))
 
 #?(:cljs
+   (defn scroll-rail-to-xray!
+     "Scroll the RHS rail so its Xray band is in view. The band sits at the
+     top of the rail, above the Evidence section whose links focus it, so a
+     focus that left the rail where it was would switch the embed out of
+     sight. Deferred a tick, like `open!`, so the switched embed has
+     rendered first."
+     []
+     (js/setTimeout
+       (fn []
+         (when (exists? js/document)
+           (when-let [el (.querySelector js/document "[data-rf-rhs-section=\"xray\"]")]
+             (try
+               (.scrollIntoView el #js {:behavior "smooth" :block "start"})
+               (catch :default _ nil)))))
+       0)))
+
+#?(:cljs
    (defn focus-beat!
      "Fire a focus command into the embedded Xray surface for `beat` under
      `variant-id`, targeting `panel` (spec/020 §2.1). The host-facing
@@ -536,7 +553,8 @@
 
      The RHS embed follows the focus: the shell's `:xray-panel` override
      moves to the focused panel (`embed-panel-for`), exactly as clicking
-     that chip would, so the rail shows the lens the link named.
+     that chip would, and the rail scrolls to the Xray band
+     (`scroll-rail-to-xray!`), so the rail shows the lens the link named.
 
      No-op when Story is disabled, and no-op in a published static export
      (`focus-available?`), where there is no mounted Xray to
@@ -552,6 +570,7 @@
              result  (xray-core/focus! variant-id command)]
          (rf.story.ui.state/swap-state! assoc :xray-panel
                                         (embed-panel-for (:panel command)))
+         (scroll-rail-to-xray!)
          result))))
 
 ;; ---- styling -------------------------------------------------------------

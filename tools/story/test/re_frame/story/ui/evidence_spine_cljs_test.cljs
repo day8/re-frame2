@@ -313,6 +313,24 @@
       (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :trace)
       (is (= :trace (:xray-panel (rf.story.ui.state/get-state)))))))
 
+(deftest focus-beat-scrolls-the-rail-to-the-xray-band
+  (testing "an 'Xray: …' link scrolls the rail to the Xray band, which sits
+            above the Evidence section the link lives in, so the switched
+            embed comes into view rather than changing out of sight"
+    (xray-preload/reset-for-test!)
+    (xray-registry/reset-for-test!)
+    (xray-trace-collector/reset-for-test!)
+    (xray-registry/register-xray-handlers!)
+    (rf/make-frame {:id :rf/xray})
+    (let [scrolls (atom 0)
+          beat    {:epoch-id 100 :dispatch-id 100 :beat-idx 0 :span-idx 0}]
+      (with-redefs [rf.story.ui.evidence-spine/scroll-rail-to-xray! #(swap! scrolls inc)]
+        (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)
+        (is (= 1 @scrolls) "one link press, one scroll to the Xray band")
+        (with-redefs [rf.story.config/static-mode? true]
+          (rf.story.ui.evidence-spine/focus-beat! :story.evidence/basic beat :app-db)
+          (is (= 1 @scrolls) "static export: no Xray band, so no scroll"))))))
+
 ;; ===========================================================================
 ;; STATIC EXPORT — the evidence focus boundary
 ;; ===========================================================================
