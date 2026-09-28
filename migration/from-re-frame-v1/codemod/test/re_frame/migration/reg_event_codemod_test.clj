@@ -727,49 +727,23 @@
       (is (= :reg-event (:target (first findings))) "target still suggested")
       (is (= src source)))))
 
-(deftest nil-capable-if-without-else
-  (testing "a 2-branch if whose then-arm is db but else is implicit nil -> FLAG"
-    ;; (if cond X) with no else is nil-capable.
-    (let [src "(rf/reg-event-db :cond/set\n  (fn [db [_ ok?]] (if ok? (assoc db :ok true))))"
-          f (only-finding src)]
-      (is (= :nil-capable (:flag f))))))
-
-(deftest nil-capable-get
-  (testing "a body that is (get db k) can be nil -> FLAG"
-    (let [src "(rf/reg-event-db :grab (fn [db [_ k]] (get db k)))"
-          f (only-finding src)]
-      (is (= :nil-capable (:flag f))))))
-
-(deftest nil-capable-cond
-  (testing "a cond with no guaranteed non-nil clause -> FLAG"
-    (let [src "(rf/reg-event-db :route\n  (fn [db [_ x]] (cond (= x 1) (assoc db :a 1) (= x 2) (assoc db :b 2))))"
-          f (only-finding src)]
-      (is (= :nil-capable (:flag f))))))
-
-(deftest nil-capable-and-or
-  (testing "and / or bodies short-circuit to a falsey value -> FLAG"
-    (let [and-src "(rf/reg-event-db :a (fn [db _] (and (:ready? db) (assoc db :go true))))"
-          or-src  "(rf/reg-event-db :o (fn [db _] (or (:cached db) (assoc db :fresh true))))"]
-      (is (= :nil-capable (:flag (only-finding and-src))))
-      (is (= :nil-capable (:flag (only-finding or-src)))))))
-
-(deftest nil-capable-bare-nil
-  (testing "a literal nil body -> FLAG"
-    (let [src "(rf/reg-event-db :noop (fn [db _] nil))"
-          f (only-finding src)]
-      (is (= :nil-capable (:flag f))))))
-
-(deftest nil-capable-some-thread
-  (testing "a some-> thread short-circuits to nil -> FLAG"
-    (let [src "(rf/reg-event-db :s (fn [db [_ k]] (some-> db (get k) inc)))"
-          f (only-finding src)]
-      (is (= :nil-capable (:flag f))))))
+(deftest nil-capable-bodies
+  (testing "each body shape that can evaluate to nil -> FLAG :nil-capable"
+    (doseq [[label src]
+            [["if without else" "(rf/reg-event-db :cond/set\n  (fn [db [_ ok?]] (if ok? (assoc db :ok true))))"]
+             ["get"             "(rf/reg-event-db :grab (fn [db [_ k]] (get db k)))"]
+             ["cond"            "(rf/reg-event-db :route\n  (fn [db [_ x]] (cond (= x 1) (assoc db :a 1) (= x 2) (assoc db :b 2))))"]
+             ["and"             "(rf/reg-event-db :a (fn [db _] (and (:ready? db) (assoc db :go true))))"]
+             ["or"              "(rf/reg-event-db :o (fn [db _] (or (:cached db) (assoc db :fresh true))))"]
+             ["literal nil"     "(rf/reg-event-db :noop (fn [db _] nil))"]
+             ["some-> thread"   "(rf/reg-event-db :s (fn [db [_ k]] (some-> db (get k) inc)))"]]]
+      (is (= :nil-capable (:flag (only-finding src))) label))))
 
 ;; ---------------------------------------------------------------------------
 ;; non-nil-capable bodies are NOT flagged (the rewrite proceeds)
 ;; ---------------------------------------------------------------------------
 
-(deftest not-nil-capable-assoc
+(deftest not-nil-capable-db-builders
   (testing "assoc / assoc-in / update / merge / dissoc bodies are non-nil -> rewrite"
     (doseq [body ["(assoc db :x 1)" "(assoc-in db [:a :b] 1)" "(update db :n inc)"
                   "(merge db {:x 1})" "(dissoc db :x)"]]
