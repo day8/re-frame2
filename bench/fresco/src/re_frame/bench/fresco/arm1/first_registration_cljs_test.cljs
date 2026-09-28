@@ -56,9 +56,9 @@
   extra render it buys reads back through a cell that is alive and
   correct.
 
-  The bottom rows are the bill, and they are what makes that distinction
+  The bottom row is the bill, and it is what makes that distinction
   checkable rather than argued: a first registration of an id **no cell
-  holds** must disturb a mounted boundary by nothing at all. Those
+  holds** must disturb a mounted boundary by nothing at all. Its
   assertions hold with the term in place, which is the cleanest available
   proof that the basis term is not the per-key live term."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
@@ -288,18 +288,6 @@
            registration is not a reason to rebuild an attachment")
       (release!))))
 
-(deftest closing-the-first-registration-cost-no-hook-and-no-per-boundary-object
-  (testing "the same fences `disposed_cell_cljs_test` holds for the
-            disposal half. The held-cell half is repaired by an event and
-            the gap half by one term shared by every key, so neither buys
-            a React hook and neither buys a per-boundary object."
-    (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
-        "two hooks — a registrar hook is not a React hook")
-    (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rf.bench.fresco.arm1.runtime/shell-hook-ledger)
-        "and the same two, in the same order")
-    (let [inv (rf.bench.fresco.arm1.runtime/retained-inventory)]
-      (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
-             (into #{} (map :token) (:absent inv)))
-          "the enumerated absences hold: no per-boundary object, and
-           nothing is keyed by a render or an attempt"))))
+;; Neither half buys a React hook or a per-boundary object: a registrar hook
+;; is not a React hook, and the shell's two hooks and its enumerated
+;; absences are pinned once, in `runtime_cljs_test`'s hook-ledger rows.

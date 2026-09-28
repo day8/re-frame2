@@ -261,21 +261,10 @@
 ;; ---------------------------------------------------------------------------
 ;; HD-002 clause (a) — the ownership state machine
 ;; ---------------------------------------------------------------------------
-
-(deftest a-render-mutates-neither-the-cell-table-nor-a-reference
-  (seeded! 3)
-  (testing "the invariant the whole state machine reduces to: no
-           render-phase code mutates the cell table or a subscription
-           ref-count, so an abandoned render needs no cleanup because it
-           never did anything that would need cleaning"
-    (let [before (rf.bench.fresco.arm1.runtime/stats)]
-      (render (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))
-                       (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))
-      (let [after (rf.bench.fresco.arm1.runtime/stats)]
-        (is (= (:boundaries before) (:boundaries after)) "no boundary registered")
-        (is (= (:edges before) (:edges after)) "no edge added")
-        (is (= (:cells before) (:cells after)) "no cell built")
-        (is (= (:cell-refs before) (:cell-refs after)) "no reference taken")))))
+;;
+;; The invariant it reduces to — no render-phase code mutates the cell table
+;; or a reference — is `cell_table_laws_cljs_test`'s abandoned-render row and
+;; `cold_read_cljs_test`'s `a-cold-read-leaves-the-world-as-it-found-it`.
 
 (deftest a-re-render-before-the-commit-destroys-the-previous-candidate-by-overwrite
   (seeded! 3)
@@ -487,47 +476,11 @@
 ;; ---------------------------------------------------------------------------
 ;; The commit path: write -> dirty keys -> index -> dirty boundaries
 ;; ---------------------------------------------------------------------------
-
-(deftest a-narrow-write-notifies-exactly-the-boundary-that-read-it
-  (seeded! 3)
-  (let [a (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))
-        b (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 1]))]))]
-    (is (= #{(key-of [:dogfood/todo 0])} (reads-of (:entry a))))
-    (is (= #{(key-of [:dogfood/todo 1])} (reads-of (:entry b))))
-    (is (= [(:reg a)] (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 0]))))
-    (is (= [(:reg b)] (rf.bench.fresco.arm1.runtime/cell-readers (key-of [:dogfood/todo 1]))))
-    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-    (is (= 1 @(:hits a)) "the reader of the moved subscription re-runs")
-    (is (= 0 @(:hits b)) "and nothing else does")
-    ((:release! a))
-    ((:release! b))))
-
-(deftest two-boundaries-sharing-a-subscription-both-run
-  (seeded! 3)
-  (let [a (mounted! (fn [_] [:span (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))
-        b (mounted! (fn [_] [:span (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/remaining]))]))]
-    (is (= 1 (:cells (rf.bench.fresco.arm1.runtime/stats)))
-        "ONE cell for the shared key, holding two references — and that is
-         also what lets `cell-watch-key` be a single namespaced constant
-         rather than an identity minted per cell. A watch key
-         has to be unique within the reference it watches; no two cells
-         ever hold the same reaction, so nothing can clobber another
-         cell's watch. Mint a cell per reader instead and this row goes
-         red: two cells on one reaction, and the second `add-watch`
-         silently replacing the first's")
-    (is (= 2 (:cell-refs (rf.bench.fresco.arm1.runtime/stats))))
-    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-    (is (= 1 @(:hits a)))
-    (is (= 1 @(:hits b)))
-    ((:release! a))
-    ((:release! b))))
-
-(deftest an-unmounted-boundary-is-never-notified-again
-  (seeded! 3)
-  (let [a (mounted! (fn [_] [:li (str (rf.bench.fresco.arm1.runtime/sub [:dogfood/todo 0]))]))]
-    ((:release! a))
-    (rf.bench.fresco.arm1.runtime/dispatch! frame-id [:dogfood/toggle 0])
-    (is (= 0 @(:hits a)))))
+;;
+;; Who a write notifies — the reader of the moved key and no other, every
+;; sharer of a shared key through ONE cell, never a departed boundary — is
+;; laws 1, 2 and 3 in `cell_table_laws_cljs_test`. What stays here is the
+;; commit path's own arithmetic.
 
 (deftest a-write-that-moves-nothing-notifies-nobody
   (seeded! 3)

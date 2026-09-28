@@ -26,8 +26,10 @@
 
   What closes both axes is the substrate's own disposal event, armed once
   per unique key at `wire-cell!` time. It costs no React hook, no
-  per-boundary object, and nothing at all in the epoch sum — the two
-  rows at the bottom are that bill, checked rather than claimed.
+  per-boundary object, and nothing at all in the epoch sum. That bill is
+  checked rather than claimed where it is paid for every cell: the hook
+  ledger in `runtime_cljs_test`, and a clean mount leaving the snapshot
+  where the render put it in `staged_read_tear_cljs_test`.
 
   Everything here runs against Arm 1's own runtime over the React spine's
   adapter: on an unwatchable host a subscription never notifies and the
@@ -244,39 +246,3 @@
         (is (nil? (rf.bench.fresco.arm1.runtime/cell-reaction [f q-node]))
             "so the cell drops it")
         (release!)))))
-
-;; ---------------------------------------------------------------------------
-;; What closing the two axes costs
-;; ---------------------------------------------------------------------------
-
-(deftest closing-the-axes-cost-no-hook-and-nothing-in-the-snapshot
-  (testing "the tripwire. The axes are closed by an event armed once per
-            unique key, not by a registry term in every key's contribution
-            to `getSnapshot`. So the shell holds its two hooks, the
-            snapshot arithmetic has no extra term, and `subscribe` closes
-            over the read set alone."
-    (is (= 2 (count rf.bench.fresco.arm1.runtime/shell-hook-ledger))
-        "two hooks — the disposal hook is not a React hook")
-    (is (= [:use-context/frame :use-sync-external-store/subscription-epoch]
-           rf.bench.fresco.arm1.runtime/shell-hook-ledger)
-        "and the same two, in the same order")
-    (let [inv (rf.bench.fresco.arm1.runtime/retained-inventory)]
-      (is (= #{:use-ref :use-state :view-cell :candidate-ledger}
-             (into #{} (map :token) (:absent inv)))
-          "the enumerated absences hold: no per-boundary object, and
-           nothing is keyed by a render or an attempt")))
-
-  (testing "a clean mount is undisturbed — the repair must not become
-            `re-render always`, which is what a registry term would have
-            risked on every boundary in the application"
-    (rf/reg-sub (first q-reg) (fn [db _] (:v db)))
-    (let [f     (make-frame! ::registry-clean {:v 1})
-          _     (rf.bench.fresco.arm1.runtime/render-body f (reader q-reg (volatile! nil)) {})
-          entry (rf.bench.fresco.arm1.runtime/last-reads)
-          at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry)
-          release!  (rf.bench.fresco.arm1.runtime/commit-boundary! entry (fn []))]
-      (is (= at-render (rf.bench.fresco.arm1.runtime/snapshot-of entry))
-          "acquisition moves nothing: the cell is born at the same
-           basis the staged term reported, and arming a disposal hook is not
-           a term")
-      (release!))))
