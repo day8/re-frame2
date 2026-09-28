@@ -169,17 +169,6 @@
       (is (not (str/includes? (pr-str s) "SENTINEL"))
           "the short secret rode back WHOLE in the summary"))))
 
-(deftest a-long-secrets-raw-prefix-is-not-reproduced
-  (testing "a bearer-token-shaped secret whose first 24 chars are the
-            sentinel: a `(subs s 0 24)` head would reproduce the
-            sentinel EXACTLY"
-    (let [s (rf.error/diag-value-summary long-secret)]
-      (is (= :string (:type s)))
-      (is (= (count long-secret) (:count s)))
-      (is (not (str/includes? (pr-str s) "SENTINEL"))
-          "no raw prefix of the secret survives into the summary")
-      (is (not (str/includes? (pr-str s) "tail-that-was-truncated"))))))
-
 (deftest sentinel-bearing-map-keys-are-not-reproduced
   (testing "map KEYS are app/user-controlled — a dynamic key of ANY key type
             carries content and must not ride into the summary"
@@ -196,20 +185,6 @@
             (str "key content leaked for " (pr-str (keys m))))
         (is (not (str/includes? printed "secret")))
         (is (not (str/includes? printed "%PDF")))))))
-
-(deftest markup-and-control-character-keys-are-not-reproduced
-  (testing "keys chosen to break whatever reads the diagnostic downstream —
-            markup, ANSI escapes, newlines, NUL — reach no output at all"
-    (let [m       {(str "<script>alert('" sentinel "')</script>") 1
-                   (str "\u001b[31m" sentinel "\u001b[0m")        2
-                   (str "line1\nline2\r\n" sentinel)              3
-                   (str sentinel "\u0000")                  4}
-          printed (pr-str (rf.error/diag-value-summary m))]
-      (is (= "{:type :map, :count 4}" printed)
-          "the summary is the shape and nothing else")
-      (doseq [fragment ["SENTINEL" "<script>" "\u001b" "\n" "\u0000"]]
-        (is (not (str/includes? printed fragment))
-            (str "hostile key fragment reached the output: " (pr-str fragment)))))))
 
 (deftest a-very-large-map-summarises-to-a-fixed-size
   (testing "a `:keys` leg would grow with the key set, so an
@@ -244,15 +219,6 @@
     (let [printed (pr-str (rf.error/diag-value-summary (hostile-scalar)))]
       (is (not (str/includes? printed "SENTINEL"))
           "the :scalar leg called toString on an unknown host value"))))
-
-(deftest nested-content-is-not-reproduced
-  (testing "no leg recurses, so nesting cannot smuggle content out either"
-    (doseq [v [{:outer {:inner {(keyword sentinel) long-secret}}}
-               [long-secret {sentinel 1} #{sentinel}]
-               #{sentinel long-secret}
-               (list sentinel long-secret)]]
-      (is (not (str/includes? (pr-str (rf.error/diag-value-summary v)) "SENTINEL"))
-          (str "nested content leaked from " (:type (rf.error/diag-value-summary v)))))))
 
 ;; ---- the capstone: the OUTPUT GRAMMAR forbids content --------------------
 

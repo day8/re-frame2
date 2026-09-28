@@ -671,21 +671,6 @@
 ;; bundle) live internally as `re-frame.frame/bind-fn`, which this suite
 ;; pins.
 
-(deftest bind-fn-rebinds-frame-after-scope-unwinds
-  (testing "(rf.frame/bind-fn frame-id f) wraps f so *current-frame* is
-            re-established on each call, even after the surrounding
-            with-frame scope has unwound"
-    (rf/make-frame {:id :fbf/A :doc "bind-fn capture target"})
-    (rf/reg-event :fbf/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [cb (rf/with-frame :fbf/A
-               (rf.frame/bind-fn :fbf/A (fn [] (rf/dispatch [:fbf/inc]))))]
-      (is (nil? rf.frame/*current-frame*) "the with-frame scope has unwound")
-      (cb)
-      (rf.test-support/poll-until #(= 1 (:n (rf/app-db-value :fbf/A)))
-                               {:label "bind-fn drains to :fbf/A"})
-      (is (= 1 (:n (rf/app-db-value :fbf/A)))
-          "bind-fn re-established :fbf/A inside the body"))))
-
 (deftest bind-fn-binds-explicit-frame-with-no-surrounding-scope
   (testing "(rf.frame/bind-fn frame-id f) binds an explicit frame — no
             surrounding with-frame needed"

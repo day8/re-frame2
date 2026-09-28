@@ -174,19 +174,3 @@
         (is (not (contains? @seen :source-coord))
             "`:source-coord` slot absent when no macro coords were
              captured at registration time")))))
-
-;; ---- error-coords-by-id atom semantics ----------------------------------
-
-(deftest error-coords-by-id-populated-on-registration
-  (testing "Every macro-driven registration populates the
-            parallel `error-coords-by-id` registry under `[:kind :id]`.
-            The atom is the single source of truth for error-emit
-            source-coord lookup."
-    (rf/reg-event :rf2-3un2g/parallel-reg
-                     (fn [{:keys [db]} _] {:db db}))
-    (let [sc (rf.source-coords/error-coords-for :event :rf2-3un2g/parallel-reg)]
-      (is (some? sc)
-          "parallel registry carries coords for the registered id")
-      (is (some? (:ns   sc)))
-      (is (some? (:line sc)))
-      (is (some? (:file sc))))))

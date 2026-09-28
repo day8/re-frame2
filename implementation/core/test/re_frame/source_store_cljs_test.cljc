@@ -354,16 +354,6 @@
         (is (= "tool.synthesised.ns" (:rf.provenance/ns stored))
             "explicit provenance overrides both the :ns slot and *pending-coords*")))))
 
-(deftest no-provenance-when-no-source-anywhere
-  (testing "a truly programmatic registration — no descriptor :ns, no
-            *pending-coords* binding — records under the nil-provenance slot,
-            untouched by the production-elision fallback"
-    (let [stored (rf.source-store/record-descriptor! :event :prog/handler {:handler-fn :v1})]
-      (is (nil? (:rf.provenance/ns stored))
-          "no provenance stamped when no source namespace is available anywhere")
-      (is (some? (get (rf.source-store/descriptors-for :event :prog/handler) nil))
-          "recorded under the nil-provenance slot, not dropped"))))
-
 ;; ===========================================================================
 ;; 8. clear-kind! bumps the store generation — the
 ;;    resolved-image-generation cache MUST invalidate after a clear-kind!

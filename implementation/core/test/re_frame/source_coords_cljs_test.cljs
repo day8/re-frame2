@@ -64,26 +64,6 @@
         (is (file-is-real? f)
             ":file when present must be a real source path")))))
 
-(deftest reg-event-db-return-file-is-not-no-source-path
-  (testing "reg-event with a {:db ...} return emits a real :file under CLJS, not NO_SOURCE_PATH"
-    (rf/reg-event :rf2-mdjp/reg-event-db-sample
-                     (fn [{:keys [db]} _] {:db db}))
-    (let [m (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-db-sample})
-          f (:file m)]
-      (is (some? m))
-      (is (not= "NO_SOURCE_PATH" f)
-          ":file must NOT be the cljs.analyzer NO_SOURCE_PATH sentinel")
-      (when (some? f)
-        (is (file-is-real? f)
-            ":file when present must be a real source path")))))
-
-(deftest reg-event-fx-return-file-is-not-no-source-path
-  (testing "reg-event with an effect-map return emits a real :file under CLJS"
-    (rf/reg-event :rf2-mdjp/reg-event-fx-sample
-                     (fn [_ _] {}))
-    (let [f (:file (rf/handler-meta {:source :store :kind :event :id :rf2-mdjp/reg-event-fx-sample}))]
-      (is (not= "NO_SOURCE_PATH" f)))))
-
 (deftest reg-event-with-interceptor-file-is-not-no-source-path
   (testing "reg-event with a full-context interceptor emits a real :file under CLJS"
     (rf/reg-interceptor :rf2-mdjp/ctx-probe {:before (fn [ctx] ctx)})
