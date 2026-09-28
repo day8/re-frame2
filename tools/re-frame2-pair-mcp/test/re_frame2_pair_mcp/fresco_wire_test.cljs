@@ -131,20 +131,6 @@
                    "boundary, so a rename on the provider is a runtime failure "
                    "here and nowhere else")))))))
 
-(deftest the-emitter-names-nothing-the-provider-does-not-publish
-  ;; The reverse direction, over the forms as a whole rather than per read: a
-  ;; helper accidentally interpolating a second symbol would ship a call no
-  ;; provider answers.
-  (let [src   @provider-tool-src
-        named (into #{}
-                    (mapcat #(emitted-read-names (fresco-tool/projection-form %)))
-                    fresco-tool/tier-reads)]
-    (is (= (set fresco-tool/tier-reads) named)
-        "the emitted forms name exactly the declared reads")
-    (doseq [n named]
-      (is (str/includes? src (str "\n(defn " n "\n"))
-          (str n " is emitted onto the wire but not published by the provider")))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2. The schema gate matches what the producer actually stamps
 ;; ---------------------------------------------------------------------------

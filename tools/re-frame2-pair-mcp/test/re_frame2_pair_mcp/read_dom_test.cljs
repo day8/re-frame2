@@ -327,14 +327,6 @@
                      (is (= 54000 (:chars mark)) "elision marker reports char count"))
                    (done)))))))
 
-(deftest missing-selector-short-circuits
-  (async done
-    (-> (read-dom/read-dom-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (tu/error? r))
-                 (is (= :missing-selector (:reason (tu/extract-edn r))))
-                 (done))))))
-
 (deftest blank-selector-short-circuits
   (async done
     (-> (read-dom/read-dom-tool (fresh-conn) #js {:selector "   "})

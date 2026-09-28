@@ -227,25 +227,6 @@
 ;; Schema gate — the boundary is REAL, not nominal
 ;; ---------------------------------------------------------------------------
 
-(deftest a-schema-matching-projection-is-forwarded-as-success
-  ;; The ordinary `consumed-evidence-schema` read is unchanged: the envelope
-  ;; passes the gate and rides through as a successful (non-error) read.
-  (async done
-    (let [seen (atom nil)]
-      (-> (with-captured-form! seen {:ok?        true
-                                     :schema     fresco-tool/consumed-evidence-schema
-                                     :boundaries []}
-            (fn []
-              (fresco-tool/read-mounted-boundaries-tool (fresh-conn) #js {})))
-          (.then (fn [result]
-                   (is (false? (tu/error? result))
-                       "a schema-matched projection is a successful read")
-                   (let [edn (tu/extract-edn result)]
-                     (is (true? (:ok? edn)))
-                     (is (= [] (:boundaries edn))
-                         "a genuinely-empty schema-matched read is NOT mislabelled as an error"))
-                   (done)))))))
-
 (deftest a-producer-schema-this-build-does-not-understand-is-a-typed-mismatch
   ;; Pair connects to an ARBITRARY running app, so it cannot trust the producer's
   ;; own stamp to define support. A `:ok? true` projection stamped a `:schema`

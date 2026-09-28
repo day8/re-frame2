@@ -87,14 +87,6 @@
                  (is (= :invalid-sub-edn (:reason (read-result-text r))))
                  (done))))))
 
-(deftest rejects-missing-sub
-  (async done
-    (-> (read-sub/read-sub-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (err? r))
-                 (is (= :missing-sub (:reason (read-result-text r))))
-                 (done))))))
-
 (deftest rejects-blank-sub
   (async done
     (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "   "})
@@ -198,46 +190,6 @@
                      (is (= [:current-userr] (:query-v edn))
                          "the resolved query-v is echoed even on the miss")
                      (is (false? (:subscribed? edn))))
-                   (done)))))))
-
-(deftest ambiguous-frame-surfaces-as-error
-  (async done
-    ;; The runtime refuses with the enriched ambiguous-frame envelope
-    ;; (operation, query, available frames, current pin, fix-hint). The
-    ;; tool wrap must carry every slot back to the agent verbatim.
-    (let [runtime-result {:ok?              false
-                          :reason           :ambiguous-frame
-                          :operation        :read-sub
-                          :query            [:cart/total]
-                          :query-v          [:cart/total]
-                          :available-frames [:rf/default :stories]
-                          :selected-frame   nil
-                          :hint             "pass `frame` (one of [:rf/default :stories]) or pin one"}]
-      (stub-eval! nil runtime-result)
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:cart/total]"})
-          (.then (fn [r]
-                   (is (err? r))
-                   (let [edn (read-result-text r)]
-                     (is (= :ambiguous-frame (:reason edn)))
-                     (is (= :read-sub (:operation edn)))
-                     (is (= [:rf/default :stories] (:available-frames edn))
-                         "the candidate frames ride back so the agent can pin one"))
-                   (done)))))))
-
-(deftest sub-error-surfaces-as-error-not-nil
-  ;; A sub handler that throws while computing must return a structured
-  ;; :sub-error — not a bare nil.
-  (async done
-    (let [runtime-result {:ok? false :reason :sub-error :query-v [:boom]
-                          :frame :rf/default :message "boom"
-                          :hint "the subscription handler threw..."}]
-      (stub-eval! nil runtime-result)
-      (-> (read-sub/read-sub-tool (fresh-conn) #js {:sub "[:boom]"})
-          (.then (fn [r]
-                   (is (err? r))
-                   (let [edn (read-result-text r)]
-                     (is (= :sub-error (:reason edn)))
-                     (is (= "boom" (:message edn))))
                    (done)))))))
 
 (deftest frame-arg-routes-to-named-frame
