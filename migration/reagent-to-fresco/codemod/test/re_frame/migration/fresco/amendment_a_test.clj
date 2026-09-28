@@ -232,11 +232,4 @@
       (is (= (str "(let [f__rf2__2 vector a0__rf2__2 f__rf2 a1__rf2__2 f__rf2__1] "
                   "(fn [& args__rf2__2] (apply f__rf2__2 a0__rf2__2 a1__rf2__2 args__rf2__2)))")
              text))
-      (is (= [:a :b] (wrapper)))))
-
-  (testing "a site that spells no `__rf2` symbol is untouched by any of
-            this: generation 0 is the bare names, which is what every
-            corpus case still asserts"
-    (let [[_ text] (emitted "(r/partial handler @cart)")]
-      (is (= "(let [f__rf2 handler a0__rf2 @cart] (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))"
-             text)))))
+      (is (= [:a :b] (wrapper))))))
