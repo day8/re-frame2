@@ -1044,11 +1044,9 @@
                  (catch :default e (ex-data e)))]
       (is (contains? #{:malformed-fragment :malformed-payload} (:reason d))))))
 
-(deftest invalid-chart-state-rejected
-  (testing "a decoded chart that fails the schema throws :invalid-chart-state"
-    ;; Encode a valid one, then re-encode a tampered ChartState directly
-    ;; through the encoder is blocked by the encoder's own validation.
-    ;; So assert the encoder rejects an invalid ChartState up front.
+(deftest encode-rejects-invalid-chart-state
+  (testing "the encoder rejects a ChartState that fails the schema (an empty
+            definition, a non-keyword :machine-id) with :invalid-chart-state"
     (is (thrown? :default
           (encode {:machine-id :x :frame-id :y :definition {}})))
     (let [d (try (encode {:machine-id "not-a-kw"

@@ -24,7 +24,7 @@
     (is (re-find #"^rgba\(\d+, \d+, \d+, 0\)$"
                  (tokens/with-alpha :accent 0)))))
 
-(deftest with-alpha-roundtrips-palette-shift
+(deftest with-alpha-resolves-through-supplied-palette
   (testing "with-alpha resolves through a custom palette so callers
             (theming hosts) can swap the palette without forking the
             chart"
@@ -214,34 +214,30 @@
 ;; `tokens/edge-color` is the SINGLE source both `chart.edges/edge-stroke`
 ;; (the SVG path) and `chart.projection` (the arrowhead `:markerEnd`
 ;; colour) route through, so a stroke + its arrowhead cannot disagree.
-;; Ordering (XState/Stately gold standard): fired > focused/active >
-;; quiet.
+;; Ordering (XState/Stately gold standard, plus the guard-blocked hue):
+;; blocked > fired > focused/active > quiet.
 
-(deftest edge-color-fired-wins
-  (testing "`fired?` wins over `focused?` / `active?`: a
-            fired-this-epoch edge reads as 'what just happened'."
+(deftest edge-color-follows-the-precedence-ladder
+  (testing "`blocked?` wins outright, so an attempted-and-rejected edge paints
+            the pink guard-blocked hue; `fired?` beats focused / active, so a
+            fired-this-epoch edge reads as 'what just happened'; focused OR
+            active share the active hue; no flags, or all false, is quiet"
     (let [ct (tokens/chart-tokens)]
-      (is (= (:edge-fired ct)
-             (tokens/edge-color ct {:fired? true :focused? true :active? true})))
-      (is (= (:edge-fired ct)
-             (tokens/edge-color ct {:fired? true}))))))
-
-(deftest edge-color-focused-or-active-is-active-hue
-  (testing "focused OR active (but not fired) → the ACTIVE
-            hue; the two share one treatment."
-    (let [ct (tokens/chart-tokens)]
-      (is (= (:edge-active ct) (tokens/edge-color ct {:focused? true})))
-      (is (= (:edge-active ct) (tokens/edge-color ct {:active? true})))
-      (is (= (:edge-active ct)
-             (tokens/edge-color ct {:focused? true :active? true}))))))
-
-(deftest edge-color-resting-is-quiet
-  (testing "no flags (the resting / quiet segment) → the
-            QUIET hue."
-    (let [ct (tokens/chart-tokens)]
-      (is (= (:edge-quiet ct) (tokens/edge-color ct {})))
-      (is (= (:edge-quiet ct)
-             (tokens/edge-color ct {:fired? false :focused? false :active? false}))))))
+      (doseq [[label flags role]
+              [["blocked alone"                  {:blocked? true}                   :edge-guard-blocked]
+               ["blocked beats fired + focused + active"
+                {:blocked? true :fired? true :focused? true :active? true}         :edge-guard-blocked]
+               ["fired beats focused + active"   {:fired? true :focused? true :active? true} :edge-fired]
+               ["fired alone"                    {:fired? true}                     :edge-fired]
+               ["unblocked fired"                {:blocked? false :fired? true}     :edge-fired]
+               ["focused"                        {:focused? true}                   :edge-active]
+               ["active"                         {:active? true}                    :edge-active]
+               ["focused + active"               {:focused? true :active? true}     :edge-active]
+               ["unblocked focused"              {:blocked? false :focused? true}   :edge-active]
+               ["no flags"                       {}                                 :edge-quiet]
+               ["all flags false"                {:fired? false :focused? false :active? false} :edge-quiet]
+               ["unblocked, nothing else"        {:blocked? false}                  :edge-quiet]]]
+        (is (= (role ct) (tokens/edge-color ct flags)) label)))))
 
 ;; ---- guard-blocked edge hue --------------------------------------------
 
@@ -260,27 +256,3 @@
         (is (not= (:edge-quiet ct)  (:edge-guard-blocked ct)))
         (is (not= (:final-error ct) (:edge-guard-blocked ct))
             "pink blocked-edge is distinct from the red error-final ring")))))
-
-(deftest edge-color-blocked-wins-outright
-  (testing "`blocked?` wins OUTRIGHT over
-            fired / focused / active so the attempted-and-rejected edge
-            paints the PINK guard-blocked hue, standing out from the
-            affordance-blue exits."
-    (let [ct (tokens/chart-tokens)]
-      (is (= (:edge-guard-blocked ct)
-             (tokens/edge-color ct {:blocked? true})))
-      (is (= (:edge-guard-blocked ct)
-             (tokens/edge-color ct {:blocked? true :fired? true
-                                    :focused? true :active? true}))
-          "blocked beats fired + focused + active all at once"))))
-
-(deftest edge-color-unblocked-falls-through-to-fired-ladder
-  (testing "`blocked? false` (or absent) falls through to the
-            fired > focused/active > quiet ladder."
-    (let [ct (tokens/chart-tokens)]
-      (is (= (:edge-fired ct)
-             (tokens/edge-color ct {:blocked? false :fired? true})))
-      (is (= (:edge-active ct)
-             (tokens/edge-color ct {:blocked? false :focused? true})))
-      (is (= (:edge-quiet ct)
-             (tokens/edge-color ct {:blocked? false}))))))

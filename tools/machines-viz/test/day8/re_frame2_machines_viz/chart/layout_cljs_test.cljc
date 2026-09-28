@@ -391,25 +391,18 @@
 
 ;; ---- highlight-id ------------------------------------------------------
 
-(deftest highlight-id-handles-flat-state
-  (is (some? (layout/highlight-id :authing)))
-  (is (= (layout/highlight-id :authing)
-         (layout/highlight-id [:authing]))
-      "flat keyword and 1-element vector resolve to the same id"))
-
-(deftest highlight-id-handles-hierarchical-path
-  (let [id (layout/highlight-id [:authenticated :browsing])]
-    (is (string? id))
-    (is (not= id (layout/highlight-id [:authenticated])))))
-
-(deftest highlight-id-nil-for-nil-state
-  (is (nil? (layout/highlight-id nil))))
-
-(deftest highlight-id-nil-for-region-map
-  (testing "the single-active resolver returns nil for a
-            region-map (a map is not a single-active state); the
-            multi-active `highlight-ids` is the resolver for that arm"
-    (is (nil? (layout/highlight-id {:data :loading :form :neutral})))))
+(deftest highlight-id-resolves-each-state-arm
+  (testing "the single-active resolver maps a flat keyword and its
+            1-element vector to the same leaf id, a hierarchical path to its
+            deepest leaf, and returns nil for nil and for a region-map (a map
+            is not a single-active state; `highlight-ids` resolves that arm)"
+    (doseq [[label state expected]
+            [["flat keyword"      :authing                     (layout/node-id [:authing])]
+             ["1-element vector"  [:authing]                   (layout/node-id [:authing])]
+             ["hierarchical path" [:authenticated :browsing]   (layout/node-id [:authenticated :browsing])]
+             ["nil"               nil                          nil]
+             ["region-map"        {:data :loading :form :neutral} nil]]]
+      (is (= expected (layout/highlight-id state)) label))))
 
 ;; ---- highlight-ids — multi-active (G1) ----------------------------------
 ;;
@@ -491,52 +484,23 @@
 ;; Shape: `event [guard] / action`. Brackets + slash appear ONLY when
 ;; their segment is present, per xstate-stately.
 
-(deftest edge-label-event-only
-  (is (= "submit"
-         (layout/edge-label {:event :submit}))))
-
-(deftest edge-label-event-with-guard
-  (is (= "submit [authed?]"
-         (layout/edge-label {:event :submit :guard :authed?}))))
-
-(deftest edge-label-event-with-action
-  (is (= "submit / log-it"
-         (layout/edge-label {:event :submit :action :log-it}))))
-
-(deftest edge-label-event-with-guard-and-action
-  (is (= "submit [authed?] / log-it"
-         (layout/edge-label {:event :submit
-                             :guard :authed?
-                             :action :log-it}))))
-
-(deftest edge-label-after-with-guard-and-action
-  (testing "`:after` event-segment renders as the Stately
-            graph view clock glyph + `<ms>ms` suffix"
-    (is (= "⌚ 1500ms [timeout?] / cleanup"
-           (layout/edge-label {:event  :after-1500
-                               :after  1500
-                               :guard  :timeout?
-                               :action :cleanup})))))
-
-(deftest edge-label-always-with-guard
-  (testing "`:always` event-segment renders as the
-            Stately graph view infinity glyph"
-    (is (= "∞ [ready?]"
-           (layout/edge-label {:event   :always
-                               :always? true
-                               :guard   :ready?})))))
-
-(deftest edge-label-namespaced-event-with-guard
-  (is (= "auth/submit [authed?] / log-it"
-         (layout/edge-label {:event  :auth/submit
-                             :guard  :authed?
-                             :action :log-it}))))
-
-(deftest edge-label-namespaced-guard-renders-ns
-  (testing "guards may be namespaced; the label preserves the namespace"
-    (is (= "submit [auth/authed?]"
-           (layout/edge-label {:event :submit
-                               :guard :auth/authed?})))))
+(deftest edge-label-renders-each-segment-form
+  (testing "each legal segment combination, the `:after` clock glyph with
+            its `<ms>ms` suffix, the `:always` infinity glyph, and namespaced
+            events and guards, which keep their namespace"
+    (doseq [[label edge expected]
+            [["event only"             {:event :submit}                              "submit"]
+             ["event + guard"          {:event :submit :guard :authed?}              "submit [authed?]"]
+             ["event + action"         {:event :submit :action :log-it}              "submit / log-it"]
+             ["event + guard + action" {:event :submit :guard :authed? :action :log-it}
+              "submit [authed?] / log-it"]
+             [":after + guard + action" {:event :after-1500 :after 1500 :guard :timeout? :action :cleanup}
+              "⌚ 1500ms [timeout?] / cleanup"]
+             [":always + guard"        {:event :always :always? true :guard :ready?} "∞ [ready?]"]
+             ["namespaced event"       {:event :auth/submit :guard :authed? :action :log-it}
+              "auth/submit [authed?] / log-it"]
+             ["namespaced guard"       {:event :submit :guard :auth/authed?}         "submit [auth/authed?]"]]]
+      (is (= expected (layout/edge-label edge)) label))))
 
 ;; ---- event-line --------------------------------------------------------
 
@@ -572,35 +536,21 @@
 ;; calls out as the `#object[Function]` failure mode it guards — need a
 ;; direct pin of their own. These deterministic cases nail each arm.
 
-(deftest name-of-nil-passes-through
-  (testing "nil → nil (cond-> arms upstream skip the segment entirely)"
-    (is (nil? (layout/name-of nil)))))
-
-(deftest name-of-plain-keyword
-  (testing "a plain keyword renders via `name` (no leading colon)"
-    (is (= "authed?" (layout/name-of :authed?)))))
-
-(deftest name-of-namespaced-keyword-preserves-ns
-  (testing "a namespaced keyword renders `ns/name` so a guard like
-            `:auth/admin?` reads in full instead of losing its namespace"
-    (is (= "auth/admin?" (layout/name-of :auth/admin?)))))
-
-(deftest name-of-named-fn-surfaces-name-meta
-  (testing "an inlined `(fn name ...)` / `(defn ...)` guard surfaces its
-            `:name` meta as the label — NOT `#object[Function]`"
-    (is (= "do-thing"
-           (layout/name-of (with-meta (fn [_] true) {:name 'do-thing}))))))
-
-(deftest name-of-anonymous-fn-falls-back-to-fn
-  (testing "an anonymous fn with no `:name` meta renders the literal
-            `\"fn\"` rather than an opaque `#object[Function]` dump"
-    (is (= "fn" (layout/name-of (fn [_] true))))))
-
-(deftest name-of-non-keyword-non-fn-uses-str
-  (testing "any other value falls through to `str` (a symbol, a number)"
-    (is (= "raw"   (layout/name-of "raw")))
-    (is (= "go!"   (layout/name-of 'go!)))
-    (is (= "42"    (layout/name-of 42)))))
+(deftest name-of-renders-each-arm
+  (testing "nil passes through (upstream cond-> arms skip the segment); a
+            keyword renders via `name`, a namespaced one as `ns/name`; a fn
+            renders its `:name` meta, or the literal `\"fn\"` when it has none,
+            never `#object[Function]`; any other value falls through to `str`"
+    (doseq [[label value expected]
+            [["nil"                nil                                          nil]
+             ["plain keyword"      :authed?                                     "authed?"]
+             ["namespaced keyword" :auth/admin?                                 "auth/admin?"]
+             ["named fn"           (with-meta (fn [_] true) {:name 'do-thing})  "do-thing"]
+             ["anonymous fn"       (fn [_] true)                                "fn"]
+             ["string"             "raw"                                        "raw"]
+             ["symbol"             'go!                                         "go!"]
+             ["number"             42                                           "42"]]]
+      (is (= expected (layout/name-of value)) label))))
 
 (deftest project-definition-emits-event-label-with-guard-and-action
   (testing "project-definition emits the full xstate label on every edge"
@@ -1119,8 +1069,8 @@
       (is (empty? (filter :parallel-root-on? edges))
           "no root :on edges"))))
 
-(deftest project-definition-parallel-root-on-edge-ids-distinct-and-stable
-  (testing "multi-region root :on edges mint DISTINCT stable ids
+(deftest project-definition-parallel-root-on-edge-ids-distinct-and-machine-root-prefixed
+  (testing "multi-region root :on edges mint DISTINCT ids
             (no xyflow duplicate-id drop) carrying the MACHINE-ROOT source"
     (let [m {:type    :parallel
              :on      {:advance {:target [[:a :x] [:b :y]]}}
