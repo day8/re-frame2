@@ -5,7 +5,8 @@
 ;; suites exercise LOCAL COPIES of the runtime (see README.md), so running
 ;; them on every PR could not catch a regression in the shipped one. The lane
 ;; is hand-run — `npm run check` compiles every namespace warnings-fatal and
-;; runs the harness self-tests; `npm run bench` drives the P0 arms.
+;; runs the harness self-tests; `npm test` runs the CLJS suites under Node;
+;; `npm run bench` drives the P0 arms.
 ;;
 ;; The implementation roots below are the ones the lane's require closure
 ;; reaches — derived from the compile, and re-derived the same way whenever
@@ -97,4 +98,33 @@
    :main      re-frame.bench.fresco.ssr.node/-main
    :output-to "out/fresco-bench-node.js"
    :js-options {:node-modules-dir "../../implementation/node_modules"}
-   :compiler-options {:infer-externs false}}}}
+   :compiler-options {:infer-externs false}}
+
+  ;; THE LANE'S CLJS TESTS, run under Node by `cljs_test_run.cjs`
+  ;; (`npm test`). Each id is its own build rather than a rider of the two
+  ;; above, so nothing merges onto it and there is no shared cache to clear.
+  ;;
+  ;; The selector is anchored at `re-frame.bench.fresco.` deliberately: the
+  ;; source paths above carry `core/test`, `fresco/test` and `resources/test`,
+  ;; whose `-cljs-test` suites are the package's and run in its own lanes.
+  ;; `-dom-cljs-test` suites run here too; with no DOM under Node each DOM
+  ;; claim is a stated skip, so no lane runs those claims in a browser.
+  :fresco-bench-test
+  {:target    :node-test
+   :output-to "out/fresco-bench-test.js"
+   :ns-regexp "^re-frame\\.bench\\.fresco\\..+-cljs-test$"
+   :js-options {:node-modules-dir "../../implementation/node_modules"}
+   :compiler-options {:infer-externs false}}
+
+  ;; The ON half of the `:render` measure suite needs both perf brackets
+  ;; compiled in, and the rest of the lane needs them off (its OFF half
+  ;; asserts that no measure lands), so it gets a build of its own — the
+  ;; same split as core's `:node-test` / `:node-test-perf-nightly`.
+  :fresco-bench-test-perf
+  {:target    :node-test
+   :output-to "out/fresco-bench-test-perf.js"
+   :ns-regexp "^re-frame\\.bench\\.fresco\\..+-emit-nightly-test$"
+   :js-options {:node-modules-dir "../../implementation/node_modules"}
+   :compiler-options {:infer-externs   false
+                      :closure-defines {re-frame.performance/enabled?        true
+                                        re-frame.performance/retain-entries? true}}}}}
