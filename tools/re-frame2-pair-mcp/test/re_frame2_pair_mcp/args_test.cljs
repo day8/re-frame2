@@ -62,16 +62,12 @@
     (is (false? (args/parse-bool-arg empty-args :cache)))
     (is (false? (args/parse-bool-arg empty-args :include-sensitive)))))
 
-(deftest parse-bool-arg-nil-args-uses-table-default
-  ;; A nil args object collapses to the table default — the dispatcher
-  ;; can pass a missing args slot without a defensive guard.
-  (is (true?  (args/parse-bool-arg nil :dedup)))
-  (is (false? (args/parse-bool-arg nil :cache))))
-
-(deftest parse-bool-arg-undefined-args-uses-table-default
-  ;; JS undefined likewise collapses to the table default.
-  (is (true?  (args/parse-bool-arg js/undefined :dedup)))
-  (is (false? (args/parse-bool-arg js/undefined :cache))))
+(deftest parse-bool-arg-nil-or-undefined-args-uses-table-default
+  ;; A nil or JS-undefined args object collapses to the table default —
+  ;; the dispatcher can pass a missing args slot without a defensive guard.
+  (doseq [[label missing] [["nil" nil] ["undefined" js/undefined]]]
+    (is (true?  (args/parse-bool-arg missing :dedup)) (str label " args"))
+    (is (false? (args/parse-bool-arg missing :cache)) (str label " args"))))
 
 (deftest parse-bool-arg-explicit-boolean-overrides-default
   (let [on?  (args-js {:dedup false :cache true})
@@ -245,17 +241,13 @@
 ;; (>= 1); 0 is NOT an unbounded sentinel here.
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-timeout-arg-absent-is-ok-nil
-  (is (= [:ok nil] (args/parse-timeout-arg "wait-ms" nil))
-      "absent ⇒ caller falls back to the documented default"))
-
-(deftest parse-timeout-arg-accepts-positive-integer
-  (is (= [:ok 5000] (args/parse-timeout-arg "timeout-ms" 5000)))
-  (is (= [:ok 1]    (args/parse-timeout-arg "wait-ms" 1))))
-
-(deftest parse-timeout-arg-accepts-numeric-string
-  (is (= [:ok 250] (args/parse-timeout-arg "timeout-ms" "250"))
-      "MCP hosts sometimes stringify numbers"))
+(deftest parse-timeout-arg-accepts-absent-and-positive-integers
+  (doseq [[label arg-name v expected]
+          [["absent ⇒ caller falls back to the documented default" "wait-ms" nil [:ok nil]]
+           ["a positive integer"                                   "timeout-ms" 5000 [:ok 5000]]
+           ["the smallest deadline"                                "wait-ms" 1 [:ok 1]]
+           ["MCP hosts sometimes stringify numbers"                "timeout-ms" "250" [:ok 250]]]]
+    (is (= expected (args/parse-timeout-arg arg-name v)) label)))
 
 (deftest parse-timeout-arg-rejects-non-numeric
   ;; Regression: "never" / "bogus" must NOT slip through as a deadline
@@ -268,16 +260,13 @@
   (let [[tag _] (args/parse-timeout-arg "timeout-ms" "bogus")]
     (is (= :err tag))))
 
-(deftest parse-timeout-arg-rejects-zero-and-negative
-  (let [[tag-z _] (args/parse-timeout-arg "wait-ms" 0)
-        [tag-n env] (args/parse-timeout-arg "timeout-ms" -100)]
-    (is (= :err tag-z) "zero is not a meaningful wait/await deadline")
-    (is (= :err tag-n) "a negative deadline would time out immediately / negative setTimeout")
-    (is (re-find #"positive integer" (:hint env)))))
-
-(deftest parse-timeout-arg-rejects-fractional
-  (let [[tag _] (args/parse-timeout-arg "timeout-ms" 12.5)]
-    (is (= :err tag) "a fractional millisecond is not a valid integer deadline")))
+(deftest parse-timeout-arg-rejects-zero-negative-and-fractional
+  (doseq [[label arg-name v]
+          [["zero is not a meaningful wait/await deadline"                      "wait-ms" 0]
+           ["a negative deadline would time out immediately / negative setTimeout" "timeout-ms" -100]
+           ["a fractional millisecond is not a valid integer deadline"           "timeout-ms" 12.5]]]
+    (is (= :err (first (args/parse-timeout-arg arg-name v))) label))
+  (is (re-find #"positive integer" (:hint (second (args/parse-timeout-arg "timeout-ms" -100))))))
 
 ;; ---------------------------------------------------------------------------
 ;; fx-overrides parse — over JSON-MCP the override VALUE
@@ -290,29 +279,22 @@
   (is (= [:ok nil] (args/parse-fx-overrides nil)) "absent ⇒ ok nil")
   (is (= [:ok nil] (args/parse-fx-overrides js/undefined)) "undefined ⇒ ok nil"))
 
-(deftest parse-fx-overrides-colon-string-coerces-to-keyword
-  (let [[tag m] (args/parse-fx-overrides #js {":http" ":stub-http"})]
-    (is (= :ok tag))
-    (is (= {:http :stub-http} m)
-        "colon-prefixed target string ⇒ keyword id-redirect")))
+(deftest parse-fx-overrides-coerces-colon-string-targets-to-keywords
+  (doseq [[label o expected]
+          [["colon-prefixed target string ⇒ keyword id-redirect"
+            #js {":http" ":stub-http"} {:http :stub-http}]
+           ["every entry of a multi-target map coerces"
+            #js {":http" ":stub-http" ":navigate" ":noop-nav"} {:http :stub-http :navigate :noop-nav}]
+           ["null ⇒ documented no-op placeholder, not a reject"
+            #js {":http" nil} {:http nil}]]]
+    (is (= [:ok expected] (args/parse-fx-overrides o)) label)))
 
-(deftest parse-fx-overrides-multiple-targets
-  (let [[tag m] (args/parse-fx-overrides #js {":http" ":stub-http" ":navigate" ":noop-nav"})]
-    (is (= :ok tag))
-    (is (= {:http :stub-http :navigate :noop-nav} m))))
-
-(deftest parse-fx-overrides-null-value-is-noop-placeholder
-  (let [[tag m] (args/parse-fx-overrides #js {":http" nil})]
-    (is (= :ok tag))
-    (is (= {:http nil} m) "null ⇒ documented no-op placeholder, not a reject")))
-
-(deftest parse-fx-overrides-bare-string-rejected
-  (let [[tag _] (args/parse-fx-overrides #js {":http" "stub-http"})]
-    (is (= :err tag) "a non-colon string would silently fall through to the real fx")))
-
-(deftest parse-fx-overrides-non-string-rejected
-  (is (= :err (first (args/parse-fx-overrides #js {":http" 42}))) "number target rejected")
-  (is (= :err (first (args/parse-fx-overrides #js {":http" true}))) "boolean target rejected"))
+(deftest parse-fx-overrides-rejects-non-colon-and-non-string-targets
+  (doseq [[label o] [["a non-colon string would silently fall through to the real fx"
+                      #js {":http" "stub-http"}]
+                     ["number target rejected"  #js {":http" 42}]
+                     ["boolean target rejected" #js {":http" true}]]]
+    (is (= :err (first (args/parse-fx-overrides o))) label)))
 
 ;; ---------------------------------------------------------------------------
 ;; `:rf/fn-override` sentinel (Tool-Pair §Replay) — a recorded
@@ -348,70 +330,41 @@
   (is (= [:ok nil] (args/parse-interceptor-overrides nil)) "absent ⇒ ok nil")
   (is (= [:ok nil] (args/parse-interceptor-overrides js/undefined)) "undefined ⇒ ok nil"))
 
-(deftest parse-interceptor-overrides-bare-keyword-ref
-  (let [[tag m] (args/parse-interceptor-overrides #js {":auth/required" ":story/skip-auth"})]
-    (is (= :ok tag))
-    (is (= {:auth/required :story/skip-auth} m)
-        "colon-prefixed bare keyword key/value coerce to keyword refs")))
-
-(deftest parse-interceptor-overrides-null-value-removes
-  (let [[tag m] (args/parse-interceptor-overrides #js {":audit/record-event" nil})]
-    (is (= :ok tag))
-    (is (= {:audit/record-event nil} m)
-        "null ⇒ the documented remove-this-interceptor sentinel")))
-
-(deftest parse-interceptor-overrides-parameterized-ref-key-and-value
+(deftest parse-interceptor-overrides-coerces-ref-shaped-keys-and-values
   ;; A JS object literal can only carry string keys, so a parameterized
-  ;; [id arg] ref rides as its bracket-shaped EDN string.
-  (let [[tag m] (args/parse-interceptor-overrides
-                  #js {"[:rf.interceptor/path [:cart]]" "[:rf.interceptor/path [:cart :items]]"})]
-    (is (= :ok tag))
-    (is (= {[:rf.interceptor/path [:cart]] [:rf.interceptor/path [:cart :items]]} m)
-        "bracket-shaped EDN strings coerce to [id arg] 2-vector refs")))
+  ;; [id arg] ref rides as its bracket-shaped EDN string. "Colon-tolerant":
+  ;; a bare name WITHOUT a leading colon is ALSO a valid keyword id,
+  ;; mirroring `->frame-keyword`'s tolerance (NOT `parse-fx-overrides`'s
+  ;; stricter colon-REQUIRED contract, which exists for a distinct reason —
+  ;; see that fn's docstring).
+  (doseq [[label o expected]
+          [["colon-prefixed bare keyword key/value coerce to keyword refs"
+            #js {":auth/required" ":story/skip-auth"} {:auth/required :story/skip-auth}]
+           ["null ⇒ the documented remove-this-interceptor sentinel"
+            #js {":audit/record-event" nil} {:audit/record-event nil}]
+           ["bracket-shaped EDN strings coerce to [id arg] 2-vector refs"
+            #js {"[:rf.interceptor/path [:cart]]" "[:rf.interceptor/path [:cart :items]]"}
+            {[:rf.interceptor/path [:cart]] [:rf.interceptor/path [:cart :items]]}]
+           ["every entry of a multi-entry map coerces"
+            #js {":auth/required" ":story/skip-auth" ":audit/record-event" nil}
+            {:auth/required :story/skip-auth :audit/record-event nil}]
+           ["bare (no leading colon) key/value still coerce to keyword refs"
+            #js {"auth/required" "story/skip-auth"} {:auth/required :story/skip-auth}]]]
+    (is (= [:ok expected] (args/parse-interceptor-overrides o)) label)))
 
-(deftest parse-interceptor-overrides-multiple-entries
-  (let [[tag m] (args/parse-interceptor-overrides
-                  #js {":auth/required" ":story/skip-auth"
-                       ":audit/record-event" nil})]
-    (is (= :ok tag))
-    (is (= {:auth/required :story/skip-auth :audit/record-event nil} m))))
-
-(deftest parse-interceptor-overrides-bare-no-colon-key-and-value-tolerated
-  ;; "colon-tolerant" per the bead: a bare name WITHOUT a leading colon is
-  ;; ALSO a valid keyword id, mirroring `->frame-keyword`'s tolerance (NOT
-  ;; `parse-fx-overrides`'s stricter colon-REQUIRED contract, which exists
-  ;; for a distinct reason — see that fn's docstring).
-  (let [[tag m] (args/parse-interceptor-overrides #js {"auth/required" "story/skip-auth"})]
-    (is (= :ok tag))
-    (is (= {:auth/required :story/skip-auth} m)
-        "bare (no leading colon) key/value still coerce to keyword refs")))
-
-(deftest parse-interceptor-overrides-blank-value-rejected
-  ;; An empty/blank string is not a valid keyword id — `fresh-keyword`
-  ;; returns nil for blank input, which `interceptor-ref-token` maps to
-  ;; `::invalid` rather than silently dropping or coercing to a bogus
-  ;; keyword.
-  (let [[tag m] (args/parse-interceptor-overrides #js {":auth/required" "   "})]
-    (is (= :err tag))
-    (is (= :rf.error/interceptor-override-invalid (:reason m)))))
-
-(deftest parse-interceptor-overrides-non-string-value-rejected
-  (is (= :err (first (args/parse-interceptor-overrides #js {":auth/required" 42})))
-      "number replacement rejected")
-  (is (= :err (first (args/parse-interceptor-overrides #js {":auth/required" true})))
-      "boolean replacement rejected"))
-
-(deftest parse-interceptor-overrides-malformed-bracket-string-rejected
-  ;; An unreadable / wrong-shaped bracket string is rejected, not
-  ;; silently treated as a bare string id.
-  (is (= :err (first (args/parse-interceptor-overrides #js {"[:bad" ":story/skip-auth"})))
-      "unreadable bracket EDN rejected")
-  (is (= :err (first (args/parse-interceptor-overrides #js {"[:a :b :c]" ":story/skip-auth"})))
-      "a 3-vector isn't a valid [id arg] ref")
-  (is (= :err (first (args/parse-interceptor-overrides #js {"[1 2]" ":story/skip-auth"})))
-      "a non-keyword-headed vector isn't a valid ref"))
-
-(deftest parse-interceptor-overrides-not-an-object-rejected
-  (let [[tag m] (args/parse-interceptor-overrides "not-an-object")]
-    (is (= :err tag))
-    (is (= :rf.error/interceptor-override-invalid (:reason m)))))
+(deftest parse-interceptor-overrides-rejects-non-ref-input
+  ;; Every rejection carries the runtime's own chain-assembly reason, so a
+  ;; wire-parse rejection and a deep-runtime one read identically. A blank
+  ;; string is not a keyword id (`fresh-keyword` returns nil, which
+  ;; `interceptor-ref-token` maps to `::invalid`), and an unreadable or
+  ;; wrong-shaped bracket string is rejected rather than treated as a bare
+  ;; string id.
+  (doseq [[label o] [["blank replacement"                          #js {":auth/required" "   "}]
+                     ["number replacement"                         #js {":auth/required" 42}]
+                     ["boolean replacement"                        #js {":auth/required" true}]
+                     ["unreadable bracket EDN"                     #js {"[:bad" ":story/skip-auth"}]
+                     ["a 3-vector isn't a valid [id arg] ref"      #js {"[:a :b :c]" ":story/skip-auth"}]
+                     ["a non-keyword-headed vector isn't a valid ref" #js {"[1 2]" ":story/skip-auth"}]
+                     ["not an object"                              "not-an-object"]]]
+    (let [[tag m] (args/parse-interceptor-overrides o)]
+      (is (= [:err :rf.error/interceptor-override-invalid] [tag (:reason m)]) label))))
