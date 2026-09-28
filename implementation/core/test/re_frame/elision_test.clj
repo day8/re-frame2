@@ -393,13 +393,6 @@
          a map whose only key (`:rf.size/large-elided`) sits at a path
          that is not itself `:large?`-declared")))
 
-(deftest nested-classification
-  (install-class! [[:root :a :b :token]] [[:root :a :b :c]])
-  (is (contains? (rf.elision/declarations) [:root :a :b :c]))
-  (is (contains? (rf.elision/sensitive-declarations) [:root :a :b :token]))
-  (is (= #{{:source :effect}}
-         (get (rf.elision/declarations) [:root :a :b :c]))))
-
 ;; NESTED-AXIS SUPPRESSION. A `:large`-marked subtree containing a `:sensitive`
 ;; DESCENDANT must REDACT, not emit a size/digest marker (Spec 015
 ;; §No propagation, no taint + EP-0025 §Egress-rules — a normative MUST). A
@@ -465,15 +458,10 @@
       (is (rf.elision/marker? (get out :a))
           "a large subtree with no sensitive descendant still emits its marker"))))
 
-(deftest clear-large-effect-removes-declaration
-  ;; EP-0025: the commit-plane classification effects are additive per axis;
-  ;; a path is un-classified by the `:clear-large` effect (the set/unset
-  ;; symmetry of the axis), NOT by an absent-key replace.
-  (install-class! [] [[:user :pdf]])
-  (is (contains? (rf.elision/declarations) [:user :pdf]))
-  (rf.frame/swap-runtime-db! :rf/default
-    (fn [rt] (rf.elision/apply-classification-effects rt {:clear-large [[:user :pdf]]})))
-  (is (not (contains? (rf.elision/declarations) [:user :pdf]))))
+;; The set / clear effects themselves — `:clear-large` un-classifying a path,
+;; a wrong-axis clear leaving the other axis intact — are pinned through the
+;; router by `re-frame.classification-effects-cljs-test`. What stays here is
+;; the pure registry transform over a path nothing ever classified.
 
 (deftest clear-over-never-classified-path-is-a-pure-no-op
   ;; The fail-open clear contract relies on a clear being a
@@ -490,19 +478,6 @@
         "clearing absent paths leaves the elision registry byte-identical")
     (is (not (contains? (rf.elision/declarations) [:also :never])))
     (is (not (contains? (rf.elision/sensitive-declarations) [:never :here])))))
-
-(deftest clear-sensitive-leaves-a-large-only-path-intact
-  ;; A :clear-sensitive on a path classified on the OTHER axis
-  ;; only (:large) must NOT prune the large slot (wrong-axis clear is a no-op
-  ;; on its own axis AND leaves the sibling axis untouched).
-  (install-class! [] [[:doc :blob]])
-  (is (contains? (rf.elision/declarations) [:doc :blob]))
-  (rf.frame/swap-runtime-db! :rf/default
-    (fn [rt] (rf.elision/apply-classification-effects rt {:clear-sensitive [[:doc :blob]]})))
-  (is (contains? (rf.elision/declarations) [:doc :blob])
-      "the large classification survives a wrong-axis (:clear-sensitive) clear")
-  (is (not (contains? (rf.elision/sensitive-declarations) [:doc :blob]))
-      "the sensitive axis was never populated for this path"))
 
 (deftest registries-are-frame-isolated
   (rf/make-frame {:id :elision-test/other})

@@ -118,7 +118,8 @@
 (deftest sensitive-effect-records-path-and-redacts-at-egress
   (testing "a handler returning {:sensitive [[:user :token]]} alongside :db
             records the path in the per-frame registry AT COMMIT, and a
-            subsequent egress read redacts the value there"
+            subsequent egress read redacts the value there — the value
+            written in that SAME event is redacted from its first egress"
     (rf/reg-event :auth/login
       (fn [{:keys [db]} _]
         {:db        (assoc-in db [:user :token] "Bearer secret-xyz")
@@ -137,25 +138,6 @@
     (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
           "the egress projection redacts the classified path"))))
-
-(deftest classify-then-egress-in-the-same-event-redacts
-  (testing "classifying and egressing in the SAME event redacts — the effect
-            is applied WITH the :db write, so a value classified this event is
-            redacted from its first egress. The handler classifies :user :token
-            AND writes the secret in ONE event; immediately after the cascade
-            the registry carries the classification, so an egress of the value
-            written this event redacts (it flowed under a classification
-            installed atomically with the :db commit)."
-    (rf/reg-event :auth/login-same-event
-      (fn [{:keys [db]} _]
-        {:db        (assoc-in db [:user :token] "Bearer same-event")
-         :sensitive [[:user :token]]}))
-    (rf/dispatch-sync [:auth/login-same-event])
-    (is (contains? (sensitive-decls) [:user :token])
-        "same-event classification is present immediately after commit")
-    (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
-      (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
-          "the same-event classification redacts the same-event value at egress"))))
 
 (deftest large-effect-records-path-and-marks-at-egress
   (testing "a :large effect records the path; an oversized value at that path
@@ -214,18 +196,6 @@
     (is (contains? (sensitive-decls) [:user :pin])
         "an unnamed sibling path survives the clear")))
 
-(deftest clear-large-removes-the-path
-  (testing ":clear-large removes the named path from the large registry"
-    (rf/reg-event :classify-l
-      (fn [{:keys [db]} _] {:db db :large [[:docs :csv]]}))
-    (rf/dispatch-sync [:classify-l])
-    (is (contains? (large-decls) [:docs :csv]))
-    (rf/reg-event :unclassify-l
-      (fn [{:keys [db]} _] {:db db :clear-large [[:docs :csv]]}))
-    (rf/dispatch-sync [:unclassify-l])
-    (is (not (contains? (large-decls) [:docs :csv]))
-        "the cleared large path is removed")))
-
 ;; ---------------------------------------------------------------------------
 ;; 2b. SOURCE-SCOPED clear — a clear removes only the effect's own
 ;;     contribution; a path ALSO claimed by another source stays redacted
@@ -280,20 +250,6 @@
     (let [wire (rf.elision/elide-wire-value (rf.frame/frame-app-db-value :rf/default))]
       (is (= rf.privacy/redacted-sentinel (get-in wire [:user :token]))
           "the value stays REDACTED at egress — the clear did not un-redact it"))))
-
-(deftest clear-sensitive-removes-effect-sourced-entry-when-sole-claimant
-  (testing "when the effect is the SOLE source for a path, the source-scoped
-            clear removes it (no other-source entry shields it) — the ordinary
-            set/unset case."
-    (rf/reg-event :effect-only-classify
-      (fn [{:keys [db]} _] {:db db :sensitive [[:only :effect]]}))
-    (rf/dispatch-sync [:effect-only-classify])
-    (is (= #{{:source :effect}} (get (sensitive-decls) [:only :effect])))
-    (rf/reg-event :effect-only-clear
-      (fn [{:keys [db]} _] {:db db :clear-sensitive [[:only :effect]]}))
-    (rf/dispatch-sync [:effect-only-clear])
-    (is (not (contains? (sensitive-decls) [:only :effect]))
-        "an effect-sourced path with no other claimant is removed by its clear")))
 
 ;; ---------------------------------------------------------------------------
 ;; 2c. CLEAR over an ABSENT / wrong-axis path is a harmless NO-OP

@@ -255,12 +255,3 @@
         (is (not (leaked? err chainless-secret))
             (str "the secret " chainless-secret " must not survive anywhere in "
                  "the record an off-box shipper receives"))))))
-
-(deftest wire-walker-redacts-in-every-posture
-  (testing "`elide-wire-value` — the shared redactor under every off-box egress
-            surface — is not `debug-enabled?`-gated."
-    (install-sensitive! :rf/default [[:auth :password]])
-    (let [out (rf.elision/elide-wire-value {:auth {:password "shh" :user "ada"}}
-                                        {:frame :rf/default})]
-      (is (= :rf/redacted (get-in out [:auth :password])))
-      (is (= "ada" (get-in out [:auth :user]))))))

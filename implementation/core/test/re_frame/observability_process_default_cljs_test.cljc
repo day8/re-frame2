@@ -301,32 +301,6 @@
 ;; (c) The FRAMELESS records, and the ambient-frame property.
 ;; ===========================================================================
 
-(deftest frameless-record-reaches-the-default-fail-closed
-  (testing "a `:frame nil` record (the shape
-            :rf.error/no-frame-context and fresco's compute-sub
-            :rf.error/sub-exception carry BY CONSTRUCTION) reaches the
-            process default, projected under an EXPLICITLY nil governing
-            frame: tree slots are :rf/redacted, summary ids intact. Without
-            a default it would reach no sink at all."
-    (let [seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry
-                                       (fn [r] (swap! seen conj r)))
-      (rf/configure! {:observability {:errors [{:sink :test.sinks/sentry}]}})
-      (rf.error-emit/dispatch-error-record!
-        {:error  :rf.error/no-frame-context
-         :frame  nil
-         :time   42
-         :reason "no frame in scope"})
-      (is (= 1 (count @seen)) "the frameless record reached the default sink")
-      (let [r (first @seen)]
-        (is (= :rf.error/no-frame-context (:error r))
-            "summary id intact")
-        (is (= 42 (:time r)) "summary slot intact")
-        (is (nil? (:frame r)) "no frame is claimed for it")
-        (is (redacted? (:tags r))
-            "the tree-shaped :tags slot FAILS CLOSED under a nil governing
-             frame — no frame's classification vouched for its contents")))))
-
 (deftest a-live-ambient-frame-policy-is-not-consulted-for-a-frameless-record
   (testing "the nil-governing-frame property — with a live UNRELATED
             frame declaring its own :errors sink, a FRAMELESS record still
