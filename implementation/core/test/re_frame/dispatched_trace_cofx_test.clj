@@ -115,6 +115,13 @@
         (is (some? enqueue) ":rf.event/dispatched fired")
         (is (contains? (:tags enqueue) :rf.cofx)
             ":rf.cofx is stamped on the dispatched trace")
+        ;; Co-located with the other op-type-specific payload slots under
+        ;; :tags — build-event hoists only :source to top level, so the Event
+        ;; lens reads the map off (get-in event [:tags :rf.cofx]).
+        (is (not (contains? enqueue :rf.cofx))
+            ":rf.cofx is NOT a top-level slot (only :source is hoisted)")
+        (is (contains? (:tags enqueue) :rf.event/v)
+            ":rf.event/v also rides under :tags — same placement")
         (is (map? rf-cofx) ":rf.cofx is a map")
         (is (contains? rf-cofx :rf/time-ms)
             "the recordable-coeffect map carries the framework-stamped :rf/time-ms")
@@ -169,25 +176,3 @@
         (is (= 0.99 (:todo/score rf-cofx)) "caller-supplied fact preserved")
         (is (integer? (:rf/time-ms rf-cofx))
             ":rf/time-ms filled by the router at the causal boundary")))))
-
-(deftest cofx-rides-under-tags-alongside-event-payload-slots
- ;; A claim about the TRACE EVENT's SHAPE (which slot is hoisted, which
- ;; rides under `:tags`), not about the coeffect map, whose content the
- ;; three deftests above pin in both postures.
- (when rf.interop/debug-enabled?
-  (testing ":rf.cofx rides under :tags alongside the other op-type-
-   specific payload slots (:rf.event/v, :rf.event/origin, :rf.event/sync?) —
-   build-event hoists only :source to top-level, so the Event lens reads the
-   :rf.cofx map off (get-in event [:tags :rf.cofx])"
-    (rf/reg-event :rf2-jt854w/placement (fn [{:keys [db]} _] {:db db}))
-    (let [evs       (record-traces
-                      (fn [] (rf/dispatch-sync [:rf2-jt854w/placement])))
-          [enqueue] (dispatched-of evs)]
-      (is (some? enqueue))
-      (is (contains? (:tags enqueue) :rf.cofx)
-          ":rf.cofx lives under :tags")
-      (is (not (contains? enqueue :rf.cofx))
-          ":rf.cofx is NOT a top-level slot (only :source is hoisted)")
-      ;; Co-located with the other dispatched payload slots under :tags.
-      (is (contains? (:tags enqueue) :rf.event/v)
-          ":rf.event/v also rides under :tags — same placement")))))
