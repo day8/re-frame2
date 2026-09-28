@@ -649,7 +649,7 @@
     (project sub-id v {:frame frame-id})
     v))
 
-(declare machine-classification)
+(declare machine-classification snapshot-classification-in)
 
 (defn- machine-sub-classification
   "The machine classification a `[:rf/machine <id>]` sub's value carries, or nil
@@ -659,6 +659,24 @@
   [tags frame-id]
   (when (= :rf/machine (:rf.sub/id tags))
     (machine-classification frame-id (second (:rf.sub/query-v tags)))))
+
+(defn- prior-machine-sub-classification
+  "The classification the runtime-db a `[:rf/machine <id>]` sub computed its
+  PRIOR value from declared for actor `<id>`'s snapshot, or nil — for any other
+  sub, or when the trace carries no prior input.
+
+  Destroying an actor, explicitly or by reaching a `:final?` state, drops its
+  lowered claims from the registry, and a held sub then recomputes to nil with
+  the live snapshot as `:rf.sub/prev-value`. The claims that classified that
+  snapshot are still in the runtime-db the reaction last read, which the memo
+  wrapper carries as `::prev-inputs`, so the prior value keeps its
+  classification without the registry retaining a dead actor's entries."
+  [tags]
+  (when (= :rf/machine (:rf.sub/id tags))
+    (let [registry (:rf.runtime/elision (first (::prev-inputs tags)))]
+      (snapshot-classification-in (:sensitive-declarations registry)
+                                  (:declarations registry)
+                                  (second (:rf.sub/query-v tags))))))
 
 (defn- project-sub-tags
   "Walk `:sub/run` tag shape: `:rf.sub/id` carries the sub query keyword and
@@ -680,7 +698,9 @@
   The MACHINE SUB `[:rf/machine <id>]` returns actor `<id>`'s whole snapshot, so
   its value/prev-value are walked by the SAME snapshot-rooted classification the
   machine's own traces use (`machine-sub-classification`), unioned with the
-  registration's paths into one walk.
+  registration's paths into one walk. Its prev-value additionally takes the
+  classification the prior runtime-db carried (`prior-machine-sub-classification`),
+  because the snapshot outlives its actor's claims once the actor is destroyed.
 
   The ROUTE READ SUBS (`:rf/route` / `:rf.route/query` / `:rf.route/params`)
   project the route-owned durable fact, so their value/prev-value are
@@ -705,14 +725,17 @@
   replacement (an ongoing reaction) may see no image metadata or a CONFLICTING
   same-id global registration. Presence (even an empty captured declaration) wins
   over any global; the carrier is stripped here so it never egresses. Absence (a
-  trace not stamped by the memo path) falls back to the registrar resolution."
+  trace not stamped by the memo path) falls back to the registrar resolution.
+  The memo path's `::prev-inputs` carrier (the inputs the prior value was
+  computed from) is read and stripped here too."
   [tags frame-id]
   (let [sub-id    (:rf.sub/id tags)
         captured? (contains? tags :rf.sub/classification)
         class     (if captured?
                     (normalise-classification (:rf.sub/classification tags))
                     (classification-when :sub sub-id))
-        tags      (dissoc tags :rf.sub/classification)
+        prior     (prior-machine-sub-classification tags)
+        tags      (dissoc tags :rf.sub/classification ::prev-inputs)
         has-prev? (contains? tags :rf.sub/prev-value)]
     (cond
       (nil? frame-id)
@@ -729,13 +752,17 @@
       ;; common case).
       (let [[sens large]     (classification-paths class)
             [m-sens m-large] (classification-paths (machine-sub-classification tags frame-id))
+            [p-sens p-large] (classification-paths prior)
             sens             (into sens m-sens)
             large            (into large m-large)
-            reg-redact       (fn [v] (redact-with-paths v sens large))
-            project-slot     (fn [v] (project-route-sub-slot (reg-redact v) sub-id frame-id))]
+            project-slot     (fn [v sens large]
+                               (project-route-sub-slot (redact-with-paths v sens large)
+                                                       sub-id frame-id))]
         (cond-> tags
-          true            (assoc :rf.sub/value (project-slot (:rf.sub/value tags)))
-          has-prev?       (assoc :rf.sub/prev-value (project-slot (:rf.sub/prev-value tags)))
+          true            (assoc :rf.sub/value (project-slot (:rf.sub/value tags) sens large))
+          has-prev?       (assoc :rf.sub/prev-value
+                                 (project-slot (:rf.sub/prev-value tags)
+                                               (into sens p-sens) (into large p-large)))
           (:large? class) (assoc :large? true))))))
 
 (defn- frame-has-declarations?
@@ -975,6 +1002,29 @@
 ;; frame's absolute declaration is re-rooted SNAPSHOT-relative by stripping that
 ;; prefix.
 
+(defn- snapshot-classification-in
+  "Re-root the elision declarations `sens-decls` / `large-decls` (registry
+  axis maps keyed by absolute path) to the snapshot keyed under `actor-id`:
+  keep those rooted at `[:rf.runtime/machines :snapshots <actor-id> …]` and
+  strip that prefix. Returns `{:sensitive [paths] :large [paths]}` (slot
+  omitted when empty), or nil when `actor-id` is nil or nothing matches."
+  [sens-decls large-decls actor-id]
+  (when actor-id
+    (let [prefix (conj rf.elision/machine-snapshot-prefix actor-id)
+          n      (count prefix)
+          under  (fn [decls]
+                   (into []
+                         (comp (filter #(and (>= (count %) n)
+                                             (= prefix (subvec (vec %) 0 n))))
+                               (map #(subvec (vec %) n)))
+                         (keys decls)))
+          sens   (under sens-decls)
+          large  (under large-decls)]
+      (when (or (seq sens) (seq large))
+        (cond-> {}
+          (seq sens)  (assoc :sensitive sens)
+          (seq large) (assoc :large large))))))
+
 (defn frame-snapshot-classification
   "Compute the SNAPSHOT-relative sensitive/large path set the FRAME declares for
   the machine snapshot keyed under `actor-id` (EP-0025) — classification is
@@ -988,21 +1038,10 @@
   Public so the machines SSR-hydration projector (`re-frame.machines.ssr`) can
   reuse the SAME re-rooting for its `:data`-map projection."
   [frame-id actor-id]
-  (when (and frame-id actor-id)
-    (let [prefix (conj rf.elision/machine-snapshot-prefix actor-id)
-          n      (count prefix)
-          under  (fn [decls]
-                   (into []
-                         (comp (filter #(and (>= (count %) n)
-                                             (= prefix (subvec (vec %) 0 n))))
-                               (map #(subvec (vec %) n)))
-                         (keys decls)))
-          sens   (under (rf.elision/sensitive-declarations frame-id))
-          large  (under (rf.elision/declarations frame-id))]
-      (when (or (seq sens) (seq large))
-        (cond-> {}
-          (seq sens)  (assoc :sensitive sens)
-          (seq large) (assoc :large large))))))
+  (when frame-id
+    (snapshot-classification-in (rf.elision/sensitive-declarations frame-id)
+                                (rf.elision/declarations frame-id)
+                                actor-id)))
 
 (defn- machine-classification
   "The classification actor `machine-id`'s snapshot is redacted by at egress:

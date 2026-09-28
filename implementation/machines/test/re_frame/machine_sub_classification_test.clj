@@ -134,3 +134,119 @@
                  snap {:query-v [:rf/machine :rf.machine-sub-classification/plain]
                        :frame   :rf/default})]
       (is (= "not-a-secret" (get-in wire [:data :token]))))))
+
+;; ---------------------------------------------------------------------------
+;; Teardown: the held sub's last trace carries the dead actor's snapshot
+;; ---------------------------------------------------------------------------
+;;
+;; Destroying an actor drops its lowered claims from the frame's elision
+;; registry, and the held `[:rf/machine <id>]` sub recomputes to nil. Its
+;; `:rf.sub/run` trace still carries the live snapshot as
+;; `:rf.sub/prev-value`, and that snapshot is classified by the claims that
+;; governed it, not by the registry the teardown left behind.
+
+(def ^:private teardown-token "secret-sub-token-teardown")
+(def ^:private probe-type :rf.machine-sub-classification/probe)
+(def ^:private probe-actor :rf.machine-sub-classification/probe-actor)
+
+(def ^:private probe-spec
+  "Declares `:data :token` sensitive; `:data :note` is unclassified. `:finish`
+  reaches a `:final?` state, whose auto-destroy is the second teardown route."
+  {:sensitive [[:data :token]]
+   :initial   :idle
+   :data      {:token teardown-token :note "visible"}
+   :states    {:idle {:on {:finish :done}}
+               :done {:final? true}}})
+
+(defn- runs-for
+  "The captured `:rf.sub/run` events for `[:rf/machine id]`."
+  [id events]
+  (filterv #(and (= :rf.sub/run (:operation %))
+                 (= [:rf/machine id] (get-in % [:tags :rf.sub/query-v])))
+           events))
+
+(defn- claims-for
+  "The frame's `:sensitive` declarations rooted at `id`'s snapshot."
+  [id]
+  (let [prefix (conj rf.elision/machine-snapshot-prefix id)]
+    (filterv #(= prefix (subvec (vec %) 0 (min (count %) (count prefix))))
+             (keys (rf.elision/sensitive-declarations :rf/default)))))
+
+(defn- held-sub-across
+  "Hold and deref `[:rf/machine id]`, run `teardown!`, then deref the held sub
+  again. Returns the live read, the torn-down read, the machine sub's traces,
+  and the actor's claims before and after."
+  [id teardown!]
+  (let [r            (rf/subscribe [:rf/machine id])
+        live         (atom nil)
+        dead         (atom ::unread)
+        claims-live  (atom nil)
+        events       (capture-traces
+                       (fn []
+                         (reset! live @r)
+                         (reset! claims-live (claims-for id))
+                         (teardown!)
+                         (reset! dead @r)))]
+    {:live        @live
+     :dead        @dead
+     :events      events
+     :runs        (runs-for id events)
+     :claims-live @claims-live
+     :claims-dead (claims-for id)}))
+
+(defn- assert-teardown-trace-classified
+  [{:keys [live dead events runs claims-live claims-dead]}]
+  (testing "the in-process reads stay raw, and the torn-down read is nil"
+    (is (= teardown-token (get-in live [:data :token])))
+    (is (nil? dead)))
+  (testing "the actor's claims are removed with it"
+    (is (seq claims-live) "control: the live actor's claim is in the registry")
+    (is (empty? claims-dead)))
+  (when rf.interop/debug-enabled?
+    (is (= 2 (count runs)) "the live run and the torn-down recompute, both traced")
+    (testing "the live run is classified"
+      (let [v (get-in (first runs) [:tags :rf.sub/value])]
+        (is (= rf.privacy/redacted-sentinel (get-in v [:data :token])))
+        (is (= "visible" (get-in v [:data :note])))))
+    (testing "the torn-down run: the prior snapshot keeps its classification"
+      (let [t (:tags (second runs))]
+        (is (nil? (:rf.sub/value t)))
+        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.sub/prev-value :data :token])))
+        (is (= "visible" (get-in t [:rf.sub/prev-value :data :note]))
+            "an unclassified sibling slot rides verbatim")))
+    (is (not (.contains (pr-str runs) teardown-token))
+        "no secret appears anywhere on the machine sub's trace")
+    (is (not (.contains (pr-str events) teardown-token))
+        "no secret appears on any trace the teardown emits")))
+
+(deftest explicit-destroy-keeps-a-spawned-actors-prev-value-classified
+  (rf/reg-machine probe-type probe-spec)
+  (rf/reg-event ::spawn-probe
+    (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id probe-type :fixed-actor-id probe-actor}]]}))
+  (rf/reg-event ::destroy-probe
+    (fn [_ _] {:fx [[:rf.machine/destroy probe-actor]]}))
+  (rf/dispatch-sync [::spawn-probe])
+  (assert-teardown-trace-classified
+    (held-sub-across probe-actor #(rf/dispatch-sync [::destroy-probe]))))
+
+(deftest final-state-keeps-a-spawned-actors-prev-value-classified
+  (rf/reg-machine probe-type probe-spec)
+  (rf/reg-event ::spawn-probe
+    (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id probe-type :fixed-actor-id probe-actor}]]}))
+  (rf/dispatch-sync [::spawn-probe])
+  (assert-teardown-trace-classified
+    (held-sub-across probe-actor #(rf/dispatch-sync [probe-actor [:finish]]))))
+
+(deftest explicit-destroy-keeps-a-singletons-prev-value-classified
+  (rf/reg-machine probe-type probe-spec)
+  (rf/reg-event ::destroy-singleton
+    (fn [_ _] {:fx [[:rf.machine/destroy probe-type]]}))
+  (rf/dispatch-sync [probe-type [:rf.machine/noop]])
+  (assert-teardown-trace-classified
+    (held-sub-across probe-type #(rf/dispatch-sync [::destroy-singleton]))))
+
+(deftest final-state-keeps-a-singletons-prev-value-classified
+  (rf/reg-machine probe-type probe-spec)
+  (rf/dispatch-sync [probe-type [:rf.machine/noop]])
+  (assert-teardown-trace-classified
+    (held-sub-across probe-type #(rf/dispatch-sync [probe-type [:finish]]))))
