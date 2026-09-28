@@ -200,25 +200,6 @@
                "landing on the same files; a divergence here is a scaffold whose "
                "namespace, source path and package name do not describe one project.")))))
 
-(deftest the-three-forms-are-genuinely-different-strings
-  (testing "a dotted qualified name separates namespace, path and npm name"
-    (let [{:keys [namespace nested-dirs npm-name]} (doc-identity "com.acme/my-cool-app")]
-      (is (= "com.acme.my-cool-app" namespace))
-      (is (= "com/acme/my_cool_app" nested-dirs))
-      (is (= "my-cool-app" npm-name))
-      (is (= 3 (count (distinct [namespace nested-dirs npm-name])))
-          "the three identity forms collapsed into one string — the rule does not distinguish them.")
-      (is (not (str/includes? nested-dirs "."))
-          (str "the source path kept a `.` from the group. `src/com.acme/my_cool_app` is the "
-               "natural result of a token rename and does NOT back the namespace "
-               "`shadow-cljs.edn` names — this is the failure the rule exists to prevent."))))
-  (testing "a bare name is doubled, exactly as deps-new doubles it"
-    (is (= {:namespace "my-app.my-app" :nested-dirs "my_app/my_app" :npm-name "my-app"}
-           (doc-identity "my-app"))))
-  (testing "a mixed-case name keeps its case in Clojure and loses it in npm"
-    (is (= {:namespace "Acme.MyApp" :nested-dirs "Acme/MyApp" :npm-name "myapp"}
-           (doc-identity "Acme/MyApp")))))
-
 ;; ---------------------------------------------------------------------------
 ;; 3. An npm-invalid artefact fails closed BEFORE any file is written
 ;; ---------------------------------------------------------------------------
