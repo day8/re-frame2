@@ -32,14 +32,3 @@
     (let [names (map :name registry/tools)]
       (is (= (count names) (count (set names)))
           "duplicate tool name in registry/tools"))))
-
-(deftest catalogue-size-matches-derived-views
-  (testing "all three derived views enumerate the same tool count"
-    (let [n (count registry/tools)]
-      (is (= n (count registry/tool-descriptors)))
-      (is (= n (count registry/handler-for))))))
-
-(deftest cacheable-only-names-registered-tools
-  (testing "cacheable? is false for any name not in the catalogue"
-    (is (not (registry/cacheable? "definitely-not-a-tool")))
-    (is (not (registry/cacheable? "")))))

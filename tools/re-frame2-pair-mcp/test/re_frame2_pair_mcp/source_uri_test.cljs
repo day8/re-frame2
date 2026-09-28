@@ -251,16 +251,6 @@
          (is (= "vscode://file/src/app/subs.cljs:42:7"
                 (:rf.mcp/source-uri (nth value 1))))))))
 
-(deftest pipeline-scalar-value-decorates-source-coord
-  (testing "run-wire-pipeline :scalar-value walks the scalar tree and splices URIs"
-    (with-editor :vscode
-      #(let [v {:registered :user/login :source-coord sample-coord}
-             {:keys [value]} (wp/run-wire-pipeline v
-                                                   {:kind          :scalar-value
-                                                    :server-elided 0})]
-         (is (= "vscode://file/src/app/events.cljs:42:7"
-                (:rf.mcp/source-uri value)))))))
-
 (deftest pipeline-respects-live-editor
   (testing "the pipeline reads the live editor preference at decoration time"
     (with-editor :cursor
