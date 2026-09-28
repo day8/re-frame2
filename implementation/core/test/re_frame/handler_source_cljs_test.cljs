@@ -33,18 +33,7 @@
       (is (str/includes? src "(fn [{:keys [db]} _ev] {:db db})")))))
 
 ;; EP-0018: one macro, one form-source path, so
-;; `reg-event-captures-form-source-cljs` above covers every handler shape.
-;; The fx-shape body is exercised via the bare-name `reg-event` capture below.
-
-(deftest reg-event-with-fx-shape-body-captures-form-source-cljs
-  (testing "CLJS reg-event captures an fx-shape body's source under DEBUG=true"
-    (rf/reg-event :rf2-xgfuy.cljs/event-fx
-                     (fn [_cofx _ev] {:db {:n 0}}))
-    (let [src (:rf.handler/source
-               (rf/handler-meta {:source :store :kind :event :id :rf2-xgfuy.cljs/event-fx}))]
-      (is (string? src))
-      (is (str/includes? src "reg-event"))
-      (is (str/includes? src ":db {:n 0}")))))
+;; `reg-event-captures-form-source-cljs` above covers every handler-body shape.
 
 (deftest reg-event-with-interceptor-captures-form-source-cljs
   (testing "CLJS reg-event with a full-context interceptor stamps :rf.handler/source under DEBUG=true"

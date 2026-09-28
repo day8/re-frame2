@@ -51,7 +51,7 @@
   to be.
 
   VACUITY UNDER THE GATE, so these sit inside the posture guard. Three
-  negatives — `trigger-handler-rides-at-top-level`'s
+  negatives — `event-handler-exception-carries-trigger-handler`'s
   `(not (contains? (:tags exc) …))`, `no-such-handler-omits-trigger-handler`'s
   `(not (contains? miss …))` and `programmatic-registration-omits-trigger-
   handler`'s ditto — would read `contains?` off the nil the empty trace ring
@@ -141,37 +141,7 @@
       (is (string? (:file c)) ":file is a string")
       (is (integer? (:line c)) ":line is an integer"))))
 
-;; ---- Q1 — top-level placement, nested shape -------------------------------
-
-(deftest trigger-handler-rides-at-top-level
-  (testing ":rf.trace/trigger-handler is a top-level field, not nested under :tags"
-    (rf/reg-event :rf2-3nn8/throws
-                     (fn [_cofx _event]
-                       (throw (ex-info "boom" {}))))
-    (let [{:keys [traces errors]} (record-both
-                                    (fn []
-                                      (rf/dispatch-sync [:rf2-3nn8/throws])))
-          [exc] (errors-of traces :rf.error/handler-exception)
-          rec   (error-of errors :rf.error/handler-exception)]
-      ;; ALWAYS-ON: the failure reaches the production error
-      ;; stream, carrying the registration coord under `:source-coord`.
-      (is (some? rec) "the always-on error record fired")
-      (is (map? (:source-coord rec))
-          "the always-on record carries the registration :source-coord")
-      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/throws) (:source-coord rec))
-          "…and it is exactly what the always-on coord registry holds")
-      ;; The trace SLOT and its placement are dev-only. Under
-      ;; `-Dre-frame.debug=false` `exc` is nil, which would make the `:tags`
-      ;; negative below pass for free: `(contains? nil k)` is false for
-      ;; every k.
-      (when rf.interop/debug-enabled?
-        (is (some? exc) "handler-exception trace fired")
-        (is (contains? exc :rf.trace/trigger-handler)
-            ":rf.trace/trigger-handler lives at the top level of the event")
-        (is (not (contains? (:tags exc) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags")))))
-
-;; ---- Q2 — present when handler in scope -----------------------------------
+;; ---- Q1/Q2 — top-level placement, present when handler in scope ----------
 
 (deftest event-handler-exception-carries-trigger-handler
   (testing ":rf.error/handler-exception carries the event handler's coord"
@@ -186,11 +156,17 @@
       ;; the record names the failing event and resolves its coord.
       (is (= :rf2-3nn8/throwing-event (:event-id rec))
           "the always-on record names the failing event")
+      (is (map? (:source-coord rec))
+          "the always-on record carries the registration :source-coord")
       (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/throwing-event)
              (:source-coord rec))
           "the always-on record carries the event's registration coord")
       (when rf.interop/debug-enabled?
-        (assert-trigger-shape exc :event :rf2-3nn8/throwing-event)))))
+        ;; `assert-trigger-shape` reads `:rf.trace/trigger-handler` off the
+        ;; top level of the event; it must not ALSO ride under `:tags`.
+        (assert-trigger-shape exc :event :rf2-3nn8/throwing-event)
+        (is (not (contains? (:tags exc) :rf.trace/trigger-handler))
+            ":rf.trace/trigger-handler does NOT live under :tags")))))
 
 (deftest fx-handler-exception-carries-trigger-handler
   (testing ":rf.error/fx-handler-exception names the fx as the trigger handler,

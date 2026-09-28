@@ -330,14 +330,7 @@
       (is (= [:evt/normal "payload"] (:event (first @seen)))
           "the elided event payload reaches the listener"))))
 
-;; ---- 7. No registered listeners → no-op (hot-path floor) -----------------
-
-(deftest no-listeners-is-cheap-noop
-  (testing "When no listeners are registered, the dispatch path
-            remains functional and silent. The substrate short-
-            circuits to a single deref-and-empty-check — observable
-            here only by the absence of side-effects."
-    (rf/reg-event :evt/quiet (fn [{:keys [db]} _] {:db db}))
-    ;; No listeners; just confirm dispatch settles cleanly.
-    (is (nil? (rf/dispatch-sync [:evt/quiet]))
-        "dispatch settled with no listeners present — no error, no throw")))
+;; No registered listeners is the hot-path floor — the substrate
+;; short-circuits to a single deref-and-empty-check. This namespace's fixture,
+;; like the shared `re-frame.test-support` one, clears every event listener,
+;; so every dispatch in a test that registers none runs that path.
