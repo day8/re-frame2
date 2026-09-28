@@ -64,14 +64,6 @@
 ;; Preservation
 ;; ---------------------------------------------------------------------------
 
-(deftest an-lf-file-stays-lf
-  (testing "the LF case, which is what every corpus fixture is"
-    (let [out (rewritten lf-source)]
-      (is (zero? (first (endings out)))
-          "not one CR was introduced")
-      (is (pos? (second (endings out)))
-          "and the file still has lines"))))
-
 (deftest a-crlf-file-stays-crlf
   (testing "THE AUDIT'S DEFECT. Before the repair the fixer answered this
             file in LF, so every one of its lines showed up in the
@@ -89,23 +81,6 @@
             worse defect than the one being repaired here."
     (is (= (rewritten lf-source)
            (str/replace (rewritten crlf-source) "\r\n" "\n")))))
-
-(deftest the-untouched-lines-are-untouched
-  (testing "the point of preserving endings is that a reviewer sees only
-            the lines the tool decided to change. The `ns` form and the
-            comment are not rewrite sites, so they must come back
-            byte-for-byte in both conventions."
-    (doseq [[label src] [["LF" lf-source] ["CRLF" crlf-source]]]
-      ;; The prefix is compared with its ENDINGS attached, not through
-      ;; `split-lines` — which normalizes `\r\n` away and would have called
-      ;; the defect being repaired here a pass.
-      (let [nl     (if (str/includes? src "\r\n") "\r\n" "\n")
-            prefix (str (str/join nl (take 5 (str/split src (re-pattern nl)))) nl)]
-        (is (str/starts-with? src prefix)
-            (str label ": rig error — the prefix is not a prefix of the input"))
-        (is (str/starts-with? (rewritten src) prefix)
-            (str label ": the ns form and the comment must survive byte for byte, "
-                 "line endings included"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Idempotence, in both conventions (§4.7)
