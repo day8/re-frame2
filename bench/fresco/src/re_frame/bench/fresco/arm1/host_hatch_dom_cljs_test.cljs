@@ -57,12 +57,11 @@
   shapes that break at different moments is exactly why witnessing one
   is not witnessing the other.
 
-  Runtime: `-dom-cljs-test`, written against a real React DOM; under
-  `:node-test` every DOM claim would degrade to a stated skip while the
-  declaration/refusal rows need no DOM. No lane runs it — the bench
-  project defines no test build — so it is compile-checked only, by
-  `compile_gate.cjs` (`npm run check` and the nightly
-  `fresco-bench-compile` job)."
+  Runtime: `-dom-cljs-test`, written against a real React DOM. The lane's
+  `:fresco-bench-test` build runs it under Node (`npm test`, and nightly
+  in the `fresco-bench-compile` job), where every DOM claim degrades to a
+  stated skip and the declaration/refusal rows, which need no DOM, run in
+  full; no lane runs the DOM claims in a browser."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.bench.fresco.arm1.hook-probe :as rf.bench.fresco.arm1.hook-probe]

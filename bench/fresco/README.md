@@ -32,6 +32,7 @@ change**:
 
 ```
 npm run check       # every namespace under src/ compiled warnings-fatal, then the harness self-tests
+npm test            # the *_cljs_test.cljs suites and the emit-nightly suite, run under Node
 npm run bench       # the P0 arms (run.cjs); FRESCO_INIT_FN / FRESCO_OUT_DIR select another arm
 npm run ssr:bake    # the SSR spike's fixtures
 ```
@@ -39,11 +40,20 @@ npm run ssr:bake    # the SSR spike's fixtures
 No `npm install` here: `package.json` declares the shadow-cljs pin so the CLI does not
 warn, `lane_build.cjs` spawns the CLI from `implementation/node_modules`, and
 `shadow-cljs.edn`'s `:node-modules-dir` resolves react from the same place. The clock
-arms, the ladders, the topology and shape suites, the SSR spike, the `*_cljs_test.cljs`
-suites and the Node runners are all driven from here; every `.cjs` driver clears the
-shared build cache first (`implementation/core/test/re_frame/bench/lane_cache.cjs`,
-rf2-2rtt6.20), and `lane_cache_wiring.test.cjs` beside it — run by `npm run check` here
-and by `test:scripts` in the package — holds them to that.
+arms, the ladders, the topology and shape suites, the SSR spike and the Node runners are
+all driven from here; every `.cjs` driver that rides a shared build id clears its cache
+first (`implementation/core/test/re_frame/bench/lane_cache.cjs`, rf2-2rtt6.20), and
+`lane_cache_wiring.test.cjs` beside it — run by `npm run check` here and by
+`test:scripts` in the package — holds them to that.
+
+`npm test` (`cljs_test_run.cjs`) compiles two `:node-test` builds and runs each under
+Node: `:fresco-bench-test` for every `re-frame.bench.fresco.*-cljs-test` suite, and
+`:fresco-bench-test-perf` for `arm1/render_measure_emit_nightly_test.cljs`, which needs
+the perf brackets compiled in. It passes only when the runner exits 0, the summary reads
+zero failures and zero errors, and exactly the lane's selected namespaces ran. Under Node
+the `-dom-cljs-test` suites' DOM claims are stated skips, so no lane runs those claims in
+a browser. CI runs the same script nightly, as the last step of `expensive-tests.yml`'s
+`fresco-bench-compile` job, beside the compile and the rest of `npm run check`.
 
 So do not read "keep as evidence" as "do not touch". It bounds what this tree may be used
 FOR — it is where measurements are taken, not where product code is grown — and it
