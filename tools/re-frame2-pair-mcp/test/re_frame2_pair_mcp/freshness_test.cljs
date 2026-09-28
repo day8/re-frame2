@@ -19,71 +19,44 @@
 ;; liveness-verdict — the cross-check.
 ;; ---------------------------------------------------------------------------
 
-(deftest verdict-unknown-when-jvm-half-absent
-  (is (= :unknown
-         (fresh/liveness-verdict {:jvm-read? false
-                                  :runtime-loaded-at 1000
-                                  :build-flushed-at 2000
-                                  :runtime-count 1}))
-      "No JVM half ⇒ :unknown regardless of the browser fields"))
-
-(deftest verdict-no-runtime-when-heartbeat-stale
-  (is (= :no-runtime
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 1
-                                  :heartbeat-age-ms 60000 ; > 30s threshold
-                                  :build-flushed-at 1000
-                                  :runtime-loaded-at 2000}))
-      "A heartbeat older than the stale threshold ⇒ :no-runtime even with a runtime counted"))
-
-(deftest verdict-stale-build-when-flush-newer-than-load
-  (is (= :stale-build
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 1
-                                  :heartbeat-age-ms 500
-                                  :runtime-loaded-at 1000
-                                  :build-flushed-at 5000}))
-      "Build flushed AFTER the runtime loaded ⇒ :stale-build"))
-
-(deftest verdict-fresh-when-load-newer-than-flush
-  (is (= :fresh
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 1
-                                  :heartbeat-age-ms 500
-                                  :runtime-loaded-at 5000
-                                  :build-flushed-at 1000}))
-      "Runtime loaded AFTER the last flush ⇒ :fresh (running the current build)"))
-
-(deftest verdict-fresh-when-equal-timestamps
-  ;; A flush exactly at load time is not stale — the running code IS that
-  ;; build. Strict `>` matters here.
-  (is (= :fresh
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 1
-                                  :heartbeat-age-ms 0
-                                  :runtime-loaded-at 1000
-                                  :build-flushed-at 1000}))
-      "flush == load ⇒ :fresh (not stale)"))
-
-(deftest verdict-no-runtime-beats-stale-build
-  ;; Order: you can't be serving stale code if nothing's connected.
-  (is (= :no-runtime
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 0
-                                  :runtime-loaded-at 1000
-                                  :build-flushed-at 5000}))
-      ":no-runtime wins over :stale-build"))
-
-(deftest verdict-fresh-when-flush-missing
-  ;; A build with no recorded flush timestamp (e.g. never recompiled
-  ;; since boot) can't be proven stale — default to :fresh.
-  (is (= :fresh
-         (fresh/liveness-verdict {:jvm-read? true
-                                  :runtime-count 1
-                                  :heartbeat-age-ms 100
-                                  :runtime-loaded-at 1000
-                                  :build-flushed-at nil}))
-      "Missing :build-flushed-at can't prove staleness ⇒ :fresh"))
+(deftest liveness-verdict-table
+  ;; Each row: the verdict, the input, and why. Precedence is part of the
+  ;; contract: no JVM half ⇒ :unknown before anything else, and you can't
+  ;; be serving stale code if nothing's connected, so :no-runtime beats
+  ;; :stale-build. A flush exactly at load time is not stale — the running
+  ;; code IS that build — so the staleness comparison is a strict `>`. A
+  ;; build with no recorded flush timestamp (never recompiled since boot)
+  ;; can't be proven stale.
+  (doseq [[expected input why]
+          [[:unknown
+            {:jvm-read? false :runtime-loaded-at 1000 :build-flushed-at 2000 :runtime-count 1}
+            "No JVM half ⇒ :unknown regardless of the browser fields"]
+           [:no-runtime
+            {:jvm-read? true :runtime-count 1
+             :heartbeat-age-ms 60000 ; > 30s threshold
+             :build-flushed-at 1000 :runtime-loaded-at 2000}
+            "A heartbeat older than the stale threshold ⇒ :no-runtime even with a runtime counted"]
+           [:stale-build
+            {:jvm-read? true :runtime-count 1 :heartbeat-age-ms 500
+             :runtime-loaded-at 1000 :build-flushed-at 5000}
+            "Build flushed AFTER the runtime loaded ⇒ :stale-build"]
+           [:fresh
+            {:jvm-read? true :runtime-count 1 :heartbeat-age-ms 500
+             :runtime-loaded-at 5000 :build-flushed-at 1000}
+            "Runtime loaded AFTER the last flush ⇒ :fresh (running the current build)"]
+           [:fresh
+            {:jvm-read? true :runtime-count 1 :heartbeat-age-ms 0
+             :runtime-loaded-at 1000 :build-flushed-at 1000}
+            "flush == load ⇒ :fresh (not stale)"]
+           [:no-runtime
+            {:jvm-read? true :runtime-count 0
+             :runtime-loaded-at 1000 :build-flushed-at 5000}
+            ":no-runtime wins over :stale-build"]
+           [:fresh
+            {:jvm-read? true :runtime-count 1 :heartbeat-age-ms 100
+             :runtime-loaded-at 1000 :build-flushed-at nil}
+            "Missing :build-flushed-at can't prove staleness ⇒ :fresh"]]]
+    (is (= expected (fresh/liveness-verdict input)) why)))
 
 ;; ---------------------------------------------------------------------------
 ;; assemble — merge browser + JVM halves.
