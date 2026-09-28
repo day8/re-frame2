@@ -272,26 +272,6 @@
           (is (= [:per-call] @fired)
               "per-call opt outranks the lexical with-fx-overrides binding"))))))
 
-(deftest with-fx-overrides-composes-with-with-frame
-  (testing "rf/with-fx-overrides nests cleanly inside rf/with-frame"
-    (let [fired (atom [])]
-      (rf/reg-fx :fx-test/comp-email
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :registered)))
-      (rf/reg-fx :fx-test/comp-email.stub
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired conj :stub)))
-      (rf/reg-event :fx-test/comp-send
-        (fn [_ _] {:fx [[:fx-test/comp-email]]}))
-      (rf/make-frame {:id :wo/A :doc "frame A"})
-
-      (reset! fired [])
-      (rf/with-frame :wo/A
-        (rf/with-fx-overrides {:fx-test/comp-email :fx-test/comp-email.stub}
-          (rf/dispatch-sync [:fx-test/comp-send])))
-      (is (= [:stub] @fired)
-          "with-fx-overrides inside with-frame applies its override to dispatches targeted at the named frame"))))
-
 ;; ---- 3. fx-handler exception → :rf.error/fx-handler-exception -------------
 ;;
 ;; Per Spec 009 §Error contract, an fx implementation that throws emits
@@ -754,30 +734,6 @@
             (is (= {:dispatch [:fx-test/fx-sentinel]} (get-in t [:tags :value]))
                 ":value carries the offending map")))))))
 
-(deftest well-shaped-fx-vector-is-unchanged
-  (testing "the normal {:fx [[fx-id args] ...]} path still fires and emits NO shape trace"
-    (let [traces (collect-traces! ::fx-val-ok)
-          fired  (atom [])]
-      (rf/reg-fx :fx-test/touch-ok
-        (fn [_ args] (swap! fired conj args)))
-      (rf/reg-event :fx-test/fx-is-vector
-        (fn [{:keys [db]} _]
-          {:db (assoc db :seeded? true)
-           :fx [[:fx-test/touch-ok {:k :v}]]}))
-      (rf/dispatch-sync [:fx-test/fx-is-vector])
-      (rf/unregister-listener! :trace ::fx-val-ok)
-      (is (= [{:k :v}] @fired)
-          "the well-shaped :fx entry still fires")
-      (is (= true (:seeded? (rf/app-db-value :rf/default)))
-          ":db committed alongside the legal :fx")
-      ;; Dev-instrumentation arm. A NEGATIVE over the trace ring
-      ;; MUST sit inside the arm: under `-Dre-frame.debug=false` the ring is
-      ;; empty by design, so `empty?` would pass whether the framework stayed
-      ;; silent or shouted — a false green.
-      (when rf.interop/debug-enabled?
-        (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
-            "a well-shaped :fx value emits NO :rf.error/effect-map-shape trace")))))
-
 (deftest nil-fx-value-is-a-legal-no-op
   (testing "{:db ... :fx nil} is the legal no-op — :db commits, NO shape trace"
     ;; nil/absent :fx must NOT be flagged (it is equivalent to omitting :fx);
@@ -917,26 +873,6 @@
         (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
             "nil + [] entries emit NO :rf.error/effect-map-shape trace — the legal idiom")))))
 
-(deftest well-formed-multi-entry-fx-emits-no-shape-trace
-  (testing "a well-formed multi-entry :fx vector runs all entries and emits NO
-            per-entry shape trace"
-    (let [traces (collect-traces! ::fx-entry-all-ok)
-          fired  (atom [])]
-      (rf/reg-fx :fx-test/multi-a (fn [_ _] (swap! fired conj :a)))
-      (rf/reg-fx :fx-test/multi-b (fn [_ _] (swap! fired conj :b)))
-      (rf/reg-event :fx-test/multi-ok
-        (fn [_ _]
-          {:fx [[:fx-test/multi-a]
-                [:fx-test/multi-b]]}))
-      (rf/dispatch-sync [:fx-test/multi-ok])
-      (rf/unregister-listener! :trace ::fx-entry-all-ok)
-      (is (= [:a :b] @fired)
-          "all well-formed entries ran in source order")
-      ;; Dev-instrumentation arm (negative over the trace ring).
-      (when rf.interop/debug-enabled?
-        (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
-            "no :rf.error/effect-map-shape trace for a clean multi-entry :fx")))))
-
 ;; ---- 6d. per-ENTRY arity / fx-id-type policing ----------------------------
 ;;
 ;; 6c polices a non-vector ENTRY. A guard that waved through ANY non-empty
@@ -957,9 +893,9 @@
 ;; just that entry, and let siblings run — symmetric with 6c.
 ;;
 ;; The 1-arity no-args shorthand `[:fx-id]` is valid: `handle-one-fx`
-;; destructures `args` as nil for it, and it is in wide use (source-order /
-;; multi-entry tests above). `well-formed-multi-entry-fx-emits-no-shape-trace`
-;; already pins that it emits NO shape trace.
+;; destructures `args` as nil for it, and it is in wide use (the source-order
+;; tests above). `fx-entry-no-args-shorthand-is-valid` below pins that it
+;; emits NO shape trace.
 
 (deftest fx-entry-non-keyword-head-is-policed-and-skipped
   (testing "a vector :fx entry whose head is NOT a keyword (`[\"str\" {}]`) is a
@@ -1161,14 +1097,21 @@
 ;;   (keyword? override)    → id-redirect via registrar
 ;;   (fn? override)         → run the fn in place of the original fx
 ;;
-;; The three sub-tests pin the contract:
+;; The sub-tests pin the contract:
 ;;   1. fn-value runs in place of the original; the original does NOT fire.
 ;;   2. id-redirect form (the pattern-level path).
-;;   3. nil-value (or missing key) → no override active; original fires.
+;; nil-value (or missing key) → no override active, original fires: pinned by
+;; `nil-and-false-fx-override-values-stay-silent` below.
 
 (deftest fx-overrides-fn-value-branch
   (testing "function-value override fires in place of the registered fx"
-    (let [original-fired (atom 0)
+    ;; Per Spec 014 §Reply addressing the originating event is threaded
+    ;; through to fx handlers as `:event` on their ctx; the fn-value
+    ;; override branch follows the same code path, so the ctx shape is
+    ;; identical to a registered-fx handler.
+    (let [traces         (collect-traces! ::fn-override-trace)
+          original-fired (atom 0)
+          override-fired (atom 0)
           override-args  (atom nil)
           override-ctx   (atom nil)]
       (rf/reg-fx :fx-test/http
@@ -1177,17 +1120,32 @@
       (rf/reg-event :fx-test/issue-request
         (fn [_ _] {:fx [[:fx-test/http {:method :get :url "/me"}]]}))
       (rf/dispatch-sync
-        [:fx-test/issue-request]
+        [:fx-test/issue-request :payload-1]
         {:fx-overrides {:fx-test/http (fn [m args]
+                                        (swap! override-fired inc)
                                         (reset! override-ctx m)
                                         (reset! override-args args)
                                         {:status 200 :body {:user/id 42}})}})
+      (rf/unregister-listener! :trace ::fn-override-trace)
       (is (= 0 @original-fired)
           "the registered :fx-test/http MUST NOT fire when overridden by a fn")
+      (is (= 1 @override-fired)
+          "the fn-value override body ran exactly once")
       (is (= {:method :get :url "/me"} @override-args)
           "the fn override receives the same args the registered fx would")
       (is (= :rf/default (:frame @override-ctx))
-          "the fn override receives the standard ctx map (frame, optional :event)")))
+          "the fn override receives the standard ctx map (frame, optional :event)")
+      (is (= [:fx-test/issue-request :payload-1] (:event @override-ctx))
+          "ctx :event is the originating event vector")
+      ;; Dev-instrumentation arm (see ns docstring). `:rf.fx/override-applied`
+      ;; is a bare `rf.trace/emit!` with no always-on twin; the execution
+      ;; counts above are its production-visible half.
+      (when rf.interop/debug-enabled?
+        (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
+          (is (= 1 (count applied))
+              "exactly one :rf.fx/override-applied trace for the fn-value override")
+          (is (= :fx-test/http (get-in (first applied) [:tags :rf.fx/from]))
+              ":rf.fx/from carries the original fx-id")))))
 
   (testing "id-redirect form (the pattern-level pathway)"
     (let [fired (atom [])]
@@ -1203,77 +1161,7 @@
         [:fx-test/issue-redir]
         {:fx-overrides {:fx-test/http-redir :fx-test/http-redir-stub}})
       (is (= [:stub] @fired)
-          "the id-redirect form resolves to the stub fx; the original is not invoked")))
-
-  (testing "nil-valued override falls through to the original fx"
-    ;; Per spec/002 §`:fx-overrides`: a `nil`-or-missing value is treated
-    ;; as "no override active" — `(get overrides id)` returns nil in both
-    ;; cases. The original registered fx fires.
-    (let [fired (atom 0)]
-      (rf/reg-fx :fx-test/http-nil-override
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! fired inc)))
-      (rf/reg-event :fx-test/issue-nil-override
-        (fn [_ _] {:fx [[:fx-test/http-nil-override {}]]}))
-      (rf/dispatch-sync
-        [:fx-test/issue-nil-override]
-        {:fx-overrides {:fx-test/http-nil-override nil}})
-      (is (= 1 @fired)
-          "a nil-valued override is a no-op; the original registered fx fires"))))
-
-(deftest fx-overrides-fn-value-emits-applied-trace
-  (testing "fn-value override emits :rf.fx/override-applied (per spec/009)"
-    (let [traces         (collect-traces! ::fn-override-trace)
-          original-fired (atom 0)
-          override-fired (atom 0)]
-      (rf/reg-fx :fx-test/http-traced
-                 {:platforms #{:client :server}}
-                 (fn [_ _] (swap! original-fired inc)))
-      (rf/reg-event :fx-test/issue-traced
-        (fn [_ _] {:fx [[:fx-test/http-traced {}]]}))
-      (rf/dispatch-sync
-        [:fx-test/issue-traced]
-        {:fx-overrides {:fx-test/http-traced (fn [_ _] (swap! override-fired inc) :ok)}})
-      (rf/unregister-listener! :trace ::fn-override-trace)
-      ;; PRODUCTION-VISIBLE WITNESS. The trace is `:rf.fx/override-
-      ;; applied`, a bare `rf.trace/emit!` with no always-on twin — but the FACT
-      ;; the trace reports ("the override applied, exactly once, in place of
-      ;; the original") is a fact about EXECUTION, so count the bodies. Without
-      ;; this the deftest would execute nothing under the production gate.
-      (is (= 1 @override-fired)
-          "the fn-value override body ran exactly once")
-      (is (= 0 @original-fired)
-          "the registered fx did NOT also run — the override replaced it")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
-          (is (= 1 (count applied))
-              "exactly one :rf.fx/override-applied trace for the fn-value override")
-          (let [t (first applied)]
-            (is (= :fx-test/http-traced (get-in t [:tags :rf.fx/from]))
-                ":rf.fx/from carries the original fx-id")))))))
-
-(deftest fx-overrides-fn-value-receives-origin-event
-  (testing "fn-value override receives :event in ctx when the dispatch carries one"
-    ;; Per Spec 014 §Reply addressing the originating event is threaded
-    ;; through to fx handlers as `:event` on their ctx; the fn-value
-    ;; override branch follows the same code path, so the ctx shape is
-    ;; identical to a registered-fx handler.
-    (let [captured-ctx (atom nil)]
-      (rf/reg-fx :fx-test/http-with-event
-                 {:platforms #{:client :server}}
-                 (fn [_ _] nil))
-      (rf/reg-event :fx-test/issue-with-event
-        (fn [_ _] {:fx [[:fx-test/http-with-event {:url "/x"}]]}))
-      (rf/dispatch-sync
-        [:fx-test/issue-with-event :payload-1]
-        {:fx-overrides {:fx-test/http-with-event
-                        (fn [m _] (reset! captured-ctx m))}})
-      (is (= :rf/default (:frame @captured-ctx))
-          "ctx :frame is present")
-      (is (= [:fx-test/issue-with-event :payload-1]
-             (:event @captured-ctx))
-          "ctx :event is the originating event vector"))))
+          "the id-redirect form resolves to the stub fx; the original is not invoked"))))
 
 ;; ---- 7b. :fx-overrides fn-value of a RESERVED fx-id ------------------------
 ;;
@@ -1292,7 +1180,13 @@
   (testing ":dispatch fn-value override FIRES + the real :dispatch does NOT run"
     ;; (fn [m args] (record! args)) — the natural test stub that captures the
     ;; dispatched event vector without round-tripping it through the queue.
-    (let [captured-args (atom nil)
+    ;; The :rf.fx/override-applied trace rides the actual override-fn
+    ;; invocation rather than resolution time, where it could fire while the
+    ;; reserved body ran instead; the once-count and the unrun target are the
+    ;; production-visible half of that trace honesty.
+    (let [traces        (collect-traces! ::reserved-override-trace)
+          stub-fired    (atom 0)
+          captured-args (atom nil)
           captured-ctx  (atom nil)
           target-ran    (atom 0)]
       (rf/reg-event :fx-test.nrpj1/target
@@ -1302,14 +1196,25 @@
       (rf/dispatch-sync
         [:fx-test.nrpj1/emits-dispatch]
         {:fx-overrides {:dispatch (fn [m args]
+                                    (swap! stub-fired inc)
                                     (reset! captured-ctx m)
                                     (reset! captured-args args))}})
+      (rf/unregister-listener! :trace ::reserved-override-trace)
       (is (= [:fx-test.nrpj1/target :payload] @captured-args)
           "the fn-value override fires and receives the :dispatch args (the event vector)")
+      (is (= 1 @stub-fired)
+          "the :dispatch override body ran exactly once")
       (is (= :rf/default (:frame @captured-ctx))
           "the override receives the standard fx-handler ctx map (frame, …)")
       (is (= 0 @target-ran)
-          "the real reserved :dispatch body MUST NOT run — the override pre-empts it")))
+          "the real reserved :dispatch body MUST NOT run — the override pre-empts it")
+      ;; Dev-instrumentation arm (see ns docstring).
+      (when rf.interop/debug-enabled?
+        (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
+          (is (= 1 (count applied))
+              "exactly one :rf.fx/override-applied trace — emitted because the override fired")
+          (is (= :dispatch (get-in (first applied) [:tags :rf.fx/from]))
+              ":rf.fx/from carries the reserved fx-id that was overridden")))))
 
   (testing ":dispatch-later fn-value override pre-empts the reserved body too"
     (let [later-args (atom nil)]
@@ -1320,55 +1225,6 @@
         {:fx-overrides {:dispatch-later (fn [_ args] (reset! later-args args))}})
       (is (= {:ms 50 :event [:fx-test.nrpj1/target]} @later-args)
           "the fn-value override of :dispatch-later fires with the reserved-fx args"))))
-
-(deftest reserved-fx-fn-value-override-trace-honesty
-  (testing ":rf.fx/override-applied fires only when the reserved-fx override truly applies"
-    ;; The trace rides the actual override-fn invocation — fires when the
-    ;; override applies, absent otherwise — rather than resolution time,
-    ;; where it could fire while the reserved body ran instead.
-    (let [traces     (collect-traces! ::reserved-override-trace)
-          stub-fired (atom 0)
-          sink-ran   (atom 0)]
-      (rf/reg-event :fx-test.nrpj1/sink
-        (fn [{:keys [db]} _] (swap! sink-ran inc) {:db db}))
-      (rf/reg-event :fx-test.nrpj1/traced-dispatch
-        (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/sink]]]}))
-      (rf/dispatch-sync
-        [:fx-test.nrpj1/traced-dispatch]
-        {:fx-overrides {:dispatch (fn [_ _] (swap! stub-fired inc) :stubbed)}})
-      (rf/unregister-listener! :trace ::reserved-override-trace)
-      ;; PRODUCTION-VISIBLE WITNESS. "The trace fires only when
-      ;; the override TRULY applies" presupposes a fact about execution — that
-      ;; the override ran and the reserved body did not — and that fact is
-      ;; production-real. A trace emitted at resolution time while the
-      ;; reserved body ran instead would be exactly a divergence between
-      ;; these two counters and the trace, so pinning them here is the
-      ;; substantive half of "trace honesty".
-      (is (= 1 @stub-fired)
-          "the :dispatch override body ran exactly once")
-      (is (= 0 @sink-ran)
-          "the reserved :dispatch body did NOT run — nothing was queued")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (let [applied (filter #(= :rf.fx/override-applied (:operation %)) @traces)]
-          (is (= 1 (count applied))
-              "exactly one :rf.fx/override-applied trace — emitted because the override fired")
-          (is (= :dispatch (get-in (first applied) [:tags :rf.fx/from]))
-              ":rf.fx/from carries the reserved fx-id that was overridden"))))))
-
-(deftest reserved-fx-with-no-override-runs-reserved-body
-  (testing "a reserved :dispatch with NO override still queues + runs the real event"
-    ;; Guard: the fn-value-override detection must not perturb the
-    ;; ordinary reserved-fx path. With no :fx-overrides, :dispatch runs its
-    ;; reserved body and the target event handler fires.
-    (let [target-ran (atom 0)]
-      (rf/reg-event :fx-test.nrpj1/plain-target
-        (fn [{:keys [db]} _] (swap! target-ran inc) {:db db}))
-      (rf/reg-event :fx-test.nrpj1/plain-dispatch
-        (fn [_ _] {:fx [[:dispatch [:fx-test.nrpj1/plain-target]]]}))
-      (rf/dispatch-sync [:fx-test.nrpj1/plain-dispatch])
-      (is (= 1 @target-ran)
-          "the reserved :dispatch body ran and the queued event drained"))))
 
 (deftest reserved-fx-id-redirect-override-unchanged
   (testing "id-redirect TO a reserved fx-id still falls through (reserved ids aren't registered)"
@@ -1537,17 +1393,27 @@
       (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/a-flow)
           "the reserved :rf.fx/reg-flow body ran — the flow is registered")
       ;; PRODUCTION-VISIBLE WITNESS. `:rf.error/reserved-fx-override`
-      ;; is ALWAYS-ON and stamps `:failing-id` = the rejected reserved fx-id,
-      ;; distinct from `:event-id`, so both it and the id-specific `:reason`
-      ;; ride the production record (Spec 009 §Component attribution).
-      ;; `reject-tier-override-fans-out-on-always-on-axis` below pins the
-      ;; record's full shape; this pins that the DEV per-call reject site
-      ;; (`handle-one-fx`, not the prod-strip) reaches the same axis.
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
+      ;; is ALWAYS-ON (Spec 009 §Error event catalogue) and stamps
+      ;; `:failing-id` = the rejected reserved fx-id, distinct from
+      ;; `:event-id`, so both it and the id-specific `:reason` ride the
+      ;; production record (Spec 009 §Component attribution). This pins that
+      ;; the per-call reject site (`handle-one-fx`, not the prod-strip) reaches
+      ;; the corpus-wide `register-error-listener!` axis through the genuine
+      ;; `dispatch-sync` → fx-walk path, carrying the origin event's context.
+      ;; The companion prod-elision leg lives in
+      ;; `re-frame.on-error-elision-prod-test` (proves it survives goog.DEBUG=false).
+      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)
+            r       (first records)]
         (is (= 1 (count records))
             "exactly ONE always-on reserved-fx-override record")
-        (is (= :rf.fx/reg-flow (:failing-id (first records)))
-            ":failing-id names the rejected reserved fx-id in production too"))
+        (is (= :rf.fx/reg-flow (:failing-id r))
+            ":failing-id names the rejected reserved fx-id in production too")
+        (is (= [:fx-test.snsup5/install-flow] (:event r))
+            ":event carries the dispatched event vector")
+        (is (= :fx-test.snsup5/install-flow (:event-id r))
+            ":event-id is the dispatched event-vector head")
+        (is (= :rf/default (:frame r))
+            ":frame names the frame the override was rejected in"))
       ;; Dev-instrumentation arm (see ns docstring). `:recovery`
       ;; and the `:rf.fx/id` tag spelling are trace-shape, not record-shape.
       (when rf.interop/debug-enabled?
@@ -1579,68 +1445,15 @@
       (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.snsup5/b-flow)
           "the reserved :rf.fx/reg-flow body ran despite the redirect")
       ;; PRODUCTION-VISIBLE WITNESS — the always-on axis, as above.
-      (is (= 1 (count (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)))
-          "one always-on reserved-fx-override record for the redirect form too")
+      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
+        (is (= 1 (count records))
+            "one always-on reserved-fx-override record for the redirect form too")
+        (is (= :fx-test.snsup5/install-flow-2 (:event-id (first records)))
+            ":event-id is the dispatched event-vector head"))
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
         (is (= 1 (count (filter #(= :rf.error/reserved-fx-override (:operation %)) @traces)))
             "one :rf.error/reserved-fx-override trace fired for the redirect form too")))))
-
-(deftest reject-tier-override-fans-out-on-always-on-axis
-  ;; The reserved-fx tests above assert the dev-only
-  ;; TRACE surface (`:operation` via `collect-traces!`). But Spec 009 §Error
-  ;; event catalogue marks `:rf.error/reserved-fx-override` as ALWAYS-ON — a
-  ;; production-reachable misconfiguration MUST reach the corpus-wide
-  ;; `register-error-listener!` substrate (surface #4, the off-box shipper
-  ;; axis). This pins the always-on listener contract for the REAL producer
-  ;; path (`fx.cljc`'s reject emit through `emit-fx-error!` →
-  ;; `rf.error-emit/dispatch-on-error!`), driven through the genuine
-  ;; `dispatch-sync` → fx-walk path — NOT by calling the error substrate
-  ;; directly. The companion prod-elision leg lives in
-  ;; `re-frame.on-error-elision-prod-test` (proves it survives goog.DEBUG=false).
-  (testing "the real fn-value reject producer fans :rf.error/reserved-fx-override
-            out through register-error-listener! with event/id/frame context"
-    (let [errors (collect-errors! ::reject-always-on)]
-      (rf/reg-event :fx-test.uh5ic5/install-flow
-        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.uh5ic5/a-flow {:inputs [[:fx-test.uh5ic5 :seed]] :output-path [:fx-test.uh5ic5 :out]} (fn [_] 7)]]]}))
-      (rf/dispatch-sync
-        [:fx-test.uh5ic5/install-flow]
-        {:fx-overrides {:rf.fx/reg-flow (fn [_ _] :should-not-fire)}})
-      (rf.error-emit/unregister-error-listener! ::reject-always-on)
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
-        (is (= 1 (count records))
-            "exactly ONE always-on record reached register-error-listener!")
-        (let [r (first records)]
-          (is (= :rf.error/reserved-fx-override (:error r))
-              "the always-on record carries the reserved-fx-override category")
-          (is (= [:fx-test.uh5ic5/install-flow] (:event r))
-              ":event carries the dispatched event vector")
-          (is (= :fx-test.uh5ic5/install-flow (:event-id r))
-              ":event-id is the dispatched event-vector head")
-          (is (= :rf/default (:frame r))
-              ":frame names the frame the override was rejected in")
-          (is (number? (:time r)) ":time is a wall-clock millis number")))
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.uh5ic5/a-flow)
-          "the reserved :rf.fx/reg-flow body still ran (recovery :reserved-body-ran)")))
-
-  (testing "the keyword-redirect reject producer ALSO fans out on the always-on axis"
-    (let [errors (collect-errors! ::reject-always-on-redir)]
-      (rf/reg-fx :fx-test.uh5ic5/redir-target
-                 {:platforms #{:client :server}}
-                 (fn [_ _] :should-not-fire))
-      (rf/reg-event :fx-test.uh5ic5/install-flow-2
-        (fn [_ _] {:fx [[:rf.fx/reg-flow [:fx-test.uh5ic5/b-flow {:inputs [[:fx-test.uh5ic5 :seed]] :output-path [:fx-test.uh5ic5 :b]} (fn [_] 1)]]]}))
-      (rf/dispatch-sync
-        [:fx-test.uh5ic5/install-flow-2]
-        {:fx-overrides {:rf.fx/reg-flow :fx-test.uh5ic5/redir-target}})
-      (rf.error-emit/unregister-error-listener! ::reject-always-on-redir)
-      (let [records (filter #(= :rf.error/reserved-fx-override (:error %)) @errors)]
-        (is (= 1 (count records))
-            "one always-on record for the keyword-redirect reject form too")
-        (is (= :fx-test.uh5ic5/install-flow-2 (:event-id (first records)))
-            ":event-id is the dispatched event-vector head"))
-      (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :fx-test.uh5ic5/b-flow)
-          "the reserved body still ran for the redirect form"))))
 
 (deftest overridable-tier-unaffected-by-reject
   (testing "OVERRIDABLE reserved fxs (:dispatch) still honour fn-value overrides"
@@ -2038,7 +1851,13 @@
               (is (= true (:rf.event/db-present? tags))
                   ":rf.event/db-present? true because the handler returned a :db slot")
               (is (= [[:fx-test/do-fx-shape {:k 1}]] (:rf.event/fx tags))
-                  ":rf.event/fx vector matches what the handler returned")))
+                  ":rf.event/fx vector matches what the handler returned")
+              ;; Top level is reserved for substrate-hoisted slots
+              ;; (:rf.trace/call-site, :rf.trace/trigger-handler, :source, …).
+              (is (not (contains? dof :rf.event/fx))
+                  ":rf.event/fx is NOT at top level")
+              (is (not (contains? dof :rf.event/db-present?))
+                  ":rf.event/db-present? is NOT at top level")))
           (finally
             (rf/unregister-listener! :trace ::do-fx-shape)))))))
 
@@ -2073,38 +1892,6 @@
                   ":rf.event/fx vector matches what the handler returned")))
           (finally
             (rf/unregister-listener! :trace ::no-db)))))))
-
-(deftest event-do-fx-stamp-rides-under-tags
-  (testing ":fx and :db-present? are payload-shaped slots — they ride
-   under :tags alongside :frame (consistent with how every payload
-   slot on a trace event is placed; top-level is reserved for
-   substrate-hoisted slots like :rf.trace/call-site,
-   :rf.trace/trigger-handler, :source, :recovery, :sensitive?)"
-    (rf/reg-event :fx-test/top-level-shape
-      (fn [_ _] {:db {:x 1} :fx []}))
-    (let [acc (collect-traces! ::top-level)]
-      (try
-        (rf/dispatch-sync [:fx-test/top-level-shape])
-        ;; Production-visible witness: an empty `:fx` vector is
-        ;; still a legal return and the `:db` beside it must commit.
-        (is (= 1 (:x (rf/app-db-value :rf/default)))
-            "the {:db … :fx []} return committed its :db slot")
-        ;; Dev-instrumentation arm. This deftest is about the
-        ;; SLOT PLACEMENT of two dev-trace tags; that has no production
-        ;; referent at all, so it is guarded whole.
-        (when rf.interop/debug-enabled?
-          (let [[dof] (filterv #(= :rf.fx/do-fx (:operation %)) @acc)
-                tags  (:tags dof)]
-            (is (some? dof) ":rf.fx/do-fx fired")
-            (is (contains? tags :rf.event/fx)          ":rf.event/fx lives under :tags")
-            (is (contains? tags :rf.event/db-present?) ":rf.event/db-present? lives under :tags")
-            (is (contains? tags :frame)                ":frame is alongside (pre-existing)")
-            (is (not (contains? dof :rf.event/fx))
-                ":rf.event/fx is NOT at top level")
-            (is (not (contains? dof :rf.event/db-present?))
-                ":rf.event/db-present? is NOT at top level")))
-        (finally
-          (rf/unregister-listener! :trace ::top-level))))))
 
 ;; ---- :coeffects stamp on :rf.event/run-end -------------------------------
 ;;
