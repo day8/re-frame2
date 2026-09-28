@@ -291,11 +291,36 @@
         (is (:precise? (:focus beat)))
         (is (= {:direct? true :attributed? true} (:strength beat)))
         (is (seq (:summary beat)))))
-    (testing "the non-dispatch assert span committed no epoch"
+    (testing "the non-dispatch assert span has no beats of its own"
       (let [assert-span (nth spans 2)]
         (is (= :non-dispatch (:kind assert-span)))
         (is (= 0 (:beat-count assert-span)))
         (is (empty? (:beats assert-span)))))))
+
+(deftest a-checkpoint-epoch-is-filed-above-and-its-span-says-so
+  (testing "an [:assert …] checkpoint dispatches its verdict, and the
+            narrative files that epoch under the span above the assert —
+            here the setup span, since no dispatch step precedes it. The
+            assert span's note must say so, not that the step committed
+            no epoch."
+    (let [narrative (rf.story.play.evidence/narrative
+                      [[:assert [:rf.assert/state-is :login/flow :idle]]]
+                      [{:epoch-id 19 :dispatch-id 19 :trigger-event [:login/failure]
+                        :db-before {} :db-after {:flow :error}}
+                       {:epoch-id 22 :dispatch-id 22
+                        :trigger-event [:rf.assert/state-is :login/flow :idle]
+                        :db-before {:flow :error} :db-after {:flow :error}}])
+          [setup-span assert-span :as spans] (rf.story.ui.evidence-spine/spine-spans narrative)]
+      (is (= [:setup :non-dispatch] (mapv :kind spans)))
+      (is (= [:login/failure :rf.assert/state-is]
+             (mapv (comp first :trigger-event) (:beats setup-span)))
+          "the checkpoint's verdict epoch sits under the setup span")
+      (is (empty? (:beats assert-span)) "the assert span has no beats of its own")
+      (let [note (rf.story.ui.evidence-spine/empty-span-note (:kind assert-span))]
+        (is (not (re-find #"committed no epoch" note))
+            "the note does not deny the epoch the checkpoint committed")
+        (is (re-find #"filed under the span above" note)
+            "the note says where that epoch went")))))
 
 (deftest spine-spans-empty-narrative
   (testing "an empty / nil narrative projects to no spans (graceful)"
