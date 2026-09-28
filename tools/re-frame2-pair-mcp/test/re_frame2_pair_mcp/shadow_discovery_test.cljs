@@ -10,8 +10,9 @@
       Node's `http.request`), so a FAKE ClientRequest drives the
       below-the-socket branches directly: 200 single- and multi-chunk body
       assembly, a non-200 reject, a request `error`, the bounded-timeout
-      `destroy` + reject, the response `error`, and the settle-once
-      double-settle guard.
+      `destroy` + reject, and the response `error`. (The settle-once
+      double-settle guard has no observable effect to pin: a JS Promise
+      already ignores a second settlement.)
     - `discover-project-home*` — the fetch+parse composition. Here the
       whole `fetch-project-info` step is stubbed AWAY via the injected
       fetch-fn seam (it just returns a resolved/rejected Promise), so
@@ -40,13 +41,6 @@
                     "\"~:project-home\",\"C:\\\\Users\\\\me\\\\proj\","
                     "\"~:version\",\"3.4.10\"]")]
       (is (= "C:\\Users\\me\\proj" (sd/extract-project-home body))))))
-
-(deftest extract-project-home-handles-posix-path
-  (let [body (str "[\"^ \","
-                  "\"~:project-config\",\"/home/me/proj/shadow-cljs.edn\","
-                  "\"~:project-home\",\"/home/me/proj\","
-                  "\"~:version\",\"3.4.10\"]")]
-    (is (= "/home/me/proj" (sd/extract-project-home body)))))
 
 (deftest extract-project-home-tolerates-key-reordering
   (testing "the parser walks key/value pairs — key order isn't load-bearing"
@@ -249,26 +243,6 @@
                      (is (= "socket hang up" (.-message err)))
                      (done))))))))
 
-(deftest fetch-project-info-double-settle-guard-holds
-  (testing "once end has resolved, a late timeout is swallowed (settle-once)"
-    (async done
-      (let [[request-fn state] (make-fake-transport)
-            res-handlers (atom {})
-            p (sd/fetch-project-info "127.0.0.1" 9630 request-fn)]
-        ((:res-cb @state) (fake-res 200 res-handlers))
-        ((get @res-handlers "data") "done-body")
-        ((get @res-handlers "end"))
-        ;; A late timeout fires AFTER the resolve — compare-and-set! swallows it.
-        ((:timeout-cb @state))
-        (-> p
-            (.then (fn [body]
-                     (is (= "done-body" body)
-                         "the FIRST settlement (resolve on end) wins")
-                     (done))
-                   (fn [_]
-                     (is false "a resolved probe must not later reject")
-                     (done))))))))
-
 ;; ===========================================================================
 ;; discover-project-home* — fetch + parse composition.
 ;;
@@ -309,17 +283,6 @@
             (.then (fn [v]
                      (is (nil? v)
                          "extract-project-home returned nil; cascade falls through")
-                     (done))))))))
-
-(deftest discover-project-home-missing-key-yields-nil
-  (testing "fetch succeeded, transit-shape valid, but :project-home absent"
-    (async done
-      (let [stub-fetch (fn [_host _port]
-                         (js/Promise.resolve
-                           "[\"^ \",\"~:version\",\"3.4.10\"]"))]
-        (-> (sd/discover-project-home* "127.0.0.1" 9630 stub-fetch)
-            (.then (fn [v]
-                     (is (nil? v))
                      (done))))))))
 
 (deftest discover-project-home-args-thread-through

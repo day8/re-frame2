@@ -17,9 +17,10 @@
        valid set in a form the operator can paste straight back.
     3. Colon-prepend is idempotent (`:examples/…` stays `:examples/…`,
        never `::examples/…`). Carried by `fresh-keyword`'s
-       colon-tolerance; pinned here as a regression guard.
+       colon-tolerance; the round-trip test feeds both forms back.
     4. The selected build sticks — a discover-app'd build transfers to
-       the next read op via the sticky `:resolved-build-id`; pinned here.
+       the next read op via the sticky `:resolved-build-id`; pinned by
+       dx-papercuts-test and sticky-build-invoke-test.
 
   The mechanism: ONE shared forgiving resolver
   (`probe/canonicalize-build!` + `probe/match-running-build`) used across
@@ -220,48 +221,3 @@
                       (tu/restore-eval! cljs-stub orig-cljs)
                       (tu/restore-jvm-eval! jvm-stub orig-jvm)))
           (.then (fn [_] (done)))))))
-
-;; ---------------------------------------------------------------------------
-;; Property 3 — colon idempotence (regression guard).
-;; ---------------------------------------------------------------------------
-
-(deftest colon-prepend-is-idempotent
-  (let [conn (fresh-conn)]
-    (is (= :examples/machine-epochs
-           (wire/arg-build conn (tu/args->js {:build ":examples/machine-epochs"})))
-        "a leading colon is stripped, never double-prepended into ::examples/…")
-    (is (= (wire/arg-build conn (tu/args->js {:build "examples/machine-epochs"}))
-           (wire/arg-build conn (tu/args->js {:build ":examples/machine-epochs"})))
-        "bare and colon forms are indistinguishable post-coercion")))
-
-;; ---------------------------------------------------------------------------
-;; Property 4 — a stuck build transfers to subsequent ops (regression guard).
-;; ---------------------------------------------------------------------------
-
-(deftest stuck-build-transfers-to-subsequent-ops
-  (let [conn     (fresh-conn)
-        no-build (tu/args->js {})]
-    ;; Simulate an explicit :build on a prior op having been stuck.
-    (wire/stick-build! conn (tu/args->js {:build "examples/machine-epochs"}))
-    (is (= :examples/machine-epochs (wire/arg-build conn no-build))
-        "a build stuck on a prior op defaults the next no-:build op")))
-
-(deftest stuck-suffix-build-canonicalised-by-step
-  ;; A suffix form stuck on a prior op, then canonicalized by the pipeline
-  ;; step, becomes the canonical sticky default for follow-up ops.
-  (async done
-    (let [conn (fresh-conn)]
-      ;; stick-build! stores the fresh-keyword'd suffix form.
-      (wire/stick-build! conn (tu/args->js {:build "machine-epochs"}))
-      (is (= :machine-epochs (:resolved-build-id @conn)) "sanity: suffix stuck verbatim")
-      (-> (with-running! [:examples/machine-epochs]
-            (fn []
-              (-> (probe/canonicalize-build! conn :machine-epochs)
-                  (.then (fn [canonical]
-                           ;; the step rewrites :resolved-build-id when one was stuck
-                           (when (some? (:resolved-build-id @conn))
-                             (swap! conn assoc :resolved-build-id canonical)))))))
-          (.then (fn [_]
-                   (is (= :examples/machine-epochs (wire/arg-build conn (tu/args->js {})))
-                       "the canonical id is the sticky default for follow-up no-:build ops")
-                   (done)))))))

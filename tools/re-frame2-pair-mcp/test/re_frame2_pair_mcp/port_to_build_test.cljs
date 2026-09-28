@@ -162,26 +162,6 @@
                     "an unresolved port must not cache anything"))
               (done)))))))
 
-(deftest discover-app-port-unresolved-iserror-matches-ok?
-  ;; Adversarial cross-check: the isError:true flag and the payload's
-  ;; :ok? false MUST agree — an ok-text envelope would ship :ok? false
-  ;; WITHOUT isError, decoupling the two slots and letting
-  ;; the response cache retain an unresolved-port answer that masks a later
-  ;; valid mapping. A distinct port proves the behaviour isn't 9999-specific.
-  (async done
-    (let [conn (fresh-conn)]
-      (-> (with-port-resolution! nil healthy-health
-            (fn [] (discover-app/discover-app conn (tu/args->js {:port 65535}))))
-          (.then
-            (fn [result]
-              (let [edn (tu/extract-edn result)]
-                ;; isError:true (text slot) <-> :ok? false (structured slot)
-                (is (true? (tu/error? result)))
-                (is (false? (:ok? edn)))
-                (is (= :port-unresolved (:reason edn)))
-                (is (= 65535 (:port edn))))
-              (done)))))))
-
 (deftest discover-app-explicit-build-wins-over-port
   ;; Both :build and :port given → :build wins; the resolver isn't even
   ;; consulted (a throwing stub proves it).

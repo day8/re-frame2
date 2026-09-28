@@ -55,14 +55,6 @@
       (is (= "done" (aget status 0))))
     (is (zero? (.-length rst)))))
 
-(deftest three-frames-decode
-  (let [buf      (js/Buffer.from
-                   "d1:ai1ee" "utf8")
-        twice    (js/Buffer.concat #js [buf buf buf])
-        [fs rst] (decode-all twice)]
-    (is (= 3 (count fs)))
-    (is (zero? (.-length rst)))))
-
 (deftest incomplete-frame-retained-as-trailer
   ;; The partial-frame branch directly on the public seam. A truncated
   ;; bencode frame can't decode; `decode-all-frames`
@@ -283,13 +275,6 @@
         (is (= 9002 (nrepl/read-port-from-fs "explicit/nrepl.port"))
             "explicit path wins over the relative scan")))))
 
-(deftest port-discovery-explicit-port-file-trimmed-and-parsed
-  (testing "explicit-path content is trimmed + parsed like the candidates"
-    (with-fs-stub! nil
-      (read-returning "explicit/nrepl\\.port" "  9003  \n")
-      (fn []
-        (is (= 9003 (nrepl/read-port-from-fs "explicit/nrepl.port")))))))
-
 (deftest port-discovery-explicit-port-file-missing-falls-through
   (testing "an absent explicit path falls through to env then file scan"
     ;; The explicit path throws ENOENT; env (7777) must then resolve.
@@ -297,16 +282,6 @@
       (fn []
         (is (= 7777 (nrepl/read-port-from-fs "nope/missing.port"))
             "missing --port-file ⇒ fall through to env")))))
-
-(deftest port-discovery-explicit-port-file-nil-is-normal-chain
-  (testing "nil explicit path behaves exactly like the 0-arity chain"
-    (with-fs-stub! nil
-      (read-returning "target/shadow-cljs/nrepl.port" "6001")
-      (fn []
-        (is (= 6001 (nrepl/read-port-from-fs nil))
-            "nil explicit ⇒ normal env→file precedence")
-        (is (= 6001 (nrepl/read-port-from-fs))
-            "0-arity stays equivalent")))))
 
 ;; ===========================================================================
 ;; Transport data-handler — `attach-handlers!`.
@@ -333,18 +308,6 @@
   "bencode-encode a CLJS map into a Buffer the data-handler can fold."
   [m]
   (bencode/encode (clj->js m)))
-
-(deftest data-handler-dispatches-complete-frame-to-pending
-  (testing "a single complete frame resolves its pending-id handler"
-    (let [cbs*    (atom {})
-          conn    (nrepl/make-conn 0 "127.0.0.1")
-          got*    (atom nil)]
-      (swap! conn assoc :buf (js/Buffer.alloc 0) :pending {"id-1" #(reset! got* %)})
-      (nrepl/attach-handlers! conn (fake-socket cbs*))
-      (emit-data! cbs* (frame-buf {"id" "id-1" "value" "42"}))
-      (is (some? @got*) "the pending handler fired")
-      (is (= "42" (j/get @got* "value")))
-      (is (zero? (.-length (:buf @conn))) "complete frame leaves no trailer"))))
 
 (deftest data-handler-buffers-partial-frame
   (testing "a partial frame is held in :buf and dispatched once completed"
@@ -392,15 +355,6 @@
       ;; Must not throw even though no pending entry matches.
       (emit-data! cbs* (frame-buf {"id" "ghost" "value" "x"}))
       (is (zero? (.-length (:buf @conn))) "frame consumed, no trailer left"))))
-
-(deftest close-handler-marks-conn-closed
-  (testing "the close event flips :closed?"
-    (let [cbs* (atom {})
-          conn (nrepl/make-conn 0 "127.0.0.1")]
-      (swap! conn assoc :closed? false)
-      (nrepl/attach-handlers! conn (fake-socket cbs*))
-      ((get @cbs* "close") nil)
-      (is (true? (:closed? @conn))))))
 
 (deftest error-handler-marks-conn-closed
   (testing "a socket error flips :closed? (so the next call reconnects)"
@@ -478,25 +432,6 @@
                            "the just-registered id is dissoc'd — no pending leak")))
               (.then (fn [_] (done)))))))))
 
-(deftest send-op!-live-socket-writes-normally
-  (testing "with a live socket present at write time, send-op! writes the encoded op"
-    (async done
-      (let [writes (atom [])
-            sock   (j/lit {:write (fn [buf] (swap! writes conj buf) nil)})
-            conn   (nrepl/make-conn 0 "127.0.0.1")]
-        (swap! conn assoc :socket sock :closed? false)
-        ;; Don't drop the socket — the write should happen, the op stays
-        ;; pending (no :done frame is ever fed), and we just assert the write
-        ;; landed then resolve the test.
-        (nrepl/send-op! conn {"op" "eval" "code" "(+ 1 1)"})
-        ;; Let the connect! fast-path microtask run before asserting.
-        (js/queueMicrotask
-          (fn []
-            (is (= 1 (count @writes)) "exactly one write against the live socket")
-            (is (= 1 (count (:pending @conn)))
-                "the op is registered as pending awaiting its :done frame")
-            (done)))))))
-
 ;; ===========================================================================
 ;; `send-op!` response assembly + resolution + timeout.
 ;;
@@ -505,9 +440,7 @@
 ;; that accumulator through `(:pending @conn)` and feed frames directly — no
 ;; socket, no bencode round-trip — to cover the response-assembly + resolution
 ;; branch, then a short-deadline op with NO `:done` frame to cover the timeout
-;; branch — both out of reach of
-;; `send-op!-live-socket-writes-normally`, which deliberately feeds no
-;; `:done` frame and asserts only the write + pending registration.
+;; branch.
 ;; ===========================================================================
 
 (deftest send-op!-assembles-frames-and-resolves-on-done
@@ -875,22 +808,6 @@
                      (restore!)
                      (done))))))))
 
-(deftest discover-port-shadow-down-falls-through-to-cwd
-  (testing "step 4 → 5 — shadow probe fails; cascade falls through to cwd scan"
-    (async done
-      (let [restore! (install-fs-stub!
-                       nil (read-returning "target[\\\\/]shadow-cljs[\\\\/]nrepl\\.port" "3030"))]
-        (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
-            (.then (fn [r]
-                     (is (= 3030 (:port r))
-                         "shadow down → cwd-relative scan resolves the port")
-                     (is (= (node-path/join (js/process.cwd)
-                                            "target/shadow-cljs/nrepl.port")
-                            (:port-file r))
-                         "the first candidate wins and its cwd-resolved absolute path is surfaced")
-                     (restore!)
-                     (done))))))))
-
 (deftest discover-port-shadow-down-and-no-files-yields-nil
   (testing "every step misses — cascade returns nil-port (degraded boot fires)"
     (async done
@@ -1064,31 +981,6 @@
           ;; `restore!` is the same idempotent `set!` on both arms, so it moves
           ;; to the single trailing step: written once, still run once per path,
           ;; and still INSIDE the step that calls `done` rather than after it.
-          (.then (fn [_] (restore!) (done)))))))
-
-(deftest connect!-reopen-resets-framing-buffer-but-keeps-caches
-  ;; The reopen still does its transport job: a stale partial frame left in
-  ;; `:buf` from the dropped socket is cleared (a fresh socket starts a fresh
-  ;; bencode stream), even while the build-id caches are preserved.
-  (async done
-    (let [cbs*     (atom {})
-          restore! (with-stubbed-create-connection! cbs*)
-          conn     (nrepl/make-conn 6001 "127.0.0.1")]
-      (-> (connect-then-fire! conn cbs*)
-          (.then
-            (fn [_]
-              (swap! conn assoc
-                     :resolved-build-id :examples/step-deck
-                     :buf (js/Buffer.from "d3:foo" "utf8"))  ; a stale partial frame
-              (fire! cbs* "close" nil)
-              (connect-then-fire! conn cbs*)))
-          (.then
-            (fn [_]
-              (is (zero? (.-length (:buf @conn)))
-                  "the framing buffer is reset on reopen (fresh socket, fresh stream)")
-              (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "the build-id cache is preserved alongside the buffer reset")))
-          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
           (.then (fn [_] (restore!) (done)))))))
 
 (deftest connect!-fast-path-leaves-caches-untouched

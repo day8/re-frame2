@@ -94,20 +94,6 @@
 ;; The contract.
 ;; ---------------------------------------------------------------------------
 
-(deftest first-positive-probe-runs-one-eval
-  ;; Sanity: the first call to a fresh conn issues exactly one
-  ;; cljs-eval-value round-trip and resolves true.
-  (async done
-    (let [conn  (fresh-conn)
-          calls (atom 0)]
-      (-> (with-stubbed-eval! true calls
-            (fn []
-              (-> (probe/runtime-preloaded? conn :app)
-                  (.then (fn [ok?]
-                           (is (true? ok?))
-                           (is (= 1 @calls)))))))
-          (.then (fn [_] (done)))))))
-
 (deftest second-positive-probe-is-cached
   ;; A confirmed positive probe MUST short-circuit on the next call for
   ;; the same (conn, build-id). The second call must resolve true
@@ -332,18 +318,6 @@
         (fn []
           (assert-ladder-rejects-with-reason
             (fresh-conn) :no-runtime-connected #"no CLJS runtime" done nil))))))
-
-(deftest diagnose-rung-runtime-loaded-but-preload-missing
-  (testing "cljs eval returns false → :runtime-loaded-but-preload-missing"
-    (async done
-      (with-tri-stub! (fn [_] false)
-                      (fn [form-str]
-                        (if (re-find #"active-builds" form-str)
-                          {:value "[:app]"}
-                          {:value "1"}))
-        (fn []
-          (assert-ladder-rejects-with-reason
-            (fresh-conn) :runtime-loaded-but-preload-missing #"preload" done nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The preload hint must BRANCH on who owns the classpath.

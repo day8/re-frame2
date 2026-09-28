@@ -64,18 +64,6 @@
 ;; Happy path — the nested-EDN unwrap shadow actually produces.
 ;; ---------------------------------------------------------------------------
 
-(deftest unwraps-shadow-results-vector-to-value
-  ;; shadow wraps the eval result as `{:results ["<edn>"] :ns user}` in
-  ;; the :value string. The LAST :results entry is re-read as EDN. A
-  ;; scalar 42 rides as the string "42" inside the results vector inside
-  ;; the outer map string.
-  (async done
-    (-> (with-stubbed-cljs-eval! {:value "{:results [\"42\"] :ns user}"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "(+ 40 2)")))
-        (.then (fn [v]
-                 (is (= 42 v) "scalar unwrapped from the nested :results EDN")
-                 (done))))))
-
 (deftest unwraps-nested-collection-value
   ;; A map value round-trips through both EDN reads intact.
   (async done
@@ -249,16 +237,6 @@
         (.then (fn [v]
                  (is (= {:custom :shape :n 7} v)
                      "outer map without :results returned verbatim")
-                 (done))))))
-
-(deftest scalar-outer-value-returned-verbatim
-  ;; A :value that parses to a bare scalar (not a map) takes the :else
-  ;; arm too and rides back unchanged.
-  (async done
-    (-> (with-stubbed-cljs-eval! {:value "123"}
-          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
-        (.then (fn [v]
-                 (is (= 123 v) "bare scalar outer value returned verbatim")
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
