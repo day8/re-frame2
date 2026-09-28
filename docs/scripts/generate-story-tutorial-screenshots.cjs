@@ -193,7 +193,8 @@ const SHOTS = [
   },
   {
     // The end of chapter 6's failure path: the setup beat's "Xray: App-db"
-    // link switches the rail's Xray panel to App-db at that beat's epoch.
+    // link switches the rail's Xray panel to App-db at that beat's epoch
+    // and scrolls the rail up to it.
     file: 'story-tutorial-07-xray-embed.png',
     app: '/login',
     query: '?variant=story.login-form%2Ferror',
@@ -208,9 +209,6 @@ const SHOTS = [
       await page
         .locator('[data-test="story-xray-panel-chip"][aria-pressed="true"]', { hasText: 'App-db' })
         .waitFor({ state: 'attached', timeout: SHOT_VISIBLE_TIMEOUT_MS });
-      await page.evaluate(() => {
-        document.querySelector('[data-rf-rhs-section="xray"]').scrollIntoView({ block: 'start' });
-      });
     },
   },
   {
