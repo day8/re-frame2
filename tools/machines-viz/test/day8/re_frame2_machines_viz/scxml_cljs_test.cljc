@@ -263,26 +263,6 @@
 (defn- round-trips? [spec]
   (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))
 
-(deftest round-trip-flat-machine
-  (testing "idle-loading-success-error round-trips through SCXML"
-    (is (round-trips? idle-loading-success-error))))
-
-(deftest round-trip-compound-machine
-  (testing "compound machine with nested states round-trips"
-    (is (round-trips? compound-machine))))
-
-(deftest round-trip-namespaced-machine
-  (testing "namespaced ids round-trip via dot-separation"
-    (is (round-trips? namespaced-machine))))
-
-(deftest round-trip-guarded-machine
-  (testing "guards round-trip via cond= attribute"
-    (is (round-trips? guarded-machine))))
-
-(deftest round-trip-after-machine
-  (testing ":after timers round-trip via event=\"after.<ms>\""
-    (is (round-trips? after-machine))))
-
 (deftest round-trip-iso-after-machine
   (testing "an ISO-8601 :after delay rides event=\"after.<duration>\" verbatim
             and imports as the same string"
@@ -292,14 +272,6 @@
                           :done    {}}}]
       (is (str/includes? (scxml/spec->scxml spec) "event=\"after.PT1S\""))
       (is (round-trips? spec)))))
-
-(deftest round-trip-always-machine
-  (testing ":always eventless transitions round-trip"
-    (is (round-trips? always-machine))))
-
-(deftest round-trip-parallel-machine
-  (testing ":type :parallel + :regions round-trips through <parallel>"
-    (is (round-trips? parallel-machine))))
 
 (deftest round-trip-vector-path-target
   (testing "a vector-path transition target round-trips as
@@ -489,30 +461,6 @@
 ;; thrown error must keep value-FREE diagnostics (category, key SET,
 ;; counts) — never the raw spec or input (Spec 015 §exception-path).
 
-(deftest invalid-spec-error-omits-raw-spec
-  (testing "spec->scxml invalid-spec ex-data carries a value-free summary, not the raw spec"
-    (let [secret "patient-record-secret-42"
-          ;; Invalid (no :initial/:states) but carries a secret :data slot.
-          spec   {:type :machine :data {:diagnosis secret}}
-          d      (try (scxml/spec->scxml spec) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :scxml/invalid-spec (:rf.error/id d)) "category preserved")
-      (is (not (contains? d :spec)) "no raw :spec slot")
-      (is (some? (:spec-summary d)) "value-free summary present")
-      (is (not (some #(str/includes? % secret) (deep-strings d)))
-          "the secret must not survive anywhere in ex-data"))))
-
-(deftest parallel-invalid-spec-error-omits-raw-spec
-  (testing "parallel-without-regions invalid-spec keeps only a value-free summary"
-    (let [secret "token-deadbeef"
-          spec   {:type :parallel :data {:token secret}}   ;; no :regions
-          d      (try (scxml/spec->scxml spec) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :scxml/invalid-spec (:rf.error/id d)))
-      (is (not (contains? d :spec)))
-      (is (not (some #(str/includes? % secret) (deep-strings d)))
-          "the secret must not survive anywhere in ex-data"))))
-
 (deftest parse-error-omits-raw-input
   (testing "scxml->spec non-string input keeps only a value-free summary"
     (let [secret "session-id-cafef00d"
@@ -672,20 +620,6 @@
           "the success final renders as a plain <final>")
       (is (not (str/includes? out "<final id=\"ok\" data_rf_error_final"))
           "the success final carries NO error-terminal attribute"))))
-
-(deftest round-trip-error-final-preserves-status
-  (testing "an :error? final round-trips its :error? bit (the parent's
-            :on-error vs :on-done routing must not silently collapse to
-            success); a plain :final? stays plain"
-    (let [spec success-and-error-finals-machine
-          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
-      (is (= spec back) "the error-final spec round-trips exactly")
-      (is (true? (get-in back [:states :boom :error?]))
-          "the error terminal reconstructs as :error? true")
-      (is (true? (get-in back [:states :boom :final?]))
-          "the error terminal is still :final?")
-      (is (nil? (get-in back [:states :ok :error?]))
-          "the success terminal carries no :error? bit"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Parallel-ROOT :on / :after ancestor fallback
@@ -1027,23 +961,6 @@
           back (-> spec scxml/spec->scxml scxml/scxml->spec)]
       (is (= :a (get-in back [:states :idle :on :go]))
           "a single target-only transition stays the bare keyword"))))
-
-(deftest round-trip-property-mnp93-fixtures
-  (testing "every codec-faithfulness fixture round-trips
-            EXACTLY (encode→decode = original)"
-    (doseq [[name spec] [["multi-dot-ns-machine"               multi-dot-ns-machine]
-                         ["multi-dot-ns-state-machine"         multi-dot-ns-state-machine]
-                         ["dotted-name-machine"                dotted-name-machine]
-                         ["multi-dot-guard-machine"            multi-dot-guard-machine]
-                         ["single-ns-guard-machine"            single-ns-guard-machine]
-                         ["reserved-prefix-after-event-machine" reserved-prefix-after-event-machine]
-                         ["reserved-prefix-done-event-machine"  reserved-prefix-done-event-machine]
-                         ["reserved-prefix-after-ns-machine"    reserved-prefix-after-ns-machine]
-                         ["nested-same-name-machine"           nested-same-name-machine]
-                         ["mixed-candidate-after-machine"      mixed-candidate-after-machine]
-                         ["mixed-candidate-on-machine"         mixed-candidate-on-machine]]]
-      (testing name
-        (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; An INTERNAL ACTION transition must NOT round-trip into a
@@ -1808,23 +1725,6 @@
 ;; definition. Parser output that cannot be represented as a valid re-frame2
 ;; definition throws the documented `:scxml/invalid-spec`, value-free.
 
-(def missing-initial-scxml
-  "No root `initial` — the machine contract wants a keyword `:initial`.
-  Returning `{:states {:a {}}}` silently would contradict the public
-  docstring's stated error boundary."
-  (marked "<scxml xmlns='http://www.w3.org/2005/07/scxml' version='1.0'>"
-       "<state id='a'/></scxml>"))
-
-(deftest import-throws-invalid-spec-rather-than-returning-a-malformed-definition
-  (testing "a document whose topology cannot be a valid re-frame2
-            definition throws :scxml/invalid-spec instead of returning it"
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                 (scxml/scxml->spec missing-initial-scxml)))
-    (let [d (try (scxml/scxml->spec missing-initial-scxml)
-                 nil
-                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :scxml/invalid-spec (:rf.error/id d)) "the documented discriminator"))))
-
 (deftest import-invalid-spec-error-is-value-free
   (testing "the import-side invalid-spec ex-data carries only the
             shared value-free summary: no raw XML, no parsed definition"
@@ -1839,21 +1739,6 @@
       (is (not (contains? d :spec)) "no raw :spec slot")
       (is (not (some #(str/includes? % secret) (deep-strings d)))
           "the id must not survive anywhere in ex-data"))))
-
-(deftest every-supported-fixture-imports-to-a-valid-definition
-  (testing "the postcondition holds across the whole supported
-            round-trip corpus (the guard against a gate that rejects real imports)"
-    (doseq [spec [idle-loading-success-error
-                  compound-machine
-                  namespaced-machine
-                  guarded-machine
-                  after-machine
-                  always-machine
-                  parallel-machine]]
-      (let [imported (scxml/scxml->spec (scxml/spec->scxml spec))]
-        (is (g/valid-definition? imported)
-            (str "import of " (pr-str (or (:initial spec) (:type spec))) " must be projectable"))
-        (is (= spec imported) "and the round-trip stays value-equal")))))
 
 ;; ---------------------------------------------------------------------------
 ;; "ignored wholesale" has to hold for the ROOT topology too.

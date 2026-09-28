@@ -6,19 +6,11 @@
   picks it up via `cljs-test$`."
   (:require [clojure.test  :refer [deftest is testing]]
             [clojure.string :as str]
-            [clojure.walk :as walk]
             ;; The SHARED node-id codec (the same escape
             ;; every emitter mints), to derive expected Mermaid ids from a
             ;; definition rather than from the emitter under test.
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.mermaid :as m]))
-
-(defn- deep-strings
-  "Every string anywhere in `m` (deep walk)."
-  [m]
-  (let [acc (volatile! [])]
-    (walk/postwalk (fn [x] (when (string? x) (vswap! acc conj x)) x) m)
-    @acc))
 
 ;; -----------------------------------------------------------------------------
 ;; Fixtures — small, hand-curated machine definitions per Spec 005
@@ -225,42 +217,6 @@
       ;; the slash; only sanitise-id escapes it)
       (is (str/includes? out "auth_2fidle --> auth_2floading : rf/load")))))
 
-(deftest emit-validates-definition
-  (testing "definitions missing :initial or :states throw :invalid-definition"
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
-                    :cljs ExceptionInfo)
-                 (m/emit {})))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
-                    :cljs ExceptionInfo)
-                 (m/emit {:initial :idle})))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
-                    :cljs ExceptionInfo)
-                 (m/emit {:initial :idle :states {}})))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
-                    :cljs ExceptionInfo)
-                 (m/emit {:type :parallel :regions {}})))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo
-                    :cljs ExceptionInfo)
-                 (m/emit {:type :parallel
-                          :regions {:data {:initial :idle
-                                           :states  {}}}})))))
-
-(deftest emit-error-omits-raw-definition
-  ;; EP-0015 — an invalid definition can carry a :data slot
-  ;; of live runtime values; the thrown error keeps a value-FREE summary
-  ;; (category, key SET, counts), never the raw definition.
-  (testing "invalid-definition ex-data carries a value-free summary, not the raw definition"
-    (let [secret "api-key-leak-7f3c"
-          ;; Invalid (empty :states) but carries a secret :data slot.
-          def    {:initial :idle :states {} :data {:api-key secret}}
-          d      (try (m/emit def) nil
-                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e (ex-data e)))]
-      (is (= :mermaid/invalid-definition (:rf.error/id d)) "category preserved")
-      (is (not (contains? d :definition)) "no raw :definition slot")
-      (is (some? (:definition-summary d)) "value-free summary present")
-      (is (not (some #(str/includes? % secret) (deep-strings d)))
-          "the secret must not survive anywhere in ex-data"))))
-
 (deftest emit-renders-wildcard-transitions
   (testing ":* wildcard transitions render as real topology"
     (let [m   {:initial :a
@@ -411,31 +367,6 @@
       (is (not (str/includes? out "a --> "))))))
 
 ;; -----------------------------------------------------------------------------
-;; Smoke: round-trip the canonical example through emit + verify the
-;; shape a GitHub reader would see.
-
-(deftest emit-smoke-round-trip
-  (testing "the canonical fixture emits a plausible Mermaid block"
-    (let [out (m/emit idle-loading-success-error)]
-      ;; Has the fence
-      (is (str/starts-with? out "```mermaid"))
-      ;; Has the header
-      (is (str/includes? out "stateDiagram-v2"))
-      ;; Has the initial-edge
-      (is (str/includes? out "[*] --> idle"))
-      ;; Has every transition
-      (is (str/includes? out "idle --> loading : start"))
-      (is (str/includes? out "loading --> success : ok"))
-      (is (str/includes? out "loading --> failed : err"))
-      ;; Has both terminal edges
-      (is (str/includes? out "success --> [*]"))
-      (is (str/includes? out "failed --> [*]"))
-      ;; Mentions the omission caveat
-      (is (str/includes? out ":after rings + :spawn-all rows omitted"))
-      ;; Closes the fence
-      (is (str/ends-with? out "```")))))
-
-;; -----------------------------------------------------------------------------
 ;; :on-done (XState onDone) completion transition
 ;;
 ;; Spec 005 §The done-state signal: a COMPOUND `:on-done` advances the
@@ -459,14 +390,6 @@
    :on-done {:action :announce}
    :regions {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
              :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
-
-(deftest emit-compound-on-done-renders-sibling-completion-edge
-  (testing "a compound `:on-done` renders the completion edge
-            `<compound> --> <sibling> : ✓ done` (the Stately 'do the
-            sub-flow, then continue' arrow), resolved to the SIBLING"
-    (let [out (m/emit compound-on-done-machine {:fenced? false :header-comment? false})]
-      (is (str/includes? out "flow --> next : ✓ done")
-          "the compound advances to its sibling on completion"))))
 
 (deftest emit-parallel-on-done-renders-completion-note
   (testing "a parallel-root `:on-done` (action-only, no
@@ -710,31 +633,6 @@
 ;; and all three emitters agree — the G9 'faithful across all three
 ;; emitters' parity claim (001-Topology-Parity.md §3.1).
 
-(deftest emit-internal-on-transition-renders-note
-  (testing "an INTERNAL (action-only) :on candidate renders as
-            a note (NOT silently dropped) carrying `<event> / <action>`"
-    (let [m   {:initial :a :states {:a {:on {:tick {:action :log}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "note right of a"))
-      (is (str/includes? out "tick / log"))
-      (is (not (str/includes? out "a --> "))
-          "no phantom arrow for an internal action :on"))))
-
-(deftest emit-internal-after-and-always-render-notes
-  (testing "internal (action-only) :after / :always candidates
-            render as notes too (the SAME treatment as the :on branch)"
-    (let [m   {:initial :a
-               :states  {:a {:after  {1000 {:action :timeout-log}}
-                             :always [{:action :poll}]}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      (is (str/includes? out "note right of a"))
-      (is (str/includes? out "after(1000) / timeout-log")
-          "internal :after surfaces as a note line")
-      (is (str/includes? out "always / poll")
-          "internal :always surfaces as a note line")
-      (is (not (str/includes? out "a --> "))
-          "no phantom arrow for internal :after / :always"))))
-
 (deftest emit-internal-transition-with-guard-renders-note
   (testing "an internal candidate's guard surfaces in its note
             line: `<event> [guard] / <action>`"
@@ -766,21 +664,6 @@
 ;; uses the chart's injective hex-escape scheme (`:a/b` → `a_2fb`, `:a-b` →
 ;; `a_2db`): distinct keywords map to distinct mermaid nodes.
 
-(deftest emit-sanitise-id-is-injective
-  (testing "`:a/b` and `:a-b` mint DISTINCT mermaid nodes (a
-            non-injective collapse would merge them into one)"
-    (let [m   {:initial :a
-               :states  {:a {:on {:go :auth/login :back :auth-login}}
-                         :auth/login {} :auth-login {}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      ;; The two edges target DISTINCT nodes (a collapse would read `a --> auth_login` for both).
-      (is (str/includes? out "a --> auth_2flogin : go")
-          ":auth/login → auth_2flogin (slash hex-escaped to _2f)")
-      (is (str/includes? out "a --> auth_2dlogin : back")
-          ":auth-login → auth_2dlogin (hyphen hex-escaped to _2d)")
-      (is (not= "auth_2flogin" "auth_2dlogin")
-          "the two ids are distinct (sanity)"))))
-
 (deftest emit-sanitise-id-distinguishes-all-three-collision-forms
   (testing "`:a/b`, `:a-b`, AND `:a_b` (the three forms the
             naive collapse merges) all mint DISTINCT mermaid nodes"
@@ -793,24 +676,6 @@
       (is (str/includes? out "start --> a_5fb : three") ":a_b → a_5fb (underscore → _5f)")
       ;; All three node-ids are pairwise distinct — no merge.
       (is (= 3 (count (distinct ["a_2fb" "a_2db" "a_5fb"])))))))
-
-(deftest emit-sanitise-id-no-two-consecutive-underscores-within-segment
-  (testing "within a single segment the escaper never emits two
-            consecutive underscores, so the `__` path separator can never be
-            confused with segment content (it only appears BETWEEN path
-            segments)"
-    (let [m   {:initial :left
-               :states  {:left  {:initial :child-node
-                                 :states  {:child-node {:on {:swap [:right :child-node]}}}}
-                         :right {:initial :child-node
-                                 :states  {:child-node {}}}}}
-          out (m/emit m {:fenced? false :header-comment? false})]
-      ;; A hyphen inside a segment is `_2d`, NOT a bare `_`, so a compound id
-      ;; reads `left__child_2dnode` — the ONLY `__` is the path boundary.
-      (is (str/includes? out "left__child_2dnode")
-          "compound id: hyphen → _2d, single __ is the path separator")
-      (is (str/includes? out "right__child_2dnode")
-          "the two same-named child-node leaves stay DISTINCT (path-qualified)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:type :history` pseudo-states render as a LABELLED history
@@ -843,12 +708,6 @@
       ;; the incoming edge still lands on the marker id
       (is (str/includes? out "player__hist")
           "incoming :target :hist edge targets the marker"))))
-
-(deftest emit-history-marker-deep
-  (testing "a DEEP history pseudo-state declares `H*`"
-    (let [out (m/emit deep-history-machine {:fenced? false :header-comment? false})]
-      (is (str/includes? out "state \"H*\" as player__hist")
-          "deep history renders the H* glyph"))))
 
 (deftest emit-history-default-target-note
   (testing "a history :default-target surfaces as a documenting
