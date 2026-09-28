@@ -180,14 +180,14 @@
                "template."))))
   (testing "the documented :local/root is anchored to the checkout, not to the command's cwd"
     (let [root (or @local-root-form "")]
+      ;; Whether the root lands on the reviewed template is the resolution
+      ;; arm's job below; these two pin what it cannot see from any one
+      ;; machine — a root that only resolves where the author's checkout
+      ;; happens to live, and a separator EDN would read as an escape.
       (is (str/includes? root checkout-placeholder)
           (str "The documented :local/root is \"" root "\" — it does not name the "
                "re-frame2 checkout. A root that is not anchored to the checkout "
                "resolves against the author's own directory."))
-      (is (str/ends-with? root "/tools/template")
-          (str "The documented :local/root is \"" root "\" — it must end in "
-               "/tools/template, the reviewed deps-new template "
-               "directory."))
       (is (not (str/includes? root "\\"))
           (str "The documented :local/root carries a backslash. Render the path "
                "with forward slashes: Java accepts them on Windows, and it keeps "
@@ -228,11 +228,7 @@
                    ":local/root against the COMMAND'S cwd, so from the directory "
                    "being scaffolded it means <target>/tools/template and the "
                    "command dies with 'Local lib day8/re-frame2-template not "
-                   "found' before deps-new loads the template."))
-          (is (not (str/starts-with? (fwd resolved) (str (fwd target) "/")))
-              (str "The documented :local/root resolved UNDER the fresh target ("
-                   (.getPath resolved) "). It must name the reviewed "
-                   "checkout."))))
+                   "found' before deps-new loads the template."))))
       (finally (delete-tree! target)))))
 
 ;; ---------------------------------------------------------------------------

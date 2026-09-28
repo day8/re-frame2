@@ -101,9 +101,6 @@
 (def ^:private uix-template-deps
   (delay (slurp-rel repo-root (str template-resources "/_uix/deps.edn"))))
 
-(def ^:private template-index-html
-  (delay (slurp-rel repo-root (str template-resources "/root/resources/public/index.html"))))
-
 (defn- contains-any? [text alts]
   (some #(str/includes? text %) alts))
 
@@ -403,15 +400,18 @@
    ":devtools/preloads" "day8.re-frame2-xray.preload"])
 
 (deftest default-scaffold-ships-no-xray-host
-  (testing "first-counter.md's index.html / app.css blocks carry no Xray host column or host CSS"
+  (testing "first-counter.md's index.html / app.css blocks carry no Xray host CSS variable"
+    ;; The host's attribute and class names are pinned absent from the whole
+    ;; of first-counter.md by `skill-carries-no-xray-host-wiring`; this lock
+    ;; adds the whole `--rf-xray*` custom-property family on the two blocks
+    ;; that would carry host geometry.
     (let [html (get @first-counter-files "resources/public/index.html" "")
           css  (get @first-counter-files "resources/public/css/app.css" "")]
       (is (seq html) "first-counter.md carries no resources/public/index.html block.")
       (is (seq css)  "first-counter.md carries no resources/public/css/app.css block.")
-      (doseq [[label body] [["index.html" html] ["app.css" css]]
-              token ["data-rf-xray-host" "rf2-xray-host" "--rf-xray"]]
-        (is (not (str/includes? body token))
-            (str "the default scaffold's " label " carries `" token "` — the reduced "
+      (doseq [[label body] [["index.html" html] ["app.css" css]]]
+        (is (not (str/includes? body "--rf-xray"))
+            (str "the default scaffold's " label " carries `--rf-xray` — the reduced "
                  "template ships no Xray host; Xray attaches "
                  "later by its own recipe."))))))
 
@@ -430,20 +430,13 @@
                "they attach later, by Xray's own recipe.")))))
 
 (deftest default-index-html-has-one-mount-node-and-no-aside
-  (testing "first-counter.md's index.html is the template's: <main id=\"app\"> and no <aside>"
+  (testing "first-counter.md's index.html has one <main id=\"app\"> mount node and no <aside>"
     (let [html (get @first-counter-files "resources/public/index.html" "")]
       (is (str/includes? html "<main id=\"app\">")
           "the default index.html has no <main id=\"app\"> mount node.")
       (is (not (str/includes? html "<aside"))
           (str "the default index.html carries an <aside> — the reduced template "
-               "ships one mount node and no layout column."))
-      (is (= (str/trim html)
-             (-> @template-index-html
-                 (str/replace "\r\n" "\n")
-                 (str/replace "{{name}}" "acme/my-app")
-                 str/trim))
-          (str "the default index.html differs from the template's root index.html "
-               "rendered for acme/my-app. " regenerate-hint)))))
+               "ships one mount node and no layout column.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 4 — the reagent.dom.client CLJS-namespace troubleshooting row diagnoses
@@ -479,35 +472,21 @@
           (str "The reagent/dom/client.cljs row advises `npm install "
                "react react-dom` — a missing CLJS namespace is never fixed "
                "by installing npm packages. npm-React failures belong in the "
-               "separate JS-module-resolution row."))
-      (is (re-find #"Cannot find module 'react'" body)
-          (str "SKILL.md has no separate npm-React troubleshooting row "
-               "(`Cannot find module 'react'` / react-dom/client). Real JS "
-               "module-resolution failures need their own row pointing at "
-               "`npm install`.")))))
+               "separate JS-module-resolution row, which Lock 8 pins.")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 5 — the default route is CSP-free.
 ;;
 ;; The reduced template ships no CSP at all — a dev page with a strict meta
 ;; CSP is the blank-first-page trap the boot proof exists for, and a
-;; production policy is the host's, not the scaffold's. This lock pins the
-;; absence in the emitted page and keeps CSP prose off the default route
-;; (SKILL.md + first-counter.md); shadow-cljs.md may carry the one
-;; 'unsafe-eval' warning for an author who adds a policy later.
+;; production policy is the host's, not the scaffold's. This lock keeps CSP
+;; off the default route (SKILL.md + first-counter.md, whose generated
+;; region IS the emitted page, so Lock 0 carries the absence back to the
+;; template); shadow-cljs.md may carry the one 'unsafe-eval' warning for an
+;; author who adds a policy later.
 ;; ---------------------------------------------------------------------------
 
 (deftest default-route-is-csp-free
-  (testing "the template's index.html carries no CSP meta tag (premise)"
-    (is (not (str/includes? @template-index-html "Content-Security-Policy"))
-        (str "tools/template's root index.html carries a Content-Security-Policy. "
-             "If the template deliberately carries a CSP, revisit this lock and the "
-             "skill's shadow-cljs.md together.")))
-  (testing "first-counter.md's index.html block carries no CSP meta tag"
-    (is (not (str/includes? (get @first-counter-files "resources/public/index.html" "")
-                            "Content-Security-Policy"))
-        (str "the default index.html carries a Content-Security-Policy meta tag the "
-             "template does not. " regenerate-hint)))
   (testing "SKILL.md and first-counter.md teach no CSP on the default route"
     (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]
             token ["Content-Security-Policy" "unsafe-eval" "frame-ancestors"]]
@@ -1029,16 +1008,15 @@
                "identical to the Reagent scaffold.")))))
 
 (deftest uix-route-is-a-four-file-swap
-  (testing "the UIx region carries exactly the files the template's template-fn varies per substrate"
+  (testing "the template's template-fn varies exactly the four files per substrate"
+    ;; That the UIx region carries exactly these files is Lock 0's file-set
+    ;; comparison (`uix-region-is-the-template-render`).
     (let [expected (set (first-counter-derivation/substrate-swap-paths))]
       (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"
                "src/acme/my_app/stories.cljs"}
              expected)
           (str "the template varies a different file set per substrate: " (pr-str expected)
-               ". Regenerate the leaves and update SKILL.md's four-file-swap rule."))
-      (is (= expected (set (keys @uix-files)))
-          (str "entry-namespace.md's UIx region carries " (pr-str (sort (keys @uix-files)))
-               " but the template varies " (pr-str (sort expected)) ". " regenerate-hint))))
+               ". Regenerate the leaves and update SKILL.md's four-file-swap rule."))))
   (testing "SKILL.md states the UIx route as the four-file swap of the same scaffold"
     (is (str/includes? @skill-md "four-file swap")
         "SKILL.md does not state the UIx route as a four-file swap."))
