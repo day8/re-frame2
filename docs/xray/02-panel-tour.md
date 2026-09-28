@@ -7,16 +7,17 @@ You opened Xray and now you need orientation. This chapter teaches the shell as 
 Xray's Dynamic shell has four layers:
 
 ```text
-L1  ribbon       mode, frame, filters, settings, close
+L1  ribbon       event steps, filters, frame, mode, theme,
+                 pop-out, settings, close
 L2  event spine  recent epochs for the selected frame
 L3  tabs         Epoch, app-db, Views, Trace, Machine, Routes,
                  Resources, Graph, Frames, Fresco
 L4  detail       the selected tab's detail view
 ```
 
-The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the event lenses. Click an event row and Epoch, app-db, Views, Trace, Machine, and Routes read that same epoch. (Graph, Frames, and Fresco browse live structure instead — they do not follow the row you pick, and Resources follows the selected frame for its live sections.)
+The event spine is the load-bearing piece. It is not a decorative timeline; it is the focus selector for the event lenses. Click an event row and Epoch, app-db, Views, Trace, Machine, and Routes read that same epoch. (Resources, Graph and Frames read live structure instead and do not follow the row you pick. Fresco ranks boundaries over its retained window, and only its Causal view follows the row.)
 
-![The event spine and Dynamic tabs](../images/xray/xray-tutorial-epoch.png)
+![The event spine with an older event focused, the Dynamic tab bar, and the Epoch tab for that event](../images/xray/xray-tutorial-epoch.png)
 
 ## The Ribbon
 
@@ -25,7 +26,7 @@ The ribbon is for scope, not diagnosis.
 - **Mode** switches Dynamic and Static.
 - **Frame** chooses which re-frame2 frame you are observing.
 - **Filters** hide or show event rows by event id.
-- **Settings** controls theme, density, sensitive-value posture, and related shell behavior.
+- **Settings** opens the settings popup, described [below](#settings-and-the-command-palette).
 - **Close** hides the panel without tearing down the mounted tree.
 - **‹ › »** step to the previous or next event, and **»** returns to the newest. [Time-travel scrubbing](03-time-travel.md) covers them.
 - **☾** and **☀** switch between the light and dark theme.
@@ -36,7 +37,7 @@ Frame selection matters in real apps. If your page has multiple isolated frames,
 
 ## The Event Spine
 
-The spine lists recent epochs for the selected frame. New rows arrive while Xray is following the live head. Clicking an older row puts you into a historical focus: the app can keep running, but the detail panels remain pointed at the row you chose until you follow the head again.
+The spine lists recent epochs for the selected frame, and new rows always arrive. While Xray follows the newest event, the detail panels move with it. Clicking an older row puts you into a historical focus: the app can keep running, but the detail panels remain pointed at the row you chose until you follow the head again.
 
 Use the spine when you know the symptom just happened and you want to answer: "Which event caused it?"
 
@@ -50,13 +51,13 @@ narrower questions and each has a chapter of its own.
 
 ### Epoch
 
-Open Epoch first. It is the readable version of the cascade: dispatch, coeffects, interceptors, handler, app-db change, effects, subscriptions, views, schema checks, and issues where they occurred.
+Open Epoch first. It is the readable version of the cascade: dispatch, coeffects, interceptors, handler, app-db change, effects, subscriptions, views, schema checks, and any error or schema violation at the step where it happened.
 
 This is the tab for "explain the whole thing to me without making me reconstruct it from raw rows."
 
 ### app-db
 
-Open app-db when the question is state. The panel starts with changed slices for the focused epoch. It is read-only and path-oriented: good for seeing what changed, where it changed, and whether the state you expected is actually present.
+Open app-db when the question is state. The tab shows the frame's state as the focused event left it, with each value that event changed marked `← was` and its old value. It is read-only: good for seeing what changed, where it changed, and whether the state you expected is actually present. [9. The app-db tab](09-app-db-diff.md) is the chapter.
 
 ### Views
 
@@ -64,7 +65,7 @@ Open Views when the page looks wrong or slow. It shows the reactive side of the 
 
 The Reactive Flow graph runs from app-db through the subscriptions that recomputed to the views that re-rendered. Each view is marked with why it re-rendered and how long it took. Click a node to open its source; hover a view to highlight it on the page. Below the graph, Unmounted Views and Destroyed Subscriptions list what the epoch tore down. When nothing reacted, the graph reads "No subs subscribed to changed paths · no views re-rendered."
 
-![The Views panel showing reactive activity](../images/xray/xray-tutorial-views.png)
+![The Views tab's Reactive Flow graph: app-db, the subscription that recomputed, and the view that re-rendered](../images/xray/xray-tutorial-views.png)
 
 ### Trace
 
@@ -82,7 +83,7 @@ The Dynamic tab has three sections. **Current route** shows the active route. **
 
 ### Resources
 
-Open Resources when the question is server state. It is the lens on managed server state for the focused event: the resource registry, live instances, in-flight work, invalidations, and the route-to-resource graph. Read-only.
+Open Resources when the question is server state. It is the lens on managed server state for the selected frame, and it does not follow the row you pick: the resource registry, live instances, in-flight work, invalidations, and the route-to-resource graph. Read-only.
 
 The tab stacks one section per question, from the resource registry and live instances to "What is still running?", stale races, optimistic mutations and cache growth. Sensitive values show as `[redacted]`. An app that registers no resources reads "No resources registered in the host app."
 
@@ -92,11 +93,11 @@ Open Graph when the question is structural rather than event-coupled — "where 
 
 ### Frames
 
-Open Frames when your app loads images into frames. It shows each live image-loaded frame as an execution context carrying its resolved image's descriptors, which is what explains the same name resolving differently in two frames. A process not using image-loaded frames gets an honest no-image caption rather than a blank.
+Open Frames when you want to know which registrations a frame runs. It lists each live frame with the image it runs: how many descriptors and kinds it holds, any capabilities the frame requires, and its first `[kind id]` descriptors with where each one came from. Comparing two frames' lists is what explains the same name resolving differently in two frames.
 
 ### Fresco
 
-Open Fresco when a view re-rendered and you want to know why. Six views over one evidence read: which boundaries are mounted, which subscriptions they hold, what was dispatched, what changed, which boundary is hot, and one dispatch walked from event to paint. The tab is always present — on an app that is not running Fresco it says so in those words rather than showing an empty table. [11. The Fresco tab](11-fresco-tab.md) is the chapter.
+Open Fresco when a view re-rendered and you want to know why. Six views over one evidence read: which boundaries are mounted, which subscriptions they hold, what was dispatched, what changed, which boundary is hot, and one dispatch walked from event to paint. The tab is always present, and each view says what an empty roster means for it rather than showing a bare table. [11. The Fresco tab](11-fresco-tab.md) is the chapter.
 
 ## Static Mode
 
@@ -106,7 +107,7 @@ Static tabs:
 
 - **Machines**: registered machines and their topology. [8. Machine inspector](08-machine-inspector.md#static-machines) covers its simulator.
 - **Routes**: route catalogue and URL simulation. Type a URL into **Simulate URL** to see which routes match it and which one wins. Expand a row for its details, a **Simulate navigation** preview that dispatches nothing, and a **→ Dynamic** link to the Dynamic Routes tab.
-- **Schemas**: registered app-db, event, sub, and related schemas.
+- **Schemas**: the selected frame's app-db schemas, and the registered event and subscription schemas.
 - **Flows**: registered flows and their inputs, with the app-db path each one writes.
 - **Interceptors**: registered event chains and shared interceptors. Each interceptor is listed once, with how many chains use it.
 

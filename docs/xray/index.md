@@ -4,7 +4,7 @@ You have a running re-frame2 app and something just happened. A button was click
 
 Xray is the in-app devtools panel for re-frame2. It reads the framework's trace bus, epoch history, source coordinates, registries, and frame state; it does not invent a second runtime beside your app. That is the important idea. The app already knows what happened. Xray gives that knowledge a usable shape.
 
-![Xray opened on the standard-epochs testbed](../images/xray/xray-tutorial-shell.png)
+![Xray open beside the standard-epochs testbed after five steps, with the Epoch tab showing one event's dispatch, coeffects, handler and app-db change](../images/xray/xray-tutorial-shell.png)
 
 ## The One-Minute Model
 
@@ -17,13 +17,13 @@ Xray's main UI is built around that fact:
 - The tab strip chooses which lens you want.
 - The detail panel shows that lens for the focused epoch.
 
-When you click a row in the event spine, the six event lenses — `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, and `Routes` — rebind to that same epoch and stop disagreeing, because they are all projections of the same record. The other Dynamic tabs read live structure rather than the focused epoch: `Resources` mixes the registry with the observed frame's live state, and `Graph`, `Frames`, and `Fresco` do not follow the row you pick.
+When you click a row in the event spine, the six event lenses — `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, and `Routes` — rebind to that same epoch and stop disagreeing, because they are all projections of the same record. The other Dynamic tabs read live structure rather than the focused epoch. `Resources` mixes the registry with the observed frame's live state, and `Graph` and `Frames` do not follow the row you pick. `Fresco` ranks view boundaries over its retained window, and only its Causal view follows the row you pick.
 
 ## Two Modes
 
 Use **Dynamic** mode when you are asking: "What just happened?"
 
-Dynamic mode has the event spine. Pick an event, then read the epoch, app-db diff, view activity, trace rows, machine movement, or route activity for that focused cascade.
+Dynamic mode has the event spine. Pick an event, then read the epoch, app-db changes, view activity, trace rows, machine movement, or route activity for that focused cascade.
 
 Use **Static** mode when you are asking: "What exists in this app?"
 
@@ -35,13 +35,13 @@ Start by installing Xray, then run one small debugging session on the standard-e
 
 - [1. Installation](01-installation.md) shows the dev dependency, host element, preload, and launch controls.
 - [2. Panel tour](02-panel-tour.md) teaches the shell, the event spine, Dynamic mode, Static mode, and the ten Dynamic tabs.
-- [3. Time-travel scrubbing](03-time-travel.md) shows LIVE versus RETRO focus and how to inspect past epochs without losing your place.
+- [3. Time-travel scrubbing](03-time-travel.md) shows following the newest event versus focusing a past one, and how to inspect past epochs without losing your place.
 - [4. Trace stream](04-trace-stream.md) explains when to use the friendly Epoch lens and when to drop to raw trace rows.
 - [5. Click-to-source](05-click-to-source.md) connects rendered DOM and Xray rows back to editor locations.
-- [6. Schema-violation timeline](06-schema-timeline.md) shows how validation failures surface inline now that the old Issues tab has been retired.
-- [7. Hydration debugger](07-hydration.md) covers SSR hydration mismatches and how Xray helps locate the first divergent node.
+- [6. Schema violations](06-schema-timeline.md) shows where validation failures surface: on the event row and inline in the Epoch tab.
+- [7. SSR hydration](07-hydration.md) covers what Xray shows when a server-rendered page hydrates, and where a hydration mismatch is reported.
 - [8. Machine inspector](08-machine-inspector.md) covers the event-coupled machine lens and the Static machine browser.
-- [9. App-DB diff](09-app-db-diff.md) teaches the changed-slices-first app-db view.
+- [9. The app-db tab](09-app-db-diff.md) teaches the app-db view: the frame's state, with the focused event's changes marked.
 - [10. Derivation graph](10-derivation-graph.md) draws subscriptions, flows, resources, routes, and machines as one dependency graph — "where does this value come from?" — with static/live modes and the off-box redaction boundary.
 - [11. The Fresco tab](11-fresco-tab.md) reads Fresco's view layer through six views over one evidence take — mounted boundaries, read attribution, intents, why, the hot-boundary advisor, and one dispatch walked from event to paint.
 
@@ -49,7 +49,7 @@ Start by installing Xray, then run one small debugging session on the standard-e
 
 Xray is not a replacement for your editor, your tests, Story, or browser performance tooling.
 
-It is a diagnostic reader over re-frame2's runtime substrate. It does not write your app-db for you. It does not secretly monkey-patch handlers. It does not ship in production. It helps you answer the five questions that matter when a re-frame2 app behaves strangely:
+It is a diagnostic reader over re-frame2's runtime substrate. It does not write your app-db, except when you press Reset to restore a past epoch. It does not secretly monkey-patch handlers. It does not ship in production. It helps you answer the five questions that matter when a re-frame2 app behaves strangely:
 
 - What event started this?
 - What state changed?
