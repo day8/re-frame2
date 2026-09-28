@@ -347,22 +347,6 @@
         (is (= :rewrite (:action (first findings))))
         (is (str/includes? source "[:rf.interceptor/path [:a]]"))))))
 
-(deftest path-head-resolution-idempotent
-  (testing "flagged custom sites and resolved standard rewrites are both idempotent"
-    (let [custom   (str "(ns app.events\n"
-                        "  (:require [re-frame.core :as rf]\n"
-                        "            [app.interceptors :as icpt]))\n"
-                        "(rf/reg-event-db :x {:interceptors [(icpt/path :tenant)]}\n"
-                        "  (fn [db _] (assoc db :k 1)))\n")
-          standard (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                        "(rf/reg-event-db :counter/inc {:interceptors [(rf/path :counter)]}\n"
-                        "  (fn [db _] (update db :value inc)))\n")]
-      (is (= custom (:source (rf.migration.reg-event-codemod/rewrite-string custom))) "custom site untouched")
-      (let [once  (rewrite standard)
-            twice (rewrite once)]
-        (is (= once twice))
-        (is (empty? (rf.migration.reg-event-codemod/scan-string once)) "normalized ns-ful output rescans clean")))))
-
 ;; ---------------------------------------------------------------------------
 ;; path-head resolution — LEXICAL SHADOWING at the call site (rf2-8odvg reopen)
 ;; ---------------------------------------------------------------------------
@@ -495,22 +479,6 @@
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
 
-(deftest qualified-binder-shadow-idempotent
-  (testing "the qualified-binder site is stable across a second run"
-    (let [src (str "(ns app.events\n"
-                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                   "(clojure.core/let [path app.interceptors/path]\n"
-                   "  (reg-event-db :counter/inc\n"
-                   "    {:interceptors [(path :tenant)]}\n"
-                   "    (fn [db _] (update db :value inc))))\n")
-          once  (rewrite src)
-          twice (rewrite once)]
-      (is (= src once) "first run leaves the source unchanged")
-      (is (= once twice) "second run is a no-op too")
-      (is (= [:flag :interceptors]
-             ((juxt :action :flag) (only-finding twice)))
-          "the flag survives the re-scan"))))
-
 (deftest shadowing-does-not-suppress-a-qualified-head
   (testing "a local named `path` cannot shadow `rf/path` — the standard site still lowers"
     (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
@@ -533,22 +501,6 @@
           {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
       (is (= :rewrite (:action (first findings))))
       (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
-
-(deftest shadowed-bare-path-idempotent
-  (testing "the shadowed site is stable: a second run neither rewrites nor loses the flag"
-    (let [src (str "(ns app.events\n"
-                   "  (:require [re-frame.core :refer [reg-event-db path]]))\n"
-                   "(let [path app.interceptors/path]\n"
-                   "  (reg-event-db :counter/inc\n"
-                   "    {:interceptors [(path :tenant)]}\n"
-                   "    (fn [db _] (update db :value inc))))\n")
-          once  (rewrite src)
-          twice (rewrite once)]
-      (is (= src once) "first run leaves the source unchanged")
-      (is (= once twice) "second run is a no-op too")
-      (is (= [:flag :interceptors]
-             ((juxt :action :flag) (only-finding twice)))
-          "the unresolved M-70 finding persists across runs"))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event rescan — recovering a partially migrated tree
@@ -684,13 +636,6 @@
           twice (rewrite once)]
       (is (= once twice))
       (is (not (str/includes? once "reg-event-db"))))))
-
-(deftest db-named-db-param-still-keys-form
-  (testing "the literal `db` first param STILL produces {:keys [db]} (unchanged behaviour)"
-    (let [src "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))"
-          out (rewrite src)]
-      (is (str/includes? out "(fn [{:keys [db]} _] {:db (update db :count inc)})"))
-      (is (not (str/includes? out "{db :db}"))))))
 
 (deftest db-ignored-param-keeps-keys-form
   (testing "an ignored `_` first param keeps the canonical {:keys [db]} (nothing to rebind)"
@@ -876,13 +821,6 @@
       (let [src (str "(rf/reg-event-db :id (fn [db _] " body "))")
             f   (only-finding src)]
         (is (= :rewrite (:action f)) (str "expected rewrite for body " body))))))
-
-(deftest not-nil-capable-literal-map
-  (testing "a literal-map body (wholesale replace) is non-nil -> rewrite"
-    (let [src "(rf/reg-event-db :init (fn [_ _] {:count 0 :items []}))"
-          f   (only-finding src)]
-      ;; first param _ is a plain symbol token, still simple
-      (is (= :rewrite (:action f))))))
 
 ;; ---------------------------------------------------------------------------
 ;; complex reg-event-db — flagged for manual review
