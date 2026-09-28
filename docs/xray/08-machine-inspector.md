@@ -18,6 +18,8 @@ It can show:
 
 If the focused epoch did not touch a machine, the tab should be quiet. That is not failure; it is honest scope.
 
+Below the rows, the machine's chart marks the state it left with a dashed outline and the state it entered in bold, and draws a countdown ring on each state with an `:after` timer running. **◀ Prev** and **Next ▶** step to the previous and next event that touched the same machine. An app that registers no machines reads "No machines registered.", and a machine whose definition cannot be read shows "No introspectable definition — chart cannot render." in place of the chart.
+
 ![Machine activity for a focused epoch](../images/xray/xray-tutorial-machine.png)
 
 ## Static Machines
@@ -31,6 +33,13 @@ Use it before or during debugging when you need the map:
 - read states and transitions;
 - simulate or inspect defined paths where the panel supports it;
 - compare definition shape to live snapshots.
+
+Pick a machine to see its source link, how many states it has and how many instances are live, and four views of it:
+
+- **Topology** draws the chart. **Copy Mermaid** copies it as a Mermaid diagram.
+- **Sim** runs a copy of the definition, starting from its initial state, and never touches your app. Type an event and an optional EDN payload and press **Step ▶︎**, or click a transition on the chart. A failed guard shows inline and the state stays put. A timer on the current state can be fired by hand, since the simulator keeps no clock. **Reset** returns to the initial state and **Exit Sim** leaves.
+- **Instances** jumps to the machine's live instances in Dynamic mode.
+- **Cascade** is disabled here, because cancellation cascades belong to Dynamic mode.
 
 Dynamic is the black box recorder for one transition. Static is the diagram on the wall.
 

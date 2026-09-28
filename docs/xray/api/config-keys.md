@@ -48,7 +48,9 @@ The full v1 key surface, grouped by topical cluster:
    :rf.xray/settings              {:theme :dark :general {:density :cosy}}
 
    ;; Filters cluster — host-supplied boot-baseline seed (re-applied every load)
-   :rf.xray/filters               {:out [{:pattern ":mouse-move"}]}})
+   :rf.xray/filters               {:out [{:pattern ":mouse-move"}]}
+   :rf.xray/filters-auto-hide-error-overrides? true ; default — an errored event a filter would hide stays visible
+   })
 ```
 
 Every key lives under the reserved `:rf.xray/*` namespace — Xray owns its whole `configure!` surface, including its privacy gate. (There is no cross-tool shared slot: on-box sensitive visibility is resolved per `(tool, frame)` pair, so Story reads its own `:rf.story/egress-profile`.) Unknown keys are silently ignored so newer hosts (passing keys an older Xray hasn't shipped yet) don't break, and newer Xray releases shipping additional keys don't break older hosts.
@@ -84,7 +86,9 @@ The URI schemes:
 | `:idea` | `idea://open?file=<path>&line=<line>&column=<column>` |
 | `{:custom <tpl>}` | User template with `{path}` / `{file}` / `{line}` / `{column}` placeholders |
 
-Unknown keywords fall back to `:vscode` so a typo still yields a clickable URI rather than a no-op. Source-coords without `:file` hide the chip entirely.
+Unknown keywords fall back to `:vscode` so a typo still yields a clickable URI rather than a no-op. Source-coords without `:file` hide the chip entirely. A missing `:line` or `:column` becomes 1, and a `{:custom …}` template that produces a `javascript:`, `data:` or `vbscript:` URI yields no link.
+
+Each developer can override the editor on their own machine: the **Click-to-source links open in** picker on Settings' General tab stores its choice in localStorage and wins over `:rf.xray/editor`. Choosing **(project default)** there, or **Reset to project default**, goes back to the host's setting. The override never changes the host's value.
 
 Xray's editor preference is **independent** of Story's `:rf.story/editor` (hosts that run both tools can route each to a different editor). The shared URI builder lives at `re-frame.source-coords.editor-uri` in the framework core; Xray's chip is a thin wrapper that consumes it.
 
@@ -220,6 +224,14 @@ The Trace panel ships filter pills (`+ pattern`, `- pattern`, `+ :origin`, `+ fr
 - **Description**: Host-supplied seed pill set applied to `:active-filters` as the explicit **boot baseline**. A non-empty seed lands on **every** load via the first-mount `::seed-configured-filters` hook, which runs *after* the transient-filter reset — so the host's baseline always wins over a user's stale session pills. The seed *hook* is seed-only: it never reads or writes localStorage. Nor does anything else — since rf2-y8doi.27 Xray's IN/OUT pills have **no localStorage layer at all**, so a user's pill edits live and die with the session and the configured baseline is re-derived from `configure!` on every load. Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — a fully-unfiltered first paint (first-session honesty beats first-session quietness). Story testbeds use this to inject a known, reproducible starting posture. To change filters *live* (mid-session), use the filter pill events / Story path — not a post-mount `configure!`, since the seed is read once per frame at first mount, not on every use.
 
 Set the seed *before* the preload runs so the first registry-handlers registration reads the right value.
+
+### `set-filters-auto-hide-error-overrides!`
+
+- **Signature**:
+  ```clojure
+  (set-filters-auto-hide-error-overrides! bool) → nil
+  ```
+- **Description**: Whether an errored event stays in the event list when a filter would hide it: an OUT pill matching it, an IN pill not matching it, or a mute. Default `true`, which keeps errors visible; the row's tooltip then reads "⚠ shown because it errored — a filter would normally hide it". `false` lets filters hide errored events too. `nil` resets to the default. The frame picker is a view scope rather than a filter, so an errored event in another frame stays out of the list either way. The `configure!` key is `:rf.xray/filters-auto-hide-error-overrides?`.
 
 > **Removed:** `set-filters-storage-key!` / `:rf.xray/filters-storage-key` named the localStorage key for a filter-persistence layer that rf2-y8doi.27 deleted. Xray's IN/OUT pills are transient by policy (a fresh load must never silently carry a stale filter), so the store had a writer and no reader, and every load cleared it. Hosts running several Xray instances no longer need the key to isolate them — there is nothing left to collide.
 

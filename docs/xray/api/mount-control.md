@@ -21,6 +21,7 @@ There's also a small JS-side mirror — the same six verbs exposed on `window.da
   (xray/open-overlay!)
   ```
 - **Description**: Debug / fallback path: mount Xray as a fixed overlay under `<body>`. Floats above the host layout without participating in it. Reach for this when the host's normal-flow layout cannot accommodate a right column — a full-screen canvas tool, a story-only tool page, a prototype with no layout host.
+- **Returns**: the mount-state map, or `nil` when no substrate adapter is installed. A shell already mounted inline moves out to `<body>`.
 
 ### `popout!`
 
@@ -29,6 +30,7 @@ There's also a small JS-side mirror — the same six verbs exposed on `window.da
   (xray/popout!)
   ```
 - **Description**: Open Xray in a same-origin second window. The shell mounts into its own document context — own React root, own theme cascade, own keybinding listener. The popped window uses `window.opener` to reach the host's runtime, so all observation surfaces (trace bus, epoch history, registrar) work unchanged. Useful when the panel is competing with the app for screen space.
+- **Returns**: `{:ok? true :window … :mode :popout …}` once the window is open, and the same state on a second call while it stays open. On failure it returns `{:ok? false :reason :popup-blocked}` when the browser blocked the window, or `{:ok? false :reason :no-substrate-adapter}`.
 
 The three verbs are **not** a mode-symmetric triplet — there is no `open-inline!` alias. Inline-vs-overlay-vs-window is a kind-of-mount axis, not a mode axis. Bare `open!` *is* the canonical default; `open-overlay!` and `popout!` each name their own surface.
 
@@ -67,7 +69,7 @@ The three verbs are **not** a mode-symmetric triplet — there is no `open-inlin
 | `:auto-open-disabled` | `true` | Auto-open is switched off (`:rf.xray/auto-open? false`). Health, not failure. |
 | `:unsupported-substrate` | — | Reserved and never produced. Xray paints through its own React root, so no installed adapter is refused; the id stays so a consumer keying on it keeps working. |
 
-`popout!` reports its failures in its own return value, not here.
+A failed diagnostic also carries `:selector`, a `:message` saying what to do, and the `:snippet` of host markup to paste. `popout!` reports its failures in its own return value, not here.
 
 ## Manual install — the alternative to `:preloads`
 
@@ -119,6 +121,36 @@ A host running a single app frame selects it explicitly — via `init! {:target-
 - **Description**: Set the inspected-host frame Xray targets. Dispatches `:rf.xray/set-target-frame` into the `:rf/xray` frame so the sub and every dependent panel re-fire on the standard reactive path. `set-target-frame! nil` resets to the **unselected** state (panels render their no-frame-selected state and the picker prompts a choice) — it does not reset *through* a synthesised `:rf/default`.
 
 The L1 frame picker chip in the shell's top strip is wired to this — clicking flips `set-target-frame!`, and every panel in view (Trace, Views, Machines, App-DB Diff) rescopes to the new frame. Hosts can drive the same flip programmatically from a per-route effect, a Settings-popup wire-up, or a test harness assertion.
+
+## Focusing a panel from a host
+
+A host that embeds Xray can point it at a frame, an epoch and a tab in one call. Story's Evidence links use this to open Xray on the epoch behind a beat.
+
+### `focus!`
+
+- **Signature**:
+  ```clojure
+  (xray/focus! command) → result map
+  (xray/focus! host-frame command) → result map
+  ```
+- **Description**: Focuses Xray as the command says. In the two-argument form, `host-frame` fills `:frame` unless the command names one.
+- **Returns**: `{:ok? true :applied [<the Xray events it dispatched>] :source …}`. An unknown `:panel` changes nothing and returns `{:ok? false :reason :unknown-panel :given … :valid … :hint …}`.
+
+Every key of the command is optional, and other keys are ignored:
+
+| Key | Does |
+| --- | --- |
+| `:frame` | selects the frame Xray observes |
+| `:panel` | selects the tab, one of `valid-focus-panels`; `:routes` is accepted for `:routing` |
+| `:epoch-id` | focuses that epoch |
+| `:dispatch-id` | focuses the event with that dispatch id; it wins over `:epoch-id` |
+| `:source` | anything you like, returned untouched in the result, for your own diagnostics |
+
+The frame is selected first, then the epoch, then the tab.
+
+```clojure
+(xray/focus! {:frame :app/main :panel :app-db :epoch-id epoch-id})
+```
 
 ## Runtime theme override
 

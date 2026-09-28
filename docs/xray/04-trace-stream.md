@@ -34,6 +34,10 @@ Each row is shaped for scanning:
 
 The left edge color follows the Epoch stage, so the raw list still has a story line.
 
+Click a row to open the raw trace record beneath it, and click again to close it. A row that changed app-db lists the changed paths under it. A **↗** after the target opens the code that emitted the record in your editor.
+
+When a machine destroys a child actor, the teardown aborts whatever the child had in flight, and those aborts scatter across the list. The row recording the destroy carries a **⟲** button; click it, or right-click the row, to open the cancellation cascade in one view: the decision that triggered the destroy, the teardown, and each request or timer it aborted, in order. Click an entry to jump to its trace row, and press Esc to close the view.
+
 ## A Tiny Listener
 
 Xray is the complete UI over the trace bus, but the bus is public substrate. A small tool can listen too:

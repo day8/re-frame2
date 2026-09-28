@@ -85,7 +85,8 @@ In a normal dev page, Xray opens automatically once the app starts. The everyday
 | Close from the shell | the close icon in the ribbon |
 | Open from code | `(day8.re-frame2-xray.core/open!)` |
 | Toggle from code | `(day8.re-frame2-xray.core/toggle!)` |
-| Pop out to a second same-origin window | `(day8.re-frame2-xray.core/popout!)` |
+| Pop out to a second same-origin window | the ⛶ icon in the ribbon, or `(day8.re-frame2-xray.core/popout!)` |
+| Cover the page instead of sitting beside it | Settings → General → Panel position → Fullscreen overlay |
 
 Tool-owned pages can suppress only the automatic page-load open:
 
@@ -94,6 +95,8 @@ Tool-owned pages can suppress only the automatic page-load open:
 ```
 
 That does not disable Xray. Explicit `open!`, `toggle!`, and the keybinding still work.
+
+Xray listens for its shortcuts on the whole page, including Ctrl+K (⌘K) for its command palette. When those collide with your app's own keys, set `{:rf.xray/keybinding-enabled? false}` in `configure!`, or turn off **Handle keys?** on Settings' Keybindings tab.
 
 ## Check It
 
@@ -114,6 +117,14 @@ If Xray does not appear, check:
 - The preload is on the dev build, not the release build.
 - `rf/init!` has run with a substrate adapter.
 - `window.day8.re_frame2_xray.status()` has no missing-host diagnostic.
+
+`status` returns a map whose `:diagnostic` says why a launch did not happen:
+
+| `:reason` | Meaning | Fix |
+| --- | --- | --- |
+| `:missing-layout-host` | No element matches the host selector. Xray also logs a `console.error` naming the selector, with a host snippet to paste. | Add the host element, or set `:rf.xray/layout-host-selector` |
+| `:no-substrate-adapter` | Xray waited about 6 seconds and no substrate adapter was installed | Call `rf/init!` with an adapter |
+| `:auto-open-disabled` | Auto-open is switched off. This is not a failure. | Open Xray with `Ctrl+Shift+C` or `open!` |
 
 ## Clickable Jump-To-Source
 
