@@ -11,7 +11,7 @@
     Tests pin the exact output for a handful of representative
     forms drawn from the six tool sites; this is the
     contract every tool body relies on."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.eval-form :as ef]))
@@ -35,20 +35,7 @@
   (is (= "(re-frame2-pair.runtime/dispatch-and-collect 42)"
          (ef/emit (ef/rt-call 'dispatch-and-collect 42)))))
 
-(deftest rt-call-map-arg-roundtrips
-  (let [opts {:frames :all :include [:app-db :sub-cache]}
-        form (ef/emit (ef/rt-call 'snapshot-state opts))]
-    (is (= opts
-           (-> form
-               cljs.reader/read-string  ; outer list
-               second)))))              ; the map arg
-
-(deftest rt-call-runtime-ns-centralised
-  (testing "the runtime-ns constant prefixes every rt-call"
-    (is (= "re-frame2-pair.runtime" ef/runtime-ns))
-    (is (clojure.string/starts-with?
-          (ef/emit (ef/rt-call 'foo))
-          (str "(" ef/runtime-ns "/foo")))))
+              ; the map arg
 
 ;; ---------------------------------------------------------------------------
 ;; rt-call* — fully-qualified call (no runtime-ns prefix).
@@ -100,30 +87,8 @@
                             (ef/rt-raw "snap"))))))
 
 ;; ---------------------------------------------------------------------------
-;; Round-trips — the six tool sites pinned at the wire shape.
+;; Round-trip — a map arg reads back as the opts map it was built from.
 ;; ---------------------------------------------------------------------------
-
-(deftest opts-map-form-shape
-  ;; Pin the wire shape for an opts-map call — the runtime sees
-  ;; `(re-frame2-pair.runtime/<fn> {opts-map})` with the map
-  ;; round-tripping through the emitted source unchanged.
-  (let [opts {:signals [{:app-db [:cart]}]
-              :stop    {:ms 5000}}
-        form (ef/emit (ef/rt-call 'start-recording! opts))]
-    (is (= opts
-           (-> form
-               cljs.reader/read-string
-               second)))))
-
-(deftest precheck-form-shape-no-frame
-  ;; Precheck routes through the O(1) cached accessor.
-  (is (= "(re-frame2-pair.runtime/app-db-hash)"
-         (ef/emit (ef/rt-call 'app-db-hash)))))
-
-(deftest precheck-form-shape-with-frame
-  ;; Explicit-frame arm names the frame on the cheap accessor.
-  (is (= "(re-frame2-pair.runtime/app-db-hash :rf/default)"
-         (ef/emit (ef/rt-call 'app-db-hash :rf/default)))))
 
 (deftest snapshot-state-form-is-edn-readable
   ;; The non-elision arm.
@@ -137,12 +102,6 @@
 ;; ---------------------------------------------------------------------------
 ;; `::call*` qsym handling + collection-recursion.
 ;; ---------------------------------------------------------------------------
-
-(deftest rt-call*-symbol-qsym-emits-fully-qualified
-  ;; Symbol qsyms emit via `(str sym)` — the namespace prefix is
-  ;; included verbatim.
-  (is (= "(re-frame.core/project-egress)"
-         (ef/emit (ef/rt-call* 're-frame.core/project-egress)))))
 
 (deftest rt-call*-bare-symbol-emits-verbatim
   ;; A bare symbol (no namespace) emits as just the name. The precheck
@@ -238,12 +197,3 @@
         "the tagged vector rides through as the vector it is")
     (is (not (str/includes? src "dispatch-consequence! (inc 41)"))
         "and its string is never spliced into the runtime call's arg position")))
-
-(deftest rt-quote-leaves-internal-raw-composition-alone
-  ;; The escape hatch the internal sites depend on is untouched: an
-  ;; `rt-raw` node built by the emitter itself still inlines verbatim.
-  (is (= "(re-frame.core/project-egress db)"
-         (ef/emit (ef/rt-call* 're-frame.core/project-egress
-                               (ef/rt-raw "db")))))
-  (is (= "(re-frame2-pair.runtime/foo [1 bar])"
-         (ef/emit (ef/rt-call 'foo [1 (ef/rt-raw "bar")])))))

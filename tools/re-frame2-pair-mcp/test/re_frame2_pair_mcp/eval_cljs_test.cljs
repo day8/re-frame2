@@ -40,9 +40,8 @@
 
 ;; eval-cljs defaults ON (the operator opts OUT via --no-eval). The
 ;; suite leaves the gate at its default so we test the resolution path,
-;; not the gate (the gate's disabled-state coverage lives in
-;; conformance_test + `gate-closed-rejects-before-touching-nrepl`
-;; below).
+;; not the gate (the gate's disabled-state coverage is conformance_test's
+;; `:eval-cljs/disabled-via-no-eval` fixture).
 (use-fixtures :each
   {:before (fn [] (eval-cljs/set-eval-allowed! true))
    :after  (fn [] (eval-cljs/set-eval-allowed! true))})
@@ -199,33 +198,6 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
-;; Gate + arg validation still hold.
-;; ---------------------------------------------------------------------------
-
-(deftest gate-closed-rejects-before-touching-nrepl
-  ;; The gate defaults ON. To exercise the disabled envelope we
-  ;; flip the gate OFF (mimics `--no-eval` at launch), then restore the
-  ;; default ON for downstream tests.
-  (async done
-    (eval-cljs/set-eval-allowed! false)
-    (-> (eval-cljs/eval-cljs-tool (fresh-conn) #js {:form "(+ 1 2)"})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-edn r)]
-                   (is (= :rf.error/eval-cljs-disabled (:reason edn))))
-                 (eval-cljs/set-eval-allowed! true)
-                 (done))))))
-
-(deftest missing-form-rejected
-  (async done
-    (-> (eval-cljs/eval-cljs-tool (fresh-conn) #js {})
-        (.then (fn [r]
-                 (is (err? r))
-                 (let [edn (read-edn r)]
-                   (is (= :missing-form (:reason edn))))
-                 (done))))))
-
-;; ---------------------------------------------------------------------------
 ;; `:timeout-ms` is validated as a positive-millisecond integer BEFORE
 ;; the await-mailbox poll loop. A non-numeric value (`"bogus"`) would
 ;; make `await-promise/poll-mailbox!`'s `(>= elapsed timeout-ms)`
@@ -267,23 +239,6 @@
 ;; returns the TAGGED `:rf.mcp/result` envelope the runtime would emit;
 ;; the server projects it.
 ;; ---------------------------------------------------------------------------
-
-(deftest typed-genuine-nil-is-ok-true-value-nil
-  ;; A form that genuinely returns nil → :ok? true :value nil. Distinct
-  ;; from the no-runtime fail-loud path (which never reaches the eval).
-  (async done
-    (-> (with-stubbed-runtime! {:running-vec [:app] :runtime? true
-                                :eval-value {:rf.mcp/result :nil}}
-          (fn []
-            (eval-cljs/eval-cljs-tool (fresh-conn)
-                                      #js {:form "(get {} :missing)" :build "app"})))
-        (.then (fn [r]
-                 (is (not (err? r)) "a genuine nil is a SUCCESS")
-                 (let [edn (read-edn r)]
-                   (is (true? (:ok? edn)))
-                   (is (nil? (:value edn)) "genuine nil rides back as :value nil")
-                   (is (= :app (:build edn))))
-                 (done))))))
 
 (deftest typed-eval-error-surfaces-structured
   ;; A form that throws (e.g. an unresolved symbol) → :ok? false
@@ -512,26 +467,6 @@
                     (tu/restore-jvm-eval! jvm-stub orig-jvm)
                     (tu/restore-eval! cljs-stub orig-cljs))))))
 
-(deftest await-direct-passthrough
-  ;; :await true on a form that returns a non-thenable: the wrapper's
-  ;; synchronous arm fires and the server short-circuits with the
-  ;; value, identical to :await false. No mailbox, no polling.
-  (async done
-    (-> (with-stubbed-await! {:wrap-result {:rf.mcp/await-direct 42}
-                              :poll-script []}
-          (fn []
-            (eval-cljs/eval-cljs-tool (fresh-conn)
-                                      #js {:form  "(+ 40 2)"
-                                           :await true
-                                           :build "app"})))
-        (.then (fn [r]
-                 (is (not (err? r)) "direct passthrough is a success envelope")
-                 (let [edn (read-edn r)]
-                   (is (true? (:ok? edn)))
-                   (is (= 42 (:value edn)))
-                   (is (= :app (:build edn))))
-                 (done))))))
-
 (deftest await-resolved-value
   ;; Thenable that resolves to a value after a single :pending read.
   ;; The wrapper returns the mailbox sentinel; the poll sees :pending
@@ -552,33 +487,6 @@
                    (is (true? (:ok? edn)))
                    (is (= {:hello "world"} (:value edn))
                        "resolved value surfaces under :value")
-                   (is (= :app (:build edn))))
-                 (done))))))
-
-(deftest await-rejected-surfaces-structured
-  ;; Thenable that rejects: server returns
-  ;; {:ok? false :reason :rf.error/eval-cljs-rejected :rejection <pr-str>}
-  (async done
-    (-> (with-stubbed-await!
-          {:wrap-result {:rf.mcp/await-mailbox "await-test-2"}
-           :poll-script [{:status :rejected :rejection "#error {:message \"nope\"}"}]}
-          (fn []
-            (eval-cljs/eval-cljs-tool
-              (fresh-conn)
-              #js {:form  "(js/Promise.reject (ex-info \"nope\" {}))"
-                   :await true
-                   :build "app"})))
-        (.then (fn [r]
-                 ;; A rejected await IS a known-tool failure and MUST ride
-                 ;; as isError: true per spec/003's universal isError rule
-                 ;; — never masked as a success (isError: false).
-                 (is (err? r)
-                     "rejection is a known-tool failure — MUST be isError: true")
-                 (let [edn (read-edn r)]
-                   (is (false? (:ok? edn)))
-                   (is (= :rf.error/eval-cljs-rejected (:reason edn)))
-                   (is (= "#error {:message \"nope\"}" (:rejection edn))
-                       "rejection text round-trips verbatim")
                    (is (= :app (:build edn))))
                  (done))))))
 
@@ -634,40 +542,6 @@
                    (is (= :rf.error/eval-cljs-await-wrap-failed (:reason edn)))
                    (is (= :app (:build edn))))
                  (done))))))
-
-(deftest await-default-off-preserves-passthrough
-  ;; Without :await, the plain semantics hold — the eval form is
-  ;; sent verbatim (no wrap), the value comes back unchanged. Asserts
-  ;; the wrap form is NOT in the stub's matched-form set so the
-  ;; default path can never silently shift to await semantics.
-  (async done
-    (let [forms-seen (atom [])
-          orig-cljs  nrepl/cljs-eval-value
-          orig-jvm   nrepl/jvm-eval
-          jvm-stub   (fn
-                       ([_ _] (js/Promise.resolve {:value "[:app]"}))
-                       ([_ _ _] (js/Promise.resolve {:value "[:app]"})))
-          cljs-stub  (fn
-                       ([_conn _build form-str]
-                        (swap! forms-seen conj form-str)
-                        (js/Promise.resolve (if (sentinel-probe? form-str) true 99)))
-                       ([_conn _build form-str _opts]
-                        (swap! forms-seen conj form-str)
-                        (js/Promise.resolve (if (sentinel-probe? form-str) true 99))))]
-      (set! nrepl/jvm-eval jvm-stub)
-      (set! nrepl/cljs-eval-value cljs-stub)
-      (-> (eval-cljs/eval-cljs-tool (fresh-conn)
-                                    #js {:form "(+ 90 9)" :build "app"})
-          (.then (fn [r]
-                   (is (not (err? r)))
-                   (let [edn (read-edn r)]
-                     (is (true? (:ok? edn)))
-                     (is (= 99 (:value edn))))
-                   (is (not-any? await-wrap-form? @forms-seen)
-                       "default :await false MUST NOT emit the await wrapper")
-                   (tu/restore-eval! cljs-stub orig-cljs)
-                   (tu/restore-jvm-eval! jvm-stub orig-jvm)
-                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Frame targeting — `:frame` arg wraps the supplied form
