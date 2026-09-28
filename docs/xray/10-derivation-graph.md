@@ -2,11 +2,13 @@
 
 The other Xray tabs answer "what just happened?" The derivation graph answers a quieter, structural question: **"where does this value come from?"** A page reads a dozen subscriptions, a couple of resources, a route param, and a machine selector, and you cannot see how they relate. Which fact feeds which? Is this value durable app-db state, a server-owned cache entry, or an ephemeral reaction? When does it re-evaluate? Which owner keeps it alive?
 
-The derivation graph draws all of that as **one picture**. Every subscription, flow, resource, route fact, and machine selector is a node in a single dependency graph rooted at your state — the same unified view [One graph: derivations and algebra views](../core/derivations-and-algebra-views.md) describes in the guide, here rendered for your running app. [The five questions every node answers](../core/derivations-and-algebra-views.md#the-five-questions-every-node-answers) in that guide explains the classifications each row below carries.
+The Graph tab draws all of that as one picture. Every subscription, flow, resource, route fact, and machine selector is a node in a single dependency graph rooted at your state: the graph [One graph: derivations and algebra views](../core/derivations-and-algebra-views.md) describes, drawn for your running app. [The five questions every node answers](../core/derivations-and-algebra-views.md#the-five-questions-every-node-answers) in that guide explains the classifications each row below carries.
+
+Open **Graph** from the Dynamic tab strip. It does not follow the event you pick. Its header, **Derivation / process graph**, carries a **static** / **live** toggle, which starts on static, and a count of what the graph holds; the node rows follow, grouped by family.
 
 ## The two superkinds
 
-Every node is one of exactly two kinds, and reading that distinction is the first thing the panel buys you:
+Every node is one of two kinds:
 
 - A **derivation** (○) is a pure computation over inputs — it stores nothing of its own and recomputes on demand. A subscription is the archetype.
 - A **process** (◆) is stateful — it has a snapshot or a cache entry that advances over time. A resource entry, a route fact, and a machine are processes.
@@ -54,6 +56,6 @@ On your own box, in your own browser, the panel shows **raw** value summaries �
 
 The boundary matters the moment a value-bearing graph leaves your machine — a capture streamed to a remote agent, serialized to disk, or posted to a service. At that egress the graph is projected through `project-egress` under the observed frame's **classification registry**, and value-bearing leaf fields (a node's `:value`, `:params`, `:query`, `:state`) are redacted **path-by-path**: the runtime substitutes `:rf/redacted` at each path the frame declared sensitive (and a size marker at each large path). Those declarations are the frame's own classification — durable `app-db` paths classified by the commit-plane `:sensitive` / `:large` effects (a `reg-event` returning them alongside `:db`), plus the `:sensitive` / `:large` paths a `reg-machine` or `reg-resource` declares for its own data. (Schemas describe *shape*, not durable-`app-db` egress policy — there is no schema-driven classification of an app-db path.) Projection is **path-based, never value-match**: a secret re-keyed onto an *unclassified* path is not chased by value — it ships raw, the intended fail-open, until you classify *that* path too. The projector itself **fails closed on the frame**: if the named frame isn't live, the whole value redacts to a `:rf/redacted` sentinel rather than ship raw under no registry. Crucially, **redaction never loses structure** — a redacted param is still an edge. A live resource node carries its scope and params in its id, so an off-box graph replaces them with one-way handles: the same key gets the same handle for the life of the runtime, so the edges naming that node still connect, but the raw scope and params never leave. Apart from those handles, node ids, the edge topology, the storage/evaluation/lifecycle classifications, and the source forms all ride through untouched; only the value leaves are elided. You keep the shape of the graph; you just don't leak its data.
 
-## Read-only, like every Xray tab
+## Read-only
 
-Drawing the graph dispatches nothing, pins nothing, and mutates no host state. It is a projection over registration facts and the observed frame's state — the same read-only contract as the rest of the tool.
+Drawing the graph dispatches nothing, keeps nothing alive, and changes no app state. It reads registrations and the observed frame's state, like the rest of Xray.

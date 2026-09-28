@@ -1,14 +1,12 @@
-# 9. The app-db Tab
+# 9. The app-db tab
 
-You know which event ran; now you need to know what state changed. This chapter teaches the app-db tab: the frame's state as the focused event left it, with that event's changes marked, its read-only posture, and when to prefer Trace or Epoch instead.
+You know which event ran; now you need to know what state it changed. The app-db tab shows the frame's state as the focused event left it, with that event's changes marked.
 
-## Changes Marked In Place
+## Changes marked in place
 
 The tree is app-db as the focused event left it. Each value the event changed is marked `← was` with its old value, and the maps above every change are expanded for you, so the changes are what you see first.
 
 ![The app-db tab after a flow event: :base and :derived are marked with their old values](../images/xray/xray-tutorial-app-db.png)
-
-Your own keys sit in the top **app-db** card. The framework's runtime state follows in cards of its own: one per machine instance under `:rf/machines` and `:rf/spawned`, then `:rf/route`, `:rf/pending-navigation` and `:rf/elision`. A card appears only when that state exists.
 
 Use app-db when you are asking:
 
@@ -18,36 +16,31 @@ Use app-db when you are asking:
 - Did a route, machine, or flow put data where I think it did?
 - Did a large or sensitive value get elided before display?
 
-## Read-Only By Design
+## Your state and the runtime's state
 
-Xray does not edit app-db values. That is a feature, not a missing form field.
+Your own keys sit in the top **app-db** card. A flow's output is written into your app-db, at the path the flow declares, so it shows there too, like `:derived` above.
 
-The app-db tab is evidence. If you want to change state, dispatch an event, use a test frame, restore an epoch deliberately with Reset, or use the pair/MCP surface with the appropriate write permission. Xray keeps the diagnostic panel honest by not becoming an ad hoc state editor.
+Machines and routing keep their state beside your app-db rather than inside it, in the frame's runtime state. It follows in cards of its own: one per machine instance under `:rf/machines` and `:rf/spawned`, then `:rf/route`, `:rf/pending-navigation` and `:rf/elision`. A card appears only when that state exists. Your handlers read this state but never write it directly, so when a runtime card changed, look for the event or effect that asked the runtime to advance the machine or the route.
 
-## Zoom Into A Path
+Resource state is not shown here; the [Resources tab](02-panel-tour.md#resources) covers it.
 
-Double-click a map or vector, or press Enter on it, to zoom in. The breadcrumb above the tree leads back up, and Esc zooms out one level. Zooming keeps a large app-db manageable, because you can stay at the meaningful boundary instead of expanding everything.
+## Zoom into a path
 
-Good app-db debugging usually looks like this:
+Double-click a map or vector, or press Enter on it, to zoom in. The breadcrumb above the tree leads back up, and Esc zooms out one level. Zooming keeps a large app-db manageable, because you can stay at the part that matters instead of expanding everything.
 
-1. Open the focused event in Epoch.
-2. Move to app-db for the marked changes.
-3. Zoom into only the suspicious path.
-4. Check downstream subscriptions in Views if the UI still looks wrong.
-5. Drop to Trace if you need exact operation order.
+A typical pass:
 
-## Runtime-Owned State
+1. Read the focused event in Epoch.
+2. Open app-db for the marked changes.
+3. Zoom into the suspicious path.
+4. If the UI still looks wrong, check the subscriptions that read it in Views.
 
-Machines and routing keep their state in the frame's runtime state, beside your app-db rather than inside it. The cards below the **app-db** card show it. You read that state, but you do not write it from a handler.
+## Read-only
 
-That matters in Xray because the tab can show you framework-owned process state without implying that your handlers should write it directly. If a runtime card changed, ask which event or effect asked the runtime to advance the process.
+The app-db tab does not edit values. To change state, dispatch an event, use a test frame, restore an epoch with **Reset** ([Restoring a past epoch](03-time-travel.md#restoring-a-past-epoch)), or use the pair/MCP surface with the appropriate write permission.
 
-A flow's output is different: it is written into your app-db, at the path the flow declares, so it shows in the **app-db** card like `:derived` above. Resource state is not shown here; the Resources tab covers it.
+## Redaction and elision
 
-## Redaction And Elision
+Sensitive and large values are rendered under the same classification rules as the rest of the tooling. A value declared sensitive shows as a **● redacted** chip, and a very long string is shortened to a size marker. Neither is a broken diff.
 
-Sensitive and large values are rendered through the same classification rules used by the rest of the tooling. A redaction chip or a size marker is not a broken diff. It is the system refusing to spray secrets or huge payloads through the tool surface.
-
-A value declared sensitive shows as a **● redacted** chip, and a very long string is shortened to a size marker. Because both sides of a changed sensitive value read redacted, the tree cannot show that it changed; a chip reading "N redacted paths modified" says so instead.
-
-The path and the surrounding context should still be enough to tell you what kind of value changed and where to look next.
+Because both sides of a changed sensitive value read redacted, the tree cannot show that it changed; a chip reading "N redacted paths modified" says so instead. The path and the surrounding values are usually enough to tell you what kind of value changed and where to look next.

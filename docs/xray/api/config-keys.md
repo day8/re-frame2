@@ -1,8 +1,8 @@
 # Configuration keys
 
-This chapter is about the surfaces that tell Xray *how* to behave — which editor to open source-coords in, where the inline-host element lives in the DOM, whether to auto-open on boot, whether to surface sensitive trace events. The core of it is **one bulk-set entry point** — `configure!` — that takes a single map keyed by namespaced keywords, plus a parallel set of per-key setters for hosts that prefer to flip one knob at a time. The two surfaces are equivalent — `(configure! {:rf.xray/editor :cursor})` is identical to `(set-editor! :cursor)` — and you choose between them by ergonomics.
+These settings tell Xray how to behave: which editor source links open in, where the layout host is, whether to open on boot, and whether sensitive trace events are shown. `configure!` takes one map of `:rf.xray/*` keys, and each key also has its own setter for a host that prefers to change one at a time. The two are equivalent: `(configure! {:rf.xray/editor :cursor})` does the same as `(set-editor! :cursor)`.
 
-Boot-time configuration is **process-global**: the setters write to `defonce` atoms inside `config.cljc`, and Xray's own subs / events read those atoms via getters. Hosts usually call `configure!` once at boot, before Xray's preload auto-opens. Settings persisted through the in-shell Settings popup live in a parallel slot in `localStorage`; the relationship between the two is documented at the end of this chapter under [§Boot-time config vs persisted Settings](#boot-time-config-vs-persisted-settings).
+This configuration is global to the page. Hosts usually call `configure!` once at boot, before the preload opens Xray. The choices a developer makes in Xray's Settings popup are stored separately in `localStorage`, and override these; [Boot-time config vs persisted Settings](#boot-time-config-vs-persisted-settings) at the end of this page explains how the two combine.
 
 ## The bulk-set entry point
 
@@ -12,7 +12,7 @@ Boot-time configuration is **process-global**: the setters write to `defonce` at
   ```clojure
   (configure! opts) → nil
   ```
-- **Description**: Top-level Xray configuration. Accepts a map keyed by `:rf.xray/*` keys. Unknown keys are silently ignored (forward-compat — newer hosts passing older-Xray-unaware keys MUST NOT break). Hosts typically call once at boot, before Xray auto-opens.
+- **Description**: Sets Xray's configuration from a map of `:rf.xray/*` keys. Unknown keys are ignored, so a host written for a newer Xray still works with an older one. Hosts typically call it once at boot, before Xray opens.
 
 `configure!` is re-exported from `core` for boot-time ergonomics. The two require paths are interchangeable:
 
@@ -53,7 +53,7 @@ The full key surface, grouped by topical cluster:
    })
 ```
 
-Every key lives under the reserved `:rf.xray/*` namespace — Xray owns its whole `configure!` surface, including its privacy gate. (There is no cross-tool shared slot: on-box sensitive visibility is resolved per `(tool, frame)` pair, so Story reads its own `:rf.story/egress-profile`.) Unknown keys are silently ignored so newer hosts (passing keys an older Xray hasn't shipped yet) don't break, and newer Xray releases shipping additional keys don't break older hosts.
+Every key is in the `:rf.xray/*` namespace, including the privacy setting. Story has its own settings, such as `:rf.story/egress-profile`; setting one tool's key does not change the other's.
 
 ## Editor cluster
 
@@ -90,7 +90,7 @@ Unknown keywords fall back to `:vscode` so a typo still yields a clickable URI r
 
 Each developer can override the editor on their own machine: the **Click-to-source links open in** picker on Settings' General tab stores its choice in localStorage and wins over `:rf.xray/editor`. Choosing **(project default)** there, or **Reset to project default**, goes back to the host's setting. The override never changes the host's value.
 
-Xray's editor preference is **independent** of Story's `:rf.story/editor` (hosts that run both tools can route each to a different editor). The shared URI builder lives at `re-frame.source-coords.editor-uri` in the framework core; Xray's link is a thin wrapper that consumes it.
+Xray's editor preference is separate from Story's `:rf.story/editor`, so a host running both tools can send each to a different editor.
 
 ## Launch cluster
 
@@ -112,7 +112,7 @@ The launch cluster controls the auto-open posture and the layout-host wiring. Se
   ```
 - **Description**: The CSS selector the auto-open path queries on adapter readiness. Default `[data-rf-xray-host]`. Override when your host's preferred selector differs (e.g. `#devtools-xray`).
 
-The default selector `[data-rf-xray-host]` is published as a CLJS constant — `day8.re-frame2-xray.config/default-layout-host-selector` — so docs generators and tool chrome can re-emit the canonical spelling without forking the string.
+The default selector `[data-rf-xray-host]` is also available as the constant `day8.re-frame2-xray.config/default-layout-host-selector`, for tools that need to print or match it.
 
 Five more published constants name the inline-host CSS contract. These are constants (values, not setters) — overriding the CSS custom property happens in the host's stylesheet, not through CLJS.
 
@@ -136,7 +136,7 @@ Xray installs one keydown listener on the document, in the capture phase, for `C
   ```
 - **Description**: Whether Xray's keydown listener is installed. Default `true` — standalone Xray needs the listener. Embed hosts set `false` so their own global keybindings (typically `Cmd/Ctrl+K` for the host's command palette) are not swallowed by Xray's capture-phase listener. It takes effect whenever it is set: turning it off removes an attached listener, and turning it on attaches one.
 
-A host that wants the listener gone without setting the key, or from a mount hook it does not own, uses the imperative escape hatch instead:
+A host that wants the listener gone without setting the key, or from a mount hook it does not own, calls `detach!` directly:
 
 ```clojure
 (require '[day8.re-frame2-xray.keybinding :as xray-keybinding])
@@ -158,13 +158,13 @@ Xray's on-box sensitive-event gate is a **named egress profile**, resolved per `
   (set-egress-profile! profile) → nil
   ```
 - **Description**: Replace Xray's on-box `:rf.egress/*` profile. `:rf.egress/local-redacted` (the default) makes the trace collector drop `:sensitive? true` events before any buffer push and bump the suppressed-events counter, so the shell can surface a `[● REDACTED N]` indicator. `:rf.egress/local-raw` is the trusted-local operator opt-in: every event flows through unchanged. `nil` resets to the default; an unknown keyword is rejected by `configure!` (the enum is closed). Re-exported from `core`.
-- **Narrowing is retroactive**: moving from `:rf.egress/local-raw` back to a redacting profile clears the trace buffer, so a reveal is not a one-way trapdoor. Widening and same-class transitions do not clear.
+- **Narrowing clears the buffer**: moving from `:rf.egress/local-raw` back to a redacting profile clears the trace buffer, so sensitive events shown while raw do not stay on screen. Widening, or moving to another profile of the same kind, does not clear it.
 
-The single normative emission site for `:sensitive?` redaction is the framework's [`project-egress`](../../api/re-frame.core.md#project-egress). Xray's gate just decides whether the redacted-out events reach the buffer at all — the "is this suppressed?" decision derives from the profile's `:rf.egress/include-sensitive?` resolution through the framework projection table, never a re-implemented policy.
+Redaction itself is the framework's job, done by [`project-egress`](../../api/re-frame.core.md#project-egress). Xray's profile decides only whether events marked sensitive reach Xray's trace buffer at all, and it reads that decision from the framework's own profile definitions.
 
 ## Settings cluster
 
-The Settings popup carries the user-mutable knobs — theme, density, panel position and width, text size, epoch history, trace buffer size, the editor override, and a few display switches. The bulk-set escape hatch lets a host ship its own default Settings shape; the per-knob writes flow through the popup's normal `:rf.xray/settings-update` event.
+The Settings popup holds the choices each developer makes: theme, density, panel position and width, text size, epoch history, trace buffer size, the editor override, and a few display switches. A host can supply its own defaults for these with `configure! {:rf.xray/settings …}`; the functions below change them from code.
 
 ### `update-setting!`
 
@@ -217,7 +217,7 @@ The settings persist under the localStorage key `re-frame2.xray.settings.v2` (al
 
 ## Filters cluster
 
-The event list's **+ filter** control adds pattern pills that include (IN) or exclude (OUT) events; [Filters keep the spine useful](../03-time-travel.md#filters-keep-the-spine-useful) describes the patterns. A user's own pills are **transient** — nothing stores them, so a reload starts unfiltered and a stale filter never silently hides rows. Hosts that want a known starting set reach for the filters cluster's seed: an explicit **boot baseline**, re-applied on every load, not durable user-filter persistence.
+The event list's **+ filter** control adds pattern pills that include (IN) or exclude (OUT) events; [Filters keep the spine useful](../03-time-travel.md#filters-keep-the-spine-useful) describes the patterns. Nothing stores a developer's own pills, so a reload starts unfiltered. A host that wants every load to start from a known set of filters supplies a seed.
 
 ### `set-filter-seed!`
 
@@ -225,9 +225,9 @@ The event list's **+ filter** control adds pattern pills that include (IN) or ex
   ```clojure
   (set-filter-seed! seed-map) → nil
   ```
-- **Description**: Host-supplied seed pill set applied to `:active-filters` as the explicit **boot baseline**. A non-empty seed lands on **every** load via the first-mount `::seed-configured-filters` hook, which runs *after* the transient-filter reset — so the host's baseline always wins over a user's stale session pills. Xray's IN/OUT pills have **no localStorage layer at all**, so a user's pill edits live and die with the page and the configured baseline is re-derived from `configure!` on every load. Shape: `{:in [{...}] :out [{...}]}`. Default `nil` — a fully-unfiltered first paint (first-session honesty beats first-session quietness). Story testbeds use this to inject a known, reproducible starting posture. To change filters *live* (mid-session), use the filter pill events / Story path — not a post-mount `configure!`, since the seed is read once per frame at first mount, not on every use.
+- **Description**: Sets the filter pills Xray starts with on every page load. Pills a developer adds are never stored, so each load starts from this set and a stale filter from an earlier session cannot hide events. Shape: `{:in [{...}] :out [{...}]}`. Default `nil`: no filters, so every event is visible. Story testbeds use it to start from a known, reproducible set. Xray reads the seed once per frame, when it first mounts, so calling `configure!` later does not change the pills already showing; to change filters mid-session, use the filter pills.
 
-Set the seed *before* the preload runs so the first registry-handlers registration reads the right value.
+Set the seed before Xray first mounts, at boot beside your other `configure!` keys.
 
 ### `set-filters-auto-hide-error-overrides!`
 
@@ -236,9 +236,10 @@ Set the seed *before* the preload runs so the first registry-handlers registrati
   (set-filters-auto-hide-error-overrides! bool) → nil
   ```
 - **Description**: Whether an errored event stays in the event list when a filter would hide it: an OUT pill matching it, an IN pill not matching it, or a mute. Default `true`, which keeps errors visible; the row's tooltip then reads "⚠ shown because it errored — a filter would normally hide it". `false` lets filters hide errored events too. `nil` resets to the default. The frame picker is a view scope rather than a filter, so an errored event in another frame stays out of the list either way. The `configure!` key is `:rf.xray/filters-auto-hide-error-overrides?`.
+
 ## Boot-time config vs persisted Settings
 
-Xray carries three orthogonal configuration surfaces. The split is principled — each answers a different question — and the merge order is fixed.
+A setting's value comes from one of three places, and they combine in a fixed order.
 
 | Surface | Where | Lifetime | Examples |
 |---|---|---|---|
@@ -246,13 +247,4 @@ Xray carries three orthogonal configuration surfaces. The split is principled �
 | **Boot-time `configure!`** | Host's app boot | Process-global, set at boot | `(configure! {:rf.xray/editor :cursor})` — flips the editor for this dev session |
 | **Persisted Settings** | The Settings popup | User-mutable, localStorage | User switches `:density` to `:compact` with the palette's *Cycle display density* command — sticks across reloads |
 
-**Merge order: defaults < `configure!` < persisted Settings.** A host config knob is the *default* from the user's perspective; the user's Settings overrides win at the per-knob level. `(xray/init! opts)` is applied after all three, so its `:theme`, `:density` and `:buffer-depths` win, and are written into the persisted Settings as though the user had chosen them.
-
-The three answer different questions: `configure!` is the boot-time data knob; the in-shell Settings popup is the user-mutable preference layer (user changes density from `:cosy` to `:compact`, sticks across reloads); per-frame metadata (not in scope here) is the frame-scoped override.
-
-## See also
-
-- [Mount control](mount-control.md) — `open!` / `close!` / `toggle!` / `popout!` and the lifecycle the auto-open setting drives.
-- [Reference](reference.md#day8re-frame2-xraykeybinding) — the keybinding `attach!` / `detach!` lifecycle pair the keybinding cluster setters control.
-- [Xray tutorial — Installation](../01-installation.md) — the five-minute wiring walkthrough with the recommended host snippet.
-- [Framework API — `project-egress`](../../api/re-frame.core.md#project-egress) — the single normative emission site for `:sensitive?` redaction that the privacy cluster gates.
+**Merge order: defaults < `configure!` < persisted Settings.** What the host sets with `configure!` is the default a developer starts from; a choice the developer makes in Settings wins, setting by setting. `(xray/init! opts)` is applied after all three, so its `:theme`, `:density` and `:buffer-depths` win, and are written into the persisted Settings as though the developer had chosen them.
