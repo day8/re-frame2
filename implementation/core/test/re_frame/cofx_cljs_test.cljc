@@ -516,104 +516,76 @@
 ;; as `undeclared-leaf-on-token-is-not-delivered` above shows.
 ;; ===========================================================================
 
-(deftest malformed-requires-is-cofx-request-invalid
-  (testing "a non-vector / non-id `:rf.cofx/requires` is
-            `:rf.error/cofx-request-invalid` at registration"
-    (is (= :rf.error/cofx-request-invalid
-           (-> (try (rf/reg-event :cofx-test/bad-requires-1
-                      {:rf.cofx/requires :not-a-vector}
-                      (fn [_ _] {}))
-                    nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-               ex-data :rf.error/id)))
-    (is (= :rf.error/cofx-request-invalid
-           (-> (try (rf/reg-event :cofx-test/bad-requires-2
-                      {:rf.cofx/requires [42]}
-                      (fn [_ _] {}))
-                    nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-               ex-data :rf.error/id)))))
+(defn- thrown
+  "Call `f` and return the ExceptionInfo it throws, or nil when it returns."
+  [f]
+  (try (f) nil
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e)))
 
-(deftest duplicate-requires-is-name-collision
-  (testing "declaring the same id twice in one consumer scope is
-            `:rf.error/cofx-name-collision` (EP-0017 §4)"
-    (is (= :rf.error/cofx-name-collision
-           (-> (try (rf/reg-event :cofx-test/dup-requires
-                      {:rf.cofx/requires [:rf/time-ms :rf/time-ms]}
-                      (fn [_ _] {}))
-                    nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-               ex-data :rf.error/id)))))
+(deftest malformed-or-colliding-declaration-is-refused-at-registration
+  (testing "a malformed `:rf.cofx/requires` is `:rf.error/cofx-request-invalid`;
+            the same id declared twice in one consumer scope (EP-0017 §4), and
+            a `reg-cofx` id colliding with a fold argument key (EP-0017 §8),
+            are `:rf.error/cofx-name-collision`"
+    (doseq [[label expected-id f]
+            [["non-vector :rf.cofx/requires" :rf.error/cofx-request-invalid
+              #(rf/reg-event :cofx-test/bad-requires-1
+                 {:rf.cofx/requires :not-a-vector}
+                 (fn [_ _] {}))]
+             ["non-id :rf.cofx/requires entry" :rf.error/cofx-request-invalid
+              #(rf/reg-event :cofx-test/bad-requires-2
+                 {:rf.cofx/requires [42]}
+                 (fn [_ _] {}))]
+             ["the same id declared twice" :rf.error/cofx-name-collision
+              #(rf/reg-event :cofx-test/dup-requires
+                 {:rf.cofx/requires [:rf/time-ms :rf/time-ms]}
+                 (fn [_ _] {}))]
+             ["reg-cofx :db (a fold argument key)" :rf.error/cofx-name-collision
+              #(rf/reg-cofx :db (fn [] :nope))]
+             ["reg-cofx :event (a fold argument key)" :rf.error/cofx-name-collision
+              #(rf/reg-cofx :event (fn [] :nope))]]]
+      (testing label
+        (is (= expected-id (-> (thrown f) ex-data :rf.error/id)))))))
 
-(deftest reg-cofx-colliding-with-fold-arg-is-collision
-  (testing "a `reg-cofx` id colliding with a fold argument key (`:db` /
-            `:event`) is `:rf.error/cofx-name-collision` (EP-0017 §8)"
-    (is (= :rf.error/cofx-name-collision
-           (-> (try (rf/reg-cofx :db (fn [] :nope))
-                    nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-               ex-data :rf.error/id)))
-    (is (= :rf.error/cofx-name-collision
-           (-> (try (rf/reg-cofx :event (fn [] :nope))
-                    nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
-               ex-data :rf.error/id)))))
-
-(deftest provided-without-recordable-is-rejected-at-registration
-  (testing "`reg-cofx` with `{:provided? true}` but no `:recordable? true` is
-            a registration-time hard error — a provided fact is recordable by
-            definition; the malformed grade would otherwise register as an
-            ambient fact with a nil supplier and surface only as an opaque
-            host throw at delivery (Spec-Schemas §`:rf/cofx-meta`).
-            The taxonomy is `:rf.error/cofx-registration-invalid` (malformed
-            metadata), NOT `:rf.error/cofx-name-collision` (collision is
-            reserved for duplicate ownership)."
-    (let [ex (try (rf/reg-cofx :cofx-test/bad-grade {:provided? true})
-                  nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "the malformed registration threw")
-      (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
-          "rejected as malformed metadata, not a name collision and not a late delivery NPE")
-      (is (= :cofx-test/bad-grade (:rf.cofx/id (ex-data ex)))
-          "the offending id rides the error payload")
-      (is (re-find #":recordable\? true" (:reason (ex-data ex)))
-          "the reason points the author at the fix")
-      (is (nil? (rf.registrar/lookup :cofx :cofx-test/bad-grade))
-          "the malformed fact did NOT register"))))
-
-(deftest no-supplier-non-provided-is-registration-invalid
-  (testing "`reg-cofx` with NO supplier and no `:provided?` is
-            `:rf.error/cofx-registration-invalid` — an ambient fact must carry
-            a value-returning supplier; only a provided recordable fact may
-            omit it (malformed metadata, NOT a name
-            collision)"
-    (let [ex (try (rf/reg-cofx :cofx-test/no-supplier {:doc "missing supplier"})
-                  nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "the no-supplier registration threw")
-      (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
-          "a missing supplier is malformed metadata, not a name collision")
-      (is (= :cofx-test/no-supplier (:rf.cofx/id (ex-data ex)))
-          "the offending id rides the error payload")
-      (is (re-find #"no supplier" (:reason (ex-data ex)))
-          "the reason names the missing supplier")
-      (is (nil? (rf.registrar/lookup :cofx :cofx-test/no-supplier))
-          "the malformed fact did NOT register"))))
-
-(deftest provided-with-supplier-is-rejected-at-registration
-  (testing "ADVERSARIAL: `reg-cofx` with `{:recordable? true
-            :provided? true}` AND a supplier is a contradictory registration —
-            a provided recordable fact has NO generator (its owner stamps the
-            token; delivery reads it verbatim), so the supplier would be
-            SILENTLY IGNORED and the first consumer would fail as
-            missing-required. It is rejected at the call site as
-            `:rf.error/cofx-registration-invalid`."
-    (let [ex (try (rf/reg-cofx :cofx-test/provided-with-fn
-                    {:recordable? true :provided? true}
-                    (fn [] "this would be silently ignored"))
-                  nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "the contradictory registration threw")
-      (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
-          "a provided fact carrying a supplier is malformed metadata")
-      (is (= :cofx-test/provided-with-fn (:rf.cofx/id (ex-data ex)))
-          "the offending id rides the error payload")
-      (is (re-find #"silently ignored" (:reason (ex-data ex)))
-          "the reason explains the supplier is silently ignored at delivery")
-      (is (nil? (rf.registrar/lookup :cofx :cofx-test/provided-with-fn))
-          "the contradictory fact did NOT register"))))
+(deftest malformed-reg-cofx-grade-is-registration-invalid
+  (testing "a `reg-cofx` whose grade metadata cannot describe a deliverable
+            fact is a registration-time hard error — the taxonomy is
+            `:rf.error/cofx-registration-invalid` (malformed metadata), NOT
+            `:rf.error/cofx-name-collision` (collision is reserved for
+            duplicate ownership) — and nothing registers
+            (Spec-Schemas §`:rf/cofx-meta`)"
+    (doseq [[label id f reason-re]
+            [;; A provided fact is recordable by definition; the malformed
+             ;; grade would otherwise register as an ambient fact with a nil
+             ;; supplier and surface only as an opaque host throw at delivery.
+             ["provided without :recordable? true" :cofx-test/bad-grade
+              #(rf/reg-cofx :cofx-test/bad-grade {:provided? true})
+              #":recordable\? true"]
+             ;; An ambient fact must carry a value-returning supplier; only a
+             ;; provided recordable fact may omit it.
+             ["no supplier and not provided" :cofx-test/no-supplier
+              #(rf/reg-cofx :cofx-test/no-supplier {:doc "missing supplier"})
+              #"no supplier"]
+             ;; ADVERSARIAL: a provided recordable fact has NO generator (its
+             ;; owner stamps the token; delivery reads it verbatim), so the
+             ;; supplier would be SILENTLY IGNORED and the first consumer
+             ;; would fail as missing-required.
+             ["provided WITH a supplier" :cofx-test/provided-with-fn
+              #(rf/reg-cofx :cofx-test/provided-with-fn
+                 {:recordable? true :provided? true}
+                 (fn [] "this would be silently ignored"))
+              #"silently ignored"]]]
+      (testing label
+        (let [ex (thrown f)]
+          (is (some? ex) "the malformed registration threw")
+          (is (= :rf.error/cofx-registration-invalid (:rf.error/id (ex-data ex)))
+              "rejected as malformed metadata, not a name collision and not a late delivery NPE")
+          (is (= id (:rf.cofx/id (ex-data ex)))
+              "the offending id rides the error payload")
+          (is (re-find reason-re (:reason (ex-data ex)))
+              "the reason points the author at the fix")
+          (is (nil? (rf.registrar/lookup :cofx id))
+              "the malformed fact did NOT register"))))))
 
 (deftest provided-without-supplier-registers-cleanly
   (testing "the VALID provided shape — `{:recordable? true :provided? true}`
