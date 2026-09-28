@@ -468,27 +468,18 @@
         (is (str/includes? source "[[:rf.interceptor/path [:counter]]]")
             (str label " must still lower the standard head"))))))
 
-(deftest qualified-binder-shadowing-does-not-suppress-a-qualified-head
-  (testing "a `clojure.core/let` local named `path` cannot shadow `rf/path`"
-    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                   "(clojure.core/let [path app.interceptors/path]\n"
-                   "  (rf/reg-event-db :counter/inc\n"
-                   "    {:interceptors [(rf/path :counter)]}\n"
-                   "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
-
 (deftest shadowing-does-not-suppress-a-qualified-head
-  (testing "a local named `path` cannot shadow `rf/path` — the standard site still lowers"
-    (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
-                   "(let [path app.interceptors/path]\n"
-                   "  (rf/reg-event-db :counter/inc\n"
-                   "    {:interceptors [(rf/path :counter)]}\n"
-                   "    (fn [db _] (update db :value inc))))\n")
-          {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
-      (is (= :rewrite (:action (first findings))))
-      (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")))))
+  (testing "a local named `path` cannot shadow `rf/path`, under a plain or a qualified binder"
+    (doseq [binder ["let" "clojure.core/let"]]
+      (let [src (str "(ns app.events (:require [re-frame.core :as rf]))\n"
+                     "(" binder " [path app.interceptors/path]\n"
+                     "  (rf/reg-event-db :counter/inc\n"
+                     "    {:interceptors [(rf/path :counter)]}\n"
+                     "    (fn [db _] (update db :value inc))))\n")
+            {:keys [source findings]} (rf.migration.reg-event-codemod/rewrite-string src)]
+        (is (= :rewrite (:action (first findings))) (str binder " must still rewrite"))
+        (is (str/includes? source "{:interceptors [[:rf.interceptor/path [:counter]]]}")
+            (str binder " must still lower the standard head"))))))
 
 (deftest shadowing-elsewhere-does-not-suppress-a-referred-bare-path
   (testing "a `path` binding in a SIBLING form leaves this site's bare head standard"
@@ -629,14 +620,6 @@
       (is (str/includes? out "(fn [c] (map inc c))"))
       (is (str/includes? out "{:db (update c :xs (fn [c] (map inc c)))}")))))
 
-(deftest db-renamed-param-idempotent
-  (testing "running the codemod twice over a renamed-param event is a no-op the 2nd time"
-    (let [src "(rf/reg-event-db :inc (fn [c _] (update c :n inc)))"
-          once (rewrite src)
-          twice (rewrite once)]
-      (is (= once twice))
-      (is (not (str/includes? once "reg-event-db"))))))
-
 (deftest db-ignored-param-keeps-keys-form
   (testing "an ignored `_` first param keeps the canonical {:keys [db]} (nothing to rebind)"
     (let [src "(rf/reg-event-db :init (fn [_ _] {:count 0 :items []}))"
@@ -735,14 +718,6 @@
       (is (not (str/includes? out "{_s :db}")))
       ;; inner fn preserved
       (is (str/includes? out "(fn [_s] (inc _s))")))))
-
-(deftest db-underscore-referenced-idempotent
-  (testing "running the codemod twice over a referenced `_`-param event is a no-op the 2nd time"
-    (let [src "(rf/reg-event-db :y (fn [_state ev] (assoc _state :x 1)))"
-          once (rewrite src)
-          twice (rewrite once)]
-      (is (= once twice))
-      (is (not (str/includes? once "reg-event-db"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; reg-event-ctx — always flagged, never rewritten
@@ -883,8 +858,11 @@
       (is (str/includes? out ";; trailing comment")))))
 
 (deftest idempotent-rewrite
-  (testing "running the codemod twice is a no-op the second time (output has no retired names)"
-    (let [src "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n(rf/reg-event-fx :todo/add (fn [c e] {:db (:db c)}))"
+  (testing "running the codemod twice is a no-op the second time, whichever first-param rebind each handler took"
+    (let [src (str "(rf/reg-event-db :counter/inc (fn [db _] (update db :count inc)))\n"
+                   "(rf/reg-event-db :inc (fn [c _] (update c :n inc)))\n"
+                   "(rf/reg-event-db :y (fn [_state ev] (assoc _state :x 1)))\n"
+                   "(rf/reg-event-fx :todo/add (fn [c e] {:db (:db c)}))")
           once (rewrite src)
           twice (rewrite once)]
       (is (= once twice) "second pass changes nothing")
