@@ -220,6 +220,15 @@
   output paths egresses those paths of `:prev-value` / `:value` as
   `:rf/redacted`; `:value-changed?` stays a plain boolean.
 
+  `:prev-value` is classified by what governed it when it was computed, not
+  only by the registry as it stands now: destroying a machine actor drops its
+  lowered claims while a held `[:rf/machine <id>]` sub still carries the dead
+  actor's snapshot as its prior value. So the emit also carries, under the
+  private `:re-frame.classification/prev-inputs` tag, the input value(s) the
+  prior value was computed from — for a runtime-db reader, the runtime-db
+  whose elision registry classified it. The chokepoint reads it and strips
+  it; it never egresses.
+
   The whole attribution branch (the enriched tag map) sits inside
   `(if rf.interop/debug-enabled? ...)` so Closure DCE folds it out under
   `:advanced` + `goog.DEBUG=false`; the unattributed base tag is emitted
@@ -230,7 +239,7 @@
   Callers (the memo wrappers) pass `prev-value` (the wrapper's
   `last-result` cell, `::unset` on first recompute) and `prev-in-vals`
   (the wrapper's last-seen input value(s), `::unset` on first recompute,
-  else a coll parallel to `input-signals`)."
+  else a coll parallel to `in-vals`)."
   [body-fn body-arg in-vals query-id query-v frame-id input-signals sub-meta sub-scope
    prev-value prev-in-vals]
   ;; Publish the sub's HandlerScope for the duration of body-fn
@@ -372,6 +381,12 @@
                                   (select-keys sub-meta [:sensitive :large :large?])}
                            (some? elapsed-ms)
                            (assoc :rf.sub/elapsed-ms elapsed-ms)
+                           ;; The inputs the PRIOR value was computed from,
+                           ;; so the chokepoint classifies `:rf.sub/prev-value`
+                           ;; by the registry that governed it (see §Privacy).
+                           ;; Private: the projector strips it.
+                           (not= unset prev-in-vals)
+                           (assoc :re-frame.classification/prev-inputs prev-in-vals)
                            reader-rk (assoc :rf.sub/reader-render-key reader-rk)
                            (some? cause-event-id)
                            (assoc :rf.sub/cause-event-id cause-event-id))))
@@ -599,9 +614,13 @@
           ;; Capture the prior cells BEFORE the recompute so the
           ;; `:rf.sub/run` attribution can report value-change
           ;; against the last computed value. Layer-1 has no upstream
-          ;; sub inputs, so `input-signals` is `[]` and `prev-in-vals`
-          ;; is irrelevant to cause-sub resolution (a layer-1 recompute
-          ;; is driven by an app-db path change, never a sub cascade).
+          ;; sub inputs, so `input-signals` is `[]` and cause-sub
+          ;; resolution ignores `prev-in-vals` (a layer-1 recompute is
+          ;; driven by an app-db path change, never a sub cascade). It
+          ;; still carries the last-seen source value, parallel to
+          ;; `in-vals`, because the prior value is classified by the
+          ;; registry that source carried. Only the dev-gated emit reads
+          ;; it, so production passes `unset` and allocates nothing.
           ;;
           ;; Pass `unset` for `prev-value` on the run that
           ;; allocated the cache slot (the input cell `last-db` is still
@@ -612,11 +631,15 @@
           ;; first cached value happens to be `nil`. The
           ;; `validate-and-trace` emit then stamps `:rf.sub/first-run?`
           ;; from `(= unset prev-value)`.
-          (let [prev-result (if (= ::unset @last-db) unset @last-result)
+          (let [seen        @last-db
+                first-run?  (= ::unset seen)
+                prev-result (if first-run? unset @last-result)
                 computed    (validate-and-trace
                               body-fn db (list db) query-id query-v
                               frame-id [] sub-meta sub-scope
-                              prev-result unset)]
+                              prev-result (if (or first-run? (not rf.interop/debug-enabled?))
+                                            unset
+                                            (list seen)))]
             (vreset! last-db db)
             (vreset! last-result computed)
             computed))))))
