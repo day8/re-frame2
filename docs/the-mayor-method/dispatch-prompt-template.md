@@ -925,7 +925,7 @@ a list of them, and do not write one** — the set grows, and an enumeration is 
   reach, a pre-rebase green is evidence about a tree that no longer exists**, and nothing warns you: the
   rebase reports success and the old log still says exit 0. One worker rebased four times past eleven
   landings, and re-running changed the artefact rather than reconfirming it — fixes for three of its own
-  findings had merged in the interval. Measured over a one-hour trial of six workers: about 10 to 15
+  findings had merged in the interval. Measured over a one-hour trial of six workers: about 8 to 15
   minutes saved per rebase, and **zero** CI reds that a skipped re-run would have caught — one 84-file
   landing reached none of the five suites its worker had re-run by reflex. **One residual that neither
   this rule nor re-running everything covers**: a sibling can land between a change's last CI run and
