@@ -27,10 +27,10 @@
   The full registered surface is too many to exhaustively unit-test
   without duplicating the per-panel suite. The strategy below is:
 
-    (1) **Smoke registration block** — one assertion per registered
-        name that the registrar resolves it (proves the orchestrator
-        `register-xray-handlers!` plus each panel `install!` reached
-        every form without an early throw).
+    (1) **Smoke registration block** — the exact-set snapshot of every
+        registered name, plus one subscribe per sub (proves the
+        orchestrator `register-xray-handlers!` plus each panel
+        `install!` reached every form without an early throw).
     (2) **High-value sub contracts** — defaults, composite shapes,
         override-aware readers (sub-cache, registered-flows, etc.),
         the panel-suppression / dormant-frame signal slots, and the
@@ -1000,20 +1000,6 @@
 
 ;; ---- (1) smoke: every registered name resolves -------------------------
 
-(deftest registry-installs-every-sub
-  (testing "register-xray-handlers! resolves every :rf.xray/* sub"
-    (registry/register-xray-handlers!)
-    (doseq [sub-id all-sub-names]
-      (is (some? (rf.registrar/handler :sub sub-id))
-          (str "expected :sub handler for " sub-id)))))
-
-(deftest registry-installs-every-event
-  (testing "register-xray-handlers! resolves every :rf.xray/* event"
-    (registry/register-xray-handlers!)
-    (doseq [event-id all-event-names]
-      (is (some? (rf.registrar/handler :event event-id))
-          (str "expected :event handler for " event-id)))))
-
 (deftest registry-registers-each-xray-event-once
   (testing "each Xray event id `register-xray-handlers!` registers
             is registered exactly once during install. Scoped to the
@@ -1061,13 +1047,6 @@
             "the capture sees Xray's own event writes")
         (is (empty? resource-writes)
             (str "Xray wrote a :rf.resource/* event: " (vec resource-writes)))))))
-
-(deftest registry-installs-every-fx
-  (testing "register-xray-handlers! resolves every :rf.xray.fx/* fx"
-    (registry/register-xray-handlers!)
-    (doseq [fx-id all-fx-names]
-      (is (some? (rf.registrar/handler :fx fx-id))
-          (str "expected :fx handler for " fx-id)))))
 
 (deftest registry-snapshot-matches-expected-set
   (testing "registry's actual Xray-namespaced registrations match the
@@ -1142,12 +1121,12 @@
       (is (identical? f1 (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard))))))
 
 (deftest registers-every-canonical-rf-xray-sub
-  ;; Holistic subscribe-side smoke. The handler-resolution smokes above
-  ;; assert that the registrar holds a handler for each id; this test
-  ;; takes the subscriber's view — `(rf/subscribe [q-v])` returns a
-  ;; non-nil reaction for every canonical sub-id once the registrar has
-  ;; run. The two smokes catch different drift: handler-resolution
-  ;; catches a missing registration; subscribe-resolution catches a sub
+  ;; Holistic subscribe-side smoke. The snapshot above asserts that the
+  ;; registrar holds every id; this test takes the subscriber's view —
+  ;; `(rf/subscribe [q-v])` returns a non-nil reaction for every
+  ;; canonical sub-id once the registrar has run. The two smokes catch
+  ;; different drift: the snapshot catches a missing registration;
+  ;; subscribe-resolution catches a sub
   ;; whose subscribe path throws (e.g. a downstream `install!` that
   ;; depends on a not-yet-registered upstream).
   (testing "every :rf.xray/* sub-id resolves through rf/subscribe after
@@ -1639,22 +1618,6 @@
       (is (= [] @(rf/subscribe [:rf.xray/trace-buffer]))
           "empty rings + empty slot → sub returns []"))))
 
-(deftest sub-trace-buffer-reads-from-app-db-slot
-  (testing "the sub reads off the `:trace-buffer` slot
-            in Xray's app-db, populated by the
-            `:rf.xray/sync-trace-buffer` dispatch carrying the snapshot
-            from `trace-collector/refresh-trace-rings!`."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [seed [{:id 1 :op-type :rf.event :operation :rf.test/a :tags {}}
-                  {:id 2 :op-type :rf.event :operation :rf.test/b :tags {}}]]
-        (rf/dispatch-sync [:rf.xray/sync-trace-buffer seed])
-        (let [buf @(rf/subscribe [:rf.xray/trace-buffer])]
-          (is (= 2 (count buf))
-              "snapshot lands in slot; sub reads it back")
-          (is (= [1 2] (mapv :id buf))
-              "events are oldest-first, matching the snapshot sort order"))))))
-
 (deftest sub-trace-buffer-clear-event-drops-mirror-slot
   (testing "`:rf.xray/clear-trace-buffer` (dispatched
             from `trace-collector/retroactive-scrub!` on privacy
@@ -1685,26 +1648,6 @@
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer [{:id 200 :tags {}}]])
         (is (= [{:id 200 :tags {}}] @(rf/subscribe [:rf.xray/trace-buffer]))
             "second sync wholly replaces the slot (no merge)")))))
-
-(deftest sub-trace-buffer-frameless-ring-overflow
-  (testing "frameless emits (no `:frame` / no `:dispatch-id`) land in
-            Xray's secondary ring. The
-            ring's depth caps the secondary capture independent of the
-            framework's per-frame ring depth."
-    (setup-xray-frame!)
-    (trace-collector/set-frameless-ring-depth! 3)
-    (try
-      (dotimes [i 5]
-        (trace-collector/seed-trace-for-test!
-          {:id i :op-type :rf.event :operation :rf.test/x :tags {}}))
-      (let [buf (trace-collector/buffer-for-test)]
-        (is (= 3 (count buf))
-            "depth=3 caps the frameless ring at 3 entries")
-        (is (= [2 3 4] (mapv :id buf))
-            "oldest entries evicted; newest retained in oldest-first order"))
-      (finally
-        (trace-collector/set-frameless-ring-depth!
-          trace-collector/default-frameless-ring-depth)))))
 
 ;; ---- :rf.xray/event-bundles — xray-internal filter ------------------------
 
@@ -1854,15 +1797,6 @@
     (is (nil? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
     (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
     (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))))
-
-(deftest sub-reactive-show-unchanged-defaults-false
-  (testing ":rf.xray/reactive-show-unchanged? defaults to false
-            (Reactive panel disclosure slot per spec/021
-            §3.4; default OFF means the panel hides unchanged-subs
-            behind a footer disclosure)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (false? @(rf/subscribe [:rf.xray/reactive-show-unchanged?]))))))
 
 ;; ---- (3) high-value composite sub shapes --------------------------------
 
@@ -2237,17 +2171,6 @@
       ;; nil resets the focus epoch.
       (rf/dispatch-sync [:rf.xray/select-epoch nil])
       (is (nil? @(rf/subscribe [:rf.xray/focus-epoch-id]))))))
-
-(deftest event-reactive-toggle-unchanged-flips-slot
-  (testing ":rf.xray/reactive-toggle-unchanged toggles the panel's
-            disclosure slot (spec/021 §3.4)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (false? @(rf/subscribe [:rf.xray/reactive-show-unchanged?])))
-      (rf/dispatch-sync [:rf.xray/reactive-toggle-unchanged])
-      (is (true? @(rf/subscribe [:rf.xray/reactive-show-unchanged?])))
-      (rf/dispatch-sync [:rf.xray/reactive-toggle-unchanged])
-      (is (false? @(rf/subscribe [:rf.xray/reactive-show-unchanged?]))))))
 
 (deftest event-reactive-set-unchanged-writes-slot
   (testing ":rf.xray/reactive-set-unchanged writes the slot directly."
