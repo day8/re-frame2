@@ -94,7 +94,7 @@
 
 ;; ---- (1) :spawn child issues request → parent state exits → abort -------
 
-(deftest invoke-child-request-aborts-on-parent-state-exit
+(deftest spawned-child-request-aborts-on-parent-state-exit
   (testing "when the parent state exits, the spawned child's in-flight HTTP aborts and emits the documented trace"
     (let [latch  (CountDownLatch. 1)
           {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{\"too\":\"late\"}")

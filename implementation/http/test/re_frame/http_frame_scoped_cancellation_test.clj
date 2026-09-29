@@ -256,7 +256,7 @@
 
 ;; ---- two cross-frame probes, at their production seams ---------------------
 
-(deftest reproduction-probes-no-longer-reach-across-frames
+(deftest cross-frame-probes-cannot-reach-a-sibling-frames-handle
   (testing "two cross-frame probes (a frame-B supersede
             selector, and managed-abort-handler carrying frame B's context) do
             not resolve or abort frame A's registered handle, while the

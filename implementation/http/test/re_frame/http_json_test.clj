@@ -28,7 +28,7 @@
            (str "\"k" i "\":" i)))
        "}"))
 
-(deftest cheshire-branch-respects-keyword-cap
+(deftest json-parse-caps-unique-keys
   (testing "Cheshire branch caps unique-key cardinality"
     (let [s (big-json 50)]
       ;; Under the cap → success.

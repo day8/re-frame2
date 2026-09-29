@@ -208,35 +208,33 @@
 
 ;; ---- 1c. all three spellings deliver the identical envelope --------------
 
-(deftest three-spellings-deliver-identical-envelope
-  (testing ":reply-to, :on-success, and :on-failure all lower to
-            the same internal reply descriptor: each delivers the identical
-            canonical envelope (appended as the target's last arg)"
-    (let [captured (atom {})]
-      (rf/reg-event :spell/reply-to
-        (fn [{:keys [db]} [_ reply]] {:db (assoc-in db [:spell :reply-to] reply)}))
-      (rf/reg-event :spell/on-success
-        (fn [{:keys [db]} [_ reply]] {:db (assoc-in db [:spell :on-success] reply)}))
-      (rf/reg-event :spell/fire
-        (fn [_ [_ spelling]]
-          {:fx [[:rf.http/managed
-                 (merge {:request {:method :get :url "/spell"}
-                         :decode  :json
-                         :value   {:n 1}}
-                        spelling)]]}))
-      ;; :reply-to (unified) and :on-success both route this canned success.
-      (rf/dispatch-sync [:spell/fire {:reply-to [:spell/reply-to]}]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-      (rf/dispatch-sync [:spell/fire {:on-success [:spell/on-success]}]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-      (let [db (await-reply! #(and (get-in % [:spell :reply-to])
-                                   (get-in % [:spell :on-success])))
-            r1 (get-in db [:spell :reply-to])
-            r2 (get-in db [:spell :on-success])]
-        (reset! captured {:reply-to r1 :on-success r2})
-        (is (= r1 r2) ":reply-to and :on-success deliver the identical envelope")
-        (is (= :ok (:status r1)))
-        (is (= {:n 1} (:value r1)))))))
+(deftest reply-to-and-on-success-deliver-identical-envelope
+  (testing ":reply-to and :on-success lower to the same internal reply
+            descriptor: each delivers the identical canonical envelope
+            (appended as the target's last arg)"
+    (rf/reg-event :spell/reply-to
+      (fn [{:keys [db]} [_ reply]] {:db (assoc-in db [:spell :reply-to] reply)}))
+    (rf/reg-event :spell/on-success
+      (fn [{:keys [db]} [_ reply]] {:db (assoc-in db [:spell :on-success] reply)}))
+    (rf/reg-event :spell/fire
+      (fn [_ [_ spelling]]
+        {:fx [[:rf.http/managed
+               (merge {:request {:method :get :url "/spell"}
+                       :decode  :json
+                       :value   {:n 1}}
+                      spelling)]]}))
+    ;; :reply-to (unified) and :on-success both route this canned success.
+    (rf/dispatch-sync [:spell/fire {:reply-to [:spell/reply-to]}]
+                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+    (rf/dispatch-sync [:spell/fire {:on-success [:spell/on-success]}]
+                      {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+    (let [db (await-reply! #(and (get-in % [:spell :reply-to])
+                                 (get-in % [:spell :on-success])))
+          r1 (get-in db [:spell :reply-to])
+          r2 (get-in db [:spell :on-success])]
+      (is (= r1 r2) ":reply-to and :on-success deliver the identical envelope")
+      (is (= :ok (:status r1)))
+      (is (= {:n 1} (:value r1))))))
 
 ;; ---- 2. canned-failure: explicit on-failure addressing ---------------------
 
@@ -281,21 +279,16 @@
   (rf/dispatch-sync [:j1mo4/load {}]
                     {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}}))
 
-(deftest after-ms-absent-is-immediate
-  (testing "no :after-ms — the canned-success reply lands immediately (the
-            dispatch-sync drain delivers the reply with no timer tick)"
-    (canned-success-reply-event {:value {:n 1}})
-    ;; Immediate path runs inside the dispatch-sync drain — the reply is
-    ;; already present without polling a timer.
-    (is (= {:n 1} (get-in (rf/app-db-value :rf/default) [:j1mo4 :value]))
-        "reply landed synchronously")))
-
-(deftest after-ms-zero-is-immediate
-  (testing ":after-ms 0 (and any non-positive value) is treated as immediate,
-            exactly like an absent :after-ms"
-    (canned-success-reply-event {:value {:n 2} :after-ms 0})
-    (is (= {:n 2} (get-in (rf/app-db-value :rf/default) [:j1mo4 :value]))
-        "reply landed synchronously with :after-ms 0")))
+(deftest after-ms-absent-or-zero-is-immediate
+  (testing "with no :after-ms, or :after-ms 0 (any non-positive value), the
+            canned-success reply lands inside the dispatch-sync drain, with
+            no timer tick to poll for"
+    (doseq [[args value] [[{:value {:n 1}}              {:n 1}]
+                          [{:value {:n 2} :after-ms 0} {:n 2}]]]
+      (testing (pr-str args)
+        (canned-success-reply-event args)
+        (is (= value (get-in (rf/app-db-value :rf/default) [:j1mo4 :value]))
+            "reply landed synchronously")))))
 
 (deftest after-ms-positive-defers-via-dispatch-later
   (testing ":after-ms N defers the canned reply by one :dispatch-later tick —

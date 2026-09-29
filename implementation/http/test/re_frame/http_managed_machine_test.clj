@@ -113,7 +113,7 @@
 
 ;; ---- (1) :spawn + success → parent transitions via :succeeded ------------
 
-(deftest invoke-success-parent-transitions-via-succeeded
+(deftest spawn-success-parent-transitions-via-succeeded
   (testing "parent :spawn {:machine-id :rf.http/managed ...} + 2xx + 2xx body → parent's :on :succeeded fires"
     (let [{:keys [port] :as srv}
           (start-server!
@@ -155,7 +155,7 @@
 
 ;; ---- (2) :spawn + failure → parent transitions via :failed ---------------
 
-(deftest invoke-failure-parent-transitions-via-failed
+(deftest spawn-failure-parent-transitions-via-failed
   (testing "parent :spawn + 4xx → wrapper :failed → parent's :on :failed fires"
     (let [{:keys [port] :as srv}
           (start-server!
@@ -193,7 +193,7 @@
 
 ;; ---- (3) parent destroys child mid-flight → HTTP aborts ------------------
 
-(deftest invoke-cancellation-parent-destroys-mid-flight
+(deftest spawn-cancellation-parent-destroys-mid-flight
   (testing "parent state-exit destroys the wrapper actor, which aborts the in-flight HTTP"
     (let [latch (CountDownLatch. 1)
           srv   (start-blocking-server! latch 200 "application/json" "{}")
@@ -245,7 +245,7 @@
 
 ;; ---- (4) composes with :after — whichever fires first wins ----------------
 
-(deftest invoke-composes-with-after-timeout
+(deftest spawn-composes-with-after-timeout
   (testing "parent state with both :spawn {:machine-id :rf.http/managed} AND :after {ms target} — :after firing cancels the wrapper"
     (let [latch (CountDownLatch. 1)
           srv   (start-blocking-server! latch 200 "application/json" "{}")
