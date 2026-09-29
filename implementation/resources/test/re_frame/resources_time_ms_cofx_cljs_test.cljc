@@ -9,16 +9,20 @@
     `:rf.cofx/requires` so it is DELIVERED FLAT (`(:rf/time-ms coeffects)`)
     under EP-0017 declared-only delivery — never reached through the whole
     `:rf.cofx` token. This suite pins that `handler-meta` exposes the
-    `:rf/time-ms` requirement for each such event, and that the durable
-    time-bearing writes land when the time fact is delivered flat (the
-    runtime stages exactly the declared leaves).
+    `:rf/time-ms` requirement for each such event. The durable time-bearing
+    writes that consume the flat fact are pinned beside each write: the
+    `:loaded-at` / `:stale-at` in the runtime suite, the work-ledger
+    `:started-at` in the work-ledger suite, and `:invalidated-at` in the
+    invalidation suite.
 
     Failure completion time — a FAILED / CANCELLED resource completion is still a
     managed-async completion with a reply token, so its causal completion time
     rides the reply token's `:rf/time-ms` and is carried as `:completed-at`
     onto the canonical reply AND into the terminal work-ledger outcome —
-    symmetric with the success path + with mutation replies. This suite pins
-    that the resource failure / abort paths carry `:completed-at`.
+    symmetric with the success path + with mutation replies. The accepted
+    failure and abort paths are pinned by the work-ledger suite's
+    `failed-settles-record-terminal` / `aborted-settles-record-cancelled`;
+    this suite pins the SUPPRESSED (superseded) failure.
 
   Canonical contract: `spec/009-Instrumentation.md` / `spec/Spec-Schemas.md`
   (the `:rf.cofx/requires` declaration), `spec/016-Resources.md` (the resource
@@ -122,114 +126,9 @@
         (is (contains? requires :rf/time-ms)
             (str event-id " declares the time cofx"))))))
 
-(deftest succeeded-loaded-at-from-flat-time-ms
-  (testing "the success reply handler reads the DELIVERED FLAT
-            `:rf/time-ms` (declared via :rf.cofx/requires) for the durable
-            :loaded-at — scripting the reply token's :rf.cofx :rf/time-ms
-            lands it flat and the durable write picks it up"
-    (rf/reg-resource :tm/article (article-spec) article-spec-request)
-    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :tm/article {:slug "w"})
-          completed-at 1781078400456]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :tm 1]}])
-      (let [wid (:current-work (entry scoped-key))]
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key scoped-key :work/id wid :generation 1
-                            :data {:title "Welcome"}}]
-                          {:rf.cofx {:rf/time-ms completed-at}}))
-      (is (= completed-at (:loaded-at (entry scoped-key)))
-          "durable :loaded-at is the declared-flat causal :rf/time-ms")
-      (is (= (+ completed-at 60000) (:stale-at (entry scoped-key)))
-          ":stale-at is :loaded-at + :stale-after-ms"))))
-
-(deftest started-at-from-flat-time-ms
-  (testing "the ensure handler reads the DELIVERED FLAT
-            `:rf/time-ms` for the durable work-ledger :started-at"
-    (rf/reg-resource :tm/started (article-spec) article-spec-request)
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :tm/started {:slug "w"})
-          started-at 1781000000000]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/started :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :tm 2]}]
-                        {:rf.cofx {:rf/time-ms started-at}})
-      (let [wid (:current-work (entry scoped-key))]
-        (is (= started-at (:started-at (record wid)))
-            "the work-ledger :started-at is the declared-flat causal :rf/time-ms")))))
-
-(deftest invalidate-at-from-flat-time-ms
-  (testing "the invalidate-tags handler reads the DELIVERED FLAT
-            `:rf/time-ms` for the durable :invalidated-at. An OWNERLESS entry
-            is left-stale (an active-owner entry would refetch, transitioning
-            to :fetching — correct framework behaviour, not the fact under
-            test), so the durable :invalidated-at persists and pins the causal
-            time.
-
-            That refetch does not CLEAR :invalidated-at when it
-            starts — only a SUCCESSFUL settle does, so a failed or aborted
-            refetch leaves the invalidation standing. The ownerless setup
-            pins the causal time with no settle in play at
-            all."
-    (rf/reg-resource :tm/inv (article-spec) article-spec-request)
-    (let [scoped-key     (rf.resources.state/scoped-resource-key :rf.scope/global :tm/inv {:slug "w"})
-          loaded-at      1781000000000
-          invalidated-at 1781000099999]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/inv :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :tm 3]}])
-      (let [wid (:current-work (entry scoped-key))]
-        (rf/dispatch-sync [:rf.resource.internal/succeeded
-                           {:resource/key scoped-key :work/id wid :generation 1
-                            :data {:title "Welcome"}}]
-                          {:rf.cofx {:rf/time-ms loaded-at}}))
-      ;; release the owner so the entry is left-stale (not refetched) on invalidate
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :tm 3]}])
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:scope :rf.scope/global :tags #{[:article "w"]}
-                          :cause [:test :inv]}]
-                        {:rf.cofx {:rf/time-ms invalidated-at}})
-      (is (= invalidated-at (:invalidated-at (entry scoped-key)))
-          "durable :invalidated-at is the declared-flat causal :rf/time-ms"))))
-
 ;; ===========================================================================
 ;; failure / cancellation replies carry the causal :completed-at.
 ;; ===========================================================================
-
-(deftest failure-reply-carries-completed-at
-  (testing "a first-load FAILURE settles the work row terminal
-            :failed carrying the reply token's causal :completed-at (delivered
-            flat) alongside the error envelope — symmetric with success"
-    (rf/reg-resource :fail/article (article-spec) article-spec-request)
-    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :fail/article {:slug "w"})
-          completed-at 1781111111111]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :fail/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :fail 1]}])
-      (let [wid (:current-work (entry scoped-key))]
-        (rf/dispatch-sync [:rf.resource.internal/failed
-                           {:resource/key scoped-key :work/id wid :generation 1
-                            :error {:kind :rf.http/http-5xx :status 503}}]
-                          {:rf.cofx {:rf/time-ms completed-at}})
-        (is (= :failed (:status (record wid))))
-        (is (= completed-at (:completed-at (:outcome (record wid))))
-            "the failed terminal outcome carries the causal :completed-at")
-        (is (= {:kind :rf.http/http-5xx :status 503} (:error (:outcome (record wid))))
-            "the error envelope still rides")))))
-
-(deftest abort-reply-carries-completed-at
-  (testing "a CANCELLED completion (an :rf.http/aborted failure
-            reply) settles the work row terminal :cancelled carrying the
-            reply token's causal :completed-at"
-    (rf/reg-resource :ab2/article (article-spec) article-spec-request)
-    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})
-          completed-at 1781222222222]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :ab2/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :ab2 1]}])
-      (let [wid (:current-work (entry scoped-key))]
-        ;; an :rf.http/aborted failure envelope branches into cancellation
-        (rf/dispatch-sync [:rf.resource.internal/failed
-                           {:resource/key scoped-key :work/id wid :generation 1
-                            :error {:kind :rf.http/aborted :reason :actor-destroyed}}]
-                          {:rf.cofx {:rf/time-ms completed-at}})
-        (is (= :cancelled (:status (record wid))))
-        (is (= completed-at (:completed-at (:outcome (record wid))))
-            "the cancelled terminal outcome carries the causal :completed-at")))))
 
 (deftest stale-suppressed-failure-carries-completed-at
   (testing "a SUPPRESSED (superseded) failure reply records the

@@ -249,6 +249,8 @@
   ;; ADVERSARIAL: the second focus signal arrives while the
   ;; first focus's refetch is still in flight. Without coalescing it would
   ;; force a SECOND new generation, superseding + aborting the first (churn).
+  ;; The canonical tab-return is exactly this pair: window focus AND document
+  ;; visibilitychange both lower to :rf.resource/window-focused.
   (rf/reg-resource :co/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
         k (rf.resources.state/scoped-resource-key scope :co/sw {:slug "w"})]
@@ -270,30 +272,6 @@
             (is (= wid-after-1 (:current-work e)) "same in-flight work item")
             (is (= :fetching (:status e)) "still the one in-flight refetch")
             (is (empty? @aborts) "no opportunistic abort fired (no churn)")))))))
-
-(deftest focus-plus-visibility-coalesces-to-one-refetch
-  ;; ADVERSARIAL: the canonical tab-return — focus (window) AND
-  ;; visibilitychange (document) both translate to :rf.resource/window-focused.
-  ;; Exactly one active-stale key MUST produce at most one new generation /
-  ;; work item and no abort churn.
-  (rf/reg-resource :cv/sw (article-spec {:stale-after-ms 0}) article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :cv/sw {:slug "w"})]
-    (ensure! :cv/sw scope "w" [:route :r 1])
-    (succeed! k {:title "W"})
-    (let [gen-before (:generation (entry k))]
-      (reset! aborts [])
-      ;; both host signals lower to the SAME resource event (the listener
-      ;; carries no policy — the handler is the coalescing point)
-      (rf/dispatch-sync [:rf.resource/window-focused]) ;; window focus
-      (rf/dispatch-sync [:rf.resource/window-focused]) ;; document visibilitychange→visible
-      (let [e   (entry k)
-            rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))]
-        (is (= (inc gen-before) (:generation e))
-            "focus+visibility together bumped exactly ONE generation")
-        (is (= :fetching (:status e)) "one in-flight refetch")
-        (is (= :running (:status rec)) "the single work record is still live")
-        (is (empty? @aborts) "no abort churn from the second signal")))))
 
 (deftest coalescing-does-not-block-a-fresh-revalidation
   ;; The in-flight gate must NOT permanently wedge revalidation: once the

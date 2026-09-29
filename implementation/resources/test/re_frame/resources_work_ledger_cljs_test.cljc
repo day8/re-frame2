@@ -493,32 +493,13 @@
 ;; 7. owner release: abort only when no remaining owner needs the work
 ;; ===========================================================================
 
-(deftest release-owner-aborts-only-when-orphaned
-  (rf/reg-resource :ro/article (article-spec) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ro/article {:slug "w"})]
-    ;; two owners on one in-flight attempt (ensure dedupes)
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:route :r 1]}])
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :x 2]}])
-    (let [wid (:current-work (entry scoped-key))]
-      (testing "Spec 016 §Race — releasing ONE of two owners does NOT abort
-                the shared in-flight work (the other owner still needs it)"
-        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
-        (is (not (contains? (set @aborts) (req wid))) "shared request not aborted")
-        (is (= #{[:app :x 2]} (:owners (record wid))) "owner dropped from row")
-        (is (= :running (:status (record wid))) "row still running"))
-      (testing "releasing the LAST owner orphans the attempt → opportunistic
-                abort + :abort-requested row (Spec 016 §Race)"
-        (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 2]}])
-        (is (contains? (set @aborts) (req wid)) "orphaned request best-effort aborted")
-        (is (= :abort-requested (:status (record wid))))))))
-
 (deftest new-attempt-inherits-the-entrys-held-owners
   ;; A NEW attempt (refetch) starts its work row from the
   ;; entry's :active-owners, not from the payload owner alone, so releasing one
   ;; held owner never aborts work another held owner still needs (Spec 016
   ;; §Race). Focus / poll / invalidation / manual refresh all refetch ownerless.
+  ;; The same rule on a FIRST attempt two owners dedupe-joined is
+  ;; `release-owner-does-not-abort-shared-in-flight` in the invalidation suite.
   (rf/reg-resource :ri/article (article-spec) article-spec-request)
   (let [q       {:resource :ri/article :scope :rf.scope/global :params {:slug "w"}}
         k       (rf.resources.state/scoped-resource-key :rf.scope/global :ri/article {:slug "w"})
