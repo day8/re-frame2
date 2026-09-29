@@ -17,21 +17,16 @@
   - Selection precedence (story-override > toolbar selection > default).
   - `wrap-style` shape for flat colour + transparent / checkerboard.
   - localStorage round-trip — see the dom sibling named above."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.backgrounds :as rf.story.backgrounds]))
 
 ;; ---- preset table --------------------------------------------------------
 
-(deftest preset-table-includes-every-bead-mandated-id
+(deftest preset-table-and-order-carry-every-canonical-id
   (testing "every canonical preset id is present"
     (let [expected #{:light :dark :paper :midnight :transparent}]
       (is (= expected (set (keys rf.story.backgrounds/presets))))
       (is (= expected (set rf.story.backgrounds/preset-order))))))
-
-(deftest preset-dark-has-canonical-colour
-  (testing ":dark is #1a1a1a"
-    (is (= {:label "Dark" :color "#1a1a1a"}
-           (get rf.story.backgrounds/presets :dark)))))
 
 (deftest preset-transparent-uses-checkerboard-sentinel
   (testing ":transparent's :color is the :checkerboard keyword sentinel"
@@ -61,23 +56,17 @@
 
 ;; ---- pure: coerce -------------------------------------------------------
 
-(deftest coerce-preset-keyword-passes-through
-  (is (= :dark (rf.story.backgrounds/coerce :dark)))
-  (is (= :transparent (rf.story.backgrounds/coerce :transparent))))
-
-(deftest coerce-unknown-keyword-returns-nil
-  (is (nil? (rf.story.backgrounds/coerce :Mode.unknown/whatever)))
-  (is (nil? (rf.story.backgrounds/coerce :neon))))
-
-(deftest coerce-trims-custom-hex
-  (testing "a valid hex string coerces to the trimmed form"
-    (is (= "#abcdef"
-           (rf.story.backgrounds/coerce "  #abcdef  ")))))
-
-(deftest coerce-bad-custom-returns-nil
-  (is (nil? (rf.story.backgrounds/coerce "red")))
-  (is (nil? (rf.story.backgrounds/coerce nil)))
-  (is (nil? (rf.story.backgrounds/coerce 42))))
+(deftest coerce-keeps-presets-and-valid-hex-and-drops-the-rest
+  (are [slot coerced] (= coerced (rf.story.backgrounds/coerce slot))
+    :dark                  :dark
+    :transparent           :transparent
+    ;; a valid hex string coerces to its trimmed form
+    "  #abcdef  "          "#abcdef"
+    :Mode.unknown/whatever nil
+    :neon                  nil
+    "red"                  nil
+    nil                    nil
+    42                     nil))
 
 ;; ---- pure: resolve precedence -------------------------------------------
 

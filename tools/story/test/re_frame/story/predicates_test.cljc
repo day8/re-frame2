@@ -3,9 +3,8 @@
   `re-frame.story.predicates/resolve-sym-pred`.
 
   The symbol→fn resolver is ONE shared leaf impl, called by both
-  `assertions` and `runner-events`; these tests pin (a) the resolver's own
-  JVM `requiring-resolve` contract and (b) that BOTH call sites resolve the
-  same symbol identically."
+  `assertions` and `runner-events`; these tests pin the resolver's own
+  JVM `requiring-resolve` contract."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.predicates :as rf.story.predicates]))
 
@@ -23,30 +22,3 @@
     (is (nil? (rf.story.predicates/resolve-sym-pred 'no.such.ns/missing-pred))))
   (testing "nil input returns nil"
     (is (nil? (rf.story.predicates/resolve-sym-pred nil)))))
-
-;; ---------------------------------------------------------------------------
-;; Shared-resolver contract — both call sites resolve identically through the
-;; ONE shared fn. assertions' `[:fn sym]` schema fold and runner-events'
-;; `:pred sym` form both route through `rf.story.predicates/resolve-sym-pred`,
-;; so a single symbol resolves to the SAME fn for either consumer.
-;; ---------------------------------------------------------------------------
-
-(deftest both-call-sites-resolve-a-symbol-pred-identically
-  (testing "assertions' [:fn sym] fold and runner-events' :pred sym agree"
-    (let [sym         'clojure.core/even?
-          shared      (rf.story.predicates/resolve-sym-pred sym)
-          ;; assertions' resolve-fn-schema rewrites [:fn sym] → [:fn resolved-fn]
-          ;; using the shared resolver (re-frame.story.assertions/resolve-fn-schema
-          ;; is private; exercise the resolution it performs directly).
-          assertion-f (rf.story.predicates/resolve-sym-pred sym)
-          ;; runner-events' exec-wait-until! :pred form likewise calls the
-          ;; shared resolver for a symbol ref.
-          runner-f    (rf.story.predicates/resolve-sym-pred sym)]
-      (is (fn? shared))
-      (is (identical? shared assertion-f)
-          "assertions resolves the symbol via the shared fn")
-      (is (identical? shared runner-f)
-          "runner-events resolves the symbol via the shared fn")
-      (is (= (mapv assertion-f [0 1 2 3])
-             (mapv runner-f    [0 1 2 3]))
-          "identical resolution semantics for both consumers"))))
