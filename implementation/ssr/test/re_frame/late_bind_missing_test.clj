@@ -77,3 +77,17 @@
                 "ex-data carries :id from the call site")
             (is (= :no-recovery (:recovery data))
                 "ex-data carries :recovery = :no-recovery")))))))
+
+(deftest reg-head-raises-when-ssr-artefact-missing
+  (testing "rf/reg-head (macro) raises :rf.error/ssr-artefact-missing when the :ssr/reg-head hook is nil"
+    (with-hook-as-nil :ssr/reg-head
+      (fn []
+        (let [data (try (rf/reg-head :probe/head (fn [_db _route] {}))
+                        nil
+                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :rf.error/ssr-artefact-missing (:rf.error/id data))
+              "ex-data carries the canonical :rf.error/id discriminator")
+          (is (= 'rf/reg-head (:where data))
+              "ex-data names the user-facing surface")
+          (is (= :probe/head (:id data))
+              "ex-data carries :id from the call site"))))))
