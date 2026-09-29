@@ -723,6 +723,22 @@
            " to " (pr-str recorded-config))
       (str "history recorded " compound " = " (pr-str recorded-config)))))
 
+(defn epoch-window-label
+  "Render a sub-run's `:epoch-window` `[first last]` — the settled epochs a
+  run recorded after its cascade settled may reflect — as the SUBSCRIPTIONS
+  row annotation, so the row does not imply the epoch it is filed under
+  caused it:
+
+    [7 7] → 'recomputed after epoch #7'
+    [5 7] → 'recomputed after epochs #5..#7'
+
+  nil for a row without a window (recorded inside its cascade). Pure-data."
+  [[first-epoch-id last-epoch-id :as epoch-window]]
+  (when epoch-window
+    (if (= first-epoch-id last-epoch-id)
+      (str "recomputed after epoch #" last-epoch-id)
+      (str "recomputed after epochs #" first-epoch-id "..#" last-epoch-id))))
+
 (defn handler-flavour-label
   "Human-readable label for a handler flavour keyword — the HANDLER step's
   verb.

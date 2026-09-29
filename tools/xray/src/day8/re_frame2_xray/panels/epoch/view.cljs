@@ -4922,7 +4922,7 @@
                                               subs-row-style-with-border
                                               subs-row-style)})
       :row-cells
-      (fn [{:keys [sub-id sub-vec inputs cause-event-id] :as row} i]
+      (fn [{:keys [sub-id sub-vec inputs cause-event-id epoch-window] :as row} i]
         [;; sub cell
          [:div {:data-rf-xray-resizable-col "sub"
                 :style subs-cell-id-style}
@@ -4955,7 +4955,16 @@
                    :data-testid (str "rf-xray-epoch-sub-row-cause-event-id-" i)
                    :style subs-cell-cause-event-style}
              [:span "caused by"]
-             (ei/mini cause-event-id 40)])]
+             (ei/mini cause-event-id 40)])
+          ;; A run recorded after its cascade settled is filed under the
+          ;; last-settled epoch, which did not necessarily cause it: name the
+          ;; window of epochs it may reflect instead. OMITTED on a run
+          ;; recorded inside its cascade.
+          (when (some? epoch-window)
+            [:div {:data-rf-xray-subs-epoch-window (pr-str epoch-window)
+                   :data-testid (str "rf-xray-epoch-sub-row-epoch-window-" i)
+                   :style subs-cell-cause-event-style}
+             [:span (fmt/epoch-window-label epoch-window)]])]
          ;; inputs cell
          [:div {:data-rf-xray-resizable-col "inputs"
                 :style subs-cell-inputs-style}
