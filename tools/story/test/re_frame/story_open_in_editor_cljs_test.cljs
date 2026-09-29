@@ -495,10 +495,10 @@
                       :uri (when-let [coord (:source-coord args)]
                              (rf.story.ui.open-in-editor/resolve-uri coord)))))}}))
 
-(deftest open-in-editor-event-emits-fx-with-resolved-uri
+(deftest open-in-editor-event-emits-fx-whose-coord-resolves-to-the-uri
   (testing "dispatching `:rf.story/open-in-editor` with a
-            bare coord produces a `:rf.story.fx/open-in-editor` fx whose :uri is the
-            resolved URI"
+            bare coord produces a `:rf.story.fx/open-in-editor` fx whose
+            `:source-coord` resolves to the vscode:// URI"
     (install-with-capture!)
     (with-frame capture-frame
       (rf/dispatch-sync [:rf.story/open-in-editor
@@ -507,7 +507,7 @@
         "exactly one open-fx fires per dispatch")
     (is (= "vscode://file/src/app/events.cljs:17:3"
            (:uri (first @captured-editor-fx)))
-        "the resolved vscode:// URI rides on the fx args")))
+        "the fx's :source-coord resolves to the vscode:// URI")))
 
 (deftest open-in-editor-event-accepts-wrapped-shape
   (testing "dispatching with `{:source-coord coord}` (the

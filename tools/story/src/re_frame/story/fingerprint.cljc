@@ -509,8 +509,7 @@
 ;;   intentionally NOT discriminated.
 ;;
 ;; Maps sort entries by the canonicalised key's `pr-str`; sets sort
-;; elements by a total comparator (`stable-canon-order` — `pr-str` primary
-;; with a deterministic equal-`pr-str` tiebreak); vectors/seqs keep
+;; elements by their `pr-str` (`stable-canon-order`); vectors/seqs keep
 ;; producer order and recurse. Integer scalars, strings, keywords, symbols,
 ;; booleans, and nil pass through — their `pr-str` is host-identical. Host-
 ;; DIVERGENT numbers (ratios + fractional/special doubles) are normalised to a
@@ -763,34 +762,18 @@
     [map-tag (into [] (mapcat identity) entries)]))
 
 (defn- stable-canon-order
-  "A TOTAL, host-portable comparator over ALREADY-canonical set elements.
-  Primary key is `pr-str`, so an ordinary set of distinct-`pr-str` elements
-  sorts by it directly. The secondary key is the SECOND `pr-str` only when
-  the primaries tie, giving a deterministic tiebreak for two DISTINCT
-  elements that canonicalise to the same `pr-str` (e.g. two
-  `:rf/opaque-fn` sentinels), where a bare `sort-by` would leave their
-  relative order comparator-unstable — a latent hole in the byte-stable
-  claim. Comparing the same string to itself yields 0, which
-  `sort` then orders deterministically, so even a genuine duplicate-`pr-str`
-  pair is stable. The comparison is pure string compare, identical on JVM +
-  CLJS."
+  "A host-portable comparator over ALREADY-canonical set elements: it
+  compares their `pr-str`, a pure string compare identical on JVM + CLJS.
+  Two elements that tie (e.g. two `:rf/opaque-fn` sentinels) render to the
+  same `pr-str`, so their relative order cannot change the canonical bytes
+  a hash is taken over, and no tiebreak is needed."
   [a b]
-  (let [sa (pr-str a)
-        sb (pr-str b)
-        c  (compare sa sb)]
-    (if (zero? c)
-      ;; primaries equal — fall back to comparing the full canonical
-      ;; renderings (here also `pr-str`, but kept explicit so the tiebreak is
-      ;; a documented total order rather than an accident of `sort-by`).
-      (compare sa sb)
-      c)))
+  (compare (pr-str a) (pr-str b)))
 
 (defn- canon-set
-  "Set canon: sort canonicalised elements into a stable vector via the total
-  `stable-canon-order` comparator (`pr-str` primary with a deterministic
-  equal-`pr-str` tiebreak, so two distinct elements sharing a `pr-str`
-  order deterministically), then wrap under the reserved `set-tag` so a
-  set is never byte-identical to a vector / map."
+  "Set canon: sort canonicalised elements into a stable vector by their
+  `pr-str` (`stable-canon-order`), then wrap under the reserved `set-tag`
+  so a set is never byte-identical to a vector / map."
   [s]
   [set-tag (vec (sort stable-canon-order (map -canon s)))])
 
@@ -991,8 +974,7 @@
   exactly these slots so two plans with the same testable/renderable
   content hash equal regardless of derived `:evidence`, attached
   `:explain` debug data, the `:source-chain`, or the carried
-  `:plan-hash` / `:variant/id` identity slots (those are stripped by
-  `canonicalize` as volatile).
+  `:plan-hash` / `:variant/id` identity slots, none of which is listed.
 
   `:world` carries frame config, args, setup, db-seed, render overrides,
   network stubs, fx/interceptor overrides, decorators, and platforms;
@@ -1008,10 +990,10 @@
   `canonical-hash` primitive as `run-hash` — there is no second hash
   implementation.
 
-  Accepts either spelling of the plan map; `canonicalize` reconciles
-  `:variant-id` → `:variant/id` and strips it (and any rider `:plan-hash`)
-  before hashing, so the plan-hash is a pure function of the plan's
-  testable/renderable content."
+  Accepts either spelling of the plan map: the slice keeps only
+  `plan-hash-input-keys`, so `:variant-id` / `:variant/id` (and any rider
+  `:plan-hash`) never reach the hash, and the plan-hash is a pure function
+  of the plan's testable/renderable content."
   [plan]
   (canonical-hash (select-keys plan plan-hash-input-keys)))
 

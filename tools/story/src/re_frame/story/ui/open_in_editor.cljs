@@ -396,8 +396,10 @@
     - `:rf.story/open-in-editor` reg-event — the dispatch shape any
       host panel that wants the trace bus to record the click can fire.
       Accepts either a bare source-coord map or a wrapper
-      `{:source-coord <coord-or-string>}`. The handler resolves the URI
-      and returns `{:fx [[:rf.story.fx/open-in-editor {:uri ...}]]}`.
+      `{:source-coord <coord-or-string>}`. The handler coerces the payload
+      to a coord and returns
+      `{:fx [[:rf.story.fx/open-in-editor {:source-coord coord}]]}`, so the
+      fx can prefer the dev-server endpoint.
 
     - `:rf.story.fx/open-in-editor` reg-fx — the side-effectful
       launcher. Calls `open!` (which re-applies the scheme
@@ -447,8 +449,8 @@
   ;;
   ;; Event handler. Accepts the same coord-shape `coerce-coord`
   ;; recognises (bare map, `{:source-coord ...}` wrapper, or a
-  ;; `"file:line"` display string). Resolves the URI through the
-  ;; denylist seam and routes it to `:rf.story.fx/open-in-editor`.
+  ;; `"file:line"` display string). Coerces it to a coord and routes
+  ;; that to `:rf.story.fx/open-in-editor`.
   (rf/reg-event :rf.story/open-in-editor
     (fn [_ctx [_event-id payload]]
       (let [coord (coerce-coord payload)]
