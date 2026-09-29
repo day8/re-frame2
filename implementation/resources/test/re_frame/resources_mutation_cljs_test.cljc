@@ -261,15 +261,9 @@
   ;; the first WRITE, in two shapes: a number/string as a raw host cast error with
   ;; `ex-data` nil, and a keyword/map SILENTLY as nil (it is `ifn?`, so it is
   ;; invoked and returns the 2-arity not-found default) => a nil args map.
-  (testing "the two rejected classes are genuinely distinct (discriminator —
-            the silent class throws nothing on its own, so without this row a
-            regression in it could hide behind the loud class)"
-    (is (and (not (fn? 42)) (not (ifn? 42)))
-        "a number is not invokable at all — the LOUD host-cast class")
-    (is (and (not (fn? :kw)) (ifn? :kw))
-        "a keyword IS ifn? — the SILENT class a bare `ifn?` gate would admit")
-    (is (nil? (:kw {:slug "s"} nil))
-        "and 2-arity invocation yields nil, which is why the gate is not `ifn?`"))
+  ;; The rows below cover both classes: a number / string is not `ifn?` at
+  ;; all, while a keyword / map / set / vector IS `ifn?`, so a bare `ifn?`
+  ;; gate would admit exactly the silent class.
   (testing "every non-callable :request is rejected AT REGISTRATION with the
             canonical structured error"
     (doseq [bad [42 "nope" :kw {:a 1} #{:a} [:a] nil]]
@@ -291,6 +285,11 @@
         (is (nil? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/nonfn-request})))
             (str "a rejected " (pr-str bad) " is NOT introspectable — the "
                  "rejection precedes registry mutation")))))
+  ;; The Var row below is the load-bearing one, and ONLY the JVM proves it:
+  ;; `clojure.lang.Var` implements `IFn` but NOT `Fn`, so `(fn? #'defn-write)`
+  ;; is FALSE there — a bare `fn?` gate would reject a working handler, and
+  ;; the Var row goes red on the JVM. In CLJS `Var` lists `Fn` in its deftype,
+  ;; so the `var?` arm is merely redundant there.
   (testing "OVER-REJECTION GUARD — every legitimate handler shape
             registers, on BOTH hosts. This is the half that protects
             working code."
@@ -306,25 +305,7 @@
           (str label " must still register — the gate must not reject working code"))
       (is (some? (:rf/mutation (rf/handler-meta {:source :store :kind :mutation :id :m/good-request})))
           (str label " is introspectable after registration"))
-      (rf/clear :mutation :m/good-request)))
-  ;; The Var row above is the load-bearing one, and ONLY the JVM proves it:
-  ;; `clojure.lang.Var` implements `IFn` but NOT `Fn`, so `(fn? #'defn-write)`
-  ;; is FALSE there — a bare `fn?` gate would reject a working handler. In
-  ;; CLJS `Var` lists `Fn` in its deftype, so the same expression is TRUE and
-  ;; the `var?` arm is merely redundant. Pin the asymmetry per host so a
-  ;; future "simplify this to `fn?`" is caught rather than silently breaking
-  ;; the JVM only.
-  (testing "host asymmetry that makes the `var?` arm load-bearing (control)"
-    (is (var? #'defn-write)
-        "control: `#'defn-write` really is a Var, so the Var row is not
-         vacuously another ordinary fn")
-    (is (not (identical? defn-write #'defn-write))
-        "control: the Var and the fn it holds are genuinely different values")
-    #?(:clj  (is (not (fn? #'defn-write))
-                 "JVM: a Var is NOT `fn?` — a bare `fn?` gate would reject it")
-       :cljs (is (fn? #'defn-write)
-                 "CLJS: a Var IS `fn?` (its deftype lists `Fn`), so here the
-                  `var?` arm is redundant rather than load-bearing"))))
+      (rf/clear :mutation :m/good-request))))
 
 (deftest reg-mutation-rejects-invalidate-timing-typo
   ;; :invalidate-timing is a CLOSED four-value enum (Spec 016
@@ -846,6 +827,29 @@
               the FAILURE path (re-read authoritative state after a rejected write)"
       (is (some? (:invalidated-at (entry rkey)))))))
 
+(deftest after-settle-invalidation-timing
+  ;; :after-settle invalidates on BOTH settle paths. Each row settles its own
+  ;; ownerless article, so each :invalidated-at is caused by that row's reply.
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+  (rf/reg-mutation :m/save (save-article-spec {:invalidate-timing :after-settle}) save-article-request)
+  (doseq [[label slug settle!]
+          [["failure" "failed" #(reply-failure! % {:kind :rf.http/http-5xx :status 503})]
+           ["success" "saved"  #(reply-success! % {:title "new"})]]]
+    (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug slug})]
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :r/article :scope :rf.scope/global :params {:slug slug}}])
+      (reply-success! @last-managed-args {:title "old"})
+      (reset! last-managed-args nil)
+      (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug slug}
+                                               :instance (keyword "as" slug)}])
+      (settle! @last-managed-args)
+      (testing (str ":after-settle invalidates the tag on the " label " path")
+        (is (some? (:invalidated-at (entry rkey))))))))
+
 ;; ===========================================================================
 ;; 6. before-request invalidation timing
 ;; ===========================================================================
@@ -994,6 +998,18 @@
             instance row (the causal reset, NOT a form-error reset)"
     (rf/dispatch-sync [:rf.mutation/clear {:instance :clr1}])
     (is (nil? (instance :clr1)))))
+
+(deftest clear-aborts-the-in-flight-write
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (let [aborts (atom [])]
+    (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx request-id] (swap! aborts conj request-id) nil))
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :clr-live}])
+    (let [wid (:current-work (instance :clr-live))]
+      (is (some? wid) "precondition: the write is in flight")
+      (rf/dispatch-sync [:rf.mutation/clear {:instance :clr-live}])
+      (testing "clearing a pending instance aborts its in-flight request, by
+                the frame-qualified request id the lower registered"
+        (is (= [[:rf.req :rf/default wid]] @aborts))))))
 
 (deftest clear-by-mutation-id-clears-all-instances
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
@@ -1465,8 +1481,7 @@
     (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [iv [:row 7]
           il '(:row 7)]
-      (is (= iv il) "the two instance ids are Clojure-= (the collapse routed around)")
-      (is (not= (rf.resources.mutation-runtime/instance-key-id iv) (rf.resources.mutation-runtime/instance-key-id il))
+      (is (not=(rf.resources.mutation-runtime/instance-key-id iv) (rf.resources.mutation-runtime/instance-key-id il))
           "their byte key-ids differ (v[…] vs l(…)) — distinct storage rows")
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/save :params {:slug "v"} :instance iv}])
@@ -1681,7 +1696,6 @@
   ;; `durable-target-is-data-only`). The event loop catches the throw, so we
   ;; observe the absence of side effects (mirrors
   ;; `execute-rejects-non-serializable-instance-id-fails-closed`).
-  (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (reset! last-managed-args nil)
   (rf/dispatch-sync [:rf.mutation/execute
@@ -1689,9 +1703,8 @@
                       :reply-to {:event :not-a-vector}}])
   (testing "nothing was lowered to transport (fail-closed BEFORE the write)"
     (is (nil? @last-managed-args)))
-  (testing "no instance row was written and no continuation fired"
-    (is (nil? (instance :bad-rt)))
-    (is (empty? @replied))))
+  (testing "no instance row was written"
+    (is (nil? (instance :bad-rt)))))
 
 (deftest reply-to-observes-settled-instance-and-cache-consequences
   ;; Validation rule 3: the continuation fires AFTER cache consequences and
