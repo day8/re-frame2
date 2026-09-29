@@ -430,9 +430,11 @@
             The chain runtime records the error and lets
             subsequent :after stages still run (they receive the error-bearing
             context). This pins THAT contract — the handler completed (we see
-            :handler-ran), the throwing :after's id is recorded, and we DID
-            see at least one upstream :after run before the throw."
+            :handler-ran), the throwing :after's id is recorded, every :after
+            ran in reverse order including the one after the throw, and only
+            that later :after saw the recorded error."
     (let [trail (atom [])
+          saw-error (atom {})
           ran-handler? (atom false)
           mk-good (fn [tag]
                     (rf.interceptor/->interceptor*
@@ -442,6 +444,8 @@
                                 ctx)
                       :after  (fn [ctx]
                                 (swap! trail conj [:after tag])
+                                (swap! saw-error assoc tag
+                                       (contains? ctx :rf/interceptor-error))
                                 ctx)))
           mk-bad-after (fn [tag]
                          (rf.interceptor/->interceptor*
@@ -469,10 +473,15 @@
           "the captured error remembers it happened in the :after phase")
       (is (= :boom (get-in final [:rf/interceptor-error :id]))
           "the captured error names the failing interceptor")
-      (is (some #(= [:after :c] %) @trail)
-          ":after stages downstream of the failing one (in reverse order:
-           those reached BEFORE the throw — i.e. :handler's and :c's :after)
-           did execute")))
+      (is (= [[:before :a] [:before :boom] [:before :c]
+              :handler
+              [:after :c] [:after :boom] [:after :a]]
+             @trail)
+          "every :after ran in reverse order — :c's before the throw, and
+           :a's AFTER it: a throwing :after does not end the unwind")
+      (is (= {:c false :a true} @saw-error)
+          ":c's :after ran on a clean context; :a's, reached after the throw,
+           received the error-bearing context")))
 
   (testing "multiple interceptors failing record ALL errors but
             :rf/interceptor-error remains the FIRST.

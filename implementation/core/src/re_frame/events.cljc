@@ -642,18 +642,20 @@
 
 (defn event-handler-meta
   "Build the registrar-shaped handler-meta map for an event handler from a
-  raw `handler-fn`, WITHOUT registering it. Returns the same shape
-  `register-event!` installs: `meta` merged with `:handler-fn` and the
-  `:interceptors` vector carrying the `:rf/event-handler` wrapping
-  interceptor at its tail.
+  raw `handler-fn`, WITHOUT registering it: `meta` merged with `:handler-fn`
+  and the `:interceptors` vector carrying the `:rf/event-handler` wrapping
+  interceptor at its tail — the runnable shape `register-event!` installs.
 
-  The single source of truth for the handler-meta shape,
-  shared by `register-event!` (the registration path) AND the machines
-  lazy-actor-handler resolver (which materialises a spawned actor's
-  handler-meta on demand from its app-db snapshot rather than from a
-  per-instance registrar entry). Factoring the shape here keeps the two
-  paths from drifting — the cascade in `re-frame.router/process-event*`
-  drives whatever this returns, registered or lazily-resolved.
+  It serves the paths that need that shape without a public registration:
+  the machines lazy-actor-handler resolver (which materialises a spawned
+  actor's handler-meta on demand from its app-db snapshot rather than from
+  a per-instance registrar entry), the inline `:reg-event` lowering
+  (`lower-inline-event`), and the framework-standard `:rf/set-db`,
+  install-frame-state and `:rf/settle-flows` descriptors. `register-event!`
+  does NOT call it — it builds the same `:interceptors` chain inline — so a
+  change to the shape here must be made there too. The cascade in
+  `re-frame.router/process-event*` drives whatever it is handed, registered
+  or lazily-resolved.
 
   `meta` is the registration metadata map (for a machine:
   `{:rf/machine? true :rf/machine <spec>}`); `interceptors` is the

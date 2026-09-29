@@ -93,16 +93,16 @@
       (is (= 1 (count @seen))
           "the sibling listener still received the record under prod"))))
 
-;; ---- no handler-meta :sensitive? short-circuit under prod -----------------
+;; ---- an ordinary handler's record fans out under prod ---------------------
 ;;
-;; There is no handler-meta `:sensitive?` annotation. Under prod the
-;; substrate does not short-circuit based on handler-level sensitivity;
-;; per-path elision (via the per-frame `[:rf.runtime/elision]` runtime-db
-;; registry) is the load-bearing privacy surface.
+;; Under prod the one handler-meta key the substrate consults is
+;; `:rf.trace/no-emit?`. Data sensitivity is per-path (the per-frame
+;; `[:rf.runtime/elision]` runtime-db registry), so it redacts values inside
+;; a record rather than suppressing the record.
 
 (deftest event-emit-handler-fires-under-prod
-  (testing "Every handler delivers records to listeners under prod —
-            no handler-meta `:sensitive?` drops records."
+  (testing "An ordinary handler delivers its record, carrying its event
+            payload, to listeners under prod."
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener!
         :prod/recorder

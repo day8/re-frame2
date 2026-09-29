@@ -220,10 +220,12 @@
           ex            (atom ::unset)]
       ;; The handler declares the FLAT nested-leaf id `:random/roll` — the
       ;; key the retired grouped shape `{:random {:roll 4}}` would have to be
-      ;; descended into to satisfy. It is NOT registered as a cofx (no
-      ;; grouped seat has a producer), so declared-only delivery
-      ;; must FAIL CLOSED on it as an unregistered id rather than silently
-      ;; dig `4` out of the grouped sub-map and stage it flat.
+      ;; descended into to satisfy. It is REGISTERED as a provided recordable
+      ;; fact, so delivery passes the registration check and reads the token:
+      ;; the token carries no flat `:random/roll` key, so the fact is absent
+      ;; and declared-only delivery must FAIL CLOSED as missing-required
+      ;; rather than dig `4` out of the grouped sub-map and stage it flat.
+      (rf/reg-cofx :random/roll {:recordable? true :provided? true})
       (rf/reg-event :cofx-test/declares-nested-leaf
         {:rf.cofx/requires [:random/roll]}
         (fn [{:keys [random/roll] :as cofx} _]
@@ -237,13 +239,13 @@
              nil
              (catch #?(:clj clojure.lang.ExceptionInfo
                        :cljs cljs.core/ExceptionInfo) e e)))
-      ;; The declared nested leaf is unregistered → the cascade halts loud
-      ;; with :rf.error/unregistered-cofx; the grouped sub-map was never
-      ;; descended into to satisfy it.
+      ;; The declared nested leaf is absent from the flat token → the cascade
+      ;; halts loud with :rf.error/missing-required-cofx; the grouped sub-map
+      ;; was never descended into to satisfy it.
       (is (some? @ex)
           "a grouped sub-map does NOT silently satisfy a declared nested leaf — it fails loud")
-      (is (= :rf.error/unregistered-cofx (:rf.error/id (ex-data @ex)))
-          "the declared :random/roll is an unregistered id (the grouped shape is not descended into)")
+      (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data @ex)))
+          "the registered :random/roll is absent from the flat token (the grouped shape is not descended into)")
       (is (= :random/roll (:rf.cofx/id (ex-data @ex)))
           ":rf.cofx/id names the declared nested leaf, NOT the grouped owner key")
       ;; And the handler never ran, so neither the nested leaf nor the grouped
@@ -1260,7 +1262,7 @@
     ;;    over a :test frame's :strict).
     (is (= :explicit-live (rf.cofx/resolve-mint-policy :explicit-live :strict))
         "the per-call opt is the most-specific binding point — it wins")
-    (is (= rf.cofx/default-mint-policy (rf.cofx/resolve-mint-policy nil nil))
+    (is (= :live rf.cofx/default-mint-policy)
         "the documented default is :live")))
 
 (deftest test-preset-default-is-strict-does-not-generate

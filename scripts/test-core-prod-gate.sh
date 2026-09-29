@@ -172,8 +172,8 @@ known_red=(
   #    that includes the NEGATIVE ones, which over the dev ring pass for free
   #    under the gate. Check the category's Channel column in Spec 009's
   #    catalogue before guarding anything: `diagnostic` means dev-only by
-  #    design (`:rf.error/effect-map-shape`), `always-on` means there is a
-  #    production witness to be had.
+  #    design (`:rf.error/effect-handler-bad-return`), `always-on` means there
+  #    is a production witness to be had (`:rf.error/effect-map-shape`).
   #
   #    AND THE DEV-ONLY HALF IS NOT ALWAYS A TRACE. `sub-topology-test`'s
   #    is REFLECTION METADATA — `:doc` and the auto-captured `:ns` / `:line`
