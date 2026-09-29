@@ -127,8 +127,6 @@
         (is (not (re-find #">5<" after))
             "the stale value 5 no longer appears — the subscription re-read, not froze")))))
 
-;; ---- Form-2 reg-view SSR --------------------------------------------------
-
 ;; ---- the canonical slim mount under frame-provider -------------------------
 ;;
 ;; `[rf/frame-provider {:frame f} [app]]` is the mount the guides teach and
@@ -178,6 +176,8 @@
           (str "middle child (the subscribing app) present — got: " (pr-str markup)))
       (is (re-find #"<footer>foot</footer>" markup)
           (str "last child present — got: " (pr-str markup))))))
+
+;; ---- Form-2 reg-view SSR --------------------------------------------------
 
 (deftest form2-ssr-deref-reads-live-app-db
   (testing "after [:counter/inc], the Form-2 SSR re-render

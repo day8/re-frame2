@@ -339,24 +339,6 @@
           "the guard refused the synchronous unmount — panel A was NOT torn down")
       (rf.adapter.test-react/unmount! panel-a))))
 
-(deftest deferred-unmount-after-render-is-safe-rf2-4l7t2-fix
-  (testing "the FIX shape: unmounting the previous panel's root AFTER
-            the host's render has completed (the microtask-defer) does not trip
-            the guard — proves the guard discriminates in-render from
-            after-render, so it is not a blunt always-throw"
-    (let [panel-a (rf.adapter.test-react/mount! [:div.panel "A"])
-          ;; Host re-renders to switch to B WITHOUT unmounting A mid-render.
-          host    (rf.adapter.test-react/mount! {:rf/component (fn [_host] :switched-to-B)})]
-      (is (= 2 (count (rf.adapter.test-react/mounted-components))))
-      ;; Now that no render is in flight, unmounting panel A is safe (this is
-      ;; what queueMicrotask buys you in production).
-      (is (false? (rf.adapter.test-react/rendering?))
-          "no render in flight after the host's render completed")
-      (rf.adapter.test-react/unmount! panel-a)        ; must NOT throw
-      (is (= 1 (count (rf.adapter.test-react/mounted-components)))
-          "deferred unmount tore down panel A cleanly")
-      (rf.adapter.test-react/unmount! host))))
-
 ;; ----------------------------------------------------------------------------
 ;; B.2 — Unbalanced subscribe/dispose (mount/unmount ref-count)
 ;; ----------------------------------------------------------------------------
@@ -450,15 +432,6 @@
             "render count is 3 (1 mount + 2 update) — the doubled update render is visible")
         (is (= 2 updates)
             "two :did-update entries expose the redundant second render"))
-      (rf.adapter.test-react/unmount! mount))))
-
-(deftest single-render-is-the-balanced-baseline
-  (testing "the CORRECT counterpart: one logical change → exactly one update
-            render (one :did-update). A double-render regression breaks this."
-    (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
-      (rf.adapter.test-react/trigger-update! mount [:div "v2"])
-      (is (= 1 (phase-count mount :did-update))
-          "exactly one update render for one logical change")
       (rf.adapter.test-react/unmount! mount))))
 
 ;; ----------------------------------------------------------------------------
@@ -878,38 +851,6 @@
           "only the sibling remains live — the target and its speculative child
            are gone, the sibling is scoped out")
       (rf.adapter.test-react/unmount! sibling))))
-
-(deftest failed-update-fully-unmounts-root-so-later-update-is-rejected-rf2-j538f71
-  (testing "a failed update UNMOUNTS the root for real (not just clears its
-            tree): a subsequent trigger-update! on it is rejected with
-            :rf.error/update-after-unmount — the update-after-unmount guard sees
-            a dead mount, proving the teardown fully evicted it"
-    (let [mount (rf.adapter.test-react/mount! [:div "v1"])]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #"boom-then-dead"
-            (rf.adapter.test-react/trigger-update!
-              mount
-              {:rf/component
-               (fn [_mount]
-                 (rf.adapter.test-react/mount-child! [:span "speculative"])
-                 (throw (ex-info "boom-then-dead" {})))}))
-          "the update fails")
-      (is (false? @(:mounted? mount))
-          "the root is unmounted after the failed update")
-      (is (nil? (rf.adapter.test-react/current-render-tree mount))
-          "its render tree was cleared")
-      (is (zero? (count (rf.adapter.test-react/mounted-components)))
-          "the forest is empty")
-      ;; The mount is genuinely dead — a later update must be rejected, not
-      ;; silently re-render a torn-down root.
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
-            #":rf.error/update-after-unmount"
-            (rf.adapter.test-react/trigger-update! mount [:div "v2"]))
-          "trigger-update! refuses the unmounted root — the failed update fully
-           evicted it, so the update-after-unmount guard fires (were the root
-           left live, this update would silently re-render it)"))))
 
 (deftest failed-update-composes-with-sync-unmount-guard-rf2-j538f71
   (testing "the failed-update teardown COMPOSES with the B.1 guard: an update

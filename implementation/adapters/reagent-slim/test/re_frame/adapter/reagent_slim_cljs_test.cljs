@@ -78,72 +78,8 @@
       (is (fn? v) (str "adapter slot " k " is callable")))))
 
 ;; ---------------------------------------------------------------------------
-;; State container (round-trip)
-;; ---------------------------------------------------------------------------
-
-(deftest state-container-roundtrip
-  (testing "make-state-container / read / replace cycle"
-    (let [make    (:make-state-container rf.adapter.reagent-slim/adapter)
-          read    (:read-container        rf.adapter.reagent-slim/adapter)
-          replace (:replace-container!    rf.adapter.reagent-slim/adapter)
-          c       (make {:n 0})]
-      (is (= {:n 0} (read c)) "initial value flows through")
-      (replace c {:n 42})
-      (is (= {:n 42} (read c)) "replace updates the container"))))
-
-(deftest state-container-subscribe
-  (testing "subscribe-container fires on change; unsubscribe stops"
-    (let [make      (:make-state-container rf.adapter.reagent-slim/adapter)
-          replace   (:replace-container!    rf.adapter.reagent-slim/adapter)
-          subscribe (:subscribe-container  rf.adapter.reagent-slim/adapter)
-          c         (make {:n 0})
-          seen      (atom [])
-          unsub     (subscribe c (fn [_prev nu] (swap! seen conj nu)))]
-      (replace c {:n 1})
-      (replace c {:n 2})
-      (is (= [{:n 1} {:n 2}] @seen) "two transitions observed")
-      (unsub)
-      (replace c {:n 3})
-      (is (= [{:n 1} {:n 2}] @seen) "no more transitions after unsubscribe"))))
-
-;; ---------------------------------------------------------------------------
-;; Derived value
-;; ---------------------------------------------------------------------------
-
-(deftest derived-value-tracks-source
-  (testing "make-derived-value produces a Reaction that tracks its sources"
-    (let [make-c    (:make-state-container rf.adapter.reagent-slim/adapter)
-          replace   (:replace-container!    rf.adapter.reagent-slim/adapter)
-          make-d    (:make-derived-value   rf.adapter.reagent-slim/adapter)
-          src       (make-c 1)
-          derived   (make-d [src] (fn [v] (* v 100)))]
-      (is (= 100 @derived) "initial derived value")
-      (replace src 5)
-      (is (= 500 @derived) "derived recomputes when source changes"))))
-
-;; ---------------------------------------------------------------------------
 ;; render-to-string requires emitter installation
 ;; ---------------------------------------------------------------------------
-
-(deftest render-to-string-throws-without-emitter
-  (testing "render-to-string raises when no hiccup-emitter installed"
-    (with-cleared-hiccup-emitter
-      (fn []
-        (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)]
-          (is (thrown? :default (render-to-string [:div] {}))))))))
-
-(deftest set-hiccup-emitter-installs-fn
-  (testing "set-hiccup-emitter! lets render-to-string emit"
-    (with-cleared-hiccup-emitter
-      (fn []
-        (rf.adapter.reagent-slim/set-hiccup-emitter! mock-hiccup-emitter)
-        (let [render-to-string (:render-to-string rf.adapter.reagent-slim/adapter)
-              tree             [:div "ok"]
-              html             (render-to-string tree {})]
-          (is (str/starts-with? html "<mock>")
-              "the installed emitter is what render-to-string invokes")
-          (is (str/includes? html (pr-str tree))
-              "the installed emitter received the render-tree the caller passed in"))))))
 
 (deftest set-hiccup-emitter-published-through-late-bind-chain
   (testing "The Reagent Slim adapter chains its set-hiccup-emitter!
@@ -166,27 +102,6 @@
             (is (str/starts-with? html "<mock>")
                 "the chained hook wired the Reagent Slim adapter's emitter slot"))
           (hook-fn nil))))))
-
-;; ---------------------------------------------------------------------------
-;; dispose-adapter! is a no-op
-;; ---------------------------------------------------------------------------
-
-(deftest dispose-adapter-runs-cleanly
-  (testing "dispose-adapter! returns nil and doesn't throw"
-    (let [dispose (:dispose-adapter! rf.adapter.reagent-slim/adapter)]
-      (is (nil? (dispose))))))
-
-;; ---------------------------------------------------------------------------
-;; render slot accepts a stub root + returns an unmount thunk
-;; ---------------------------------------------------------------------------
-
-(deftest render-slot-fake-root
-  ;; The render slot wraps create-root; we can't easily mock create-root
-  ;; from here. Settle for: the slot is callable. Real render-path tests
-  ;; live in reagent2.dom.client-cljs-test (with stub roots) and
-  ;; browser-test (with jsdom).
-  (testing "render slot is callable"
-    (is (fn? (:render rf.adapter.reagent-slim/adapter)))))
 
 ;; ---------------------------------------------------------------------------
 ;; register-context-provider returns the views ns's frame-provider

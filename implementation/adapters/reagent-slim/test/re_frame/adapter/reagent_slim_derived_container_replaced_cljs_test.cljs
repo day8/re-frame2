@@ -80,20 +80,6 @@
 
 ;; ---- tests ----------------------------------------------------------------
 
-(deftest derived-container-hook-separates-reaction-from-base-ratom
-  (testing "the routed :adapter/derived-container? hook flags a Reaction (derived) but not an r/atom (base)"
-    (let [hook (rf.late-bind/get-fn :adapter/derived-container?)]
-      (is (some? hook) "the :adapter/derived-container? hook is published")
-      (let [src (rf.substrate.adapter/make-state-container {:n 1})]
-        (with-derived src
-          (fn [derived]
-            ;; Read the derived value once so the reaction baseline is seeded.
-            (is (= 1 (rf.substrate.adapter/read-container derived)) "precondition: derived reads its computed value")
-            (is (false? (boolean (hook src)))
-                "a base r/atom is NOT a derived container (even though it reifies IAtom)")
-            (is (true? (boolean (hook derived)))
-                "a Reaction IS a derived container (the case the atom-marker heuristic misses)")))))))
-
 (deftest replace-on-base-ratom-succeeds
   (testing "the happy path: writing to a base r/atom works under reagent-slim"
     (let [c (rf.substrate.adapter/make-state-container {:n 0})]

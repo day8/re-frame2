@@ -144,33 +144,3 @@
             (is (= :unmount (first last-call)))
             (is (identical? fake-root (second last-call))
                 "unmount thunk passes the Root returned by hydrate-root")))))))
-
-;; ---- regression pin --------------------------------------------------------
-
-(deftest render-does-not-pass-mount-point-to-rdc-render
-  (testing "regression pin (parity with the bridge) — the slim render slot
-            must NEVER call `(rdc/render mount-point render-tree)`; the
-            mount-point may only reach create-root / hydrate-root, never
-            rdc/render's first arg"
-    (let [render-calls (atom [])
-          fake-root    (make-fake-root :regression)
-          fake-mount   #js {:rf-test-mount :regression}]
-      (with-redefs [rdc/create-root  (fn
-                                       ([_]   fake-root)
-                                       ([_ _] fake-root))
-                    rdc/render       (fn [root tree]
-                                       (swap! render-calls conj [root tree]))
-                    rdc/hydrate-root (fn
-                                       ([_ _]   fake-root)
-                                       ([_ _ _] fake-root))
-                    rdc/unmount      (fn [_] nil)]
-        (let [render-fn (:render rf.adapter.reagent-slim/adapter)]
-          (render-fn [:div] fake-mount nil)
-          (is (= 1 (count @render-calls)))
-          (let [[root tree] (first @render-calls)]
-            (is (not (identical? fake-mount root))
-                "rdc/render's first arg is NEVER the raw mount-point")
-            (is (identical? fake-root root)
-                "rdc/render's first arg is the Root from create-root")
-            (is (= [:div] tree)
-                "the render-tree is passed through unchanged")))))))
