@@ -1503,32 +1503,26 @@
                            shared-size-axis-keys)]
     (merge opts floor (select-keys opts shared-size-axis-keys))))
 
-(defn- project-payload-slot
-  "Project one payload slot through `project-egress` under the egress
-  profile selected by `opts` (default `:rf.egress/off-box-observability`),
-  rooted at the named frame.
-  Off-box defaults (`:rf.egress/include-sensitive? false`, `:rf.egress/include-large? false`)
-  hold unless `opts` opts back in. The epoch record is not a
-  `:rf.observe/*` record kind, so the slot VALUE is projected as a kindless
-  tree (the direct-read path → `elide-wire-value` against the frame's
-  classification). Returns the projected value; `nil` slots are preserved
-  as nil (halted records may have nil app-db slots; the projection
-  MUST NOT fabricate a value)."
-  [payload frame-id opts]
-  (when (some? payload)
-    (rf.projection/project-egress payload (egress-opts frame-id opts))))
+(defn- recorded-registry
+  "The elision registry a recorded frame-state carries in its runtime-db
+  partition (`:rf.runtime/elision`): the classification that governed both of
+  its partitions when it was recorded. Nil for a nil frame-state."
+  [frame-state]
+  (get-in frame-state [:rf.db/runtime :rf.runtime/elision]))
 
 (defn- redact-by-recorded-registry
-  "Redact a recorded runtime-db partition at the claims its OWN elision registry
-  (`:rf.runtime/elision`) carried when it was recorded.
+  "Redact `v`, a recorded app-db or runtime-db value, at the claims `registry`
+  (the elision registry recorded with it) carried.
 
-  The live walk classifies by the frame's registry as it stands NOW, and an
-  owner's teardown drops its claims from that registry — destroying a machine
-  actor drops the `:sensitive` / `:large` paths lowered for its snapshot — while
-  an older frame-state still holds the snapshot those claims governed. The
-  recorded registry travels inside the partition it classified, so a historic
-  value keeps its classification without the live registry retaining a dead
-  owner's entries, and the in-process record stays raw.
+  The live walk classifies by the frame's registry as it stands NOW, and
+  removing an owner drops its claims from that registry — destroying a machine
+  actor drops the paths lowered for its snapshot, clearing a flow drops those
+  on its output, a declassifying event effect drops its own — while older
+  records still hold the values those claims governed. A record projects under
+  the classification that applied when it was recorded, and the registry
+  travels inside the recorded frame-state, so a historic value keeps its
+  classification without the live registry retaining a dead owner's entries,
+  and the in-process record stays raw.
 
   Runs BEFORE the live walk: every recorded `:sensitive` claim becomes the
   sentinel, so a live large marker is never sized over a secret the live
@@ -1536,15 +1530,31 @@
   longer carries becomes a marker (one it still carries is marked by the live
   walk, which passes a marker through). Each axis honours its
   `:rf.egress/include-*` opt-in."
-  [runtime-db frame-id {:rf.egress/keys [include-sensitive? include-large?]}]
-  (let [recorded  (:rf.runtime/elision runtime-db)
-        sensitive (when-not include-sensitive?
-                    (keys (:sensitive-declarations recorded)))
+  [v registry frame-id {:rf.egress/keys [include-sensitive? include-large?]}]
+  (let [sensitive (when-not include-sensitive?
+                    (keys (:sensitive-declarations registry)))
         large     (when-not include-large?
                     (remove (rf.elision/declarations frame-id)
-                            (keys (:declarations recorded))))]
-    (rf.classification/redact-with-paths runtime-db sensitive large
-                                         {:index-free? true})))
+                            (keys (:declarations registry))))]
+    (rf.classification/redact-with-paths v sensitive large {:index-free? true})))
+
+(defn- project-payload-slot
+  "Project one app-db payload slot (`:db-before` / `:db-after`) through
+  `project-egress` under the egress profile selected by `opts` (default
+  `:rf.egress/off-box-observability`), rooted at the named frame, after
+  `redact-by-recorded-registry` has applied `registry`, the elision registry
+  recorded with the payload.
+  Off-box defaults (`:rf.egress/include-sensitive? false`, `:rf.egress/include-large? false`)
+  hold unless `opts` opts back in. The epoch record is not a
+  `:rf.observe/*` record kind, so the slot VALUE is projected as a kindless
+  tree (the direct-read path → `elide-wire-value` against the frame's
+  classification). Returns the projected value; `nil` slots are preserved
+  as nil (halted records may have nil app-db slots; the projection
+  MUST NOT fabricate a value)."
+  [payload registry frame-id opts]
+  (when (some? payload)
+    (rf.projection/project-egress (redact-by-recorded-registry payload registry frame-id opts)
+                                  (egress-opts frame-id opts))))
 
 (defn- project-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
@@ -1569,29 +1579,31 @@
       genuinely needs runtime-db diagnostics opts in explicitly with
       `:rf.egress/include-runtime-db? true`; the runtime-db value is then projected
       through the same frame/profile walk (its own per-slot sensitive /
-      large declarations still apply) rather than redacted whole, after
-      `redact-by-recorded-registry` has applied the claims the partition's
-      own recorded registry carried.
+      large declarations still apply) rather than redacted whole.
+
+  Each walked partition first takes `redact-by-recorded-registry` with
+  `registry`, the one this frame-state recorded (nil under an explicit frame
+  override — see `project-record-slots`).
 
   Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
   the projection MUST NOT fabricate a value)."
-  [frame-state frame-id {:rf.egress/keys [include-runtime-db?] :as opts}]
+  [frame-state registry frame-id {:rf.egress/keys [include-runtime-db?] :as opts}]
   (when (some? frame-state)
-    (cond-> frame-state
-      (contains? frame-state :rf.db/app)
-      (update :rf.db/app rf.projection/project-egress (egress-opts frame-id opts))
-      ;; Default-redact runtime-db off-box. The
-      ;; trusted-local `:rf.egress/include-runtime-db? true` opt-in lifts the
-      ;; partition redaction; the value still rides the value walk so its
-      ;; own sensitive / large declarations apply.
-      (and (contains? frame-state :rf.db/runtime) (not include-runtime-db?))
-      (assoc :rf.db/runtime :rf/redacted)
+    (let [project  #(rf.projection/project-egress
+                      (redact-by-recorded-registry % registry frame-id opts)
+                      (egress-opts frame-id opts))]
+      (cond-> frame-state
+        (contains? frame-state :rf.db/app)
+        (update :rf.db/app project)
+        ;; Default-redact runtime-db off-box. The
+        ;; trusted-local `:rf.egress/include-runtime-db? true` opt-in lifts the
+        ;; partition redaction; the value still rides the value walk so its
+        ;; own sensitive / large declarations apply.
+        (and (contains? frame-state :rf.db/runtime) (not include-runtime-db?))
+        (assoc :rf.db/runtime :rf/redacted)
 
-      (and (contains? frame-state :rf.db/runtime) include-runtime-db?)
-      (update :rf.db/runtime
-              #(rf.projection/project-egress
-                 (redact-by-recorded-registry % frame-id opts)
-                 (egress-opts frame-id opts))))))
+        (and (contains? frame-state :rf.db/runtime) include-runtime-db?)
+        (update :rf.db/runtime project)))))
 
 (defn- reroot-trace-event-db-slots
   "The `:rf.event/db-pending` (t1) and
@@ -2471,25 +2483,35 @@
   the same floor, idempotently) or reads it off this map by key presence. The
   three epoch-only axes are deliberately NOT touched: no profile speaks to
   them, and `:rf.egress/local-raw` is a statement about app-db sensitivity and
-  token budget, not about effect args or the runtime-db partition."
+  token budget, not about effect args or the runtime-db partition.
+
+  Each frame-state slot, and the app-db slot taken from it, also keeps the
+  classification its recorded registry carried (`redact-by-recorded-registry`).
+  That registry is the record's OWN frame's classification, so it applies when
+  the record projects under its own frame; an explicit `:frame` override is the
+  caller's deliberate reclassification, under which the named frame's live
+  classification governs alone."
   [record frame-id opts]
   ;; ONE resolution of the shared size axes for the whole record — see the
   ;; docstring above and `resolve-shared-size-axes`.
-  (let [opts (resolve-shared-size-axes opts)]
+  (let [opts            (resolve-shared-size-axes opts)
+        own-frame?      (= frame-id (:frame record))
+        registry-before (when own-frame? (recorded-registry (:frame-state-before record)))
+        registry-after  (when own-frame? (recorded-registry (:frame-state-after record)))]
     (cond-> record
       ;; Whole-frame slots project app-db and redact runtime-db
       ;; unless the corresponding trusted-local opts lift them.
       (contains? record :frame-state-before)
-      (update :frame-state-before project-frame-state-slot frame-id opts)
+      (update :frame-state-before project-frame-state-slot registry-before frame-id opts)
 
       (contains? record :frame-state-after)
-      (update :frame-state-after project-frame-state-slot frame-id opts)
+      (update :frame-state-after project-frame-state-slot registry-after frame-id opts)
 
       (contains? record :db-before)
-      (update :db-before project-payload-slot frame-id opts)
+      (update :db-before project-payload-slot registry-before frame-id opts)
 
       (contains? record :db-after)
-      (update :db-after project-payload-slot frame-id opts)
+      (update :db-after project-payload-slot registry-after frame-id opts)
 
       ;; Trigger args are not app-db-rooted and fail closed.
       (contains? record :trigger-event)
