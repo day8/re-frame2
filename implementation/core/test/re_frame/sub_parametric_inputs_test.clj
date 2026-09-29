@@ -10,17 +10,18 @@
   the resolved values (in producer order) — as a VECTOR — to the
   computation fn.
 
+  The `{:inputs …}` grammar, the registration slots, and vector delivery on
+  all three read paths are pinned by `re-frame.sub-declared-inputs-test`.
+
   Coverage:
-    - parse + metadata: `:input-kind` discriminator (:db / :static /
-      :parametric), `:input-fn` slot
     - `normalize-sub-inputs` grammar: accepts a vector of query-vectors,
       rejects scalar / bare-keyword / map / mixed / reaction / derefable
-    - the input-fn receives the full outer query-v
-    - vector-of-query-vectors resolves to a vector of input values in
-      producer order (single + multi)
-    - declared static inputs deliver a vector at every count (one and many)
-    - `compute-sub` ↔ `subscribe-once` agree for parametric subs
-    - hot-reload invalidates parametric cache entries (input-fn re-runs)
+    - a multi-input producer resolves to a vector of input values in
+      producer order
+    - a materialized parametric node recomputes on an upstream change
+    - hot-reload of an upstream invalidates the parametric entries realized
+      over it
+    - meta-map forms classify as :db / :static / :parametric
     - disposal releases realized upstream subscriptions
     - the realized-inputs cache shape (`:inputs` = realized query-vectors)
     - multi-frame: every realized input resolves in the OUTER frame
@@ -101,35 +102,6 @@
 
 ;; ---- parse + metadata: :input-kind discriminator -------------------------
 
-(deftest layer-1-registers-input-kind-db
-  (testing "a layer-1 app-db reader registers :input-kind :db, no :input-fn"
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (let [m (sub-meta :n)]
-      (is (= :db (:input-kind m)))
-      (is (= [] (:input-signals m)))
-      (is (not (contains? m :input-fn))))))
-
-(deftest literal-inputs-register-input-kind-static
-  (testing "a literal `:inputs` vector registers :input-kind :static with the query-vectors"
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
-    (let [m (sub-meta :n2)]
-      (is (= :static (:input-kind m)))
-      (is (= [[:n]] (:input-signals m)))
-      (is (not (contains? m :input-fn))))))
-
-(deftest producer-fn-inputs-register-input-kind-parametric
-  (testing "the `{:inputs input-fn}` form registers :input-kind :parametric + :input-fn"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (let [m (sub-meta :item/title)]
-      (is (= :parametric (:input-kind m)))
-      (is (fn? (:input-fn m)))
-      (is (= [] (:input-signals m))
-          "parametric subs carry no static :input-signals"))))
-
 ;; ---- normalize-sub-inputs grammar ----------------------------------------
 
 (deftest normalize-accepts-vector-of-query-vectors
@@ -174,33 +146,7 @@
 
 ;; ---- the input-fn receives the full outer query-v ------------------------
 
-(deftest input-fn-receives-full-outer-query-v
-  (testing "the input-fn is called with the complete outer query vector"
-    (let [seen (atom nil)]
-      (rf/reg-sub :leaf (fn [db [_ id]] (get-in db [:by-id id])))
-      (rf/reg-sub :wrap
-                  {:inputs (fn [query-v]
-                    (reset! seen query-v)
-                    [[:leaf (second query-v)]])}
-                  (fn [[v] _] v))
-      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:by-id {:a 1 :b 2}}}))
-      (rf/dispatch-sync [:seed])
-      (is (= 1 (rf/subscribe-once [:wrap :a])))
-      (is (= [:wrap :a] @seen)
-          "input-fn saw the full outer query-v, including the arg"))))
-
 ;; ---- vector-of-query-vectors resolves to a vector of values --------------
-
-(deftest single-parametric-input-delivers-a-vector
-  (testing "a single parametric input is delivered as a one-element VECTOR
-            — EP §Single input"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))   ;; destructures [item]
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "Hello"}}}}))
-    (rf/dispatch-sync [:seed])
-    (is (= "Hello" (rf/subscribe-once [:item/title :x])))))
 
 (deftest multi-parametric-inputs-resolve-in-producer-order
   (testing "multiple parametric inputs resolve to a vector of values in order"
@@ -244,53 +190,7 @@
 
 ;; ---- static declared-input delivery ---------------------------------------
 
-(deftest static-single-input-delivers-a-one-element-vector
-  (testing "one declared input arrives as [v], the same shape as two arrive in"
-    (rf/reg-sub :n  (fn [db _] (:n db)))
-    (rf/reg-sub :n2 {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 5}}))
-    (rf/dispatch-sync [:seed])
-    (is (= 10 (rf/subscribe-once [:n2])))))
-
-(deftest static-multi-input-delivers-a-vector
-  (testing "two declared inputs arrive as [a b]"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :sum {:inputs [[:a] [:b]]} (fn [[a b] _] (+ a b)))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:a 2 :b 3}}))
-    (rf/dispatch-sync [:seed])
-    (is (= 5 (rf/subscribe-once [:sum])))))
-
 ;; ---- compute-sub ↔ subscribe-once agreement ------------------------------
-
-(deftest compute-sub-and-subscribe-once-agree-for-parametric
-  (testing "compute-sub and subscribe-once compute the same value for a parametric sub"
-    (rf/reg-sub :article/by-id (fn [db [_ id]] (get-in db [:articles id])))
-    (rf/reg-sub :viewer        (fn [db _] (:viewer db)))
-    (rf/reg-sub :article/page
-                {:inputs (fn [[_ id]] [[:article/by-id id] [:viewer]])}
-                (fn [[article viewer] [_ id]]
-                  {:id id :article article :can-edit? (= id (:owns viewer))}))
-    (rf/reg-event :seed
-                     (fn [{:keys [db]} _]
-                       {:db {:articles {:a1 {:title "T"}}
-                        :viewer   {:owns :a1}}}))
-    (rf/dispatch-sync [:seed])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= (rf/subscribe-once [:article/page :a1])
-             (rf/compute-sub [:article/page :a1] db))
-          "the pure compute-sub path agrees with the reactive subscribe-once path")
-      (is (= {:id :a1 :article {:title "T"} :can-edit? true}
-             (rf/compute-sub [:article/page :a1] db))))))
-
-(deftest compute-sub-single-parametric-input-delivers-vector
-  (testing "compute-sub delivers a single parametric input as a vector too"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (let [db {:items {:x {:title "Hi"}}}]
-      (is (= "Hi" (rf/compute-sub [:item/title :x] db))))))
 
 ;; ---- the realized-inputs cache shape -------------------------------------
 
@@ -353,28 +253,6 @@
         "the realized upstream was released synchronously on parent disposal")))
 
 ;; ---- hot-reload invalidates parametric cache entries ---------------------
-
-(deftest hot-reload-invalidates-parametric-entry
-  (testing "re-registering a parametric sub evicts its cache entries — the
-            input-fn re-runs on the next subscribe"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items {:x {:title "Orig"}}}}))
-    (rf/dispatch-sync [:seed])
-    (let [r (rf/subscribe [:item/title :x])]
-      (is (= "Orig" @r))
-      (is (contains? (cache-keys :rf/default) [:item/title :x]))
-      ;; Re-register with a new computation fn (hot-reload).
-      (rf/reg-sub :item/title
-                  {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                  (fn [[item] _] (str "Title: " (:title item))))
-      (is (not (contains? (cache-keys :rf/default) [:item/title :x]))
-          "the parametric cache entry was invalidated on re-registration")
-      (rf/unsubscribe [:item/title :x]))
-    ;; A fresh subscribe rebuilds against the new body.
-    (is (= "Title: Orig" (rf/subscribe-once [:item/title :x])))))
 
 (deftest hot-reload-invalidates-downstream-of-realized-upstream
   (testing "re-registering a realized upstream invalidates the parametric

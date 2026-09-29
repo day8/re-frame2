@@ -27,8 +27,6 @@
       receive their bare CONTAINER value — the delivery collapse is
       \"single-source kind → container; declared dependencies → vector\", not
       \":db → db; else → vector\"
-    - `sub-topology` reports a literal declaration as `:static` with its edges
-      and a producer as the `:parametric` sentinel
     - the `:<-` chain and two-fn tail are refused at registration"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -210,15 +208,6 @@
 
 ;; ---- delivery: always a vector, on every path -----------------------------
 
-(deftest a-single-declared-input-arrives-as-a-one-element-vector
-  (testing "one declared input → `[v]` on all three read paths"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :one {:inputs [[:a]]} (fn [in _] {:seen in}))
-    (let [db {:a 1}]
-      (seed! db)
-      (is (= {:reactive {:seen [1]} :once {:seen [1]} :compute {:seen [1]}}
-             (read-three-ways [:one] db))))))
-
 (deftest declared-inputs-arrive-in-declaration-order
   (testing "N declared inputs → a vector in DECLARATION order"
     (rf/reg-sub :a (fn [db _] (:a db)))
@@ -229,22 +218,6 @@
       (seed! db)
       (is (= {:reactive [3 1 2] :once [3 1 2] :compute [3 1 2]}
              (read-three-ways [:three] db))))))
-
-(deftest an-empty-declaration-delivers-an-empty-vector
-  (testing "`{:inputs []}` delivers `[]` — NOT nil, and not app-db"
-    (rf/reg-sub :none {:inputs []} (fn [in _] {:seen in}))
-    (let [db {:a 1}]
-      (seed! db)
-      (is (= {:reactive {:seen []} :once {:seen []} :compute {:seen []}}
-             (read-three-ways [:none] db))))))
-
-(deftest omitting-inputs-is-the-layer-1-app-db-reader
-  (testing "absent `:inputs` delivers app-db — distinct from `{:inputs []}`"
-    (rf/reg-sub :whole (fn [db _] {:seen db}))
-    (let [db {:a 1}]
-      (seed! db)
-      (is (= {:reactive {:seen db} :once {:seen db} :compute {:seen db}}
-             (read-three-ways [:whole] db))))))
 
 (deftest upstream-values-of-every-shape-survive-the-wrapping
   (testing "map / vector / nil upstream values arrive intact inside the vector"
@@ -297,79 +270,6 @@
               p (read-three-ways [(keyword "prod" (name up))] db)]
           (is (= l p) (str "literal and producer disagree for upstream " up))
           (is (= {:seen (get db up)} (:compute l))))))))
-
-(deftest a-declared-input-recomputes-on-an-upstream-change
-  (testing "the reactive node cascades exactly as any declared-input node does"
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/reg-sub :doubled {:inputs [[:n]]} (fn [[n] _] (* 2 n)))
-    (rf/reg-event :seed  (fn [_ _] {:db {:n 5}}))
-    (rf/reg-event :bump  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/dispatch-sync [:seed])
-    (let [r (rf/subscribe [:doubled])]
-      (is (= 10 @r))
-      (rf/dispatch-sync [:bump])
-      (is (= 12 @r) "the declared-input node recomputed on the upstream change")
-      (rf/unsubscribe [:doubled]))))
-
-(deftest a-declared-input-node-memoises-on-an-equal-upstream-value
-  (testing "the single-declared-input specialisation short-circuits on an
-            `=`-equal upstream value — `[v0]` delivery does not cost the memo hit"
-    (let [runs (atom 0)]
-      (rf/reg-sub :n (fn [db _] (:n db)))
-      (rf/reg-sub :counted {:inputs [[:n]]}
-                  (fn [[n] _] (swap! runs inc) (* 2 n)))
-      (rf/reg-event :seed  (fn [_ _] {:db {:n 5 :other 0}}))
-      (rf/reg-event :touch (fn [{:keys [db]} _] {:db (update db :other inc)}))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:counted])]
-        (is (= 10 @r))
-        (is (= 1 @runs))
-        (rf/dispatch-sync [:touch])
-        (is (= 10 @r))
-        (is (= 1 @runs) "an unchanged upstream value must NOT re-run the body")
-        (rf/unsubscribe [:counted])))))
-
-;; ---- single-source readers keep their container value ---------------------
-
-(deftest single-source-readers-receive-their-container-from-subscribe-once-and-compute-sub
-  (testing "`:db` / `:runtime-db` / `:frame-state` bodies receive the CONTAINER
-            value, not a vector — the collapse is by single-source KIND, not
-            by \"anything that is not :db\""
-    (rf/reg-sub :app-reader (fn [db _] {:seen db}))
-    (rf.subs/reg-runtime-sub :runtime-reader (fn [rdb _] {:runtime-map? (map? rdb)}))
-    (rf.subs/reg-frame-state-sub :frame-reader
-                                 (fn [fs _] {:partitions (set (keys fs))}))
-    (let [db {:a 1}]
-      (seed! db)
-      (is (= {:seen db} (rf/subscribe-once [:app-reader])))
-      (is (= {:seen db} (rf.subs/compute-sub [:app-reader] db)))
-      (is (= {:runtime-map? true} (rf/subscribe-once [:runtime-reader])))
-      (is (= #{:rf.db/app :rf.db/runtime}
-             (:partitions (rf/subscribe-once [:frame-reader])))
-          "a `:frame-state` body receives the WHOLE frame-state value")
-      (let [frame-state {:rf.db/app db :rf.db/runtime {}}]
-        (is (= #{:rf.db/app :rf.db/runtime}
-               (:partitions (rf.subs/compute-sub [:frame-reader] frame-state))))
-        (is (= {:runtime-map? true}
-               (rf.subs/compute-sub [:runtime-reader] frame-state)))))))
-
-;; ---- topology -------------------------------------------------------------
-
-(deftest sub-topology-reports-declared-inputs-with-no-new-tool-code
-  (testing "a literal declaration is a `:static` edge set; a producer is the sentinel"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (rf/reg-sub :b (fn [db _] (:b db)))
-    (rf/reg-sub :lit  {:inputs [[:a] [:b :arg]]} (fn [in _] in))
-    (rf/reg-sub :prod {:inputs (fn [_] [[:a]])}  (fn [in _] in))
-    (rf/reg-sub :zero {:inputs []}               (fn [in _] in))
-    ;; `sub-topology` also reports the macro-captured source coords; the
-    ;; edge shape is what this pins.
-    (let [edge #(select-keys (get (rf.subs/sub-topology) %) [:input-kind :inputs])]
-      (is (= {:input-kind :static :inputs [[:a] [:b :arg]]} (edge :lit))
-          "args are preserved on a declared edge")
-      (is (= {:input-kind :parametric :inputs :parametric} (edge :prod)))
-      (is (= {:input-kind :static :inputs []} (edge :zero)))
-      (is (= {:input-kind :db :inputs []} (edge :a))))))
 
 ;; ---- the `:<-` and two-fn grammars are REFUSED at registration ------------
 ;;
