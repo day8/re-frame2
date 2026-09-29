@@ -152,7 +152,6 @@
   count. A confident wrong number is worse than a stated silence."
   (:require [clojure.string :as str]
             [re-frame.migration.fresco.rewrite :as rf.migration.fresco.rewrite]
-            [rewrite-clj.node :as n]
             [rewrite-clj.parser :as p]
             [rewrite-clj.zip :as z]))
 
