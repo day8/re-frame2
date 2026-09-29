@@ -6,13 +6,18 @@ time.
 ## Step 0 — turn managed HTTP on
 
 Managed HTTP ships in its own artefact, `day8/re-frame2-http`. Add the dep, then
-require `re-frame.http.managed` once at boot:
+require `re-frame.http.managed` once, in the namespace that holds your handlers:
 
 ```clojure
-(ns app.boot
+;; src/app/article.cljc
+(ns app.article
   (:require [re-frame.core :as rf]
             [re-frame.http.managed]))   ;; registers :rf.http/managed and family
 ```
+
+Every snippet below goes in this namespace. The file is `.cljc`, so the test in
+[Step 6](#step-6--test-it-without-a-network) can load it on the JVM, which never
+loads a `.cljs` file.
 
 Forget the require and the first `[:rf.http/managed …]` fails loud with
 `:rf.error/no-such-fx` (the fx was never registered).
@@ -183,11 +188,17 @@ Give the request a stable `:request-id`. Issuing a new request with the same id 
 The request goes out as data and the reply comes back as data, so a test needs no HTTP server and no mock library. Stub the route, dispatch, assert on app-db:
 
 ```clojure
+;; test/app/article_test.clj
 (ns app.article-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.test-support :as http-test-support]   ;; test-only: canned replies + stubs
+            [re-frame.substrate.plain-atom :as plain-atom]       ;; the headless JVM adapter
+            [re-frame.test-support :as ts]
             [app.article]))                ;; loads the registrations
+
+;; Installs the adapter every frame needs, and resets the runtime around each test.
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (deftest article-loads
   (rf/with-new-frame [f (rf/make-frame {})]
