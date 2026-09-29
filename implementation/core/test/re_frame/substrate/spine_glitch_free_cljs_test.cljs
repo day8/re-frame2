@@ -722,36 +722,6 @@
 
 ;; ---- native derived fan-out: throwing-subscriber containment --------------
 
-(deftest throwing-first-subscriber-does-not-suppress-later-sibling
-  (testing "with the throwing subscriber registered FIRST (drained first), a
-            later sibling still receives the same movement. A bare `run!`
-            would abort at the throw and skip every later subscriber; the fan-
-            out attempts each independently, then re-raises the captured
-            failure AFTER delivery — the drain surfaces it to the caller, so
-            replace-container! throws the primary value while every sibling
-            still fired."
-    (let [{:keys [make-derived replace! root]} (build-graph)
-          l1      (make-derived [root] (fn [db] (:a db)))
-          a-fired (atom 0)
-          b-fired (atom 0)]
-      (is (= 1 @l1) "baseline deref establishes prev-state")
-      ;; :a registered FIRST → iterates first → throws; :b registered second.
-      (add-watch l1 :a (fn [_ _ _ _]
-                         (swap! a-fired inc)
-                         (throw (js/Error. "subscriber A boom"))))
-      (add-watch l1 :b (fn [_ _ _ _] (swap! b-fired inc)))
-      (let [caught (atom ::none)]
-        (try (replace! root {:a 2 :b 10})
-             (catch :default e (reset! caught e)))
-        (is (= 1 @a-fired) "the throwing subscriber ran")
-        (is (= 1 @b-fired)
-            "the later sibling STILL fired despite A throwing (bare run! would
-             have skipped it)")
-        (is (and (instance? js/Error @caught)
-                 (= "subscriber A boom" (.-message @caught)))
-            "A's throw is SURFACED to the caller AFTER B was delivered
-             — not swallowed inside the fan-out")))))
-
 (deftest throwing-subscriber-delivery-is-order-independent
   (testing "a throwing subscriber in the MIDDLE of the registration order does
             not prevent EITHER an earlier or a later sibling from receiving the

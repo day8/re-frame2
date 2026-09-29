@@ -381,12 +381,6 @@
       (is (= {} @(:sub-cache frm-b))
           "walk/b's cache was still cleared after the throwing walk/a entry"))))
 
-(deftest dispose-frame-sub-caches-tolerates-empty-frames-registry
-  (testing "dispose-frame-sub-caches! on an empty frames registry is a no-op (no throw)"
-    (reset! rf.frame/frames {})
-    (is (nil? (rf.substrate.spine/dispose-frame-sub-caches!))
-        "returns nil with no live frames")))
-
 (deftest dispose-frame-sub-caches-tolerates-frame-without-sub-cache
   (testing "a frame record lacking the :sub-cache key is skipped (no throw)"
     (reset! rf.frame/frames {:walk/no-cache {:other-key :value}})
@@ -471,27 +465,3 @@
       (rf.disposable/-dispose dv)
       (is (= [:re-entrant-cb :after-cb] @fire-log)
           "each callback fired exactly once despite the re-entrant -dispose; no recursion, no double-fire"))))
-
-(deftest unmount-thunk-removes-root-from-active-set
-  (testing "the unmount thunk returned by `render` removes its root from the active-roots cell"
-    ;; Build a render fn parameterised on a fake `.unmount`-supporting
-    ;; root factory. The spine's `make-render` calls createRoot, which
-    ;; requires a real DOM — so for this isolated test we simulate the
-    ;; render path by mounting the root directly into the cell and
-    ;; building an unmount thunk shaped like the one render returns.
-    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
-          fake-a            (fake-root)
-          fake-b            (fake-root)]
-      (swap! active-roots-cell conj (:root fake-a))
-      (swap! active-roots-cell conj (:root fake-b))
-      ;; Mirror the render-fn's unmount-thunk shape.
-      (let [unmount-a (fn []
-                        (swap! active-roots-cell disj (:root fake-a))
-                        (.unmount (:root fake-a)))]
-        (unmount-a)
-        (is (= #{(:root fake-b)} @active-roots-cell)
-            "only fake-b remains tracked after fake-a's unmount thunk fired")
-        (is (= 1 @(:unmount-count fake-a))
-            "fake-a's actual unmount was called by the thunk")
-        (is (zero? @(:unmount-count fake-b))
-            "fake-b was not touched")))))

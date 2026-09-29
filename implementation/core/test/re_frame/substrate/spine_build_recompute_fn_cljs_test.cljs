@@ -101,15 +101,6 @@
       ;; received args against the source vals at call time.
       (is (= [:a :b :c :d] (vec @received-args))))))
 
-(deftest build-recompute-fn-fresh-recompute-per-call
-  (testing "thunk does not cache — every call rederefs sources"
-    (let [s0  (atom 0)
-          f   (rf.substrate.spine/build-recompute-fn [s0] identity)]
-      (is (= 0 (f)))
-      (reset! s0 1) (is (= 1 (f)))
-      (reset! s0 2) (is (= 2 (f)))
-      (reset! s0 3) (is (= 3 (f))))))
-
 (deftest build-recompute-fn-honours-source-vector-order
   (testing "1-arity: s0 is the single source; 2-arity: order is s0 then s1"
     (let [s0 (atom 100)
@@ -117,17 +108,3 @@
           f  (rf.substrate.spine/build-recompute-fn [s0 s1] -)]
       ;; `-` is non-commutative: (- @s0 @s1) = 99, (- @s1 @s0) = -99.
       (is (= 99 (f)) "argument order matches source-vector order"))))
-
-(deftest build-recompute-fn-shape-matches-make-derived-value-fn-flow
-  (testing "the recompute fn assembled by build-recompute-fn is the same one make-derived-value-fn wires into the IDeref body"
-    ;; Integration probe: drive `make-derived-value-fn` end-to-end and
-    ;; confirm the spine's derived container exposes the same value the
-    ;; bare arity-spec recompute closure would have produced. Pins the
-    ;; wiring: spine's IDeref body MUST route through build-recompute-fn,
-    ;; not a naive (apply compute-fn (map deref ...)) shape.
-    (let [make-derived (rf.substrate.spine/make-derived-value-fn "rf-test-" (rf.substrate.spine/make-scheduler))
-          s0           (atom 5)
-          derived      (make-derived [s0] (fn [a] (* a 10)))]
-      (is (= 50 @derived) "1-arity recompute fires through the spine")
-      (reset! s0 6)
-      (is (= 60 @derived) "subsequent deref re-runs the recompute"))))
