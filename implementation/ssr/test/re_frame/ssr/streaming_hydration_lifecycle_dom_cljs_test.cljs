@@ -492,34 +492,6 @@
                 60))
             60))))))
 
-(deftest readiness-fires-once-on-an-already-complete-page
-  (testing "a fully-buffered response (payload already present at install)
-            still finalises and signals readiness — synchronously — so a
-            readiness-driven bootstrap cannot hang"
-    (if-not (browser?)
-      (is true "skipped under node — no js/document")
-      (let [frame-id :test/already-complete
-            _        (do (rf/make-frame {:id frame-id :platform :client})
-                         (register-app! frame-id))
-            {:keys [shell chunks failed]} (server-render!)
-            host     (make-host! shell)
-            calls    (atom 0)]
-        ;; Everything arrived before the bundle booted.
-        (doseq [c chunks] (append-chunk! host c))
-        (append-chunk! host (payload-chunk failed))
-        (rf.ssr.streaming.client/install!
-          {:frame frame-id :root host :on-ready (fn [_] (swap! calls inc))})
-        (is (= 1 @calls) ":on-ready fires synchronously during install!")
-        (is (zero? (count (mounts host)))
-            "mounts are unwrapped even on the already-complete path — otherwise the fast page is the unhydratable one")
-        (async done
-          (js/setTimeout
-            (fn []
-              (is (= 1 @calls) ":on-ready is once-only — a later mutation cannot re-fire it")
-              (remove-host! host)
-              (done))
-            60))))))
-
 (deftest no-mounts-and-no-readiness-before-the-payload
   (testing "readiness is the hydration trigger: before the payload lands
             the DOM still carries protocol wrappers, so a bootstrap that

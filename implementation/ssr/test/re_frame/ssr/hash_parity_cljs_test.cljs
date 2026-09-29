@@ -77,14 +77,8 @@
                  " — input-a → " (pr-str ha)
                  ", input-b → " (pr-str hb)))))))
 
-;; ---- corpus distinctness sanity ------------------------------------------
-
-(deftest cljs-fixture-literals-pairwise-distinct
-  (testing "The pinned-literal corpus is pairwise distinct — the CLJS-side
-            check is redundant with the JVM-side check (they read the
-            same `def`s) but cheap; an accidental edit that introduced
-            a duplicate would fail both."
-    (let [literals (mapv :expected rf.ssr.hash-parity-fixtures/all-fixtures)]
-      (is (= (count literals) (count (set literals)))
-          (str "Fixture literals must be pairwise distinct — got "
-               (pr-str literals))))))
+;; ---- corpus distinctness ------------------------------------------------
+;;
+;; Checked once, on the JVM, by `re-frame.hash-parity-test`: the fixtures are
+;; one `.cljc` namespace with no reader conditionals, so both hosts read the
+;; same literals.
