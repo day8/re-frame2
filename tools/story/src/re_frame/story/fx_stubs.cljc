@@ -63,8 +63,7 @@
   `{:fx-id :http :response {:status :pending}}`. This keeps the
   decorator registration single-shot while allowing per-reference
   configuration."
-  (:require [re-frame.core         :as rf]
-            [re-frame.story.config :as rf.story.config]
+  (:require [re-frame.story.config :as rf.story.config]
             [re-frame.story.frames :as rf.story.frames]
             [re-frame.story.registrar :as rf.story.registrar]))
 
