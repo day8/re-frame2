@@ -655,6 +655,16 @@
       (is (= #{:a :b} (set (vals (get-in dfn [:states :idle :after])))))
       (is (= (layout/semantic-counts d) (layout/semantic-counts dfn))))))
 
+(deftest data-valued-fn-slot-survives-sanitisation
+  (testing "the executable-`:fn` drop is gated on `(fn? v)`: a guard
+            entry whose `:fn` slot holds DATA rather than a fn keeps it"
+    (let [dfn (round-trip-definition
+                {:initial :idle
+                 :guards  {:ready? {:fn :named-elsewhere}}
+                 :states  {:idle {:on {:go {:target :busy :guard :ready?}}}
+                           :busy {}}})]
+      (is (= :named-elsewhere (get-in dfn [:guards :ready? :fn]))))))
+
 (deftest literal-and-subscription-delays-round-trip-unchanged
   (testing "the fn-key rewrite leaves literal ms and
             subscription-vector delay keys exactly as authored"
@@ -741,6 +751,17 @@
       ;; `:v` off the payload (which is forged input of any size).
       (is (= 3 (:payload-version d))))))
 
+(deftest unknown-version-compares-numerically
+  (testing "versions compare as integers, so \"10\" is newer than the
+            decoder's \"2\" — a string compare would order \"10\" BEFORE
+            \"2\" and decode a newer payload as if it were current"
+    (let [d (try (share/decode-share-url
+                   (envelope->url {:rf.machines-viz.share/v       "10"
+                                   :rf.machines-viz.share/chart   chart-state
+                                   :rf.machines-viz.share/created 0}))
+                 (catch :default e (ex-data e)))]
+      (is (= :unknown-version (:reason d))))))
+
 (deftest frame-id-is-optional
   (testing "a ChartState with no :frame-id encodes + round-trips (v2 / EP-0023)"
     (let [cs   (dissoc chart-state :frame-id)
@@ -765,19 +786,23 @@
                  (catch :default e (ex-data e)))]
       (is (= :missing-envelope (:reason d))))))
 
-(deftest decoded-snapshot-extra-key-alongside-compound-state-rejected
-  (testing "a closed :snapshot is still closed for compound/parallel arms — extra keys rejected on decode"
-    (let [smuggled (envelope->url
-                     {:rf.machines-viz.share/v       "1"
-                      :rf.machines-viz.share/chart   (assoc chart-state
-                                                            :definition compound-definition
-                                                            :snapshot {:state [:authenticated :cart :browsing]
-                                                                       :data  {:token "leak"}})
-                      :rf.machines-viz.share/created 0})
-          d (try (share/decode-share-url smuggled)
-                 (catch :default e (ex-data e)))]
-      (is (= :invalid-chart-state (:reason d))
-          "a configuration :state does NOT loosen the closed-map rule"))))
+(deftest decoded-snapshot-extra-key-rejected-for-every-arm
+  (testing "a closed :snapshot stays closed for every :state arm — flat,
+            compound and parallel — so an extra key is rejected on decode"
+    (doseq [state [:loading
+                   [:authenticated :cart :browsing]
+                   {:data :dirty :form :busy}]]
+      (let [smuggled (envelope->url
+                       {:rf.machines-viz.share/v       "1"
+                        :rf.machines-viz.share/chart   (assoc chart-state
+                                                              :definition compound-definition
+                                                              :snapshot {:state state
+                                                                         :data  {:token "leak"}})
+                        :rf.machines-viz.share/created 0})
+            d (try (share/decode-share-url smuggled)
+                   (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "the " (pr-str state) " arm does NOT loosen the closed-map rule"))))))
 
 (deftest decoded-malformed-state-rejected
   (testing "a hand-edited URL whose :state is none of the three arms is rejected on decode (symmetric)"
@@ -895,10 +920,7 @@
             another. Pins one table of valid + invalid shapes against the
             canonical predicate so the boundaries cannot drift."
     (doseq [[label definition] (merge valid-definitions malformed-definitions)]
-      ;; `grammar/valid-definition?` is a truthy/falsy predicate (its last
-      ;; `and` term is `(seq …)` — a seq, not a literal boolean), so coerce
-      ;; both sides to booleans before comparing agreement.
-      (let [canonical? (boolean (grammar/valid-definition? (grammar/desugar-grammar definition)))
+      (let [canonical? (grammar/valid-definition? (grammar/desugar-grammar definition))
             share-ok?  (some? (:ok (share/decode-share-url-safe (forge-definition-url definition))))]
         (is (= canonical? share-ok?)
             (str label ": share boundary must agree with the canonical grammar gate "

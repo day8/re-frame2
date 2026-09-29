@@ -8,13 +8,14 @@
   - `generate-machine` with a stub resolver returns the parsed spec
     for canned responses (the LLM seam is the injected resolver;
     tests inject a deterministic stub).
-  - `generate-machine` handles fenced (```clojure / ```edn / bare)
-    and unfenced responses.
+  - `generate-machine` handles every fence form the extractor accepts
+    (```clojure / ```edn / ```cljs / an untagged ```) and an unfenced
+    response.
   - Error modes throw `ex-info` carrying `:rf.error/id :ai-generate/<kw>`
     (the canonical discriminator; the message is the human sentence + token).
-  - Generated specs are usable by sibling exporters (`scxml->spec`
-    round-trip + `mermaid/emit`), so the AI-generate path connects
-    end-to-end with the rest of the substrate."
+  - A generated spec survives the `spec->scxml` → `scxml->spec` round
+    trip, so the AI-generate path connects end-to-end with the rest of
+    the substrate."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -135,6 +136,17 @@
           out  (ai/generate-machine "a login flow"
                                     {:resolver (stub-resolver resp)})]
       (is (= login-flow-spec out)))))
+
+(deftest generate-with-untagged-and-cljs-fences-returns-spec
+  (testing "an untagged ``` fence and a ```cljs fence, each behind prose,
+            parse too — the remaining fence forms the extractor accepts"
+    (doseq [opener ["```" "```cljs"]]
+      (let [resp (str "Here is the machine:\n\n" opener "\n"
+                      (pr-str login-flow-spec) "\n```\n")]
+        (is (= login-flow-spec
+               (ai/generate-machine "a login flow"
+                                    {:resolver (stub-resolver resp)}))
+            (str opener " fence"))))))
 
 (deftest generate-handles-parallel-spec
   (testing "parallel machines parse and validate"
