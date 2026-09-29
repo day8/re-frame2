@@ -36,10 +36,7 @@
 
   Pure — no atoms, no dispatch, no I/O. The caller reads the live
   `:nav-token` from frame runtime-db and hands it in; this namespace
-  never reaches into runtime state. Trace summaries route every
-  wire-bearing slot through the shared `re-frame.reply/trace-summary`
-  (which calls `re-frame.elision/elide-wire-value`) — never a
-  family-private elider (Managed-Effects §Tracing).
+  never reaches into runtime state.
 
   Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.reply :as rf.reply]))
@@ -227,22 +224,3 @@
                               :rf.reply/stale-reason stale-reason}
                        (some? frame)        (assoc :rf.frame/id frame)
                        (some? completed-at) (assoc :completed-at completed-at))))))
-
-;; ---------------------------------------------------------------------------
-;; Trace summary (Managed-Effects §Tracing). A data-only summary of a route
-;; reply map for a managed-async trace row, routing every wire-bearing slot
-;; through the shared `re-frame.reply/trace-summary` → `re-frame.elision/
-;; elide-wire-value` walker. Never a family-private elider.
-;; ---------------------------------------------------------------------------
-
-(defn trace-reply
-  "Build a DATA-ONLY trace summary of a route reply map for a
-  managed-async trace row. The wire-bearing slots (`:value`, `:error`,
-  `:correlation`, `:meta`) elide through the single shared
-  `re-frame.elision/elide-wire-value` walker (via
-  `re-frame.reply/trace-summary`) — never a family-private elider
-  (Managed-Effects §Tracing); the identity facts (`:status`, `:rf.reply/work-id`,
-  `:rf.reply/work-kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`) ride
-  verbatim. `opts` is forwarded to the walker (e.g. `:frame`)."
-  ([reply] (trace-reply reply nil))
-  ([reply opts] (rf.reply/trace-summary reply opts)))
