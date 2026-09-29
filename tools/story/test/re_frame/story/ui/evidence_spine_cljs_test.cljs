@@ -9,8 +9,8 @@
   - **render-no-variant / no-evidence / spine states** — the panel reads
     shell selection + the Test-mode result slot and renders the right
     surface for each;
-  - **selection** — clicking a beat selects it; `row->beat-index` + the
-    `select-beat!` / `open!` linkage drive the selected span (spec/021 §2);
+  - **selection** — `select-beat!` / `open!` drive the selected span and
+    each beat row's `data-selected` highlight (spec/021 §2);
   - **focus wiring** — the per-beat focus links render with the focus-panel
     vocabulary, fire `focus-beat!` → the real `day8.re-frame2-xray.core/focus!`
     (the host-facing entry), and the no-coords graceful path
@@ -127,16 +127,6 @@
 ;; selection (spec/021 §2 — result row drives the selected span)
 ;; ===========================================================================
 
-(deftest select-beat-highlights-the-beat
-  (testing "select-beat! marks the matching beat row data-selected=true"
-    (reg-counter!)
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
-    (seed-result! :story.evidence/basic)
-    (rf.story.ui.evidence-spine/select-beat! :story.evidence/basic 0)
-    (let [tree (render-panel)
-          beat (rf.test-helpers/find-by-attr tree :data-test "story-evidence-beat")]
-      (is (= "true" (get (second beat) :data-selected))))))
-
 ;; ---- per-row data-selected highlight (multi-beat) -----------------------
 ;;
 ;; 015-Test-Coverage.md's cascade-row `data-selected` highlight row asks
@@ -145,10 +135,9 @@
 ;; carry `data-selected="false"`. Story has no scrubber panel (Xray owns
 ;; the ribbon); the evidence-spine `beat-row` is Story's live
 ;; selectable-row surface and carries exactly that `data-selected` attr,
-;; driven by the pure `select-beat!` / `selected-beat-idx` state. The
-;; single-beat `select-beat-highlights-the-beat` above proves the positive
-;; half; a two-beat narrative is needed to prove the NEGATIVE half (siblings
-;; are "false") and the round-trip (re-select moves the highlight).
+;; driven by the pure `select-beat!` / `selected-beat-idx` state. A
+;; two-beat narrative proves both halves (the selected row is "true", its
+;; sibling "false") and the round-trip (re-select moves the highlight).
 
 (def ^:private two-beat-narrative
   ;; Two committed dispatch beats → flattened beat-idx 0 and 1 in tape
@@ -211,14 +200,6 @@
           sel   (mapv #(get (second %) :data-selected) beats)]
       (is (= ["false" "false"] sel)
           (str "no row is highlighted before a scrub; got " (pr-str sel))))))
-
-(deftest row-to-beat-index-then-select
-  (testing "a result row resolved to a beat index drives the spine selection
-            (the spec/021 §2 linkage end to end)"
-    (let [idx (rf.story.ui.evidence-spine/row->beat-index narrative {:epoch-id 100})]
-      (is (= 0 idx))
-      (rf.story.ui.evidence-spine/select-beat! :story.evidence/basic idx)
-      (is (= 0 (rf.story.ui.evidence-spine/selected-beat-idx :story.evidence/basic))))))
 
 (deftest open-flips-visibility-and-selects-beat
   (testing "open! flips the :evidence panel-visibility slot on and

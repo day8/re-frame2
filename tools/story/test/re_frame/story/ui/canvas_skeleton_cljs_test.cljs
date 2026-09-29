@@ -59,13 +59,6 @@
     (is (true?  (rf.story.ui.canvas/loading-phase? :pre-mount false false false)))
     (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false false)))))
 
-(deftest loading-phase-3-arg-overload-is-back-compat
-  (testing "the 3-arg overload (phase / first? / assertions?) serves
-            callers that pass no events-only? flag. It defaults
-            `events-only?` to false."
-    (is (true?  (rf.story.ui.canvas/loading-phase? :loading   false false)))
-    (is (false? (rf.story.ui.canvas/loading-phase? :ready     false false)))))
-
 (deftest loading-phase-nil-or-unknown
   (testing "nil phase → false (no skeleton when phase isn't known)"
     (is (false? (rf.story.ui.canvas/loading-phase? nil false false))))

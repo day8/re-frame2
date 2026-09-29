@@ -2,25 +2,27 @@
   "Tests for the sidebar's rendered signal-chip strip + large-list bounding
   + variants-grid grouping (spec/018 §7.1 + §10).
 
-  Runs on both the JVM (cognitect.test-runner under `clojure -M:test`) and
-  the CLJS node-test build (shadow's `:node-test` target; ns-regexp
-  `cljs-test$` picks up this ns). The pure-data helpers (`bound-variants`,
-  `workspace-grid-grouping`, the style-key projections) are exercised on
-  both; the rendered hiccup (`signal-chips`) is CLJS-only since the var
-  lives in a `.cljs` file we can't `:require` from the JVM.
+  Every test here is CLJS-only: `re-frame.story.ui.sidebar` is a `.cljs`
+  file the JVM cannot `:require`. The CLJS node-test build (shadow's
+  `:node-test` target; ns-regexp `cljs-test$`) runs them; the JVM runner
+  loads the namespace and finds no tests in it.
 
   ## Coverage layers
 
-  - **Pure data** (JVM + CLJS): `bound-variants` cap / expand /
-    no-bound-when-small; `workspace-grid-grouping` grid-vs-non-grid, and a
-    registry-enumerated `:variants-grid` counting the cells it renders.
-  - **CLJS-only**: `signal-chips` renders one chip per axis, keeps the
-    five axes in DISTINCT `data-axis` groups, and never collapses world
-    inputs / runner / frame-binding into fidelity."
-  (:require [clojure.test :refer [deftest is testing]]
-            #?@(:cljs [[re-frame.story :as rf.story]
-                       [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
-                       [re-frame.story.ui.workspace :as rf.story.ui.workspace]])))
+  - **Pure data**: `bound-variants` cap / expand / no-bound-when-small;
+    `workspace-grid-grouping` grid-vs-non-grid, and a registry-enumerated
+    `:variants-grid` counting the cells it renders; the per-axis tint
+    style keys. The status tint keys are pinned against
+    `rf.story.theme.status/chip-style` in
+    `re_frame/story/theme/status_vocab_cljs_test.cljc`.
+  - **Rendered hiccup**: `signal-chips` renders one chip per axis, keeps
+    the five axes in DISTINCT `data-axis` groups, and never collapses
+    world inputs / runner / frame-binding into fidelity."
+  #?(:cljs
+     (:require [clojure.test :refer [deftest is testing]]
+               [re-frame.story :as rf.story]
+               [re-frame.story.ui.sidebar :as rf.story.ui.sidebar]
+               [re-frame.story.ui.workspace :as rf.story.ui.workspace])))
 
 ;; ---- pure: large-list bounding ------------------------------------------
 
@@ -39,16 +41,6 @@
              {:keys [shown hidden]} (rf.story.ui.sidebar/bound-variants vs 40 true)]
          (is (= 50 (count shown)))
          (is (= 0 hidden))))))
-
-#?(:clj
-   (deftest jvm-bound-variants-projection
-     (testing "the JVM gate exercises the same cap arithmetic via the same
-               shape (the var lives in a .cljs file the JVM can't require)"
-       (let [vs    (vec (range 50))
-             cap   40
-             shown (vec (take cap vs))]
-         (is (= 40 (count shown)))
-         (is (= 10 (- (count vs) cap)))))))
 
 ;; ---- pure: variants-grid grouping ---------------------------------------
 
@@ -161,16 +153,6 @@
          ;; the world-input values must NOT appear under fidelity
          (is (not (some #{"args" "network" "fx-overrides"}
                         (get by-axis "fidelity"))))))))
-
-#?(:cljs
-   (deftest signal-status-style-key-projection
-     (testing "each status value maps to its own tint style key — distinct
-               colour/shape (spec/018 §12.6)"
-       (is (= :signal-status-pass       (rf.story.ui.sidebar/status-signal->style-key :pass)))
-       (is (= :signal-status-fail       (rf.story.ui.sidebar/status-signal->style-key :fail)))
-       (is (= :signal-status-cannot-run (rf.story.ui.sidebar/status-signal->style-key :cannot-run)))
-       (is (= :signal-status-error      (rf.story.ui.sidebar/status-signal->style-key :error)))
-       (is (= :signal-status-pending    (rf.story.ui.sidebar/status-signal->style-key :pending))))))
 
 #?(:cljs
    (deftest axis-group-style-key-projection

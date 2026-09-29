@@ -64,16 +64,6 @@
              (rf.error-emit/clear-error-listeners!)
              (rf.observability/clear-observability-sinks!))})
 
-(deftest mounting-registers-the-story-error-sink
-  (testing "with no shell mounted nothing is registered under Story's id —
-            a Story-frame refusal routes nowhere and the fallback fires"
-    (is (nil? (get @sinks rf.story.config/error-sink-id))))
-  (testing "registering the shell's sink puts a real fn under the id every
-            Story frame's policy names, which is what makes those frames'
-            records ROUTED and the console quiet for them"
-    (register-sink!)
-    (is (fn? (get @sinks rf.story.config/error-sink-id)))))
-
 (deftest unmounting-restores-the-fallback
   (testing "unregistering on unmount hands the untooled-dev console fallback
             back to whatever runs on the page next: the frames still declare

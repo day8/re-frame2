@@ -2,32 +2,34 @@
   "Tests for the sidebar tag-as-badge affordance on variant rows
   (Storybook 9 badges-addon parity per spec/005 §v1.1).
 
-  Runs on both the JVM (cognitect.test-runner under `clojure -M:test`)
-  and the CLJS node-test build (shadow's `:node-test` target; ns-regexp
-  `cljs-test$` picks up this ns because its name ends in `cljs-test`).
+  Every test here is CLJS-only: `re-frame.story.ui.sidebar` is a `.cljs`
+  file the JVM cannot `:require`. The CLJS node-test build (shadow's
+  `:node-test` target; ns-regexp `cljs-test$`) runs them; the JVM runner
+  loads the namespace and finds no tests in it.
 
   ## Coverage layers
 
-  - **Pure data** (JVM + CLJS): `tag->badge-style-key` projection
-    over the canonical seven tags + the unknown-tag fallthrough;
-    `sorted-tags` ordering.
-  - **CLJS-only**: the rendered hiccup for `tag-badges` includes one
-    `.tag-badge` span per tag, ordered by `name`; a variant with no
-    `:tags` renders no badge container at all; a variant with tags
-    contributes badges into its sidebar row."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.story :as rf.story]
-            [re-frame.story.ui.state :as rf.story.ui.state]
-            #?@(:cljs [[re-frame.story.ui.sidebar :as rf.story.ui.sidebar]])))
+  - **Pure data**: `tag->badge-style-key` projection over the canonical
+    seven tags + the unknown-tag fallthrough; `sorted-tags` ordering.
+  - **Rendered hiccup**: `tag-badges` renders one `.tag-badge` span per
+    tag, canonical and unknown alike, ordered by `name`; a variant with
+    no `:tags` renders no badge container at all."
+  #?(:cljs
+     (:require [clojure.test :refer [deftest is testing use-fixtures]]
+               [re-frame.story :as rf.story]
+               [re-frame.story.ui.state :as rf.story.ui.state]
+               [re-frame.story.ui.sidebar :as rf.story.ui.sidebar])))
 
 ;; ---- fixtures ------------------------------------------------------------
 
-(defn reset-all! []
-  (rf.story/clear-all!)
-  (rf.story.ui.state/reset-shell-state!)
-  (rf.story/install-canonical-vocabulary!))
+#?(:cljs
+   (defn reset-all! []
+     (rf.story/clear-all!)
+     (rf.story.ui.state/reset-shell-state!)
+     (rf.story/install-canonical-vocabulary!)))
 
-(use-fixtures :each (fn [t] (reset-all!) (t)))
+#?(:cljs
+   (use-fixtures :each (fn [t] (reset-all!) (t))))
 
 ;; ---- pure: tag → style-key projection -----------------------------------
 
@@ -87,30 +89,11 @@
        (persistent! hits))))
 
 #?(:cljs
-   (deftest tag-badges-renders-one-pill-per-tag
-     (testing "a variant with three tags renders one `.tag-badge` per tag,
-               ordered by `name` so visual scanning is stable"
-       (let [tree    (rf.story.ui.sidebar/tag-badges #{:docs :dev :test})
-             badges  (find-by-data-test tree "story-sidebar-tag-badge")
-             tag-attrs (map #(get (second %) :data-tag) badges)]
-         (is (= 3 (count badges)))
-         (is (= ["dev" "docs" "test"] tag-attrs))))))
-
-#?(:cljs
    (deftest tag-badges-renders-nothing-when-no-tags
      (testing "no `:tags` → `tag-badges` returns nil so the row layout
                doesn't carry an empty container"
        (is (nil? (rf.story.ui.sidebar/tag-badges nil)))
        (is (nil? (rf.story.ui.sidebar/tag-badges #{}))))))
-
-#?(:cljs
-   (deftest tag-badges-unknown-tag-renders-neutral-pill
-     (testing "an unknown tag renders as a pill — colour comes from the
-               base `:tag-badge` style with no palette override"
-       (let [tree    (rf.story.ui.sidebar/tag-badges #{:wip})
-             badges  (find-by-data-test tree "story-sidebar-tag-badge")]
-         (is (= 1 (count badges)))
-         (is (= "wip" (get (second (first badges)) :data-tag)))))))
 
 #?(:cljs
    (deftest tag-badges-multiple-tags-includes-canonical-and-unknown
@@ -124,13 +107,3 @@
          (is (some? container))
          (is (= 3 (count badges)))
          (is (= ["dev" "test" "wip"] attrs))))))
-
-#?(:clj
-   (deftest jvm-only-sorted-tags
-     (testing "JVM corpus exercises `sorted-tags` ordering since the var
-               lives in a `.cljs` file we can't `:require` here. The
-               assertion below stands in for the same projection by
-               sorting the tag set the same way and comparing — keeps
-               the JVM gate honest without booting Reagent."
-       (is (= [:agent :dev :docs]
-              (->> #{:docs :agent :dev} (sort-by name) vec))))))
