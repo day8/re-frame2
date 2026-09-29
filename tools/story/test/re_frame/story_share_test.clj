@@ -500,8 +500,12 @@
   (testing "share namespace exposes no QR-endpoint Var — no
             `qr-endpoint` / `qr-image-url` building URLs against
             api.qrserver.com."
-    (is (nil? (resolve 'rf.story.share/qr-endpoint)))
-    (is (nil? (resolve 'rf.story.share/qr-image-url)))))
+    ;; `ns-resolve` against the share ns itself: a bare `resolve` reads
+    ;; `*ns*`, which at run time is the runner's namespace, where the
+    ;; `rf.story.share` alias does not exist, so it returns nil whether
+    ;; or not the Var is defined.
+    (is (nil? (ns-resolve 're-frame.story.share 'qr-endpoint)))
+    (is (nil? (ns-resolve 're-frame.story.share 'qr-image-url)))))
 
 (deftest no-qrserver-literal-in-share-source
   (testing "share.cljc carries no `api.qrserver.com` URL literal — the

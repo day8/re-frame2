@@ -23,7 +23,9 @@
   source must not require UIx nses)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing]]
+            [malli.core :as m]
+            [re-frame.story.schemas :as rf.story.schemas]))
 
 ;; ----- helpers ------------------------------------------------------------
 
@@ -106,7 +108,7 @@
 
   (testing "the substrate enum still advertises :reagent + :uix
 (consumer-app registration surface — keyword refs only, not requires)"
-    (let [enum-file (io/file (src-root) "re_frame" "story" "schemas.cljc")
-          body      (slurp enum-file)]
-      (is (str/includes? body ":reagent"))
-      (is (str/includes? body ":uix")))))
+    ;; Validate against the schema VALUE: a substring probe of
+    ;; schemas.cljc is satisfied by the docstring alone.
+    (is (m/validate rf.story.schemas/SubstrateSet #{:reagent}))
+    (is (m/validate rf.story.schemas/SubstrateSet #{:uix}))))

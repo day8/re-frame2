@@ -379,13 +379,14 @@
     (let [frame-id :story.predfn/fn
           variant-body {:loaders-complete-when (fn [db]
                                                  (boolean (:done? db)))}]
+      ;; Registered here, not at top level: the fixture's registrar
+      ;; clear runs before each test and would drop it.
+      (rf/reg-event ::set-done (fn [{:keys [db]} _] {:db (assoc db :done? true)}))
       (rf/make-frame {:id frame-id})
       (try
         (is (false? (rf.story.loaders/evaluate-complete-when frame-id variant-body)))
         (rf/dispatch-sync [::set-done] {:frame frame-id})
+        (is (true? (rf.story.loaders/evaluate-complete-when frame-id variant-body))
+            "the predicate sees the frame's app-db after the dispatch")
         (finally
           (rf/destroy-frame! frame-id))))))
-
-;; Helper for the fn-form test above. Registered at top-level so the
-;; dispatch in the test body can find it.
-(rf/reg-event ::set-done (fn [{:keys [db]} _] {:db (assoc db :done? true)}))
