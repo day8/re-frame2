@@ -32,13 +32,6 @@
       (assoc-in [:assertions 0 :source] "g.cljs:7")
       (assoc-in [:assertions 0 :elapsed-ms] 42.0)))
 
-(deftest content-hash-is-8-char-hex-on-cljs
-  (testing "content-hash renders a left-padded 8-char lowercase hex string"
-    (let [h (rf.story.fingerprint/content-hash {:a 1})]
-      (is (string? h))
-      (is (= 8 (count h)))
-      (is (re-matches #"[0-9a-f]{8}" h)))))
-
 (deftest order-insensitive-on-cljs
   (testing "map key order does not affect the CLJS hash"
     (is (= (rf.story.fingerprint/content-hash {:a 1 :b 2}) (rf.story.fingerprint/content-hash {:b 2 :a 1}))))

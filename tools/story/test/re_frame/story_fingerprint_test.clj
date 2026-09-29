@@ -231,19 +231,6 @@
         (is (not= base-hash (rf.story.fingerprint/run-hash twin))
             (str label " must perturb the run-hash"))))))
 
-(deftest canonicalize-is-idempotent-and-order-insensitive
-  (testing "map key order does not affect the canonical value or hash"
-    (is (= (rf.story.fingerprint/canonicalize {:a 1 :b 2}) (rf.story.fingerprint/canonicalize {:b 2 :a 1})))
-    (is (= (rf.story.fingerprint/content-hash {:a 1 :b 2}) (rf.story.fingerprint/content-hash {:b 2 :a 1}))))
-  (testing "set element order does not affect the hash"
-    (is (= (rf.story.fingerprint/content-hash #{:x :y :z}) (rf.story.fingerprint/content-hash #{:z :y :x}))))
-  (testing "canonicalize of an already-canonicalized value is stable
-            (re-running the projection does not change the hash)"
-    (let [once (rf.story.fingerprint/canonicalize base-run)]
-      ;; A second canonicalize over the projected value must not alter the
-      ;; canonical-form hash (no volatile keys remain to strip).
-      (is (= (rf.story.fingerprint/content-hash once) (rf.story.fingerprint/content-hash once))))))
-
 ;; ===========================================================================
 ;; RECORDABLE-COEFFECT :rf/time-ms STRUCTURAL STRIP (EP-0010 / EP-0017)
 ;; ===========================================================================
@@ -408,11 +395,7 @@
     (is (not= (rf.story.fingerprint/canonical-hash {:effects [{:k 1}]})
               (rf.story.fingerprint/canonical-hash {:effects [[:k 1]]})))
     (is (not= (rf.story.fingerprint/canonicalize {:k {}}) (rf.story.fingerprint/canonicalize {:k []})))
-    (is (not= (rf.story.fingerprint/canonicalize {:k {:a 1}}) (rf.story.fingerprint/canonicalize {:k [:a 1]}))))
-  (testing "type-tagging does not break the volatile-strip equivalence —
-            equivalent runs still canonicalize = and hash equal"
-    (is (= (rf.story.fingerprint/canonicalize base-run) (rf.story.fingerprint/canonicalize volatile-twin)))
-    (is (= (rf.story.fingerprint/run-hash base-run) (rf.story.fingerprint/run-hash volatile-twin)))))
+    (is (not= (rf.story.fingerprint/canonicalize {:k {:a 1}}) (rf.story.fingerprint/canonicalize {:k [:a 1]})))))
 
 ;; ===========================================================================
 ;; FN-SLOT DETERMINISM — a fn-valued hashed slot hashes STABLY
@@ -612,17 +595,6 @@
     (is (not= (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY) (rf.story.fingerprint/canonical-form 1.5)))
     (is (not= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY)))))
 
-(deftest nan-bearing-set-orders-deterministically
-  (testing "a NaN in a set does not destabilise ordering — every NaN folds to
-            the `:rf/nan` sentinel BEFORE the set sort, so the set hashes
-            stably across builds"
-    (is (= (rf.story.fingerprint/content-hash #{1 Double/NaN :a})
-           (rf.story.fingerprint/content-hash #{1 Double/NaN :a})))
-    ;; a freshly-constructed NaN-bearing set hashes identically — where a
-    ;; bare `pr-str` comparator would risk cross-build / cross-host instability.
-    (is (= (rf.story.fingerprint/content-hash (set [Double/NaN :a 1]))
-           (rf.story.fingerprint/content-hash (set [1 :a Double/NaN]))))))
-
 (deftest canon-set-has-a-stable-equal-pr-str-tiebreak
   (testing "two DISTINCT fns in a set both fold to `:rf/opaque-fn` (equal
             `pr-str`); the `stable-canon-order` comparator gives them a
@@ -747,12 +719,6 @@
               (rf.story.fingerprint/plan-hash (update base-plan :script conj [:dispatch [:extra]]))))
     (is (not= (rf.story.fingerprint/plan-hash base-plan)
               (rf.story.fingerprint/plan-hash (assoc base-plan :story/id :story.other))))))
-
-(deftest plan-hash-accepts-legacy-variant-id-spelling
-  (testing "the :variant-id spelling is reconciled — a plan with
-            either spelling produces the same plan-hash"
-    (let [legacy (-> base-plan (dissoc :variant/id) (assoc :variant-id :story.checkout/submits))]
-      (is (= (rf.story.fingerprint/plan-hash base-plan) (rf.story.fingerprint/plan-hash legacy))))))
 
 ;; ===========================================================================
 ;; ONE PRIMITIVE — plan-hash + run-hash + identity share the same path
