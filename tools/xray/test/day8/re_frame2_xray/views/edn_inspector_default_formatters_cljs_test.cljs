@@ -20,7 +20,7 @@
      the namespace docstring.
 
   Pure-data unit tests; no DOM mount."
-  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is use-fixtures]]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
@@ -76,38 +76,28 @@
 (defn- ms-ago [now ms] (js/Date. (- now ms)))
 (defn- ms-future [now ms] (js/Date. (+ now ms)))
 
-(deftest format-relative-just-now
-  (is (= "just now" (ddf/format-relative (js/Date. epoch-2026) epoch-2026)))
-  (is (= "just now" (ddf/format-relative (ms-ago epoch-2026 2000) epoch-2026))
-      "anything under 5s collapses to `just now`"))
-
-(deftest format-relative-seconds
-  (is (= "10s ago" (ddf/format-relative (ms-ago epoch-2026 10000) epoch-2026)))
-  (is (= "59s ago" (ddf/format-relative (ms-ago epoch-2026 59999) epoch-2026)))
-  (is (= "in 10s"  (ddf/format-relative (ms-future epoch-2026 10000) epoch-2026))))
-
-(deftest format-relative-minutes
-  (is (= "1m ago"  (ddf/format-relative (ms-ago epoch-2026 (* 60 1000)) epoch-2026)))
-  (is (= "3m ago"  (ddf/format-relative (ms-ago epoch-2026 (* 3 60 1000)) epoch-2026)))
-  (is (= "59m ago" (ddf/format-relative (ms-ago epoch-2026 (* 59 60 1000)) epoch-2026)))
-  (is (= "in 3m"   (ddf/format-relative (ms-future epoch-2026 (* 3 60 1000)) epoch-2026))))
-
-(deftest format-relative-hours
-  (is (= "1h ago"  (ddf/format-relative (ms-ago epoch-2026 (* 60 60 1000)) epoch-2026)))
-  (is (= "5h ago"  (ddf/format-relative (ms-ago epoch-2026 (* 5 60 60 1000)) epoch-2026)))
-  (is (= "23h ago" (ddf/format-relative (ms-ago epoch-2026 (* 23 60 60 1000)) epoch-2026)))
-  (is (= "in 2h"   (ddf/format-relative (ms-future epoch-2026 (* 2 60 60 1000)) epoch-2026))))
-
-(deftest format-relative-days
-  (is (= "1d ago"  (ddf/format-relative (ms-ago epoch-2026 (* 24 60 60 1000)) epoch-2026)))
-  (is (= "5d ago"  (ddf/format-relative (ms-ago epoch-2026 (* 5 24 60 60 1000)) epoch-2026)))
-  (is (= "29d ago" (ddf/format-relative (ms-ago epoch-2026 (* 29 24 60 60 1000)) epoch-2026)))
-  (is (= "in 7d"   (ddf/format-relative (ms-future epoch-2026 (* 7 24 60 60 1000)) epoch-2026))))
-
-(deftest format-relative-older-than-30-days
-  ;; Cap at 30d — beyond that, an ISO date is more honest than `247d ago`.
-  (let [d (ms-ago epoch-2026 (* 60 24 60 60 1000))   ;; 60 days back
-        s (ddf/format-relative d epoch-2026)]
+(deftest format-relative-buckets
+  ;; Anything under 5s collapses to `just now`; a future instant reads
+  ;; `in N…`; past 30 days an ISO date is more honest than `247d ago`.
+  (are [expected d] (= expected (ddf/format-relative d epoch-2026))
+    "just now" (js/Date. epoch-2026)
+    "just now" (ms-ago epoch-2026 2000)
+    "10s ago"  (ms-ago epoch-2026 10000)
+    "59s ago"  (ms-ago epoch-2026 59999)
+    "in 10s"   (ms-future epoch-2026 10000)
+    "1m ago"   (ms-ago epoch-2026 (* 60 1000))
+    "3m ago"   (ms-ago epoch-2026 (* 3 60 1000))
+    "59m ago"  (ms-ago epoch-2026 (* 59 60 1000))
+    "in 3m"    (ms-future epoch-2026 (* 3 60 1000))
+    "1h ago"   (ms-ago epoch-2026 (* 60 60 1000))
+    "5h ago"   (ms-ago epoch-2026 (* 5 60 60 1000))
+    "23h ago"  (ms-ago epoch-2026 (* 23 60 60 1000))
+    "in 2h"    (ms-future epoch-2026 (* 2 60 60 1000))
+    "1d ago"   (ms-ago epoch-2026 (* 24 60 60 1000))
+    "5d ago"   (ms-ago epoch-2026 (* 5 24 60 60 1000))
+    "29d ago"  (ms-ago epoch-2026 (* 29 24 60 60 1000))
+    "in 7d"    (ms-future epoch-2026 (* 7 24 60 60 1000)))
+  (let [s (ddf/format-relative (ms-ago epoch-2026 (* 60 24 60 60 1000)) epoch-2026)]
     (is (re-find #"^\d{4}-\d{2}-\d{2}$" s)
         (str "older than 30d falls to ISO date; got: " s))))
 
@@ -134,10 +124,14 @@
     (is (re-find (re-pattern (str "#uuid \"" sample-uuid "\"")) text)
         "expanded body shows the full canonical uuid")))
 
-(deftest uuid-renders-through-protocol-path-when-mounted
+(deftest uuid-body-rendered-when-expanded
+  ;; A mounted uuid routes through the protocol path rather than the
+  ;; built-in :uuid scalar. Default-expanded? on protocol nodes is true
+  ;; (see render-protocol-node), so the body container appears without
+  ;; operator interaction.
   (let [h (ei/render-node {:value sample-uuid
                            :panel-id :test
-                           :mount-id "m1"
+                           :mount-id "m2"
                            :path []
                            :depth 0
                            :expansion-map {}
@@ -147,18 +141,7 @@
     (is (some? (find-attr h :data-rf-default-fmt "uuid"))
         "default formatter's header is rendered")
     (is (re-find #"#uuid \"…[0-9a-f]{8}\"" (collect-text h))
-        "compact form appears in rendered output")))
-
-(deftest uuid-body-rendered-when-expanded
-  ;; Default-expanded? on protocol nodes is true (see render-protocol-node),
-  ;; so the body container appears without operator interaction.
-  (let [h (ei/render-node {:value sample-uuid
-                           :panel-id :test
-                           :mount-id "m2"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
+        "compact form appears in rendered output")
     (is (some? (find-attr h :data-rf-default-fmt-body "uuid"))
         "uuid body container rendered when expanded")
     (is (re-find (re-pattern (str sample-uuid)) (collect-text h))
@@ -188,21 +171,9 @@
     (is (re-find (re-pattern (str "#inst \"" (.toISOString d) "\"")) text)
         "body shows the full ISO-8601 form")))
 
-(deftest inst-renders-through-protocol-path-when-mounted
-  (let [d (js/Date. epoch-2026)
-        h (ei/render-node {:value d
-                           :panel-id :test
-                           :mount-id "m3"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (some? (find-attr h :data-rf-protocol "1"))
-        "inst goes through the protocol path")
-    (is (some? (find-attr h :data-rf-default-fmt "inst"))
-        "default formatter's inst header rendered")))
-
 (deftest inst-body-rendered-when-expanded
+  ;; A mounted js/Date routes through the protocol path, and its body
+  ;; renders default-expanded.
   (let [d (js/Date. epoch-2026)
         h (ei/render-node {:value d
                            :panel-id :test
@@ -211,6 +182,10 @@
                            :depth 0
                            :expansion-map {}
                            :opts {}})]
+    (is (some? (find-attr h :data-rf-protocol "1"))
+        "inst goes through the protocol path")
+    (is (some? (find-attr h :data-rf-default-fmt "inst"))
+        "default formatter's inst header rendered")
     (is (some? (find-attr h :data-rf-default-fmt-body "inst"))
         "inst body container rendered when expanded")
     (is (re-find #"#inst \"\d{4}-\d{2}-\d{2}T" (collect-text h))

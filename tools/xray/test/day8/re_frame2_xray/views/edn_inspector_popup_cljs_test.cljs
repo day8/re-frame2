@@ -24,7 +24,7 @@
 
   Pure-data unit tests; no DOM mount, which is the default shape
   for Xray/Story tests."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
@@ -64,43 +64,37 @@
 ;; pure stack math
 ;; =========================================================================
 
-(deftest push-entry-appends-new-id
-  (is (= ["a"] (edn-inspector-popup/push-entry [] "a")))
-  (is (= ["a" "b"] (edn-inspector-popup/push-entry ["a"] "b")))
-  (is (= ["a" "b" "c"] (edn-inspector-popup/push-entry ["a" "b"] "c"))))
-
-(deftest push-entry-raises-existing-id
-  (testing "re-pushing an existing id moves it to the TOP of the stack"
-    (is (= ["b" "c" "a"] (edn-inspector-popup/push-entry ["a" "b" "c"] "a")))
-    (is (= ["a" "c" "b"] (edn-inspector-popup/push-entry ["a" "b" "c"] "b")))))
-
-(deftest push-entry-handles-nil-stack
-  (is (= ["a"] (edn-inspector-popup/push-entry nil "a"))))
-
-(deftest pop-entry-removes-id
-  (is (= ["a" "c"] (edn-inspector-popup/pop-entry ["a" "b" "c"] "b")))
-  (is (= [] (edn-inspector-popup/pop-entry ["a"] "a"))))
-
-(deftest pop-entry-noop-when-missing
-  (is (= ["a" "b"] (edn-inspector-popup/pop-entry ["a" "b"] "missing"))))
-
-(deftest pop-entry-handles-nil-stack
-  (is (= [] (edn-inspector-popup/pop-entry nil "a"))))
-
-(deftest top-entry-returns-last
-  (is (nil? (edn-inspector-popup/top-entry [])))
-  (is (nil? (edn-inspector-popup/top-entry nil)))
-  (is (= "a" (edn-inspector-popup/top-entry ["a"])))
-  (is (= "c" (edn-inspector-popup/top-entry ["a" "b" "c"]))))
-
-(deftest z-index-for-stacks-above-base
-  (testing "z-index increases with stack position so deeper popups
-            paint above earlier ones"
-    (is (= 2147483640 (edn-inspector-popup/z-index-for 0)))
-    (is (= 2147483641 (edn-inspector-popup/z-index-for 1)))
-    (is (= 2147483645 (edn-inspector-popup/z-index-for 5)))
-    ;; Tolerates nil — defensive for the indexOf-returns-(-1) case.
-    (is (= 2147483640 (edn-inspector-popup/z-index-for nil)))))
+(deftest stack-math
+  (testing "push-entry appends a new id, raises an existing one to the
+            TOP, and tolerates a nil stack"
+    (are [expected stack id] (= expected (edn-inspector-popup/push-entry stack id))
+      ["a"]         []            "a"
+      ["a" "b"]     ["a"]         "b"
+      ["a" "b" "c"] ["a" "b"]     "c"
+      ["b" "c" "a"] ["a" "b" "c"] "a"
+      ["a" "c" "b"] ["a" "b" "c"] "b"
+      ["a"]         nil           "a"))
+  (testing "pop-entry removes the id, is a no-op when the id is missing,
+            and tolerates a nil stack"
+    (are [expected stack id] (= expected (edn-inspector-popup/pop-entry stack id))
+      ["a" "c"] ["a" "b" "c"] "b"
+      []        ["a"]         "a"
+      ["a" "b"] ["a" "b"]     "missing"
+      []        nil           "a"))
+  (testing "top-entry peeks the last id"
+    (are [expected stack] (= expected (edn-inspector-popup/top-entry stack))
+      nil []
+      nil nil
+      "a" ["a"]
+      "c" ["a" "b" "c"]))
+  (testing "z-index increases with stack position so deeper popups paint
+            above earlier ones, and tolerates nil (the indexOf-returns-(-1)
+            case)"
+    (are [expected pos] (= expected (edn-inspector-popup/z-index-for pos))
+      2147483640 0
+      2147483641 1
+      2147483645 5
+      2147483640 nil)))
 
 ;; =========================================================================
 ;; install! + reducers + subs
@@ -192,7 +186,7 @@
   (is (= {:value {:user 2} :opts {:title "B"}}
          @(rf/subscribe [:rf.xray.edn-inspector-popup/entry "m2"]))))
 
-(deftest reopen-with-same-id-preserves-position-and-replaces-payload
+(deftest reopen-with-same-id-raises-it-and-replaces-its-payload
   (testing "re-opening m1 raises it to top AND replaces its payload"
     (edn-inspector-popup/install!)
     (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
@@ -212,30 +206,21 @@
 ;; popup-chrome — hiccup rendering
 ;; =========================================================================
 
-(deftest popup-chrome-emits-title-node-with-caller-title
-  (let [h (edn-inspector-popup/popup-chrome
-            {:mount-id    "m1"
-             :value       42
-             :opts        {:title "Custom title"}
-             :positioning :fixed
-             :stack-pos   0})
-        title-node (find-attr h :data-testid
-                              "rf-xray-edn-inspector-popup-title-m1")]
-    (is (some? title-node) "title node renders")
-    ;; The title text is the third element (after the tag + attrs).
-    (is (some #{"Custom title"} (flatten title-node))
-        "title text echoes caller-supplied :title")))
-
-(deftest popup-chrome-default-title
-  (let [h (edn-inspector-popup/popup-chrome
-            {:mount-id    "m1"
-             :value       42
-             :opts        {}
-             :positioning :fixed
-             :stack-pos   0})
-        title-node (find-attr h :data-testid
-                              "rf-xray-edn-inspector-popup-title-m1")]
-    (is (some #{"Inspect"} (flatten title-node))
+(deftest popup-chrome-title-echoes-the-caller-title-or-defaults
+  (let [title-of (fn [opts]
+                   (find-attr (edn-inspector-popup/popup-chrome
+                                {:mount-id    "m1"
+                                 :value       42
+                                 :opts        opts
+                                 :positioning :fixed
+                                 :stack-pos   0})
+                              :data-testid
+                              "rf-xray-edn-inspector-popup-title-m1"))
+        custom   (title-of {:title "Custom title"})]
+    (is (some? custom) "title node renders")
+    (is (some #{"Custom title"} (flatten custom))
+        "title text echoes caller-supplied :title")
+    (is (some #{"Inspect"} (flatten (title-of {})))
         "no :title → default 'Inspect' label")))
 
 (deftest popup-chrome-uses-aria-dialog-attrs
@@ -255,33 +240,22 @@
            (-> dialog second :aria-labelledby))
         "dialog labelled by the title node id")))
 
-(deftest popup-chrome-respects-modal-positioning-absolute
-  (let [h (edn-inspector-popup/popup-chrome
-            {:mount-id    "m1"
-             :value       42
-             :opts        {}
-             :positioning :absolute
-             :stack-pos   0})
-        backdrop (find-attr h :data-testid
-                            "rf-xray-edn-inspector-popup-backdrop-m1")]
-    (is (= "absolute"
-           (-> backdrop second :style :position))
+(deftest popup-chrome-respects-modal-positioning
+  (let [backdrop-of (fn [positioning]
+                      (find-attr (edn-inspector-popup/popup-chrome
+                                   {:mount-id    "m1"
+                                    :value       42
+                                    :opts        {}
+                                    :positioning positioning
+                                    :stack-pos   0})
+                                 :data-testid
+                                 "rf-xray-edn-inspector-popup-backdrop-m1"))
+        absolute    (backdrop-of :absolute)]
+    (is (= "absolute" (-> absolute second :style :position))
         ":absolute positioning confines backdrop to parent cell")
-    (is (= "absolute"
-           (-> backdrop second :data-rf-xray-modal-positioning))
-        "positioning marker exposed for instrumentation")))
-
-(deftest popup-chrome-respects-modal-positioning-fixed
-  (let [h (edn-inspector-popup/popup-chrome
-            {:mount-id    "m1"
-             :value       42
-             :opts        {}
-             :positioning :fixed
-             :stack-pos   0})
-        backdrop (find-attr h :data-testid
-                            "rf-xray-edn-inspector-popup-backdrop-m1")]
-    (is (= "fixed"
-           (-> backdrop second :style :position))
+    (is (= "absolute" (-> absolute second :data-rf-xray-modal-positioning))
+        "positioning marker exposed for instrumentation")
+    (is (= "fixed" (-> (backdrop-of :fixed) second :style :position))
         ":fixed positioning spans viewport (production default)")))
 
 ;; =========================================================================
@@ -331,31 +305,21 @@
       (is (= [:rf.xray.edn-inspector-popup/close "m1"] @captured)
           "backdrop click dispatches :close for this popup"))))
 
-(deftest handle-keydown-escape-dispatches-close-top
-  ;; Esc key → :close-top event (so the topmost popup closes,
-  ;; layered popups beneath survive).
-  (let [captured (atom nil)]
-    (with-redefs [rf/dispatch-impl (fn [event-v & _]
-                                 (reset! captured event-v))]
-      (edn-inspector-popup/handle-keydown
-        #js {:key "Escape"
-             :preventDefault  (fn [])
-             :stopPropagation (fn [])})
-      (is (= [:rf.xray.edn-inspector-popup/close-top] @captured)
-          "Esc dispatches :close-top"))))
-
-(deftest handle-keydown-other-keys-bubble
-  ;; Non-Esc keys must not dispatch — they bubble to global
-  ;; keybindings (palette / etc.).
-  (let [captured (atom nil)]
-    (with-redefs [rf/dispatch-impl (fn [event-v & _]
-                                 (reset! captured event-v))]
-      (edn-inspector-popup/handle-keydown
-        #js {:key "Enter"
-             :preventDefault  (fn [])
-             :stopPropagation (fn [])})
-      (is (nil? @captured)
-          "Enter does not dispatch any popup event"))))
+(deftest handle-keydown-closes-the-top-popup-on-escape-only
+  ;; Esc → :close-top, so the topmost popup closes and layered popups
+  ;; beneath survive. Any other key dispatches nothing and bubbles to the
+  ;; global keybindings (palette / etc.).
+  (doseq [[k expected] [["Escape" [:rf.xray.edn-inspector-popup/close-top]]
+                        ["Enter"  nil]]]
+    (let [captured (atom nil)]
+      (with-redefs [rf/dispatch-impl (fn [event-v & _]
+                                       (reset! captured event-v))]
+        (edn-inspector-popup/handle-keydown
+          #js {:key k
+               :preventDefault  (fn [])
+               :stopPropagation (fn [])})
+        (is (= expected @captured)
+            (str k " dispatches " (pr-str expected)))))))
 
 ;; =========================================================================
 ;; per-mount isolation — embedded widget panel-id is mount-scoped
@@ -434,19 +398,8 @@
         "m1 chrome present")
     (is (some? (find-attr tree :data-testid
                           "rf-xray-edn-inspector-popup-backdrop-m2"))
-        "m2 chrome present")))
-
-(deftest stack-view-marks-popup-count
-  (edn-inspector-popup/install!)
-  (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m3" {:value 3 :opts {}}])
-  (let [tree (popup-stack-tree)]
-    (is (= 3 (-> tree second :data-rf-popup-count))
+        "m2 chrome present")
+    (is (= 2 (-> tree second :data-rf-popup-count))
         "popup-count attribute reflects stack depth")))
 
 ;; =========================================================================
