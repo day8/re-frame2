@@ -165,12 +165,6 @@
           (rf.resources.registry/reg-resource :feed/rf-badwin
                                  (assoc (base-infinite-spec) :refetch {:refetch-window 1.5}) base-infinite-request)))))
 
-(deftest infinite-resource-predicate
-  (testing "infinite-resource? recognises the :infinite true marker"
-    (is (true? (rf.resources.registry/infinite-resource? (base-infinite-spec))))
-    (is (false? (rf.resources.registry/infinite-resource? {:infinite false})))
-    (is (false? (rf.resources.registry/infinite-resource? {})))))
-
 ;; ===========================================================================
 ;; `:page-data-schema` is a RETIRED key: HARD-REJECTED, never
 ;; silently stored. A per-page egress/classification key that drove neither

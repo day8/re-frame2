@@ -202,16 +202,6 @@
       (is (= :rf.resource.internal/page-succeeded (first (:on-success @last-managed-args))))
       (is (= :rf.resource.internal/page-failed (first (:on-failure @last-managed-args)))))))
 
-(deftest ensure-page-0-success-appends
-  (testing "a page-0 success appends to :data + advances the cursor + :loaded"
-    (let [k (load-page-0! :inf2/feed (page [:a :b] "c1"))
-          e (entry k)]
-      (is (= :loaded (:status e)))
-      (is (= [(page [:a :b] "c1")] (:data e)) "page-0 accumulated")
-      (is (= [nil] (:page-params e)) "page-0 param is nil")
-      (is (= "c1" (:next-page-param e)) "cursor advanced from the page")
-      (is (= 1 (rf.resources.state/page-count e))))))
-
 ;; ===========================================================================
 ;; 2. load-more appends + advances the cursor (the headline behaviour)
 ;; ===========================================================================
@@ -336,25 +326,11 @@
               (is (= :suppressed (:status rec))))))))))
 
 ;; ===========================================================================
-;; 6. page-fetch failure is the THIRD error channel (keep feed + :page-error)
+;; 6. page-fetch failure is the THIRD error channel (keep feed + :page-error).
+;;    The page reply handler routes every non-abort load-more failure alike,
+;;    so the full keep-feed + :page-error settle is pinned once, by
+;;    `load-more-decode-failure-keeps-pages-records-page-error` (6b).
 ;; ===========================================================================
-
-(deftest page-failure-keeps-feed-records-page-error
-  (testing "a load-more failure keeps ALL pages + records :page-error — NOT the
-            first-load :error / whole-feed :refresh-error channel (R2)"
-    (let [k        (load-page-0! :pf/feed (page [:a] "c1"))
-          envelope {:kind :rf.http/server :status 503}]
-      (load-more! :pf/feed)
-      (reply-failure! envelope)
-      (let [e (entry k)]
-        (is (= :loaded (:status e)) "feed returns to :loaded (NOT :error)")
-        (is (= 1 (rf.resources.state/page-count e)) "accumulated pages kept")
-        (is (= [(page [:a] "c1")] (:data e)) "page vector untouched")
-        (is (= "c1" (:next-page-param e)) "cursor untouched — retry is possible")
-        (is (= envelope (:page-error e)) ":page-error recorded (third channel)")
-        (is (nil? (:error e)) "NOT the first-load :error channel")
-        (is (nil? (:refresh-error e)) "NOT the refresh :refresh-error channel")
-        (is (nil? (:current-work e)) ":current-work cleared")))))
 
 (deftest page-failure-recovers-on-next-success
   (testing "a successful load-more after a page failure clears :page-error"

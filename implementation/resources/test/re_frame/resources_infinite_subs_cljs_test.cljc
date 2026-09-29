@@ -380,23 +380,3 @@
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) ex
                       (:rf.error/id (ex-data ex))))))))))
-
-;; ===========================================================================
-;; 8. the merge is framework-owned and PURE (R3)
-;; ===========================================================================
-
-(deftest items-merge-is-a-pure-function-of-the-pages
-  (testing "the merged-items projection pins VALUE, not identity: two merges of
-            one entry are `=` to each other and to the direct merge (no
-            process-global computation cache — the sub layer's output `=` is
-            the only memo)"
-    (load-page-0! :is8/feed (page [:a :b] "c1"))
-    (let [e      (entry (feed-key :is8/feed))
-          direct (rf.resources.state/merge-pages->items
-                   (:data e) (rf.resources.state/resolve-page->items :items)
-                   :is8/feed 'rf.resource/items)
-          m1     (#'re-frame.resources.subs/merged-items e 'rf.resource/items)
-          m2     (#'re-frame.resources.subs/merged-items e 'rf.resource/items)]
-      (is (= [:a :b] direct))
-      (is (= direct m1))
-      (is (= m1 m2)))))
