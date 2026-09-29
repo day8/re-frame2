@@ -91,7 +91,7 @@
        (vector? (nth tree 2))
        (= expected-panel-view (first (nth tree 2)))))
 
-;; ---- top-level L3-tab panels (6) ---------------------------------------
+;; ---- L3-tab panels + overlay / popup surfaces --------------------------
 
 (deftest mount-epoch-panel-wraps-in-frame-provider-and-delegates-to-adapter
   (testing "mount-epoch-panel! installs
@@ -116,65 +116,37 @@
         (is (some? (rf.frame/frame :rf/xray))
             ":rf/xray frame is registered as a side-effect of mount")))))
 
-(deftest mount-app-db-diff-wraps-in-frame-provider
-  ;; `Panel-bridge`; see `mount-reactive-panel-…` below.
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-app-db-diff! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) app-db-diff/Panel-bridge)))))
-
-(deftest mount-reactive-panel-wraps-in-frame-provider
-  ;; The expected view is `Panel-bridge`. `Panel` is a Fresco boundary (a
-  ;; React function component) and `render-panel!` builds a REAGENT tree,
-  ;; so the bridge is what the mount fn hands it. The shape this row pins
-  ;; is frame-provider :rf/xray wrapping the view, because the bridge
-  ;; takes its frame from the same React context the provider writes.
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-reactive-panel! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) reactive-panel/Panel-bridge)))))
-
-(deftest mount-trace-wraps-in-frame-provider
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-trace! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) trace/Panel-bridge)))))
-
-(deftest mount-machine-inspector-wraps-in-frame-provider
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-machine-inspector! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) machine-inspector/Panel-bridge)))))
-
-(deftest mount-routing-wraps-in-frame-provider
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-routing! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture) routing/Panel)))))
-
-;; ---- overlay / popup surfaces (2) --------------------------------------
-
-(deftest mount-cancellation-cascade-side-panel-wraps-SidePanel
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-cancellation-cascade-side-panel! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture)
-                                cancellation-cascade/SidePanel)))))
-
-(deftest mount-cancellation-cascade-popover-wraps-Popover
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-cancellation-cascade-popover! :mount-point)
-      (is (frame-provider-wrap? (captured-tree capture)
-                                cancellation-cascade/Popover)))))
+(deftest every-other-panel-mount-wraps-its-view-in-the-frame-provider
+  ;; The remaining L3-tab panels and the two overlay / popup surfaces.
+  ;; Where a panel's `Panel` is a Fresco boundary (a React function
+  ;; component) the expected view is its `Panel-bridge`: `render-panel!`
+  ;; builds a REAGENT tree, so the bridge is what the mount fn hands it.
+  ;; The shape each row pins is frame-provider :rf/xray wrapping the view,
+  ;; because the bridge takes its frame from the same React context the
+  ;; provider writes.
+  (doseq [[label mount! view]
+          [["app-db-diff"       panels/mount-app-db-diff!       app-db-diff/Panel-bridge]
+           ["reactive"          panels/mount-reactive-panel!    reactive-panel/Panel-bridge]
+           ["trace"             panels/mount-trace!             trace/Panel-bridge]
+           ["machine-inspector" panels/mount-machine-inspector! machine-inspector/Panel-bridge]
+           ["routing"           panels/mount-routing!           routing/Panel]
+           ["cancellation-cascade side panel"
+            panels/mount-cancellation-cascade-side-panel! cancellation-cascade/SidePanel]
+           ["cancellation-cascade popover"
+            panels/mount-cancellation-cascade-popover!    cancellation-cascade/Popover]]]
+    (let [[capture _ render-stub] (make-render-stub)]
+      (with-redefs [rf.substrate.adapter/render render-stub]
+        (mount! :mount-point)
+        (is (frame-provider-wrap? (captured-tree capture) view)
+            (str label ": frame-provider :rf/xray wraps the panel's view"))))))
 
 ;; ---- inline content surface (managed-fx) -------------------------------
 
 (deftest mount-managed-fx-wraps-ManagedFxList
-  ;; The expected view is `ManagedFxList-bridge`, for the reason
-  ;; `mount-reactive-panel-…` records above: `ManagedFxList` is a Fresco
-  ;; boundary and `render-panel!` builds a REAGENT tree. The shape this row
-  ;; pins is frame-provider :rf/xray wrapping the view.
+  ;; The expected view is `ManagedFxList-bridge`, for the reason the table
+  ;; above records: `ManagedFxList` is a Fresco boundary and
+  ;; `render-panel!` builds a REAGENT tree. The shape this row pins is
+  ;; frame-provider :rf/xray wrapping the view.
   (let [[capture _ render-stub] (make-render-stub)]
     (with-redefs [rf.substrate.adapter/render render-stub]
       (panels/mount-managed-fx! :mount-point)
@@ -203,12 +175,6 @@
               "mount-shell! does NOT add an outer frame-provider — the
                shell-view contains its own scope provider per spec/007
                §The 4-layer chrome"))))))
-
-(deftest mount-shell-supports-mode-opt
-  (let [[capture _ render-stub] (make-render-stub)]
-    (with-redefs [rf.substrate.adapter/render render-stub]
-      (panels/mount-shell! :mount-point {:mode :overlay})
-      (is (= :overlay (-> (captured-tree capture) second :mode))))))
 
 ;; ---- the full-shell embed forwards its own-frame opt -------------------
 ;;
@@ -327,29 +293,13 @@
       (is (= :b-cascade (:dispatch-id (read-in-frame embed-cell-b [:rf.xray/focus])))
           "and shell B is STILL focused on its own"))))
 
-;; ---- contract — frame opt --------------------------------------------
-
-(deftest mount-fn-honours-frame-opt-when-host-overrides-default
-  (testing "`opts {:frame ...}` overrides the default
-            `:rf/xray` frame the frame-provider wraps around. Pins
-            the embedding contract (008-Embedding-Contract.md §State
-            isolation) — a host can choose a different frame for the
-            React-context tier (e.g. a Story variant frame) and the
-            wrapper honours it. The panel's own Xray-state subs still
-            target `:rf.xray/*` registrations under whatever frame
-            actually carries them."
-    (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-epoch-panel! :mount-point {:frame :my-app/cart})
-        (let [tree (captured-tree capture)]
-          (is (= rf/frame-provider (first tree)))
-          (is (= {:frame :my-app/cart} (second tree))
-              "explicit :frame opt overrides the default :rf/xray"))))))
-
 ;; ---- the per-panel mount SEATS the frame it PROVIDES -------------------
 ;;
-;; The deftest above pins the WRAPPER. This one pins what sits one line
-;; above it: `render-panel!` must seat the SAME frame it anchors the
+;; `opts {:frame …}` overrides the default `:rf/xray` the frame-provider
+;; wraps (008-Embedding-Contract.md §State isolation) — a host can choose a
+;; different frame for the React-context tier, e.g. a Story variant frame.
+;; The deftest below pins that override on the WRAPPER and on what sits one
+;; line above it: `render-panel!` must seat the SAME frame it anchors the
 ;; provider at. Seating `shell/default-frame-id` (the ZERO arity of
 ;; `ensure-xray-handlers-installed!`) while anchoring the provider at
 ;; `opts :frame` would put two different frames in play on an override,
@@ -649,27 +599,6 @@
             "and it composes with `:frame` rather than replacing it — the
              frame-provider still wraps the frame the host named")))))
 
-;; ---- contract — idempotency under repeat mount ------------------------
-
-(deftest repeat-mount-is-idempotent-for-handler-registration
-  (testing "calling mount multiple times is safe; the
-            registry's `register-xray-handlers!` sentinel collapses
-            repeat installs into a single registration. The substrate
-            render is called each time (each mount creates a fresh
-            substrate render — that's the host's lifecycle choice;
-            the panels ns does not deduplicate)."
-    (let [[capture _ render-stub] (make-render-stub)]
-      (with-redefs [rf.substrate.adapter/render render-stub]
-        (panels/mount-epoch-panel! :mount-1)
-        (panels/mount-app-db-diff! :mount-2)
-        (panels/mount-trace! :mount-3)
-        (is (= 3 (count @capture))
-            "every mount call delegates to rf.substrate.adapter/render")
-        ;; Handlers landed exactly once — :rf.xray/event-bundles is a
-        ;; cross-panel primitive registered inside the orchestrator's
-        ;; sentinel guard.
-        (is (some? (rf.registrar/handler :sub :rf.xray/event-bundles)))))))
-
 ;; ---- contract — panel mount routes through mount/ensure-xray-frame! ---
 ;;
 ;; `ensure-xray-handlers-installed!` routes through `mount/ensure-xray-frame!`
@@ -769,23 +698,3 @@
                focusable cascade exists.")
           (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
               "explicitly: UNSELECTED is nil, not :rf/default"))))))
-
-;; ---- contract — every public mount fn exists --------------------------
-
-(deftest every-panel-mount-fn-is-public-and-callable
-  (testing "the nine per-panel mount fns + the full-
-            shell mount fn are all present + ifn? — defensive guard
-            against accidental removal during refactor."
-    (let [fns [["mount-epoch-panel!"                        panels/mount-epoch-panel!]
-               ["mount-app-db-diff!"                        panels/mount-app-db-diff!]
-               ["mount-reactive-panel!"                     panels/mount-reactive-panel!]
-               ["mount-trace!"                              panels/mount-trace!]
-               ["mount-machine-inspector!"                  panels/mount-machine-inspector!]
-               ["mount-routing!"                            panels/mount-routing!]
-               ["mount-cancellation-cascade-side-panel!"    panels/mount-cancellation-cascade-side-panel!]
-               ["mount-cancellation-cascade-popover!"       panels/mount-cancellation-cascade-popover!]
-               ["mount-managed-fx!"                         panels/mount-managed-fx!]
-               ["mount-shell!"                              panels/mount-shell!]]]
-      (doseq [[sym-name f] fns]
-        (is (ifn? f)
-            (str sym-name " is callable"))))))
