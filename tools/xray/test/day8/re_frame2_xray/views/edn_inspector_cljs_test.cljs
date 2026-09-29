@@ -479,6 +479,17 @@
           k         (ei/expansion-key panel-id mount-id path)]
       (is (= false (get-in snapshot [k :expanded?]))
           "second toggle inverts the stored override to false"))
+    ;; A stale payload: the stored override is now `false`, but this
+    ;; click carries `true` — a queued click rendered before the previous
+    ;; one landed. The stored override wins, so the reducer inverts
+    ;; `false` to `true`; one inverting the payload would store `false`.
+    ;; Every click above carries a payload that agrees with the store, so
+    ;; this is the one click that tells the two rules apart.
+    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
+    (let [snapshot @(rf/subscribe [ei/expansion-slot])
+          k         (ei/expansion-key panel-id mount-id path)]
+      (is (= true (get-in snapshot [k :expanded?]))
+          "a payload contradicting the stored override: the override wins and inverts to true"))
 
     ;; Case B — default-expanded (e.g. top-level path). Visible
     ;; state is expanded → dispatch carries `true` → first click
@@ -1028,6 +1039,25 @@
     (is (= (pr-str [:my-site "x"]) (get attrs :data-rf-site-id))
         ":data-rf-site-id attribute carries the literal site-id")))
 
+(deftest site-id-keys-the-expansion-state-the-render-reads
+  ;; The attribute above is only a label. What makes a remount keep its
+  ;; state is that the renderer keys each node's expansion lookup by the
+  ;; site-id, so an override stored under `[panel-id site-id path]` is
+  ;; the one the render reads — whatever auto-mount-id this mount drew.
+  (let [site-id [:my-site "x"]
+        v       {:a 1 :b 2 :c 3 :d 4}
+        opts    {:panel-id :p :site-id site-id :default-expanded-depth 0}
+        render  (fn [] ((ei/edn-inspector v opts) v opts))
+        root-expanded (fn [h]
+                        (:data-rf-expanded
+                          (second (first (nodes-with-attr h :data-rf-kind "map")))))]
+    (is (= "0" (root-expanded (render)))
+        "precondition: at depth 0 the root renders collapsed")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/set-node :p site-id [] true])
+    (is (= "1" (root-expanded (render)))
+        "an override stored under the site-id opens the root of a fresh mount")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
+
 (deftest edn-inspector-without-site-id-keeps-per-call-site-isolation
   ;; When `:site-id` is omitted, auto-mount-id keeps two side-by-side
   ;; mounts independent. This guards the isolation default.
@@ -1100,6 +1130,25 @@
         h (ei/mini long-str 20)
         title (-> h second :title)]
     (is (some? title) "title attribute carries full value")))
+
+(deftest mini-truncates-a-container-past-max-len
+  ;; A container's printed form past `max-len` is cut to `max-len`
+  ;; characters plus `…` in `data-rf-mini-text`, while the title keeps
+  ;; the whole form for hover. At or under `max-len` it is left whole.
+  (let [v       {:alpha 1 :beta 2 :gamma 3 :delta 4}
+        printed (pr-str v)
+        mini-text (fn [h] (some (fn [n] (let [attrs (second n)]
+                                          (when (map? attrs) (:data-rf-mini-text attrs))))
+                                (walk-hiccup h)))
+        long-h  (ei/mini v 12)
+        short-h (ei/mini v (count printed))]
+    (is (< 12 (count printed)) "precondition: the printed form is longer than the cap")
+    (is (= (str (subs printed 0 12) "…") (mini-text long-h))
+        "past max-len: cut to max-len characters plus an ellipsis")
+    (is (= printed (-> long-h second :title))
+        "the title keeps the whole printed form")
+    (is (= printed (mini-text short-h))
+        "at max-len: left whole, no ellipsis")))
 
 ;; =========================================================================
 ;; Diff mode
@@ -1245,10 +1294,14 @@
                            :panel-id :p :mount-id "m" :path [] :depth 0
                            :expansion-map {}
                            :opts {:default-expanded-depth 2}})
-        ;; The leaf wrapping span uses the :same gutter row + a span
-        ;; with text-tertiary colour.
-        s (pr-str h)]
-    (is (re-find #"text-tertiary" s)
+        ;; The leaf sits in a `:same` gutter row, inside a span whose
+        ;; colour is text-tertiary. The gutter glyph beside it is
+        ;; text-tertiary too, so a search of the whole printed tree would
+        ;; find that token on the glyph whatever colour the value took;
+        ;; read the value span's own colour instead.
+        value-colours (keep (fn [n] (get-in (second n) [:style :color]))
+                            (nodes-with-attr h :data-rf-diff-op "same"))]
+    (is (= [(:text-tertiary tokens)] value-colours)
         "same leaf in diff mode renders via the text-tertiary token")))
 
 ;; ---- diff mode — public widget exposes mode marker -----------------------
@@ -3029,7 +3082,7 @@
         "no internal namespaced keyword leaks into the visible text")
     (is (re-find #":added" all)
         "the removed key :added still appears (struck-through ghost)")
-    (is (re-find #"data-rf-diff-op.*removed" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
         "the removed slot carries the removed diff-op marker")
     (is (re-find #"line-through" s)
         "the removed ghost is struck through")))
@@ -3088,7 +3141,7 @@
         "the deeply-nested ghost leaf is reachable on expand")
     (is (not (re-find #"data-rf-diff-op.\"?added" s))
         "no descendant of a removed subtree renders as :added (green) — all inherit :removed")
-    (is (re-find #"data-rf-diff-op.*removed" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
         "ghost descendants carry the removed marker")))
 
 (deftest diff-removed-vector-element-no-sentinel-leak
@@ -3124,13 +3177,13 @@
                            :expansion-map {}
                            :opts {:default-expanded-depth 2}})
         s   (try (pr-str h) (catch :default _ ""))]
-    (is (re-find #"data-rf-diff-op.*added" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "added"))
         "added row marker present")
-    (is (re-find #"data-rf-diff-op.*removed" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
         "removed row marker present")
-    (is (re-find #"data-rf-diff-op.*modified" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "modified"))
         "modified row marker present")
-    (is (re-find #"data-rf-diff-op.*same" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "same"))
         "same row marker still present for unchanged rows")
     (is (re-find #"← was 2" s)
         "modified leaf still carries the change annotation")))
@@ -3165,9 +3218,9 @@
         "the removed member :door/locked still renders")
     (is (re-find #":door/closed" all)
         "the added member :door/closed renders")
-    (is (re-find #"data-rf-diff-op.*removed" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
         "a row carries the removed diff-op marker (the gone member)")
-    (is (re-find #"data-rf-diff-op.*added" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "added"))
         "a row carries the added diff-op marker (the new member)")
     (is (re-find #"line-through" s)
         "the removed member is struck through, not the whole key")
@@ -3204,10 +3257,9 @@
                            :path [] :depth 0
                            :expansion-map {}
                            :opts {:default-expanded-depth 6}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
+        all (collect-text h)]
     (is (re-find #"\b1\b" all) "the new element 1 renders")
-    (is (re-find #"data-rf-diff-op.*added" s)
+    (is (seq (nodes-with-attr h :data-rf-diff-op "added"))
         "the filled-from-empty vector shows the new element as an added row")))
 
 ;; =========================================================================
@@ -3290,7 +3342,7 @@
             (str "the emptied " label " must NOT render as a removed ghost"))
         ;; The dropped member is still visible + struck-through INSIDE the
         ;; now-empty container (member-level removal).
-        (is (re-find #"data-rf-diff-op.*removed" s)
+        (is (seq (nodes-with-attr h :data-rf-diff-op "removed"))
             (str "the dropped " label " member carries the removed diff-op"))
         (is (re-find #"line-through" s)
             (str "the dropped " label " member is struck-through"))
@@ -4705,43 +4757,21 @@
 ;; instrument this suite already uses for `:on-click`.
 
 (defn- key-event
-  "Minimal `KeyboardEvent` stand-in. Records whether the handler called
-  `preventDefault` / `stopPropagation`, because `stopPropagation` is
-  the whole mechanism keeping the zoom handler off this gesture."
-  [k]
-  (let [prevented (atom false)
-        stopped   (atom false)]
-    {:event #js {:key k
-                 :ctrlKey false :metaKey false :altKey false :shiftKey false
-                 :preventDefault  (fn [] (reset! prevented true))
-                 :stopPropagation (fn [] (reset! stopped true))}
-     :prevented prevented
-     :stopped   stopped}))
-
-(defn- modified-key-event
-  [k modifier]
-  #js {:key k
-       :ctrlKey (= modifier :ctrl) :metaKey (= modifier :meta)
-       :altKey (= modifier :alt)   :shiftKey (= modifier :shift)
-       :preventDefault  (fn [])
-       :stopPropagation (fn [])})
-
-(defn- toggle-span-keydown
-  "The toggle triangle's `:on-key-down`, from a zoomable render — the
-  configuration in which the bug bit."
-  []
-  (let [h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path [:x]
-                           :depth 5
-                           :expansion-map {}
-                           :zoomable? true
-                           :zoom-path-prefix []
-                           :dispatch-fn (fn [_])
-                           :opts {:default-expanded-depth 1}})
-        tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")]
-    (-> tog second :on-key-down)))
+  "Minimal `KeyboardEvent` stand-in, with `modifier` (`:ctrl`, `:meta`,
+  `:alt` or `:shift`) held when given. Records whether the handler
+  called `preventDefault` / `stopPropagation`, because `stopPropagation`
+  is the whole mechanism keeping the zoom handler off this gesture."
+  ([k] (key-event k nil))
+  ([k modifier]
+   (let [prevented (atom false)
+         stopped   (atom false)]
+     {:event #js {:key k
+                  :ctrlKey (= modifier :ctrl) :metaKey (= modifier :meta)
+                  :altKey (= modifier :alt)   :shiftKey (= modifier :shift)
+                  :preventDefault  (fn [] (reset! prevented true))
+                  :stopPropagation (fn [] (reset! stopped true))}
+      :prevented prevented
+      :stopped   stopped})))
 
 (deftest enter-on-toggle-toggles-and-does-not-zoom
   (let [captured (atom [])
@@ -4792,23 +4822,31 @@
 
 (deftest other-keys-and-modified-enter-pass-through-untouched
   ;; The surrounding spine bindings (j/k/l/G, Esc-zoom-out) must keep
-  ;; working, exactly as `zoom-trigger-attrs` leaves them.
-  (let [on-key-down (toggle-span-keydown)]
-    (doseq [k ["j" "k" "Escape" "Tab" "ArrowDown"]]
-      (let [captured (atom [])
-            h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
-                               :panel-id :test :mount-id "m1" :path [:x] :depth 5
-                               :expansion-map {} :zoomable? true
-                               :dispatch-fn (fn [e] (swap! captured conj e))
-                               :opts {:default-expanded-depth 1}})
-            tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
-            {:keys [event]} (key-event k)]
-        ((-> tog second :on-key-down) event)
-        (is (zero? (count @captured))
-            (str "`" k "` passes through the triangle untouched"))))
-    (doseq [modifier [:ctrl :meta :alt :shift]]
-      (is (nil? (on-key-down (modified-key-event "Enter" modifier)))
-          (str "Enter + " (name modifier) " is not the bare gesture and is ignored")))))
+  ;; working, exactly as `zoom-trigger-attrs` leaves them. Untouched
+  ;; means no toggle dispatched AND the event neither consumed nor
+  ;; stopped, so it still reaches those bindings.
+  (let [press (fn [k modifier]
+                (let [captured (atom [])
+                      h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
+                                         :panel-id :test :mount-id "m1" :path [:x] :depth 5
+                                         :expansion-map {} :zoomable? true
+                                         :dispatch-fn (fn [e] (swap! captured conj e))
+                                         :opts {:default-expanded-depth 1}})
+                      tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")
+                      {:keys [event prevented stopped]} (key-event k modifier)]
+                  ((-> tog second :on-key-down) event)
+                  {:dispatched @captured :prevented @prevented :stopped @stopped}))]
+    (doseq [[k modifier] [["j" nil] ["k" nil] ["Escape" nil] ["Tab" nil] ["ArrowDown" nil]
+                          ["Enter" :ctrl] ["Enter" :meta] ["Enter" :alt] ["Enter" :shift]]]
+      (let [label (str "`" k "`" (when modifier (str " + " (name modifier))))
+            {:keys [dispatched prevented stopped]} (press k modifier)]
+        (is (empty? dispatched)
+            (str label " passes through the triangle untouched — no toggle dispatched"))
+        (is (not prevented) (str label " — preventDefault not called"))
+        (is (not stopped) (str label " — stopPropagation not called"))))
+    (is (= [[:rf.xray.edn-inspector/toggle-node :test "m1" [:x] false]]
+           (:dispatched (press "Enter" nil)))
+        "positive control: the same rendered handler and recorder see a bare Enter toggle")))
 
 (deftest zoomable-skips-zoom-target-at-root
   ;; The root displayed node (relative path `[]`) is NOT a zoom target —
@@ -4937,8 +4975,11 @@
   ;; path) into the gesture — so when the operator is already zoomed at
   ;; `[:rf.db/runtime :rf.runtime/machines :snapshots]` and double-clicks
   ;; the nested `:ws/connection` container (relative path `[:ws/connection]`),
-  ;; the dispatch carries the FULL absolute path.
-  (let [v {:ws/connection {:state :open}}
+  ;; the dispatch carries the FULL absolute path. The gestures fired are
+  ;; the ones the renderer installed on the rendered child, so the
+  ;; composition under test is the renderer's own.
+  (let [v          {:ws/connection {:state :open}}
+        dispatched (atom [])
         h (ei/render-node {:value v
                            :panel-id :p
                            :mount-id "m"
@@ -4947,29 +4988,23 @@
                            :expansion-map {}
                            :zoomable? true
                            :zoom-path-prefix [:rf.db/runtime :rf.runtime/machines :snapshots]
+                           :dispatch-fn (fn [ev] (swap! dispatched conj ev))
                            :opts {:default-expanded-depth 8}})
-        targets (zoom-target-nodes h)]
+        targets (zoom-target-nodes h)
+        attrs   (-> targets first second)]
     (is (seq targets)
         "the child container is a zoom target even when zoom-path-prefix
          is non-empty")
-    ;; Confirm via the factory directly, mirroring render-container's
-    ;; (into zoom-path-prefix path) composition.
-    (let [composed (vec (concat [:rf.db/runtime :rf.runtime/machines :snapshots] [:ws/connection]))
-          {:keys [event]}
-          (with-captured-dispatch-spy
-            (fn [spy]
-              (ei/zoom-trigger-attrs
-                {:dispatch-fn   spy
-                 :panel-id      :p
-                 :mount-id      "m"
-                 :absolute-path composed})))]
-      (is (= [:rf.xray.edn-inspector/zoom-to :p "m"
-              [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]
-             event)
-          "the dispatched path is the absolute path = prefix + relative")
-      (is (= 4 (count event))
-          "composed-path dispatch is ALSO a single-arg event
-           vector through the captured dispatcher (no `:rf/xray` literal)"))))
+    ((:on-double-click attrs) nil)
+    ((:on-key-down attrs) (:event (key-event "Enter")))
+    (is (= [[:rf.xray.edn-inspector/zoom-to :p "m"
+             [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]
+            [:rf.xray.edn-inspector/zoom-to :p "m"
+             [:rf.db/runtime :rf.runtime/machines :snapshots :ws/connection]]]
+           @dispatched)
+        "double-click and Enter on the rendered child each dispatch the
+         absolute path = prefix + relative, through the captured
+         dispatcher (no `:rf/xray` literal)")))
 
 ;; ---- the toggle triangle owns its double-click gesture -------------------
 ;;
@@ -5122,7 +5157,11 @@
     (is (re-find #"Counter app" text)
         "hiccup home-label renders inline as the first breadcrumb segment")
     (is (re-find #":rf/default" text)
-        "nested hiccup content survives")))
+        "nested hiccup content survives")
+    ;; The text probes above also pass on a `pr-str`'d label, whose one
+    ;; string carries both phrases; only the node itself tells them apart.
+    (is (= home (last (find-attr h :data-rf-breadcrumb-segment "home")))
+        "the home segment's content IS the hiccup, not a printed string of it")))
 
 ;; ---- public widget — zoom-aware top-level render -------------------------
 
@@ -5334,46 +5373,50 @@
   ;; installs an `:on-key-down` handler on the outer container ONLY
   ;; when a zoom is active; the handler dispatches `:zoom-up`.
   ;;
-  ;; We capture the dispatched event by intercepting via a custom
-  ;; dispatch (the lexically-injected `dispatch` is async in CLJS so
-  ;; reading the slot immediately after `handler(ev)` would race). The
-  ;; reducer's correctness is covered by `zoom-up-pops-one-segment`
-  ;; above; here we assert that the keydown handler dispatches the
-  ;; canonical event with the correct args.
+  ;; `render-inspector` is the renderer both heads call; each hands it
+  ;; its own frame-bound dispatcher. Handing it a recording one instead
+  ;; captures the handler's dispatch synchronously — the reg-view head's
+  ;; injected `dispatch` is async in CLJS, so reading the slot right
+  ;; after `handler(ev)` would race. The zoom map is the real slot the
+  ;; `:zoom-to` below wrote, as the heads read it.
   (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (let [site-id [:rf.xray/app-db "top"]
-        _ (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                             :rf.xray/app-db site-id [:a :b]])
-        v {:a {:b {:c 1}}}
-        h (invoke-edn-inspector v
-                                {:panel-id :rf.xray/app-db
-                                 :site-id  site-id
-                                 :zoomable? true})
+  (let [site-id    [:rf.xray/app-db "top"]
+        _          (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
+                                      :rf.xray/app-db site-id [:a :b]])
+        dispatched (atom [])
+        v          {:a {:b {:c 1}}}
+        h (ei/render-inspector
+            {:value         v
+             :opts          {:panel-id  :rf.xray/app-db
+                             :site-id   site-id
+                             :zoomable? true}
+             :mount-id      "esc-mount"
+             :dispatch-fn   (fn [ev] (swap! dispatched conj ev))
+             :expansion-map {}
+             :zoom-map      @(rf/subscribe [ei/zoom-slot])
+             :widths        {}})
         attrs (-> h second)
         handler (:on-key-down attrs)]
     (is (fn? handler)
         "an Esc keydown handler is installed while zoom is active")
-    ;; Synthesise a minimal escape-key event; the handler internally
-    ;; dispatches `:zoom-up`, which the test runtime processes off the
-    ;; queue at the next macro-task, so this asserts on the event's
-    ;; preventDefault / stopPropagation rather than on the slot.
-    (let [prevent-called (atom false)
-          stop-called    (atom false)
-          ev #js {:key "Escape"
-                  :preventDefault  (fn [] (reset! prevent-called true))
-                  :stopPropagation (fn [] (reset! stop-called true))}]
-      (handler ev)
-      (is @prevent-called  "handler called preventDefault on the Esc event")
-      (is @stop-called     "handler called stopPropagation"))
-    ;; Non-Escape keys must NOT trigger the dispatch (verified by the
-    ;; preventDefault not being called).
-    (let [prevent-called (atom false)
-          ev #js {:key "Enter"
-                  :preventDefault  (fn [] (reset! prevent-called true))
-                  :stopPropagation (fn [])}]
-      (handler ev)
-      (is (not @prevent-called)
-          "non-Escape keystrokes pass through (preventDefault NOT called)"))
+    ;; Non-Escape keys pass through: nothing dispatched, nothing consumed.
+    (let [{:keys [event prevented stopped]} (key-event "Enter")]
+      (handler event)
+      (is (empty? @dispatched) "non-Escape keystrokes dispatch nothing")
+      (is (not @prevented)
+          "non-Escape keystrokes pass through (preventDefault NOT called)")
+      (is (not @stopped) "and are not stopped"))
+    (let [{:keys [event prevented stopped]} (key-event "Escape")]
+      (handler event)
+      (is @prevented "handler called preventDefault on the Esc event")
+      (is @stopped   "handler called stopPropagation"))
+    (is (= [[:rf.xray.edn-inspector/zoom-up :rf.xray/app-db site-id]] @dispatched)
+        "Esc dispatches exactly one zoom-up, keyed by the panel and the
+         persistent site-id rather than this mount's own id")
+    ;; Run what was dispatched: it pops the stored zoom one level.
+    (rf/dispatch-sync (first @dispatched))
+    (is (= [:a] (get @(rf/subscribe [ei/zoom-slot]) [:rf.xray/app-db site-id]))
+        "the captured zoom-up pops the stored zoom from [:a :b] to [:a]")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest widget-no-keydown-handler-when-not-zoomed

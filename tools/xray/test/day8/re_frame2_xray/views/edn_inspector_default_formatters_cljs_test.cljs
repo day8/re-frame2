@@ -202,11 +202,11 @@
   (-xray-render-body [_ _opts]
     [:span {:data-testid "custom-uuid-body"} "custom-uuid-body"]))
 
-(deftest consumer-extension-wins-over-default-on-its-own-type
+(deftest consumer-owned-type-renders-through-its-own-impl
   ;; A consumer wrapping a uuid in their own type renders via their
-  ;; own protocol impl — not the default uuid formatter. This pins
-  ;; the contract: defaults are inert when a consumer takes the seam
-  ;; for a type they own.
+  ;; own protocol impl — not the default uuid formatter. No default
+  ;; exists for that type, so this is routing rather than precedence;
+  ;; the precedence row is the next one.
   (let [v (MyWrappedUUID. (random-uuid))
         h (ei/render-node {:value v
                            :panel-id :test
@@ -221,3 +221,33 @@
         "consumer's header wins")
     (is (nil? (find-attr h :data-rf-default-fmt "uuid"))
         "default uuid formatter is NOT in the output for the consumer type")))
+
+(deftest consumer-extend-type-wins-over-the-uuid-default
+  ;; A consumer's `extend-type` on `cljs.core/UUID` itself — the type the
+  ;; bundled default already extends — replaces the default, and the
+  ;; widget renders the consumer's header. The extension is process-wide,
+  ;; so the prototype is snapshotted first and put back afterwards.
+  (let [proto  (.-prototype cljs.core/UUID)
+        saved  (js/Object.assign #js {} proto)
+        render (fn [] (ei/render-node {:value         (random-uuid)
+                                       :panel-id      :test
+                                       :mount-id      "m6"
+                                       :path          []
+                                       :depth         0
+                                       :expansion-map {}
+                                       :opts          {}}))]
+    (try
+      (extend-type cljs.core/UUID
+        IXrayEdnInspector
+        (-xray-render-header [_ _opts]
+          [:span {:data-testid "consumer-uuid-header"} "consumer-uuid"])
+        (-xray-render-body [_ _opts] nil))
+      (let [h (render)]
+        (is (some? (find-attr h :data-testid "consumer-uuid-header"))
+            "the consumer's extension renders the uuid's header")
+        (is (nil? (find-attr h :data-rf-default-fmt "uuid"))
+            "and the default uuid formatter does not"))
+      (finally
+        (js/Object.assign proto saved)))
+    (is (some? (find-attr (render) :data-rf-default-fmt "uuid"))
+        "the default is back once the consumer's extension is withdrawn")))

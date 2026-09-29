@@ -9,11 +9,12 @@
   pointerdown (each orphan re-dispatching `resize-pair-tick` on every
   window pointermove).
 
-  Node-test has no `js/window`, so the real addEventListener calls are
-  skipped; these tests drive the drag STATE lifecycle — the observable
-  proxy for the listener lifecycle, since `detach-window-listeners!`
-  removes the listeners AND clears the state in one place. Mirrors
-  `resize_handle_cljs_test`."
+  Node-test has no `js/window`, so a gutter with no document attaches
+  nothing and those rows drive the drag STATE lifecycle. The state is
+  not a proxy for the listeners where a second drag overwrites it, so
+  the rows that must see the listeners themselves give the gutter a
+  document whose window records them (`popout-document/mk-document`).
+  Mirrors `resize_handle_cljs_test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.test-helpers.popout-document :as popout-document]
             [day8.re-frame2-xray.views.resizable-table :as rt]))
@@ -65,23 +66,43 @@
           "cancel committed the last tick (stored == displayed)"))))
 
 (deftest missed-pointerup-then-new-drag-never-orphans
-  (testing "a missed pointerup leaves the drag state set; the next
-            pointerdown defensively tears it down before attaching a
-            fresh set, so a single up/cancel fully clears the state —
-            no orphaned drag pinned, no listener pile-up"
-    (let [d  (atom [])
-          df (fn [ev] (swap! d conj ev))]
+  (testing "a missed pointerup leaves the first drag's listeners bound;
+            the next pointerdown defensively detaches them before
+            attaching a fresh set, so the window holds exactly one set,
+            a move dispatches once, and one up leaves no listener"
+    ;; The gutter's document supplies a recording window, so the rows
+    ;; below read the listeners actually attached and removed. The drag
+    ;; state cannot stand in for them: the second pointerdown overwrites
+    ;; it whether or not the first drag's listeners were detached.
+    (let [{pdoc :doc wl :window-listeners} (popout-document/mk-document)
+          d     (atom [])
+          df    (fn [ev] (swap! d conj ev))
+          down! (fn [client-x]
+                  (let [e (stub-pointer-event client-x :a 120 :b 80)]
+                    (set! (.. e -currentTarget -ownerDocument) pdoc)
+                    (rt/on-pointer-down df :tbl :a :b e)))
+          on    (fn [ev-name] (popout-document/listeners-on wl ev-name))]
       ;; First drag — pointerup is NEVER delivered.
-      (rt/on-pointer-down df :tbl :a :b (stub-pointer-event 100 :a 120 :b 80))
-      (is (true? (rt/dragging?)))
-      ;; A new drag begins with the old one still notionally live.
-      (rt/on-pointer-down df :tbl :a :b (stub-pointer-event 200 :a 120 :b 80))
-      (is (true? (rt/dragging?)) "still exactly one drag live")
-      ;; One teardown clears everything — if the defensive detach had
-      ;; NOT run, an orphan would remain after this single up.
-      (rt/simulate-up!)
-      (is (false? (rt/dragging?))
-          "one teardown clears the state — the prior drag left no orphan"))))
+      (down! 100)
+      (let [first-move (first (on "pointermove"))]
+        (is (fn? first-move) "the first drag bound a move listener")
+        ;; A new drag begins with the old one still bound.
+        (down! 200)
+        (is (true? (rt/dragging?)) "still exactly one drag live")
+        (doseq [ev-name ["pointermove" "pointerup" "pointercancel"]]
+          (is (= 1 (count (on ev-name)))
+              (str "exactly one " ev-name " listener — the first drag's was detached")))
+        (is (not-any? #(identical? first-move %) (on "pointermove"))
+            "the surviving move listener is the new drag's, not the first's")
+        (reset! d [])
+        (doseq [f (on "pointermove")] (f #js {:clientX 230}))
+        (is (= [[:rf.xray.column-widths/resize-pair-tick :tbl :a 150 :b 50]] @d)
+            "one window move dispatches one tick — no orphan re-dispatching")
+        (doseq [f (on "pointerup")] (f #js {}))
+        (is (false? (rt/dragging?))
+            "one teardown clears the state")
+        (is (popout-document/detached? wl)
+            "and leaves no listener on the window")))))
 
 (deftest pointerup-commits-and-tears-down
   (testing "the ordinary pointerup path commits once + clears"
