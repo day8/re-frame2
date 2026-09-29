@@ -938,6 +938,41 @@ a list of them, and do not write one** — the set grows, and an enumeration is 
   which buries the one hunk that matters and degrades worst exactly when the trunk has moved most. In the
   dominant toolchain that is the three-dot form, `<TRUNK>...HEAD`.
 
+### Spending tool calls
+
+**Every tool call re-sends your whole context, so the NUMBER of calls is the main cost of a dispatch** —
+far more than the size of any one call. Measured over a trial of the four rules below: on pruning work,
+tool calls fell by about 45 to 65% and wall time by about half or more against the workers dispatched
+before them, with nothing missed — every change merged on its first green CI. On defect fixes there was
+no measurable gain, and the rules cost nothing there.
+
+- **Batch a measurement, a plant-and-restore cycle or a commit group into ONE scripted call, and prefer
+  one scripted edit per file over one edit per form.** Plant, gate, restore and hash are four calls by
+  hand and one as a script, and a dozen forms changed through an edit tool are a dozen calls. **Batching
+  removes calls, not checks**: the script prints every number the rules above tell you to read — each
+  plant's match count, each captured exit, each hash — and captures each step's exit on its own rather
+  than only the last. A scripted edit refuses unless every anchor matched exactly once, because a
+  replacement that matches nothing edits nothing and says so nowhere, and it writes the file back with
+  the line endings it read. **A batch stops at the harness ceiling**: one that would outlive it is the
+  compound gate *Running it* splits.
+- **Measure a batch's delta on the namespaces or units it touched; run the whole suite only for the
+  baseline and the final count.** A batch can only move what it touched, so a scoped run answers its
+  question in seconds where the whole suite spends minutes per batch. **Predict each delta from the diff
+  before you run it**: a delta that misses its prediction is the question *Believing it* describes, and
+  the answer is to widen the run, not to repeat it. In the trial every per-batch delta matched its
+  prediction. After a rebase the whole suite does not run again locally, except where *Before you push*
+  makes the exception.
+- **Wait on CI with ONE blocking watch call at a time, never a loop of short polls.** Each poll is a
+  call, so a loop of short ones re-sends your whole context once per poll and learns nothing in between;
+  one watch capped just under the harness ceiling spends one call per ceiling. **Keep it in the
+  FOREGROUND**: a watch backgrounded in the expectation that it will wake you is the stranding wait
+  *Running it* names, and the turn still ends only on a verdict you have read. The same holds for a
+  detached local gate — its bounded loop belongs inside one call, not one call per poll.
+- **Keep the final report to the Done list, plus what the blocks you were handed tell you to report.**
+  The report lands in the coordinator's context, which every one of its later calls re-sends, so a
+  narrative of the run is paid for many times over and buries the few things a reviewer reads for. Those
+  stay, a line each: a refusal, a premise the tree contradicted, and a finding nobody asked for.
+
 ---
 
 ## Reviewing what comes back
