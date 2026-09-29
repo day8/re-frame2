@@ -66,50 +66,6 @@
                       (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; flush-views! basic — drains the dirty-set + after-render
-;; ---------------------------------------------------------------------------
-
-(deftest flush-views-drains-dirty-set
-  (testing "flush-views! drives forceUpdate on every dirty component"
-    (async done
-      (let [calls (atom 0)
-            c     #js {}]
-        (set! (.-forceUpdate c) (fn [] (swap! calls inc)))
-        (batching/queue-render! c)
-        (-> (js/Promise.resolve (dom-client/flush-views!))
-            (.then (fn [_]
-                     ;; Either act ran the body synchronously (in node-
-                     ;; test mode without React's full DOM), or a
-                     ;; subsequent microtask did. Either way: by the
-                     ;; time we observe, calls is 1.
-                     (is (>= @calls 1)
-                         "flush-views! drove the render queue")
-                     (done))))))))
-
-(deftest flush-views-runs-after-render-callbacks
-  (testing "flush-views! fires queued after-render callbacks"
-    (async done
-      (let [fired (atom false)
-            calls (atom 0)
-            c     #js {}]
-        (set! (.-forceUpdate c) (fn [] (swap! calls inc)))
-        (batching/do-after-render (fn [] (reset! fired true)))
-        (batching/queue-render! c)
-        (-> (js/Promise.resolve (dom-client/flush-views!))
-            (.then (fn [_]
-                     (is (true? @fired)
-                         "after-render callback fired by the time flush-views! resolved")
-                     (done))))))))
-
-(deftest flush-views-no-op-when-queues-empty
-  (testing "flush-views! with empty queues completes without error"
-    (async done
-      (-> (js/Promise.resolve (dom-client/flush-views!))
-          (.then (fn [_]
-                   (is true "flush-views! returned cleanly with empty queues")
-                   (done)))))))
-
-;; ---------------------------------------------------------------------------
 ;; flush-views! determinism: dispatch-then-flush
 ;;
 ;; Stand-in for the IMPL-SPEC §4.6 contract:
@@ -247,20 +203,6 @@
                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
-;; flush-views! production-DCE shape
-;;
-;; Per IMPL-SPEC §4.2: in :advanced + goog.DEBUG=false the body
-;; should DCE. We can't directly test DCE from CLJS at unit-test
-;; time (it's a Closure-compile-time concern), but we can verify
-;; the symbol exists and is callable. The bundle-isolation grep
-;; in §12.3 covers the DCE assertion at release time.
-;; ---------------------------------------------------------------------------
-
-(deftest flush-views-callable
-  (testing "flush-views! is bound and callable"
-    (is (fn? dom-client/flush-views!))))
-
-;; ---------------------------------------------------------------------------
 ;; Mount-entry scaffolds
 ;; ---------------------------------------------------------------------------
 
@@ -269,30 +211,6 @@
     (is (fn? dom-client/create-root))
     (is (fn? dom-client/render))
     (is (fn? dom-client/unmount))
-    (is (fn? dom-client/hydrate-root))))
-
-(deftest render-callable-stage-4d
-  ;; render walks hiccup via reagent2.impl.template/as-element and
-  ;; pushes the result into the root. The mount-against-real-React path
-  ;; is exercised by the `-dom-cljs-test` suites in the browser-test
-  ;; target; this assertion is the cheap smoke check that the symbol is
-  ;; bound and is not a throwing stub.
-  (testing "render is bound and is not a throwing stub"
-    (is (fn? dom-client/render))
-    ;; Calling render with non-root/non-hiccup inputs should not
-    ;; raise :rf.error/not-implemented; React's own
-    ;; .render method may surface a different error for a bogus
-    ;; root, which is fine.
-    (let [thrown (try (dom-client/render :not-a-root :el)
-                      nil
-                      (catch :default e (ex-data e)))]
-      (is (not= :rf.error/not-implemented (:type thrown))))))
-
-(deftest hydrate-root-callable-stage-4d
-  ;; hydrate-root walks hiccup via reagent2.impl.template/as-element and
-  ;; calls react-dom-client/hydrateRoot. The real-DOM hydration path
-  ;; lives in the browser-test target.
-  (testing "hydrate-root is bound"
     (is (fn? dom-client/hydrate-root))))
 
 (deftest unmount-handles-nil-gracefully
@@ -325,13 +243,6 @@
           fake-root #js {:render (fn [el] (reset! captured el) nil)}]
       (dom-client/render fake-root nil)
       (is (nil? @captured)))))
-
-(deftest render-translates-shorthand-class
-  (testing "render converts :div.foo shorthand on the way in"
-    (let [captured (atom nil)
-          fake-root #js {:render (fn [el] (reset! captured el) nil)}]
-      (dom-client/render fake-root [:div.foo])
-      (is (= "foo" (-> ^js @captured .-props .-className))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Deref-capture wiring

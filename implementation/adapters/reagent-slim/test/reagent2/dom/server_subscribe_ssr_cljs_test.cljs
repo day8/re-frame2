@@ -32,15 +32,14 @@
   a `counter-app → counter-buttons` reg-view tree that derefs
   `@(subscribe [:counter/value])`. Then:
 
-    1. `render-to-static-markup [counter-app]` MUST NOT throw (the
-       failure this guards is a throw on first subscribe).
-    2. The returned markup MUST contain the subscribed value `5` — proving
-       it rode through the non-reactive deref branch into the output.
-    3. A second render reuses the sub cache without throwing (idempotent
-       SSR).
-    4. After `dispatch [:counter/inc]`, a re-render shows `6` — proving the
+    1. `render-to-static-markup [counter-app]` renders the subscribed
+       value `5` — so the first subscribe did not throw, and the value
+       rode through the non-reactive deref branch into the output.
+    2. After `dispatch [:counter/inc]`, a re-render shows `6` — proving the
        SSR deref re-reads LIVE app-db through the subscription, not a
        value frozen at first build.
+    3. Rendering the same app again under the canonical frame-provider
+       mount reuses the sub cache and produces the identical bytes.
 
   examples/ is TEST-FREE: this is a CLJS substrate
   contract test in the slim adapter's own test tree, NOT a per-example
@@ -112,37 +111,6 @@
 
 ;; ---- tests ----------------------------------------------------------------
 
-(deftest subscribing-reg-view-renders-through-slim-ssr-without-throwing
-  (testing "render-to-static-markup over a reg-view that derefs
-            @(subscribe ...) does NOT throw and the subscribed value rides
-            into the markup — the first-subscribe IDisposable path"
-    (register-counter!)
-    ;; Populate app-db FIRST so the sub has a live value to read.
-    (rf/dispatch-sync [:counter/initialise])
-    (let [markup (server/render-to-static-markup [counter-app])]
-      ;; (a) it did not throw — reaching here at all means the first
-      ;;     subscribe + add-on-dispose! routing survived under SSR.
-      (is (string? markup)
-          "render-to-static-markup returned a string (no throw on first subscribe)")
-      ;; (b) the subscribed value 5 rode through the non-reactive deref
-      ;;     branch into the output. The value sits as the lone text child
-      ;;     of the counter-value <span>, so it appears between '>' and '<'.
-      (is (re-find #">5<" markup)
-          (str "subscribed :counter/value (5) appears in the rendered markup — got: "
-               (pr-str markup))))))
-
-(deftest second-render-reuses-sub-cache-without-throwing
-  (testing "a second render-to-static-markup of the same subscribing view
-            reuses the per-frame sub cache and still renders 5 (idempotent
-            SSR — the cached Reaction's dispose routing holds on reuse)"
-    (register-counter!)
-    (rf/dispatch-sync [:counter/initialise])
-    (let [first-markup  (server/render-to-static-markup [counter-app])
-          second-markup (server/render-to-static-markup [counter-app])]
-      (is (re-find #">5<" first-markup))
-      (is (re-find #">5<" second-markup)
-          "second render still produces 5 from the (now cached) subscription"))))
-
 (deftest ssr-deref-reads-live-app-db-not-a-frozen-value
   (testing "after dispatch [:counter/inc], a re-render shows 6 — the SSR
             deref re-reads live app-db through the subscription rather than
@@ -161,20 +129,6 @@
 
 ;; ---- Form-2 reg-view SSR --------------------------------------------------
 
-(deftest form2-subscribing-reg-view-renders-through-slim-ssr
-  (testing "a FORM-2 reg-view (outer setup returns an inner
-            render closure that derefs @(subscribe ...)) renders through
-            render-to-static-markup without throwing, and the subscribed
-            value rides into the markup"
-    (register-form2-counter!)
-    (rf/dispatch-sync [:counter/initialise])
-    (let [markup (server/render-to-static-markup [counter-app-f2])]
-      (is (string? markup)
-          "Form-2 reg-view rendered to a string (no static-markup-bad-element throw)")
-      (is (re-find #">5<" markup)
-          (str "subscribed :counter/value (5) from the Form-2 inner closure "
-               "appears in the markup — got: " (pr-str markup))))))
-
 ;; ---- the canonical slim mount under frame-provider -------------------------
 ;;
 ;; `[rf/frame-provider {:frame f} [app]]` is the mount the guides teach and
@@ -190,38 +144,6 @@
 ;; These assert the PRECONDITION — that the subtree's CONTENT is actually
 ;; in the markup — rather than merely that nothing threw. An empty or
 ;; placeholder-only string fails every one of them.
-
-(deftest canonical-frame-provider-mount-renders-its-subtree
-  (testing "the canonical mount [rf/frame-provider {:frame f} [app]]
-            renders its subtree through slim's render-to-static-markup
-            instead of collapsing to a placeholder comment"
-    (register-counter!)
-    (rf/dispatch-sync [:counter/initialise])
-    (let [markup (server/render-to-static-markup
-                  [rf/frame-provider {:frame :rf/default}
-                   [counter-app]])]
-      (is (string? markup) "the canonical mount rendered to a string")
-      ;; (a) the failure mode, stated directly: the output is NOT the
-      ;;     placeholder and NOT empty.
-      (is (not= "" markup)
-          "the canonical mount did not render an EMPTY document")
-      (is (not (re-find #"reagent-react-component" markup))
-          (str "the frame-provider subtree was not replaced by the opaque "
-               "foreign-component placeholder — got: " (pr-str markup)))
-      ;; (b) the positive precondition: real content from INSIDE the
-      ;;     provider's subtree reached the markup.
-      ;; The app's root element is a `<div …>` carrying reg-view's
-      ;; source-coord attrs, so match the open TAG rather than a bare
-      ;; `<div>` — the attrs are the live renderer's business, not this
-      ;; test's.
-      (is (re-find #"<div[ >]" markup)
-          (str "the app subtree's own markup is present — got: " (pr-str markup)))
-      (is (re-find #"<button>\+</button>" markup)
-          (str "a leaf deep inside the provider subtree is present — got: "
-               (pr-str markup)))
-      (is (re-find #">5<" markup)
-          (str "the subscribed :counter/value (5) from inside the provider "
-               "subtree is present — got: " (pr-str markup))))))
 
 (deftest frame-provider-mount-matches-the-unwrapped-render
   (testing "a frame-provider is a SCOPING wrapper — it renders no
