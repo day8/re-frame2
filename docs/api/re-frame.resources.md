@@ -612,7 +612,7 @@ An infinite resource is a load-more feed: the user sees page 1, then pages 1 and
    :infinite         true
    :params-schema    [:map [:filter :keyword]]   ;; the feed's identity (filter/sort), not the page cursor
    :scope            {:from-db :app/session}
-   :sensitive        [[:data :author-email]]      ;; per-page classification (matches the field on every page)
+   :sensitive        [[:data :items :author-email]] ;; written against one page: matches the field in every item of every page
    :next-page-param  (fn [last-page _all-pages]    ;; required; nil means no more pages
                        (get-in last-page [:page-info :next-cursor]))
    :page->items      :items                        ;; required when a page is not a vector

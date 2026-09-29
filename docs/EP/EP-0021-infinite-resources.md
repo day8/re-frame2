@@ -227,7 +227,7 @@ introduced** — the page context rides the already-reserved context slot (see
    ;; cache instances. The per-page cursor is NOT here (it is :page-param).
    :params-schema   [:map [:filter :keyword]]
    :scope           {:from-db :app/session}      ;; EP-0016 D3 named resolver
-   :sensitive       [[:data :author-email]]      ;; durable per-page classification (EP-0025 index-free walk)
+   :sensitive       [[:data :items :author-email]] ;; per-page classification, written against one page {:items [...] :page-info {…}} (EP-0025 index-free walk)
 
    ;; :request keeps its (params ctx) shape; the RESERVED ctx now carries the
    ;; resolved page context for THIS page (nil/empty for non-infinite resources).
