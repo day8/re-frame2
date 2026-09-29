@@ -32,8 +32,14 @@
   "The error-projector id both support namespaces register."
   :rf.ssr.head-image/shared-projector)
 
+(def route-id
+  "The route id both support namespaces register. ALPHA's declares `:head
+  head-id`; BETA's declares no `:head`."
+  :rf.ssr.head-image/shared-route)
+
 (defn register!
-  "Register ALPHA's `head-id` head and `projector-id` projector.
+  "Register ALPHA's `head-id` head, `projector-id` projector and `route-id`
+  route.
 
   Called from a test body rather than at ns load: the shared `:each`
   fixture runs `registrar/clear-all!`, which would wipe an ns-load-time
@@ -46,4 +52,7 @@
   (rf/reg-error-projector projector-id
     {:doc "ALPHA's body for the shared projector id."}
     (fn [_trace-event]
-      {:status 418 :code :alpha :message "alpha" :retryable? false})))
+      {:status 418 :code :alpha :message "alpha" :retryable? false}))
+  (rf/reg-route route-id
+    {:doc "ALPHA's route: its :head names the shared head id." :head head-id}
+    "/head-image"))

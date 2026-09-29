@@ -11,7 +11,8 @@
             [re-frame.ssr.head-image-alpha :as rf.ssr.head-image-alpha]))
 
 (defn register!
-  "Register BETA's body for ALPHA's `head-id` and `projector-id`."
+  "Register BETA's body for ALPHA's `head-id`, `projector-id` and
+  `route-id`."
   []
   (rf/reg-head rf.ssr.head-image-alpha/head-id
     {:doc "BETA's body for the shared head id."}
@@ -20,4 +21,7 @@
   (rf/reg-error-projector rf.ssr.head-image-alpha/projector-id
     {:doc "BETA's body for the shared projector id."}
     (fn [_trace-event]
-      {:status 451 :code :beta :message "beta" :retryable? false})))
+      {:status 451 :code :beta :message "beta" :retryable? false}))
+  (rf/reg-route rf.ssr.head-image-alpha/route-id
+    {:doc "BETA's route: it declares no :head."}
+    "/head-image"))

@@ -182,7 +182,16 @@
     (testing "with no route in the runtime-db slice, head-model is the default
               head — the arm that must keep working"
       (is (= "" (:title (rf.ssr/head-model alpha-frame)))
-          "the frame carries no :doc, so the default title is the empty string"))))
+          "the frame carries no :doc, so the default title is the empty string"))
+
+    (testing "with ALPHA's route as the effective route, the route's :head
+              metadata comes from ALPHA's image and names the head, which then
+              runs ALPHA's body. The registrar atom holds BETA's route, which
+              declares no :head, so an atom read of the route would fall back
+              to the default head"
+      (is (= {:title "alpha:A"}
+             (rf.ssr/head-model alpha-frame
+                                {:route {:route-id rf.ssr.head-image-alpha/route-id}}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; project-error — the same resolution, deciding a public status
