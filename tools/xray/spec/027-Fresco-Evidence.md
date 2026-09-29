@@ -614,7 +614,7 @@ Adding it moved six governance pins, each of which fails the build on drift:
 
 | Gate | What it pins |
 |---|---|
-| `focus/valid-panels` + `focus_cljs_test` | the focusable-panel mirror equals the live Dynamic registry |
+| `focus/valid-panels` + `registry_cljs_test` | the focusable-panel mirror equals the live Dynamic registry |
 | `registry/schema-version` (4 → 5) + `migrate-schema!` | an already-registered process installs the delta without a reload |
 | `registry_cljs_test` name snapshots | the `:rf.xray.fresco/*` sub and event ids |
 | `panel_gallery_inventory_smoke_cljs_test` | the tab is galleried OR documented-excluded, never neither |

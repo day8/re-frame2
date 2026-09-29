@@ -96,7 +96,7 @@
 
             The roster is `focus/valid-panels`, which mirrors the LIVE
             registry (`panel-registry/tab-ids-for-mode :dynamic`) and
-            is pinned against it by `focus-cljs-test`, so 'every L4
+            is pinned against it by `registry-cljs-test`, so 'every L4
             panel' is the shipped roster rather than a hand-listed one
             that can drift."
     (doseq [tab focus/valid-panels]
