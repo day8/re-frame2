@@ -9,7 +9,7 @@
     3. Listbox ARIA, the selected row's aria-selected, the visible /
        total count line and the no-results state.
     4. Row and pip React keys ride the attribute map."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
