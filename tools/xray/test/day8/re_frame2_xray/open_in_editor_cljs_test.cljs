@@ -16,9 +16,8 @@
     is no positive allowlist, so http:/https: and unknown custom schemes
     render.
   - The `:rf.xray/open-in-editor` reg-event handler produces a
-    `:rf.xray.fx/open-in-editor` fx with a URI resolved through the
-    scheme denylist; runs on the `:rf/xray` frame without contaminating
-    the host."
+    `:rf.xray.fx/open-in-editor` fx carrying the source coord; runs on
+    the `:rf/xray` frame without contaminating the host."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -35,8 +34,9 @@
 ;; navigator assertions below deterministic (no real `fetch` round-trip),
 ;; the per-test fixture swaps the endpoint launcher for a synchronous stub
 ;; that always invokes the fallback — exercising exactly the URI path these
-;; tests pin. The endpoint-preference path itself is covered separately in
-;; the endpoint block at the bottom of this file.
+;; tests pin. The endpoint-preference half is core's `open-endpoint`
+;; contract, graded through the real fetch launcher by testbed-support's
+;; open-in-editor client suite.
 
 (defn- always-fall-back!
   "Stub endpoint launcher: ignore the URL, invoke the fallback synchronously.
@@ -66,8 +66,7 @@
   ;; editor default (settings reset + editor re-arm) and pins the
   ;; endpoint launcher to the synchronous
   ;; always-fall-back stub so the URI / navigator assertions exercise the
-  ;; deterministic fallback path (no real fetch). The endpoint-preference
-  ;; path is covered in its own block at the bottom of this file.
+  ;; deterministic fallback path (no real fetch).
   (xray-test-support/make-xray-runtime-fixture
     {:post-reset (fn []
                    (reset-editor!)
@@ -166,23 +165,6 @@
 ;; `:rf.xray.fx/open-in-editor` fx share) prepends it before the URI ships.
 ;; Mirror of Story's project-root matrix.
 
-(deftest open-chip-default-no-project-root
-  (testing "with no project-root configured, the chip ships the file slot
-            verbatim, for hosts that do not plumb the knob"
-    (is (nil? (config/get-project-root)))
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "src/app/views.cljs" :line 1 :column 1})]
-      (is (= "vscode://file/src/app/views.cljs:1:1"
-             (:href (second hiccup)))))))
-
-(deftest open-chip-prefixes-with-project-root
-  (testing "set-project-root! plumbs the on-disk root through the chip"
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "src/app/views.cljs" :line 42 :column 7})]
-      (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
-             (:href (second hiccup)))))))
-
 (deftest open-chip-project-root-regression-rf2-5m5n2
   (testing "the panel-gallery testbed's classpath-relative coord
             resolves to an absolute on-disk URI when the host has
@@ -198,26 +180,6 @@
                   "panel_gallery/event_detail_stories.cljs:115:3")
              (:href (second hiccup)))))))
 
-(deftest open-chip-project-root-roundtrip
-  (testing "config/set-project-root! + get-project-root round-trip on
-            the CLJS side"
-    (config/set-project-root! "/abs/code")
-    (is (= "/abs/code" (config/get-project-root)))
-    (config/set-project-root! nil)
-    (is (nil? (config/get-project-root)))
-    ;; blank strings normalise to nil so the chip behaves as if unset.
-    (config/set-project-root! "")
-    (is (nil? (config/get-project-root)))))
-
-(deftest open-chip-project-root-survives-editor-change
-  (testing "switching editor keeps project-root applied to the new scheme"
-    (config/set-project-root! "/abs/code")
-    (config/set-editor! :cursor)
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "src/x.cljs" :line 1 :column 1})]
-      (is (= "cursor://file//abs/code/src/x.cljs:1:1"
-             (:href (second hiccup)))))))
-
 (deftest open-chip-project-root-absolute-coord-not-double-prefixed
   (testing "an already-absolute source-coord is NOT double-prefixed
             (per editor-uri/compose-path's absolute-path? guard) — pins
@@ -228,16 +190,6 @@
       (is (= "vscode://file//abs/already/here.cljs:1:1"
              (:href (second hiccup)))))))
 
-(deftest open-chip-configure-passes-project-root-through
-  (testing "configure! routes :rf.xray/project-root through set-project-root!
-            on the CLJS side (mirror of Story's config matrix)"
-    (config/configure! {:rf.xray/project-root "C:/Users/me/code/my-app"})
-    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
-    (let [hiccup (open-in-editor/open-chip
-                   {:file "src/x.cljs" :line 1 :column 1})]
-      (is (= "vscode://file/C:/Users/me/code/my-app/src/x.cljs:1:1"
-             (:href (second hiccup)))))))
-
 ;; ---- URI invariance to host page URL ------------------------------------
 ;;
 ;; A host that does not call `xray-config/configure!` ships a
@@ -245,13 +197,10 @@
 ;; handler rejects, whatever URL the page is served from; the remedy is
 ;; configuring `:rf.xray/project-root` at boot.
 ;;
-;; The tests below pin the load-bearing invariant: URI construction is a
+;; The test below pins the load-bearing invariant: URI construction is a
 ;; pure function of `(editor, source-coord, project-root)`. It does NOT
 ;; read `window.location` — so the URI a chip renders is identical no
-;; matter which host URL the gallery / example app is served from. The
-;; second test exercises the panel-gallery's coord shape
-;; (`panel_gallery/<file>.cljs`) against the testbed's known on-disk
-;; root.
+;; matter which host URL the gallery / example app is served from.
 
 (deftest resolve-uri-invariant-to-host-url
   (testing "`resolve-uri` is a pure function of (editor,
@@ -284,24 +233,6 @@
           "Editor preference flows through; project-root prefix stays
            bound to the configured root, not the location"))))
 
-(deftest resolve-uri-panel-gallery-regression-rf2-2c5xb
-  (testing "the panel-gallery's case (a classpath-relative coord
-            captured at registration of
-            a panel-gallery handler) resolves to an absolute on-disk URI
-            against the testbed's configured project-root. Pins that the
-            chip works at `http://localhost:8765` independently of the
-            served port — the URI depends only on config, never on
-            `Location.href`."
-    (config/set-project-root!
-      "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (is (= (str "vscode://file/"
-                "C:/Users/me/code/my-app/tools/xray/testbeds/"
-                "panel_gallery/fixtures_epoch.cljs:42:1")
-           (open-in-editor/resolve-uri
-             {:file "panel_gallery/fixtures_epoch.cljs"
-              :line 42
-              :column 1})))))
-
 ;; ---- :rf.xray/open-in-editor + :rf.xray.fx/open-in-editor ---------------
 ;;
 ;; Xray panels dispatch `[:rf.xray/open-in-editor {:source-coord coord}]`
@@ -311,17 +242,17 @@
 ;;
 ;; The block below pins the contract of the event-fx + fx pair:
 ;;
-;;   1. Dispatching the event produces a `:rf.xray.fx/open-in-editor` fx whose
-;;      `:uri` resolves through `resolve-uri` (= the scheme denylist).
+;;   1. Dispatching the event produces exactly one
+;;      `:rf.xray.fx/open-in-editor` fx carrying the coerced
+;;      `:source-coord`. The handler resolves no URI; the capture stub
+;;      resolves the coord through `resolve-uri` so the rows can compare
+;;      URIs, and the denylist and project-root rows live on the chip,
+;;      which renders the same `resolve-uri` output.
 ;;   2. Both dispatch shapes are accepted: the bare-coord form (no call
 ;;      site dispatches it bare, but the handler's bare branch is live as
 ;;      the unwrapped tail of the wrapper path) and the `{:source-coord ...}`
 ;;      wrapper form (the shape every call site emits).
-;;   3. A coord whose resolved URI is rejected by the denylist (custom
-;;      `javascript:` / `data:` / `vbscript:` template) yields a fx whose
-;;      `:uri` is nil — the side-effect fx is a no-op for nil.
-;;      http:/https:/unknown schemes RESOLVE (there is no allowlist).
-;;   4. The handler runs on Xray's `:rf/xray` frame (per the panels'
+;;   3. The handler runs on Xray's `:rf/xray` frame (per the panels'
 ;;      `{:frame :rf/xray}` dispatch opts); Xray's app-db is NOT
 ;;      written (the click is pure navigation).
 
@@ -424,56 +355,6 @@
              (:uri (first @captured-editor-fx)))
           "`:line` defaults to 1 via editor-uri"))))
 
-(deftest open-in-editor-event-honours-editor-preference
-  (testing "the fx's URI reflects `config/get-editor`
-            (the same source of truth the chip render uses)"
-    (setup!)
-    (config/set-editor! :cursor)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/x.cljs" :line 10}])
-      (is (= "cursor://file/src/x.cljs:10:1"
-             (:uri (first @captured-editor-fx)))))))
-
-(deftest open-in-editor-event-rejects-javascript-scheme
-  (testing "a custom template that resolves to
-            `javascript:` is rejected at the handler seam. The
-            editor-uri-side denylist returns nil; the fx
-            receives nil and is a no-op."
-    (setup!)
-    (config/configure! {:rf.xray/editor {:custom "javascript:alert(1)"}})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/x.cljs" :line 1}])
-      (is (= 1 (count @captured-editor-fx))
-          "fx still fires — the handler doesn't short-circuit")
-      (is (nil? (:uri (first @captured-editor-fx)))
-          "the resolved URI is nil — `open!` will refuse to navigate"))))
-
-(deftest open-in-editor-event-rejects-data-scheme
-  (testing "a custom template resolving to
-            `data:` is denylist-rejected (returns nil)"
-    (setup!)
-    (config/configure! {:rf.xray/editor {:custom "data:text/html,<script>x</script>"}})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/x.cljs" :line 1}])
-      (is (nil? (:uri (first @captured-editor-fx)))
-          "data: is on the forbidden-scheme denylist"))))
-
-(deftest open-in-editor-event-resolves-http-scheme-rf2-ox357n
-  (testing "a custom template resolving to `http:`
-            RESOLVES (there is no positive allowlist; only the three
-            script schemes are gated)"
-    (setup!)
-    (config/configure! {:rf.xray/editor {:custom "http://localhost:3000/{path}"}})
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/x.cljs" :line 1}])
-      (is (= "http://localhost:3000/src/x.cljs"
-             (:uri (first @captured-editor-fx)))
-          "http: passes through — no allowlist over-gating"))))
-
 (deftest open-in-editor-event-runs-on-xray-frame-without-host-contamination
   (testing "the handler doesn't write to Xray's app-db
             (no `:db` in the returned effect map). The click is pure
@@ -505,34 +386,6 @@
              (:source-coord (first @captured-editor-fx)))
           "the structured coord rides the fx verbatim — the endpoint
            resolves the relative :file at runtime on the server"))))
-
-(deftest open-in-editor-event-resolves-through-shared-resolve-uri-helper
-  (testing "the event-fx's URI matches what `open-chip`
-            renders for the same coord (one source of truth for URI
-            resolution + denylist gating across the data path and
-            the side-effect path)"
-    (setup!)
-    (let [coord {:file "src/app/events.cljs" :line 42 :column 7}]
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/open-in-editor coord]))
-      (is (= (:href (second (open-in-editor/open-chip coord)))
-             (:uri (first @captured-editor-fx)))
-          "chip's :href ≡ fx's :uri"))))
-
-(deftest open-in-editor-event-applies-project-root-prefix
-  (testing "the event-fx's URI reflects the configured
-            project-root (same source of truth as `open-chip`'s
-            `:href`), so the shared `coord-chip` / `coord-link`
-            dispatch path resolves relative source-coords to absolute
-            on-disk URIs"
-    (setup!)
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/app/views.cljs" :line 42 :column 7}])
-      (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
-             (:uri (first @captured-editor-fx)))
-          "fx's :uri ≡ chip's :href once :project-root is configured"))))
 
 ;; ---- open-in-editor DX hint when no editor configured -------------------
 ;;
@@ -594,22 +447,6 @@
       (rf/dispatch-sync [:rf.xray/editor-hint-dismiss])
       (is (false? @(rf/subscribe [:rf.xray/editor-hint-open?]))
           "dismissed after editor-hint-dismiss"))))
-
-(deftest open-in-editor-event-navigates-when-host-set-editor
-  (testing "once the host explicitly sets an editor (even
-            the framework-default :vscode), the click resolves + fires
-            `:rf.xray.fx/open-in-editor`; the hint never fires"
-    (setup-unconfigured!)
-    (config/set-editor! :vscode)
-    (is (true? (config/editor-configured?))
-        "an explicit set — even of :vscode — counts as configured")
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor
-                         {:file "src/x.cljs" :line 1}])
-      (is (= 1 (count @captured-editor-fx))
-          "the open fx fires for an explicitly-configured editor")
-      (is (= "vscode://file/src/x.cljs:1:1"
-             (:uri (first @captured-editor-fx)))))))
 
 (deftest open-in-editor-event-navigates-when-operator-override-set
   (testing "an operator override (no host set) also counts
@@ -689,15 +526,6 @@
       (is @prevented?
           "the click handler must call e.preventDefault()"))))
 
-(deftest open-bang-calls-navigator
-  (testing "`open!` (the public seam shared by the chip and
-            the `:rf.xray.fx/open-in-editor` reg-fx) invokes the navigator with
-            an allowed URI"
-    (let [[nav calls] (capturing-navigator)]
-      (with-stub-navigator nav
-        #(open-in-editor/open! "vscode://file/src/x.cljs:1:1"))
-      (is (= ["vscode://file/src/x.cljs:1:1"] @calls)))))
-
 (deftest open-bang-no-op-for-nil-uri
   (testing "`open!` is a no-op for nil URI (the absent-coord
             case + the rejected-by-denylist case both flow nil)"
@@ -746,20 +574,6 @@
   ;; `set-editor! :vscode` set + any operator override.
   (reset! config/editor-explicitly-set? false)
   (config/update-setting! :general :editor-override nil))
-
-(deftest chip-click-navigates-when-editor-configured
-  (testing "with an editor configured, a direct
-            chip click opens via `open-coord!`; with the endpoint launcher
-            stubbed to fall back (the fixture default), it navigates via
-            the navigator seam. The hint never enters the path."
-    (setup!)
-    (config/set-editor! :cursor)          ; explicit set = configured
-    (is (true? (config/editor-configured?)))
-    (let [[nav calls] (capturing-navigator)]
-      (with-stub-navigator nav
-        #(open-in-editor/chip-click! {:file "src/x.cljs" :line 1 :column 1}))
-      (is (= ["cursor://file/src/x.cljs:1:1"] @calls)
-          "configured editor → endpoint preferred, URI fallback navigates"))))
 
 (deftest chip-click-does-not-navigate-when-unconfigured-with-frame
   (testing "with NO editor configured and a live :rf/xray
@@ -821,16 +635,13 @@
       (is (= ["vscode://file/src/x.cljs:1:1"] @calls)
           "unconfigured + no frame → standalone best-effort navigation"))))
 
-;; ---- dev-server endpoint preferred over URI -----------------------------
+;; ---- dev-server endpoint URL --------------------------------------------
 ;;
 ;; `open-coord!` prefers the dev-server endpoint and falls back to the
 ;; `editor://` URI navigation. The URI-fallback path is exercised
 ;; throughout the file above (via the `always-fall-back!` launcher stub in
-;; the fixture). This block pins the ENDPOINT-PREFERENCE half of the
-;; contract: when the launcher reports success (a dev server
-;; answered), the URI fallback does NOT fire — and the endpoint URL the
-;; client builds carries the structured coord + editor hint the server
-;; resolves at runtime.
+;; the fixture). The endpoint URL the client builds carries the structured
+;; coord + editor hint the server resolves at runtime.
 
 (deftest endpoint-url-carries-coord-and-editor-hint
   (testing "`build-url` projects (coord, editor) to the
@@ -847,33 +658,3 @@
     (is (= (str rf.source-coords.open-endpoint/endpoint-path "?file=src%2Fx.cljs")
            (rf.source-coords.open-endpoint/build-url {:file "src/x.cljs"} {:custom "x://{path}"}))
         "{:custom …} editor ships no hint (server auto-detects)")))
-
-(deftest open-coord-prefers-endpoint-when-it-succeeds
-  (testing "when the endpoint launcher reports success (a dev
-            server answered), the URI fallback does NOT fire"
-    (let [fallback-calls (atom 0)
-          ;; Stub launcher: 'endpoint succeeded' → never call fallback.
-          prev (rf.source-coords.open-endpoint/set-launcher! (fn [_url _fallback!] nil))]
-      (try
-        (open-in-editor/open-coord! {:file "src/x.cljs" :line 1})
-        ;; the fallback thunk would bump this; it must stay 0
-        (is (zero? @fallback-calls)
-            "endpoint preferred → no editor:// URI navigation")
-        (finally
-          (rf.source-coords.open-endpoint/set-launcher! prev))))))
-
-(deftest open-coord-falls-back-to-uri-when-no-endpoint
-  (testing "when the endpoint launcher invokes the fallback
-            (no dev server), the `editor://` URI navigates via the
-            navigator seam — endpoint preference never removes the
-            URI path"
-    (setup!)                              ; configured :vscode
-    (let [prev (rf.source-coords.open-endpoint/set-launcher! always-fall-back!)
-          [nav calls] (capturing-navigator)]
-      (try
-        (with-stub-navigator nav
-          #(open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
-        (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
-            "no dev server → URI fallback navigates")
-        (finally
-          (rf.source-coords.open-endpoint/set-launcher! prev))))))
