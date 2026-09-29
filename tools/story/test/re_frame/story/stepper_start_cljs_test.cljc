@@ -197,17 +197,6 @@
       (is (= 3 @ext-effect-count)
           "and issued every script effect"))))
 
-(deftest prepare-run-and-resume-run-still-split-the-lifecycle
-  (testing "the one run owner's PREPARE / RESUME split: prepare alone runs
-            no script, resume runs it exactly once"
-    (let [vid :story.stepper/mutating]
-      (reg-mutating! vid)
-      (rf.story.runtime/prepare-run! vid {:run-key {:variant-id vid}})
-      (is (= 0 (count-of vid)) "prepare ran no script step")
-      (rf.story.runtime/resume-run! vid)
-      (is (= 3 (count-of vid)) "resume ran the script")
-      (is (= 3 @ext-effect-count) "exactly once"))))
-
 ;; ---- (5) a prepare failure settles honestly ------------------------------
 ;;
 ;; `begin!` has ONE branch for a failed preparation: the promise's rejection

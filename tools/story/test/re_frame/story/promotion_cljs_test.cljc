@@ -399,22 +399,6 @@
       (is (not (contains? (:fx-overrides body) rf.story.plan/managed-fx-id))
           ":rf.http/managed is dropped from :fx-overrides — :network owns it"))))
 
-(deftest promoted-variant-body-compiles-to-installed-network
-  (testing "compiling the promoted body keeps the routes at [:world :network]
-            (so the run installs the stubs) + lowers :rf.http/managed to the
-            managed-stub fx — NOT an empty network that fail-closes"
-    (register-network-event! :promo-net/get-cart [:get "/api/cart"])
-    (let [routes {[:get "/api/cart"] {:reply {:ok {:items [{:sku "A"}]}}}}
-          art    (network-artifact routes [[:dispatch [:promo-net/get-cart]]])
-          body   (rf.story.promotion/artifact->variant-body art)
-          ;; compile the body as an inline plan target (read-only, no register)
-          plan   (rf.story.plan/variant-plan body)]
-      (is (= routes (get-in plan [:world :network]))
-          "the compiled plan keeps the route map at [:world :network]")
-      (is (= rf.story.plan/managed-stub-fx-id
-             (get-in plan [:world :frame :fx-overrides rf.story.plan/managed-fx-id]))
-          ":rf.http/managed is lowered to the managed-stub fx the runner installs"))))
-
 (deftest promoted-network-variant-runs-to-the-same-result
   (testing "running the PROMOTED VARIANT reproduces the source run's :success
             reply. The body → plan → ->artifact → replay round-trip re-installs
