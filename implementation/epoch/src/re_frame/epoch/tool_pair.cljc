@@ -1201,12 +1201,13 @@
                                                     :rf.db/runtime}`
                                                     vocabulary (a typo'd
                                                     partition key, e.g.
-                                                    `:rf.db/apps`).
-    `{:reason :no-recognized-keys :keys [...]}`  — the map carries NO
-                                                    recognized partition
-                                                    key at all (e.g. `{}`,
-                                                    or a map of only
-                                                    unrelated keys).
+                                                    `:rf.db/apps`). Checked
+                                                    first, so a map of only
+                                                    unrelated keys reports
+                                                    this reason and names
+                                                    them.
+    `{:reason :no-recognized-keys :keys [...]}`  — the map carries NO key
+                                                    at all (`{}`).
 
   `replace-frame-state!` is a PARTIAL-PATCH surface: a present key
   replaces that partition, an absent key is preserved. Without this
