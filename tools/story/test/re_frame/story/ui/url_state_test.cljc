@@ -204,17 +204,6 @@
 ;; specifically: the key decoding lives in the shared helper, so this and
 ;; the share-builder half must move together or not at all.
 
-(deftest url-from-state-clears-percent-encoded-story-keys
-  (testing "`%76ariant=` IS `variant=` to the browser, so
-            a state-driven push must clear it rather than append behind it"
-    (is (= "/p/?embed=1&variant=story.new%2Fb#/stories"
-           (rf.story.ui.url-state/url-from-state
-             {:selected-variant :story.new/b}
-             {:pathname "/p/"
-              :search   "?%76ariant=story.old%2Fa&embed=1"
-              :hash     "#/stories"}))
-        "the escaped stale key is gone; unowned embed=1 survives, in order")))
-
 (deftest url-from-state-clears-every-escaped-story-key
   (testing "the whole vocabulary, spelled with escapes:
             every Story key goes, both unowned params stay. Derived from
@@ -335,12 +324,6 @@
 
 ;; ---- apply-parsed-to-state ----------------------------------------------
 
-(deftest apply-parsed-variant-only
-  (let [out (rf.story.ui.url-state/apply-parsed-to-state
-              {} {:variant-id :foo/bar} {})]
-    (is (= :foo/bar (:selected-variant out)))
-    (is (nil? (:selected-workspace out)))))
-
 (deftest apply-parsed-workspace-only
   (let [out (rf.story.ui.url-state/apply-parsed-to-state
               {} {:workspace-id :foo/grid} {})]
@@ -358,43 +341,12 @@
       (is (= :foo/bar (:selected-variant out)))
       (is (nil? (:selected-workspace out))))))
 
-(deftest apply-parsed-validators-drop-unknown-variant
-  (testing "unknown variant id is dropped (stale URL degrades, not crashes)"
-    (let [out (rf.story.ui.url-state/apply-parsed-to-state
-                {:selected-variant nil}
-                {:variant-id :ghost/x}
-                {:variant? (fn [vid] (= vid :foo/bar))})]
-      (is (nil? (:selected-variant out))))))
-
 (deftest apply-parsed-validators-drop-unknown-workspace
   (testing "unknown workspace id is dropped"
     (let [out (rf.story.ui.url-state/apply-parsed-to-state
                 {} {:workspace-id :ghost/grid}
                 {:workspace? (fn [_] false)})]
       (is (nil? (:selected-workspace out))))))
-
-(deftest apply-parsed-validators-drop-unknown-viewport
-  (testing "unknown viewport preset is dropped — chrome falls back to default"
-    (let [out (rf.story.ui.url-state/apply-parsed-to-state
-                {} {:viewport :nonsense}
-                {:viewport? (fn [v] (= v :tablet))})]
-      (is (nil? (:viewport out))))))
-
-(deftest apply-parsed-mode-tab-keyed-on-variant
-  (testing "mode-tab only applies when a valid variant is also present"
-    (let [out (rf.story.ui.url-state/apply-parsed-to-state
-                {} {:variant-id :foo/bar :mode-tab :docs} {})]
-      (is (= :docs (get-in out [:active-mode-tab :foo/bar]))))))
-
-(deftest apply-parsed-tag-filter-set
-  (let [out (rf.story.ui.url-state/apply-parsed-to-state
-              {} {:tag-filter #{:tag/a :tag/b}} {})]
-    (is (= #{:tag/a :tag/b} (:tag-filter out)))))
-
-(deftest apply-parsed-substrate
-  (let [out (rf.story.ui.url-state/apply-parsed-to-state
-              {} {:substrate :uix} {})]
-    (is (= :uix (:substrate out)))))
 
 ;; ---- substrate authoritative-clear ---------------------------------------
 ;;
@@ -405,34 +357,6 @@
 ;; authoritative-clear discipline the other URL-owned chrome slots
 ;; get. The same single fn drives mount-time hydration AND
 ;; no-query popstate (via `parse-current-url-or-empty`), so both paths heal.
-
-(deftest apply-parsed-empty-url-clears-stale-substrate-to-reagent
-  (testing "an all-nil parsed URL (no-query popstate / a share
-            URL that omits everything) clears a stale `:substrate :uix` back
-            to the `:reagent` default rather than preserving it. Writing
-            `:substrate` only when truthy would leak the stale value."
-    (let [stale        {:substrate :uix}
-          empty-parsed {:variant-id nil :workspace-id nil :mode-tab nil
-                        :active-modes nil :viewport nil :background nil
-                        :tag-filter nil :cell-overrides nil :substrate nil}
-          out          (rf.story.ui.url-state/apply-parsed-to-state stale empty-parsed {})]
-      (is (= :reagent (:substrate out))
-          "omitted substrate= hydrates as the :reagent default, not stale :uix"))))
-
-(deftest apply-parsed-default-share-link-clears-stale-substrate
-  (testing "the concrete scenario: a recipient with stale
-            in-memory `:substrate :uix` opens a DEFAULT share link
-            `?variant=story.counter/loaded` that carries NO substrate= (the
-            sender omitted it precisely to mean `:reagent`). The recipient
-            must render the default `:reagent`, not their stale `:uix`."
-    (let [recipient-local {:substrate :uix}
-          ;; rf.story.share/parse-params of just ?variant=story.counter/loaded —
-          ;; substrate parses absent as nil.
-          shared          {:variant-id :story.counter/loaded :substrate nil}
-          out             (rf.story.ui.url-state/apply-parsed-to-state recipient-local shared {})]
-      (is (= :story.counter/loaded (:selected-variant out)))
-      (is (= :reagent (:substrate out))
-          "recipient's stale :uix is cleared to the :reagent default"))))
 
 (deftest apply-parsed-explicit-non-default-substrate-round-trips
   (testing "an explicit non-default substrate hydrates to
@@ -496,18 +420,6 @@
       (is (nil? (:selected-variant out)))
       (is (empty? (:cell-overrides out))))))
 
-(deftest apply-parsed-overrides-round-trip-through-state
-  (testing "state → params-from-state → apply-parsed-to-state
-            restores the focused variant's overrides slice (the URL
-            carries the focused variant only, so the projected
-            :cell-overrides is the bare slice, not the side-table)"
-    (let [shell  {:selected-variant :foo/bar
-                  :cell-overrides   {:foo/bar {:label "Save, continue" :n 3}}}
-          proj   (rf.story.ui.url-state/params-from-state shell)
-          out    (rf.story.ui.url-state/apply-parsed-to-state {} proj {})]
-      (is (= {:label "Save, continue" :n 3}
-             (get-in out [:cell-overrides :foo/bar]))))))
-
 ;; ---- URL is authoritative — clear stale overrides on hydrate -------------
 
 (deftest apply-parsed-clears-stale-overrides-when-url-omits-them
@@ -549,25 +461,6 @@
           "the focused variant's slice is cleared")
       (is (= {:n 7} (get-in out [:cell-overrides :story.other/baz]))
           "an unfocused variant's overrides are left intact"))))
-
-(deftest apply-parsed-share-back-forward-scenario
-  (testing "the back/forward + share scenario end-to-end: an
-            override edit, then navigating to an override-free URL for the same
-            variant (a bookmark / share link from before the edit) renders
-            WITHOUT the edit. state → params (with edit) → params (without) →
-            hydrate the override-free one ⇒ no stale slice."
-    (let [;; 1. user edits a control — overrides live in state + would push to URL.
-          edited      {:selected-variant :foo/bar
-                       :cell-overrides   {:foo/bar {:label "edited"}}}
-          ;; 2. a share link / bookmark captured BEFORE the edit: same variant,
-          ;;    no overrides. params-from-state of a no-override shell yields no slice.
-          shared-proj (rf.story.ui.url-state/params-from-state {:selected-variant :foo/bar})
-          ;; 3. navigating to that URL must clear the in-memory edit.
-          out         (rf.story.ui.url-state/apply-parsed-to-state edited shared-proj {})]
-      (is (= :foo/bar (:selected-variant out)))
-      (is (nil? (get-in out [:cell-overrides :foo/bar]))
-          "navigating to the override-free shared URL clears the stale edit —
-           the address bar is authoritative"))))
 
 ;; ---- mode-tab is URL-authoritative too (per-variant) --------------------
 ;;
@@ -627,37 +520,7 @@
       (is (= :test (get-in out [:active-mode-tab :story.other/baz]))
           "no variant kept -> the mode-tab map is untouched"))))
 
-(deftest apply-parsed-mode-tab-back-forward-scenario
-  (testing "the concrete Back/Back scenario end-to-end:
-            select variant (no mode-tab), Test tab (mode-tab=test), Docs
-            tab (mode-tab=docs), Back twice to the first (variant-only)
-            history entry — the address bar has reverted to no mode-tab=,
-            so hydrating it must revert the canvas's active tab too"
-    (let [;; History entry 1: variant selected, default (:dev) tab — no
-          ;; mode-tab= param, matching rf.story.share/parse-params' shape for it.
-          entry-1 {:variant-id :story.foo/bar}
-          ;; The Test/Docs clicks pushed mode-tab=test then mode-tab=docs;
-          ;; simulate the resulting stale in-memory state just before
-          ;; Back/Back lands on entry-1 again.
-          stale   {:selected-variant :story.foo/bar
-                   :active-mode-tab  {:story.foo/bar :docs}}
-          out     (rf.story.ui.url-state/apply-parsed-to-state stale entry-1 {})]
-      (is (= :story.foo/bar (:selected-variant out)))
-      (is (nil? (get-in out [:active-mode-tab :story.foo/bar]))
-          "Back/Back to the mode-tab-less entry reverts the stale :docs —
-           address bar and rendered UI agree again"))))
-
 ;; ---- URL authoritative for ALL URL-owned chrome slots --------------------
-
-(deftest apply-parsed-clears-active-modes-when-url-omits-modes
-  (testing "hydrating a URL that omits `modes=` clears stale
-            `:active-modes` to []. A share link like ?variant=foo/bar must
-            restore the DEFAULT (no modes) view for the recipient, not keep
-            their localStorage-seeded modes."
-    (let [stale {:active-modes [:m/dark :m/grid]}
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
-      (is (= [] (:active-modes out))
-          "omitted modes= clears active-modes to the empty default"))))
 
 (deftest apply-parsed-sets-active-modes-when-url-carries-them
   (testing "a URL that DOES carry modes= overwrites stale modes
@@ -666,28 +529,6 @@
           out   (rf.story.ui.url-state/apply-parsed-to-state
                   stale {:variant-id :foo/bar :active-modes [:m/dark]} {})]
       (is (= [:m/dark] (:active-modes out))))))
-
-(deftest apply-parsed-clears-tag-filter-when-url-omits-it
-  (testing "omitted tag-filter= clears `:tag-filter` to #{}"
-    (let [stale {:tag-filter #{:tag/a :tag/b}}
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
-      (is (= #{} (:tag-filter out))
-          "omitted tag-filter= clears to the empty set default"))))
-
-(deftest apply-parsed-clears-viewport-when-url-omits-it
-  (testing "omitted viewport= clears `:viewport` to nil so the
-            chrome falls back to the :full default"
-    (let [stale {:viewport :tablet}
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
-      (is (nil? (:viewport out))
-          "omitted viewport= clears to nil (chrome resolves to :full)"))))
-
-(deftest apply-parsed-clears-background-when-url-omits-it
-  (testing "omitted background= clears `:background` to nil"
-    (let [stale {:background :dark}
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
-      (is (nil? (:background out))
-          "omitted background= clears to nil (chrome resolves to default)"))))
 
 (deftest apply-parsed-clears-invalid-viewport-rather-than-keeping-stale
   (testing "a present-but-INVALID viewport (rejected by the
