@@ -23,10 +23,11 @@ or what happened (`:todo/added`), rather than how a view is built
 Timers, HTTP replies, route loaders, and button clicks all use this same shape, so
 tools can show everything that happened to the app as one list of events.
 
-Keep the payload plain data. A function, promise, DOM node, `js/Date` or `js/RegExp`
-in an event draws a `:rf.warning/non-serialisable-event-payload` development warning,
-because replay and the event history treat an event as a value. Pass an id or a plain
-value instead.
+Keep the payload plain data. A function, promise, DOM node or `js/RegExp` in an event
+draws a `:rf.warning/non-serialisable-event-payload` development warning, because
+replay and the event history treat an event as a value. Pass an id or a plain value
+instead. An instant is plain data: a `js/Date`, which is what `#inst` reads as, draws
+no warning.
 
 ## Dispatch
 
