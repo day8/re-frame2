@@ -265,10 +265,10 @@
 ;; ---- arg-widget dispatch covers the textarea/radio/date/color tags ------
 
 #?(:cljs
-   (deftest arg-widget-dispatches-new-scalar-widgets
-     (testing "arg-widget routes :textarea / :radio / :date / :color to
-               scalar-widget (rather than the unknown-widget fallback that
-               would fire if the dispatch case omitted them)"
+   (deftest arg-widget-hands-scalar-widget-specs-through
+     (testing "arg-widget returns a `[scalar-widget ...]` vector whose
+               trailing spec still carries the :textarea / :radio / :date /
+               :color widget tag"
        (doseq [w [:textarea :radio :date :color]]
          (let [spec    (cond-> {:widget w}
                          (#{:radio} w) (assoc :options [:a :b]))

@@ -154,7 +154,7 @@
 ;; `rf.story.share/parse-params` (and thus the url-state hydrator) uses —
 ;; so there is no JVM copy to drift out of sync.
 
-(deftest parse-modes-param-roundtrip
+(deftest parse-modes-param-reads-wire-tokens
   (testing "single qualified mode id"
     (is (= [:Mode.app/dark]
            (rf.story.share/parse-modes-param "Mode.app/dark"))))
@@ -296,7 +296,7 @@
 ;; beside the round-trip, for the same reason.
 
 #?(:cljs
-   (deftest cljs-toolbar-strip-renders-chip-per-mode
+   (deftest cljs-chip-carries-mode-id-and-pressed-state
      (testing "every registered mode produces a chip with a data-toolbar-mode attr"
        (rf.story/reg-mode :Mode.a/x {:args {}})
        (rf.story/reg-mode :Mode.a/y {:args {}})
@@ -325,8 +325,8 @@
 ;; ---- cofx + sub registration --------------------------------------------
 
 #?(:cljs
-   (deftest cljs-active-modes-sub-mirrors-state
-     (testing ":story/active-modes subscription tracks the shell-state atom"
+   (deftest cljs-active-modes-snapshot-mirrors-shell-state
+     (testing "the active-modes snapshot tracks the shell-state slot"
        (rf.story/reg-mode :Mode.app/x {:args {:k 1}})
        (rf.story.ui.toolbar/toggle-mode! :Mode.app/x)
        ;; The pure snapshot helper mirrors the slot.

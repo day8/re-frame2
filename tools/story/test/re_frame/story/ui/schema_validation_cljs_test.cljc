@@ -420,7 +420,7 @@
        (is (= :rf.story.panel/schema-validation rf.story.ui.schema-validation/panel-id)))))
 
 #?(:cljs
-   (deftest ^:cljs panel-renders-against-canonical-bootstrap
+   (deftest ^:cljs panel-registered-by-canonical-bootstrap
      (testing "after install-canonical-vocabulary! the schema-validation
               panel is registered against the story side-table"
        (reset-all!)
