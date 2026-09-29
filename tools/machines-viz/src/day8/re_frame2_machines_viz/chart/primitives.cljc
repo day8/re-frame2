@@ -1,24 +1,17 @@
 (ns day8.re-frame2-machines-viz.chart.primitives
-  "Reusable SVG glyph primitives — `countdown-ring` and `sparkline`.
+  "Reusable SVG glyph primitives — `countdown-ring`.
 
-  The xyflow chart owns node + edge rendering; these primitives live
-  here because they are consumed OUTSIDE the chart canvas:
-
-    - `countdown-ring` — the `chart.overlays.after-rings` overlay
-      (which Xray's `panels/machine_after_rings.cljs` mounts) paints
-      rings ON TOP of the chart for armed `:after` timers. The
-      overlay walks the chart's DOM to find node bboxes, but the ring
-      glyph itself is pure-data hiccup so the JVM test corpus can
-      pin its shape.
-    - `sparkline` — an inline rate glyph for a host's stats
-      surfaces. Pure hiccup, JVM-runnable.
-
-  Both fns produce hiccup forms; substrate-agnostic; JVM-testable.
+  The xyflow chart owns node + edge rendering; this primitive lives
+  here because it is consumed OUTSIDE the chart canvas: the
+  `chart.overlays.after-rings` overlay (which Xray's
+  `panels/machine_after_rings.cljs` mounts) paints rings ON TOP of the
+  chart for armed `:after` timers. The overlay walks the chart's DOM to
+  find node bboxes, but the ring glyph itself is pure-data hiccup so the
+  JVM test corpus can pin its shape. Substrate-agnostic; JVM-testable.
 
   Per `tools/machines-viz/spec/000-Vision.md` §Decision trace
   §Interactive renderer."
-  (:require [clojure.string :as str]
-            [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
+  (:require [day8.re-frame2-machines-viz.theme.tokens :as tokens]))
 
 ;; ---- countdown ring -----------------------------------------------------
 
@@ -101,80 +94,3 @@
                  :pointer-events "none"}]))
      (when tooltip
        [:title tooltip])]))
-
-;; ---- sparkline ----------------------------------------------------------
-
-(defn sparkline
-  "Inline SVG glyph for `samples` — a vector of non-negative integers,
-  oldest-first.
-
-  Options:
-
-    :width   (default 60)
-    :height  (default 16)
-    :stroke              — line colour (default `:info` token)
-    :testid              — overrides the root data-testid
-    :max-sample          — pin the y-axis ceiling
-    :label               — a11y. Overrides the default `aria-label`.
-                           Hosts that render the sparkline next to a
-                           textual count MAY pass empty string to
-                           suppress the announcement; otherwise the
-                           default label reads as
-                           `\"Sparkline of N samples, peak P.\"`"
-  ([samples] (sparkline samples {}))
-  ([samples {:keys [width height stroke testid max-sample label]
-             :or   {width  60
-                    height 16
-                    stroke (:info tokens/tokens)
-                    testid "rf-mv-chart-sparkline"}}]
-   (let [n        (count samples)
-         max-v    (or max-sample
-                      (when (seq samples)
-                        (apply max samples))
-                      0)
-         pad-y    1
-         inner-h  (max 1 (- height (* 2 pad-y)))
-         baseline (- height pad-y)
-         points   (when (>= n 2)
-                    (mapv (fn [i v]
-                            (let [x (if (= n 1)
-                                      (quot width 2)
-                                      (long (* (/ (double i) (double (- n 1)))
-                                               width)))
-                                  ratio (if (pos? max-v)
-                                          (/ (double v) (double max-v))
-                                          0.0)
-                                  y (long (- baseline
-                                             (* ratio inner-h)))]
-                              [x y]))
-                          (range n)
-                          samples))
-         aria-label (cond
-                      (= "" label)  nil
-                      (some? label) label
-                      (zero? n)     "Sparkline (no samples)."
-                      :else         (str "Sparkline of " n " "
-                                         (if (= 1 n) "sample" "samples")
-                                         ", peak " max-v "."))]
-     [:svg (cond-> {:data-testid testid
-                    :data-samples (pr-str samples)
-                    :width  width
-                    :height height
-                    :viewBox (str "0 0 " width " " height)
-                    :style {:display "inline-block"
-                            :vertical-align "middle"}}
-             aria-label       (assoc :role "img"
-                                     :aria-label aria-label)
-             (nil? aria-label) (assoc :aria-hidden "true"))
-      [:line {:x1 0 :y1 baseline :x2 width :y2 baseline
-              :stroke (:border-subtle tokens/tokens)
-              :stroke-width 0.5}]
-      (when points
-        [:polyline {:fill "none"
-                    :stroke stroke
-                    :stroke-width 1.25
-                    :stroke-linecap "round"
-                    :stroke-linejoin "round"
-                    :points (str/join
-                              " "
-                              (map (fn [[x y]] (str x "," y)) points))}])])))

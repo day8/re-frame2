@@ -20,10 +20,9 @@
     - **Topology parsing** — lives in `chart.layout`. This ns
       consumes the parsed graph but does not walk the definition
       tree.
-    - **`countdown-ring` / `sparkline` primitives** — live in
-      `chart.primitives` since they are consumed OUTSIDE the chart
-      canvas (the `chart.overlays.after-rings` overlay Xray mounts; a
-      host's stats surfaces).
+    - **The `countdown-ring` primitive** — lives in `chart.primitives`
+      since it is consumed OUTSIDE the chart canvas (the
+      `chart.overlays.after-rings` overlay Xray mounts).
     - **Viewport state** — xyflow owns zoom/pan/fit internally;
       hosts do not manage `{:scale :tx :ty}` slots.
 
