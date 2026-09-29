@@ -50,6 +50,23 @@
 (defn- rendered-panel-text [tree]
   (pr-str tree))
 
+(deftest render-panels-honours-panel-visibility
+  (testing "a panel renders when its visibility flag is absent or true, and
+            is filtered out when the flag is false"
+    (rf.story/reg-story-panel :Panel.vis/notes
+      {:title "Notes"
+       :placement :right
+       :render :Panel.vis/missing-view})
+    (let [render (fn [visibility]
+                   (rendered-panel-text
+                     (rf.story.ui.panels/render-panels-at-placement
+                       :right :story.vis/v visibility)))]
+      (is (re-find #":Panel\.vis/notes" (render {}))
+          "absent flag: visible by default")
+      (is (re-find #":Panel\.vis/notes" (render {:Panel.vis/notes true})))
+      (is (not (re-find #":Panel\.vis/notes" (render {:Panel.vis/notes false})))
+          "a false flag filters the panel out"))))
+
 (deftest render-panels-respects-for-parent-story-scope
   (testing "a panel :for parent story appears for child variants only"
     (rf.story/reg-story-panel :Panel.scope/notes
