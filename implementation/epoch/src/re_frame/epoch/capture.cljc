@@ -497,6 +497,11 @@
   see nil and treat as no-attribution, parity with the OMITTED-vs-nil
   semantics of the trace tag.
 
+  A post-settle run carries `:rf.sub/epoch-window`, which the epoch layer
+  stamps as it files the run (`listeners/record-sub-run!`); it is threaded
+  onto the row as `:epoch-window` the same way, absent on every run recorded
+  inside its cascade.
+
   Payload-bearing value slots: `:prev-value` and `:value`
   carry the sub's computed app-data, so this row is NOT value-free. The
   whole-output `:sensitive?` stamp is already honoured at the
@@ -524,6 +529,9 @@
                :cause-sub      (:rf.sub/cause-sub event-tags)}
         (contains? event-tags :rf.sub/cause-event-id)
         (assoc :cause-event-id (:rf.sub/cause-event-id event-tags))
+
+        (contains? event-tags :rf.sub/epoch-window)
+        (assoc :epoch-window (:rf.sub/epoch-window event-tags))
 
         (:large? event-tags)
         (assoc :large? true)))))
