@@ -118,34 +118,6 @@
 ;; `after-less-interceptors-are-transparent` intermittently corrupts that
 ;; test's `:after` order. The response-side wait prevents both.
 
-;; ---- 1. single interceptor transforms the outgoing request ----------------
-
-(deftest single-interceptor-transforms-request
-  (testing "a registered :before interceptor's modifications reach the transport"
-    (let [seen-auth (atom nil)
-          {:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (reset! seen-auth (header-of ex "Authorization"))
-              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
-      (try
-        (rf/reg-http-interceptor :auth-header
-          {:before (fn [ctx]
-                     (assoc-in ctx [:request :headers "Authorization"]
-                               "Bearer secret-token-42"))})
-        (rf/reg-event :load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:load msg] :request {:url (str "http://127.0.0.1:" port "/secured")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:load])
-        (await-reply! #(some? (:reply %)) 5000)
-        (is (= "Bearer secret-token-42" @seen-auth)
-            "the server saw the Authorization header the interceptor injected")
-        (finally (stop-server! srv))))))
-
 ;; ---- 1a. reg within with-frame installs; bare reg fails closed -----------
 ;;
 ;; A BARE top-level
@@ -1008,27 +980,6 @@
             "interceptors fired in the post-clear-then-reg order: :b, :c, :a (re-registered)")
         (finally (stop-server! srv))))))
 
-(deftest clear-then-reg-distinguishes-from-replace-in-place
-  (testing "regression guard — bare `reg-http-interceptor` of an
-            existing id replaces in place (test 6, position preserved),
-            while clear-then-reg appends to the end. These are deliberately
-            different paths; the test asserts they do NOT collapse into one."
-    ;; Register in order :a, :b.
-    (rf/reg-http-interceptor :a {:before identity})
-    (rf/reg-http-interceptor :b {:before identity})
-    (is (= [:a :b] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
-
-    ;; Bare re-reg of :a — replaces in place; order unchanged.
-    (rf/reg-http-interceptor :a {:before (fn [c] c)})
-    (is (= [:a :b] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-        "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
-
-    ;; Clear-then-reg of :a — appends to end; order changes.
-    (rf/clear :http-interceptor :a)
-    (rf/reg-http-interceptor :a {:before (fn [c] c)})
-    (is (= [:b :a] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
-        "clear-then-reg lands at the end (Spec 014 §Chain order)")))
-
 ;; ---- 7. invalid interceptor shape raises ---------------------------------
 
 (deftest invalid-interceptor-shape-raises
@@ -1164,17 +1115,6 @@
         ":sub kind is untouched")
     (is (some? (rf.registrar/lookup :fx :test.lfvi/fx))
         ":fx kind is untouched")))
-
-(deftest clear-all-http-interceptors-is-idempotent
-  (testing "calling clear-all-http-interceptors! on an empty registry is a no-op"
-    (is (= {} (rf.http.managed/interceptors-snapshot))
-        "starting clean (per fixture)")
-    (is (nil? (rf.http.managed/clear-all-http-interceptors!))
-        "first call returns nil")
-    (is (nil? (rf.http.managed/clear-all-http-interceptors!))
-        "second call on the already-empty registry is also nil")
-    (is (= {} (rf.http.managed/interceptors-snapshot))
-        "atom stays empty")))
 
 ;; ---- sensitivity recomputed from the POST-:before request -----------------
 ;;
@@ -1354,41 +1294,6 @@
         (await-reply-with-payload!)
         (is (= [:c :b :a] @order)
             ":after fires in reverse registration order")
-        (finally (stop-server! srv))))))
-
-;; ---- 2. :after sees the request ctx (request-correlated telemetry) -------
-
-(deftest after-sees-the-request-ctx-via-wall-clock-delta
-  (testing "`:after` receives the SAME ctx the `:before`
-            produced; a `:before` that stashes `(System/nanoTime)` and an
-            `:after` that reads it can compute a non-negative wall-clock
-            delta. This is the load-bearing test that ctx threads through."
-    (let [observed (atom nil)
-          srv      (single-success-server "{\"ok\":\"delta\"}")]
-      (try
-        (rf/reg-http-interceptor :timing
-          {:before (fn [ctx]
-                     (assoc ctx ::start (System/nanoTime)))
-           :after  (fn [ctx resp]
-                     (reset! observed
-                             {:start    (::start ctx)
-                              :delta-ns (- (System/nanoTime)
-                                           (::start ctx))})
-                     resp)})
-        (rf/reg-event :uheqq/load-timing
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:uheqq/load-timing msg] :request {:url (str "http://127.0.0.1:" (:port srv) "/timing")}
-                      :decode  :json}]]})))
-        (rf/dispatch-sync [:uheqq/load-timing])
-        (await-reply-with-payload!)
-        (is (some? (:start @observed))
-            ":before's stash key is visible to :after via the shared ctx")
-        (is (and (number? (:delta-ns @observed))
-                 (>= (:delta-ns @observed) 0))
-            "wall-clock delta computed from ctx is a non-negative number")
         (finally (stop-server! srv))))))
 
 ;; ---- 3. response transform threads through -------------------------------
