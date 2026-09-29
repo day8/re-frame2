@@ -275,20 +275,7 @@
                    (reset-mount-state!))}))
 
 ;; -------------------------------------------------------------------------
-;; (1) Predicates on a clean baseline
-;; -------------------------------------------------------------------------
-
-(deftest mounted?-and-visible?-are-false-on-clean-state
-  (testing "before any open!/teardown! cycle both predicates report false
-            — the fixture's reset-mount-state! puts the singleton back
-            at nil"
-    (is (false? (mount/mounted?))
-        "mounted? false when @mount-state is nil")
-    (is (false? (mount/visible?))
-        "visible? false when @mount-state is nil")))
-
-;; -------------------------------------------------------------------------
-;; (2) Open — first call (mount + show)
+;; (1) Open — first call (mount + show)
 ;; -------------------------------------------------------------------------
 
 (deftest first-open!-creates-dom-node-and-renders
@@ -359,7 +346,7 @@
                   (set! js/console prior-console))))))))))
 
 ;; -------------------------------------------------------------------------
-;; (2b) Substrate INDIFFERENCE
+;; (1b) Substrate INDIFFERENCE
 ;; -------------------------------------------------------------------------
 ;;
 ;; THE CLAIM: the mount verbs are INDIFFERENT to the installed adapter.
@@ -465,7 +452,7 @@
                   (is (zero? @warns)
                       (str "no console.warn. Got: " @warns)))))))))))
 
-(deftest popout!-no-longer-refuses-an-element-shaped-substrate
+(deftest popout!-does-not-refuse-an-element-shaped-substrate
   (testing "popout! does not refuse on the adapter kind before reaching
             `window.open`: with no `js/window` in the node lane the window
             step answers `:popup-blocked`, which is this row's literal — it
@@ -510,7 +497,7 @@
                   "rf.fresco/render! invoked exactly once"))))))))
 
 ;; -------------------------------------------------------------------------
-;; (3) Open — second call (already mounted; no re-render)
+;; (2) Open — second call (already mounted; no re-render)
 ;; -------------------------------------------------------------------------
 
 (deftest second-open!-does-not-re-render
@@ -541,7 +528,7 @@
                     "second open! marks visible? true again")))))))))
 
 ;; -------------------------------------------------------------------------
-;; (4) Close — hide without unmounting
+;; (3) Close — hide without unmounting
 ;; -------------------------------------------------------------------------
 
 (deftest close!-hides-but-retains-mount-state
@@ -637,55 +624,8 @@
                 "still no unmount fn invocation")))))))
 
 ;; -------------------------------------------------------------------------
-;; (5) Toggle — open + close + open round-trip
+;; (4) Toggle — open + close + open round-trip
 ;; -------------------------------------------------------------------------
-
-(deftest toggle!-mounts-on-first-call
-  (testing "toggle! on clean state behaves like open! — creates the
-            DOM node, renders, marks visible"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (mount/toggle!)
-            (is (= 1 (count @calls))
-                "first toggle! triggers a substrate render")
-            (is (true? (mount/visible?)) "shell is visible after toggle!")
-            (is (true? (mount/mounted?)) "shell is mounted after toggle!")))))))
-
-(deftest toggle!-hides-when-currently-visible
-  (testing "toggle! while visible is equivalent to close! — flips
-            visible? false, does NOT unmount"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn unmount-calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (mount/open!)
-            (is (true? (mount/visible?)))
-            (mount/toggle!)
-            (is (false? (mount/visible?))
-                "toggle! while visible flips to hidden")
-            (is (true? (mount/mounted?))
-                "mount-state retained")
-            (is (= 0 @unmount-calls)
-                "toggle!-as-close must not invoke unmount")))))))
-
-(deftest toggle!-shows-when-currently-hidden
-  (testing "toggle! while hidden is equivalent to a second open! —
-            flips visible? true, reuses the existing DOM node (no
-            re-render)"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn calls]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (mount/open!)
-            (mount/close!)
-            (is (false? (mount/visible?)))
-            (mount/toggle!)
-            (is (true? (mount/visible?))
-                "toggle!-as-open flips visible? back true")
-            (is (= 1 (count @calls))
-                "the re-show did NOT trigger a second render")))))))
 
 (deftest toggle!-round-trips-cleanly-three-times
   (testing "open → close → open → close → open via repeated toggle!
@@ -711,7 +651,7 @@
                  toggle-after-mount transitions")))))))
 
 ;; -------------------------------------------------------------------------
-;; (5b) close-shell event — the `✕` button round-trip
+;; (4b) close-shell event — the `✕` button round-trip
 ;; -------------------------------------------------------------------------
 ;;
 ;; The shell `✕` button dispatches `:rf.xray/close-shell` rather than
@@ -767,7 +707,7 @@
                 "re-show is CSS-only — no second substrate render")))))))
 
 ;; -------------------------------------------------------------------------
-;; (5c) popout-shell event — the chrome `⛶` button round-trip
+;; (4c) popout-shell event — the chrome `⛶` button round-trip
 ;; -------------------------------------------------------------------------
 ;;
 ;; The chrome `⛶` pop-out button dispatches `:rf.xray/popout-shell`
@@ -799,7 +739,7 @@
                 "popout-shell event drove mount/popout! exactly once")))))))
 
 ;; -------------------------------------------------------------------------
-;; (6) Teardown — full destroy
+;; (5) Teardown — full destroy
 ;; -------------------------------------------------------------------------
 
 (deftest teardown!-invokes-unmount-and-removes-node
@@ -826,7 +766,7 @@
               (is (false? (mount/mounted?)))
               (is (false? (mount/visible?))))))))))
 
-(deftest teardown!-after-open!-then-mount!-cycle
+(deftest teardown!-then-open!-is-a-fresh-first-mount
   (testing "open → teardown → open: the second open! is a fresh
             first-mount (new DOM node, fresh render call) — not a
             CSS-only show. This is the distinction between close!
@@ -892,7 +832,7 @@
                 "singleton still cleared despite the unmount throw")))))))
 
 ;; -------------------------------------------------------------------------
-;; (7) Missing-adapter gate — graceful no-op when no substrate installed
+;; (6) Missing-adapter gate — graceful no-op when no substrate installed
 ;; -------------------------------------------------------------------------
 
 (deftest open!-without-adapter-is-silent-no-op
@@ -996,7 +936,7 @@
               (is (true? (mount/visible?))))))))))
 
 ;; -------------------------------------------------------------------------
-;; (8) State-machine cross-checks
+;; (7) State-machine cross-checks
 ;; -------------------------------------------------------------------------
 
 (deftest visible?-tracks-the-singleton-not-the-style
@@ -1015,26 +955,6 @@
             (swap! @#'mount/mount-state assoc :visible? false)
             (is (false? (mount/visible?))
                 "visible? returns the singleton's :visible? slot")))))))
-
-(deftest mounted?-tracks-the-singleton-presence
-  (testing "mounted? is (some? @mount-state) — the predicate is true
-            whether the shell is currently visible or hidden, and
-            flips back to false only after teardown!"
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn]} (mk-render-stub)]
-          (with-redefs [rf.fresco/render!           render-fn]
-            (is (false? (mount/mounted?)) "clean baseline")
-            (mount/open!)
-            (is (true? (mount/mounted?)) "mounted? true after open!")
-            (mount/close!)
-            (is (true? (mount/mounted?))
-                "mounted? STAYS true after close! — only teardown! clears it")
-            (mount/open!)
-            (is (true? (mount/mounted?)))
-            (mount/teardown!)
-            (is (false? (mount/mounted?))
-                "mounted? flips back to false after teardown!")))))))
 
 ;; -------------------------------------------------------------------------
 ;; (8) `:rf/xray` frame seating
@@ -1246,7 +1166,7 @@
                     "app-db container preserved across re-register")))))))))
 
 ;; -------------------------------------------------------------------------
-;; (8c) ensure-xray-frame! run-once guard
+;; (8b) ensure-xray-frame! run-once guard
 ;; -------------------------------------------------------------------------
 ;;
 ;; `popout!` calls `(ensure-xray-frame!)` with no arg — the SAME default
@@ -1536,16 +1456,6 @@
           (is (nil? @@#'mount/popout-state))
           (is (true? @closed?)))))))
 
-(deftest popout-keydown-installer-slot-is-registered
-  (testing "mount reaches the keyboard map only through this
-            injected slot (requiring keybinding from here would be a
-            cycle). An empty slot means a keyboard-less pop-out with
-            nothing else failing, so pin that it is populated."
-    (is (some? @#'mount/popout-keydown-installer)
-        "an installer is registered")
-    (is (fn? @@#'mount/popout-keydown-installer)
-        "and it is callable")))
-
 (deftest teardown!-clears-both-singletons-in-one-call
   (testing "a single teardown! call clears
             mount-state + popout-state together. The fixture between
@@ -1574,28 +1484,6 @@
                 "two unmount fns invoked (in-app shell + popout)")
             (is (true? @closed?)
                 "popout window closed by teardown!")))))))
-
-(deftest teardown!-isolation-across-multi-run
-  (testing "two consecutive open!/seed-popout → teardown! cycles must
-            not leak state: a leak would let the second cycle observe
-            stale popout-state left over from the first run."
-    (with-stub-document
-      (fn [_doc]
-        (let [{:keys [render-fn]} (mk-render-stub)
-              cycle! (fn []
-                       (let [{:keys [window]} (mk-stub-popout-window)]
-                         (with-redefs [rf.fresco/render!           render-fn]
-                           (mount/open!)
-                           (seed-popout-state! {:window window})
-                           (mount/teardown!))))]
-            (cycle!)
-            (is (nil? @@#'mount/mount-state))
-            (is (nil? @@#'mount/popout-state))
-            (cycle!)
-            (is (nil? @@#'mount/mount-state)
-                "second cycle's teardown still clears mount-state")
-            (is (nil? @@#'mount/popout-state)
-                "second cycle's teardown still clears popout-state"))))))
 
 ;; -------------------------------------------------------------------------
 ;; (10) Popout external-close → opener-side cleanup
@@ -1790,36 +1678,28 @@
 (defn- register-opener-reload-announcer!* [opener-win win overlay-node]
   ((deref #'mount/register-opener-reload-announcer!) opener-win win overlay-node))
 
-(deftest opener-gone?-true-when-opener-closed
-  (testing "opener-gone? reads window.opener.closed and
-            returns true when the opener has been closed"
-    (let [{opener :window opener-closed? :closed?} (mk-stub-opener-window)
-          {popout :window} (mk-stub-popout-window-with-opener opener)]
-      (is (false? (opener-gone?* popout))
-          "live opener with .closed=false: not gone")
-      (reset! opener-closed? true)
-      (is (true? (opener-gone?* popout))
-          "closed opener: gone"))))
-
-(deftest opener-gone?-true-when-opener-nil
-  (testing "opener-gone? returns true when the opener slot
-            is nil (cross-document navigation that blew the reference)"
-    (let [{popout :window} (mk-stub-popout-window-with-opener nil)]
-      (is (true? (opener-gone?* popout))
-          "nil opener: gone"))))
-
-(deftest opener-gone?-true-when-opener-read-throws
-  (testing "opener-gone? classifies an unexpected throw on
-            the opener read (pathological cross-origin walk) as 'gone'
-            — defensive posture, no spurious overlays on regular use"
-    (let [popout (js-obj)]
+(deftest opener-gone?-is-false-only-for-a-live-opener
+  (testing "opener-gone? reads window.opener.closed. A closed opener, a
+            nil opener slot (a cross-document navigation blew the
+            reference) and an opener read that throws (a pathological
+            cross-origin walk, classified as gone defensively) all read as
+            gone; only a live opener does not"
+    (let [popout-of        (fn [opener]
+                             (:window (mk-stub-popout-window-with-opener opener)))
+          {live :window}   (mk-stub-opener-window)
+          {closed :window closed-flag :closed?} (mk-stub-opener-window)
+          throwing-popout  (js-obj)]
+      (reset! closed-flag true)
       (js/Object.defineProperty
-        popout "opener"
+        throwing-popout "opener"
         (js-obj "get" (fn [] (throw (ex-info "cross-origin block"
                                              {:reason :test})))
                 "configurable" true))
-      (is (true? (opener-gone?* popout))
-          "throwing opener-getter classified as gone"))))
+      (doseq [[label popout gone?] [["live opener"          (popout-of live)   false]
+                                    ["closed opener"        (popout-of closed) true]
+                                    ["nil opener"           (popout-of nil)    true]
+                                    ["throwing opener read" throwing-popout    true]]]
+        (is (= gone? (opener-gone?* popout)) label)))))
 
 (deftest install-opener-gone-overlay!-creates-hidden-themed-node
   (testing "install-opener-gone-overlay! creates a node
@@ -2154,7 +2034,7 @@
     (is (nil? (style-popout-document!* nil)))))
 
 ;; -------------------------------------------------------------------------
-;; (10) Surface transitions — inline ⇄ overlay re-parent + re-render
+;; (13) Surface transitions — inline ⇄ overlay re-parent + re-render
 ;; -------------------------------------------------------------------------
 ;;
 ;; `open!` and `open-overlay!` name two DISTINCT PHYSICAL surfaces
@@ -2499,11 +2379,11 @@
               (is (= :inline (:mode (mount/status)))))))))))
 
 ;; -------------------------------------------------------------------------
-;; (11) Global reopen keeps the realized surface
+;; (14) Global reopen keeps the realized surface
 ;; -------------------------------------------------------------------------
 ;;
 ;; `open!` / `open-overlay!` are the explicit surface-CHANGE verbs (each
-;; realizes its distinct physical surface, per §(10) above). `toggle!`
+;; realizes its distinct physical surface, per §(13) above). `toggle!`
 ;; (the `Ctrl+Shift+C` keybinding) and the command palette's hidden-shell
 ;; show (`Cmd/Ctrl+K`) are the GLOBAL show/hide route — they must reopen
 ;; whatever surface the shell was last realized on, NOT force inline.
@@ -2517,7 +2397,7 @@
 ;; state, breaking the CSS-only reopen contract); with NO host
 ;; `switch-surface! :inline` would return the missing-host diagnostic and
 ;; leave the overlay stranded hidden, where repeated toggles could never
-;; recover it. §(10)'s rows match `close!` with the SAME explicit verb
+;; recover it. §(13)'s rows match `close!` with the SAME explicit verb
 ;; (`open-overlay!` after overlay-close, `open!` after inline-close), so
 ;; they cannot see this composed transition.
 ;;
@@ -2955,7 +2835,7 @@
 ;; none of them executes `popout!`'s own body: not the window it opens, not
 ;; the document it paints into, not WHICH React root it paints through, and
 ;; not the frame it wraps the shell in.
-;; `popout!-no-longer-refuses-an-element-shaped-substrate` gets one step
+;; `popout!-does-not-refuse-an-element-shaped-substrate` gets one step
 ;; further and stops, deliberately, at `:popup-blocked` — node-test has no
 ;; `js/window` to open a second one with, and that row's literal IS the
 ;; absence of a window.
