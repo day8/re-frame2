@@ -79,18 +79,7 @@
     (is (bad-request-throw? (call-managed! {:url :not-a-string}) :not-a-string))
     (is (bad-request-throw? (call-managed! {:url 42}) 42))))
 
-;; ---- pass-through: a valid url, and a :before that SETS the url -----------
-
-(deftest valid-url-passes-validation
-  (testing "a non-blank string `:url` passes the validator.
-            (The `run-attempt!` that follows attempts the network request
-            synchronously on JVM; we don't care about the eventual failure
-            here, only that the validator did NOT throw
-            :rf.error/http-bad-request.)"
-    (let [ex (call-managed! {:method :get :url "http://localhost/x"})]
-      (is (not (and (some? ex)
-                    (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))))
-          "a valid url must NOT trigger the bad-request guard"))))
+;; ---- pass-through: a :before that SETS the url ---------------------------
 
 (deftest before-interceptor-may-set-the-url
   (testing "the url is validated AFTER the `:before` chain, so

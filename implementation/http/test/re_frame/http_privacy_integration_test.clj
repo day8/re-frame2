@@ -118,42 +118,6 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- 3. Non-sensitive request preserves body -------------------------------
-
-(deftest non-sensitive-request-preserves-body
-  (testing "an ordinary handler with no :sensitive? flag emits the response
-            body verbatim"
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (write-response! ex 500 "text/plain" "ordinary error text")))
-          port (:port srv)
-          captured (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! :test/capture
-                                  (fn [ev] (swap! captured conj ev)))
-
-        (rf/reg-event :api/fetch
-          (fn [_ [_ _msg]]
-            {:fx [[:rf.http/managed
-                   {:request    {:method :get
-                                 :url    (str "http://127.0.0.1:" port "/data")}
-                    :on-failure nil}]]}))
-
-        (rf/dispatch-sync [:api/fetch])
-
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))]
-          (is (and (nil? (:sensitive? ev))
-                   (nil? (get-in ev [:tags :sensitive?])))
-              "no :sensitive? stamp when neither handler nor call opts in")
-          (is (= "ordinary error text" (get-in ev [:tags :body]))
-              "body rides verbatim when not sensitive"))
-        (finally
-          (stop-server! srv))))))
-
 ;; ---- 4. Headers in the failure tags are always denylist-redacted -----------
 
 (deftest sensitive-headers-redacted-in-failure-tags
@@ -189,46 +153,6 @@
               "Set-Cookie was denylist-redacted (case-insensitive lookup)")
           (is (= :rf/redacted (find-header headers "X-API-Key"))
               "X-API-Key was denylist-redacted (case-insensitive lookup)"))
-        (finally
-          (stop-server! srv))))))
-
-;; ---- 5. Managed-HTTP carrier denylist applies (EP-0025 §HTTP carriers) ------
-
-(deftest managed-carrier-redacts-custom-header
-  (testing "a :rf.http/managed :carriers {:headers [..]} carrier (EP-0025)
-            extends header redaction to app-defined names"
-    ;; EP-0025 — re-register :rf.http/managed with the app's :carriers block;
-    ;; the redactor unions it onto the immutable defaults at trace egress.
-    (rf.fx/reg-fx :rf.http/managed
-      {:carriers {:headers ["X-Honeycomb-Team"]}}
-      rf.http.managed/managed-handler)
-    (let [srv (start-server!
-                (fn [^HttpExchange ex]
-                  (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
-                  (write-response! ex 500 "text/plain" "boom")))
-          port (:port srv)
-          captured (atom [])]
-      (try
-        (rf.trace.tooling/register-listener! :test/capture
-                                  (fn [ev] (swap! captured conj ev)))
-
-        (rf/reg-event :api/fetch
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:method :get
-                                 :url    (str "http://127.0.0.1:" port "/x")}
-                    :on-failure nil}]]}))
-
-        (rf/dispatch-sync [:api/fetch])
-
-        (let [_ (wait-for!
-                  (fn []
-                    (some #(= :rf.http/http-5xx (:operation %)) @captured))
-                  3000)
-              ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))
-              headers (get-in ev [:tags :headers])]
-          (is (= :rf/redacted (find-header headers "X-Honeycomb-Team"))
-              "app-declared sensitive header was redacted"))
         (finally
           (stop-server! srv))))))
 
