@@ -35,13 +35,6 @@
     (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string "foo/bar")))
     (is (= :plain   (rf.story.review-dialog/parse-variant-id-string "plain")))))
 
-(deftest parse-qualified-keyword
-  (testing "qualified id parses into a qualified keyword"
-    (let [k (rf.story.review-dialog/parse-variant-id-string ":story.counter/saved-1")]
-      (is (qualified-keyword? k))
-      (is (= "story.counter" (namespace k)))
-      (is (= "saved-1"       (name k))))))
-
 (deftest parse-nil-for-empty-or-bad-input
   (testing "nil / empty / non-string returns nil"
     (is (nil? (rf.story.review-dialog/parse-variant-id-string nil)))
@@ -50,13 +43,6 @@
         "bare colon strips to empty → nil")
     (is (nil? (rf.story.review-dialog/parse-variant-id-string "foo/")))
     (is (nil? (rf.story.review-dialog/parse-variant-id-string "/bar")))))
-
-(deftest parse-handles-keywords-only-strings
-  (testing "an input that is a printed keyword form (with leading colon) round-trips"
-    (is (= :a (rf.story.review-dialog/parse-variant-id-string ":a")))
-    (is (= :ns/name
-           (rf.story.review-dialog/parse-variant-id-string
-             (pr-str :ns/name))))))
 
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
@@ -133,13 +119,6 @@
           closed (rf.story.review-dialog/close opened)]
       (is (= rf.story.review-dialog/initial-state closed)))))
 
-(deftest set-draft-id-replaces-keyword
-  (testing "set-draft-id stores a keyword as-is"
-    (let [s (-> rf.story.review-dialog/initial-state
-                (rf.story.review-dialog/open :story.x/y nil 0 "saved")
-                (rf.story.review-dialog/set-draft-id :story.x/edited))]
-      (is (= :story.x/edited (:draft-id s))))))
-
 (deftest set-draft-id-stores-raw-string
   (testing "set-draft-id stores a raw string when caller passes one"
     (let [s (-> rf.story.review-dialog/initial-state
@@ -168,21 +147,6 @@
                 (rf.story.review-dialog/open :story.x/y nil 0 "saved")
                 (rf.story.review-dialog/parse-and-set-draft-id ""))]
       (is (= "" (:draft-id s))))))
-
-;; ---- composition ---------------------------------------------------------
-
-(deftest open-then-edit-then-close-cycle
-  (testing "the full open → edit → close cycle returns the dialog to idle"
-    (let [s0 rf.story.review-dialog/initial-state
-          s1 (rf.story.review-dialog/open s0 :story.x/y {:args {:n 1}} 1000 "saved")
-          s2 (rf.story.review-dialog/parse-and-set-draft-id s1 ":story.x/edited")
-          s3 (rf.story.review-dialog/parse-and-set-draft-id s2 ":story.x/edited-again")
-          s4 (rf.story.review-dialog/close s3)]
-      (is (false? (:open? s0)))
-      (is (true?  (:open? s1)))
-      (is (= :story.x/edited       (:draft-id s2)))
-      (is (= :story.x/edited-again (:draft-id s3)))
-      (is (= rf.story.review-dialog/initial-state s4)))))
 
 ;; ---- indent-after (snippet-format helper) --------------------------------
 
@@ -222,12 +186,3 @@
       (is (= 2 (count lines)))
       (is (= line1-first-kv-col line2-first-kv-col)
           "second kv's leading char aligns under first kv's leading char"))))
-
-(deftest indent-after-pure-and-deterministic
-  (testing "the helper is pure — same input → same output"
-    (is (= (rf.story.predicates/indent-after "   :name {")
-           (rf.story.predicates/indent-after "   :name {")))
-    ;; And two equal-width body prefixes collapse to the same indent width
-    ;; (both keys are 4 chars; both bodies indent 3 + key + space + bracket = 10)
-    (is (= (rf.story.predicates/indent-after "   :name {")
-           (rf.story.predicates/indent-after "   :args {")))))

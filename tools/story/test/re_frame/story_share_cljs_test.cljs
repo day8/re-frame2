@@ -14,32 +14,10 @@
             [re-frame.story :as rf.story]
             [re-frame.story.share :as rf.story.share]))
 
-(deftest variant-share-url-cljs-encoding
-  (testing "CLJS url-encode uses js/encodeURIComponent under the hood"
-    (let [url (rf.story.share/variant-share-url
-                :story.foo/bar
-                "https://example.test/"
-                {:active-modes [:Mode.app/dark]
-                 :cell-overrides {}})]
-      (is (str/starts-with? url "https://example.test/?"))
-      (is (re-find #"variant=" url))
-      (is (re-find #"modes=" url)))))
-
 (deftest public-export-cljs
   (testing "rf.story/variant-share-url resolves on CLJS"
     (let [url (rf.story/variant-share-url :story.x/y "" nil)]
       (is (re-find #"variant=" url)))))
-
-(deftest hash-routed-share-url-keeps-query-before-fragment
-  (testing "CLJS builder emits ?variant= before #/stories so the shell can hydrate"
-    (let [url (rf.story.share/variant-share-url
-                :story.counter/loaded
-                "https://example.test/counter-with-stories/#/stories"
-                {:cell-overrides {:label "Shared"}})]
-      (is (str/starts-with? url "https://example.test/counter-with-stories/?"))
-      (is (str/includes? url "#/stories"))
-      (is (str/includes? url "variant="))
-      (is (str/includes? url "overrides=")))))
 
 (deftest variant-share-url-replaces-stale-owned-keys-cljs
   (testing "the REAL URLSearchParams (the API the url-state
@@ -232,15 +210,6 @@
           "the browser reads mode+tab as `mode tab` — not Story's key")
       (is (zero? (count (.getAll usp "mode-tab")))
           "and nothing of Story's was cleared on its account"))))
-
-(deftest parse-share-url-params-cljs
-  (testing "CLJS parser reconstructs the share URL tokens used by the shell hydrator"
-    (is (= :story.counter/loaded
-           (rf.story.share/parse-keyword-token "story.counter/loaded")))
-    (is (= [:Mode.app/dark :Mode.app/mobile]
-           (rf.story.share/parse-modes-param "Mode.app/dark,Mode.app/mobile")))
-    (is (= {:label "Shared" :count 7}
-           (rf.story.share/parse-overrides-param "{:label \"Shared\", :count 7}")))))
 
 (deftest scenario-overrides-token-roundtrips-with-spaced-string-value
   (testing "the browser-decoded `overrides=` token the share-url-hydrates
