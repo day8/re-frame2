@@ -441,6 +441,21 @@
     (is (thrown-with-msg? js/Error #":rf.error/static-markup-bad-tag"
           (server/render-to-static-markup [42 "x"])))))
 
+(deftest unrenderable-child-throws-bad-element
+  (testing "a child that is none of string / number / keyword / symbol /
+            vector / seq throws the catalogued id, summarising the child
+            rather than carrying it"
+    (let [data (try (server/render-to-static-markup
+                      [:div "ok" {:secret "app-owned-value"}])
+                    nil
+                    (catch :default e (ex-data e)))]
+      (is (= :rf.error/static-markup-bad-element (:rf.error/id data)))
+      (is (= 'reagent2.dom.server/render-to-static-markup (:where data)))
+      (is (= :supply-a-renderable-child (:recovery data)))
+      (is (= {:type :map :count 1} (:got/summary data)))
+      (is (not (re-find #"app-owned-value" (pr-str data)))
+          "the payload summarises the child, never carries its value"))))
+
 ;; ---------------------------------------------------------------------------
 ;; XSS surface — event handlers + fn props stripped
 ;;
