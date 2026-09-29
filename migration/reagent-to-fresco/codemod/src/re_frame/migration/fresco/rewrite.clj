@@ -185,8 +185,8 @@
   to prune a depth-first walk. Deliberately not `(z/next …)`: `next`
   descends into a branch, which is the very thing being skipped.
 
-  Callers must handle the `nil`: a walk that guards only on `z/end?` will
-  fault on a file whose LAST form is inert."
+  A walk's ordinary `z/end?` test covers the `nil`, which it reads as the
+  end of the walk, so a file whose LAST form is inert ends cleanly."
   [loc]
   (loop [l loc]
     (or (z/right l)

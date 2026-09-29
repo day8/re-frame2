@@ -578,7 +578,7 @@
     (loop [loc      (z/of-string source {:track-position? true})
            entries  []
            ns-said? false]
-      (if (or (nil? loc) (z/end? loc))
+      (if (z/end? loc)
         {:entries     entries
          :reagent?    reagent?
          :substrate?  substrate?
