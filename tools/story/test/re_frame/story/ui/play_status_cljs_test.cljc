@@ -81,7 +81,7 @@
 ;; summary names the FIRST FAILED step, which a `(first results)` read
 ;; would miss when an earlier step passed.
 
-(deftest jvm-banner-summary
+(deftest fail-summary-names-the-first-failed-step
   (testing "fail-summary describes the first failed result"
     (let [base   (-> (rf.story.play.runner/parse-spec
                        {:script [[:assert-db [:k] 1]
