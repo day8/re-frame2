@@ -70,9 +70,7 @@
       (is (= {:public/articles [:a :b :c]
               :public/user-id  "u-42"}
              slice)
-          "exactly the keys in the allowlist; everything else dropped")
-      (is (not (contains? slice :server-only/auth)))
-      (is (not (contains? slice :server-only/flag))))))
+          "exactly the keys in the allowlist; everything else dropped"))))
 
 (deftest apply-policy-allowlist-missing-keys-omitted
   (testing "allowlist keys absent from app-db → omitted from the slice
@@ -280,9 +278,7 @@
       (is (= {:current {:route-id :route/home}} (:rf.runtime/routing slice))
           "only the durable :current route slice rides; :pending-navigation + any counter are dropped")
       (is (= {:hydration {:server-hash "h1"}} (:rf.runtime/ssr slice))
-          "SSR hydration metadata rides the wire")
-      (is (not (contains? (:rf.runtime/routing slice) :pending-navigation)))
-      (is (not (contains? (:rf.runtime/routing slice) :nav-token-counter))))))
+          "SSR hydration metadata rides the wire"))))
 
 ;; ---- the elision declaration registry is OMITTED off-box ------------------
 ;;

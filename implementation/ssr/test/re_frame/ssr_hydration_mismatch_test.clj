@@ -49,7 +49,9 @@
     - `mismatch-detection-disabled-skips-comparison` is about the
       `:detect-mismatch?` knob, which the trace observes — including
       through a `(is (empty? mismatches))` that is satisfied
-      automatically under the gate. It also drives the SAME knob through
+      automatically under the gate. It also reads the always-on RECORD
+      under the default `:warn` policy — none for the knob-off frame, one
+      for a knob-less control frame — and drives the SAME knob through
       a frame that sets `:on-mismatch :hard-error`, where detection-off
       does not throw. The knob's effect is then visible on the always-on
       channel, in either posture. The knob's DEFAULT is pinned the same
@@ -67,6 +69,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error :as rf.error]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.subs :as rf.subs]
@@ -102,6 +105,20 @@
   (rf.subs/reg-runtime-sub :hydrated? (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
 (def ^:private hex-8-pattern #"^[0-9a-f]{8}$")
+
+(defn- always-on-mismatch-count
+  "How many `:rf.ssr/hydration-mismatch` records `verify-hydration!` fans on
+  the always-on error axis for `frame` and `client-hash` — the channel that
+  reports a detection under the default `:warn` policy in every posture."
+  [frame client-hash]
+  (let [records (atom [])]
+    (rf.error-emit/register-error-listener! ::always-on
+      (fn [record] (swap! records conj record)))
+    (try
+      (rf.ssr/verify-hydration! frame client-hash)
+      (finally
+        (rf.error-emit/unregister-error-listener! ::always-on)))
+    (count (filter #(= :rf.ssr/hydration-mismatch (:error %)) @records))))
 
 ;; ===========================================================================
 ;; Hydration completes (metadata lands) even with the
@@ -394,15 +411,24 @@
                                        :platform :client
                                        :ssr {:detect-mismatch? false}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-      (is (nil? (rf.ssr/verify-hydration! client-frame "0badf00d"))
-          "verify-hydration! is a no-op when detection is off")
 
-      ;; SEMANTIC, posture-independent: a no-op return value is
-      ;; also what the DETECTING path returns, so it cannot on its own tell
-      ;; the short-circuit from a completed comparison. Drive the same knob
-      ;; on a frame that ALSO asks for `:on-mismatch :hard-error`: with
-      ;; detection off there is nothing to escalate, so it must not throw.
-      ;; That reaches the always-on channel and holds in either posture.
+      ;; SEMANTIC, posture-independent: under the default `:warn` policy a
+      ;; detected mismatch is reported on the always-on error axis, so
+      ;; detection-off reads as NO record there. The control frame hydrates
+      ;; the same payload without the knob and must report exactly one, which
+      ;; is what makes the zero mean "skipped" rather than "not listening".
+      (let [detecting (rf.frame/make-anon-frame-record! {:doc      "ssr detection-on control frame"
+                                                         :platform :client})]
+        (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame detecting})
+        (is (= 1 (always-on-mismatch-count detecting "0badf00d"))
+            "control: with the knob absent the same input reports one mismatch record"))
+      (is (zero? (always-on-mismatch-count client-frame "0badf00d"))
+          ":detect-mismatch? false reports no mismatch record on the always-on axis")
+
+      ;; The same knob on a frame that ALSO asks for `:on-mismatch
+      ;; :hard-error`: with detection off there is nothing to escalate, so it
+      ;; must not throw. That reaches the always-on channel and holds in
+      ;; either posture.
       (let [off-strict (rf.frame/make-anon-frame-record!
                          {:doc      "ssr detection-off strict frame"
                           :platform :client

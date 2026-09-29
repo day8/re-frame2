@@ -717,6 +717,11 @@
                        (= "no-cache, must-revalidate, max-age=0" v)))
                 hdrs)
           "clean header with commas / semicolons / spaces survives")
+      (is (some (fn [[k v]]
+                  (and (= "X-Whitespace" k)
+                       (= "tab\there space" v)))
+                hdrs)
+          "a TAB is legal header whitespace and survives verbatim")
       (is (= "https://example.com/path?q=1&r=2"
              (-> resp :redirect :location))
           "clean redirect URL survives"))))

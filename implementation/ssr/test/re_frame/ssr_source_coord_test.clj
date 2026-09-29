@@ -202,16 +202,9 @@
                   (fn [] [:<> [:p "a"] [:p "b"]]))
     (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/frag)] {})]
       ;; SEMANTIC, posture-independent: a `:<>` root emits its
-      ;; children and nothing else — no wrapper element is invented for it.
-      (is (= "<p>a</p><p>b</p>" html))
-
-      ;; Dev-instrumentation arm (see ns docstring). "not
-      ;; annotated" is vacuously true under the gate, where NOTHING is
-      ;; annotated; it only says something where the wrapper exists and
-      ;; deliberately skipped a non-DOM root. The `=` above already pins the
-      ;; byte shape in both postures.
-      (when rf.interop/debug-enabled?
-        (is (not (both-annotations? html)))))))
+      ;; children and nothing else — no wrapper element is invented for it,
+      ;; and the exact bytes carry no annotation in either posture.
+      (is (= "<p>a</p><p>b</p>" html)))))
 
 (deftest nested-view-ref-root-is-not-doubly-annotated
   (testing "A view whose root is ANOTHER view-ref (a callable
@@ -315,26 +308,15 @@
       ;; emitted as a CUSTOM ELEMENT with its argument as a child, and the
       ;; identically-named registered view is NOT invoked (no `.card` div).
       ;; That resolution rule is the load-bearing half and is posture-free;
-      ;; the `=` pins it exactly.
-      (is (= "<card>revenue</card>" html))
-
-      ;; Dev-instrumentation arm (see ns docstring). Vacuous under
-      ;; the gate, where nothing anywhere is annotated.
-      (when rf.interop/debug-enabled?
-        (is (not (both-annotations? html)))))))
+      ;; the `=` pins it exactly, annotation-free.
+      (is (= "<card>revenue</card>" html)))))
 
 (deftest plain-hiccup-not-annotated
   (testing "ordinary tags are never annotated"
     ;; SEMANTIC, posture-independent: ordinary hiccup emits
-    ;; exactly itself. Without this the deftest has no residue under the
-    ;; gate at all — `not annotated` is trivially true when the wrapper does
-    ;; not exist.
+    ;; exactly itself, so the exact bytes also show no annotation was added.
     (is (= "<div><span>x</span></div>"
-           (rf.ssr/render-to-string [:div [:span "x"]] {})))
-
-    ;; Dev-instrumentation arm (see ns docstring).
-    (when rf.interop/debug-enabled?
-      (is (not (both-annotations? (rf.ssr/render-to-string [:div [:span "x"]] {})))))))
+           (rf.ssr/render-to-string [:div [:span "x"]] {})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Production gate — at the registration site
@@ -371,8 +353,7 @@
       ;; render with debug back at its default — the wrap decision was made
       ;; at registration, so the markup is unannotated regardless.
       (let [html (rf.ssr/render-to-string [(rf/view :ssr-coord-test/gated-prod)] {})]
-        (is (= "<h2>g</h2>" html))
-        (is (not (both-annotations? html)))))
+        (is (= "<h2>g</h2>" html))))
 
     ;; The REAL-gate arm, and the reason this deftest is worth
     ;; running in `scripts/test-ssr-prod-gate.sh` at all. The `with-redefs`

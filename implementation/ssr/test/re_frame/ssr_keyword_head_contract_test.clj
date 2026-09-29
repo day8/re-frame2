@@ -137,8 +137,7 @@
             colon-stripping rule gets wrong. `:a/b` paints `b`,
             never `a/b`, because Reagent routes a named child through
             `(name x)` rather than trimming the printed form."
-    (is (= "<div>b</div>" (rf.ssr.emit/render-to-string [:div :a/b] nil)))
-    (is (not= "<div>a/b</div>" (rf.ssr.emit/render-to-string [:div :a/b] nil))))
+    (is (= "<div>b</div>" (rf.ssr.emit/render-to-string [:div :a/b] nil))))
 
   (testing "escaping still applies to the NAME — spelling a child by
             `name` must not become an escape bypass"

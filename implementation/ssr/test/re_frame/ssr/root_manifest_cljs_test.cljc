@@ -377,10 +377,7 @@
            (is (= "9007199254740992" (pr-str x))
                "THE DEFECT: the browser's reader silently rounds the
                 server's 9007199254740993 down to 9007199254740992. The app
-                hydrates with a number the server never rendered.")
-           (is (not= "9007199254740993" (pr-str x))
-               "stated the other way round, so the assertion cannot pass by
-                naming the value it is supposed to reject"))))))
+                hydrates with a number the server never rendered."))))))
 
 (deftest only-cross-host-numbers-ride-the-wire
   (testing "what the numeric subset ADMITS. These must keep

@@ -67,6 +67,25 @@
                    (apply boundary [bad [:p "body"]]))
           (str "expected a throw for attrs " (pr-str bad))))))
 
+(deftest one-tree-hashes-identically-for-both-hosts
+  (testing "the component canonicalises to the #fn[] token, so the SHARED
+            tree hashes to ONE pinned literal on the JVM and on every client
+            host — the property a reader-conditional card-slot could never
+            have (it would make the two hosts hash structurally different
+            trees)"
+    (let [tree [:section.cards
+                [boundary {:id :card.revenue :fallback [:p "loading"]}
+                 [:div "body"]]]]
+      (is (= "1db00ca8" (rf.ssr/render-tree-hash tree))
+          "both hosts hash the shared tree to this literal")
+      (testing "a DIFFERENT boundary id changes the hash (the hash is
+                not blind to the component's attrs)"
+        (is (not= (rf.ssr/render-tree-hash tree)
+                  (rf.ssr/render-tree-hash
+                    [:section.cards
+                     [boundary {:id :card.other :fallback [:p "loading"]}
+                      [:div "body"]]])))))))
+
 (deftest the-failed-set-path-is-under-the-reserved-ssr-key
   (testing "the slot lives under the already-reserved :rf.runtime/ssr
             runtime-db key, a sibling of the :hydration metadata"
@@ -159,29 +178,6 @@
                                 :payload :rf.ssr.payload/whole-app-db
                                 :failed-boundaries #{}}))]
                (is (nil? (get-in (:rf/runtime-db payload) rf.ssr.suspense/failed-boundaries-path))))))))))
-
-#?(:clj
-   (deftest one-tree-hashes-identically-for-both-hosts
-     (testing "the component canonicalises to the #fn[] token, so
-               the render-tree hash of the SHARED tree is stable — the
-               property a reader-conditional card-slot could never have
-               (it would make the two hosts hash structurally different
-               trees)"
-       (let [fid :test/hash]
-         (rf/make-frame {:id fid :platform :server})
-         (let [tree [:section.cards
-                     [boundary {:id :card.revenue :fallback [card-skeleton :revenue]}
-                      [card-view :revenue]]]
-               h1   (rf/with-frame fid (rf.ssr/render-tree-hash tree))
-               h2   (rf/with-frame fid (rf.ssr/render-tree-hash tree))]
-           (is (string? h1))
-           (is (= h1 h2) "hashing is deterministic over the component head")
-           (testing "a DIFFERENT boundary id changes the hash (the hash is
-                     not blind to the component's attrs)"
-             (let [other [:section.cards
-                          [boundary {:id :card.other :fallback [card-skeleton :revenue]}
-                           [card-view :revenue]]]]
-               (is (not= h1 (rf/with-frame fid (rf.ssr/render-tree-hash other)))))))))))
 
 ;; ---- client host -----------------------------------------------------------
 
