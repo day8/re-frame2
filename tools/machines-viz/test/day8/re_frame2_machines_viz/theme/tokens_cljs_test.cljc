@@ -32,6 +32,17 @@
       (is (= "rgba(0, 0, 0, 0.25)"
              (tokens/with-alpha :info 0.25 custom))))))
 
+(deftest with-alpha-fallbacks
+  (testing "the defensive arms: a nil alpha returns the token's solid
+            value, an absent token returns nil, and a value that is not a
+            parseable hex passes through unchanged rather than blanking
+            the tint"
+    (let [palette {:hex "#79c0ff" :rgba "rgba(1, 2, 3, 0.4)"}]
+      (is (= "#79c0ff" (tokens/with-alpha :hex nil palette)) "nil alpha → solid hex")
+      (is (nil? (tokens/with-alpha :absent 0.5 palette)) "absent token → nil")
+      (is (= "rgba(1, 2, 3, 0.4)" (tokens/with-alpha :rgba 0.5 palette))
+          "unparseable hex → the value unchanged"))))
+
 ;; ---- light palette -----------------------------------------------------
 
 (deftest light-palette-exists-and-mirrors-dark-shape

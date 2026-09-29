@@ -80,6 +80,13 @@
       (is (= :invalid-chart-state (:reason vm)))
       (is (nil? (:props vm))))))
 
+(defn- child-testid
+  "The `data-testid` of the child component a `[:div attrs [child & args]]`
+  branch wraps, read by rendering that child to hiccup — no mount."
+  [view]
+  (let [[child & args] (nth view 2)]
+    (get-in (apply child args) [1 :data-testid])))
+
 (deftest viewer-view-dispatches-on-status
   (testing "viewer-view renders the right top-level shape per status"
     ;; The view is hiccup data; assert the data-testid carried by each
@@ -90,6 +97,6 @@
       ;; :ok branch is a [chart-view props] component vector
       (is (vector? ok-view))
       (is (fn? (first ok-view)))
-      ;; :error / :empty branches are plain hiccup divs wrapping a child
-      (is (= :div (first err-view)))
-      (is (= :div (first empty-view))))))
+      ;; :error / :empty wrap DIFFERENT children, told apart by testid
+      (is (= "rf-mv-viewer-error" (child-testid err-view)))
+      (is (= "rf-mv-viewer-empty" (child-testid empty-view))))))

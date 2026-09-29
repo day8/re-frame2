@@ -142,28 +142,30 @@
           (render! rfn {:machine-id :m :definition machine-a})
           (is (= 1 (:parse @counts)) "first render parses once")
           (is (= 1 (:layout @counts)) "first render lays out once")
-          (let [after-mount (:project @counts)]
-            ;; --- decoration-only re-renders, SAME definition ---
-            (render! rfn {:machine-id :m :definition machine-a
-                          :current-state :loading})
-            (render! rfn {:machine-id :m :definition machine-a
-                          :current-state :loading
-                          :from-highlight :idle :to-highlight :loading})
-            (render! rfn {:machine-id :m :definition machine-a
-                          :overlays [{:id :ring :tick 1}]})
+          ;; --- decoration-only re-renders, SAME definition ---
+          (render! rfn {:machine-id :m :definition machine-a
+                        :current-state :loading})
+          (render! rfn {:machine-id :m :definition machine-a
+                        :current-state :loading
+                        :from-highlight :idle :to-highlight :loading})
+          (render! rfn {:machine-id :m :definition machine-a
+                        :overlays [{:id :ring :tick 1}]})
+          (let [after-highlights (:project @counts)]
+            ;; These leave every projection input unchanged: an overlay
+            ;; tick, a fit-signal bump, and a bare parent re-render
+            ;; (identical props).
             (render! rfn {:machine-id :m :definition machine-a
                           :overlays [{:id :ring :tick 2}]})
             (render! rfn {:machine-id :m :definition machine-a
                           :fit-signal 7})
-            ;; A bare parent re-render (identical props).
             (render! rfn {:machine-id :m :definition machine-a})
             (is (= 1 (:parse @counts))
                 "NO decoration-only render re-walks the definition")
             (is (= 1 (:layout @counts))
                 "NO decoration-only render re-runs ELK layout")
-            (is (>= (:project @counts) after-mount)
-                "highlight changes may re-project (decorative re-tint), but
-                 never reparse/relayout")))))))
+            (is (= after-highlights (:project @counts))
+                "a tick / fit-signal / bare re-render hits the projection
+                 cache — only a highlight change re-projects")))))))
 
 (deftest new-definition-reparses-once-and-busts-downstream-caches
   (testing "a CHANGED `:definition` calls the parser exactly
@@ -242,22 +244,23 @@
                         :fired-edge-ids ["idle->loading"]})
           (is (= 1 (:parse @counts)) "mount parses once")
           (is (= 1 (:layout @counts)) "mount runs ELK once (new layout-key)")
-          ;; --- Next → the loading → done transition ---
-          (render! rfn {:machine-id     :m :definition machine-a
-                        :from-highlight :loading :to-highlight :done
-                        :fired-edge-ids ["loading->done"]})
-          ;; --- Next again → a no-op resting in :done (current-state grammar) ---
-          (render! rfn {:machine-id    :m :definition machine-a
-                        :current-state :done})
-          ;; --- Prev → back to loading → done ---
-          (render! rfn {:machine-id     :m :definition machine-a
-                        :from-highlight :loading :to-highlight :done
-                        :fired-edge-ids ["loading->done"]})
-          (is (= 1 (:parse @counts))
-              "Prev/Next highlight deltas (same definition) NEVER reparse")
-          (is (= 1 (:layout @counts))
-              "Prev/Next highlight deltas NEVER re-run ELK — positions stay
-               put, only highlights re-paint (the no-flicker guarantee)")
-          (is (>= (:project @counts) 1)
-              "highlight deltas DO re-project (decorative re-tint) — that is
-               the cheap repaint, not a relayout"))))))
+          (let [mount-projections (:project @counts)]
+            ;; --- Next → the loading → done transition ---
+            (render! rfn {:machine-id     :m :definition machine-a
+                          :from-highlight :loading :to-highlight :done
+                          :fired-edge-ids ["loading->done"]})
+            ;; --- Next again → a no-op resting in :done (current-state grammar) ---
+            (render! rfn {:machine-id    :m :definition machine-a
+                          :current-state :done})
+            ;; --- Prev → back to loading → done ---
+            (render! rfn {:machine-id     :m :definition machine-a
+                          :from-highlight :loading :to-highlight :done
+                          :fired-edge-ids ["loading->done"]})
+            (is (= 1 (:parse @counts))
+                "Prev/Next highlight deltas (same definition) NEVER reparse")
+            (is (= 1 (:layout @counts))
+                "Prev/Next highlight deltas NEVER re-run ELK — positions stay
+                 put, only highlights re-paint (the no-flicker guarantee)")
+            (is (> (:project @counts) mount-projections)
+                "highlight deltas DO re-project (decorative re-tint) — that is
+                 the cheap repaint, not a relayout")))))))

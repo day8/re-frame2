@@ -869,3 +869,21 @@
       (is (contains? (:edge-points out) (str (:id back-e) "__in")))
       (is (< (:y (get-in out [:positions (projection/event-node-id back-e)]))
              (:y (get-in stub [:positions (projection/event-node-id back-e)])))))))
+
+(deftest apply-post-elk-restacks-parallel-regions
+  (let [parsed    (layout/project-definition parallel-machine)
+        audio-rid (layout/region-node-id :audio)
+        video-rid (layout/region-node-id :video)
+        ;; ELK's side-by-side region layout, which the transpose re-stacks.
+        stub      {:positions   {audio-rid {:x 0   :y 0 :width 200 :height 400}
+                                 video-rid {:x 400 :y 0 :width 200 :height 400}}
+                   :edge-points {}
+                   :edge-labels {}}
+        np        (:positions (post-elk/apply-post-elk stub parsed :tb))]
+    (testing "the cohesive pass runs the region transpose: side-by-side
+              regions re-stack into one left-aligned column"
+      (is (= (:x (get np audio-rid)) (:x (get np video-rid)))
+          "both regions share an x")
+      (is (>= (:y (get np video-rid))
+              (+ (:y (get np audio-rid)) (:height (get np audio-rid))))
+          "video (region-index 1) sits below audio's band"))))

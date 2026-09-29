@@ -78,8 +78,7 @@
                               :correct {:final? true}}}}})
 
 (def namespaced-ids-machine
-  "Machine using namespaced and hyphenated ids — exercises
-  sanitise-id."
+  "Machine using namespaced ids — exercises sanitise-id's `/` escape."
   {:initial :auth/idle
    :states  {:auth/idle      {:on {:rf/load :auth/loading}}
              :auth/loading   {:on {:done :auth/idle}}}})
@@ -673,9 +672,7 @@
           out (m/emit m {:fenced? false :header-comment? false})]
       (is (str/includes? out "start --> a_2fb : one")  ":a/b → a_2fb")
       (is (str/includes? out "start --> a_2db : two")  ":a-b → a_2db")
-      (is (str/includes? out "start --> a_5fb : three") ":a_b → a_5fb (underscore → _5f)")
-      ;; All three node-ids are pairwise distinct — no merge.
-      (is (= 3 (count (distinct ["a_2fb" "a_2db" "a_5fb"])))))))
+      (is (str/includes? out "start --> a_5fb : three") ":a_b → a_5fb (underscore → _5f)"))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:type :history` pseudo-states render as a LABELLED history

@@ -296,4 +296,9 @@
                  (vc/chart-for-density :super-compact)))
     (is (thrown? #?(:clj  Exception
                     :cljs js/Error)
-                 (vc/chart-for-density "regular"))))) ;; string, not kw
+                 (vc/chart-for-density "regular"))) ;; string, not kw
+    (is (= :rf.error/machines-viz-unknown-chart-density
+           (try (vc/chart-for-density :spacious) nil
+                (catch #?(:clj Exception :cljs :default) e
+                  (:rf.error/id (ex-data e)))))
+        "the throw carries its canonical :rf.error/id discriminator")))

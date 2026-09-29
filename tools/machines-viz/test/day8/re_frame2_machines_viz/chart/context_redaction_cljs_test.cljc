@@ -219,8 +219,7 @@
     (let [s (r/display-string {:rf.size/large-elided {:bytes 4096 :path [:blob]
                                                       :type :string :reason :schema}})]
       (is (str/includes? s ":rf.size/large-elided"))
-      (is (str/includes? s "4096"))
-      (is (not (str/includes? s "xxxx")) "no content head"))))
+      (is (str/includes? s "4096")))))
 
 (deftest display-string-ordinary-is-pr-str
   (testing "ordinary values render via pr-str"

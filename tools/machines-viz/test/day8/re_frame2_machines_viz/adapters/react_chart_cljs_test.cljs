@@ -45,8 +45,11 @@
           "the props map sits at argv[1]"))))
 
 (deftest chart-element-tolerates-nil-props
-  (is (react/isValidElement (react-chart/chart-element nil))
-      "nil props degrade to an empty map, still a valid element"))
+  (let [el (react-chart/chart-element nil)]
+    (is (react/isValidElement el)
+        "nil props still build a valid element")
+    (is (= {} (aget (.. el -props -argv) 1))
+        "nil props degrade to an empty map at argv[1]")))
 
 ;; ---- substrate shells ---------------------------------------------------
 

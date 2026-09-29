@@ -68,8 +68,8 @@
                              :on      {:logout :unauth}}}})
 
 (def namespaced-machine
-  "Machine using namespaced and hyphenated ids — exercises the
-  keyword<->id-string mapping."
+  "Machine using namespaced ids — exercises the keyword<->id-string
+  mapping."
   {:initial :auth/idle
    :states  {:auth/idle    {:on {:rf/load :auth/loading}}
              :auth/loading {:on {:done :auth/idle}}}})
@@ -453,6 +453,21 @@
            (try (scxml/scxml->spec (marked "<not-scxml/>")) nil
                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
                   (:rf.error/id (ex-data e))))))))
+
+(deftest scxml->spec-rejects-unclosed-root-and-stateless-document
+  (testing "an unclosed <scxml> root is a :scxml/parse-error, and a root
+            with no <state> / <final> child is a :scxml/invalid-spec —
+            each carrying the recovery that names its own repair"
+    (doseq [[label xml expected]
+            [["unclosed root" (marked "<scxml initial=\"a\"><state id=\"a\"/>")
+              {:rf.error/id :scxml/parse-error :recovery :close-the-scxml-root}]
+             ["no states" (marked "<scxml></scxml>")
+              {:rf.error/id :scxml/invalid-spec :recovery :add-a-state-or-final-element}]]]
+      (is (= expected
+             (try (scxml/scxml->spec xml) nil
+                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                    (select-keys (ex-data e) [:rf.error/id :recovery]))))
+          label))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0015 — error ex-data carries NO raw payload
