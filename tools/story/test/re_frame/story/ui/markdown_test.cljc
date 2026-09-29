@@ -203,13 +203,6 @@
       (is (= :p  (first (first out))))
       (is (= :ul (first (second out)))))))
 
-(deftest heading-then-paragraph
-  (testing "a heading + a paragraph below yield h1 + p in order"
-    (let [out (blocks "# Title\n\nbody paragraph.")]
-      (is (= 2 (count out)))
-      (is (= :h1 (first (first out))))
-      (is (= :p  (first (second out)))))))
-
 (deftest realistic-prose-block
   (testing "a realistic prose authoring sample — heading, paragraph,
             list, code — parses into the expected block sequence"

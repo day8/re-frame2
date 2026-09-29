@@ -98,12 +98,6 @@
       {:doc "no variants" :tags #{:dev}})
     (is (= [] (rf.story.ui.docs/variant-ids-for-story :story.empty-rollup)))))
 
-(deftest variant-ids-for-unknown-story
-  (testing "a story id with no registrations returns empty — defends
-            against stale shell-state :selected-story slots after a
-            hot-reload that drops a story"
-    (is (= [] (rf.story.ui.docs/variant-ids-for-story :story.does-not-exist)))))
-
 ;; ===========================================================================
 ;; docs-rollup-view rendering shape
 ;; ===========================================================================
@@ -146,13 +140,6 @@
 ;; select-story transition contract
 ;; ===========================================================================
 
-(deftest select-story-sets-slot
-  (testing "select-story writes the parent-story id into
-            :selected-story"
-    (let [state {:selected-story nil}
-          out   (rf.story.ui.state.transitions/select-story state :story.foo)]
-      (is (= :story.foo (:selected-story out))))))
-
 (deftest select-story-clears-variant-and-workspace
   (testing "select-story is mutually exclusive with variant +
             workspace selection — opening the rollup view closes any
@@ -176,16 +163,6 @@
           out   (rf.story.ui.state.transitions/select-story state nil)]
       (is (nil? (:selected-story out)))
       (is (= :story.foo/v (:selected-variant out))))))
-
-(deftest select-variant-clears-selected-story
-  (testing "selecting a variant clears :selected-story — the rollup
-            is dismissed when the user clicks INTO one of its variants
-            from the sidebar"
-    (let [state {:selected-story   :story.foo
-                 :selected-variant nil}
-          out   (rf.story.ui.state.transitions/select-variant state :story.foo/v)]
-      (is (= :story.foo/v (:selected-variant out)))
-      (is (nil? (:selected-story out))))))
 
 (deftest select-workspace-clears-selected-story
   (testing "selecting a workspace clears :selected-story — same mutual

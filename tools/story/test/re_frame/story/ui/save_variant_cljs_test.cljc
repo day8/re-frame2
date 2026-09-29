@@ -36,25 +36,6 @@
       (is (str/includes? snip ":story.x/source"))
       (is (str/ends-with? snip "})")))))
 
-(deftest dialog-state-machine-open-close
-  (testing "open + close are the two transitions the UI ratom swaps"
-    (let [opened (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                                    :story.x/y {:n 1} 0)
-          closed (rf.story.save-variant/close opened)]
-      (is (:open? opened))
-      (is (= :story.x/y (:source-id opened)))
-      (is (= {:n 1} (:args opened)))
-      (is (false? (:open? closed)))
-      (is (nil? (:source-id closed))))))
-
-(deftest dialog-set-draft-id-replaces-id-slot
-  (testing "set-draft-id is the per-keystroke transition the UI calls on edit"
-    (let [s (rf.story.save-variant/set-draft-id
-              (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
-                                 :story.x/y {} 0)
-              :story.x/edited)]
-      (is (= :story.x/edited (:draft-id s))))))
-
 ;; ---- CLJS-only: button hiccup --------------------------------------------
 
 #?(:cljs

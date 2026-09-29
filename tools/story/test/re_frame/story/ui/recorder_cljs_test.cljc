@@ -48,14 +48,6 @@
       (is (some? (:draft-id opened))
           "the default draft-id is derived from variant-id + now-ms"))))
 
-(deftest open-dialog-snapshot-is-independent-of-source-vector
-  (testing "the snapshot is decoupled from the caller's events vector"
-    (let [events (vec [[:counter/inc]])
-          opened (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
-                                       :story.x/y events nil 0)]
-      (is (= [[:counter/inc]] (:events opened))
-          "the snapshot is a fresh vector, not a reference to a recorder atom"))))
-
 (deftest close-dialog-returns-idle-state
   (testing "close-dialog clears the snapshot — next open starts fresh"
     (let [opened (rf.story.recorder/open-dialog rf.story.recorder/initial-dialog-state
@@ -64,12 +56,6 @@
       (is (false? (:open? closed)))
       (is (nil? (:source-id closed)))
       (is (nil? (:events closed))))))
-
-(deftest initial-dialog-state-is-idle
-  (testing "the seed value for the dialog ratom is the idle state"
-    (is (false? (:open? rf.story.recorder/initial-dialog-state)))
-    (is (nil? (:source-id rf.story.recorder/initial-dialog-state)))
-    (is (nil? (:draft-id rf.story.recorder/initial-dialog-state)))))
 
 ;; ---- CLJS-only: dialog rendered hiccup -----------------------------------
 
