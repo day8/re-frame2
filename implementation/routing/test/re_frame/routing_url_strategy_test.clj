@@ -40,7 +40,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.late-bind :as rf.late-bind]
-            [re-frame.routing :as rf.routing]
+            [re-frame.routing]
             [re-frame.routing.strategy :as rf.routing.strategy]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
