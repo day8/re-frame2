@@ -112,13 +112,23 @@
 ;; explicit invalidation is the freshness authority either way. See
 ;; docs/resources/glossary.md#invalidate.
 
+;; The fetch runs on both sides, and only the browser has a page to resolve a
+;; relative URL against. On the JVM a bare "/api/articles" fails as
+;; `:rf.http/transport` before any request goes out, so the server reads its
+;; API origin from configuration while the browser keeps the page-relative
+;; path. See docs/async/http.md#running-on-the-jvm.
+
+(def api-origin
+  #?(:clj  (or (System/getenv "API_ORIGIN") "http://127.0.0.1:3001")   ;; the server needs an absolute URL
+     :cljs ""))                                                         ;; the browser resolves against the page
+
 (rf/reg-resource :articles/list
   {:doc            "Recent articles (public, SSR-preloaded, invalidation-only freshness)."
    :params-schema  [:map]
    :scope          :rf.scope/global
    :tags           (fn [_params _data] #{[:article-list]})}
   (fn [_params _ctx]
-    {:request {:method :get :url "/api/articles"}
+    {:request {:method :get :url (str api-origin "/api/articles")}
      :decode  :json}))
 
 ;; ============================================================================
