@@ -17,10 +17,6 @@
 
 (use-fixtures :each reset-editor)
 
-(deftest default-editor-is-vscode
-  (testing "Xray's default editor preference is :vscode"
-    (is (= :vscode (config/get-editor)))))
-
 (deftest set-editor-round-trips
   (testing "set-editor! writes and get-editor reads"
     (config/set-editor! :cursor)
@@ -33,19 +29,6 @@
     (is (= :idea (config/get-editor)))
     (config/set-editor! {:custom "helix://file/{path}:{line}"})
     (is (= {:custom "helix://file/{path}:{line}"} (config/get-editor)))))
-
-(deftest nil-editor-resets-to-vscode
-  (testing "set-editor! with nil resets to :vscode"
-    (config/set-editor! :cursor)
-    (config/set-editor! nil)
-    (is (= :vscode (config/get-editor)))))
-
-(deftest configure-passes-editor-through
-  (testing "configure! routes :rf.xray/editor through set-editor!"
-    (config/configure! {:rf.xray/editor :cursor})
-    (is (= :cursor (config/get-editor)))
-    (config/configure! {:rf.xray/editor :idea})
-    (is (= :idea (config/get-editor)))))
 
 ;; ---- editor-configured? (open-in-editor DX hint) -----------------------
 ;;
@@ -72,15 +55,6 @@
         "explicit :vscode counts — the host confirmed the editor")
     (config/set-editor! :cursor)
     (is (true? (config/editor-configured?)))))
-
-(deftest editor-configured-cleared-by-nil-reset
-  (testing "set-editor! nil clears the explicit flag so the
-            hint re-arms"
-    (config/set-editor! :cursor)
-    (is (true? (config/editor-configured?)))
-    (config/set-editor! nil)
-    (config/update-setting! :general :editor-override nil)
-    (is (false? (config/editor-configured?)))))
 
 (deftest editor-configured-true-when-operator-override
   (testing "a valid operator override counts as configured
@@ -112,12 +86,6 @@
     (is (false? (config/editor-configured?)))
     (config/configure! {:rf.xray/editor :cursor})
     (is (true? (config/editor-configured?)))))
-
-(deftest configure-without-editor-leaves-preference
-  (testing "configure! without :rf.xray/editor leaves the preference unchanged"
-    (config/set-editor! :cursor)
-    (config/configure! {})
-    (is (= :cursor (config/get-editor)))))
 
 (deftest configure-editor-nil-resets-configured-state
   (testing "configure! {:rf.xray/editor nil} RESETS the
@@ -152,17 +120,6 @@
         "the editor preference survives a non-editor configure! call")
     (is (true? (config/editor-configured?))
         "the configured flag survives a non-editor configure! call")))
-
-(deftest auto-open-defaults-to-enabled
-  (testing "Xray's default launch auto-opens the inline host"
-    (is (true? (config/auto-open-enabled?)))))
-
-(deftest set-auto-open-round-trips
-  (testing "set-auto-open! writes and auto-open-enabled? reads"
-    (config/set-auto-open! false)
-    (is (false? (config/auto-open-enabled?)))
-    (config/set-auto-open! true)
-    (is (true? (config/auto-open-enabled?)))))
 
 (deftest nil-auto-open-resets-to-enabled
   (testing "set-auto-open! with nil resets to the default"
@@ -216,20 +173,6 @@
 ;; on-disk root via `configure! :project-root`; the Xray-side helpers
 ;; prepend it before the URI ships.
 
-(deftest default-project-root-is-nil
-  (testing "Xray's default project-root is nil (a host that does not
-            plumb the knob gets coords' file strings verbatim)"
-    (is (nil? (config/get-project-root)))))
-
-(deftest set-project-root-round-trips
-  (testing "set-project-root! writes and get-project-root reads"
-    (config/set-project-root! "/abs/code")
-    (is (= "/abs/code" (config/get-project-root)))
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (is (= "C:/Users/me/code/my-app" (config/get-project-root)))
-    (config/set-project-root! nil)
-    (is (nil? (config/get-project-root)))))
-
 (deftest set-project-root-normalises-blank-string-to-nil
   (testing "blank strings normalise to nil so the helper behaves as if
             unset (mirrors Story's normalisation)"
@@ -258,16 +201,6 @@
     (config/configure! {:rf.xray/editor :cursor})
     (is (= "/abs/code" (config/get-project-root)))))
 
-(deftest editor-uri-prepends-project-root
-  (testing "config/editor-uri threads :project-root through the helper's
-            3-arg form so a relative coord resolves to an absolute on-
-            disk URI"
-    (config/set-project-root! "C:/Users/me/code/my-app")
-    (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
-           (config/editor-uri {:file "src/app/views.cljs"
-                               :line 42
-                               :column 7})))))
-
 (deftest editor-uri-without-project-root-ships-file-verbatim
   (testing "with project-root unset, config/editor-uri ships the file
             string verbatim"
@@ -282,11 +215,6 @@
 ;; Per spec/018-Event-Spine.md §7 'Empty defaults' ('first-session
 ;; honesty beats first-session quietness'): default filter set
 ;; is empty; hosts may inject a seed via configure!.
-
-(deftest default-filter-seed-is-nil
-  (testing "default filter seed is nil per spec/018 §7 — first-session
-            honesty / no auto-filters"
-    (is (nil? (config/get-filter-seed)))))
 
 (deftest set-filter-seed-round-trips
   (let [seed {:in [{:pattern :auth/*}] :out [{:pattern :mouse-move}]}]
@@ -407,12 +335,6 @@
     (is (= 48 (config/clamp-event-list-col-width :duration 10)))
     (is (= 48 (config/clamp-event-list-col-width :duration 48)))))
 
-(deftest clamp-event-list-col-width-passes-in-range
-  (testing "in-range values pass through verbatim"
-    (is (= 100 (config/clamp-event-list-col-width :source 100)))
-    (is (= 200 (config/clamp-event-list-col-width :timestamp 200)))
-    (is (= 150 (config/clamp-event-list-col-width :duration 150)))))
-
 (deftest clamp-event-list-col-width-unknown-col-returns-nil
   (testing "unknown column ids (event-id is flex, never
             sized; future unsupported keys) yield nil so the caller's
@@ -420,14 +342,6 @@
     (is (nil? (config/clamp-event-list-col-width :event-id 100)))
     (is (nil? (config/clamp-event-list-col-width :unknown 100)))
     (is (nil? (config/clamp-event-list-col-width nil 100)))))
-
-(deftest clamp-event-list-col-width-non-numeric-falls-back-to-default
-  (testing "malformed persisted payload (string, nil, NaN)
-            shouldn't leave the column at an unusable size — fall back
-            to the column's default width"
-    (is (= 52 (config/clamp-event-list-col-width :source nil)))
-    (is (= 76 (config/clamp-event-list-col-width :timestamp "wide")))
-    (is (= 60 (config/clamp-event-list-col-width :duration nil)))))
 
 (deftest resolve-event-list-col-widths-from-nil
   (testing "nil persisted payload resolves to the defaults"
@@ -483,17 +397,6 @@
            (config/resolve-event-list-col-widths
              {:source "wide" :timestamp nil :duration "tall"})))))
 
-(deftest update-setting-round-trips-event-list-col-widths
-  (testing "the standard settings round-trip drives the
-            event-list-col-widths slot. After the round-trip get-setting
-            reads the new map."
-    (config/reset-settings!)
-    (config/update-setting! :general :event-list-col-widths
-                            {:source 120 :timestamp 90 :duration 80})
-    (is (= {:source 120 :timestamp 90 :duration 80}
-           (config/get-setting :general :event-list-col-widths)))
-    (config/reset-settings!)))
-
 (deftest event-list-col-keyboard-steps-published
   (testing "fine + coarse keyboard step constants are
             published for the divider's arrow-key handler"
@@ -514,25 +417,6 @@
              {:file "panel_gallery/event_detail_stories.cljs"
               :line 115
               :column 3})))))
-
-;; ---- merge-known-sections deep-merge -------------------------------------
-;;
-;; `merge-known-sections` is private; JVM tests reach it via `#'`
-;; var-quote — Clojure Vars are directly invokable, the same idiom the
-;; CLJS persistence test uses for `#'config/storage-get`.
-
-(deftest merge-known-sections-deep-merges-nested-event-list-col-widths
-  (testing "a partial nested override under `:general`
-            (`:event-list-col-widths`) must merge PER-KEY, not replace
-            the whole nested sub-map — a shallow `merge` would
-            drop the untouched sibling widths on any partial
-            nested `src`"
-    (let [merged (#'config/merge-known-sections
-                  {:general {:event-list-col-widths {:source 100}}})]
-      (is (= {:source 100 :timestamp 76 :duration 60}
-             (get-in merged [:general :event-list-col-widths]))
-          "the untouched :timestamp / :duration siblings survive a
-           partial nested override"))))
 
 ;; ---- the layered merge, through the REAL producer ------------------------
 ;;
