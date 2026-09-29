@@ -22,8 +22,8 @@
     Story registrar.
 
   Runs on the JVM under `clojure -M:test` and on CLJS under shadow's
-  `:node-test` / `:browser-test` targets (ns suffix `-cljs-test` is
-  picked up by both `cljs-test$` and `-cljs-test$` regexes)."
+  `:node-test` target (its `cljs-test$` regex picks up the `-cljs-test`
+  suffix)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             #?(:cljs [re-frame.core :as rf])
             [re-frame.story :as rf.story]

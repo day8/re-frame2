@@ -1,4 +1,4 @@
-(ns re-frame.story.ui.chrome-a11y-force-colors-cljs-test
+(ns re-frame.story.ui.chrome-a11y-force-colors-dom-cljs-test
   "CLJS smoke tests for the 'Use system colors' opt-in surface in the
   Chrome A11y panel.
 
@@ -8,9 +8,11 @@
     AND stamps / clears the `data-rf-force-colors=\"active\"`
     attribute on the live `<html>` (the chrome root is optional —
     when absent the cascade still reaches descendants via `<html>`).
-    This namespace runs on the node lane, which has no `document`, so
-    the attribute assertions sit behind `(when-let [html ...])` and the
-    ratom half is what executes there.
+    The `-dom-cljs-test` suffix puts this namespace in `:browser-test`,
+    where the attribute assertions run against a real `<html>`. The
+    node lane, which has no `document`, runs it too; there the
+    attribute assertions sit behind `(when-let [html ...])` and only
+    the ratom half executes.
   - `motion-css` carries the attribute-selector block the opt-in
     activates."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]

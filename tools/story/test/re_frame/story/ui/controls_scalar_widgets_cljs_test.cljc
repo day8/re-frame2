@@ -12,8 +12,8 @@
   CLJS-only — the renderer is CLJS-only (it depends on Reagent / DOM
   event objects). Lives in a `.cljc` for symmetry with sibling tests.
 
-  Runs under shadow's `:node-test` and `:browser-test` targets (the
-  `cljs-test$` ns regex picks up this name)."
+  Runs under shadow's `:node-test` target (the `cljs-test$` ns regex
+  picks up this name)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             #?(:cljs [re-frame.story :as rf.story])

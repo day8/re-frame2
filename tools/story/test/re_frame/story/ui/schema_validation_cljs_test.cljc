@@ -134,6 +134,15 @@
       (is (= :cofx                   (:where row)))
       (is (= :foo/bar                (:failing-id row))))))
 
+(deftest project-failure-prefers-an-explicit-failing-id
+  (testing "an explicit :failing-id wins over the event-id / sub-id /
+            cofx-id / fx-id fallbacks"
+    (let [row (rf.story.ui.schema-validation/project-failure
+                (failure-event 51 :cofx {:failing-id :foo/explicit
+                                         :event-id   :foo/bar
+                                         :cofx-id    :now}))]
+      (is (= :foo/explicit (:failing-id row))))))
+
 (deftest project-failure-falls-back-to-id-when-no-explicit-failing-id
   (testing "when an emission shape omits :failing-id, the projector
             falls back through event-id → sub-id → cofx-id → fx-id"

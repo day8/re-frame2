@@ -255,7 +255,8 @@
       {:viewport :full}                {:viewport :tablet}
       {:background :light}             {:background :dark}
       {:tag-filter #{}}                {:tag-filter #{:tag/a}}
-      {:active-modes []}               {:active-modes [:m/dark]}))
+      {:active-modes []}               {:active-modes [:m/dark]}
+      {:substrate :reagent}            {:substrate :uix}))
   (testing "changes to non-URL slots (hot-reload-tick, fingerprints,
             panel-visibility) do NOT trigger a push"
     (are [old new] (not (rf.story.ui.url-state/url-relevant-slots-changed? old new))
@@ -303,8 +304,9 @@
             URL carries BOTH (a teammate crafted a URL or a stale
             bookmark), variant wins."
     (let [out (rf.story.ui.url-state/apply-parsed-to-state
-                {} {:variant-id   :foo/bar
-                    :workspace-id :foo/grid}
+                {:selected-workspace :foo/old}
+                {:variant-id   :foo/bar
+                 :workspace-id :foo/grid}
                 {})]
       (is (= :foo/bar (:selected-variant out)))
       (is (nil? (:selected-workspace out))))))
@@ -483,10 +485,13 @@
             mode-tab entries are left alone entirely (unlike the global
             slots below, this is not an unconditional :always write)"
     (let [stale {:active-mode-tab {:story.other/baz :test}}
-          out   (rf.story.ui.url-state/apply-parsed-to-state stale {} {})]
+          out   (rf.story.ui.url-state/apply-parsed-to-state
+                  stale {:variant-id :ghost/x :mode-tab :docs}
+                  {:variant? (fn [_] false)})]
       (is (nil? (:selected-variant out)))
-      (is (= :test (get-in out [:active-mode-tab :story.other/baz]))
-          "no variant kept -> the mode-tab map is untouched"))))
+      (is (= {:story.other/baz :test} (:active-mode-tab out))
+          "no variant kept -> the URL's mode-tab is written nowhere and
+           the mode-tab map is untouched"))))
 
 ;; ---- URL authoritative for ALL URL-owned chrome slots --------------------
 

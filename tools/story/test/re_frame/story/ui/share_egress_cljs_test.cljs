@@ -491,8 +491,11 @@
             (.then
               (fn [_]
                 (let [flat (str (rf.story.ui.share/share-export-dialog))
-                      ;; the screenshot command-block invocation props slice
-                      shot (second (str/split flat #":test \"screenshot\""))]
+                      ;; the screenshot command-block invocation props slice,
+                      ;; ending where the next row's props begin
+                      shot (some-> (second (str/split flat #":test \"screenshot\""))
+                                   (str/split #":test \"")
+                                   first)]
                   (is (some? shot) "the screenshot row is present")
                   ;; the honest error reason is threaded into the row's :error
                   (is (str/includes? shot ":error \"screenshot capture seam not installed on this host\"")

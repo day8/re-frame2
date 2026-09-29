@@ -117,7 +117,7 @@
    (deftest cljs-chip-renders-without-throwing
      (testing "chip-when-enabled returns a hiccup tree (no exceptions)"
        (let [hiccup (rf.story.ui.viewport-switcher/chip-when-enabled)]
-         (is (some? hiccup))))))
+         (is (vector? ((first hiccup))) "the gated chip renders")))))
 
 #?(:cljs
    (deftest cljs-chip-uses-aria-haspopup-not-aria-pressed

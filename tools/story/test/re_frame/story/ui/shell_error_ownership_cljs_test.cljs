@@ -79,7 +79,8 @@
             registrations, so ONE unregister still frees it"
     (register-sink!)
     (register-sink!)
-    (is (= 1 (count (select-keys @sinks [rf.story.config/error-sink-id]))))
+    (is (= [rf.story.config/error-sink-id] (vec (keys @sinks)))
+        "two mounts leave one registration, under the one id")
     (unregister-sink!)
     (is (nil? (get @sinks rf.story.config/error-sink-id)))))
 

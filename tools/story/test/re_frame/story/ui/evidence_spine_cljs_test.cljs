@@ -188,6 +188,15 @@
       (is (= ["false" "true"] sel)
           (str "the highlight moved to the second row; got " (pr-str sel))))))
 
+(deftest clicking-a-beat-row-selects-it
+  (testing "a beat row's :on-click selects that beat"
+    (reg-counter!)
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
+    (seed-two-beat! :story.evidence/basic)
+    (let [beats (rf.test-helpers/find-all-by-attr (render-panel) :data-test "story-evidence-beat")]
+      ((:on-click (second (second beats))) nil)
+      (is (= 1 (rf.story.ui.evidence-spine/selected-beat-idx :story.evidence/basic))))))
+
 (deftest no-selection-leaves-every-row-unselected
   (testing "with no beat selected every row carries data-selected=false —
             the scrub-on-load default (no producing row highlighted)"
@@ -227,6 +236,24 @@
       (is (contains? panels "epoch"))
       (is (contains? panels "app-db"))
       (is (contains? panels "trace")))))
+
+(deftest clicking-a-focus-link-focuses-its-panel
+  (testing "a focus link's :on-click stops the click reaching its beat row and
+            fires the focus command at the variant for the link's panel"
+    (reg-counter!)
+    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.evidence/basic)
+    (seed-result! :story.evidence/basic)
+    (let [link     (->> (rf.test-helpers/find-all-by-attr (render-panel) :data-test "story-evidence-focus-link")
+                        (filter #(= "trace" (:data-panel (second %))))
+                        first)
+          stopped? (atom false)
+          focused  (atom nil)]
+      (with-redefs [xray-core/focus! (fn [& args] (reset! focused (first args)) {:ok? true})]
+        ((:on-click (second link)) #js {:stopPropagation #(reset! stopped? true)}))
+      (is (true? @stopped?) "the click does not also select the row")
+      (is (= :story.evidence/basic @focused) "focus! was reached for the variant")
+      (is (= :trace (:xray-panel (rf.story.ui.state/get-state)))
+          "the embed follows the link's panel"))))
 
 (deftest precise-beat-focus-row-is-marked-precise
   (testing "a beat with an epoch-id marks its focus row data-precise=true and
