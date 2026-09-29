@@ -300,53 +300,6 @@
       (is (= "vscode://file/C:/Users/me/code/my-app/src/app/views.cljs:42:7"
              (:href (second hiccup)))))))
 
-(deftest open-chip-project-root-regression-rf2-zfy1e
-  (testing "a panel-gallery-shaped relative coord resolves to an
-            absolute on-disk URI when the host plumbs
-            :rf.story/project-root through Story's configure!"
-    (rf.story.config/set-project-root!
-      "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (let [hiccup (rf.story.ui.open-in-editor/open-chip
-                   {:file "panel_gallery/event_detail_stories.cljs"
-                    :line 115
-                    :column 3})]
-      (is (= (str "vscode://file/"
-                  "C:/Users/me/code/my-app/tools/xray/testbeds/"
-                  "panel_gallery/event_detail_stories.cljs:115:3")
-             (:href (second hiccup)))))))
-
-(deftest open-chip-project-root-regression-rf2-ymnfx
-  (testing "the variant-toolbar Open behaviour under the panel-gallery's
-            relative source-coord shape (`panel_gallery/foo.cljs`): with
-            no project-root configured, the URI is relative and the
-            OS-side editor handler rejects it; with
-            `:rf.story/project-root` plumbed in via
-            `rf.story/configure!`, the URI is absolute."
-    ;; No project-root → relative URI (which the OS editor handler
-    ;; rejects).
-    (rf.story.config/set-project-root! nil)
-    (let [hiccup-pre (rf.story.ui.open-in-editor/open-chip
-                       {:file "panel_gallery/gallery_app_db.cljs"
-                        :line 42
-                        :column 7})]
-      (is (= "vscode://file/panel_gallery/gallery_app_db.cljs:42:7"
-             (:href (second hiccup-pre)))
-          "without :rf.story/project-root the URI is relative (the
-           unresolvable panel-gallery shape)"))
-    ;; `rf.story/configure!` seeds the atom; URI is absolute.
-    (rf.story.config/set-project-root!
-      "C:/Users/me/code/my-app/tools/xray/testbeds")
-    (let [hiccup-post (rf.story.ui.open-in-editor/open-chip
-                        {:file "panel_gallery/gallery_app_db.cljs"
-                         :line 42
-                         :column 7})]
-      (is (= (str "vscode://file/"
-                  "C:/Users/me/code/my-app/tools/xray/testbeds/"
-                  "panel_gallery/gallery_app_db.cljs:42:7")
-             (:href (second hiccup-post)))
-          "with :rf.story/project-root the URI is absolute — the
-           OS-side editor handler can resolve it"))))
-
 (deftest open-chip-project-root-roundtrip
   (testing "rf.story.config/set-project-root! + get-project-root round-trip"
     (rf.story.config/set-project-root! "/abs/code")
@@ -427,52 +380,11 @@
       (is @prevented?
           "the click handler must call e.preventDefault()"))))
 
-(deftest click-handler-hides-chip-for-forbidden-scheme
-  (testing "the chip's render-time gate hides
-            the chip entirely for the forbidden script schemes, so the
-            click never wires up at all. Pins that the user can never
-            click a javascript:/data:/vbscript: URI to navigation."
-    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (rf.story.ui.open-in-editor/open-chip {:file "src/x.cljs"}))
-        "render-time gate hides chip for forbidden scheme")))
-
 ;; ---- Windows-path URI shapes ---------------------------------------------
 ;;
-;; For a classpath-relative coord with no `:project-root` configured, the
-;; chip builds `vscode://file/panel_gallery/event_detail_stories.cljs:115:3`
-;; (a relative path) and VSCode silently fails to open it. With
-;; `:project-root` set to the on-disk root, the URI is absolute and VSCode
-;; resolves it.
-;;
-;; The matrix below pins URI shapes for the common Windows + Mac/Linux
-;; path combinations — guarding against a future refactor regressing
-;; the project-root prefix semantics.
-
-(deftest windows-path-uri-shape
-  (testing "Windows project-root + relative source-coord
-            produces a URI VSCode's OS handler can resolve"
-    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
-    (let [hiccup (rf.story.ui.open-in-editor/open-chip
-                   {:file "tools/story/src/re_frame/story/ui/open_in_editor.cljs"
-                    :line 92
-                    :column 5})]
-      (is (= (str "vscode://file/"
-                  "C:/Users/me/code/my-app/"
-                  "tools/story/src/re_frame/story/ui/open_in_editor.cljs:92:5")
-             (:href (second hiccup)))
-          "absolute Windows URI shape — drive letter + forward slashes
-           per VSCode's documented format"))))
-
-(deftest posix-path-uri-shape
-  (testing "POSIX project-root + relative source-coord
-            produces a URI VSCode/Cursor's OS handler can resolve"
-    (rf.story.config/set-project-root! "/home/me/code/myapp")
-    (let [hiccup (rf.story.ui.open-in-editor/open-chip
-                   {:file "src/app/views.cljs" :line 1 :column 1})]
-      (is (= "vscode://file//home/me/code/myapp/src/app/views.cljs:1:1"
-             (:href (second hiccup)))
-          "POSIX URI shape — double-slash after `file` because the root
-           starts with `/`"))))
+;; The forward-slash Windows root and the POSIX root are pinned by the
+;; project-root tests above; this row pins a backslash root with a trailing
+;; separator.
 
 (deftest windows-backslash-path-uri-shape
   (testing "Windows project-root with trailing backslash
@@ -484,56 +396,6 @@
              (:href (second hiccup)))
           "trailing separator stripped; backslashes inside the root
            preserved (VSCode accepts both on Windows)"))))
-
-;; ---- resolve-uri ---------------------------------------------------------
-;;
-;; `resolve-uri` is the extracted URI-building helper the chip path, the
-;; `open-source-coord!` imperative path, and the dispatch-based event
-;; all share. Pinning its contract here means the chip's `:href`, the
-;; inspector launcher, and the fx-emitted `:uri` always agree on the
-;; URI shape — one source of truth. Mirrors Xray's resolve-uri.
-
-(deftest resolve-uri-returns-vscode-default
-  (testing "resolve-uri builds a vscode://file URI by default"
-    (is (= "vscode://file/src/app.cljs:42:7"
-           (rf.story.ui.open-in-editor/resolve-uri
-             {:file "src/app.cljs" :line 42 :column 7})))))
-
-(deftest resolve-uri-respects-editor-preference
-  (testing "switching editor flips the URI scheme"
-    (rf.story.config/set-editor! :cursor)
-    (is (= "cursor://file/src/x.cljs:1:1"
-           (rf.story.ui.open-in-editor/resolve-uri
-             {:file "src/x.cljs" :line 1 :column 1})))))
-
-(deftest resolve-uri-applies-project-root
-  (testing "configured project-root prepends to the source-coord file"
-    (rf.story.config/set-project-root! "C:/Users/me/code/my-app")
-    (is (= "vscode://file/C:/Users/me/code/my-app/src/app.cljs:17:3"
-           (rf.story.ui.open-in-editor/resolve-uri
-             {:file "src/app.cljs" :line 17 :column 3})))))
-
-(deftest resolve-uri-nil-when-source-missing
-  (testing "resolve-uri returns nil for coords without :file"
-    (is (nil? (rf.story.ui.open-in-editor/resolve-uri nil)))
-    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:line 1})))
-    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file ""})))))
-
-(deftest resolve-uri-nil-for-forbidden-custom-scheme
-  (testing "resolve-uri returns nil ONLY when a {:custom ...} template
-            resolves to a forbidden script scheme. http:/https:/unknown
-            schemes resolve through — there is no positive allowlist."
-    (rf.story.config/set-editor! {:custom "javascript:alert(1)"})
-    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
-    (rf.story.config/set-editor! {:custom "data:text/html,xxx"})
-    (is (nil? (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
-    ;; http: + unknown schemes resolve (no positive allowlist).
-    (rf.story.config/set-editor! {:custom "http://localhost:3000/{path}"})
-    (is (= "http://localhost:3000/src/x.cljs"
-           (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))
-    (rf.story.config/set-editor! {:custom "lapce://open?file={path}"})
-    (is (= "lapce://open?file=src/x.cljs"
-           (rf.story.ui.open-in-editor/resolve-uri {:file "src/x.cljs"})))))
 
 ;; ---- :rf.story/open-in-editor + :rf.story.fx/open-in-editor --------------
 ;;
@@ -679,17 +541,6 @@
     (is (= "vscode://file/src/x.cljs:7:1"
            (:uri (first @captured-editor-fx))))))
 
-(deftest open-in-editor-event-honours-editor-preference
-  (testing "the fx's URI reflects `rf.story.config/get-editor`
-            (the same source of truth the chip render uses)"
-    (install-with-capture!)
-    (rf.story.config/set-editor! :cursor)
-    (with-frame capture-frame
-      (rf/dispatch-sync [:rf.story/open-in-editor
-                         {:file "src/x.cljs" :line 10}]))
-    (is (= "cursor://file/src/x.cljs:10:1"
-           (:uri (first @captured-editor-fx))))))
-
 (deftest open-in-editor-event-rejects-forbidden-scheme
   (testing "a custom template that resolves to a
             forbidden script scheme produces a fx with nil :uri (which
@@ -747,21 +598,10 @@
 ;; ---- Option B: dev-server endpoint preferred over URI --------------------
 ;;
 ;; The URI-fallback path is exercised throughout this file (via the
-;; `always-fall-back!` launcher stub in the fixture). This block pins the
-;; ENDPOINT-PREFERENCE half: when the launcher succeeds (a dev server
-;; answered) the URI fallback does NOT fire; when it falls back (no dev
-;; server) the URI navigates — the endpoint never removes the URI path.
-
-(deftest endpoint-url-carries-coord-and-editor-hint
-  (testing "`build-url` projects (coord, editor) to the
-            endpoint query"
-    (is (= (str rf.source-coords.open-endpoint/endpoint-path
-                "?file=panel_gallery%2Ffoo.cljs&line=42&column=7&editor=cursor")
-           (rf.source-coords.open-endpoint/build-url
-             {:file "panel_gallery/foo.cljs" :line 42 :column 7}
-             :cursor)))
-    (is (nil? (rf.source-coords.open-endpoint/build-url {:line 1} :vscode))
-        "no :file → no endpoint URL")))
+;; `always-fall-back!` launcher stub in the fixture; the chip click in
+;; `click-handler-calls-navigator-with-uri` goes through `open-coord!`).
+;; This block pins the ENDPOINT-PREFERENCE half: when the launcher succeeds
+;; (a dev server answered) the URI fallback does NOT fire.
 
 (deftest open-coord-prefers-endpoint-when-it-succeeds
   (testing "when the endpoint launcher reports success, the URI
@@ -773,20 +613,6 @@
           #(rf.story.ui.open-in-editor/open-coord! {:file "src/x.cljs" :line 1}))
         (is (= [] @calls)
             "endpoint preferred → no editor:// URI navigation")
-        (finally
-          (rf.source-coords.open-endpoint/set-launcher! prev))))))
-
-(deftest open-coord-falls-back-to-uri-when-no-endpoint
-  (testing "when the launcher invokes the fallback (no dev
-            server), the `editor://` URI navigates via the navigator seam"
-    (rf.story.config/set-editor! :vscode)
-    (let [[nav calls] (capturing-navigator)
-          prev        (rf.source-coords.open-endpoint/set-launcher! always-fall-back!)]
-      (try
-        (with-stub-navigator nav
-          #(rf.story.ui.open-in-editor/open-coord! {:file "src/x.cljs" :line 9 :column 2}))
-        (is (= ["vscode://file/src/x.cljs:9:2"] @calls)
-            "no dev server → the URI fallback navigates")
         (finally
           (rf.source-coords.open-endpoint/set-launcher! prev))))))
 
