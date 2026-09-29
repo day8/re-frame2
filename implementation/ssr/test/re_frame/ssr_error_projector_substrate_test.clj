@@ -18,8 +18,8 @@
   results in the projector stamping :status 500 onto :rf/response.
 
   Companion suites:
-    - `re-frame.ssr-end-to-end-test` — the dev-mode end-to-end coverage
-      (debug-enabled? on; trace surface live).
+    - `re-frame.ssr-end-to-end-test` — the end-to-end coverage, run in both
+      postures; its dev-trace assertions sit in debug-gated arms.
     - `re-frame.jvm-prod-gate-integration-test` — the JVM dev-gate
       contract for the core trace / event-emit / error-emit surfaces.
     - `re-frame.epoch.jvm-prod-gate-test` — the same posture for the

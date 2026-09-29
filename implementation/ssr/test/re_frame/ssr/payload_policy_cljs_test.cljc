@@ -109,77 +109,34 @@
                {:initial-events [[:init]] :payload '(:public/articles)}))
           "validate-policy-opts! returns opts unchanged for a list allowlist"))))
 
-(deftest apply-policy-set-payload-fails-closed
-  (testing "a SET :payload is not sequential → fails closed (the contract
-            is an ORDERED key selection; a set is rejected rather than
-            silently accepted)"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload #{:public/articles}})))))
-
 ;; ---- apply-policy: malformed allowlist ------------------------------------
 
-(deftest apply-policy-rejects-string-allowlist-entries
-  (testing "a non-empty sequential :payload carrying a
-            STRING element (the classic typo `[\"public/articles\"]` for the
-            keyword `[:public/articles]`) is a malformed allowlist. An
-            outer-shape `(and sequential? seq)` check alone would accept it
-            and `select-keys` would then ship an empty/wrong slice silently,
-            so it fails loud with `:rf.error/ssr-malformed-payload-allowlist`."
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-malformed-payload-allowlist"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload ["public/articles"]})))
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-malformed-payload-allowlist"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload [:public/articles "public/user-id"]}))
-        "a MIXED allowlist (one keyword, one string) is still malformed —
-         every entry must be a keyword")))
-
-(deftest apply-policy-rejects-string-list-allowlist-entries
-  (testing "the (every? keyword?) footgun-catcher applies to LISTS too — a
-            list `'(\"public/articles\")` string-typo is malformed, not
-            silently a missing-policy: a sequential outer shape must not
-            let a list typo slip into the generic bucket"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-malformed-payload-allowlist"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload '("public/articles")})))))
-
-(deftest apply-policy-rejects-nil-allowlist-entries
-  (testing "a stray `nil` element is malformed"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-malformed-payload-allowlist"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload [nil]})))
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-malformed-payload-allowlist"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload [:public/articles nil]})))))
-
-(deftest apply-policy-rejects-nested-allowlist-entries
-  (testing "a nested coll element is malformed
-            (`[[:a :b]]` is not an allowlist of top-level keys)"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-malformed-payload-allowlist"
-          (rf.ssr.payload-policy/apply-policy
-            sample-app-db
-            {:payload [[:public/articles :public/user-id]]})))))
+(deftest apply-policy-rejects-malformed-allowlists
+  (testing "a non-empty sequential :payload carrying any NON-KEYWORD entry
+            is a malformed allowlist. An outer-shape `(and sequential? seq)`
+            check alone would accept it and `select-keys` would then ship an
+            empty or wrong slice silently, so each fails loud with
+            `:rf.error/ssr-malformed-payload-allowlist` — never the generic
+            missing-policy bucket"
+    (doseq [[label payload]
+            [["a string entry (the classic typo for a keyword)"
+              ["public/articles"]]
+             ["a MIXED allowlist — every entry must be a keyword"
+              [:public/articles "public/user-id"]]
+             ["a string entry in a LIST — the element check applies to every
+               sequential spelling"
+              '("public/articles")]
+             ["a stray nil entry"
+              [nil]]
+             ["a stray nil beside a valid keyword"
+              [:public/articles nil]]
+             ["a nested collection — not an allowlist of top-level keys"
+              [[:public/articles :public/user-id]]]]]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #":rf\.error/ssr-malformed-payload-allowlist"
+            (rf.ssr.payload-policy/apply-policy sample-app-db {:payload payload}))
+          label))))
 
 (deftest malformed-allowlist-error-names-bad-entries
   (testing "the structured error carries the offending
@@ -209,31 +166,27 @@
 
 ;; ---- apply-policy: fail-closed --------------------------------------------
 
-(deftest apply-policy-throws-when-no-payload-supplied
-  (testing "fail-closed: absence of :payload throws
+(deftest apply-policy-fails-closed-without-a-usable-policy
+  (testing "fail-closed: every opts shape that names no usable policy throws
             :rf.error/ssr-missing-payload-policy"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.payload-policy/apply-policy sample-app-db {})))
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.payload-policy/apply-policy sample-app-db nil))
-        "nil opts also throws — same contract")))
-
-(deftest apply-policy-throws-when-allowlist-empty
-  (testing "an empty :payload vector is treated as no-allowlist
-            (shipping zero keys is almost certainly a programmer error,
-            not intent) — fail-closed still fires"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.payload-policy/apply-policy sample-app-db {:payload []})))
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.payload-policy/apply-policy sample-app-db {:payload nil})))))
+    (doseq [[label opts]
+            [["no :payload key"
+              {}]
+             ["nil opts"
+              nil]
+             ["an empty allowlist — shipping zero keys is almost certainly a
+               programmer error, not intent"
+              {:payload []}]
+             ["a nil :payload"
+              {:payload nil}]
+             ["a SET :payload — the contract is an ORDERED key selection, so
+               a set is rejected rather than silently accepted"
+              {:payload #{:public/articles}}]]]
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #":rf\.error/ssr-missing-payload-policy"
+            (rf.ssr.payload-policy/apply-policy sample-app-db opts))
+          label))))
 
 (deftest apply-policy-throws-on-unknown-policy-keyword
   (testing "a typo'd :payload keyword surfaces as
@@ -269,13 +222,19 @@
       (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts))))))
 
 (deftest validate-policy-opts-fails-closed
-  (testing "fail-closed: validation throws on absence —
-            handler-construction time arm of the same contract as
-            apply-policy"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.payload-policy/validate-policy-opts! {:initial-events [[:init]]})))))
+  (testing "fail-closed: validation throws on absence — the
+            handler-construction-time arm of the same contract as
+            apply-policy — and the structured error carries `:recovery
+            :declare-payload-policy` so trace tooling can suggest the fix
+            (Spec 009 error catalogue convention)"
+    (let [data (try (rf.ssr.payload-policy/validate-policy-opts! {:initial-events [[:init]]})
+                    nil
+                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                      (ex-data e)))]
+      (is (= :rf.error/ssr-missing-payload-policy (:rf.error/id data))
+          "a missing policy throws the missing-policy error")
+      (is (= :declare-payload-policy (:recovery data))
+          "error ex-data names the recovery action"))))
 
 (deftest validate-policy-opts-throws-on-unknown-policy
   (testing "construction-time arm also catches typo'd :payload keywords"
@@ -284,18 +243,6 @@
           #":rf\.error/ssr-unknown-payload-policy"
           (rf.ssr.payload-policy/validate-policy-opts!
             {:initial-events [[:init]] :payload :rf.ssr.payload/whole-db})))))
-
-(deftest error-ex-data-carries-recovery-tag
-  (testing "the structured error carries `:recovery
-            :declare-payload-policy` so trace tooling can suggest the
-            fix — Spec 009 error catalogue convention"
-    (try
-      (rf.ssr.payload-policy/validate-policy-opts! {:initial-events [[:init]]})
-      (is false "should have thrown")
-      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-        (is (= :declare-payload-policy
-               (:recovery (ex-data e)))
-            "error ex-data names the recovery action")))))
 
 ;; ---- runtime-db projection (EP-0001) --------------------------------------
 

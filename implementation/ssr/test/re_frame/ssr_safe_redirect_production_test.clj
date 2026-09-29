@@ -27,8 +27,8 @@
   (that roster is an EXCLUSION list) and executes under
   `-Dre-frame.debug=false` for real. A `with-redefs [interop/debug-enabled?
   false]` rebind CANNOT reach a load-time gate — it is not evidence here,
-  which is exactly why a dev-posture safe-redirect cluster like the one in
-  `ssr-end-to-end-test` can stay green while production ships silence.
+  which is exactly why a safe-redirect test that reads only the dev trace
+  bus can stay green while production ships silence.
 
   WHAT IS PINNED:
 
