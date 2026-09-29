@@ -153,13 +153,41 @@
            (via-rewrite [:div "say \"hi\" & 'bye'"])))))
 
 ;; ---------------------------------------------------------------------------
-;; Attributes
+;; Structural shapes: attributes, void tags, fragments, children, shorthand
 ;; ---------------------------------------------------------------------------
 
-(deftest parity-multiple-attrs
-  (testing "multiple attributes (after canonicalisation)"
-    (let [[a b] (=parity [:div {:class "c" :id "i" :title "t"}])]
-      (is (= a b)))))
+(deftest parity-structural-shapes
+  (doseq [[why hiccup]
+          [["multiple attributes (after canonicalisation)"
+            [:div {:class "c" :id "i" :title "t"}]]
+           ["<img> void tag with attrs"
+            [:img {:src "/x.png" :alt "x"}]]
+           ["<input> void tag"
+            [:input {:type "text" :name "q"}]]
+           ["empty :<> fragment"
+            [:<>]]
+           ["nested :<> fragments"
+            [:<> [:p "a"] [:<> [:p "b"] [:p "c"]]]]
+           ["string + number + vector children"
+            [:div "x" 42 [:span "y"]]]
+           ["nil children render as empty"
+            [:div "a" nil "b"]]
+           [":div#bar.foo shorthand"
+            [:div#bar.foo "x"]]
+           ["a realistic nested tree with keyed seq children"
+            [:div {:class "card"}
+             [:h2 {:class "title"} "Hello"]
+             [:p {:class "body"} "World"]
+             [:ul (map-indexed
+                   (fn [i x] ^{:key i} [:li x])
+                   ["one" "two" "three"])]]]]]
+    (testing why
+      (let [[a b] (=parity hiccup)]
+        (is (= a b))))))
+
+;; ---------------------------------------------------------------------------
+;; Attributes
+;; ---------------------------------------------------------------------------
 
 (deftest parity-native-keyword-attr-values
   (testing "keyword DOM-attr values stringify on the
@@ -227,48 +255,6 @@
     (is (= "<div id=\"\"></div>" (via-rewrite [:div {:id ""}])))))
 
 ;; ---------------------------------------------------------------------------
-;; Void tags
-;; ---------------------------------------------------------------------------
-
-(deftest parity-img-void
-  (testing "<img> void tag with attrs"
-    (let [[a b] (=parity [:img {:src "/x.png" :alt "x"}])]
-      (is (= a b)))))
-
-(deftest parity-input-void
-  (testing "<input> void tag"
-    (let [[a b] (=parity [:input {:type "text" :name "q"}])]
-      (is (= a b)))))
-
-;; ---------------------------------------------------------------------------
-;; Fragments
-;; ---------------------------------------------------------------------------
-
-(deftest parity-empty-fragment
-  (testing "empty :<> fragment"
-    (let [[a b] (=parity [:<>])]
-      (is (= a b)))))
-
-(deftest parity-nested-fragments
-  (testing "nested :<> fragments"
-    (let [[a b] (=parity [:<> [:p "a"] [:<> [:p "b"] [:p "c"]]])]
-      (is (= a b)))))
-
-;; ---------------------------------------------------------------------------
-;; Sequence children
-;; ---------------------------------------------------------------------------
-
-(deftest parity-mixed-children
-  (testing "string + number + vector children"
-    (let [[a b] (=parity [:div "x" 42 [:span "y"]])]
-      (is (= a b)))))
-
-(deftest parity-nil-children-dropped
-  (testing "nil children render as empty"
-    (let [[a b] (=parity [:div "a" nil "b"])]
-      (is (= a b)))))
-
-;; ---------------------------------------------------------------------------
 ;; dangerouslySetInnerHTML
 ;; ---------------------------------------------------------------------------
 
@@ -308,26 +294,6 @@
       (let [[a b] (=parity hiccup)]
         (is (= a b) (str "reagent-slim diverges from react-dom for "
                          (pr-str hiccup)))))))
-
-;; ---------------------------------------------------------------------------
-;; Compound: nested hiccup with attrs + classes
-;; ---------------------------------------------------------------------------
-
-(deftest parity-compound-tree
-  (testing "realistic nested tree"
-    (let [[a b] (=parity
-                 [:div {:class "card"}
-                  [:h2 {:class "title"} "Hello"]
-                  [:p {:class "body"} "World"]
-                  [:ul (map-indexed
-                        (fn [i x] ^{:key i} [:li x])
-                        ["one" "two" "three"])]])]
-      (is (= a b)))))
-
-(deftest parity-tag-shorthand
-  (testing ":div#bar.foo shorthand"
-    (let [[a b] (=parity [:div#bar.foo "x"])]
-      (is (= a b)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inline-style serialisation
