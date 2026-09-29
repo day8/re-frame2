@@ -917,20 +917,18 @@ a list of them, and do not write one** — the set grows, and an enumeration is 
 
 ### Before you push
 
-- **After a rebase, re-run only the suites the landing can REACH.** List what landed between your old
-  base and your new one; a suite is reached when that change touches the artefact it tests, or any
-  artefact in that artefact's dependency closure, test-time dependencies included. **Where it reaches
-  none of yours**, skip the re-run, quote the list in the change body, and name the change's CI as the
-  final-base gate: CI grades the change merged onto the trunk as it stood at your push. **Where it does
-  reach, a pre-rebase green is evidence about a tree that no longer exists**, and nothing warns you: the
-  rebase reports success and the old log still says exit 0. One worker rebased four times past eleven
-  landings, and re-running changed the artefact rather than reconfirming it — fixes for three of its own
-  findings had merged in the interval. Measured over a one-hour trial of six workers: about 8 to 15
-  minutes saved per rebase, and **zero** CI reds that a skipped re-run would have caught — one 84-file
-  landing reached none of the five suites its worker had re-run by reflex. **One residual that neither
-  this rule nor re-running everything covers**: a sibling can land between a change's last CI run and
-  its merge — measured, one change merged after a sibling touching artefacts its suites reach, which its
-  CI never saw. What remains is the merge criterion's three-way merge, which sees only textual conflict.
+- **After a rebase, do not re-run locally: push, and let the change's CI be the evidence about the new
+  base.** CI grades the change merged onto the trunk as it stood at your push, and the merge criterion
+  requires that run green, so a local re-run only duplicates it. Measured over a one-hour trial of six
+  workers: **zero** CI reds that a skipped re-run would have caught. Name the change's CI as the
+  final-base gate in the change body, and **never cite a pre-rebase local green as final** — it is
+  evidence about a tree that no longer exists, and nothing warns you: the rebase reports success and the
+  old log still says exit 0. **The one exception is a gate the change's CI never runs** — a nightly-only
+  lane, or a local-only script the brief names as the gate — and then only where what landed under you
+  touches what it tests. **One residual that no re-run covers**: a sibling can land between a change's
+  last CI run and its merge — measured, one change merged after a sibling touching artefacts its suites
+  reach, which its CI never saw. Only the merge criterion's three-way merge, which sees textual conflict
+  alone, and the trunk's CI after the merge reach it.
 - **Diff your branch against its MERGE BASE and read that diff for what you would REVERT.** Not for
   conflicts — a clean rebase is exactly the case this rule is for. The question is whether your push
   undoes something a sibling landed while you worked, which no gate covers: a revert of a merged change
