@@ -214,6 +214,13 @@ Then open the URL it prints. The runner stages this folder's
 [`index.html`](index.html) alongside the build output for you; its pre-baked
 payload lets the page hydrate without a Clojure server in the box.
 
+Behind a real server, `handle-request` fetches the list itself, and the JVM
+has no page to resolve a relative URL against. So the server reads its API
+origin from `API_ORIGIN` (default `http://127.0.0.1:3001`) and needs an API
+there answering `GET /api/articles` with a JSON array of
+`{"slug" …, "title" …}` objects; the browser keeps the page-relative
+`/api/articles`.
+
 ## Cross-references
 
 - [`spec/016-Resources.md`](../../../../spec/016-Resources.md) — the normative spec (§SSR and hydration).
