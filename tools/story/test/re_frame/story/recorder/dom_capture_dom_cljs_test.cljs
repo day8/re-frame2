@@ -10,6 +10,8 @@
     entry with the final value.
   - Form submit captures `[:dom/submit ...]`.
   - Sensitive-input redaction on the DOM capture rail.
+  - An interaction records its DOM step or its dispatch, never both, even
+    when the variant's handler stops propagation.
 
   The corpus mounts a transient DOM root inside the test document
   (`document.body`) for each test, installs the capture listeners
@@ -35,7 +37,8 @@
             [re-frame.story.recorder :as rf.story.recorder]
             [re-frame.story.recorder.dom-capture :as rf.story.recorder.dom-capture]
             [re-frame.story.recorder.play-export :as rf.story.recorder.play-export]
-            [re-frame.story.recorder.selector :as rf.story.recorder.selector]))
+            [re-frame.story.recorder.selector :as rf.story.recorder.selector]
+            [re-frame.story.ui.element-inspector :as rf.story.ui.element-inspector]))
 
 ;; ---- runtime gate --------------------------------------------------------
 
@@ -471,6 +474,80 @@
             (is (true? (:submitted (rf/app-db-value rec-frame)))
                 "control: the click's handler dispatched")
             (is (= [:dom/click] (mapv :kind (rf.story.recorder/recorded-entries))))))))))
+
+(defn- dispatch-and-stop-on!
+  "Like `dispatch-on!`, but the handler also stops propagation, so the event
+  never bubbles back up to the canvas root."
+  [el dom-event event-fn]
+  (.addEventListener el dom-event
+                     (fn [e]
+                       (.stopPropagation e)
+                       (rf/dispatch-sync (event-fn el) {:frame rec-frame}))))
+
+(deftest a-click-whose-handler-stops-propagation-records-one-step
+  (if-not (dom-available?)
+    (skip!)
+    (testing "a handler that stops propagation and dispatches still leaves the
+              click in the recording, as its one replayable step"
+      (with-recording-frame
+        (fn []
+          (let [btn (.createElement js/document "button")]
+            (.setAttribute btn "data-test" "login")
+            (dispatch-and-stop-on! btn "click" (fn [_] [:dc/submit]))
+            (.appendChild @test-root btn)
+            (.dispatchEvent btn (js/MouseEvent. "click" #js {:bubbles true}))
+            (is (true? (:submitted (rf/app-db-value rec-frame)))
+                "control: the click's handler dispatched")
+            (let [entries (rf.story.recorder/recorded-entries)]
+              (is (= [:dom/click] (mapv :kind entries)))
+              (is (= [[:click "[data-test=\"login\"]"]]
+                     (:script (rf.story.recorder.play-export/recording->script-body entries)))))))))))
+
+(deftest an-inspector-pick-records-no-step
+  (if-not (dom-available?)
+    (skip!)
+    (testing "the element inspector stops its pick at the canvas root, so the
+              variant never sees the click and the recording gains no step —
+              whichever of the two root listeners runs first"
+      (with-recording-frame
+        (fn []
+          (let [btn (.createElement js/document "button")]
+            (.setAttribute btn "data-test" "login")
+            (dispatch-on! btn "click" (fn [_] [:dc/submit]))
+            (.appendChild @test-root btn)
+            (try
+              (doseq [[order install!]
+                      [["recorder first" #(rf.story.ui.element-inspector/install! @test-root)]
+                       ["inspector first" #(do (rf.story.ui.element-inspector/install! @test-root)
+                                               (rf.story.recorder.dom-capture/install! @test-root))]]]
+                (testing order
+                  (install!)
+                  (rf.story.ui.element-inspector/set-active! true)
+                  (.dispatchEvent btn (js/MouseEvent. "click" #js {:bubbles true}))
+                  (is (nil? (:submitted (rf/app-db-value rec-frame)))
+                      "control: the pick never reached the variant's handler")
+                  (is (= [] (rf.story.recorder/recorded-entries)))))
+              (finally
+                (rf.story.ui.element-inspector/remove!)))))))))
+
+(deftest a-typed-password-whose-handler-stops-propagation-records-the-redacted-step
+  (if-not (dom-available?)
+    (skip!)
+    (testing "an input handler that stops propagation and dispatches still
+              leaves the redacted :type step, and no plaintext"
+      (with-recording-frame
+        (fn []
+          (let [pw (mk-input! {:type "password" :id "pw"})]
+            (dispatch-and-stop-on! pw "input" (fn [el] [:dc/set-pw (.-value el)]))
+            (set! (.-value pw) "hunter2-secret")
+            (.dispatchEvent pw (js/Event. "input" #js {:bubbles true}))
+            (rf.story.recorder.dom-capture/flush-type-buffer!)
+            (is (= "hunter2-secret" (:pw (rf/app-db-value rec-frame)))
+                "control: the input's handler dispatched")
+            (let [entries (rf.story.recorder/recorded-entries)]
+              (is (= [[:dom/type rf.story.recorder.dom-capture/redacted-type-text]]
+                     (mapv (juxt :kind :text) entries)))
+              (is (not (re-find #"hunter2-secret" (pr-str entries)))))))))))
 
 (deftest a-typed-password-records-only-the-redacted-type-step
   (if-not (dom-available?)
