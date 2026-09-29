@@ -207,13 +207,16 @@ hr {
 /* -- Inline-Xray host shell --------------------------------------------- */
 /*
  * Wide viewports place the app beside a host whose flex basis follows Xray's
- * --rf-xray-inline-width setting. The row is exactly the viewport's height, so
- * the page never scrolls: the app column scrolls on its own and the host clips,
- * so the app and Xray never share a scrollbar. At 900px and below the layout
- * stacks, the page scrolls normally again, and the host drops its minimum
- * width and caps its height for internal scrolling. Selectors preserve the
- * `.rf2-testbed-shell > #app` plus `[data-rf-xray-host]` mount contract
- * described in examples/_shared/README.md.
+ * --rf-xray-inline-width setting. The window scrolls the app, because that is
+ * what routing's scroll-to-top and Back restoration act on. The host is sticky
+ * at the viewport's top and right edges, exactly the viewport's height, and
+ * clips its content, so scrolling the page never moves Xray and nothing inside
+ * Xray widens the page. The row is fit-content with a 100% floor: an app wider
+ * than its column widens the row instead of overflowing it, which keeps the
+ * host pinned when the page scrolls sideways. At 900px and below the layout
+ * stacks, and the host drops its minimum width and caps its height for
+ * internal scrolling. Selectors preserve the `.rf2-testbed-shell > #app` plus
+ * `[data-rf-xray-host]` mount contract described in examples/_shared/README.md.
  */
 
 :root {
@@ -222,20 +225,25 @@ hr {
 
 .rf2-testbed-shell {
   display: flex;
-  height: 100vh;
+  width: fit-content;
+  min-width: 100%;
+  min-height: 100vh;
 }
 
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  right: 0;
+  height: 100vh;
   overflow: hidden;
 }
 
 .rf2-testbed-shell #app {
   flex: 1;
   min-width: 0;
-  overflow: auto;
   padding: 2em;
 }
 
@@ -243,11 +251,7 @@ hr {
 @media (max-width: 900px) {
   .rf2-testbed-shell {
     flex-direction: column;
-    height: auto;
-    min-height: 100vh;
-  }
-  .rf2-testbed-shell #app {
-    overflow: visible;
+    width: auto;
   }
   .rf2-testbed-shell [data-rf-xray-host] {
     /* Drop the fixed inline width + min-width: full-bleed under the app, with a
@@ -255,6 +259,8 @@ hr {
     flex: 1 1 auto;
     min-width: 0;
     width: 100%;
+    position: static;
+    height: auto;
     max-height: 60vh;
     overflow: auto;
   }

@@ -131,20 +131,27 @@ right-side host to the app layout (DOM order: `<main>` first, host
 
 ```css
 :root { --rf-xray-accent: #539bf5; }
-.app-shell { display: flex; height: 100vh; }
+.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  right: 0;
+  height: 100vh;
   overflow: hidden;
   border-left: 1px solid #2a2a2a;
 }
-#app { flex: 1; min-width: 0; overflow: auto; }
+#app { flex: 1; min-width: 0; }
 ```
 
-The app and Xray scroll independently: the page itself never scrolls,
-the app column has its own scrollbars, and Xray scrolls inside its own
-panel.
+The window scrolls the app, as it would without Xray, and Xray keeps a
+scrollbar of its own: the host is sticky at the viewport's top and
+right edges, so scrolling the page never moves Xray, and it clips, so
+nothing inside Xray widens the page. Keep the window as the app's
+scroller, because routing's scroll-to-top and Back restoration act on
+the window.
 
 That's the whole consumer surface — no `resize: horizontal` on the
 host. Xray auto-injects a polished drag handle on the

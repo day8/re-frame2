@@ -55,7 +55,7 @@ below):
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var (rf2-9ovfb) — see below */
 body { margin: 0; }
-.app-shell { display: flex; height: 100vh; }  /* the page itself never scrolls */
+.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
@@ -63,16 +63,30 @@ body { margin: 0; }
                                           the documented width — without
                                           it, the host renders 1px wider
                                           than the var(...) value */
+  position: sticky;                    /* pinned beside the app while the */
+  top: 0;                              /* window scrolls it, in either    */
+  right: 0;                            /* direction                       */
+  height: 100vh;
   overflow: hidden;                    /* nothing in Xray widens the page */
   border-left: 1px solid #2a2a2a;     /* visual separator on the app side */
 }
-#app { flex: 1; min-width: 0; overflow: auto; }  /* the app scrolls on its own */
+#app { flex: 1; min-width: 0; }
 ```
 
-The app and Xray never share a scrollbar. The row is exactly the
-viewport's height, so the page does not scroll; the app column scrolls
-on its own, horizontally and vertically; and Xray lays out to its
-host's height and scrolls inside its own panes.
+The window scrolls the app, and the app and Xray never share a
+scrollbar. The host is sticky at the viewport's top and right edges and
+exactly the viewport's height, so scrolling the page moves the app and
+never Xray; Xray lays out to its host's height and scrolls inside its
+own panes. The row is `width: fit-content; min-width: 100%`, so an app
+wider than its column widens the row instead of overflowing it, which
+keeps the host pinned when the page scrolls sideways and lets the app's
+rightmost content scroll clear of the pane.
+
+Keep the window as the app's scroller. Routing's scroll-to-top and Back
+restoration act on the window
+([`spec/012-Routing.md` §Scroll restoration](../../../spec/012-Routing.md#scroll-restoration)),
+so an `#app` that scrolls on its own opens every new page at the
+previous page's depth, and Back restores nothing.
 
 The user-draggable resize handle is auto-injected by Xray
 (rf2-70u8q; see [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance)).
@@ -107,6 +121,10 @@ that matches Xray's recommended default (560px per rf2-9ovfb):
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  right: 0;
+  height: 100vh;
   overflow: hidden;
   border-left: 1px solid #2a2a2a;
 }
@@ -132,7 +150,7 @@ Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`,
 from collapsing past readability when the developer specifies a small
 value; remove the floor if you want truly unbounded shrink.
 
-App content to the left (`#app { flex: 1; min-width: 0; overflow: auto }`) stays in
+App content to the left (`#app { flex: 1; min-width: 0 }`) stays in
 normal flow regardless of the inline width — Xray never overlays the
 app, never claims a hit-test region outside its host, and never
 mutates `body` padding in the default true-inline mode. This holds

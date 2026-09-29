@@ -100,22 +100,31 @@ right):
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var */
 body { margin: 0; }
-.app-shell { display: flex; height: 100vh; }
+.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
  flex: 0 0 var(--rf-xray-inline-width, 560px);
  min-width: 320px;
  box-sizing: border-box;
+ position: sticky;
+ top: 0;
+ right: 0;
+ height: 100vh;
  overflow: hidden;
  border-left: 1px solid #2a2a2a;
 }
-#app { flex: 1; min-width: 0; overflow: auto; }
+#app { flex: 1; min-width: 0; }
 ```
 
 The host owns sizing and layout; Xray owns the shell rendered inside
-the host. The overflow rules keep the two on separate scrollbars: the
-row is exactly the viewport's height, so the page never scrolls; `#app`
-scrolls on its own; and the host clips, so nothing inside Xray can widen
-the page. The host's width must come from `var(--rf-xray-inline-width, …)`:
+the host. The window scrolls the app, and the host rules keep Xray on a
+scrollbar of its own: the host is sticky at the viewport's top and right
+edges and exactly the viewport's height, so scrolling the page never
+moves Xray; it clips, so nothing inside Xray can widen the page; and the
+row's `width: fit-content; min-width: 100%` lets an app wider than its
+column widen the row rather than slide under the pane. Keep the window
+as the app's scroller: routing's scroll-to-top and Back restoration act
+on the window, so an `#app` that scrolls on its own opens every new page
+at the previous page's depth. The host's width must come from `var(--rf-xray-inline-width, …)`:
 Xray's drag handle writes that variable, so a literal basis such as
 `flex: 0 0 420px` leaves the splitter unable to move.
 

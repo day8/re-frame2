@@ -104,9 +104,9 @@ Two lines matter beyond the boilerplate. `:init-fn` names your boot function, wh
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://demo.productionready.io/main.css">
   <style>
-    .app-shell { display: flex; height: 100vh; }
-    #app { flex: 1; min-width: 0; overflow: auto; }
-    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 560px); min-width: 320px; overflow: hidden; }
+    .app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
+    #app { flex: 1; min-width: 0; }
+    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 560px); min-width: 320px; position: sticky; top: 0; right: 0; height: 100vh; overflow: hidden; }
   </style>
 </head>
 <body>

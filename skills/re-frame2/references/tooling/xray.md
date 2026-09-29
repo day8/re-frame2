@@ -29,18 +29,22 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
 
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var */
-.app-shell { display: flex; height: 100vh; }
+.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  right: 0;
+  height: 100vh;
   overflow: hidden;
   border-left: 1px solid #2a2a2a;
 }
-#app { flex: 1; min-width: 0; overflow: auto; }
+#app { flex: 1; min-width: 0; }
 ```
 
-Keep the three overflow-related rules when adapting this: the row is exactly the viewport's height, so the page never scrolls; `#app` scrolls on its own; and the host clips, so nothing inside Xray can widen the page and put the app and Xray under one shared scrollbar. Keep the host's width in `var(--rf-xray-inline-width, …)` too: Xray's drag handle writes that variable, so a literal basis such as `flex: 0 0 420px` leaves the splitter unable to move.
+Keep the scroll rules when adapting this. The window scrolls the app, because routing's scroll-to-top and Back restoration act on the window, so do not give `#app` a scrollbar of its own. The host is sticky at the viewport's top and right edges and exactly the viewport's height, and it clips, so scrolling the page never moves Xray and nothing inside Xray can widen the page; the row's `width: fit-content; min-width: 100%` keeps the host pinned when an app wider than its column scrolls the page sideways. Keep the host's width in `var(--rf-xray-inline-width, …)` too: Xray's drag handle writes that variable, so a literal basis such as `flex: 0 0 420px` leaves the splitter unable to move.
 
 That's it. The preload installs Xray's trace + epoch listeners, mounts the shell into the host once the substrate adapter is ready, and auto-opens after `rf/init!`. Production builds (`goog.DEBUG=false`) elide every Xray surface.
 

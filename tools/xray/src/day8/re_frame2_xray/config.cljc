@@ -233,11 +233,17 @@
   ;;     per spec/007 §Yield-to-consumer).
   ;;   - app content to the left stays in normal flex flow
   ;;     (no overlay, no body padding).
-  ;;   - two panes that scroll independently: the row is exactly the
-  ;;     viewport's height, so the page itself never scrolls; the app
-  ;;     column scrolls on its own, in both directions; and the host
-  ;;     clips, so nothing inside Xray can widen the page and put the
-  ;;     app and Xray under one shared scrollbar.
+  ;;   - the window scrolls the app, and Xray keeps a scrollbar of
+  ;;     its own. The host is `position: sticky` at the viewport's top
+  ;;     and right edges and exactly the viewport's height, so
+  ;;     scrolling the page moves the app and never Xray; the host
+  ;;     clips, so nothing inside Xray can widen the page. The row is
+  ;;     `width: fit-content; min-width: 100%`, so an app wider than
+  ;;     its column widens the row instead of overflowing it, which
+  ;;     keeps the host pinned when the page scrolls sideways. Keep the
+  ;;     window as the app's scroller: routing's scroll-to-top and Back
+  ;;     restoration act on the window, so an `#app` that scrolls on
+  ;;     its own opens every new page at the previous page's depth.
   ;;   - `--rf-xray-accent` published on `:root` so
   ;;     host stylesheets can colour their own dev chrome (resize
   ;;     handles, dock separators, story chips) to match Xray
@@ -257,15 +263,19 @@
 <style>
   :root { --rf-xray-accent: #539bf5; }
   body { margin: 0; }
-  .app-shell { display: flex; height: 100vh; }
+  .app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
   [data-rf-xray-host] {
     flex: 0 0 var(--rf-xray-inline-width, 560px);
     min-width: 320px;
     box-sizing: border-box;
+    position: sticky;
+    top: 0;
+    right: 0;
+    height: 100vh;
     overflow: hidden;
     border-left: 1px solid #2a2a2a;
   }
-  #app { flex: 1; min-width: 0; overflow: auto; }
+  #app { flex: 1; min-width: 0; }
 </style>")
 
 (defonce

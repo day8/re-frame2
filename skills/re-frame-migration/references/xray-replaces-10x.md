@@ -116,13 +116,17 @@ Add a right-side host to the app's HTML and CSS (DOM order: `<main>` first, `<as
 
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var — host stylesheets read var(--rf-xray-accent) to tint dev chrome */
-.app-shell { display: flex; height: 100vh; }
+.app-shell { display: flex; width: fit-content; min-width: 100%; min-height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
+  position: sticky;
+  top: 0;
+  right: 0;
+  height: 100vh;
   overflow: hidden;
 }
-#app { flex: 1; min-width: 0; overflow: auto; }
+#app { flex: 1; min-width: 0; }
 ```
 
 If the host element is missing, Xray logs an actionable `console.error` and exposes the same diagnostic through `window.day8.re_frame2_xray.status()`. It does not silently overlay or dock as a fallback — true-inline is the contract.

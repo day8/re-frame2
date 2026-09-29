@@ -32,25 +32,30 @@ Xray opens as a column on the right of your page. Your page owns the layout; Xra
 
 .app-shell {
   display: flex;
-  height: 100vh;
+  width: fit-content;
+  min-width: 100%;
+  min-height: 100vh;
 }
 
 #app {
   flex: 1;
   min-width: 0;
-  overflow: auto;
 }
 
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  right: 0;
+  height: 100vh;
   overflow: hidden;
   border-left: 1px solid #2a2a2a;
 }
 ```
 
-Your app and Xray scroll independently: the page itself never scrolls, your app's column has its own scrollbars, and Xray scrolls inside its own panel.
+The window scrolls your app, just as it would without Xray, and Xray stays pinned beside it with a scrollbar of its own: scrolling the page never moves Xray, and nothing inside Xray widens the page. Keep the window as your app's scroller, because routing's scroll-to-top and Back restoration act on the window.
 
 The CSS variable sets the starting width. Xray adds its own drag handle, remembers the width you drag it to, and leaves the host alone if you give it native `resize:` behaviour yourself.
 
