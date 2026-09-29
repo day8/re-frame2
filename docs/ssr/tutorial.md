@@ -369,11 +369,12 @@ render the client's view. The trace stream carries a structured error:
 ```clojure
 {:operation :rf.ssr/hydration-mismatch
  :op-type   :error
+ :recovery  :warned-and-replaced               ;; what the runtime did about it
  :tags      {:server-hash "a3f29c01"           ;; the tree the server shipped…
              :client-hash "0b77e4d2"           ;; …vs the client's first render
              :frame       :app
              :failing-id  :rf/hydrate
-             :recovery    :warned-and-replaced}}
+             ,,,}}
 ```
 
 The trace does not say which node diverged

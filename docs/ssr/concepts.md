@@ -297,11 +297,12 @@ The server hashes its render tree and ships the result as `:rf/render-hash` in t
 ```clojure
 {:operation :rf.ssr/hydration-mismatch
  :op-type   :error
+ :recovery  :warned-and-replaced              ;; what the runtime did about it
  :tags      {:server-hash "a3f29c01"          ;; the tree the server shipped…
              :client-hash "0b77e4d2"          ;; …vs the client's first render
              :frame       :app
              :failing-id  :rf/hydrate
-             :recovery    :warned-and-replaced}}
+             ,,,}}
 ```
 
 The default recovery is **warn and replace**: log it and render the client's view, so the user sees a working page. Per-frame strict mode, `:ssr {:on-mismatch :hard-error}`, throws a structured exception instead, for dev and CI. The [tutorial's Step 5](tutorial.md) triggers a mismatch on purpose.
