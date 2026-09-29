@@ -351,6 +351,32 @@
         (is (= :route/cart (:route-id slice))
             "current slice unchanged — preview did NOT mutate the runtime-db route slice")))))
 
+(deftest panel-sim-nav-preview-matches-the-simulate-url-input
+  (testing "the preview's URL and Params rows read the URL typed into
+            Simulate URL, matched against the previewed row's pattern"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test
+                         {:route/article {:path "/articles/:slug"}}]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/articles/intro"]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/article]
+                        {:frame :rf/xray})
+      (rf/dispatch-sync [:rf.xray.static.routes/toggle-sim-nav :route/article]
+                        {:frame :rf/xray})
+      (let [tree   (panel-tree)
+            text   (fn [testid]
+                     (->> (hiccup-seq (find-by-testid tree testid))
+                          (filter string?)
+                          (apply str)))]
+        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-route/article"))
+            "PRECONDITION: the preview is open")
+        (is (= "/articles/intro  (matched)"
+               (text "rf-xray-static-routes-sim-nav-url")))
+        (is (= (pr-str {:slug "intro"})
+               (text "rf-xray-static-routes-sim-nav-params")))))))
+
 ;; ---- (8) cross-link to Dynamic Routing ----------------------------------
 
 (deftest panel-jump-to-dynamic-flips-mode-and-tab

@@ -799,6 +799,25 @@
           (is (some #(= sensitive-work-id (:work-id %)) (:live-work data)))
           (is (contains? (:stale-races data) sensitive-work-id)))))))
 
+(deftest empty-trace-sections-say-they-read-the-trace-buffer
+  (testing "the trace-borne sections read the whole trace buffer, not the
+            focused epoch, so their empty captions say so"
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (seed-overrides!)
+      (let [tree (panel-tree)]
+        (doseq [testid ["rf-xray-resources-timeline-empty"
+                        "rf-xray-resources-invalidation-empty"
+                        "rf-xray-resources-scope-resolution-empty"
+                        "rf-xray-resources-mutation-invalidation-empty"
+                        "rf-xray-resources-continuations-empty"
+                        "rf-xray-resources-optimistic-empty"]]
+          (let [caption (node-text (find-by-testid tree testid))]
+            (is (str/ends-with? caption " in the trace buffer.")
+                (str testid " reads: " (pr-str caption)))
+            (is (not (str/includes? caption "epoch"))
+                (str testid " reads: " (pr-str caption)))))))))
+
 ;; ---- (6) silent state ---------------------------------------------------
 
 (deftest panel-silent-when-no-resources

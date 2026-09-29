@@ -486,6 +486,33 @@
        :from-id    (when (not= from-id to-id) from-id)
        :to-id      to-id})))
 
+(defn refused-navigation-ends
+  "The FROM and TO of a navigation the focused event-bundle ATTEMPTED and a
+  route guard refused, as `{:from-id :to-id}` — nil when the bundle carries
+  no refusal.
+
+  A refusal allocates no nav-token and deactivates nothing, so
+  `from-to-from-event-bundle` finds neither end. The refusal's own trace
+  names them instead:
+
+  - `:rf.route/navigation-blocked` carries the route whose `:can-leave`
+    refused as `:rejecting-route` — the FROM — and the `:requested-url`,
+    which resolves to the TO through the same structural match
+    `simulate-url` runs against `routes-map`;
+  - `:rf.route/entry-denied` carries the route whose `:can-enter` refused
+    as `:rejecting-route` — the TO. It does not name the route the user
+    was on, so FROM is nil.
+
+  Read off the trace, never the live slice, for the reason
+  `from-to-from-event-bundle` gives."
+  [routes-map event-bundle]
+  (if-let [blocked (event-bundle-event-by-op event-bundle :rf.route/navigation-blocked)]
+    {:from-id (get-in blocked [:tags :rejecting-route])
+     :to-id   (:winner (simulate-url routes-map (get-in blocked [:tags :requested-url])))}
+    (when-let [denied (event-bundle-event-by-op event-bundle :rf.route/entry-denied)]
+      {:from-id nil
+       :to-id   (get-in denied [:tags :rejecting-route])})))
+
 ;; ---- row marker assignment ---------------------------------------------
 
 (defn assign-markers
@@ -822,8 +849,12 @@
        :topology   [{:row :depth :last-at-depth? :marker} ...]
                                           ;; the full route tree, depth-decorated
        :current    <route-slice>          ;; the active :rf/route slice
-       :from-id    <route-id-or-nil>      ;; nav origin this epoch
-       :to-id      <route-id-or-nil>      ;; nav destination this epoch
+       :from-id    <route-id-or-nil>      ;; nav origin this epoch — or, for
+                                          ;;   a refused nav, the route that
+                                          ;;   stayed
+       :to-id      <route-id-or-nil>      ;; nav destination this epoch — or,
+                                          ;;   for a refused nav, the route
+                                          ;;   it asked for
        :navigated? <bool>                 ;; true iff focused event-bundle navigated
        :activity   <map-or-nil>}          ;; per-epoch routing activity
                                           ;; (phase + events + match);
@@ -835,7 +866,10 @@
   origin, `:here` for the current route when no navigation happened
   this epoch). The view paints the topology unconditionally so the
   operator's mental map of the registered routes stays stable across
-  epoch focus changes.
+  epoch focus changes. A refused navigation names its ends
+  (`refused-navigation-ends`) for the navigation row only: the app never
+  moved, so no row takes a `:to` or `:from` marker and the current route
+  keeps `:here`.
 
   `focused-slice` is the focused epoch's post-state route slice, projected
   for on-box render; it only ever supplies the navigation's params (see
@@ -846,6 +880,8 @@
    (let [topology       (project-topology routes-map)
          silent?        (empty? topology)
          nav            (from-to-from-event-bundle focused-event-bundle)
+         refused        (when-not (:navigated? nav)
+                          (refused-navigation-ends routes-map focused-event-bundle))
          marker-input   (assoc nav :current-id (:route-id current-slice))
          decorated      (mapv (fn [{:keys [row] :as entry}]
                                 (let [marked-row (first
@@ -861,7 +897,7 @@
      {:silent?    silent?
       :topology   decorated
       :current    current-slice
-      :from-id    (:from-id nav)
-      :to-id      (:to-id nav)
+      :from-id    (or (:from-id nav) (:from-id refused))
+      :to-id      (or (:to-id nav) (:to-id refused))
       :navigated? (:navigated? nav)
       :activity   activity})))

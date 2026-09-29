@@ -89,7 +89,7 @@
   [dispatch
    {:keys [route-id path doc parent has-on-match? has-can-leave? tags meta]
     :as row}
-   {:keys [expanded? sim-open? routes-map on-toggle]}]
+   {:keys [expanded? sim-open? routes-map sim-url on-toggle]}]
   [:li {:data-testid (str "rf-xray-static-routes-row-"
                           (subs (pr-str route-id) 1))
         :role        "listitem"
@@ -165,17 +165,18 @@
    (when expanded?
      [row-expand/render dispatch row
       {:sim-open?  sim-open?
-       :routes-map routes-map}])])
+       :routes-map routes-map
+       :sim-url    sim-url}])])
 
 (defn render
   "Top-level renderer for the flat-list area of the Static Routes
   panel. `data` is the projection from
   `routing-helpers/project-static-data`; `expanded` is the set of
   expanded row ids; `sim-open` is the set of route-ids whose
-  hermetic preview is open; `routes-map` is threaded through for the
-  preview projection."
+  hermetic preview is open; `routes-map` and the Simulate-URL input
+  (`data`'s `:sim-url`) are threaded through for the preview projection."
   [dispatch
-   {:keys [silent? routes total-routes filtered? query] :as _data}
+   {:keys [silent? routes total-routes filtered? query sim-url] :as _data}
    {:keys [expanded sim-open routes-map]}]
   ;; `dispatch` is the frame-aware dispatcher threaded from
   ;; the routes `Panel` boundary (this subtree renders as a Reagent
@@ -208,6 +209,7 @@
                  {:expanded?  (contains? expanded (:route-id row))
                   :sim-open?  (contains? sim-open (:route-id row))
                   :routes-map routes-map
+                  :sim-url    sim-url
                   :on-toggle  (fn [_]
                                 (dispatch [:rf.xray.static.routes/toggle-row
                                            (:route-id row)]))}]])))]))

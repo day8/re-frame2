@@ -9,7 +9,7 @@
   It surfaces a preview of what would land:
 
     - matched params (derived from the row's pattern + the optional
-      URL from the row's simulate-URL input);
+      URL from the panel's Simulate-URL input);
     - the registered `:on-match` event vector;
     - the expected runtime-db route slice
       (`[:rf.runtime/routing :current ...]`, EP-0001 — the
@@ -51,7 +51,7 @@
 
 (defn preview
   "Render the hermetic Simulate-navigation preview for `route-id`. The
-  optional `url` is the row's local Simulate-URL input — when present
+  optional `url` is the panel's Simulate-URL input — when present
   the preview shows matched params (when the URL actually matches the
   row's pattern); when absent the preview shows the route's
   registered shape (path / on-match / db-slot).

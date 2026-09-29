@@ -836,6 +836,65 @@
               "PRECONDITION: the app has since left the route")
           (is (nil? (:match (h/epoch-routing-activity bundle-1 live-other after-1)))))))))
 
+;; ---- a REFUSED navigation's ends ----------------------------------------
+
+(def ^:private guarded-route-id
+  "Route ids this row alone registers (see `nav-route-id`)."
+  :routing-helpers-test/guarded)
+(def ^:private open-route-id :routing-helpers-test/open)
+(def ^:private members-route-id :routing-helpers-test/members)
+
+(defn- refused-bundle!
+  "Navigate to `route-id` for real and return the `:rf.route/navigate`
+  event-bundle, projected from its captured trace by `group-by-event`."
+  [route-id]
+  (with-trace-recorder! [traces]
+    (rf/dispatch-sync [:rf.route/navigate {:to route-id}])
+    (->> (rf.trace.projection/group-by-event @traces)
+         (filter #(= :rf.route/navigate (first (:event %))))
+         first)))
+
+(deftest project-topology-data-names-the-ends-of-a-refused-navigation
+  (testing "a guard-refused navigation allocates no nav-token and deactivates
+            nothing, so the row read '— ──► —'. Its ends come off the refusal
+            trace the router emits. Producer-derived: real routes, real
+            guards, real navigations"
+    (rf/reg-sub ::leave-ok? (fn [db _] (not (::dirty? db))))
+    (rf/reg-sub ::enter-ok? (fn [_ _] false))
+    (rf/reg-event ::dirty (fn [{:keys [db]} _] {:db (assoc db ::dirty? true)}))
+    (rf/reg-route guarded-route-id {:can-leave ::leave-ok?} "/refused-test/guarded")
+    (rf/reg-route open-route-id {} "/refused-test/open")
+    (rf/reg-route members-route-id {:can-enter ::enter-ok?} "/refused-test/members")
+    (rf/dispatch-sync [:rf.route/navigate {:to guarded-route-id}])
+    (let [routes  (rf/registrations {:source :store :kind :route})
+          current #(get-in (rf.frame/frame-runtime-db-value :rf/default)
+                           [:rf.runtime/routing :current])
+          marker  (fn [data id]
+                    (some #(when (= id (-> % :row :route-id)) (:marker %))
+                          (:topology data)))]
+      (testing "entry denied: the TO is the route whose :can-enter refused"
+        (let [data (h/project-topology-data routes (current)
+                                            (refused-bundle! members-route-id))]
+          (is (= :entry-denied (get-in data [:activity :phase]))
+              "PRECONDITION: the navigation was denied")
+          (is (= members-route-id (:to-id data)))
+          (is (nil? (:from-id data)) "the denial trace does not name the start")))
+      (rf/dispatch-sync [::dirty])
+      (testing "blocked: FROM is the route whose :can-leave refused, TO the
+                route the requested URL resolves to"
+        (let [data (h/project-topology-data routes (current)
+                                            (refused-bundle! open-route-id))]
+          (is (= :navigation-blocked (get-in data [:activity :phase]))
+              "PRECONDITION: the navigation was blocked")
+          (is (= guarded-route-id (:route-id (current)))
+              "PRECONDITION: the app stayed where it was")
+          (is (= guarded-route-id (:from-id data)))
+          (is (= open-route-id (:to-id data)))
+          (is (false? (:navigated? data)))
+          (testing "and marks no table row: the app never moved"
+            (is (nil? (marker data open-route-id)))
+            (is (= :here (marker data guarded-route-id)))))))))
+
 ;; ---- project-topology-data composite ----------------------------------
 
 (deftest project-topology-data-silent-test

@@ -170,9 +170,10 @@
 (defn render
   "Render the per-row expand surface for `row` (a routing-helpers
   catalogue row). `sim-open?` is true when the hermetic preview is
-  toggled open; `routes-map` is threaded down for the preview
-  projection."
-  [dispatch row {:keys [sim-open? routes-map]}]
+  toggled open; `routes-map` and `sim-url` — the panel's Simulate-URL
+  input, the URL the preview matches against this row's pattern — are
+  threaded down for the preview projection."
+  [dispatch row {:keys [sim-open? routes-map sim-url]}]
   (let [{:keys [route-id path doc meta on-match-event]} row
         on-match (or on-match-event (:on-match meta))
         params   (:params meta)
@@ -241,4 +242,4 @@
                   (str "static-routes/" (subs (pr-str route-id) 1) "/meta")
                   meta)
      (when sim-open?
-       [sim-nav/preview routes-map route-id nil])]))
+       [sim-nav/preview routes-map route-id sim-url])]))
