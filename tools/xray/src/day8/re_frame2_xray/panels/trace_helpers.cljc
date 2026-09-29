@@ -58,6 +58,7 @@
   per-row payload-expand affordance is the drill-down. Show every op,
   no default narrowing (spec/023 §2 completeness-first)."
   (:require [clojure.string :as str]
+            [day8.re-frame2-xray.filters.typed-predicates :as typed]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as diff-h]
             [day8.re-frame2-xray.panels.common-helpers :as common]
             [day8.re-frame2-xray.panels.epoch.badge :as epoch-badge]
@@ -1326,6 +1327,32 @@
    (project-feed-from-epoch* epoch-record focus-status
                              (fn [record]
                                (db-changed-diff-triples record observed-frame)))))
+
+(defn project-feed-from-ungrouped
+  "The feed for a focus pinning the `:ungrouped` pseudo-bundle — the
+  traces fired outside any event, a hydration mismatch among them.
+
+  That bundle settles no epoch, so there is no record to project. Its
+  rows are the bundle's own trace events in fire order, projected by the
+  same `project-rows` an epoch's are, so each renders as any Trace row
+  does and expands to its raw trace map, tags included. With no epoch
+  there is no db pair, so no row carries a per-path diff, and `:epoch-id`
+  is nil.
+
+  Same shape as `project-feed-from-epoch`. Pure data → data."
+  [event-bundle]
+  (let [rows (with-rel-times
+               (project-rows (sort-by :id (typed/event-bundle-trace-events event-bundle))))
+        {:keys [envelope outcome bands]} (build-bands rows)
+        n    (count rows)]
+    {:rows       rows
+     :envelope   envelope
+     :outcome    outcome
+     :bands      bands
+     :total      n
+     :rendered   n
+     :epoch-id   nil
+     :empty-kind (when (zero? n) :no-events)}))
 
 ;; ---- React keys ---------------------------------------------------------
 
