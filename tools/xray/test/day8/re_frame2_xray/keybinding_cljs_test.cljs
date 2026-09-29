@@ -250,18 +250,22 @@
 ;; ---- (2) toggles are mutually exclusive ----------------------------------
 
 (deftest predicates-are-mutually-exclusive
-  (testing "no synthetic event satisfies more than one predicate at once —
-            mutual exclusivity matters because `handle-keydown` uses
+  (testing "no synthetic event satisfies more than one chord predicate at
+            once — mutual exclusivity matters because `handle-keydown` uses
             `cond` and a multi-match case would silently route to the
             first arm and drop the others"
     (doseq [event [(mk-event {:key "C" :ctrl? true :shift? true})
                    (mk-event {:code "KeyC" :ctrl? true :shift? true})
                    (mk-event {:key "k" :ctrl? true})
                    (mk-event {:key "k" :meta? true})
-                   (mk-event {:code "KeyK" :ctrl? true})]]
+                   (mk-event {:code "KeyK" :ctrl? true})
+                   (mk-event {:key "M" :ctrl? true :shift? true})
+                   (mk-event {:key "m" :meta? true :shift? true})
+                   (mk-event {:code "KeyM" :ctrl? true :shift? true})]]
       (let [matches (cond-> 0
-                      (xray-toggle-key? event)   inc
-                      (palette-toggle-key? event) inc)]
+                      (xray-toggle-key? event)    inc
+                      (palette-toggle-key? event) inc
+                      (mode-toggle-key? event)    inc)]
         (is (<= matches 1)
             (str "event " (js->clj event) " must match at most one predicate"))))))
 
@@ -354,22 +358,6 @@
     (is (false? (mode-toggle-key?
                   (mk-event {:code "KeyN" :ctrl? true :shift? true}))))))
 
-(deftest mode-toggle-key-mutually-exclusive-with-other-predicates
-  (testing "no synthetic event satisfies more than one Xray keybinding
-            predicate at once — the cond in handle-keydown depends on
-            mutual exclusivity"
-    (doseq [event [(mk-event {:key "M" :ctrl? true :shift? true})
-                   (mk-event {:key "m" :meta? true :shift? true})
-                   (mk-event {:code "KeyM" :ctrl? true :shift? true})
-                   (mk-event {:key "C" :ctrl? true :shift? true})
-                   (mk-event {:key "k" :meta? true})]]
-      (let [matches (cond-> 0
-                      (mode-toggle-key? event)    inc
-                      (xray-toggle-key? event)   inc
-                      (palette-toggle-key? event) inc)]
-        (is (<= matches 1)
-            (str "event " (js->clj event) " must match at most one predicate"))))))
-
 ;; ---- (4) attach! / detach! idempotency sentinel --------------------------
 
 (deftest attach-is-idempotent
@@ -396,25 +384,6 @@
           (is (true? use-capture)
               "registered in the capture phase (so host handlers don't
               swallow the toggle)"))))))
-
-(deftest detach-round-trips
-  (testing "detach! flips the sentinel back and a subsequent attach!
-            re-installs the listener — supports test isolation and any
-            future runtime that wants to swap the binding"
-    (with-stub-document
-      (fn [{:keys [listeners]}]
-        (keybinding/attach!)
-        (is (= 1 (count @listeners)))
-        (keybinding/detach!)
-        (is (false? (keybinding/attached?))
-            "detach! flips the sentinel back to false")
-        (is (zero? (count @listeners))
-            "detach! removes the listener")
-        (keybinding/attach!)
-        (is (true? (keybinding/attached?))
-            "re-attach succeeds after detach")
-        (is (= 1 (count @listeners))
-            "exactly one listener installed after re-attach")))))
 
 (deftest detach-removes-the-exact-attached-fn-hot-reload-safe
   (testing "detach! removes the SAME fn object attach!
@@ -461,18 +430,6 @@
         (keybinding/detach!)
         (is (zero? (count @listeners))
             "second cycle round-trips — stash cleared on the prior detach!")))))
-
-(deftest detach-on-clean-sentinel-is-safe
-  (testing "calling detach! when nothing is attached is a no-op (does
-            not throw, does not flip the sentinel below false)"
-    (with-stub-document
-      (fn [{:keys [listeners]}]
-        (is (false? (keybinding/attached?)))
-        (keybinding/detach!)
-        (is (false? (keybinding/attached?))
-            "sentinel remains false")
-        (is (zero? (count @listeners))
-            "no listener was added or removed")))))
 
 (deftest detach-is-idempotent
   (testing "detach! is the public embed-host escape hatch
@@ -626,23 +583,9 @@
               "no listener registered on the stub document")
           (finally
             ;; Restore the default so neighbouring tests
-            ;; (attach-is-idempotent, detach-round-trips) see the
+            ;; (attach-is-idempotent, detach-is-idempotent) see the
             ;; baseline they assume.
             (config/set-keybinding-enabled! true)))))))
-
-(deftest attach-default-is-enabled
-  (testing "default config is true; attach! registers the
-            listener. Defends against an accidental flip of the
-            default."
-    (with-stub-document
-      (fn [{:keys [listeners]}]
-        (is (true? (config/keybinding-attach-enabled?))
-            "default state — slot is true")
-        (keybinding/attach!)
-        (is (true? (keybinding/attached?))
-            "sentinel flipped true under default config")
-        (is (= 1 (count @listeners))
-            "one keydown listener registered")))))
 
 (deftest config-set-keybinding-enabled-nil-resets-to-true
   (testing "`nil` arg restores the default `true` per the

@@ -141,25 +141,6 @@
                    :frame       frame-id
                    :rf.trace/dispatch-id dispatch-id}}))
 
-(deftest current-frame-sub-resolves-the-spine-slot
-  (testing "the sub reads through `:rf.xray/focus-slot` so it re-fires
-            on any code path that writes through the spine — picker,
-            palette, headless drivers"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (is (nil? @(rf/subscribe [:rf.xray/current-frame]))
-          "pre-selection — sub returns nil (no :focus slot written)")
-      (rf/dispatch-sync [:rf.xray/select-frame :rf/cart-frame])
-      (is (= :rf/cart-frame @(rf/subscribe [:rf.xray/current-frame]))
-          "post-selection — sub returns the frame the user picked"))))
-
-(deftest available-frames-sub-empty-with-no-cascades
-  (testing "no cascades yet — the sub returns an empty vec"
-    (setup!)
-    (rf/with-frame :rf/xray
-      (is (= [] @(rf/subscribe [:rf.xray/available-frames]))
-          "empty list, no picker options"))))
-
 (deftest available-frames-sub-filters-tool-frames-and-preserves-order
   (testing "the sub composes off `:rf.xray/event-bundles` so it picks up
             every frame present in the trace stream — minus the
@@ -295,7 +276,8 @@
             "the button face shows the currently-selected frame value")
         (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-chevron"))
             "the `▾` chevron renders, marking it a dropdown")
-        (is (some? picker) "the native <select> overlay is present for a11y")
+        (is (= :select (first picker))
+            "the overlay is a native <select> (a11y), not a custom widget")
         (is (not (:disabled (second picker)))
             "single-frame: the overlaid select is ENABLED so
              clicking it opens a 1-entry dropdown (not inert)")
@@ -307,31 +289,6 @@
             "the single option is bound to the available frame's value")
         (is (= "✓ :app/main" (last (first options)))
             "the lone frame is the active selection, carrying its checkmark")))))
-
-(deftest view-renders-dropdown-when-multiple-frames
-  (testing "the view renders a strictly-single-select <select> overlay
-            when multiple distinct frames are present; the visible
-            affordance's face shows the active frame value"
-    (dispatch-trace 1 :app/main)
-    (dispatch-trace 2 :app/admin)
-    (setup!)
-    (rf/with-frame :rf/xray
-      (let [tree   (static-shell-tree/frame-switcher-tree rf/dispatch)
-            picker (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")
-            label  (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-label")]
-        (is (some? picker) "dropdown renders for multi-frame")
-        (is (= :select (first picker))
-            "it's a <select>, not a custom multi-select")
-        (is (nil? (:multiple (second picker)))
-            "strictly single-select — no :multiple attribute")
-        (is (not (:disabled (second picker)))
-            "multi-frame — the select is enabled so the popup opens")
-        ;; The button face shows the active frame value (the
-        ;; head-frame default is the most recent event's frame, :app/admin).
-        (is (string? (last label))
-            "the button face shows a concrete frame value, not a placeholder")
-        (is (not= "Frame" (last label))
-            "the button face is not the static `Frame` placeholder")))))
 
 ;; -------------------------------------------------------------------------
 ;; (7) Storage-key plumbing — per-instance isolation

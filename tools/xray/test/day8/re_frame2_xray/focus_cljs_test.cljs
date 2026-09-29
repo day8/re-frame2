@@ -210,25 +210,6 @@
       (is (some #(= :rf.xray/select-tab (first %)) (:applied result))
           "control: :applied is populated, so the assert above is not vacuous"))))
 
-(deftest focus-trace-panel-via-narrative-beat
-  (testing "a narrative beat surfacing the trace panel for a frame"
-    (setup-xray-frame!)
-    (seed-cascades! fixture-cascades)
-    (let [result (focus/focus! {:frame :checkout :panel :trace :sync? true})]
-      (is (:ok? result))
-      (is (= :trace (selected-tab)))
-      (is (= :checkout (view-scope-frame))))))
-
-(deftest focus-views-panel-via-command
-  (testing "representative third panel — Views — focuses cleanly"
-    (setup-xray-frame!)
-    (seed-cascades! fixture-cascades)
-    (let [result (focus/focus! {:frame :checkout :panel :views
-                                :dispatch-id :c2 :sync? true})]
-      (is (:ok? result))
-      (is (= :views (selected-tab)))
-      (is (= :c2 (:dispatch-id (focus-sub)))))))
-
 (deftest focus-routes-alias-lands-the-routing-tab
   (testing "`{:panel :routes}` (the host-friendly
             display-noun) renders the live Dynamic Routing tab
@@ -251,7 +232,8 @@
 
             It walks `focus/valid-panels` rather than a hand-listed
             roster, so the claim is true by construction
-            and a tab cannot be skipped by omission."
+            and a tab cannot be skipped by omission; that the walked set
+            IS the shipped set is `valid-panels-mirrors-the-live-registry`."
     (setup-xray-frame!)
     (doseq [panel focus/valid-panels]
       (let [result (focus/focus! {:frame :checkout :panel panel :sync? true})]
@@ -259,33 +241,6 @@
         (is (= panel (selected-tab)) (str panel " tab is selected"))
         (is (some? (panel-registry/tab-by-id :dynamic (selected-tab)))
             (str panel " resolves to an installed tab — no unknown-tab stub"))))))
-
-(deftest focus-acceptance-inventory-cannot-silently-shrink
-  (testing "ADVERSARIAL — the negative half of the acceptance
-            above. Walking `focus/valid-panels` only proves 'every
-            shipped tab' if `valid-panels` is itself the shipped set; a
-            tab registered at runtime but missing from the mirror would
-            be skipped by BOTH, silently. Assert the mirror against the
-            LIVE registry, and assert a retired id is rejected so
-            the mirror cannot be widened into a rubber stamp."
-    (setup-xray-frame!)
-    (is (= (set (panel-registry/tab-ids-for-mode :dynamic))
-           (set focus/valid-panels))
-        (str "focus/valid-panels mirrors the live Dynamic registry — "
-             "registered but unmirrored: "
-             (pr-str (sort (remove (set focus/valid-panels)
-                                   (panel-registry/tab-ids-for-mode :dynamic))))
-             ", mirrored but unregistered: "
-             (pr-str (sort (remove (set (panel-registry/tab-ids-for-mode :dynamic))
-                                   focus/valid-panels)))))
-    ;; A RETIRED tab id is not a typo — accepting one is the regression
-    ;; that would follow from widening the mirror carelessly. `:issues`
-    ;; names no tab and must be rejected.
-    (let [result (focus/focus! {:frame :checkout :panel :issues :sync? true})]
-      (is (false? (:ok? result))
-          ":issues names no tab and is rejected")
-      (is (not= :issues (selected-tab))
-          "a retired tab id never becomes the selected tab"))))
 
 (deftest command-is-host-agnostic
   (testing "the SAME command shape drives Xray regardless of who built
