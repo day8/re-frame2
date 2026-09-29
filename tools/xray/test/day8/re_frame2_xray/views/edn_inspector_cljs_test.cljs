@@ -229,45 +229,27 @@
 
 ;; ---- scalar rendering ----------------------------------------------------
 
-(deftest scalar-keyword-uses-syntax-keyword
-  ;; Keywords paint via `:syntax-keyword` (magenta), NOT `:accent`
-  ;; (chrome blue), so the scalar types do not crowd into one blue
-  ;; family.
-  (let [h (ei/render-scalar :foo)]
-    (is (= :span (first h)))
-    (is (= (:syntax-keyword tokens) (-> h second :style :color)))
-    (is (= ":foo" (collect-text h)))))
-
-(deftest scalar-string-uses-syntax-string-and-quotes
-  (let [h (ei/render-scalar "hello")]
-    (is (= (:syntax-string tokens) (-> h second :style :color)))
-    (is (= "\"hello\"" (collect-text h)))))
-
-(deftest scalar-number-uses-syntax-number
-  (let [h (ei/render-scalar 42)]
-    (is (= (:syntax-number tokens) (-> h second :style :color)))
-    (is (= "42" (collect-text h)))))
-
-(deftest scalar-boolean-distinct-from-number
+(deftest scalar-leaves-paint-their-syntax-token
+  ;; Each scalar kind paints through its own `:syntax-*` token and prints
+  ;; its own text. Keywords are magenta, NOT `:accent` chrome blue, so the
+  ;; scalar types do not crowd into one blue family; nil is a deliberately
+  ;; muted grey, because absence reads as faded.
+  (doseq [[v token text] [[:foo    :syntax-keyword ":foo"]
+                          ["hello" :syntax-string  "\"hello\""]
+                          [42      :syntax-number  "42"]
+                          [nil     :syntax-nil     "nil"]
+                          ['sym    :syntax-symbol  "sym"]]]
+    (let [h (ei/render-scalar v)]
+      (is (= (get tokens token) (-> h second :style :color))
+          (str (pr-str v) " paints via " token))
+      (is (= text (collect-text h))
+          (str (pr-str v) " prints as " text))))
   (let [h-true (ei/render-scalar true)
         h-num  (ei/render-scalar 1)]
     (is (= "true" (collect-text h-true)))
     (is (not= (-> h-true second :style :color)
               (-> h-num  second :style :color))
         "boolean and number must use DIFFERENT theme tokens")))
-
-(deftest scalar-nil-uses-syntax-nil
-  ;; nil paints via its own dedicated `:syntax-nil` token
-  ;; (deliberately muted grey, "absence" reads as faded).
-  (let [h (ei/render-scalar nil)]
-    (is (= (:syntax-nil tokens) (-> h second :style :color)))
-    (is (= "nil" (collect-text h)))))
-
-(deftest scalar-symbol-uses-syntax-symbol
-  ;; Symbols paint via `:syntax-symbol` (blue), distinct
-  ;; from the magenta used for keywords.
-  (let [h (ei/render-scalar 'sym)]
-    (is (= (:syntax-symbol tokens) (-> h second :style :color)))))
 
 (deftest scalar-fn-renders-with-italic
   (let [h (ei/render-scalar (fn [x] x))]
@@ -314,45 +296,25 @@
       (= mx b)                                        :blue
       :else                                           :grey)))
 
-(deftest scalar-hue-families-span-at-least-four-dark
-  ;; Five scalar tokens span ≥4 hue families
-  ;; in the dark palette. Renames are token-keyword level; this asserts
-  ;; the actual hex values.
-  (let [families (set (map #(dominant-channel (get dark-palette %))
-                           [:syntax-keyword :syntax-string :syntax-number
-                            :syntax-boolean :syntax-nil]))]
-    (is (>= (count families) 4)
-        (str "5 scalar types must span ≥4 hue families; got " families))
-    (is (not= families #{:blue})
-        "no monochrome blue palette")
-    (is (contains? families :grey)
-        "nil reads as deliberately muted grey")))
-
-(deftest scalar-hue-families-span-at-least-four-light
-  ;; Light-theme mirror. Same contract.
-  (let [families (set (map #(dominant-channel (get light-palette %))
-                           [:syntax-keyword :syntax-string :syntax-number
-                            :syntax-boolean :syntax-nil]))]
-    (is (>= (count families) 4)
-        (str "5 scalar types must span ≥4 hue families; got " families))
-    (is (not= families #{:blue})
-        "no monochrome blue palette")))
-
-(deftest no-two-scalar-tokens-share-the-same-blue-family
-  ;; The specific collision: keyword, number and string all in the blue
-  ;; family. Guard against introducing it.
+(deftest scalar-hue-families-stay-distinct-in-both-palettes
+  ;; In each palette the five scalar tokens span ≥4 hue families, and at
+  ;; most one sits in the blue family — the collision to guard against is
+  ;; keyword, number and string all reading blue. Renames are token-keyword
+  ;; level; this asserts the actual hex values.
   (let [scalar-keys [:syntax-keyword :syntax-string :syntax-number
                      :syntax-boolean :syntax-nil]
-        dark-blues  (filter #(= :blue (dominant-channel (get dark-palette %)))
-                            scalar-keys)
-        light-blues (filter #(= :blue (dominant-channel (get light-palette %)))
-                            scalar-keys)]
-    (is (<= (count dark-blues) 1)
-        (str "≤1 dark-palette scalar may be in the blue family; got "
-             (vec dark-blues)))
-    (is (<= (count light-blues) 1)
-        (str "≤1 light-palette scalar may be in the blue family; got "
-             (vec light-blues)))))
+        families-of (fn [palette]
+                      (set (map #(dominant-channel (get palette %)) scalar-keys)))]
+    (doseq [[label palette] [[:dark dark-palette] [:light light-palette]]]
+      (let [families (families-of palette)
+            blues    (filter #(= :blue (dominant-channel (get palette %)))
+                             scalar-keys)]
+        (is (>= (count families) 4)
+            (str label ": 5 scalar types must span ≥4 hue families; got " families))
+        (is (<= (count blues) 1)
+            (str label ": ≤1 scalar may be in the blue family; got " (vec blues)))))
+    (is (contains? (families-of dark-palette) :grey)
+        "nil reads as deliberately muted grey")))
 
 (deftest scalar-tokens-are-defined-in-both-palettes
   ;; Every scalar token must exist in both palettes — the theme toggle
@@ -410,10 +372,15 @@
 
 ;; ---- inline-preview-string -----------------------------------------------
 
-(deftest inline-preview-map-all-fit
-  (testing "small map fits inline as `{:a 1, :b 2}`"
-    (is (= "{:a 1, :b 2}"
-           (ei/inline-preview-string {:a 1 :b 2} 3 80)))))
+(deftest inline-preview-small-collections
+  ;; A sequential collection is SPACE-separated (`[1 2 3]`), matching
+  ;; canonical EDN print spacing; commas are reserved for map entries.
+  (is (= "{:a 1, :b 2}" (ei/inline-preview-string {:a 1 :b 2} 3 80))
+      "a small map fits inline")
+  (is (= "[1 2 3]" (ei/inline-preview-string [1 2 3] 3 80))
+      "a vector of exactly max-elements fits whole")
+  (is (re-find #"…" (ei/inline-preview-string [1 2 3 4 5] 3 80))
+      "a vector with more elements than max-elements gets `…`"))
 
 (deftest inline-preview-map-overflow-fallback
   (testing "map that doesn't fit shows a partial OR `{…N keys}` fallback"
@@ -429,23 +396,11 @@
       (is (re-find #"…" s)
           "overflow output must signal incompleteness with `…`"))))
 
-(deftest inline-preview-vector
-  ;; A sequential collection is SPACE-separated (`[1 2 3]`),
-  ;; matching canonical EDN print spacing; commas are reserved for map
-  ;; entries.
-  (is (= "[1 2 3]"
-         (ei/inline-preview-string [1 2 3] 3 80))))
-
 (deftest inline-preview-set
   (let [s   (ei/inline-preview-string #{:a :b} 3 80)]
     ;; Set iteration order is unspecified; assert shape.
     (is (re-find #"^#\{" s))
     (is (re-find #"\}$" s))))
-
-(deftest inline-preview-vector-with-more
-  (testing "vector with more elements than max-elements gets `…`"
-    (let [s (ei/inline-preview-string [1 2 3 4 5] 3 80)]
-      (is (re-find #"…" s)))))
 
 ;; ---- bracket styling -----------------------------------------------------
 
@@ -457,7 +412,10 @@
   (is (= "#{" (-> ei/delim :set      :open)) "set opens with #{")
   (is (= "("  (-> ei/delim :list     :open)) "list opens with (")
   (is (= "["  (-> ei/delim :map-entry :open)) "map-entry uses [ chars")
-  (testing "map-entry brackets use a DIFFERENT colour token than vector"
+  (testing "map-entry brackets share a vector's chars but read in `:accent`,
+            where a vector's read in `:text-secondary`"
+    (is (= :accent         (-> ei/delim :map-entry :tone-key)))
+    (is (= :text-secondary (-> ei/delim :vector    :tone-key)))
     (is (not= (-> ei/delim :vector :tone-key)
               (-> ei/delim :map-entry :tone-key))
         "map-entry and vector share chars but MUST use distinct colours")))
@@ -566,7 +524,7 @@
     ;; No toggle glyph for empty collections.
     (is (not (re-find #"▸|▾" text)))))
 
-(deftest render-node-map-default-expanded
+(deftest render-node-small-map-renders-every-entry-inline
   ;; default-expanded-depth = 2 → depth 0 should be expanded.
   (let [h (ei/render-node {:value {:a 1 :b 2}
                            :panel-id :p
@@ -723,7 +681,7 @@
   (when (and (string? s) (re-find #"^\d+(\.\d+)?px$" s))
     (js/parseFloat s)))
 
-(deftest triangle-style-pins-min-target-to-24px-in-both-axes
+(deftest triangle-style-sizes-the-glyph-and-a-24px-hit-box
   (testing "the shared triangle-style declares ≥24px min-
             width AND min-height so the computed hit-box meets the
             comfortable-mouse-target threshold"
@@ -740,15 +698,11 @@
     (is (= "center"  (:align-items     ei/triangle-style))
         "glyph centred vertically inside the hit-box")
     (is (= "center"  (:justify-content ei/triangle-style))
-        "glyph centred horizontally inside the hit-box")))
-
-(deftest triangle-style-font-size-is-22px
-  (testing "triangle glyph font-size is 22px, inside the preferred
-            22-24px band: 14px is hit-box-adequate but reads as
-            hairline against the inspector chrome."
-    (is (= "22px" (:font-size ei/triangle-style))
-        "triangle glyph renders at 22px so the eye registers it as the
-         primary expand/collapse affordance, not a hairline accent")))
+        "glyph centred horizontally inside the hit-box"))
+  (testing "the glyph font-size is 22px, inside the preferred 22-24px
+            band: 14px is hit-box-adequate but reads as hairline against
+            the inspector chrome"
+    (is (= "22px" (:font-size ei/triangle-style)))))
 
 (deftest collapsed-triangle-uses-shared-triangle-style
   ;; Force a default-collapsed render (large map at depth past
@@ -896,9 +850,13 @@
         (is (= "8px" (:column-gap s))
             "key→value separation is the canonical 8px (gap-2 step)")
         (is (= "baseline" (:align-items s))
-            "key + value baselines align per row")))))
+            "key + value baselines align per row")
+        (is (= "0" (:row-gap s))
+            "row-gap 0 keeps the workstation-dense layout: column
+             alignment and inline composition leave vertical density
+             alone")))))
 
-(deftest map-body-row-emits-key-and-value-as-direct-grid-children
+(deftest map-body-emits-a-key-cell-and-a-value-cell-per-row
   (testing "each row contributes two direct grid children
             (key cell + value cell) so the grid resolves columns
             across rows. NOT wrapped in a per-row flex container."
@@ -977,20 +935,6 @@
       (is (= 6 (count direct-children))
           "3 rows × (key + value) = 6 direct grid cells"))))
 
-(deftest map-body-row-gap-is-zero-for-density
-  (testing "row-gap is 0 so the inspector keeps a
-            workstation-dense layout: column alignment and inline
-            composition leave vertical density alone."
-    (let [v {:a 1 :b 2 :c 3 :d 4}
-          k0 (ei/expansion-key :p "m" [])
-          h  (ei/render-node {:value v
-                              :panel-id :p :mount-id "m"
-                              :path [] :depth 0
-                              :expansion-map {k0 {:expanded? true}}
-                              :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")]
-      (is (= "0" (-> body second :style :row-gap))))))
-
 ;; ---- toggle handler shape ------------------------------------------------
 
 (deftest toggle-handler-dispatches-canonical-event
@@ -1067,13 +1011,9 @@
 ;; `:site-id`. The expansion-key's second component reads `:site-id`
 ;; when supplied, falling back to auto-mount-id when omitted.
 
-(deftest edn-inspector-public-widget-routes-site-id-to-render-key
-  ;; The public widget threads `:site-id` (when present) into the
-  ;; `mount-id` slot of every render-node descent so the toggle handler
-  ;; dispatches against the stable id, NOT the auto-mount-id. Verified
-  ;; by mounting the widget twice with the SAME site-id and a value
-  ;; that needs expansion; the testid carrying the stable id must
-  ;; appear on both renders.
+(deftest edn-inspector-container-carries-the-site-id-attr
+  ;; A supplied `:site-id` is published on the outer container, beside
+  ;; the auto-mount-id.
   (let [outer (ei/edn-inspector {:a 1 :b 2 :c 3 :d 4} {:panel-id :p
                                                       :site-id  [:my-site "x"]
                                                       :default-expanded-depth 0})
@@ -1146,38 +1086,19 @@
     (is (re-find #"▸" (collect-text h2)) "mount-2 reads :expanded? false")
     (is (not (re-find #"▾" (collect-text h2))) "mount-2 does NOT show ▾")))
 
-;; ---- map-entry distinction -----------------------------------------------
-
-(deftest map-entry-bracket-tone-distinct-from-vector
-  (testing "map-entry uses :accent tone; vector uses :text-secondary"
-    (is (= :accent          (-> ei/delim :map-entry :tone-key)))
-    (is (= :text-secondary  (-> ei/delim :vector    :tone-key)))
-    (is (not= (-> ei/delim :vector :tone-key)
-              (-> ei/delim :map-entry :tone-key)))))
-
 ;; ---- mini one-liner ------------------------------------------------------
 
-(deftest mini-scalar-keyword
-  (let [h (ei/mini :foo)
-        all (collect-text h)]
-    (is (re-find #":foo" all))))
-
-(deftest mini-map-shows-inline-preview
-  (let [h (ei/mini {:a 1 :b 2} 80)
-        all (collect-text h)]
+(deftest mini-one-liner-renders-scalars-maps-and-sentinels
+  (is (re-find #":foo" (collect-text (ei/mini :foo))))
+  (let [all (collect-text (ei/mini {:a 1 :b 2} 80))]
     (is (re-find #":a" all))
-    (is (re-find #":b" all))))
+    (is (re-find #":b" all)))
+  (is (re-find #"redacted" (collect-text (ei/mini :rf/redacted)))))
 
-(deftest mini-sentinel-redacted
-  (let [h (ei/mini :rf/redacted)
-        all (collect-text h)]
-    (is (re-find #"redacted" all))))
-
-(deftest mini-truncates-to-max-len
+(deftest mini-carries-a-hover-title
   (let [long-str (apply str (repeat 200 "x"))
         h (ei/mini long-str 20)
         title (-> h second :title)]
-    ;; Title carries the full pr-str; visible content is truncated.
     (is (some? title) "title attribute carries full value")))
 
 ;; =========================================================================
@@ -1332,33 +1253,23 @@
 
 ;; ---- diff mode — public widget exposes mode marker -----------------------
 
-(deftest edn-inspector-diff-mode-marker-on-container
-  ;; The public widget's outer container carries `data-rf-mode` =
-  ;; "diff" when `:before` is supplied so panels / tests can target
-  ;; the diff variant.
-  (let [outer (ei/edn-inspector {:a 2} {:before {:a 1}})
-        ;; outer is the form-2 closure that returns a fn — call it
-        ;; with the same args to get the inner hiccup.
-        inner (outer {:a 2} {:before {:a 1}})]
-    (is (= "diff" (get (second inner) :data-rf-mode))
+(deftest edn-inspector-mode-marker-on-container
+  ;; The public widget's outer container carries `data-rf-mode` — "diff"
+  ;; when `:before` is supplied, "browse" otherwise — so panels / tests
+  ;; can target the diff variant. The widget is form-2: the outer call
+  ;; returns the fn that renders.
+  (let [diff   ((ei/edn-inspector {:a 2} {:before {:a 1}}) {:a 2} {:before {:a 1}})
+        browse ((ei/edn-inspector {:a 1}) {:a 1} nil)]
+    (is (= "diff" (get (second diff) :data-rf-mode))
         "diff-mode marker present when :before is supplied")
-    (is (some? (get (second inner) :data-rf-mount-id))
-        "mount-id still auto-generated")))
-
-(deftest edn-inspector-browse-mode-marker-on-container
-  (let [outer (ei/edn-inspector {:a 1})
-        inner (outer {:a 1} nil)]
-    (is (= "browse" (get (second inner) :data-rf-mode))
+    (is (= "browse" (get (second browse) :data-rf-mode))
         "browse-mode marker present without :before")))
 
 (deftest edn-inspector-diff-convenience-threads-before
-  ;; The `[edn-inspector-diff before after]` form-2 wrapper should
-  ;; produce the same shape as `[edn-inspector after {:before before}]`.
-  (let [h (ei/edn-inspector-diff {:a 1} {:a 2})]
-    (is (vector? h))
-    (is (fn? (first h)))
-    (is (= {:a 2} (nth h 1)))
-    (is (= {:a 1} (:before (nth h 2))))))
+  ;; `[edn-inspector-diff before after]` is `[edn-inspector after
+  ;; {:before before}]`.
+  (is (= [ei/edn-inspector {:a 2} {:before {:a 1}}]
+         (ei/edn-inspector-diff {:a 1} {:a 2}))))
 
 ;; =========================================================================
 ;; diff renders REMOVED items (the child walk is the union of
