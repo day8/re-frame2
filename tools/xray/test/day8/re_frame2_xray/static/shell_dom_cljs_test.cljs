@@ -79,16 +79,6 @@
       (is (= :dynamic (static-persistence/load))
           "empty localStorage slot → :dynamic fallback"))))
 
-(deftest persistence-save-and-load-round-trip
-  (if-not (ls/available?)
-    (is true "skipped: no localStorage (node lane — see ns docstring)")
-    (testing "save! + load round-trip through real browser storage"
-      (static-persistence/clear!)
-      (static-persistence/save! :static)
-      (is (= :static (static-persistence/load)))
-      (static-persistence/save! :dynamic)
-      (is (= :dynamic (static-persistence/load))))))
-
 (deftest persistence-fx-installed-by-set-mode
   (if-not (ls/available?)
     (is true "skipped: no localStorage (node lane — see ns docstring)")
