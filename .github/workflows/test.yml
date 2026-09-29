@@ -4946,7 +4946,7 @@ jobs:
             ${{ runner.os }}-clj-tools-machines-viz-
             ${{ runner.os }}-clj-
 
-      # 632 tests / 2537 assertions. Most of the suite double-runs in the CLJS
+      # Most of the suite double-runs in the CLJS
       # lanes — 29 of its 31 suites are `*_cljs_test.*` and ride the
       # consolidated `:node-test` + `:browser-test` builds. Two do not:
       # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
