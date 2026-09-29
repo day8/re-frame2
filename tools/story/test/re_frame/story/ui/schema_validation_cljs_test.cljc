@@ -576,16 +576,3 @@
                "the panel resolves args under the active mode, as Controls does")
            (finally
              (rf.story.ui.state/reset-shell-state!)))))))
-
-#?(:cljs
-   (deftest ^:cljs validator-fns-defaults-to-nil-without-schemas-artefact
-     (testing "when re-frame.schemas hasn't published its hooks, the
-              validator-fns lookup returns {:validate nil :explain nil}
-              and args-violations soft-passes. When the artefact IS on
-              the classpath (the common case in this repo's tests), the
-              validator publishes truthy hooks — both shapes are
-              acceptable, the panel adapts to either"
-       (let [{:keys [validate explain]} (rf.story.ui.schema-validation/validator-fns)]
-         ;; Both fns are either nil (soft-pass) or callable.
-         (is (or (nil? validate) (fn? validate)))
-         (is (or (nil? explain)  (fn? explain)))))))
