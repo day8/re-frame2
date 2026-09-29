@@ -121,17 +121,6 @@
 ;; 1. {:from-db} on an EVENT ensure resolves against app-db
 ;; ===========================================================================
 
-(deftest event-ensure-from-db-spec-policy
-  (rf/dispatch-sync [:t/login "jake"])
-  (testing "ensure of a {:from-db} spec-policy resource resolves the session
-            scoped key from app-db (no payload :scope needed)"
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                            :owner [:app :x 1]}])
-    (is (some? (entry (session-key "jake" 1)))
-        "the entry lives under the db-derived session scope")
-    (is (= #{(session-key "jake" 1)} (set (keys (entries))))
-        "exactly one entry, under the resolved scope — never a global key")))
-
 (deftest event-ensure-from-db-payload-reference
   (rf/dispatch-sync [:t/login "abel"])
   ;; a GLOBAL-policy resource read with an explicit {:from-db …} PAYLOAD scope
@@ -167,20 +156,6 @@
 ;; 2. {:from-db} on a ROUTE-RESOURCE :scope (resolved at route entry)
 ;; ===========================================================================
 
-(deftest route-entry-from-db-scope-resolves-and-ensures
-  (rf/dispatch-sync [:t/login "jake"])
-  (rf/reg-route :t/home
-    {:resources [{:resource :t/feed :params (fn [_] {:page 1})
-                  :scope {:from-db :t/session} :blocking? true}]} "/")
-  (testing "route entry resolves the {:from-db} route-resource scope against
-            app-db BEFORE planning, ensuring under the session scope"
-    (rf/dispatch-sync [:rf.route/navigate {:to :t/home}])
-    (let [k (session-key "jake" 1)]
-      (is (some? (entry k)) "the route ensured the feed under the resolved session scope")
-      (let [owner [:route :t/home (:nav-token (slice))]]
-        (is (contains? (:active-owners (entry k)) owner)
-            "the route owner is attached under the RESOLVED scope")))))
-
 (deftest route-leave-releases-owner-under-resolved-scope
   (rf/dispatch-sync [:t/login "jake"])
   (rf/reg-route :t/home
@@ -190,7 +165,8 @@
   (rf/dispatch-sync [:rf.route/navigate {:to :t/home}])
   (let [k     (session-key "jake" 1)
         owner [:route :t/home (:nav-token (slice))]]
-    (is (contains? (:active-owners (entry k)) owner) "owner attached on entry")
+    (is (contains? (:active-owners (entry k)) owner)
+        "route entry resolved the {:from-db} scope and attached its owner under it")
     (testing "route leave releases the owner acquired under the RESOLVED scope"
       (rf/dispatch-sync [:rf.route/navigate {:to :t/other}])
       (is (not (contains? (:active-owners (entry k)) owner))
@@ -383,7 +359,8 @@
 
 ;; ===========================================================================
 ;; passive reads advertised as pure emit NO scope-resolved trace, while
-;; causal boundaries do
+;; causal boundaries do (the causal event-ensure row is
+;; `scope-resolved-trace-emitted-on-event-ensure-with-full-shape` above)
 ;; ===========================================================================
 
 (deftest pure-resolve-resource-scope-emits-no-trace
@@ -420,19 +397,6 @@
       (is (zero? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
           (str "expected no scope-resolved rows from sub resolution; got "
                (pr-str (mapv :tags rows)))))))
-
-(deftest causal-boundary-resolution-still-emits-trace
-  ;; The other half of the split: the CAUSAL boundaries keep their inspectable
-  ;; evidence. An event ensure with a {:from-db} scope DOES emit a
-  ;; scope-resolved row.
-  (rf/dispatch-sync [:t/login "jake"])
-  (let [rows (record-scope-resolved!
-               (fn []
-                 (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                                         :owner [:app :c 1]}])))]
-    (testing "the causal event-ensure resolution STILL emits a scope-resolved row"
-      (is (pos? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
-          "the traced causal boundary kept its evidence"))))
 
 ;; ===========================================================================
 ;; EP-0015 — OFF-BOX egress projection of the
@@ -503,31 +467,15 @@
 ;; LITERALLY would be a silent zero-match.
 ;; ===========================================================================
 
-(deftest invalidate-tags-from-db-resolves-identically-to-ensure
-  ;; The core symmetry proof: ensure resolves {:from-db :t/session} to jake's
-  ;; session key; invalidate-tags resolves the SAME reference to the SAME key
-  ;; and marks exactly that entry stale.
-  (rf/dispatch-sync [:t/login "jake"])
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
-                                          :owner [:app :j 1]}])
-  (settle-loaded! (session-key "jake" 1) {:for "jake"})
-  ;; release the owner so the invalidation MARKS STALE (a live owner would
-  ;; refetch + satisfy the invalidation, masking the durable stale fact)
-  (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :j 1]}])
-  (testing "invalidate-tags {:from-db :t/session} marks stale the SAME scoped
-            key ensure resolved {:from-db :t/session} to — symmetric use-time
-            resolution against the app-db coeffect"
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope {:from-db :t/session} :tags #{[:feed]}}])
-    (is (some? (:invalidated-at (entry (session-key "jake" 1))))
-        "the db-derived session entry ensure created was invalidated via the
-         SAME {:from-db} resolution — never a literal-map zero-match")))
-
 (deftest invalidate-tags-from-db-marks-only-the-matching-principal
-  ;; two principals with the SAME tag in DIFFERENT session scopes; a
-  ;; {:from-db} invalidate resolves the CURRENT principal's scope and marks
-  ;; ONLY that entry stale — the other principal's equal-tag entry is untouched
-  ;; (the scope isolation a literal canonicalization cannot provide).
+  ;; The core symmetry proof: ensure resolves {:from-db :t/session} to the
+  ;; current principal's session key, and invalidate-tags resolves the SAME
+  ;; reference to the SAME key. Two principals hold the SAME tag in DIFFERENT
+  ;; session scopes; the {:from-db} invalidate marks ONLY the current
+  ;; principal's entry stale — the other principal's equal-tag entry is
+  ;; untouched (the scope isolation a literal canonicalization cannot provide).
+  ;; Owners are released so the invalidation MARKS STALE (a live owner would
+  ;; refetch + satisfy the invalidation, masking the durable stale fact).
   (rf/dispatch-sync [:t/login "jake"])
   (rf/dispatch-sync [:rf.resource/ensure {:resource :t/feed :params {:page 1}
                                           :owner [:app :j 1]}])

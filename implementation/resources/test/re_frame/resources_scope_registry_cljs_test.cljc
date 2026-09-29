@@ -8,15 +8,17 @@
 
   What's under test:
 
-    1. registration + introspection under the `:resource-scope` kind; the
-       `:resource-scope` kind is in the core registrar's closed set;
+    1. registration + introspection under the `:resource-scope` kind (the
+       core registrar refuses a kind outside its closed set, so registering
+       at all pins the kind's membership);
     2. fail-closed validation — a non-map/non-fn resolver, a fn-less map, a
        malformed input descriptor;
     3. the RESERVED `[:runtime path]` source is rejected loudly (not shipped);
     4. `[:db path]` input evaluation against a supplied db (EP-0012 rf.path);
     5. the `resolve-resource-scope` resolver helper resolves against a given db
-       and FAILS CLOSED on nil (no implicit global), throws on an
-       unregistered id;
+       and FAILS CLOSED on nil (no implicit global — pinned with its no-trace
+       purity by the from-db suite's `pure-resolve-resource-scope-emits-no-trace`),
+       throws on an unregistered id;
     6. the whole-db read is an ordinary root-path input (`{:db [:db []]}`) and
        `:whole-db?` is DERIVED from the declaration, never authored; `:inputs`
        is REQUIRED and the 2-arity / `:doc`-only spellings are rejected
@@ -80,11 +82,6 @@
 ;; ===========================================================================
 ;; 1. Registration + introspection + the :resource-scope kind
 ;; ===========================================================================
-
-(deftest resource-scope-kind-in-closed-set
-  (testing ":resource-scope is a valid registrar kind"
-    (is (rf.registrar/valid-kind? :resource-scope))
-    (is (contains? rf.registrar/kinds :resource-scope))))
 
 (deftest reg-resource-scope-registers-and-introspects
   (testing "reg-resource-scope writes a :resource-scope registrar entry"
@@ -174,15 +171,6 @@
 ;; ===========================================================================
 ;; 4. The resolve-resource-scope resolver helper (fail-closed nil)
 ;; ===========================================================================
-
-(deftest resolve-resource-scope-against-supplied-db
-  (rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)
-  (testing "resolves the concrete scope from a supplied db value (canonicalized)"
-    (is (= [:rf.scope/session {:username "jake"}]
-           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
-                                             :realworld/session))))
-  (testing "a resolver returning nil FAILS CLOSED — nil, never an implicit global"
-    (is (nil? (rf.resources/resolve-resource-scope {} :realworld/session)))))
 
 (deftest resolve-resource-scope-unregistered-is-loud
   (testing "resolve-resource-scope on an unregistered id throws fail-closed"
