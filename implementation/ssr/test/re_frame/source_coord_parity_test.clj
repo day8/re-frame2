@@ -166,12 +166,6 @@
 
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
-        (is (.contains html (str "data-rf2-source-coord=\"" coord "\""))
-            (str "server markup must carry the source-coord attribute; got: "
-                 (pr-str html)))
-        (is (.contains html (str "data-rf-view=\"" view-id "\""))
-            (str "server markup must carry the view-id attribute; "
-                 "got: " (pr-str html)))
         (is (= (str "<p data-rf2-source-coord=\"" coord "\""
                     " data-rf-view=\"" view-id "\">body</p>")
                html)
