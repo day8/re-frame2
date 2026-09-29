@@ -4,7 +4,7 @@
 
   The carriage that makes an override SURVIVE into a view's deferred React
   render is a React context, exercised end-to-end by the real-React render
-  test `re-frame.subs-override-seam-dom-cljs-test`. THIS file is the
+  test `re-frame.story.sub-overrides-render-dom-cljs-test`. THIS file is the
   node-runnable half: it publishes the `:subs/resolve-sub-override`
   late-bind hook directly (as the Story side does) and asserts the
   `subscribe`-side mechanics without a browser —
