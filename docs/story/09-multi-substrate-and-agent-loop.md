@@ -30,15 +30,21 @@ depend on libraries only your app carries, so your app registers them at boot,
 in a few lines. For UIx:
 
 ```clojure
+;; src/my_app/stories.cljc
 (ns my-app.stories
-  (:require [uix.core       :refer [$]]
-            [re-frame.core  :as rf]
-            [re-frame.story :as rf.story]))
+  (:require [re-frame.core  :as rf]
+            [re-frame.story :as rf.story]
+            #?(:cljs [uix.core :refer [$]])))   ;; only the browser renders
 
-(rf.story/register-substrate! :uix
-  (fn [_variant-id view-id args]
-    ($ (rf/view view-id) args)))
+#?(:cljs
+   (rf.story/register-substrate! :uix
+     (fn [_variant-id view-id args]
+       ($ (rf/view view-id) args))))
 ```
+
+`register-substrate!` exists only in the browser, so the call and the
+`uix.core` require sit in `#?(:cljs …)` branches, which the JVM skips, as the
+view require does in [chapter 1](01-first-variant.md#the-smallest-useful-story-file).
 
 The render function receives the variant id, the view id and the effective
 args, and returns what the shell mounts inside the variant's frame. The

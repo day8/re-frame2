@@ -45,7 +45,7 @@ Each test namespace installs the reset fixture:
 
 `make-reset-runtime-fixture` returns the fixture function you hand to `use-fixtures`. Around every test it:
 
-- snapshots the [registrar](../glossary.md#registrar) and restores it afterwards, keeping what was registered before the `use-fixtures` form ran, so a registration one test makes does not leak into the next;
+- snapshots the [registrar](../glossary.md#registrar) and restores it afterwards, keeping what was registered before the `use-fixtures` form ran, so a registration one test makes does not leak into the next. Resources are the exception when the test requires `re-frame.resources.test-support`: its reset clears every resource, mutation and resource-scope registration before the test body runs, your app's load-time ones included, so pass `:app-ns "my-app."` to have yours registered again ([Resources](../../api/re-frame.test-support.md#reset-fixture-resources));
 - resets the rest of the per-process runtime: frames, flows, machine timers, in-flight HTTP, resource caches (when the test requires `re-frame.resources.test-support`), epoch history and trace listeners. Resets for artefacts you haven't loaded do nothing;
 - installs the adapter you pass and creates the `:rf/default` frame. Every frame runs on an [adapter](../glossary.md#adapter), and the reset removes whatever was installed, so without `:adapter` the next `make-frame` throws `:rf.error/no-adapter-installed`, or `:rf.error/adapter-disposed` when an adapter was installed earlier in the run.
 
