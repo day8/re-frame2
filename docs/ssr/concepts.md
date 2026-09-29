@@ -184,11 +184,15 @@ The server renders once, so the data a page needs must be loaded before that ren
 
 ```clojure
 ;; cf. docs/resources/tutorial/02-server-data.md — needs the resources artefact
+(def api-origin
+  #?(:clj  (or (System/getenv "API_ORIGIN") "http://127.0.0.1:3001")   ;; the server needs an absolute URL
+     :cljs ""))                                                         ;; the browser resolves against the page
+
 (rf/reg-resource :articles/one
   {:params-schema [:map [:id :string]]
    :scope         :rf.scope/global}
   (fn [{:keys [id]} _ctx]
-    {:request {:method :get :url (str "/api/articles/" id)}
+    {:request {:method :get :url (str api-origin "/api/articles/" id)}
      :decode  :json}))
 
 (rf/reg-route :articles/show
@@ -198,6 +202,8 @@ The server renders once, so the data a page needs must be loaded before that ren
                 :blocking? true}]}                 ;; the server waits for this before rendering
   "/articles/:id")
 ```
+
+The fetch runs on the server too, and the JVM has no page to resolve a relative URL against: a bare `"/api/articles/42"` fails as `:rf.http/transport` before any request goes out ([Running on the JVM](../async/http.md#running-on-the-jvm)). So the server reads its API origin from configuration, here `API_ORIGIN`, while the browser keeps the page-relative path.
 
 `:rf/server-init` hands the URL to routing, entering the route starts the resource, and the handler waits for it. Several blocking entries load in parallel, so the wait is the slowest fetch rather than the sum, and the same declaration drives the fetch on client navigation. This is the route's [loader](../routing/glossary.md#loader). Non-blocking route resources don't hold up the render: whatever has settled by render time is serialised, and anything still in flight refetches on the client.
 
@@ -469,11 +475,15 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
             #?(:clj  [ring.adapter.jetty :as jetty])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
+(def api-origin
+  #?(:clj  (or (System/getenv "API_ORIGIN") "http://127.0.0.1:3001")   ;; the server needs an absolute URL
+     :cljs ""))                                                         ;; the browser resolves against the page
+
 (rf/reg-resource :articles/list
   {:params-schema [:map]
    :scope         :rf.scope/global}
   (fn [_params _ctx]
-    {:request {:method :get :url "/api/articles"}
+    {:request {:method :get :url (str api-origin "/api/articles")}
      :decode  :json}))
 
 (rf/reg-route :articles/index
@@ -533,6 +543,8 @@ The whole normal path in one `.cljc` file. The adapter creates the frame, drains
        ;; payload ⇒ adopt the server's DOM; no payload ⇒ fresh root
        (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)}))))
 ```
+
+The example needs an API that answers `GET /api/articles` with a JSON array of `{"id" …, "title" …}` objects. The server fetches it from `API_ORIGIN`, which defaults to `http://127.0.0.1:3001`. The browser's relative `/api/articles` resolves against the page, so serve the API on the page's origin as well, beside the SSR handler as in [Mounting in a Ring app](#mounting-in-a-ring-app).
 
 The route's resource entries travel in the payload with the route, so the hydrated client renders the list without fetching it again. APIs: [re-frame.ssr](../api/re-frame.ssr.md), [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
 
