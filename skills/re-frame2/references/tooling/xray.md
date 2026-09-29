@@ -29,14 +29,15 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
 
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var */
-.app-shell { display: flex; min-height: 100vh; }
+.app-shell { display: flex; height: 100vh; }
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  overflow: hidden;
   border-left: 1px solid #2a2a2a;
 }
-#app { flex: 1; min-width: 0; }
+#app { flex: 1; min-width: 0; overflow: auto; }
 ```
 
 That's it. The preload installs Xray's trace + epoch listeners, mounts the shell into the host once the substrate adapter is ready, and auto-opens after `rf/init!`. Production builds (`goog.DEBUG=false`) elide every Xray surface.

@@ -55,7 +55,7 @@ below):
 ```css
 :root { --rf-xray-accent: #539bf5; } /* brand-accent var (rf2-9ovfb) — see below */
 body { margin: 0; }
-.app-shell { display: flex; min-height: 100vh; }
+.app-shell { display: flex; height: 100vh; }  /* the page itself never scrolls */
 [data-rf-xray-host] {
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
@@ -63,10 +63,16 @@ body { margin: 0; }
                                           the documented width — without
                                           it, the host renders 1px wider
                                           than the var(...) value */
+  overflow: hidden;                    /* nothing in Xray widens the page */
   border-left: 1px solid #2a2a2a;     /* visual separator on the app side */
 }
-#app { flex: 1; min-width: 0; }
+#app { flex: 1; min-width: 0; overflow: auto; }  /* the app scrolls on its own */
 ```
+
+The app and Xray never share a scrollbar. The row is exactly the
+viewport's height, so the page does not scroll; the app column scrolls
+on its own, horizontally and vertically; and Xray lays out to its
+host's height and scrolls inside its own panes.
 
 The user-draggable resize handle is auto-injected by Xray
 (rf2-70u8q; see [`007-UX-IA.md` §Resize affordance](./007-UX-IA.md#resize-affordance)).
@@ -101,6 +107,7 @@ that matches Xray's recommended default (560px per rf2-9ovfb):
   flex: 0 0 var(--rf-xray-inline-width, 560px);
   min-width: 320px;
   box-sizing: border-box;
+  overflow: hidden;
   border-left: 1px solid #2a2a2a;
 }
 ```
@@ -125,7 +132,7 @@ Sizing units are unrestricted (`px`, `rem`, `vw`, `min(...)`, `clamp(...)`,
 from collapsing past readability when the developer specifies a small
 value; remove the floor if you want truly unbounded shrink.
 
-App content to the left (`#app { flex: 1; min-width: 0 }`) stays in
+App content to the left (`#app { flex: 1; min-width: 0; overflow: auto }`) stays in
 normal flow regardless of the inline width — Xray never overlays the
 app, never claims a hit-test region outside its host, and never
 mutates `body` padding in the default true-inline mode. This holds
