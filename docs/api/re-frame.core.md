@@ -366,7 +366,7 @@ The value is a map `{interceptor-ref replacement}`:
     - Inside a `reg-view` body, use the injected `dispatch`: it is bound to the view's frame when the view renders, so it still targets that frame from any callback. Elsewhere, capture the frame with [`capture-frame`](#capture-frame), or pass `{:frame …}`. See [The async boundary: capture the frame](../core/frames.md#the-async-boundary-capture-the-frame).
     - An event id with no registered handler emits `:rf.error/no-such-handler`, and the event does nothing.
     - One drain runs at most 100 events (the frame's `:drain-depth`; 16 under `:preset :story`). If more are waiting, the rest of the queue is dropped, the events that ran stay committed, and the always-on `:rf.error/drain-depth-exceeded` lists the last event ids it ran (`:tail-event-ids`), which usually show the dispatch loop. The limit counts every event one drain processes, so more than 100 events queued before the drain starts also reach it. See [When the drain won't stop](../core/run-to-completion.md#when-the-drain-wont-stop).
-    - Development builds emit `:rf.warning/non-serialisable-event-payload` when the event holds a fn, Promise, AbortController, DOM node, `js/Date` or RegExp. The event still runs, but replay and SSR hydration expect plain data.
+    - Development builds emit `:rf.warning/non-serialisable-event-payload` when the event holds a fn, Promise, AbortController, DOM node or RegExp. An instant (`js/Date`) is EDN and draws no warning. The event still runs, but replay and SSR hydration expect plain data.
 - **Example**:
   ```clojure
   ;; Don't do this: when the click fires there is no frame in scope,
