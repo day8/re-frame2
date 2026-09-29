@@ -350,7 +350,11 @@
         (finally (rf/unregister-listener! :trace ::bad-keys)))
       (is (= [:rf.error/replace-frame-state-bad-keys :rf.error/replace-frame-state-bad-keys]
              (mapv :operation @errors))
-          "each rejection is reported under :rf.error/replace-frame-state-bad-keys"))))
+          "each rejection is reported under :rf.error/replace-frame-state-bad-keys")
+      (is (= [:no-recognized-keys :unknown-keys]
+             (mapv (comp :reason :tags) @errors))
+          "the empty map is :no-recognized-keys; the unknown-keys check runs
+           first, so a map of only unrelated keys is :unknown-keys"))))
 
 (deftest replace-frame-state-rejects-unknown-keys
   (testing "replace-frame-state! rejects a map carrying an unrecognized key
