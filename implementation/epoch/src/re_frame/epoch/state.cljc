@@ -867,7 +867,8 @@
   "The epoch window a post-settle render filed under `epoch-id` inherits from
   the value-changed sub-runs that attributed it there (see
   `resolve-render-epoch`): the widest `[first last]` across the view's
-  windowed evidence in that epoch, or nil when none of it carries a window."
+  windowed evidence in that epoch, or nil when none of it carries a window.
+  Epoch ids are opaque, so \"widest\" is by ring position."
   [frame-id render-key epoch-id]
   (when render-key
     (let [history      (history-for frame-id)
@@ -876,10 +877,12 @@
                          (keep epoch-window-of
                                (view-value-changed-sub-runs
                                  (nth history record-index) render-key
-                                 (render-deps-for frame-id render-key))))]
+                                 (render-deps-for frame-id render-key))))
+          ;; An evicted epoch is older than every retained one.
+          position     #(or (epoch-index history %) -1)]
       (when (seq windows)
-        [(apply min (map first windows))
-         (apply max (map second windows))]))))
+        [(apply min-key position (map first windows))
+         (apply max-key position (map second windows))]))))
 
 ;; ---- post-settle event back-fill ------------------------------------------
 ;;
