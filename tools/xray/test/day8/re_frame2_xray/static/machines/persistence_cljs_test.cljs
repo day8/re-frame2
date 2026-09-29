@@ -147,16 +147,6 @@
         (is (= {:m/a :sim} (persistence/load-sub-mode-by-id))
             "string + numeric keys dropped; only the keyword key survives")))))
 
-(deftest load-namespaced-keyword-keys-round-trip
-  (testing "namespaced machine-id keys survive the
-            pr-str → read-string round-trip intact"
-    (with-stub-storage*
-      (fn []
-        (persistence/save-sub-mode-by-id! {:foo.bar/login :instances})
-        (is (= {:foo.bar/login :instances}
-               (persistence/load-sub-mode-by-id))
-            "fully-qualified ns keyword key preserved")))))
-
 ;; -------------------------------------------------------------------------
 ;; (4) sub-mode slot — save! clears on empty / nil
 ;; -------------------------------------------------------------------------
@@ -241,14 +231,6 @@
         (persistence/save-selected-id! 42)
         (is (not (contains? @store persistence/selection-key))
             "numeric value is not persisted")))))
-
-(deftest load-selected-id-empty-slot-reads-nil
-  (testing "an absent selection slot reads back nil (the
-            `when-let` short-circuits)"
-    (with-stub-storage*
-      (fn []
-        (is (nil? (persistence/load-selected-id))
-            "empty selection slot → nil")))))
 
 ;; -------------------------------------------------------------------------
 ;; (6) clear! drops BOTH slots

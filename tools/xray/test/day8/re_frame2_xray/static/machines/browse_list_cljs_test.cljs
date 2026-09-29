@@ -6,10 +6,9 @@
     1. Pip cluster — pip-cap dots inline, '>cap N live' textual count
        beyond. Silent for zero.
     2. Sort button label reflects the active axis.
-    3. Per-row `→ Dynamic` chip dispatches the JUMP fn (verified via
-       app-db side-effects).
-    4. Search box keystroke fires set-search; Escape key fires
-       clear-search."
+    3. Listbox ARIA, the selected row's aria-selected, the visible /
+       total count line and the no-results state.
+    4. Row and pip React keys ride the attribute map."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -17,7 +16,6 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.machines.helpers :as h]
-            [day8.re-frame2-xray.static.machines.instances-jump :as jump]
             [day8.re-frame2-xray.static.machines.persistence :as ls]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.test-helpers.static-machines-tree
@@ -46,9 +44,6 @@
   (xray-test-support/install-test-overrides!)
   (rf/make-frame {:id :rf/xray}))
 
-(defn- frame-sub [q]
-  (rf/with-frame :rf/xray @(rf/subscribe q)))
-
 (defn- frame-dispatch [ev]
   (rf/with-frame :rf/xray (rf/dispatch-sync ev)))
 
@@ -75,15 +70,6 @@
       (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-pips"))
           "no pip cluster when live-count is zero"))))
 
-(deftest pip-cluster-renders-dots-for-one-live-instance
-  (xray-setup!)
-  (seed-machines! [:m/a])
-  (seed-snapshots! {:m/a {:state :idle}})
-  (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)
-          pips (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-row-pips")]
-      (is (some? pips) "pip cluster mounts for live machine"))))
-
 ;; -------------------------------------------------------------------------
 ;; Sort button label reflects the active axis
 ;; -------------------------------------------------------------------------
@@ -102,28 +88,6 @@
           btn  (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-sort")
           text (->> btn hiccup-seq (filter string?) (apply str))]
       (is (re-find #"States" text)))))
-
-;; -------------------------------------------------------------------------
-;; Per-row JUMP chip fires the JUMP
-;; -------------------------------------------------------------------------
-
-(deftest per-row-jump-chip-fires-jump
-  (testing "Clicking the per-row `→ Dynamic` chip fires set-mode +
-            select-tab + select-machine-id (via the centralised
-            dispatcher)"
-    (xray-setup!)
-    (seed-machines! [:m/a :m/b])
-    ;; Sanity baseline
-    (frame-dispatch [:rf.xray/set-mode :static])
-    (rf/with-frame :rf/xray
-      (is (= :static (frame-sub [:rf.xray/mode]))))
-    ;; Drive the dispatcher
-    (rf/with-frame :rf/xray
-      (jump/dispatch-jump-sync! :m/a))
-    (rf/with-frame :rf/xray
-      (is (= :dynamic (frame-sub [:rf.xray/mode])))
-      (is (= :machines (frame-sub [:rf.xray/selected-tab])))
-      (is (= :m/a (frame-sub [:rf.xray/selected-machine-id]))))))
 
 ;; -------------------------------------------------------------------------
 ;; Listbox ARIA

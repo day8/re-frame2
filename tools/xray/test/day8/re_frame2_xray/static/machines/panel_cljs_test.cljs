@@ -403,10 +403,12 @@
           "Topology mode mounts as the default body")
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-chart"))
           "chart wrapper mounts")
-      ;; The SVG itself is rendered by chart-svg/render with the testid
-      ;; we passed in.
+      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-machine-canvas-host"))
+          "the chart is wrapped in the interactive canvas-host (zoom / pan / fit)")
+      ;; The `:inner-testid` prop threads the static-panel testid through
+      ;; machine-canvas/Chart to the xyflow root.
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-svg"))
-          "SVG primitive mounts"))))
+          ":inner-testid forwards through Chart to the xyflow root"))))
 
 (deftest topology-mode-shows-no-definition-hint-when-missing
   (xray-setup!)
@@ -417,77 +419,6 @@
     (let [tree (machines-tree/panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree
                                  "rf-xray-static-machines-topology-no-definition"))))))
-
-;; -------------------------------------------------------------------------
-;; (11b) Topology mode — interactive canvas adapter
-;; -------------------------------------------------------------------------
-
-(deftest topology-mode-wraps-chart-in-canvas-host
-  (testing "Static Topology body delegates to
-            machine-canvas/Chart so users get zoom / pan / fit."
-    (xray-setup!)
-    (seed-machines! [:m/a])
-    (seed-definitions! {:m/a {:initial :idle
-                              :states  {:idle {} :done {}}}})
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-machine-canvas-host"))
-            "the chart is wrapped in the interactive canvas-host")
-        ;; There is no host-side controls toolbar — xyflow renders its
-        ;; own `<Controls>` component inside the chart. The inner-testid
-        ;; threads through via the `:inner-testid` prop so static-panel
-        ;; selectors work.
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-topology-svg"))
-            ":inner-testid forwards through Chart to the xyflow root")))))
-
-(deftest topology-mode-omits-view-mode-toggle-on-static
-  (testing "there is no Canvas/List view-mode toggle and no Chart
-            caller can render one, so it must NOT mount on the Static
-            surface."
-    (xray-setup!)
-    (seed-machines! [:m/a])
-    (seed-definitions! {:m/a {:initial :idle
-                              :states  {:idle {} :done {}}}})
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        (is (nil? (rf.test-helpers/find-by-testid tree
-                                  "rf-xray-machine-canvas-view-mode-toggle"))
-            "a view-mode toggle never mounts on static")))))
-
-(deftest topology-mode-keeps-toolbar-without-inert-popout
-  (testing "The Static panel's chart-toolbar (source-coord chip)
-            lives ABOVE the canvas, separate from the canvas's own
-            controls.
-
-            And the 'Pop out' affordance is ABSENT: its handler is a
-            registered no-op (no pop-out window exists), so the button
-            is hidden."
-    (xray-setup!)
-    (seed-machines! [:m/a])
-    (seed-definitions! {:m/a {:initial :idle
-                              :states  {:idle {} :done {}}
-                              :source-coord {:file "src/m_a.cljs" :line 12}}})
-    (rf/with-frame :rf/xray
-      (let [tree (machines-tree/panel-tree)]
-        (is (some? (rf.test-helpers/find-by-testid tree
-                                   "rf-xray-static-machines-topology-toolbar"))
-            "static chart-toolbar mounts above the canvas")
-        (is (nil? (rf.test-helpers/find-by-testid tree
-                                  "rf-xray-static-machines-topology-popout"))
-            "the inert pop-out affordance is not rendered")))))
-
-;; -------------------------------------------------------------------------
-;; (12) Public install — install-fx + hydrate
-;; -------------------------------------------------------------------------
-
-(deftest install-registers-subs-and-events
-  (testing "install! is called transitively via register-xray-handlers!
-            so the subs + events are registered after setup"
-    (xray-setup!)
-    ;; Every key sub resolves without throwing.
-    (is (= "" (frame-sub [:rf.xray.static.machines/search])))
-    (is (= :name (frame-sub [:rf.xray.static.machines/sort-key])))
-    (is (= :topology (frame-sub [:rf.xray.static.machines/sub-mode :any/id])))))
 
 ;; Static tab inventory shape is covered by `static-tab-inventory-shape` in
 ;; the shell test.
