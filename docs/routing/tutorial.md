@@ -14,17 +14,21 @@ Routing ships as its own package, `day8/re-frame2-routing`, so an app without
 shareable URLs doesn't carry it. Add the dependency, then require the namespace once:
 
 ```clojure
+;; src/app/core.cljc
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing]                              ;; turns routing on
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 ```
 
 Requiring `re-frame.routing` registers `reg-route`, the route subscriptions and
 `route-link`. Without it, the first `reg-route` throws
 `:rf.error/routing-artefact-missing`, and the message names the namespace to require.
 
-Every snippet below goes in this namespace.
+Every snippet below goes in this namespace. The file is `.cljc`, so the JVM can load
+it too, and [Testing routes](testing.md) tests its routes, events and subscriptions
+there without a browser. The Reagent adapter and the code that mounts the app need a
+browser, so they sit in `#?(:cljs …)` branches, which the JVM skips.
 
 ## Step 1 — your first route, on screen
 
@@ -41,14 +45,16 @@ based on the active route, and mount the app:
     :app/home [:h1 "Home"]
     [:h1 "Nothing here yet"]))   ;; any URL without a route yet
 
-(defonce app-root (reagent-adapter/client-root))
+;; Browser only: mounting needs the adapter and the DOM.
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
-(defn run []
-  (rf/init! reagent-adapter/adapter)
-  (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app :url-bound? true}
-     [root-view]]
-    (js/document.getElementById "app")))
+#?(:cljs
+   (defn run []
+     (rf/init! reagent-adapter/adapter)
+     (reagent-adapter/render! app-root
+       [rf/frame-root {:id :app :url-bound? true}
+        [root-view]]
+       (js/document.getElementById "app"))))
 ```
 
 `:rf.route/id` is the id of the route that matches the current URL, and the root view
@@ -488,10 +494,11 @@ those, and for a "save and leave" button, see
 All the steps in one namespace:
 
 ```clojure
+;; src/app/core.cljc
 (ns app.core
   (:require [re-frame.core :as rf]
             [re-frame.routing]
-            [re-frame.adapter.reagent :as reagent-adapter]))
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 ;; ---- data ------------------------------------------------------------------
 
@@ -657,16 +664,17 @@ All the steps in one namespace:
              (page-for (last chain))
              (reverse (butlast chain))))])
 
-;; ---- mount -----------------------------------------------------------------
+;; ---- mount (browser only) --------------------------------------------------
 
-(defonce app-root (reagent-adapter/client-root))
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
-(defn run []
-  (rf/init! reagent-adapter/adapter)
-  (reagent-adapter/render! app-root
-    [rf/frame-root {:id :app :url-bound? true}
-     [root-view]]
-    (js/document.getElementById "app")))
+#?(:cljs
+   (defn run []
+     (rf/init! reagent-adapter/adapter)
+     (reagent-adapter/render! app-root
+       [rf/frame-root {:id :app :url-bound? true}
+        [root-view]]
+       (js/document.getElementById "app"))))
 ```
 
 ## Troubleshooting

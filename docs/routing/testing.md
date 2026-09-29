@@ -10,6 +10,7 @@ test namespace that loads the app's route registrations, plus the reset fixture,
 which restores the registrar and the routing state around each test:
 
 ```clojure
+;; test/app/routing_test.clj
 (ns app.routing-test
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
@@ -17,12 +18,19 @@ which restores the registrar and the routing state around each test:
             [re-frame.schemas]                               ;; turns on route schema validation
             [re-frame.substrate.plain-atom :as plain-atom]   ;; the JVM substrate a frame needs
             [re-frame.test-support :as ts]
-            [app.core]))                                     ;; registers the routes
+            [app.core]))                                     ;; registers the routes, events and subs
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture {:adapter       plain-atom/adapter
                                   :ambient-frame nil}))   ;; each test makes its own frame
 ```
+
+`app.core` is the tutorial's `src/app/core.cljc`. The JVM loads `.cljc` files and
+never `.cljs`, and it skips the `#?(:cljs …)` branches where the tutorial keeps the
+Reagent adapter and the mount code, so requiring the namespace registers the app
+without a browser (see [Set up the test runner](../core/testing/index.md#set-up-the-test-runner)).
+`re-frame.schemas` ships in `day8/re-frame2-schemas`, so the test classpath needs that
+artefact beside `day8/re-frame2-routing`.
 
 The tests below use the [tutorial](tutorial.md#the-complete-app)'s articles app, with
 the `:rf.route/entry-denied` and `:auth/sign-in` handlers from
