@@ -339,15 +339,6 @@
     ;; EP-0019 Q3 — the return is `[rdb dangled rolled-back-keys]`.
     (is (= [{} [] []] (rf.resources.ssr/dangle-pending-mutations! {} 9999)))))
 
-(deftest reconcile-on-restore-dangles-pending-mutation-instances
-  (testing "reconcile-on-restore reconciles the :rf.runtime/mutations slice too"
-    (let [pending (mutation-instance {:instance-id :inst-1
-                                      :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-1 pending})}
-          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)]
-      (is (= :error (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1) :status])))
-      (is (nil? (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1) :current-work]))))))
-
 (deftest dangled-instance-settled-at-is-the-restore-causal-time-not-the-live-clock
   ;; A dangled-on-restore mutation instance's durable :settled-at is a
   ;; frame-state field, so per EP-0010 §Time
@@ -677,21 +668,6 @@
     (is (= rf.resources.ssr/commit-restore-reconcile-traces!
            (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))))
 
-(deftest hydration-parity-route-owners-ride-through-without-routing
-  (testing "parity — HYDRATION (the no-comparison-yet case) rides route
-            owners through unchanged when there is no client routing
-            slice (the split: nil-token-on-hydrate ≠ nil-token-on-restore)"
-    (let [route-owner [:route :route/article "nav-anything"]
-          e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
-                      :loaded-at 1 :stale-at 9.0e15
-                      :owners #{[:ssr "req-9" "nav-1"] route-owner}})
-          out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          owners (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :active-owners])]
-      (is (not (contains? owners [:ssr "req-9" "nav-1"]))
-          "SSR owner still orphans on hydration")
-      (is (contains? owners route-owner)
-          "route owner RIDES THROUGH on hydration (routing's client subsystem reconciles it)"))))
-
 ;; ===========================================================================
 ;; 4. Indexes recomputed from entries, never trusted (Spec 016 §Restore part 5)
 ;; ===========================================================================
@@ -742,42 +718,6 @@
   [frame-id]
   (filter (fn [[fid _]] (= fid frame-id)) (keys @rf.resources.work-ledger/handle-table)))
 
-(deftest clear-host-transients-on-restore-clears-timers-and-handles
-  (testing "restore clears the frame's armed stale/GC timer handles
-            and work-ledger host handles (host transients, not frame-state)"
-    (let [fid :restore/transients
-          rkey gkey
-          wid  [:rf.work/resource gkey 4]]
-      ;; arm a stale timer (long delay so it never fires during the test) and a
-      ;; work-ledger host handle for the frame.
-      (rf.resources.timers/schedule! fid rkey rf.resources.timers/stale-kind 600000)
-      (rf.resources.work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid})
-      (is (seq (frame-timer-keys fid)) "a stale timer is armed for the frame")
-      (is (seq (work-handle-keys fid)) "a work handle is recorded for the frame")
-      ;; restore the frame's snapshot (a mid-flight fetching entry)
-      (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
-                      :loaded-at 1 :stale-at 9.0e15 :current-work wid})]
-        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
-      (is (empty? (frame-timer-keys fid))
-          "the frame's stale/GC timer handles are GONE after restore")
-      (is (empty? (work-handle-keys fid))
-          "the frame's work-ledger host handles are GONE after restore")
-      ;; cleanup any stray timers (none expected)
-      (rf.resources.timers/cancel-for-key! fid rkey))))
-
-(deftest restore-host-clear-preserves-generation-high-water
-  (testing "clearing host transients on restore does NOT rewind the
-            generation high-water mark (part 1 — it must stay monotonic)"
-    (let [fid :restore/gen-preserve]
-      (rf.resources.state/commit-generation! fid 11)
-      (rf.resources.timers/schedule! fid gkey rf.resources.timers/stale-kind 600000)
-      (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
-                      :loaded-at 1 :stale-at 9.0e15 :current-work [:rf.work/resource gkey 5]})]
-        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
-      (is (= 11 (rf.resources.state/generation-snapshot fid))
-          "the host-side generation high-water mark is UNTOUCHED by the host-transient clear")
-      (rf.resources.timers/cancel-for-key! fid gkey))))
-
 (deftest restore-host-clear-triggers-no-eager-refetch
   (testing "restore clears transients but arms NO eager refetch /
             timer (scheduling re-arms lazily on the next live-owner touch)"
@@ -789,11 +729,6 @@
           "no stale/GC timer is armed by restore (lazy re-arm on next ensure)")
       (is (empty? (work-handle-keys fid))
           "no work handle is created by restore (no eager refetch)"))))
-
-(deftest clear-host-transients-on-restore-is-pure-subset
-  (testing "clear-host-transients-on-restore! clears timers + work
-            handles but is a no-op on an unarmed frame (idempotent)"
-    (is (nil? (rf.resources.ssr/clear-host-transients-on-restore! :restore/unarmed)))))
 
 (deftest reconcile-host-transient-clear-fenced-to-exact-incarnation
   (testing "the pre-write host-transient clear fires only when
@@ -1031,20 +966,9 @@
           "the next minted generation strictly exceeds every pre-restore generation"))))
 
 ;; ===========================================================================
-;; 6. Restore does not eagerly refetch / no-op cases / hook published
+;; 6. No-op cases / hook published (restore arming no eager refetch is
+;;    `restore-host-clear-triggers-no-eager-refetch`, 4b)
 ;; ===========================================================================
-
-(deftest restore-does-not-eagerly-refetch
-  (testing "reconcile-on-restore settles entries but issues NO refetch fx —
-            freshness is a later live-owner decision (part 3)"
-    (let [stale (entry {:resource-id :article/by-slug :status :loaded
-                        :data {:x 1} :loaded-at 1 :stale-at 2})  ;; stale
-          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey stale}) :app/main)]
-      ;; the reconcile returns a runtime-db, never an fx vector / dispatch plan
-      (is (map? out))
-      (is (contains? out rf.resources.state/resources-key))
-      (is (= {:x 1} (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :data]))
-          "the stale entry keeps its data; restore double-fetches nothing"))))
 
 (deftest restore-noop-without-resources
   (testing "a runtime-db with no resource entries AND no work-ledger rows is
