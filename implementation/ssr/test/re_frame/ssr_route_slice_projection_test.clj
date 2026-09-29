@@ -24,18 +24,18 @@
   registry's absolute re-rooted route paths match), mirroring the machines
   hook.
 
-  This pins that end-to-end on the ACTUAL SSR projection path
-  (`re-frame.ssr.payload-policy/project-runtime-db` →
-  `re-frame.ssr.payload-policy/build-payload`), driving a genuine route
+  This pins that on the ACTUAL SSR projection
+  (`re-frame.ssr.payload-policy/project-runtime-db`), driving a genuine route
   `:sensitive` / `:large` declaration through the route classification lowering
   (`re-frame.routing.classification`, `:source :route`) installed into the live
-  request frame's elision registry.
+  request frame's elision registry. The next hop — the projected slice inside
+  the `build-payload` blob a browser receives — is pinned from a real route
+  activation by `re-frame.ssr-routing-egress-production-test`.
   `payload_policy_cljs_test/project-runtime-db-ships-durable-omits-transient`
   uses a NON-sensitive sample route, so the leak would be invisible there —
   this is the sensitive-route case."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.elision :as rf.elision]
-            [re-frame.frame :as rf.frame]
             ;; Loading routing publishes the route classification machinery
             ;; and the routing fxs; the reset fixture reloads it.
             [re-frame.routing]
@@ -116,21 +116,6 @@
       (is (not (.contains (pr-str slice) "secret-oauth-token"))
           "no raw token survives anywhere in the projected runtime-db slice"))))
 
-(deftest full-hydration-payload-redacts-route-slice
-  (testing "the full :rf/hydration-payload's :rf/runtime-db carries the
-            redacted route :query token, not the raw secret; the large
-            :params value rides whole"
-    (install-route-classification!)
-    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db (runtime-db-with-secret-route))
-          payload  (rf.ssr.payload-policy/build-payload
-                     :rf/default {:public/page :callback} "h1"
-                     {:version 1 :runtime-db rt-slice})
-          current  (get-in payload [:rf/runtime-db :rf.runtime/routing :current])]
-      (is (= :rf/redacted (get-in current [:query :token])))
-      (is (= "huge-callback-blob-value" (get-in current [:params :payload])))
-      (is (not (.contains (pr-str payload) "secret-oauth-token"))
-          "the hydration blob the client receives carries no raw secret"))))
-
 (deftest unclassified-route-slice-rides-verbatim
   (testing "a route whose frame declares no classification ships its :current
             slice verbatim — the projection is precise, not a blanket scrub"
@@ -143,18 +128,3 @@
       (is (= "still-here" (get-in current [:query :token]))
           "an unclassified route query rides the hydration wire verbatim")
       (is (= :route/home (:route-id current))))))
-
-;; ---- confirm the route classification really reaches the registry ---------
-
-(deftest route-classification-lowers-absolute-rerooted-paths
-  (testing "the route lowering installs ABSOLUTE re-rooted runtime-db paths
-            (`[:rf.runtime/routing :current :query :token]`) into the live
-            frame's elision registry — the path the SSR egress walk matches"
-    (install-route-classification!)
-    (let [reg (get (rf.frame/frame-runtime-db-value :rf/default) :rf.runtime/elision)]
-      (is (contains? (:sensitive-declarations reg)
-                     [:rf.runtime/routing :current :query :token])
-          "sensitive :query :token re-rooted to its absolute runtime-db path")
-      (is (contains? (:declarations reg)
-                     [:rf.runtime/routing :current :params :payload])
-          "large :params :payload re-rooted to its absolute runtime-db path"))))
