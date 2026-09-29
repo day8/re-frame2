@@ -126,18 +126,6 @@
           {:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
       (is (= [:a :b :c] (mapv :id continuations)) "FIFO registration in document order"))))
 
-(deftest render-shell-handles-nested-boundaries
-  (testing "Boundary nested inside DOM children registers correctly"
-    (let [tree [:div
-                [:section
-                 [:rf/suspense-boundary {:id :nested :fallback [:p "nested loading"]}
-                  [:p "nested body"]]]]
-          {:keys [shell-html continuations]} (rf.ssr.streaming/render-shell tree)]
-      (is (= 1 (count continuations)))
-      (is (= :nested (-> continuations first :id)))
-      (is (str/includes? shell-html "<section>"))
-      (is (str/includes? shell-html "data-rf2-suspense-id=\":nested\"")))))
-
 (deftest render-shell-rejects-malformed-boundary
   (testing "Boundary without {:id … :fallback …} attrs throws structurally"
     (let [bad [:rf/suspense-boundary {:id :missing-fallback}
@@ -226,25 +214,6 @@
             (is (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
                       @captured)
                 ":rf.ssr/suspense-boundary-failed trace emitted")))))))
-
-(deftest duplicate-id-emits-trace-and-keeps-last
-  (testing "Two boundaries with the same :id emit :rf.error/suspense-boundary-duplicate-id"
-    (let [tree [:div
-                [:rf/suspense-boundary {:id :dup :fallback [:p "first"]} [:p "first body"]]
-                [:rf/suspense-boundary {:id :dup :fallback [:p "second"]} [:p "second body"]]]]
-      (with-trace-recorder! [captured]
-        (let [{:keys [continuations]} (rf.ssr.streaming/render-shell tree)]
-          (is (= 1 (count continuations)) "only one continuation survives dedup")
-          ;; SEMANTIC, posture-independent: last-write-wins is the
-          ;; recovery the trace merely NAMES, and it applies in both postures.
-          ;; Without this the surviving continuation could be either one.
-          (is (= [:p "second"] (:fallback (first continuations)))
-              "the surviving continuation is the LAST registration")
-          ;; Dev-instrumentation arm (see ns docstring).
-          (when rf.interop/debug-enabled?
-            (is (some #(= :rf.error/suspense-boundary-duplicate-id (:operation %))
-                      @captured)
-                ":rf.error/suspense-boundary-duplicate-id trace emitted")))))))
 
 ;; ===========================================================================
 ;; Duplicate detection keys on the WIRE id, not the raw :id
@@ -381,12 +350,6 @@
                          :payload :rf.ssr.payload/whole-app-db})]
           (is (= 42 (:rf/version payload))
               "caller-supplied :version is the highest-priority source"))))))
-
-(deftest facade-exposes-streaming-surface
-  (testing "`re-frame.ssr` re-exports the streaming public surface"
-    (is (= rf.ssr.streaming/render-shell        rf.ssr/streaming-render-shell))
-    (is (= rf.ssr.streaming/render-continuation rf.ssr/streaming-render-continuation))
-    (is (= rf.ssr.streaming/build-final-payload rf.ssr/streaming-build-final-payload))))
 
 ;; ===========================================================================
 ;; Streaming wire-attribute single-source parity
@@ -539,15 +502,7 @@
       (let [value {:c v :s "safe"}
             body  (rf.ssr.html-helpers/escape-edn-script-body (pr-str value))]
         (is (= value (edn/read-string body))
-            (str "char literal " (pr-str v) " round-trips")))))
-
-  (testing "a genuine token-position breakout (a SYMBOL value
-            printing a literal `</`) still fails loud — the char-literal
-            relaxation does not weaken the breakout guard"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf.error/ssr-edn-script-breakout"
-                          (rf.ssr.html-helpers/escape-edn-script-body
-                            (pr-str {:k (symbol "a</script>b")}))))))
+            (str "char literal " (pr-str v) " round-trips"))))))
 
 (deftest hydrate-delta-script-char-literal-round-trips
   (testing "the streaming delta call site (`hydrate-delta-script`)

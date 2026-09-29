@@ -8,15 +8,17 @@
     'FNV-1a 32-bit over a canonical EDN serialisation of the render-tree
      (depth-first traversal; attribute maps in sorted-key order; nil pruned).'
 
-  This file pins the **nil pruning** rule. Without it, the
-  ubiquitous `{:class (when condition? :selected)}` shape produces
-  `{:class nil}` on one side and `{}` on the other, and the trees hash
-  differently despite being structurally equivalent.
+  This file pins the **nil pruning** rule on `canonical-edn` and its
+  recursion through a whole tree. Without it, the ubiquitous
+  `{:class (when condition? :selected)}` shape produces `{:class nil}` on
+  one side and `{}` on the other, and the trees hash differently despite
+  being structurally equivalent. It also pins how raw-fn heads and
+  whole-valued doubles canonicalise, and how `:doctype?` composes with the
+  render-hash attribute.
 
   The hash-stability and order-sensitivity rules are pinned in
-  smoke_test.clj `render-tree-hash-is-stable`; the JVM↔CLJS parity smoke
-  lives in hash_check_cljs_test.cljs. This namespace focuses on
-  pruning-equivalence."
+  smoke_test.clj `render-tree-hash-is-stable`; the cross-host literal hashes
+  live in `re-frame.hash-parity-test` and its CLJS twin."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [re-frame.ssr.emit :as rf.ssr.emit]
@@ -62,75 +64,12 @@
     (is (nil? (rf.ssr.hash/canonical-edn nil))
         "canonical-edn returns nil for nil input — parent's keep/remove prunes it")))
 
-(deftest canonical-edn-non-nil-fast-path-unchanged
-  (testing "trees with no nil values produce the plain canonical EDN, with
-            nothing pruned — important because the JVM↔CLJS
-            parity test (hash_check_cljs_test.cljs) pins '9d7457ef' for
-            [:div {:class \"x\"} [:p \"hi\"]]."
-    (is (= "[:div {:class \"x\"} [:p \"hi\"]]"
-           (rf.ssr.hash/canonical-edn [:div {:class "x"} [:p "hi"]]))
-        "no-nil tree serialises to the plain canonical form")))
-
 ;; ---- render-tree-hash ------------------------------------------------------
-
-(deftest render-tree-hash-equates-nil-attr-with-absent-attr
-  (testing "{:class nil} and {} hash identically per Spec 011 §Hydration-mismatch"
-    (is (= (rf.ssr.hash/render-tree-hash [:div {:class nil}])
-           (rf.ssr.hash/render-tree-hash [:div {}]))
-        "the common (when condition? :class) shape triggers no spurious mismatch")
-    (is (= (rf.ssr.hash/render-tree-hash [:div {:id "x" :class nil}])
-           (rf.ssr.hash/render-tree-hash [:div {:id "x"}]))
-        "nil-valued attr pruned alongside live attrs")))
-
-(deftest render-tree-hash-equates-nil-child-with-absent-child
-  (testing "nil children are pruned — [:p \"text\" nil] ≡ [:p \"text\"]"
-    (is (= (rf.ssr.hash/render-tree-hash [:p "text" nil])
-           (rf.ssr.hash/render-tree-hash [:p "text"]))
-        "trailing nil child pruned")
-    (is (= (rf.ssr.hash/render-tree-hash [:div [:p "a"] nil [:p "b"]])
-           (rf.ssr.hash/render-tree-hash [:div [:p "a"] [:p "b"]]))
-        "interior nil child pruned")))
-
-;; ===========================================================================
-;; Map ordering must be a TOTAL order (str-colliding keys)
 ;;
-;; Sorting entries by `(comp str key)` would NOT be a total
-;; order: a keyword `:a` and a string `":a"` both `str` to `":a"`, so
-;; `sort-by` would fall back to source iteration/insertion order. Two maps
-;; that are `=` in Clojure (`{:a 1 ":a" 2}`) could then canonicalise to
-;; different EDN strings and hash differently depending only on how the
-;; map was constructed — a false hydration mismatch. `append-map!` sorts by
-;; the canonical-EDN form of the key (`:a` vs the quoted `":a"`), a total
-;; cross-runtime-stable order.
-;; ===========================================================================
-
-(deftest render-tree-hash-stable-for-str-colliding-keys
-  (testing "a map mixing a keyword `:a` and a string `\":a\"`
-            (whose `str` forms collide) hashes IDENTICALLY regardless of
-            insertion/construction order"
-    (let [a-first     (array-map :a 1 ":a" 2)
-          colon-first (array-map ":a" 2 :a 1)]
-      (is (= a-first colon-first)
-          "the two maps are Clojure-= (sanity: same logical map)")
-      (is (= (rf.ssr.hash/render-tree-hash a-first)
-             (rf.ssr.hash/render-tree-hash colon-first))
-          "render-tree-hash is insertion-order-independent for
-           str-colliding keys")
-      (is (= (rf.ssr.hash/canonical-edn a-first)
-             (rf.ssr.hash/canonical-edn colon-first))
-          "canonical EDN is byte-identical regardless of construction order"))
-
-    (testing "the canonical form distinguishes the two key shapes (the
-              keyword bare, the string quoted) so the order is total"
-      ;; The keyword sorts before the quoted string (`:` 0x3A < `\"` 0x22?
-      ;; no — `"` is 0x22, `:` is 0x3A, so the quoted string sorts first).
-      ;; We assert byte-equality across orders, not the absolute position.
-      (is (str/includes? (rf.ssr.hash/canonical-edn (array-map :a 1 ":a" 2))
-                         "\":a\"")
-          "the string key keeps its quotes in canonical form")
-      (is (str/includes? (rf.ssr.hash/canonical-edn (array-map :a 1 ":a" 2))
-                         ":a 1")
-          "the keyword key is bare in canonical form"))))
+;; The shallow nil-attr / nil-child equivalences, the sorted-key order and the
+;; total order over str-colliding keys (`:a` beside `":a"`) are pinned with
+;; literal hashes on both hosts by `re-frame.hash-parity-test` and
+;; `re-frame.ssr.hash-parity-cljs-test`.
 
 (deftest render-tree-hash-prunes-nil-deeply
   (testing "pruning is recursive — nil-pruning applies at every level"

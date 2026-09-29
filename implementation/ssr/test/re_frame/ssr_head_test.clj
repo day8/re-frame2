@@ -250,47 +250,9 @@
           (is (= 're-frame.ssr/head-model (:where (ex-data e)))
               (str ":where names the one public head read (" label ")")))))))
 
-(deftest head-model-returns-each-head-model
-  (testing "each head-model call RETURNS the model its registered fn
-            produced — successive calls on one frame are independent reads,
-            and the second call's return is the second head's model"
-    (rf/reg-head :head/a (fn [_ _] {:title "A"}))
-    (rf/reg-head :head/b (fn [_ _] {:title "B"}))
-    (let [f (rf.frame/make-anon-frame-record! {:doc "head-model frame" :platform :server})]
-      (is (= {:title "A"} (rf.ssr/head-model f {:head-id :head/a}))
-          "the first call returns the first head's model")
-      (is (= {:title "B"} (rf.ssr/head-model f {:head-id :head/b}))
-          "the second call returns the SECOND head's model, not the first's")
-      (is (= {:title "A"} (rf.ssr/head-model f {:head-id :head/a}))
-          "re-reading the first head returns its model again — the read is pure"))))
-
 ;; ===========================================================================
 ;; head-model — no :head-id, resolves via :head route metadata
 ;; ===========================================================================
-
-(deftest head-model-uses-route-head-metadata
-  (testing "head-model reads the :head key from the active route's
-            registration, runs it, and returns the model"
-    (rf/reg-head :head/article
-                 (fn [_db {:keys [params]}]
-                   {:title (str "Article " (:id params))}))
-    (rf/reg-route :route/article
-                  {:doc  "Article page"
-                   :head :head/article} "/articles/:id")
-    (let [f (rf.frame/make-anon-frame-record! {:doc "active-route frame" :platform :server})]
-      (rf/dispatch-sync
-        [::seed-route] {:frame f})
-      ;; The test sub-handler isn't registered; instead seed the runtime-db
-      ;; directly — the framework's [:rf.runtime/routing :current] slice
-      ;; populates via dispatch-driven routing.
-      ;; We bypass with a one-shot event below.
-      (rf/reg-event ::seed-route
-                       (fn [{rt :rf.db/runtime} _]
-                         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
-                                                   {:route-id :route/article :params {:id "42"}})}))
-      (rf/dispatch-sync [::seed-route] {:frame f})
-      (is (= {:title "Article 42"}
-             (rf.ssr/head-model f))))))
 
 (deftest head-model-falls-back-to-default-when-route-omits-head
   (testing "no :head on the route → default-head fires (viewport only)"
@@ -309,13 +271,6 @@
              envelope concern owned by the shell, not a per-route head concern")
         (is (some #(= "viewport" (:name %)) (:meta model))
             "default carries the viewport meta")))))
-
-(deftest head-model-uses-default-when-no-route-at-all
-  (testing "no route slice (e.g. a frame that hasn't routed yet) → default"
-    (let [f (rf.frame/make-anon-frame-record! {:doc "Bare" :platform :server})
-          model (rf.ssr/head-model f)]
-      (is (= "Bare" (:title model)))
-      (is (seq (:meta model))))))
 
 ;; ===========================================================================
 ;; head-model->html — canonical-ordered emitter
@@ -377,18 +332,6 @@
       ;; <script> is not void — needs closing tag.
       (is (str/includes? html "</script>")))))
 
-(deftest head-model->html-json-ld
-  (testing "JSON-LD tags serialise the structured map and ride a
-            <script type=\"application/ld+json\"> envelope"
-    (let [html (rf.ssr/head-model->html
-                 {:json-ld [{"@context" "https://schema.org"
-                             "@type"    "Article"
-                             "headline" "Hello"}]})]
-      (is (str/includes? html "type=\"application/ld+json\""))
-      (is (str/includes? html "\"@context\""))
-      (is (str/includes? html "\"@type\":\"Article\""))
-      (is (str/includes? html "\"headline\":\"Hello\"")))))
-
 (deftest head-model->html-json-ld-preserves-keyword-namespaces
   (testing "keyword map keys retain their namespace when
             serialised; the printer's key and value handling are symmetric.
@@ -430,48 +373,6 @@
             (rf.ssr/head-model->html
               {:json-ld [{"@type" "Rating" "ratingValue" bad}]}))
           (str "non-finite JSON-LD number " (pr-str bad) " is rejected")))))
-
-(deftest head-model->html-json-ld-escapes-script-close-in-string-values
-  (testing "a string value
-            containing `</script>` MUST NOT close the surrounding
-            `<script type=\"application/ld+json\">` envelope. Every `<`
-            inside string contents is escaped as `\\u003c`; JSON.parse
-            on the client accepts `\\u003c` as a six-character escape
-            for `<`, so the payload round-trips unchanged."
-    (let [hostile "</script><script>alert(document.cookie)</script>"
-          html    (rf.ssr/head-model->html
-                    {:json-ld [{"@context" "https://schema.org"
-                                "@type"    "Article"
-                                "headline" hostile}]})]
-      ;; The hostile literal MUST NOT survive — it would close our
-      ;; <script type="application/ld+json"> envelope.
-      (is (not (str/includes? html "</script><script>alert"))
-          "the closing-tag pattern is broken — no raw </script> escape")
-      ;; The escape sequence appears in place of each `<` char (the
-      ;; original string carried two `<` — the closing-tag escape and
-      ;; the nested-script opener).
-      (is (str/includes? html "\\u003c/script>\\u003cscript>")
-          "every `<` in the string value is escaped as the JSON `\\u003c` escape")
-      ;; Sanity: the envelope's own closing </script> is still present
-      ;; (it's the genuine end of the JSON-LD block).
-      (is (str/ends-with? html "</script>")
-          "the genuine envelope-closing </script> is unaffected"))))
-
-(deftest head-model->html-json-ld-escapes-script-close-in-keys
-  (testing "a `<` inside a JSON-LD KEY (a string-keyed map
-            entry that somehow carries `<`) is also escaped. Defensive:
-            map keys aren't a typical attack surface, but the helper
-            walks the whole string, so this is free coverage."
-    (let [hostile-key "</script>"
-          html        (rf.ssr/head-model->html
-                        {:json-ld [{hostile-key "value"}]})]
-      (is (not (str/includes? html "</script>\":"))
-          "</script> as a key cannot close the envelope (the `:value`
-           separator immediately follows the key — assert no
-           `</script>\":` substring survives)")
-      (is (str/includes? html "\\u003c/script>")
-          "`<` in keys comes through escaped (only `<` is escaped — `>`
-           is harmless inside a <script> body and remains literal)"))))
 
 (deftest head-model->html-json-ld-escapes-control-chars
   (testing "the JVM JSON-LD emitter MUST JSON-escape

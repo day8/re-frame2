@@ -2,7 +2,7 @@
   "Corner-matrix coverage for the streaming SSR shell walker, continuation
   drain, and final-payload build paths.
   `ssr_streaming_test.clj` pins the common shapes (single boundary,
-  duplicate id, failed continuation, payload shape); this ns pins the
+  wire-id collision, failed continuation, payload shape); this ns pins the
   composition corners — `n=0`/`n>=2` body children, nested boundaries,
   boundaries inside view-refs and fragments, fallback-render-throw
   recovery, delta capturing a real change, final-payload-build throw
@@ -456,7 +456,7 @@
   (testing "Three boundaries with the same :id — dedup keeps
             ONLY the LAST registration. Pins the last-write-wins shape
             against more than two duplicates (`ssr_streaming_test` covers
-            the 2-duplicate case)."
+            two boundaries whose wire ids collide)."
     (let [tree [:div
                 [:rf/suspense-boundary
                  {:id :triple :fallback [:p "first fallback"]}
