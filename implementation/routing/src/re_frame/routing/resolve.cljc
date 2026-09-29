@@ -31,15 +31,23 @@
       ONE mapping both door commit branches emit through so the projection is
       reachable from an executed navigation without the trace becoming a
       carrier.
+    - `redact-declared-url` — a URL string projected for egress by the
+      `:sensitive` declaration of the route it resolves to: the plan trace's
+      `:url`, and the URL argument of the `:rf.route/handle-url-change` event.
 
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
-  (:require [re-frame.identity :as rf.identity]
+  (:require [clojure.string :as str]
+            [re-frame.identity :as rf.identity]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.privacy.url :as rf.privacy.url]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.classification :as rf.routing.classification]
             [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.match :as rf.routing.match]
             [re-frame.routing.plan :as rf.routing.plan]
-            [re-frame.routing.registry :as rf.routing.registry]))
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.url :as rf.routing.url]))
 
 ;; ---- the navigation causes ------------------------------------------------
 
@@ -325,6 +333,131 @@
              :leaf-plan           (leaf-plan-of route-id)}
       branch-error (assoc :branch-error branch-error))))
 
+;; ---- a URL string, projected by its route's declaration --------------------
+;;
+;; A route declares its sensitive params and query keys projection-relative
+;; (`{:sensitive [[:params :secret] [:query :token]]}`), and activation lowers
+;; that declaration against the route slice in runtime-db. A URL string carries
+;; the same values as text, so no slice path reaches it. `redact-declared-url`
+;; matches the URL the way `match-url` does, reads the matched route's
+;; declaration exactly as activation does
+;; (`re-frame.routing.classification/validate+extract`), and replaces what it
+;; names with the `rf/redacted` sentinel string:
+;;
+;;   - a declared path param's segment, percent-encoded (`rf%2Fredacted`) so
+;;     the URL keeps its segment structure;
+;;   - a declared query key's value;
+;;   - the `#fragment`, when the route declares it.
+;;
+;; A `[]` declaration names the whole projection, and a `[:params]` /
+;; `[:query]` one every param / every query value. Everything the route does not
+;; declare — static segments, undeclared params, undeclared query keys and their
+;; values — rides byte-for-byte, and a URL matching no route, or a non-string,
+;; rides back unchanged. It is an EGRESS projection: the URL a door commits, the
+;; event it dispatches and the slice it writes keep the raw value.
+;;
+;; Consulted by the `:rf.route/planned` trace (`plan-trace-tags` below) and,
+;; through the late-bound `:routing/project-url-change-event-args` hook, by
+;; core's event-vector chokepoint for the URL argument of
+;; `[:rf.route/handle-url-change url …]`.
+
+(def ^:private redacted-value
+  "The `:rf/redacted` sentinel as the plain string a query value or fragment
+  is replaced by — the spelling the URL-carrier scrub uses."
+  (subs (str rf.privacy/redacted-sentinel) 1))
+
+(def ^:private redacted-segment
+  "The sentinel string as a PATH segment: percent-encoded, as `route-url`
+  would emit it for a param holding that string."
+  (rf.routing.url/url-encode redacted-value))
+
+(defn- key-name
+  "The URL spelling of a declared query key, or nil for a segment no query
+  string can carry."
+  [k]
+  (cond
+    (keyword? k) (subs (str k) 1)
+    (string? k)  k
+    :else        nil))
+
+(defn- url-declarations
+  "What `route-id`'s `:sensitive` declaration names in a URL: `{:param?
+  :query? :fragment?}`, the first two predicates over a param keyword and a
+  decoded query key, or nil when the route declares nothing sensitive."
+  [route-id route-meta]
+  (when-let [paths (seq (:sensitive (rf.routing.classification/validate+extract route-id route-meta)))]
+    (let [named  (fn [axis]
+                   (into #{}
+                         (keep (fn [p]
+                                 (cond
+                                   (empty? p)             ::all
+                                   (not= axis (first p))  nil
+                                   (= 1 (count p))        ::all
+                                   :else                  (second p))))
+                         paths))
+          params (named :params)
+          query  (named :query)
+          query-names (into #{} (keep key-name) query)]
+      {:param?    (fn [k] (or (contains? params ::all) (contains? params k)))
+       :query?    (fn [k] (or (contains? query ::all) (contains? query-names k)))
+       :fragment? (boolean (some #(or (empty? %) (= :fragment (first %))) paths))})))
+
+(defn- redact-query
+  "Replace the value of every `k=v` pair in the raw `query` string whose
+  decoded key `query?` names. A value-less key rides as it is."
+  [query query?]
+  (->> (str/split query #"&" -1)
+       (map (fn [pair]
+              (let [eq (str/index-of pair "=")]
+                (if (nil? eq)
+                  pair
+                  (let [k (rf.routing.url/safe-url-decode (subs pair 0 eq))]
+                    (if (and (some? k) (query? k))
+                      (str (subs pair 0 (inc eq)) redacted-value)
+                      pair))))))
+       (str/join "&")))
+
+(defn- redact-url-parts
+  "Rewrite `url` against the matched route's `compiled` pattern and its
+  `declarations`. The path is split off and normalised exactly as `match-url`
+  splits it, so the capture spans index the raw URL."
+  [url compiled {:keys [param? query? fragment?]}]
+  (let [hash-idx (str/index-of url "#")
+        no-frag  (if hash-idx (subs url 0 hash-idx) url)
+        q-idx    (str/index-of no-frag "?")
+        path     (if q-idx (subs no-frag 0 q-idx) no-frag)
+        spans    (rf.routing.match/capture-spans
+                   compiled (rf.routing.url/strip-trailing-slashes path))
+        path'    (reduce (fn [p [nm [start end]]]
+                           (if (and start (param? (keyword nm)))
+                             (str (subs p 0 start) redacted-segment (subs p end))
+                             p))
+                         path
+                         ;; right to left, so each rewrite leaves the spans
+                         ;; before it valid
+                         (reverse (map vector (:names compiled) spans)))]
+    (cond-> path'
+      q-idx    (str "?" (redact-query (subs no-frag (inc q-idx)) query?))
+      hash-idx (str "#" (if fragment? redacted-value (subs url (inc hash-idx)))))))
+
+(defn redact-declared-url
+  "Project `url` for egress by the `:sensitive` declaration of the route it
+  resolves to. See the section comment above. Returns `url` itself — the same object —
+  when nothing in it is declared."
+  [url]
+  (if-not (string? url)
+    url
+    (let [route-id   (:route-id (:match (rf.routing.registry/match-url-fail-closed url)))
+          route-meta (when (some? route-id) (rf.registrar/lookup :route route-id))
+          decls      (when (some? route-meta) (url-declarations route-id route-meta))
+          compiled   (when decls
+                       (or (:rf.route/compiled route-meta)
+                           (some-> (:path route-meta) rf.routing.match/parse-pattern)))]
+      (if (nil? compiled)
+        url
+        (let [url' (redact-url-parts url compiled decls)]
+          (if (= url url') url url'))))))
+
 ;; ---- the projection as trace tags -----------------------------------------
 ;;
 ;; There is no on-demand plan-projection helper. `plan-trace-tags` below is the
@@ -349,27 +482,30 @@
   projection is REACHABLE from an executed navigation (Spec 012 §Resolved target
   and the plan diagnostic projection).
 
-  A trace tag is an EGRESS surface, and the route's `:sensitive` classification
-  cannot reach it: that classification is lowered against runtime-db slice PATHS
-  (`classification/lower-for-route`), which redacts the `:rf/route` projections a
-  tool reads out of the slice but says nothing about a tag map on the trace bus.
-  The plan's `:target` nonetheless carries `:url` / `:params` / `:query` — carrier
-  VALUES — and this mapping declines to carry them. The reason is worth stating
-  precisely, because it is NOT that emitting them would breach a boundary: there
-  is no boundary here for a raw emit to reopen. The same carriers are already
-  ambient on the same drain — `:rf.nav/push-url`'s fx args carry the identical URL
-  string one trace row later, and the `:rf.route/navigate` event vector carries the
-  query values verbatim on `:rf.event/dispatched`. So the projection declines to
-  add a REDUNDANT copy of what is already there, and keeps the half that is
-  diagnostically load-bearing: WHICH keys were bound, not what they were bound to.
-  That is local emit-site hygiene, not a boundary the route classification
-  enforces on the trace bus. It is lossy in exactly two ways, and only those two:
+  A trace tag is an EGRESS surface. The route's `:sensitive` classification is
+  lowered against runtime-db slice PATHS (`classification/lower-for-route`), which
+  redacts the `:rf/route` projections a tool reads out of the slice but says
+  nothing about a tag map on the trace bus. The plan's `:target` nonetheless
+  carries `:url` / `:params` / `:query` — carrier VALUES — and this mapping
+  declines to carry them. For a value the route DECLARES sensitive, that is the
+  declaration honoured: the URL is projected by it before it is emitted. For
+  everything else it is local emit-site hygiene rather than a boundary, because
+  undeclared carriers are already ambient on the same drain — `:rf.nav/push-url`'s
+  fx args carry the navigation's URL string one trace row later, and the
+  `:rf.route/navigate` event vector carries the query values verbatim on
+  `:rf.event/dispatched`. So the projection declines to add a REDUNDANT copy of
+  what is already there, and keeps the half that is diagnostically load-bearing:
+  WHICH keys were bound, not what they were bound to. It is lossy in exactly two
+  ways, and only those two:
 
-    - the URL rides the `rf.privacy.url/redact-url-tag` path — the ONE
-      URL-carrier redactor routing sends its route-miss and
+    - the URL is projected by the route's own declaration
+      (`redact-declared-url`), which replaces a declared
+      path param's segment, a declared query value and a declared fragment with
+      the sentinel string, and then rides the `rf.privacy.url/redact-url-tag`
+      path — the ONE URL-carrier redactor routing sends its route-miss and
       blocked-navigation URL slots through. It keeps the structured PATH (what a
-      consumer branches on) and redacts the query-string and `#fragment` carrier
-      values. No second redaction route for the same datum.
+      consumer branches on) apart from a declared param's segment, and redacts
+      the query-string and `#fragment` carrier values.
     - `:params` / `:query` VALUES are NOT carried. Their KEY SETS are: that `:id`
       and `:invite` were bound is diagnostically useful; that `invite=SECRET100`
       is the leak. A key set is not a carrier.
@@ -409,4 +545,5 @@
        :leaf-plan-ids (mapv #(if (sequential? %) (first %) %) leaf-plan)}
       (cond-> branch-error
         (assoc :branch-error (select-keys branch-error [:kind :route-id*])))
+      (update :url redact-declared-url)
       (rf.privacy.url/redact-url-tag :url)))

@@ -619,6 +619,33 @@
                   (recur (into (pop queue) unvisited-successors)
                          (into visited unvisited-successors)))))))))))
 
+;; ---- capture spans --------------------------------------------------------
+
+(defn capture-spans
+  "Where each capture of the compiled pattern sits in `url`, the RAW path
+  `match-against` matches: a vector parallel to `:names`, each entry the
+  `[start end]` character span of that capture, or nil for one inside an
+  optional group that did not participate. nil when `url` does not match.
+
+  The spans index the raw, still percent-encoded path, so a caller can
+  rewrite one capture in place and leave every other character of the URL as
+  it was."
+  [compiled url]
+  #?(:clj  (let [^java.util.regex.Matcher m (re-matcher (:regex compiled) url)]
+             (when (.matches m)
+               (mapv (fn [g]
+                       (let [start (.start m (int g))]
+                         (when-not (neg? start) [start (.end m (int g))])))
+                     (range 1 (inc (.groupCount m))))))
+     :cljs (let [re (js/RegExp. (.-source (:regex compiled)) "d")
+                 r  (.exec re url)]
+             (when (some? r)
+               (let [indices (unchecked-get r "indices")]
+                 (mapv (fn [g]
+                         (when-let [span (aget indices g)]
+                           [(aget span 0) (aget span 1)]))
+                       (range 1 (alength indices))))))))
+
 ;; ---- match-against --------------------------------------------------------
 
 (defn match-against

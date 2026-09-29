@@ -419,6 +419,25 @@
       event)
     event))
 
+(defn- project-url-change-event-url
+  "Per-event-id DYNAMIC projection for a `[:rf.route/handle-url-change url …]`
+  event vector. The URL argument carries the matched route's path params and
+  query values, whose classification lives on the ROUTE the URL resolves to
+  (its `:sensitive` declaration), not on the event registration, so the static
+  registration layer cannot express it. Defers to the late-bound
+  `:routing/project-url-change-event-args` hook (published by
+  `re-frame.routing`; core stays decoupled). Hook unbound (routing artefact
+  absent) ⇒ pass-through: without the artefact the event has no handler at
+  all. Identity-preserving when nothing applies."
+  [event]
+  (if-let [project (rf.late-bind/get-fn :routing/project-url-change-event-args)]
+    (if (>= (count event) 2)
+      (let [url  (nth event 1)
+            url' (project url)]
+        (if (identical? url url') event (assoc event 1 url')))
+      event)
+    event))
+
 (defn redact-event-by-registration
   "Project an event vector for egress — the SINGLE event-vector chokepoint,
   the event peer of `project-fx-args`. Two layers compose:
@@ -431,7 +450,10 @@
      MUTATION spec named inside the args (the per-owner declaration
      surface), so the resources-published
      `:resources/project-execute-event-args` hook projects it
-     (`project-execute-event-payload`). Unbound ⇒ pass-through.
+     (`project-execute-event-payload`); `:rf.route/handle-url-change` — the
+     URL's classification lives on the ROUTE it resolves to, so the
+     routing-published `:routing/project-url-change-event-args` hook projects
+     it (`project-url-change-event-url`). Unbound ⇒ pass-through.
 
   A no-op when `event` is not a `[event-id arg-map …]` vector or nothing
   applies.
@@ -452,7 +474,8 @@
                    (redact-event-vec event sens large))
                  event)]
     (case (when (vector? event') (first event'))
-      :rf.mutation/execute (project-execute-event-payload event')
+      :rf.mutation/execute        (project-execute-event-payload event')
+      :rf.route/handle-url-change (project-url-change-event-url event')
       event')))
 
 (defn- project-event-tags
