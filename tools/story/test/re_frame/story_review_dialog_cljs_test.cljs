@@ -171,39 +171,53 @@
         "both flows' prefixes collapse to the same indent")))
 
 ;; ---- ARIA: modal a11y posture --------------------------------------------
+;;
+;; Read the attributes off the element that carries them: a substring probe
+;; of the printed tree is satisfied by other attributes (`"dialog"` by the
+;; `data-test` value `"test-dialog"`, `"aria-label"` by `:aria-labelledby`).
+
+(defn- attr-maps
+  "Every props map in the hiccup `tree`."
+  [tree]
+  (->> (tree-seq #(or (vector? %) (seq? %)) seq tree)
+       (filter #(and (vector? %) (map? (second %))))
+       (map second)))
 
 (deftest renderer-stamps-role-dialog-and-aria-modal
   (testing "the rendered modal carries role=dialog + aria-modal=true"
-    (let [flat (str (rf.story.review-dialog/review-dialog
-                      (opened-state)
-                      {:title             "Save"
-                       :snippet           "(snippet)"
-                       :placeholder-id    :story.x/example
-                       :placeholder-input ":story.x/sample"
-                       :on-edit-id        (fn [_])
-                       :on-copy           (fn [])
-                       :on-close          (fn [])
-                       :data-test-prefix  "test"}))]
-      (is (str/includes? flat "dialog")
-          "role=dialog appears in the rendered tree")
-      (is (str/includes? flat "aria-modal")
+    (let [maps  (attr-maps (rf.story.review-dialog/review-dialog
+                             (opened-state)
+                             {:title             "Save"
+                              :snippet           "(snippet)"
+                              :placeholder-id    :story.x/example
+                              :placeholder-input ":story.x/sample"
+                              :on-edit-id        (fn [_])
+                              :on-copy           (fn [])
+                              :on-close          (fn [])
+                              :data-test-prefix  "test"}))
+          panel (first (filter #(= "dialog" (:role %)) maps))]
+      (is (some? panel)
+          "an element carries role=dialog")
+      (is (= "true" (:aria-modal panel))
           "aria-modal flag is stamped on the modal panel")
-      (is (str/includes? flat "aria-labelledby")
+      (is (= "test-dialog-title" (:aria-labelledby panel))
           "aria-labelledby threads the title id into the modal panel")
-      (is (str/includes? flat "test-dialog-title")
-          "the title's id matches the data-test-prefix derived id"))))
+      (is (some #(= "test-dialog-title" (:id %)) maps)
+          "the title element carries the id aria-labelledby names"))))
 
 (deftest renderer-id-input-carries-aria-label
   (testing "the variant-id input has an accessible name"
-    (let [flat (str (rf.story.review-dialog/review-dialog
-                      (opened-state)
-                      {:title             "Save"
-                       :snippet           "(snippet)"
-                       :placeholder-id    :story.x/example
-                       :placeholder-input ":story.x/sample"
-                       :on-edit-id        (fn [_])
-                       :on-copy           (fn [])
-                       :on-close          (fn [])
-                       :data-test-prefix  "test"}))]
-      (is (str/includes? flat "aria-label")
+    (let [maps  (attr-maps (rf.story.review-dialog/review-dialog
+                             (opened-state)
+                             {:title             "Save"
+                              :snippet           "(snippet)"
+                              :placeholder-id    :story.x/example
+                              :placeholder-input ":story.x/sample"
+                              :on-edit-id        (fn [_])
+                              :on-copy           (fn [])
+                              :on-close          (fn [])
+                              :data-test-prefix  "test"}))
+          input (first (filter #(= "test-id-input" (:data-test %)) maps))]
+      (is (some? input) "precondition: the id input is rendered")
+      (is (not (str/blank? (:aria-label input)))
           "the input carries an aria-label so it's not announced as 'edit, blank'"))))
