@@ -251,11 +251,10 @@
 (deftest chart-renders-an-edge-per-transition
   (testing "the chart's edge count reflects the transitions.
 
-            The edge LABEL DOM (`rf-mv-chart-edge-<id>`) mounts via
-            xyflow's EdgeLabelRenderer only AFTER the async elkjs
-            layout positions the edges, so we pin the count via the
-            layout-independent `data-edge-count` root attr (the
-            projector emits one edge per transition before layout)."
+            Edge DOM needs xyflow to have measured both endpoint nodes,
+            which the synchronous first commit does not wait for, so the
+            count is pinned via the layout-independent `data-edge-count`
+            root attr — the parser's transition count."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
@@ -1003,12 +1002,10 @@
                              (.querySelectorAll
                                node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]"))
                   others   (remove #(= % fired-el) all-evs)]
-              (when (some? fired-el)
-                (is (= "true" (.getAttribute fired-el "data-fired")))
-                (is (every? #(or (= "false" (.getAttribute % "data-fired"))
-                                 (nil? (.getAttribute % "data-fired"))) others)))
-              (is (number? (.-length (.querySelectorAll
-                                       node "[data-testid^=\"rf-mv-chart-event-\"]")))))))))))
+              (is (some? fired-el) "the fired event-node mounted")
+              (is (= "true" (some-> fired-el (.getAttribute "data-fired"))))
+              (is (every? #(or (= "false" (.getAttribute % "data-fired"))
+                               (nil? (.getAttribute % "data-fired"))) others)))))))))
 
 (deftest chart-fired-edge-ids-surfaces-on-root
   (testing "G3 — the chart root surfaces the sorted fired set
@@ -1075,10 +1072,10 @@
                                (.querySelectorAll
                                  node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]"))
                   others     (remove #(= % blocked-el) all-evs)]
-              (when (some? blocked-el)
-                (is (= "true" (.getAttribute blocked-el "data-guard-blocked")))
-                (is (every? #(or (= "false" (.getAttribute % "data-guard-blocked"))
-                                 (nil? (.getAttribute % "data-guard-blocked"))) others))))))))))
+              (is (some? blocked-el) "the guard-blocked event-node mounted")
+              (is (= "true" (some-> blocked-el (.getAttribute "data-guard-blocked"))))
+              (is (every? #(or (= "false" (.getAttribute % "data-guard-blocked"))
+                               (nil? (.getAttribute % "data-guard-blocked"))) others)))))))))
 
 (deftest chart-guard-blocked-edge-ids-surfaces-on-root
   (testing "the chart root surfaces the sorted guard-blocked
@@ -1124,27 +1121,26 @@
                                  :connected  {}}}
              :failed  {:on {:retry :active}}}})
 
-(deftest chart-data-edge-count-projected-not-below-parsed
-  (testing "the chart root carries
-            `data-edge-count-projected` (the projector output count) +
-            `data-edge-count` (the parser output count). For a compound-
-            endpoint machine the projector count is not below the parser
-            count, so no edge is silently dropped at that boundary"
+(deftest chart-data-edge-count-projected-accounts-for-every-parsed-edge
+  (testing "the chart root's `data-edge-count-projected` (the projector's
+            edge-array length) is EXACTLY what the parse implies for a
+            compound-endpoint machine: one `__in` half per parsed edge, one
+            `__out` half per non-internal parsed edge, and one entry edge per
+            initial marker — so a parsed edge dropped at the projector
+            boundary moves the count. (It is not equal to `data-edge-count`,
+            the parsed transition count: events-as-nodes splits a transition
+            into two halves.)"
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/compound :definition compound-endpoint-machine}
         (fn [root _node]
-          (let [parsed    (layout/project-definition compound-endpoint-machine)
-                expected  (count (:edges parsed))
-                projected (-> (.getAttribute root "data-edge-count-projected")
-                              js/parseInt)]
-            (is (some? projected))
-            ;; projector emits parsed-edges + entry-edges (initial markers).
-            ;; we only assert >= parsed; entry edges add on top.
-            (is (>= projected expected)
-                (str "projected edges (" projected ") >= parsed edges ("
-                     expected ") — no projection-layer drop"))))))))
+          (let [{:keys [edges nodes]} (layout/project-definition compound-endpoint-machine)
+                expected (+ (count edges)
+                            (count (remove :internal? edges))
+                            (count (filter :initial? nodes)))]
+            (is (= (str expected) (.getAttribute root "data-edge-count-projected"))
+                "every parsed edge reaches the projector's edge array")))))))
 
 (deftest chart-renders-compound-node-with-handle-class-targets
   (testing "the compound node renders with .source +
@@ -1227,15 +1223,12 @@
                 ;; any element carrying a sibling-collapse attr
                 sibling-attr-els (.querySelectorAll
                                   node "[data-sibling-index],[data-sibling-count]")]
-            ;; If event-nodes race the commit the count may lag; assert
-            ;; positively when present, else keep the structural invariant
-            ;; (mirrors the chart_dom convention).
-            (when (>= (.-length event-nodes) 3)
-              (is (= 3 (.-length event-nodes))
-                  "three distinct events → three distinct event-nodes"))
+            ;; Event-nodes are xyflow nodes, so they mount on the first
+            ;; commit like the state nodes counted above.
+            (is (= 3 (.-length event-nodes))
+                "three distinct events → three distinct event-nodes")
             (is (zero? (.-length sibling-attr-els))
-                "no data-sibling-* attr renders")
-            (is (number? (.-length event-nodes)))))))))
+                "no data-sibling-* attr renders")))))))
 
 ;; ---- guarded-fork priority badge DOM (visual-pin) -----------------------
 ;;
@@ -1285,14 +1278,11 @@
                 orders (set (mapv (fn [i] (.getAttribute (aget badges i) "data-fork-order"))
                                   (range (.-length badges))))]
             ;; Badges are part of the node body (layout-independent); they
-            ;; mount on the first commit. Assert positively when present,
-            ;; else keep the structural invariant (the chart_dom convention).
-            (when (pos? (.-length badges))
-              (is (= 3 (.-length badges))
-                  "exactly three fork-priority badges (one per :gate/check branch)")
-              (is (= #{"1" "2" "3"} orders)
-                  "the three branches carry data-fork-order 1, 2, and 3"))
-            (is (number? (.-length badges)))))))))
+            ;; mount on the first commit.
+            (is (= 3 (.-length badges))
+                "exactly three fork-priority badges (one per :gate/check branch)")
+            (is (= #{"1" "2" "3"} orders)
+                "the three branches carry data-fork-order 1, 2, and 3")))))))
 
 (deftest chart-non-fork-event-nodes-render-no-priority-badge
   (testing "non-fork event-nodes render NO priority badge: the
@@ -1310,21 +1300,18 @@
                 "a fork-free machine renders no priority badges")))
         ;; The gate machine: badges appear ONLY on the three :gate/check
         ;; branches, never on the non-fork `:gate/set` / `:gate/reset` nodes.
-        ;; Pin it via the event-node↔badge ratio: there are far more event-
-        ;; nodes than the 3 fork branches, so a badge count of 0-or-3 with
-        ;; strictly-fewer-badges-than-event-nodes proves the non-fork nodes
-        ;; are un-badged.
+        ;; Pin it via the event-node↔badge ratio: there are more event-nodes
+        ;; than the 3 fork branches, so exactly 3 badges with strictly fewer
+        ;; badges than event-nodes proves the non-fork nodes are un-badged.
         (with-mounted-chart
           {:machine-id :test/gate :definition gate-fork-machine}
           (fn [_root node]
             (let [badges (count-sel node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]")
                   ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
-              (when (pos? badges)
-                (is (= 3 badges)
-                    "only the three fork branches are badged"))
-              (when (and (pos? badges) (pos? ev-nodes))
-                (is (< badges ev-nodes)
-                    "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none")))))))))
+              (is (= 3 badges)
+                  "only the three fork branches are badged")
+              (is (< badges ev-nodes)
+                  "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none"))))))))
 
 ;; ---- fork connector renderer styling ------------------------------------
 ;; The projection suite proves `:forkConnector` edges EXIST + carry the
@@ -1431,14 +1418,11 @@
                 ct    (tokens/chart-tokens)
                 {:keys [action-pill-height action-pill-pad-x
                         action-pill-radius]} vc/chart-regular]
-            ;; The action chip mounts on the first commit (node body). Assert
-            ;; positively when present, else keep the structural invariant
-            ;; (the chart_dom convention for layout-independent body chrome).
-            (when (pos? (.-length chips))
-              ;; EXACTLY one action-bearing event-node: the gate's :gate/set.
-              (is (= 1 (.-length chips))
-                  "exactly one enclosed action chip (only :gate/set bears an action)")
-              (let [chip (aget chips 0)]
+            ;; The action chip mounts on the first commit (node body).
+            ;; EXACTLY one action-bearing event-node: the gate's :gate/set.
+            (is (= 1 (.-length chips))
+                "exactly one enclosed action chip (only :gate/set bears an action)")
+            (when-let [chip (aget chips 0)]
                 (is (= "set-level" (.getAttribute chip "data-action"))
                     "data-action carries the action name")
                 ;; ENCLOSED styling — fill + border + rounding (a contained
@@ -1461,8 +1445,7 @@
                 (is (= (str action-pill-height "px") (.. chip -style -height))
                     "density-aware chip height")
                 (is (str/includes? (.. chip -style -padding) (str action-pill-pad-x "px"))
-                    "density-aware horizontal padding")))
-            (is (number? (.-length chips)))))))))
+                    "density-aware horizontal padding"))))))))
 
 (deftest chart-non-action-event-nodes-render-no-action-chip
   (testing "event-nodes WITHOUT an action render NO action chip.
@@ -1487,12 +1470,10 @@
           (fn [_root node]
             (let [chips    (count-sel node "[data-testid^=\"rf-mv-chart-event-action-\"]")
                   ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
-              (when (pos? chips)
-                (is (= 1 chips)
-                    "only the single :gate/set action-bearing node carries a chip"))
-              (when (and (pos? chips) (pos? ev-nodes))
-                (is (< chips ev-nodes)
-                    "fewer chips than event-nodes — the action-free nodes carry none")))))))))
+              (is (= 1 chips)
+                  "only the single :gate/set action-bearing node carries a chip")
+              (is (< chips ev-nodes)
+                  "fewer chips than event-nodes — the action-free nodes carry none"))))))))
 
 ;; ---- :on-state-click contract: leaf body + compound title strip --------
 ;; `:on-state-click` fires for REAL statechart-

@@ -9,9 +9,8 @@
   the async elkjs pass resolves (positions are still {0 0}); the Xray
   feature gate only requires `nodeCount > 0`; the PNG exporter test
   proves nonblank output, not topology correctness. Without this gate,
-  real rendered failures — wrong fit, overlapped bands/nodes, bad route
-  geometry, missing projected edges, adaptive-layout drift — would be
-  invisible to CI.
+  real rendered failures — wrong fit, overlapped nodes, misplaced
+  routes, missing projected edges — would be invisible to CI.
 
   ## What this gate does (and why it's a node `-cljs-test`)
 
@@ -31,16 +30,24 @@
     - WRONG FIT / degenerate origin-stack — every state node lands at a
       DISTINCT, finite, positive-area box (not all stacked at {0 0}),
       and the overall bounding box is finite + positive.
-    - OVERLAPPED bands/nodes — no two sibling leaf state nodes (same
-      coordinate frame) overlap; every container ENCLOSES its children
-      (catches a band/region painted over its contents).
+    - OVERLAPPED nodes — no two sibling leaf state nodes (same
+      coordinate frame) overlap; every compound / region container
+      ENCLOSES its children (catches a child laid out outside its
+      container). Sibling region containers are not checked against
+      each other.
     - MISSING projected edges — every projected transition has BOTH
       routed halves (events-as-nodes splits each edge into an `__in` +
       `__out` segment) present in `:edge-points`, each a polyline of
       >= 2 points.
-    - BAD route placement — each routed half's polyline stays within a
-      tolerance of the union box of its endpoint nodes (the route
-      connects the RIGHT nodes; it does not fly off into empty space).
+    - BAD route placement — the `__in` half STARTS, and the `__out`
+      half ENDS, within a tolerance of its endpoint node's box (the
+      route connects the RIGHT nodes; it does not fly off into empty
+      space). Interior bend points are not checked.
+
+  Every machine lays out top-to-bottom (`:tb`), so the adaptive
+  `:direction :auto` path is outside this gate, and the Context-band
+  machine runs the same battery with the band's rows reserved rather
+  than asserting the band's own placement.
 
   ## Command to run when changing layout/projection/visual constants
 
@@ -100,9 +107,8 @@
 
 (def ^:private context-band
   "A flat machine with a machine-level `:on` fallback + machine `:data`
-  — drives a non-trivial root Context band (machine-root chip + reset
-  edge). The band must reserve its own vertical space and the spine
-  must sit below it without overlap."
+  — the shape behind a non-trivial root Context band (machine-root chip +
+  reset edge), laid out here with the band's rows reserved."
   {:initial :a
    :on      {:reset :a}
    :data    {:hits 0 :seen [] :token nil}
@@ -298,8 +304,8 @@
       (run-gate! "fork" (layout/project-definition guarded-fork) 0 done))))
 
 (deftest parallel-topology-settles-cleanly
-  (testing "parallel region BANDS sit side-by-side without
-            overlap, each enclosing its own states"
+  (testing "each parallel region container encloses its own
+            states, and no two states in a region overlap"
     (async done
       (run-gate! "parallel" (layout/project-definition parallel) 0 done))))
 
@@ -310,7 +316,8 @@
       (run-gate! "compound" (layout/project-definition compound) 0 done))))
 
 (deftest context-band-topology-settles-cleanly
-  (testing "a Context-band machine reserves the band space
-            and the spine sits below it without overlap"
+  (testing "a machine laid out with three Context-band rows
+            reserved still settles to distinct, non-overlapping,
+            fully-routed geometry"
     (async done
       (run-gate! "context" (layout/project-definition context-band) 3 done))))
