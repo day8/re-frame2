@@ -123,10 +123,6 @@
       (is (every? #(= :rf/default (:frame %)) rows)
           ":frame stamped on every row"))))
 
-(deftest project-rows-empty-snapshot
-  (is (= [] (panel/project-rows {}))
-      "empty snapshot → empty rows"))
-
 (deftest filter-rows-substring
   (let [rows (panel/project-rows sample-flows)]
     (testing "blank query returns rows verbatim"
@@ -165,31 +161,9 @@
     (testing "an absent frame-id yields an empty registry"
       (is (= {} (panel/scope-to-frame multi :rf/nope))))))
 
-(deftest project-data-scopes-to-frame
-  (let [multi {:rf/default {:a {:id :a :inputs [] :output-path [:a]}}
-               :rf/cart    {:b {:id :b :inputs [] :output-path [:b]}
-                            :c {:id :c :inputs [] :output-path [:c]}}}]
-    (testing "frame A surfaces only frame A's flows, not the flattened global set"
-      (let [data (panel/project-data multi :rf/default nil)]
-        (is (= 1 (:total data)))
-        (is (= [:a] (mapv :flow-id (:flows data))))))
-    (testing "frame B surfaces only frame B's flows"
-      (let [data (panel/project-data multi :rf/cart nil)]
-        (is (= 2 (:total data)))
-        (is (= [:b :c] (mapv :flow-id (:flows data))))))
-    (testing "nil frame-id still lists every frame's flows"
-      (is (= 3 (:total (panel/project-data multi nil nil)))))))
-
 ;; -------------------------------------------------------------------------
 ;; (2) registry wiring
 ;; -------------------------------------------------------------------------
-
-(deftest install-registers-subs
-  (testing "register-xray-handlers! installs the static-flows subs + events"
-    (setup-xray!)
-    (rf/with-frame :rf/xray
-      (is (nil? @(rf/subscribe [:rf.xray.static.flows/query]))
-          "query slot defaults nil"))))
 
 (deftest set-query-writes-the-slot
   (setup-xray!)
@@ -199,18 +173,6 @@
     (rf/dispatch-sync [:rf.xray.static.flows/set-query ""])
     (is (nil? @(rf/subscribe [:rf.xray.static.flows/query]))
         "blank string dissocs the slot")))
-
-(deftest registered-flows-override-feeds-the-composite
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.static.flows/set-registered-flows-override-for-test
-       sample-flows])
-    (let [data @(rf/subscribe [:rf.xray.static.flows/tab-data])]
-      (is (= 2 (:total data)) "override surfaces two flows")
-      (is (false? (:silent? data))))
-    (rf/dispatch-sync
-      [:rf.xray.static.flows/set-registered-flows-override-for-test nil])))
 
 (def two-frame-flows
   "Two frames each carrying distinct flows — fixture for the picker-

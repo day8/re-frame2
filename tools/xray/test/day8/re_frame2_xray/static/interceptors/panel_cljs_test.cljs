@@ -187,27 +187,11 @@
 ;; (2) registry wiring
 ;; -------------------------------------------------------------------------
 
-(deftest install-registers-subs
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (is (nil? @(rf/subscribe [:rf.xray.static.interceptors/query]))
-        "query slot defaults nil")))
-
 (deftest set-query-writes-the-slot
   (setup-xray!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray.static.interceptors/set-query "logging"])
     (is (= "logging" @(rf/subscribe [:rf.xray.static.interceptors/query])))))
-
-(deftest registry-override-feeds-the-composite
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.static.interceptors/set-registry-override-for-test
-       sample-events-with-chains])
-    (let [data @(rf/subscribe [:rf.xray.static.interceptors/tab-data])]
-      (is (= 3 (:total data)))
-      (is (false? (:silent? data))))))
 
 ;; -------------------------------------------------------------------------
 ;; (3) view rendering

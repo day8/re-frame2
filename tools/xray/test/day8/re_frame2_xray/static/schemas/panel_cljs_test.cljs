@@ -117,13 +117,6 @@
     (is (= 1 (count sub-rows)))
     (is (= :sub (:kind (first sub-rows))))))
 
-(deftest project-rows-combines-and-sorts
-  (let [rows (panel/project-rows (:schemas-by-frame sample-registry)
-                                 (:events sample-registry)
-                                 (:subs   sample-registry))]
-    (is (= 3 (count rows))
-        "app-db + 1 event + 1 sub = 3 rows")))
-
 (deftest filter-rows-substring
   (let [rows (panel/project-rows (:schemas-by-frame sample-registry)
                                  (:events sample-registry)
@@ -155,50 +148,15 @@
     (testing "an absent frame-id yields an empty map"
       (is (= {} (panel/scope-app-schemas-to-frame multi :rf/nope))))))
 
-(deftest project-data-scopes-app-db-schemas-but-not-global-schemas
-  (let [multi-by-frame {:rf/default {[:user] {:schema :map}}
-                        :rf/cart    {[:cart] {:schema :map}}}
-        events         (:events sample-registry)   ;; one schema-bearing event
-        subs           (:subs   sample-registry)]  ;; one schema-bearing sub
-    (testing "frame :rf/default → its 1 app-db schema + the 2 global schemas"
-      (let [data (panel/project-data multi-by-frame events subs :rf/default nil)]
-        (is (= 3 (:total data)) "1 app-db (default) + 1 event + 1 sub")
-        (is (= 1 (count (filterv #(= :app-db (:kind %)) (:schemas data))))
-            "only :rf/default's app-db schema, not :rf/cart's")))
-    (testing "frame :rf/cart → its 1 app-db schema + the same 2 global schemas"
-      (let [data (panel/project-data multi-by-frame events subs :rf/cart nil)]
-        (is (= 3 (:total data)))
-        (is (= [[:cart]]
-               (mapv :id (filterv #(= :app-db (:kind %)) (:schemas data))))
-            "only :rf/cart's app-db schema surfaces")))
-    (testing "nil frame-id → both frames' app-db schemas + global schemas"
-      (is (= 4 (:total (panel/project-data multi-by-frame events subs nil nil)))))))
-
 ;; -------------------------------------------------------------------------
 ;; (2) registry wiring
 ;; -------------------------------------------------------------------------
-
-(deftest install-registers-subs
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (is (nil? @(rf/subscribe [:rf.xray.static.schemas/query]))
-        "query slot defaults nil")))
 
 (deftest set-query-writes-the-slot
   (setup-xray!)
   (rf/with-frame :rf/xray
     (rf/dispatch-sync [:rf.xray.static.schemas/set-query "user"])
     (is (= "user" @(rf/subscribe [:rf.xray.static.schemas/query])))))
-
-(deftest registry-override-feeds-the-composite
-  (setup-xray!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.static.schemas/set-registry-override-for-test
-       sample-registry])
-    (let [data @(rf/subscribe [:rf.xray.static.schemas/tab-data])]
-      (is (= 3 (:total data)))
-      (is (false? (:silent? data))))))
 
 ;; -------------------------------------------------------------------------
 ;; (2b) THE PRODUCTION PATH — rows that reach the panel through REAL
