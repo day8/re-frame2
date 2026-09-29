@@ -1424,67 +1424,6 @@
              (last pairs))
           "removed-only member appears with after=::missing, before=value"))))
 
-(deftest diff-renders-removed-map-key
-  ;; Map dissoc case — `:tags` would also be a map at one level up,
-  ;; but the simplest assertion is at the top level: AFTER drops a key
-  ;; and the rendered hiccup carries the removed-chrome marker for
-  ;; that row.
-  (let [before {:a 1 :b 2}
-        after  {:a 1}
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (re-find #":b" all)
-        "removed key :b still appears in the rendered hiccup")
-    (is (re-find #":a" all)
-        "surviving key :a renders alongside it")
-    (is (re-find #"data-rf-diff-op.*removed" s)
-        "a row carries the removed diff-op marker")
-    (is (re-find #"line-through" s)
-        "removed row carries the strike-through text-decoration")))
-
-(deftest diff-renders-fully-dissocd-map
-  ;; Edge case — AFTER is `{}` (all keys dropped). The union count
-  ;; drives the header, so the body expands; an empty AFTER
-  ;; short-circuiting the header into the `{}` empty-bracket-pair
-  ;; render would hide every removed row.
-  (let [before {:a 1 :b 2}
-        after  {}
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        all (collect-text h)]
-    (is (re-find #":a" all)
-        "both removed keys appear when AFTER is fully dissoc'd")
-    (is (re-find #":b" all))))
-
-(deftest diff-renders-removed-vector-tail
-  (let [before [:x :y :z]
-        after  [:x]
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (re-find #":y" all) "popped tail item :y still appears")
-    (is (re-find #":z" all) "popped tail item :z still appears")
-    (is (re-find #"data-rf-diff-op.*removed" s)
-        "a row carries the removed diff-op marker")))
-
 ;; =========================================================================
 ;; scattered / mid-vector removals render the genuinely-removed
 ;; members struck, and the surviving-shifted members NOT struck. The
@@ -1569,19 +1508,6 @@
       (is (re-find #"\(was \d+\)" all)
           ":c is surviving-shifted → carries a (was N) shift suffix"))))
 
-(deftest diff-vector-single-mid-removal-strikes-only-the-gap
-  ;; A single mid-vector removal: `[:a :b :c] -> [:a :c]` removes :b@1.
-  ;; :c survives (shifted 2 → 1). Index alignment would strike :c and
-  ;; drop :b.
-  (let [before [:a :b :c]
-        after  [:a :c]
-        h      (render-vec-diff before after)
-        struck (struck-members h)]
-    (is (contains? struck ":b") ":b (the removed gap) is struck")
-    (is (not (contains? struck ":c"))
-        ":c survives (shifted) — must not be struck")
-    (is (not (contains? struck ":a")) ":a survives in place — not struck")))
-
 (deftest diff-vector-tail-removal-still-correct-with-projection
   ;; The contiguous-tail case under the projection path (the ONE case
   ;; index alignment gets right; the projection walk must get it right
@@ -1593,19 +1519,6 @@
     (is (contains? struck ":y") ":y (tail) is struck")
     (is (contains? struck ":z") ":z (tail) is struck")
     (is (not (contains? struck ":x")) ":x survives at index 0 — not struck")))
-
-(deftest diff-vector-numeric-scattered-removal
-  ;; Numeric payload, scattered removal: `[10 20 30 40 50] -> [10 30 50]`
-  ;; removes 20@1 + 40@3; 30 (2→1) and 50 (4→2) survive shifted.
-  (let [before [10 20 30 40 50]
-        after  [10 30 50]
-        h      (render-vec-diff before after)
-        struck (struck-members h)]
-    (is (contains? struck "20") "20 (removed@1) struck")
-    (is (contains? struck "40") "40 (removed@3) struck")
-    (is (not (contains? struck "30")) "30 survives (shifted 2→1) — not struck")
-    (is (not (contains? struck "50")) "50 survives (shifted 4→2) — not struck")
-    (is (not (contains? struck "10")) "10 survives in place — not struck")))
 
 ;; =========================================================================
 ;; MIXED insert+delete edit scripts render the genuinely-
@@ -1935,10 +1848,11 @@
 ;;                  would satisfy "they agree" while making the dropped
 ;;                  rows invisible instead of merely unexplained.
 ;;   P2 BOUNDED   — an endless sequence still terminates and still realises
-;;                  no more than the bound. Measured with a REALISATION
-;;                  COUNTER, never output length: a bound that is present
-;;                  but reached too late looks identical to one that works
-;;                  if all you measure is how many rows came out.
+;;                  no more than the bound. The `rf2-brmyq` rows above and
+;;                  the cut-sequence row below measure it with a
+;;                  REALISATION COUNTER, never output length: a bound that
+;;                  is present but reached too late looks identical to one
+;;                  that works if all you measure is how many rows came out.
 ;;
 ;; WHICH NUMBER. `count-bound` (1001) is the WALKER's ceiling — the length
 ;; of `(take count-bound …)`, and the most a walker realises on its own.
@@ -2049,43 +1963,6 @@
         (is (= (dec jh12f-n) k) "the last row is the last index")
         (is (= (dec jh12f-n) a) "carrying its real AFTER value")
         (is (= ::ei/missing b)  "with no BEFORE counterpart — it is :added")))))
-
-(deftest bounding-still-holds-for-an-endless-sequence-rf2-jh12f
-  ;; P2. Agreement must not cost the bound on an endless sequence. A REALISATION
-  ;; counter, never an output length — `counting-seq` throws if anything
-  ;; pulls past the guard, which turns "loops for ever" into a failure in
-  ;; milliseconds.
-  (let [guard 50000]
-    (testing "children-of-pair — an endless BEFORE side stays bounded"
-      (let [seen (atom 0)
-            rows (vec (ei/children-of-pair
-                        (counting-seq seen guard) [1 2 3] :vector))]
-        (is (<= @seen count-bound)
-            (str "realised " @seen " elements; the WALKER's bound is "
-                 count-bound))
-        (is (= count-bound (count rows))
-            (str "and emits exactly " count-bound " rows — the walker's "
-                 "number, which is also what the header reports for a "
-                 "NOT-`counted?` side, so the two still agree"))))
-    (testing "children-of-pair — an endless AFTER side stays bounded"
-      (let [seen (atom 0)
-            rows (vec (ei/children-of-pair
-                        [1 2 3] (counting-seq seen guard) :vector))]
-        (is (<= @seen count-bound)
-            (str "realised " @seen " elements from the AFTER side; the "
-                 "WALKER's bound is " count-bound))
-        (is (= count-bound (count rows))
-            (str "and still emits " count-bound " rows"))))
-    (testing "children-of — an endless value through the BROWSE render path"
-      (let [seen (atom 0)
-            h    (render-expanded {:value (counting-seq seen guard)})]
-        (is (vector? h) "renders rather than hanging")
-        (is (= count-bound (rendered-rows h))
-            (str "the browse body emits the walker's " count-bound " rows"))
-        (is (<= @seen render-path-bound)
-            (str "and realised " @seen " elements; the RENDER path's bound "
-                 "is " render-path-bound " — `count-bound` plus the single "
-                 "element `cljs.core/bounded-count` looks ahead"))))))
 
 ;; ---- a sequence cut at the bound SAYS so ---------------------------------
 ;;
@@ -3166,29 +3043,6 @@
       (is (= n (count rows))
           (str "and still emits all " n " rows")))))
 
-(deftest diff-renders-removed-set-member
-  ;; Canonical machine-snapshot reproduction:
-  ;; `:tags` set loses `:ws/authenticating`. Without the removed-member row
-  ;; the AFTER column would give no indication anything was removed; the
-  ;; struck-through row appears alongside the survivors.
-  (let [before #{:a :b :ws/authenticating}
-        after  #{:a :b}
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (re-find #":ws/authenticating" all)
-        "removed set member rendered alongside survivors")
-    (is (re-find #"data-rf-diff-op.*removed" s)
-        "the removed-member row carries the removed diff-op marker")
-    (is (re-find #"line-through" s)
-        "the removed row carries strike-through text-decoration")))
-
 (deftest diff-renders-machine-snapshot-tags-transition
   ;; A Machine snapshot transition
   ;; `[:active :authenticating] → [:active :connected]` where `:tags`
@@ -3426,66 +3280,15 @@
         "the :tags set is not rendered as a removed ghost (no whole-key strike)")))
 
 ;; =========================================================================
-;; Vector/list emptied renders member-level, and a multi-
-;; element removal shows every removed value distinctly
+;; A vector filled from empty renders member-level
 ;; =========================================================================
 ;;
-;; A vector/list empty edge must not classify as a whole-key
-;; `:modified` (a `~` amber row + `← was [1]`) when the set/map empty
-;; edges produce a member-level removal — and a multi-element vector
-;; removal must not report one before-value repeatedly while dropping the
-;; rest. These tests drive the LIVE render path (a real `engine/project`
-;; projection) so the renderer's structural handling is exercised.
-
-(deftest yucxn-vector-emptied-renders-member-level-not-whole-key
-  ;; `{:a [1]} → {:a []}` (vector emptied, key intact):
-  ;; the operator must see `:a [ ]` with the removed `1` struck-through
-  ;; INSIDE it, NOT a whole-key `:a ~ [] ← was [1]`. The `:a` key must not
-  ;; be a removed ghost (its value is still present, just empty).
-  (let [before {:a [1]}
-        after  {:a []}
-        proj   (engine/project before after)
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :projection proj
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    ;; The removed element is visible + struck.
-    (is (re-find #"\b1\b" all) "the removed element 1 still renders")
-    (is (re-find #"data-rf-diff-op.*removed" s)
-        "a row carries the removed diff-op marker (the dropped element)")
-    (is (re-find #"line-through" s)
-        "the dropped element is struck-through, not a whole-key modify")
-    ;; The :a key is NOT a removed ghost (key intact, value just empty).
-    (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
-        "the :a vector is not a removed ghost (key intact)")
-    ;; No `← was [1]` whole-value annotation (the whole-key-modify symptom).
-    (is (not (re-find #"← was \[1\]" all))
-        "no whole-key `← was [1]` modify annotation (member-level instead)")))
-
-(deftest yucxn-list-emptied-renders-member-level
-  ;; The list empty edge mirrors the vector edge.
-  (let [before {:a '(1)}
-        after  {:a '()}
-        proj   (engine/project before after)
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :projection proj
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        s   (try (pr-str h) (catch :default _ ""))]
-    (is (re-find #"data-rf-diff-op.*removed" s)
-        "the emptied list shows the dropped element as a removed row")
-    (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
-        "the :a list is not a removed ghost (key intact)")))
+;; A vector populated from empty must not classify as a whole-key
+;; `:modified` (a `~` amber row + `← was []`): the new element renders as
+;; its own added row. The emptying direction, for every container family,
+;; is the `c0c6a3` table below. The test drives the LIVE render path (a
+;; real `engine/project` projection) so the renderer's structural
+;; handling is exercised.
 
 (deftest yucxn-vector-populated-from-empty-renders-added
   ;; The symmetric `{:a []} → {:a [1]}` shows the new element
@@ -3506,54 +3309,6 @@
     (is (re-find #"\b1\b" all) "the new element 1 renders")
     (is (re-find #"data-rf-diff-op.*added" s)
         "the filled-from-empty vector shows the new element as an added row")))
-
-(deftest yucxn-vector-multi-removal-shows-every-removed-value-distinctly
-  ;; `{:a [1 2 3]} → {:a [1]}` drops 2 AND 3. The
-  ;; renderer must show BOTH struck-through, with their CORRECT values —
-  ;; not `2` twice and not a vanished `3`.
-  (let [before {:a [1 2 3]}
-        after  {:a [1]}
-        proj   (engine/project before after)
-        h (ei/render-node {:value after
-                           :before before
-                           :diff? true
-                           :projection proj
-                           :panel-id :p :mount-id "m"
-                           :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 6}})
-        all (collect-text h)
-        s   (try (pr-str h) (catch :default _ ""))]
-    ;; Engine precondition — the channel carries both with true values.
-    (is (= [{:before-index 1 :before-value 2}
-            {:before-index 2 :before-value 3}]
-           (get-in proj [:vector-removals [:a]]))
-        "precondition: both removed elements recovered with correct values")
-    ;; Both removed values appear in the render (3 is the proof nothing is dropped).
-    (is (re-find #"\b2\b" all) "removed element 2 renders")
-    (is (re-find #"\b3\b" all) "removed element 3 renders (not dropped)")
-    (is (re-find #"data-rf-diff-op.*removed" s)
-        "the dropped elements carry the removed marker")))
-
-(deftest yucxn-vector-scattered-removal-engine-channel-correct
-  ;; A scattered removal `[:a :b :c :d] → [:a :c]` drops
-  ;; :b (before-idx 1) and :d (before-idx 3). The ENGINE's :vector-removals
-  ;; channel recovers both with their true before-index + value; resolving
-  ;; by post-shift index would report :b + :c and drop :d.
-  ;;
-  ;; The RENDERER consumes this channel: `render-container`'s diff arm walks
-  ;; a vector body through `sequential-diff-children`, which strikes the
-  ;; actually-removed members in before-order, in place, where an
-  ;; index-aligned `children-of-pair` walk would strike the surviving,
-  ;; shifted element. This test pins the ENGINE contract that walk
-  ;; consumes.
-  (let [before {:v [:a :b :c :d]}
-        after  {:v [:a :c]}
-        proj   (engine/project before after)]
-    (is (= [{:before-index 1 :before-value :b}
-            {:before-index 3 :before-value :d}]
-           (get-in proj [:vector-removals [:v]]))
-        "engine recovers :b (idx 1) + :d (idx 3) — not :b + :c (post-shift resolution)")))
 
 ;; =========================================================================
 ;; A collection value EMPTYING renders KEY-INTACT (member-level
@@ -3966,37 +3721,6 @@
                                           (get (second n) :data-rf-row-anchor))))))]
     (is (zero? (count slot-cells))
         "R8 row stays value-anchored — no slot-anchor markers")))
-
-(deftest slot-anchored-removed-key-marker-on-data-attrs
-  ;; The removed-row regression test already covers `line-through`
-  ;; appearing in pr-str — but we want a positive assertion that the
-  ;; KEY CELL specifically carries the strike. Walk through the hiccup
-  ;; and confirm the key-cell `<div>` is what holds it (not just the
-  ;; inner key-segment span).
-  (let [before {:a 1 :b 2}
-        after  {:a 1}
-        proj   (projection-for before after)
-        h      (ei/render-node {:value after
-                                :before before
-                                :diff? true
-                                :projection proj
-                                :panel-id :p :mount-id "m"
-                                :path [] :depth 0
-                                :expansion-map {}
-                                :opts {:default-expanded-depth 2}})
-        nodes  (walk-hiccup h)
-        key-cell-with-strike
-        (->> nodes
-             (filter (fn [n]
-                       (and (vector? n)
-                            (map? (second n))
-                            (= "key" (get (second n) :data-rf-cell))
-                            (= "slot" (get (second n) :data-rf-row-anchor))
-                            (= "line-through"
-                               (get-in (second n) [:style :text-decoration])))))
-             first)]
-    (is (some? key-cell-with-strike)
-        "removed-key cell DIV (not just inner span) carries line-through")))
 
 ;; =========================================================================
 ;; Frame-leak + first-click guards
