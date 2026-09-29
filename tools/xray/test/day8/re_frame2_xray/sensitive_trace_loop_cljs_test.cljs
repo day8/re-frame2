@@ -3,7 +3,7 @@
 
   ## Why this file exists
 
-  Xray registers `trace-collector/seed-trace-for-test!` as the
+  Xray registers `trace-collector/collect-trace!` as the
   `:rf.xray/trace-collector` callback at preload time. Whenever a
   `:sensitive?` trace event arrives, `collect-trace!` calls
   `config/note-suppressed!`, which schedules a task-coalesced
