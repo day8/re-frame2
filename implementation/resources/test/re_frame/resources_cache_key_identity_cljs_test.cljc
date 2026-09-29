@@ -12,8 +12,7 @@
   (a `canonical-bytes` STRING) never collapses, so a list-params key and a
   vector-params key get DISTINCT entries / work-ids / index members.
 
-  This suite proves the byte identity holds through ALL FOUR carriers the
-  scoped key flows into:
+  The byte identity holds through ALL FOUR carriers the scoped key flows into:
 
     1. `:entries` map key (the collapse site);
     2. the work-ledger work-id (`[:rf.work/resource <scoped-key> <gen>]`,
@@ -22,6 +21,12 @@
        `hydrate-runtime-db` recompute) and the epoch restore reconcile
        (`reconcile-on-restore`);
     4. trace payloads (the scoped-key vector rides verbatim).
+
+  This suite pins carriers 2 and 3. Carrier 1 (two live entries through the
+  runtime's own byte-keyed entry path) and carrier 4 (the kind-preserving,
+  byte-distinct scoped-key vector) are pinned in `resources-runtime-cljs-test`
+  by `resources-introspection-keeps-cedn-distinct-scoped-keys-distinct` and
+  `resource-identity-uses-shared-cedn1-rule`.
 
   CRITICAL: the byte key-id is a plain UTF-8 STRING, so it rides the SSR /
   epoch / trace wire with NO custom transit handler — a `deftype` key would
@@ -68,25 +73,6 @@
   which is the very collapse the byte key-id routes around)."
   [pairs]
   (into {} (map (fn [[sk e]] [(rf.resources.state/key-id sk) e])) pairs))
-
-;; ===========================================================================
-;; Carrier 1 — the :entries map key
-;; ===========================================================================
-
-(deftest carrier-1-entries-map-keys-distinctly
-  (testing "list- and vector-params keys are `=` as VECTORS but their byte
-            key-ids differ, so the :entries map holds TWO entries"
-    (is (= kv kl) "the vectors are Clojure-= (the collapse the byte key-id routes around)")
-    (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
-        "the byte key-ids differ (v[…] vs l(…))")
-    (let [es (byte-keyed-entries [[kv (loaded-entry kv {:v 1} #{:t})]
-                                   [kl (loaded-entry kl {:l 1} #{:t})]])]
-      (is (= 2 (count es)) "two distinct entries — no =-collapse")
-      (is (= {:v 1} (:data (get es (rf.resources.state/key-id kv)))) "vector entry intact")
-      (is (= {:l 1} (:data (get es (rf.resources.state/key-id kl)))) "list entry intact")
-      (is (= kv (:resource/key (get es (rf.resources.state/key-id kv)))) "vector entry keeps its vector key")
-      (is (seq? (-> (get es (rf.resources.state/key-id kl)) :resource/key (nth 2) :xs))
-          "the list entry's :resource/key PRESERVES the list kind (not coerced to a vector)"))))
 
 ;; ===========================================================================
 ;; Carrier 2 — the work-ledger work-id (runtime-db map key + suppression basis)
@@ -166,27 +152,11 @@
              (get-in out [rf.resources.state/resources-key :tag-index :t]))
           "the recomputed tag-index keeps both byte key-ids for the shared tag"))))
 
-;; ===========================================================================
-;; Carrier 4 — trace payloads carry the kind-preserving scoped-key vector
-;; ===========================================================================
-
-(deftest carrier-4-trace-scoped-key-preserves-kind
-  (testing "the scoped-key VECTOR carried in trace payloads / Xray is the
-            kind-preserving canonical form (a list value stays a list) — the
-            trace carrier never sees the byte id"
-    ;; the list-params key's params VALUE is a genuine list (seq?), not a vector
-    (is (seq? (:xs (nth kl 2))) "the list-params scoped key keeps its list kind")
-    (is (vector? (:xs (nth kv 2))) "the vector-params scoped key keeps its vector kind")
-    ;; and the two are byte-distinct identities — a trace consumer can tell them
-    ;; apart (the authoritative CEDN-1 identity, not Clojure =).
-    (is (not (rf.identity/identical-identity? kv kl))
-        "the two trace-carried keys are byte-distinct CEDN-1 identities")))
-
 ;; The real-ensure path (the runtime stamping `:resource/key` on a freshly
 ;; minted entry, keyed under the byte `key-id`) is exercised by the broader
 ;; `resources-runtime-cljs-test` suite (its `entry` helper reads via
 ;; `rf.resources.state/entry-path`, which byte-keys) — this focused file pins the cache-key
-;; byte-identity round-trip through the four serialization carriers.
+;; byte-identity round-trip through the serialization carriers.
 
 ;; ===========================================================================
 ;; Instant params vs same-looking STRING params are DISTINCT resource

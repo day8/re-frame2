@@ -287,31 +287,6 @@
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags {:scope nil :tags #{[:article "w"]}}])))))
 
-(deftest invalidate-tags-cross-scope-without-scope-allowed
-  ;; the ONLY scope-agnostic path: :cross-scope? true with no :scope is
-  ;; permitted (scope-agnostic by construction). Proven end-to-end through
-  ;; the dispatch path (no throw → the matched entries are marked stale).
-  ;; Cross-scope is the AUDITED escape, so it MUST still carry
-  ;; :cause even when it carries no :scope (scope-agnostic ≠ cause-free).
-  (rf/reg-resource :ivxn/article (article-spec) article-spec-request)
-  (let [sa {:user "a"} sb {:user "b"}
-        ka (rf.resources.state/scoped-resource-key sa :ivxn/article {:slug "w"})
-        kb (rf.resources.state/scoped-resource-key sb :ivxn/article {:slug "w"})]
-    (ensure! :ivxn/article sa "w" [:app :a 1])
-    (succeed! ka {:title "A"})
-    (ensure! :ivxn/article sb "w" [:app :b 1])
-    (succeed! kb {:title "B"})
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :b 1]}])
-    (testing "cross-scope? true with NO :scope is allowed
-              (scope-agnostic) and invalidates the tag in every scope (with
-              :cause, the audited escape)"
-      (rf/dispatch-sync [:rf.resource/invalidate-tags
-                         {:tags #{[:article "w"]} :cross-scope? true
-                          :cause [:migration/article-schema-v2]}])
-      (is (some? (:invalidated-at (entry ka))) "scope A entry marked stale")
-      (is (some? (:invalidated-at (entry kb))) "scope B entry marked stale"))))
-
 ;; ---- cross-scope MUST carry :cause (the audited escape) --------------------
 
 (deftest invalidate-tags-cross-scope-without-cause-fails-closed

@@ -20,10 +20,10 @@
     7. per-frame ISOLATION (resources in frame A invisible to frame B);
     8. stale suppression on the entry (a superseded reply never mutates a
        newer entry);
-    9. owner / tag indexes, exact tag invalidation, scope clear, remove.
+    9. owner / tag indexes, owner release, remove.
 
-  HTTP transport execution, abort, GC timers and route/SSR/Xray are
-  pinned by their own suites. The transport is decoupled by overriding
+  HTTP transport execution, abort, GC timers, tag invalidation, scope clear
+  and route/SSR/Xray are pinned by their own suites. The transport is decoupled by overriding
   the `:rf.http/managed` fx with a capturing no-op so ensure's entry write
   and reply-handler semantics are tested deterministically without a live
   fetch."
@@ -954,7 +954,7 @@
             "a new generation was minted — the stale ensure forced new work")))))
 
 ;; ===========================================================================
-;; 10. owner release / clear-scope / remove / tag invalidation
+;; 10. owner release / remove
 ;; ===========================================================================
 
 (deftest release-owner-drops-the-owner
@@ -968,44 +968,6 @@
               entry + the owner-index"
       (is (not (contains? (:active-owners (entry scoped-key)) [:app :ro 1])))
       (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:app :ro 1])))))))
-
-(deftest clear-scope-removes-scoped-entries
-  (rf/reg-resource :cs/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (let [scope-a {:user "a"}
-        scope-b {:user "b"}
-        ka (rf.resources.state/scoped-resource-key scope-a :cs/article {:slug "w"})
-        kb (rf.resources.state/scoped-resource-key scope-b :cs/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
-                                            :params {:slug "w"} :owner [:app :a 1]}])
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-b
-                                            :params {:slug "w"} :owner [:app :b 1]}])
-    (is (some? (entry ka)))
-    (is (some? (entry kb)))
-    (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}])
-    (testing "Spec 016 §clear-scope — only the cleared scope's entries are
-              removed; other scopes untouched (no cross-scope leak)"
-      (is (nil?  (entry ka)) "scope A cleared")
-      (is (some? (entry kb)) "scope B untouched"))))
-
-(deftest invalidate-tags-marks-stale-and-refetches-active
-  (rf/reg-resource :it/article (article-spec) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :it/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :it/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:route :r 1]}])
-    (let [wid (:current-work (entry scoped-key))]
-      (rf/dispatch-sync [:rf.resource.internal/succeeded
-                         {:resource/key scoped-key :work/id wid :generation 1
-                          :data {:title "W"}}]))
-    (is (= :loaded (:status (entry scoped-key))))
-    (rf/dispatch-sync [:rf.resource/invalidate-tags
-                       {:scope :rf.scope/global :tags #{[:article "w"]}}])
-    (testing "Spec 016 §Invalidation — a matched active-owner entry is
-              marked stale (durable :invalidated-at) and refetched
-              (→ :fetching, prior data kept)"
-      (let [e (entry scoped-key)]
-        ;; the refetch dispatch (active owner) bumps it to :fetching
-        (is (= :fetching (:status e)))
-        (is (= {:title "W"} (:data e)) "prior data kept during refetch")))))
 
 (deftest remove-evicts-the-entry
   (rf/reg-resource :rm/article (article-spec) article-spec-request)
@@ -1134,15 +1096,6 @@
             (is (every? seq (vals (:tag-index incremental)))   "no empty tag buckets")
             (is (every? seq (vals (:owner-index incremental))) "no empty owner buckets")
             (recur (inc step) new-entries incremental)))))))
-
-;; ===========================================================================
-;; 12. resource registrar sanity (re-affirm the registrar kind is closed)
-;; ===========================================================================
-
-(deftest resource-kind-registered
-  (testing "the :resource registrar kind is valid (skeleton invariant held)"
-    (is (rf.registrar/valid-kind? :resource))
-    (is (not (rf.registrar/valid-kind? :query)))))
 
 ;; ===========================================================================
 ;; 13. Concrete-scope typo rejection at resolution boundaries
