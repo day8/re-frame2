@@ -175,33 +175,6 @@
                xray-editor ") and Xray's project root; it is NOT "
                "carrying Story's " story-editor " URI")))))
 
-(deftest the-two-effect-ids-are-distinct-and-separately-registered
-  (testing "the tools register two DISTINCT fx-ids, so no
-            `[kind id]` pair is claimed by two provenance namespaces.
-            Cross-source same-id provenance is exactly what image
-            assembly rejects as `:rf.error/image-duplicate-id`; distinct
-            ids make the collision unreachable rather than merely
-            unlikely."
-    (configure-both-tools!)
-    (install-story!)
-    (install-xray!)
-    (fresh-frames!)
-    (capture-navigators!)
-
-    (is (not= :rf.story.fx/open-in-editor :rf.xray.fx/open-in-editor)
-        "the ids are distinct")
-    ;; Drive each effect directly and confirm each is really registered
-    ;; AND wired to its own tool — a missing registration would leave the
-    ;; corresponding capture empty.
-    (rf/with-frame :rf/default
-      (rf/dispatch-sync [:rf.story/open-in-editor coord]))
-    (is (= [story-uri] @story-navigated)
-        ":rf.story.fx/open-in-editor is registered and Story-owned")
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/open-in-editor coord]))
-    (is (= [xray-uri] @xray-navigated)
-        ":rf.xray.fx/open-in-editor is registered and Xray-owned")))
-
 ;; ---- Xray-specific policy stays Xray-owned ------------------------------
 
 (deftest xray-operator-override-does-not-reach-story

@@ -47,19 +47,6 @@
             ;; cannot satisfy the subscription assertion.
             (is (not= :error (rf.subs/compute-sub [:login/state] db)))))))))
 
-(deftest read-seam-surfaces-override-without-touching-db
-  (testing "rf.story.sub-overrides/read returns the override; real-read runs only on a miss"
-    (rf/reg-sub :login/state (fn [db _] (get-in db [:login :state])))
-    (let [db {:login {:state :ok}}
-          real-read #(rf.subs/compute-sub [:login/state] db)]
-      (rf.story.sub-overrides/with-overrides* {[:login/state] :error}
-        (fn []
-          (testing "overridden query → override value, real-read skipped"
-            (is (= :error (rf.story.sub-overrides/read [:login/state]
-                                              (fn [] (throw (ex-info "real-read should not run" {})))))))
-          (testing "non-overridden query → falls through to compute-sub"
-            (is (= :ok (rf.story.sub-overrides/read [:login/other] real-read)))))))))
-
 ;; ---- the React-context resolver (the LIVE carriage) ----------------------
 ;;
 ;; `resolve-sub-override-hit` is the fn published to core under

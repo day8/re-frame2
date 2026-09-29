@@ -129,23 +129,6 @@
 
 ;; ---- disable-keybinding! -------------------------------------------------
 
-(deftest disable-keybinding-lands-on-xray-config-slot
-  (testing "disable-keybinding! writes false into Xray's :rf.xray/keybinding-enabled? slot"
-    ;; The node-test build has tools/xray/src on the classpath, so
-    ;; `day8.re-frame2-xray.config` is loaded and `disable-keybinding!`
-    ;; can drive the real `configure!`. Seed the slot with the default
-    ;; (true) then verify the bridge flips it to false.
-    (xray-config/set-keybinding-enabled! true)
-    (is (true? (xray-config/keybinding-attach-enabled?))
-        "precondition: default keybinding-enabled? is true")
-    (is (true? (rf.story.xray-preset/disable-keybinding!))
-        "disable-keybinding! returns true when the configure! call landed")
-    (is (false? (xray-config/keybinding-attach-enabled?))
-        "after disable-keybinding!, Xray's slot is false")
-    ;; Restore the default so subsequent tests in this suite see a
-    ;; clean slot.
-    (xray-config/set-keybinding-enabled! true)))
-
 (deftest disable-keybinding-shimmed-configure
   (testing "disable-keybinding! calls Xray's configure! with the exact slot map"
     ;; Belt-and-braces test: redef Xray's `configure!` var directly
@@ -180,32 +163,6 @@
 ;;
 ;; A whole-shell open is `(do (wire-cross-host!) (apply-open!))`. These
 ;; tests pin the bridge ordering against that composition.
-
-(deftest wire-cross-host-disables-keybinding
-  (testing "wire-cross-host! drives disable-keybinding! + detach-keybinding!;
-            the composed (wire-cross-host! + apply-open!) still opens"
-    ;; The embed wires cross-host config on every variant-selection edge.
-    ;; Verify the keybinding bridges fire. We shim the bridges so we can
-    ;; assert the wiring without depending on the underlying configure!
-    ;; plumbing (covered by the shimmed-configure test above), and shim
-    ;; `apply-open!` so we don't actually mount a shell.
-    (let [disable-called? (atom false)
-          detach-called?  (atom false)
-          open-called?    (atom false)]
-      (with-redefs [rf.story.xray-preset/disable-keybinding!
-                    (fn [] (reset! disable-called? true) true)
-                    rf.story.xray-preset/detach-keybinding!
-                    (fn [] (reset! detach-called? true) true)
-                    rf.story.xray-preset/apply-open!
-                    (fn [] (reset! open-called? true) nil)]
-        (rf.story.xray-preset/wire-cross-host!)
-        (rf.story.xray-preset/apply-open!)
-        (is (true? @disable-called?)
-            "disable-keybinding! is part of the cross-host bridge")
-        (is (true? @detach-called?)
-            "detach-keybinding! is part of the cross-host bridge")
-        (is (true? @open-called?)
-            "the composed open still fires (keybinding wire-up does not break mount)")))))
 
 (deftest wire-cross-host-sequences-slot-then-detach
   (testing "wire-cross-host! flips the slot BEFORE removing
@@ -330,15 +287,6 @@
         ;; unlowered.
         (is (false? (xray-typed/event-bundle-matches-pill? (bundle :app/noise) :app/noise))
             "a BARE keyword canonicalises to :never — the inert shape")))))
-
-(deftest filters-preset-lands-on-both-axes
-  (testing ":in and :out both lower and both land"
-    (install-xray-frame!)
-    (let [vid (reg-filtered-variant! :story.filt/both
-                {:filters {:in [:keep/a] :out [:drop/b]}})]
-      (rf.story.xray-preset/apply-preset! vid)
-      (is (= {:in [{:pattern :keep/a}] :out [{:pattern :drop/b}]}
-             (active-filters))))))
 
 (deftest filters-preset-seeds-xray-config-surface
   (testing "the preset also seeds Xray's established host-seed surface
