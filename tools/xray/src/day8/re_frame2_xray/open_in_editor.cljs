@@ -18,7 +18,7 @@
        event; the trace bus then captures the click as a first-class
        observable operation under the `:rf/xray` frame. The handler
        returns an effect map that fires `:rf.xray.fx/open-in-editor`
-       with the resolved URI.
+       with the structured source-coord.
 
     3. `:rf.xray.fx/open-in-editor` reg-fx — the side-effectful
        launcher. Resolves the URI from the source-coord against
@@ -367,8 +367,10 @@
       tree, so their requirers ARE the roster (Trace, Epoch and
       Reactive today). Read those rather than a list restated here: a
       restated list goes stale as panels change.
-      The handler unwraps the payload, resolves the URI, and returns
-      `{:fx [[:rf.xray.fx/open-in-editor {:uri ...}]]}`. The dispatch lands in
+      With an editor configured, the handler coerces the payload to a
+      coord and returns
+      `{:fx [[:rf.xray.fx/open-in-editor {:source-coord coord}]]}`, so the
+      fx can prefer the dev-server endpoint. The dispatch lands in
       the trace bus as a first-class observable operation under the
       `:rf/xray` frame — agents reading the buffer see the click as
       `{:operation :rf.xray/open-in-editor :tags {:frame :rf/xray}

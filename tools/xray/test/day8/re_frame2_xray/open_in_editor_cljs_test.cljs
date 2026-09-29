@@ -291,11 +291,12 @@
                       :uri (when-let [coord (:source-coord args)]
                              (open-in-editor/resolve-uri coord)))))}}))
 
-(deftest open-in-editor-event-emits-fx-with-resolved-uri
+(deftest open-in-editor-event-emits-fx-whose-coord-resolves-to-the-uri
   (testing "dispatching `:rf.xray/open-in-editor` with
             a bare coord (the structured map the `{:source-coord ...}`
             wrapper also unwraps to) produces a
-            `:rf.xray.fx/open-in-editor` fx whose :uri is the resolved URI"
+            `:rf.xray.fx/open-in-editor` fx whose `:source-coord`
+            resolves to the vscode:// URI"
     (setup!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/open-in-editor
@@ -305,7 +306,7 @@
           "exactly one open-fx fires per dispatch")
       (is (= "vscode://file/src/app/events.cljs:17:3"
              (:uri (first @captured-editor-fx)))
-          "the resolved vscode:// URI rides on the fx args"))))
+          "the fx's :source-coord resolves to the vscode:// URI"))))
 
 (deftest open-in-editor-event-accepts-wrapped-shape
   (testing "dispatching with `{:source-coord coord}` (the
