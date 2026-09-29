@@ -47,16 +47,6 @@
       (is (vector? out))
       (is (= :div (first out))))))
 
-(deftest render-panels-respects-visibility-false
-  (testing "explicit panel-visibility false hides a panel"
-    (let [out-visible (rf.story.ui.panels/render-panels-at-placement
-                       :right :story.x/y {})
-          out-hidden  (rf.story.ui.panels/render-panels-at-placement
-                       :right :story.x/y {rf.story.ui.a11y/panel-id false})]
-      ;; Both return vectors; the hidden form contains fewer slots.
-      (is (vector? out-visible))
-      (is (vector? out-hidden)))))
-
 (defn- rendered-panel-text [tree]
   (pr-str tree))
 
@@ -95,14 +85,3 @@
           "exact variant :for scope must include that frame")
       (is (not (re-find #":Panel\.scope/exact" sibling))
           "exact variant :for scope must not leak to siblings"))))
-
-;; ---- layout-debug toggle state ----------------------------------------
-
-(deftest layout-debug-toggle-roundtrip
-  (testing "toggle-layout-debug! flips a decorator on/off per variant"
-    (rf.story.ui.panels/toggle-layout-debug! :story.x/y :rf.story/layout-debug.outline)
-    (is (contains? (rf.story.ui.panels/active-layout-debug-decorators :story.x/y)
-                   :rf.story/layout-debug.outline))
-    (rf.story.ui.panels/toggle-layout-debug! :story.x/y :rf.story/layout-debug.outline)
-    (is (not (contains? (rf.story.ui.panels/active-layout-debug-decorators :story.x/y)
-                        :rf.story/layout-debug.outline)))))

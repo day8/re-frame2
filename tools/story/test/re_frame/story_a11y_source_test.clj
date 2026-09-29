@@ -11,7 +11,12 @@
   `:require [\"axe-core\" ...]`, because a Closure :advanced parser
   issue with axe-core's UMD wrapper blocks the static require.
 
-  These assertions are textual because CLJS doesn't expose source
+  The opt-in gate itself is behaviour, asserted on the node lane by
+  `re-frame.story-a11y-cljs-test` (`cdn-opt-in-roundtrips`,
+  `run-axe-surfaces-no-consent-without-opt-in`). What stays here is
+  what only the source text can show — the SRI and `crossorigin`
+  attributes, the version pin, and the consent prompt's wording — and
+  these assertions are textual because CLJS doesn't expose source
   bytes at runtime. The .cljs file ships in this artefact's `src/`
   tree on the resource path, so `clojure.java.io/resource` resolves
   it without parsing CLJS forms."
@@ -21,17 +26,6 @@
 
 (defn- a11y-source []
   (slurp (io/resource "re_frame/story/ui/a11y.cljs")))
-
-(deftest cdn-load-is-gated-by-opt-in
-  (testing "the loader reads `cdn-opt-in?` before injecting a
-            `<script>`, and short-circuits to a `:no-consent` state
-            unless the dev has explicitly approved."
-    (let [src (a11y-source)]
-      (is (str/includes? src "cdn-opt-in?")
-          "a11y.cljs must reference the opt-in predicate")
-      (is (str/includes? src "set-cdn-opt-in!")
-          "a11y.cljs must expose the opt-in setter so the consent
-           prompt can persist the dev's approval"))))
 
 (deftest cdn-script-carries-sri-integrity
   (testing "the injected `<script>` element carries a Subresource
@@ -55,15 +49,6 @@
     (let [src (a11y-source)]
       (is (re-find #"axe-core@4\.\d+\.\d+" src)
           "axe-core URL must include an explicit X.Y.Z version pin"))))
-
-(deftest no-consent-state-surfaced
-  (testing "the panel surfaces a distinct `:no-consent` run-state so
-            the consent prompt can render instead of silently
-            proceeding to the load. The state value is the canonical
-            handle the UI dispatches on."
-    (let [src (a11y-source)]
-      (is (str/includes? src ":no-consent")
-          "a11y.cljs must surface the :no-consent run-state"))))
 
 (deftest consent-prompt-text-mentions-cdn
   (testing "the consent prompt UI text mentions the CDN domain in
