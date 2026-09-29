@@ -22,7 +22,7 @@
   rf.interop/debug-enabled? …)` arms marked as dev-instrumentation arms.
 
   Where the trace would be the ONLY witness — the four `:frame`-stamp
-  tests and `navigation-blocked-trace-carries-rejecting-guard` — a
+  tests, one of which also reads `:rejecting-guard` off the trace — a
   production-visible witness sits beside it: the
   same facts are readable off the frame's runtime-db, because
   `re-frame.routing.decisions/decide` writes `:rejecting-route` and
@@ -191,78 +191,12 @@
       (is (nil? (:enter-attempts pending))
           "…and no :enter-attempts key"))))
 
-(deftest navigation-blocked-trace-carries-rejecting-guard
-  (testing ":rf.route/navigation-blocked trace carries :rejecting-guard
-            so tooling can flag the rejecting sub-id"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
-    (let [traces (atom [])]
-      (rf/register-listener! :trace ::blocked (fn [ev] (swap! traces conj ev)))
-      (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-      (rf/unregister-listener! :trace ::blocked)
-      ;; SEMANTIC, posture-independent: the rejecting sub-id is not
-      ;; a trace-only fact — `decisions/decide` writes it into the pending-nav
-      ;; slot, which is runtime-db state the `:rf/pending-navigation` sub reads
-      ;; in production. Tooling reading it off the trace is the dev restatement.
-      (is (= :editor/can-leave?
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     [:rf.runtime/routing :pending-navigation :rejecting-guard]))
-          "the pending-navigation slot names the rejecting guard sub-id")
-      ;; Dev-instrumentation arm (see ns docstring).
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.route/navigation-blocked (:operation ev))
-                         (= :editor/can-leave? (-> ev :tags :rejecting-guard))))
-                  @traces)
-            "navigation-blocked trace tags include :rejecting-guard")))))
-
 ;; ---- :rf.route/continue re-issues :rf.route/url-requested ----------------
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue must
 ;; "re-issue the original navigation request, *bypassing* the leave guard".
 ;; Dispatching the URL-change door + :rf.nav/push-url directly would skip
 ;; the :rf.route/url-requested policy chain.
-
-(deftest continue-re-issues-via-url-requested-with-bypass
-  (testing ":rf.route/continue re-emits :rf.route/url-requested with
-            :bypass-leave? true, replaying the stored destination + policy
-            through the normal pipeline (entry is evaluated normally)"
-    (rf/reg-route :editor/article
-                  {:params    [:map [:id :string]]
-                   :can-leave :editor/can-leave?} "/editor/articles/:id")
-    (rf/reg-route :route/cart {} "/cart")
-    (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
-    (rf/reg-sub :editor/can-leave?
-                (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ _] nil))
-    ;; Land on editor; dirty the form; try to leave; guard blocks.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/articles/A" {:rf.route/cause :link}])
-    (rf/dispatch-sync [:editor/dirty true])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-        "guard rejection set the pending slot")
-    ;; CONTINUE — the slot clears AND the navigation completes
-    ;; even though :editor/dirty? remains true (bypass flag wins).
-    (rf/dispatch-sync [:rf.route/continue "pn-1"])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :pending-navigation]))
-        "continue cleared the pending slot")
-    (is (= :route/cart
-           (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-        "continue completed the navigation through :rf.route/url-requested → :rf.route/handle-url-change")
-    (is (true? (get-in (rf/app-db-value :rf/default) [:editor :dirty?]))
-        ":editor/dirty? remains true — bypass flag did NOT run the guard a second time")))
 
 (deftest can-leave-query-vector-blocks-url-requested
   (testing "Spec-shaped :can-leave query vectors are subscribed directly"

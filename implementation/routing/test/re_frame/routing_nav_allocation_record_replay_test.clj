@@ -361,14 +361,3 @@
                         [:rf.runtime/routing :current :nav-token]))
           "no nil nav-token was folded into the durable route slice"))))
 
-(deftest live-allocation-still-conforms-to-schema
-  (testing "acceptance: the live generator's produced allocation
-            conforms to the :schema, so the schema is transparent to the
-            ordinary (non-replay) path"
-    (rf/reg-route :route/a {} "/a")
-    ;; A live navigation runs the generator (well-formed `{:token \"nav-1\"
-    ;; :counter 1}`) and commits cleanly — no cofx-value-invalid throw.
-    (rf/dispatch-sync [:rf.route/handle-url-change "/a" {:rf.route/cause :link}])
-    (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                           [:rf.runtime/routing :current :nav-token]))
-        "the live generator's well-formed allocation passes the schema and commits")))

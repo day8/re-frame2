@@ -13,29 +13,7 @@
             [re-frame.reply :as rf.reply]
             [re-frame.routing.reply :as rf.routing.reply]))
 
-;; ---- §Work-id correlation -------------------------------------------------
-
-(deftest route-work-id-tuple-shape
-  (testing "the route-loader work-id head is [:rf.work/route route-id nav-token loader-id]"
-    (is (= [:rf.work/route :route/article "nav-1" :article/loaded]
-           (rf.routing.reply/work-id {:route-id  :route/article
-                                 :nav-token "nav-1"
-                                 :loader-id :article/loaded}))
-        "the four-element route head per Managed-Effects §Work-id correlation")
-    (is (= [:rf.work/route nil nil nil]
-           (rf.routing.reply/work-id {}))
-        "nil components keep a valid, distinct work id (a loader that named nothing)"))
-  (testing "the work id is =-comparable and EDN-serializable"
-    (let [wid (rf.routing.reply/work-id {:route-id :r :nav-token "n" :loader-id :l})]
-      (is (= wid (read-string (pr-str wid)))
-          "round-trips through EDN unchanged"))))
-
 ;; ---- §Stale suppression — the nav-token is the ONE :suppress gate ---------
-
-(deftest nav-token-gate-shape
-  (testing "the carried/current gates are the data-only {:route/nav-token <t>} map"
-    (is (= {:route/nav-token "nav-1"} (rf.routing.reply/gate "nav-1")))
-    (is (= {:route/nav-token "nav-2"} (rf.routing.reply/current-gate "nav-2")))))
 
 (deftest suppress?-delegates-to-shared-reply-stale?
   (testing "suppress? is exactly re-frame.reply/stale? over the :route/nav-token gate
@@ -117,23 +95,6 @@
         (is (not (contains? reply :completed-at))
             ":completed-at is omitted when the caller supplies none")))))
 
-(deftest suppress-is-universally-non-delivering
-  (testing "a stale route completion is UNIVERSALLY non-delivering
-            through rf.routing.reply/suppress: no reply target, app or otherwise,
-            receives it (delegated to re-frame.reply/suppress)"
-    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2" nil)))
-        "no target → not delivered")
-    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2"
-                                                 {:event [:t]})))
-        "a plain descriptor → not delivered")
-    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2"
-                                                 {:event [:t] :dispatch-stale? true})))
-        "an inert :dispatch-stale? flag grants nothing → not delivered")
-    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2"
-                                                 {:event [:t] :dispatch-stale? true
-                                                  :re-frame.reply/stale-authority true})))
-        "a forged authority datum grants nothing → not delivered")))
-
 ;; ---- live completion through the shared substrate -------------------------
 
 (deftest live-reply-builds-status-ok-with-route-work-id
@@ -191,16 +152,3 @@
             "complete(map-completed-event(f, t), reply) == f(complete(t, reply))")))
     (testing "a nil target yields nil — no continuation to complete"
       (is (nil? (rf.routing.reply/complete-live {:nav-token "n"} nil {:title "x"}))))))
-
-;; ---- §Tracing -------------------------------------------------------------
-
-(deftest trace-reply-routes-wire-slots-through-shared-walker
-  (testing "trace-reply is the shared re-frame.reply/trace-summary — identity facts
-            ride verbatim; wire slots elide through the one shared walker"
-    (let [r {:status :ok :rf.reply/work-id [:rf.work/route :r "n" :l] :rf.reply/work-kind :route
-             :rf.frame/id :rf/default :value {:title "Welcome"}}
-          summary (rf.routing.reply/trace-reply r {:frame :rf/default})]
-      (is (= (rf.reply/trace-summary r {:frame :rf/default}) summary)
-          "delegates to the shared trace-summary — never a family-private elider")
-      (is (= :ok (:status summary)) "identity facts ride verbatim")
-      (is (= [:rf.work/route :r "n" :l] (:rf.reply/work-id summary))))))

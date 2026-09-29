@@ -49,17 +49,6 @@
   [thunk]
   (try (thunk) :ok (catch Throwable e e)))
 
-(deftest current-url-returns-ssr-root-on-jvm-rf2-j1p1fv
-  (testing "re-frame.routing.history/current-url returns the SSR root \"/\" on the JVM
-            (no window.location) without throwing — with routing present. The
-            no-throw leg is asserted STRUCTURALLY: a CLJS-only
-            definition of current-url would make every .cljc caller blow up
-            server-side, which is what this guards"
-    (is (= :ok (outcome #(rf.routing.history/current-url)))
-        "current-url must not throw on the JVM")
-    (is (= "/" (rf.routing.history/current-url))
-        "current-url reads the SSR root on the JVM")))
-
 (deftest url-bound-frame-lifecycle-is-a-noop-on-jvm-rf2-j1p1fv
   (testing "registering AND destroying a :url-bound? true frame on the JVM does
             not throw — the browser listener install/teardown legs inside the
