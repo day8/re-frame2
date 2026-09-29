@@ -6,16 +6,17 @@ in the state its name claims.
 
 ## The smallest useful Story file
 
-Start with a `stories.cljs` namespace. Require the app namespaces first: their
-`reg-event-*`, `reg-sub` and `reg-view` calls have to run before Story can
-refer to their ids.
+Start with a stories namespace in `src/my_app/stories.cljc`. Require the app
+namespaces first: their `reg-event-*`, `reg-sub` and `reg-view` calls have to
+run before Story can refer to their ids.
 
 ```clojure
+;; src/my_app/stories.cljc
 (ns my-app.stories
   (:require [re-frame.story :as rf.story]
             [my-app.events]
             [my-app.subs]
-            [my-app.views]))
+            #?(:cljs [my-app.views])))   ;; only the browser renders the view
 
 (rf.story/reg-story :story.login
   {:doc        "The login form and its important states."
@@ -30,6 +31,11 @@ refer to their ids.
    :script [[:assert [:rf.assert/state-is :login/flow :idle]]]
    :tags   #{:dev :docs :test}})
 ```
+
+The file is `.cljc`, and so are `my-app.events` and `my-app.subs`, so a JVM
+test can load the same variants ([chapter 4](04-the-variant-is-a-test.md#using-story-from-tests)).
+Only a host that renders needs the view, so its require sits in a
+`#?(:cljs …)` branch, which the JVM skips.
 
 Open your app's `#/stories` route, the one [Install Story](index.md#install-story)
 mounts the shell on, select `/idle`, and the form appears on the canvas.
