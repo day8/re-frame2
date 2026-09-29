@@ -75,8 +75,8 @@
   `trace/emit!`), so in production builds they elide with the trace
   surface. Two uses run in production too, because what they prepare
   reaches the always-on error record: the `:rf.error/http-reply-tail-failed`
-  row, and a sensitive request's interceptor chain error, which is thrown
-  to core's fx boundary or to the reply-tail fence."
+  row, and an interceptor chain error, which is thrown to core's fx
+  boundary or to the reply-tail fence."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
             [re-frame.http.encoding :as rf.http.encoding]
@@ -441,9 +441,9 @@
     resolved from the request and forwarded to `trace-reply` as the
     wire-slot force-redact opt, so there is no tags-level stamp here for the
     flag to feed.
-  - `http-middleware/raise-chain-error!`, projecting a sensitive request's
-    chain error before it is thrown, since the thrown ex-info reaches core's
-    fx boundary and the reply-tail fence. A thrown value carries no stamp."
+  - `http-middleware/raise-chain-error!`, projecting every chain error
+    before it is thrown, since the thrown ex-info reaches core's fx boundary
+    and the reply-tail fence. A thrown value carries no stamp."
   ([failure sensitive?] (redact-failure failure sensitive? nil))
   ([failure sensitive? carriers]
    (when failure

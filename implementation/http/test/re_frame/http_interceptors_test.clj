@@ -689,6 +689,49 @@
       (is (= (str "token rejected: " secret) (:cause data)))
       (is (= managed-url (:url data))))))
 
+(deftest non-sensitive-chain-error-reaches-core-fx-row-with-denylisted-param-redacted
+  (testing "on a request that is not sensitive, a denylisted query param's
+  value is redacted in the escaping exception's :url, as the chain error's own
+  row redacts it, on core's row and on its always-on record; a param that is
+  not denylisted rides verbatim, and so does the throw's message"
+    (let [denied      "DENYLISTED_QUERY_SECRET"
+          url         (str "https://api.example.invalid/v1?api_key=" denied "&user_id=42")
+          redacted    "https://api.example.invalid/v1?api_key=:rf/redacted&user_id=42"
+          traces      (atom [])
+          listener-id (gensym "denylist-chain-row-")
+          _           (rf.trace.tooling/register-listener! listener-id #(swap! traces conj %))
+          [ev record] (try
+                        (core-fx-rows! [[:probe (fn [_] (throw (ex-info "kaboom" {})))]]
+                                       {:request {:url url} :reply-to [:core-row/reply]})
+                        (finally (rf.trace.tooling/unregister-listener! listener-id)))
+          chain-row   (first (filter #(= :rf.error/http-interceptor-failed (:operation %))
+                                     @traces))
+          data        (ex-data (get-in ev [:tags :exception]))]
+      (is (= redacted (get-in chain-row [:tags :url])) "the chain error's own row redacts it")
+      (is (true? (:sensitive? chain-row)) "and is stamped sensitive on the denylist hit")
+      (is (= :rf.error/http-interceptor-failed (:rf.error/id data)))
+      (is (= redacted (:url data)) "the escaping exception carries the URL as that row does")
+      (is (= "kaboom" (:cause data)) "the throw's message rides verbatim")
+      (is (not (str/includes? (pr-str (:tags ev)) denied))
+          "no tag of core's row carries the value: :exception and :rf.fx/args included")
+      (is (some? record) "the always-on record fires")
+      (is (= redacted (:url (ex-data (:exception record)))))
+      (is (not (str/includes? (pr-str record) denied))
+          "the always-on record carries no denylisted value")))
+  (testing "the registration's query-param carriers apply as on the chain
+  error's own row: an included name redacts, and an excepted default rides
+  verbatim"
+    (rf/reg-fx :rf.http/managed
+      {:carriers {:query-params {:include ["shop_token"] :except ["sig"]}}}
+      rf.http.managed/managed-handler)
+    (let [[ev record] (core-fx-rows!
+                        [[:probe (fn [_] (throw (ex-info "kaboom" {})))]]
+                        {:request  {:url "https://api.example.invalid/v1?shop_token=SHOP&sig=abc"}
+                         :reply-to [:core-row/reply]})
+          projected   "https://api.example.invalid/v1?shop_token=:rf/redacted&sig=abc"]
+      (is (= projected (:url (ex-data (get-in ev [:tags :exception])))))
+      (is (= projected (:url (ex-data (:exception record))))))))
+
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 
 (deftest clear-http-interceptor-unregisters
