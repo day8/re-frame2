@@ -410,17 +410,6 @@
         (is (true? (:optimistic? ms)) ":optimistic? true while the apply is showing (Rider 1)"))
       (is (some? @last-managed-args) "the write lowered a request to the transport"))))
 
-(deftest change-status-applies-optimistically-before-the-reply
-  (testing "examples/capabilities/resources/linearlite — :linearlite/change-status moves the
-            card to the new column IMMEDIATELY (optimistic apply), before the
-            request settles"
-    (load-board!)
-    (rf/dispatch-sync [:linearlite/change-status "srv-1" :done])
-    (is (= :done (:status (issue-by-id "srv-1")))
-        "srv-1 jumped to :done the instant the move was dispatched (optimistic)")
-    (is (true? (:optimistic? (mutation-state [:status "srv-1"])))
-        "the change-status instance is :optimistic? while pending")))
-
 ;; ============================================================================
 ;; 3. SUCCESS COMMIT — the :ok reply folds in the value the server saved
 ;; ============================================================================

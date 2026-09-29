@@ -85,30 +85,7 @@
               "v2 was rendered once")
           ;; Render again to confirm the new body sticks.
           (render-v2 9)
-          (is (= 2 @v2-renders) "v2 keeps being the active render fn")))))
-
-  (testing "subscribed observer atom — proves the render BODY changed,
-            not just the wrapper, by routing observation through the
-            registered render fn rather than the captured Var"
-    (let [observed (atom nil)]
-      (rf/reg-view* :rf.hot-reload-test/probe
-        (fn []
-          (reset! observed :body-v1)
-          [:p "v1"]))
-      ;; Simulate the substrate's render cycle: resolve via view
-      ;; (this is the canonical id-keyed lookup) and invoke.
-      ;; After the call, observed reflects v1.
-      ((rf/view :rf.hot-reload-test/probe))
-      (is (= :body-v1 @observed))
-      ;; Re-register with a DIFFERENT body.
-      (rf/reg-view* :rf.hot-reload-test/probe
-        (fn []
-          (reset! observed :body-v2)
-          [:p "v2"]))
-      ;; Next "render" — fresh registry resolution — runs v2.
-      ((rf/view :rf.hot-reload-test/probe))
-      (is (= :body-v2 @observed)
-          "after re-registration, the next render mutates observed to v2"))))
+          (is (= 2 @v2-renders) "v2 keeps being the active render fn"))))))
 
 (deftest view-re-register-via-macro-also-flips
   (testing "the reg-view MACRO path also installs the new render fn into

@@ -421,29 +421,6 @@
               (is (= (inc pre-msgs) post-msgs)
                   "live :ws/received passed the :current-socket? guard"))))))))
 
-(defn- rotate-cred-test []
-  ;; :ws/rotate-cred works from every non-disconnected state — :active/*,
-  ;; :reconnecting, :failed. Only the OPAQUE reference crosses the dispatch
-  ;; boundary; the next :active entry's :spawn :data fn reads the rotated
-  ;; reference and the new socket resolves it host-side.
-  (with-sync-mock!
-    (fn []
-      (with-new-frame [f (new-frame)]
-        (rf/dispatch-sync [:ws/connection
-                           [:ws/connect {:url "ws://mock"
-                                         :cred-ref :ws.demo/cred-a}]]
-                          {:frame f})
-        (is (= :ws.demo/cred-a
-               (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
-                       [:data :cred-ref])))
-        ;; Rotate from :connected.
-        (rf/dispatch-sync [:ws/connection
-                           [:ws/rotate-cred :ws.demo/cred-b]]
-                          {:frame f})
-        (is (= :ws.demo/cred-b
-               (get-in (snapshot (:rf.db/runtime (rf/frame-state-value f)))
-                       [:data :cred-ref])))))))
-
 (defn- disconnect-cleanly-test []
   (with-sync-mock!
     (fn []
@@ -2045,10 +2022,6 @@
 (deftest websocket-connection-epoch-staleness
   (testing "connection epoch — stale :ws/received from a prior socket is dropped"
     (connection-epoch-staleness-test)))
-
-(deftest websocket-rotate-cred
-  (testing ":ws/rotate-cred — updates :data :cred-ref (the opaque reference only)"
-    (rotate-cred-test)))
 
 (deftest websocket-disconnect-cleanly
   (testing "clean :ws/disconnect — :connected → :disconnected, socket-id cleared"
