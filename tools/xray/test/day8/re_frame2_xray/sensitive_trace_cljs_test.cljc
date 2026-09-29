@@ -353,58 +353,77 @@
               (trace-collector/buffer-for-test))))
 
 #?(:cljs
+   (def ^:private with-runtime
+     ;; The core fn-form runtime fixture, INVOKED DIRECTLY around the
+     ;; bodies that seat a frame rather than registered with
+     ;; `use-fixtures`: this file's algebra is deliberately adapter-less
+     ;; and JVM-runnable, and a file-wide runtime fixture would change what
+     ;; every adapter-less test exercises. `:ambient-frame nil` because
+     ;; these bodies make their own top-level frame (per the option's own
+     ;; docstring).
+     (rf.test-support/make-reset-runtime-fixture
+       {:adapter       rf.substrate.plain-atom/adapter
+        :ambient-frame nil})))
+
+#?(:cljs
    (defn- with-host-frame [test-fn]
      ;; Register the host frame so `rf.frame/frame-ids` (which
      ;; `snapshot-from-rings` walks) includes it, run the body, then
-     ;; drop it so the next test starts clean. We `dissoc` from the
-     ;; registry directly rather than `destroy-frame!` — this suite has
-     ;; no installed substrate adapter, and destroy fires the dispatch /
-     ;; teardown machinery a bare frame doesn't need. `reset-for-test!`
-     ;; (in the outer fixture) already clears the per-frame rings.
-     ;; Deliberate ENGINE seat (rf.frame/upsert-frame!) — this suite runs
-     ;; without a substrate adapter and manages the bare record directly;
-     ;; the public rf/make-frame constructor is not the surface under test.
+     ;; drop it so the next test starts clean. Every caller runs it inside
+     ;; `with-runtime`, because `upsert-frame!` builds the frame's state
+     ;; container through the installed substrate adapter. We `dissoc`
+     ;; from the registry directly rather than `destroy-frame!`, which
+     ;; fires the dispatch / teardown machinery a bare frame doesn't need.
+     ;; `reset-for-test!` (in the outer fixture) already clears the
+     ;; per-frame rings.
+     ;; Deliberate ENGINE seat (rf.frame/upsert-frame!) — the bare record
+     ;; is managed directly; the public rf/make-frame constructor is not
+     ;; the surface under test.
      (rf.frame/upsert-frame! host-frame {})
      (try (test-fn)
           (finally (swap! rf.frame/frames dissoc host-frame)))))
 
 #?(:cljs
    (deftest snapshot-suppresses-sensitive-frame-bound-event-by-default
-     (with-host-frame
+     (with-runtime
        (fn []
-         (testing "a sensitive FRAME-BOUND event retained in the per-frame
-                   ring is scrubbed from the snapshot when the flag is false"
-           ;; A non-sensitive event lands first — the leak surfaces
-           ;; precisely when a *later* benign event's mirror-sync reads
-           ;; the ring back and drags the retained sensitive cascade along.
-           (emit-frame-bound! 1 false)
-           (emit-frame-bound! 2 true)   ; sensitive — retained in the ring
-           (let [buf (host-ring-buffer)]
-             (is (= 1 (count buf))
-                 "only the non-sensitive event reaches the snapshot — the
-                  sensitive frame-bound event MUST NOT leak through
-                  snapshot-from-rings while the profile redacts
-                  (:rf.egress/local-redacted)")
-             (is (not-any? :sensitive? buf)
-                 "no sensitive event survives the read-side gate")
-             (is (every? #(= 1 (get-in % [:tags :rf.trace/dispatch-id])) buf)
-                 "the surviving event is the non-sensitive cascade #1")))))))
+         (with-host-frame
+           (fn []
+             (testing "a sensitive FRAME-BOUND event retained in the per-frame
+                       ring is scrubbed from the snapshot when the flag is false"
+               ;; A non-sensitive event lands first — the leak surfaces
+               ;; precisely when a *later* benign event's mirror-sync reads
+               ;; the ring back and drags the retained sensitive cascade along.
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)   ; sensitive — retained in the ring
+               (let [buf (host-ring-buffer)]
+                 (is (= 1 (count buf))
+                     "only the non-sensitive event reaches the snapshot — the
+                      sensitive frame-bound event MUST NOT leak through
+                      snapshot-from-rings while the profile redacts
+                      (:rf.egress/local-redacted)")
+                 (is (not-any? :sensitive? buf)
+                     "no sensitive event survives the read-side gate")
+                 (is (every? #(= 1 (get-in % [:tags :rf.trace/dispatch-id])) buf)
+                     "the surviving event is the non-sensitive cascade #1")))))))))
 
 #?(:cljs
    (deftest snapshot-passes-sensitive-frame-bound-event-when-opted-in
-     (with-host-frame
+     (with-runtime
        (fn []
-         (testing "with :rf.xray/egress-profile :rf.egress/local-raw the snapshot
-                   surfaces the retained sensitive frame-bound event"
-           (config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})
-           (emit-frame-bound! 1 false)
-           (emit-frame-bound! 2 true)
-           (let [buf (host-ring-buffer)]
-             (is (= 2 (count buf))
-                 "opted-in caller sees BOTH the non-sensitive and the
-                  sensitive frame-bound event in the snapshot")
-             (is (some :sensitive? buf)
-                 "the sensitive event passes through under the opt-in")))))))
+         (with-host-frame
+           (fn []
+             (testing "with :rf.xray/egress-profile :rf.egress/local-raw the snapshot
+                       surfaces the retained sensitive frame-bound event"
+               (config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)
+               (let [buf (host-ring-buffer)]
+                 (is (= 2 (count buf))
+                     "opted-in caller sees BOTH the non-sensitive and the
+                      sensitive frame-bound event in the snapshot")
+                 (is (some :sensitive? buf)
+                     "the sensitive event passes through under the opt-in")))))))))
 
 ;; ---- (8) the two INGEST gates -------------------------------------------
 ;;
@@ -512,18 +531,6 @@
      which cannot miss a slot it does not know about."
      [history]
      (str/includes? (pr-str history) secret-payload)))
-
-#?(:cljs
-   (def ^:private with-runtime
-     ;; The core fn-form runtime fixture, INVOKED DIRECTLY around the
-     ;; end-to-end bodies rather than registered with `use-fixtures`: this
-     ;; file's algebra is deliberately adapter-less and JVM-runnable, and a
-     ;; file-wide runtime fixture would change what every test above
-     ;; exercises. `:ambient-frame nil` because these bodies make their own
-     ;; top-level frame (per the option's own docstring).
-     (rf.test-support/make-reset-runtime-fixture
-       {:adapter       rf.substrate.plain-atom/adapter
-        :ambient-frame nil})))
 
 #?(:cljs
    (defn- seed-and-read-history!
@@ -702,36 +709,40 @@
 
 #?(:cljs
    (deftest trace-windows-drops-the-sensitive-cascade-by-default
-     (with-host-frame
+     (with-runtime
        (fn []
-         (testing "the Fresco advisor's window must not carry a cascade the
-                   whole trace side is hiding (the second, seam-side reader
-                   of the framework rings)"
-           (emit-frame-bound! 1 false)
-           (emit-frame-bound! 2 true)
-           (let [bundles (window-bundles)]
-             (is (= 1 (count bundles))
-                 "only the non-sensitive cascade reaches the window under the
-                  `:rf.egress/local-redacted` default")
-             (is (= [1] (mapv :dispatch-id bundles))
-                 "and it is cascade #1, the non-sensitive one")
-             (is (not-any? #(some :sensitive? (:trace-events %)) bundles)
-                 "no sensitive event survives in any surviving bundle")))))))
+         (with-host-frame
+           (fn []
+             (testing "the Fresco advisor's window must not carry a cascade the
+                       whole trace side is hiding (the second, seam-side reader
+                       of the framework rings)"
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)
+               (let [bundles (window-bundles)]
+                 (is (= 1 (count bundles))
+                     "only the non-sensitive cascade reaches the window under the
+                      `:rf.egress/local-redacted` default")
+                 (is (= [1] (mapv :dispatch-id bundles))
+                     "and it is cascade #1, the non-sensitive one")
+                 (is (not-any? #(some :sensitive? (:trace-events %)) bundles)
+                     "no sensitive event survives in any surviving bundle")))))))))
 
 #?(:cljs
    (deftest trace-windows-passes-the-sensitive-cascade-when-opted-in
-     (with-host-frame
+     (with-runtime
        (fn []
-         (testing "CONTROL — the gate is profile-conditional, not a blanket
-                   drop: `:rf.egress/local-raw` restores the verbatim window"
-           (config/set-egress-profile! :rf.egress/local-raw)
-           (emit-frame-bound! 1 false)
-           (emit-frame-bound! 2 true)
-           (let [bundles (window-bundles)]
-             (is (= 2 (count bundles))
-                 "both cascades reach the opted-in window")
-             (is (some #(some :sensitive? (:trace-events %)) bundles)
-                 "including the sensitive one")))))))
+         (with-host-frame
+           (fn []
+             (testing "CONTROL — the gate is profile-conditional, not a blanket
+                       drop: `:rf.egress/local-raw` restores the verbatim window"
+               (config/set-egress-profile! :rf.egress/local-raw)
+               (emit-frame-bound! 1 false)
+               (emit-frame-bound! 2 true)
+               (let [bundles (window-bundles)]
+                 (is (= 2 (count bundles))
+                     "both cascades reach the opted-in window")
+                 (is (some #(some :sensitive? (:trace-events %)) bundles)
+                     "including the sensitive one")))))))))
 
 ;; ---- (9) the spine RE-SEED writers --------------------------------------
 ;;
