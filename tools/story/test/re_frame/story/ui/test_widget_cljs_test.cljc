@@ -90,12 +90,9 @@
           ;; :story.x/e is not stamped — it reads :pending.
           summary (rf.story.ui.state/test-summary s [:story.x/a :story.x/b :story.x/c
                                          :story.x/d :story.x/e])]
-      (is (= 5 (:total summary)))
-      (is (= 3 (:passed summary)))
-      (is (= 1 (:failed summary)))
-      (is (= 0 (:running summary)))
-      (is (= 1 (:pending summary)))
-      (is (false? (:all-green? summary))))))
+      (is (= {:total 5 :passed 3 :failed 1 :cannot-run 0 :running 0
+              :pending 1 :all-green? false}
+             summary)))))
 
 (deftest test-summary-all-green
   (testing ":all-green? is true only when every variant has a recorded
@@ -483,21 +480,3 @@
       (is (= 1 (:passed summary)))
       (is (= 2 (:failed summary)) ":error records count as failures")
       (is (false? (:all-passed? summary))))))
-
-#?(:clj
-   (deftest jvm-only-summary-from-fixture
-     (testing "JVM corpus exercises the pure summary helper without
-               booting Reagent — the same fixture (3 pass / 1 fail /
-               1 pending) lands the same numbers as the CLJS path"
-       (let [pass {:total 1 :passed 1 :failed 0 :skipped 0 :all-passed? true}
-             fail {:total 1 :passed 0 :failed 1 :skipped 0 :all-passed? false}
-             s    (-> rf.story.ui.state/default-shell-state
-                      (rf.story.ui.state/record-test-run :story.x/a pass)
-                      (rf.story.ui.state/record-test-run :story.x/b pass)
-                      (rf.story.ui.state/record-test-run :story.x/c pass)
-                      (rf.story.ui.state/record-test-run :story.x/d fail))
-             summary (rf.story.ui.state/test-summary s
-                       [:story.x/a :story.x/b :story.x/c :story.x/d :story.x/e])]
-         (is (= {:total 5 :passed 3 :failed 1 :cannot-run 0 :running 0
-                 :pending 1 :all-green? false}
-                summary))))))

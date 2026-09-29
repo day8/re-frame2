@@ -19,7 +19,7 @@
     registered against the framework view registry, and the Reagent
     `panel` component returns hiccup when called against a
     registered variant."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [malli.core :as m]
             #?@(:cljs [[reagent.core              :as r]
                        [reagent.ratom             :as ratom]
@@ -66,31 +66,26 @@
 
 ;; ---- pure: schema-validation-event? classification ----------------------
 
-(deftest schema-validation-event?-classifies-failures
-  (testing ":rf.error/schema-validation-failure trace events qualify"
-    (is (rf.story.ui.schema-validation/schema-validation-event? (failure-event 1 :event)))
-    (is (rf.story.ui.schema-validation/schema-validation-event? (failure-event 2 :sub-return)))
-    (is (rf.story.ui.schema-validation/schema-validation-event? (failure-event 3 :app-db)))
-    (is (rf.story.ui.schema-validation/schema-validation-event? (failure-event 4 :cofx)))
-    (is (rf.story.ui.schema-validation/schema-validation-event? (failure-event 5 :fx-args)))))
-
-(deftest schema-validation-event?-rejects-unrelated
+(deftest schema-validation-event?-classification
+  (testing ":rf.error/schema-validation-failure trace events qualify, for
+            every :where"
+    (are [trace-event] (rf.story.ui.schema-validation/schema-validation-event? trace-event)
+      (failure-event 1 :event)
+      (failure-event 2 :sub-return)
+      (failure-event 3 :app-db)
+      (failure-event 4 :cofx)
+      (failure-event 5 :fx-args)))
   (testing "non-error trace events and unrelated error categories are filtered out"
-    (is (not (rf.story.ui.schema-validation/schema-validation-event?
-               (unrelated-trace-event 10 :rf.event :rf.event/dispatched))))
-    (is (not (rf.story.ui.schema-validation/schema-validation-event?
-               (unrelated-trace-event 11 :error :rf.error/handler-exception))))
-    (is (not (rf.story.ui.schema-validation/schema-validation-event?
-               (unrelated-trace-event 12 :error :rf.error/no-such-sub))))
-    (is (not (rf.story.ui.schema-validation/schema-validation-event?
-               (unrelated-trace-event 13 :warning :rf.fx/skipped-on-platform))))))
-
-(deftest schema-validation-event?-rejects-malformed
+    (are [trace-event] (not (rf.story.ui.schema-validation/schema-validation-event? trace-event))
+      (unrelated-trace-event 10 :rf.event :rf.event/dispatched)
+      (unrelated-trace-event 11 :error :rf.error/handler-exception)
+      (unrelated-trace-event 12 :error :rf.error/no-such-sub)
+      (unrelated-trace-event 13 :warning :rf.fx/skipped-on-platform)))
   (testing "empty / partial trace events do not classify"
-    (is (not (rf.story.ui.schema-validation/schema-validation-event? {})))
-    (is (not (rf.story.ui.schema-validation/schema-validation-event? {:op-type :error})))
-    (is (not (rf.story.ui.schema-validation/schema-validation-event?
-               {:op-type :error :operation :rf.error/something-else})))))
+    (are [trace-event] (not (rf.story.ui.schema-validation/schema-validation-event? trace-event))
+      {}
+      {:op-type :error}
+      {:op-type :error :operation :rf.error/something-else})))
 
 ;; ---- pure: project-failure ----------------------------------------------
 
