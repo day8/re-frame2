@@ -890,9 +890,12 @@ being *heavyweight*. Everything else applies to any dispatch that runs anything.
 - **A hash proves the SOURCE changed, not that the runtime ever saw it.** One plant applied genuinely and
   the file was not in the build's module graph, so the watcher served the pre-plant compile and the
   witness came back green. A green sabotage run is evidence only once both halves hold.
-- **Scope a plant to the suite under test.** Where the runner executes a whole lane in one block without
-  catching exceptions, a plant that crashes any namespace stops every namespace after it and the log
-  still looks plausible. **Compare namespace and assertion counts against a control run.**
+- **Scope a plant to the NAMESPACE or unit under test, not the whole suite.** A plant asks whether one
+  guard fires, and a full suite spends minutes answering it per plant — measured: about ten plants in
+  one worker's run each ran a whole suite, the longest about three minutes, when one namespace would
+  have done. Where the runner executes a whole lane in one block without catching exceptions, a plant
+  that crashes any namespace stops every namespace after it and the log still looks plausible.
+  **Compare namespace and assertion counts against a control run.**
 
 ### Gates nobody nominated
 
@@ -914,10 +917,20 @@ a list of them, and do not write one** — the set grows, and an enumeration is 
 
 ### Before you push
 
-- **Re-run the gates on the final base after every rebase.** A pre-rebase green is evidence about a tree
-  that no longer exists, and nothing warns you: the rebase reports success and the old log still says
-  exit 0. One worker rebased four times past eleven landings, and re-running changed the artefact rather
-  than reconfirming it — fixes for three of its own findings had merged in the interval.
+- **After a rebase, re-run only the suites the landing can REACH.** List what landed between your old
+  base and your new one; a suite is reached when that change touches the artefact it tests, or any
+  artefact in that artefact's dependency closure, test-time dependencies included. **Where it reaches
+  none of yours**, skip the re-run, quote the list in the change body, and name the change's CI as the
+  final-base gate: CI grades the change merged onto the trunk as it stood at your push. **Where it does
+  reach, a pre-rebase green is evidence about a tree that no longer exists**, and nothing warns you: the
+  rebase reports success and the old log still says exit 0. One worker rebased four times past eleven
+  landings, and re-running changed the artefact rather than reconfirming it — fixes for three of its own
+  findings had merged in the interval. Measured over a one-hour trial of six workers: about 10 to 15
+  minutes saved per rebase, and **zero** CI reds that a skipped re-run would have caught — one 84-file
+  landing reached none of the five suites its worker had re-run by reflex. **One residual that neither
+  this rule nor re-running everything covers**: a sibling can land between a change's last CI run and
+  its merge — measured, one change merged after a sibling touching artefacts its suites reach, which its
+  CI never saw. What remains is the merge criterion's three-way merge, which sees only textual conflict.
 - **Diff your branch against its MERGE BASE and read that diff for what you would REVERT.** Not for
   conflicts — a clean rebase is exactly the case this rule is for. The question is whether your push
   undoes something a sibling landed while you worked, which no gate covers: a revert of a merged change
