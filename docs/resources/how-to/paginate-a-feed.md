@@ -402,7 +402,7 @@ Polling follows the same owner model as the rest of this page, not a mounted-com
 A feed's `:data` is the *sequence* of pages, so per-page rules go on the same surfaces every resource uses, applied one page at a time:
 
 - **Validate a page** with the request's `:decode`. Put a Malli page schema there (in place of `:json`) and it validates each page's decoded value before it settles — page 0, every load-more, and every refetch. (`:data-schema` is a static shape declaration for tooling; it validates nothing at runtime.)
-- **Redact sensitive page fields** with the resource's `:sensitive` / `:large` declarations, written relative to the data (e.g. `:sensitive [[:data :author-email]]` — see [data classification](../../core/glossary.md#data-classification)). The path matches every page — `[:data 0 :author-email]`, `[:data 1 :author-email]`, … — so the field is redacted on every page wherever data leaves the app (SSR, tools, traces).
+- **Redact sensitive page fields** with the resource's `:sensitive` / `:large` declarations, written relative to the data and against one page (see [data classification](../../core/glossary.md#data-classification)). This feed's page is an envelope, so an item field sits under `:items`: `:sensitive [[:data :items :author-email]]`. The path matches the field in every item of every page — `[:data 0 :items 0 :author-email]`, `[:data 1 :items 3 :author-email]`, … — so it is redacted wherever data leaves the app (SSR, tools, traces). A feed whose pages are plain vectors of items writes `[[:data :author-email]]`.
 
 ### Feeds and pages under SSR
 
