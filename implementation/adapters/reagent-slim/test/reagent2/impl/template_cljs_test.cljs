@@ -1202,6 +1202,21 @@
       (is (= "p" (.-key ^js (template/as-element [c {:key "p"}])))
           "prop key on a component head"))))
 
+(defn- missing-key-warnings [calls]
+  (filter #(re-find #"unique :key" %) calls))
+
+(defn- render-component-twice!
+  "Render one instance of the component `f` twice, as a re-render does,
+  then unmount it."
+  [f]
+  (let [^js el   (template/as-element [f])
+        ^js inst (new (.-type el) (.-props el))]
+    (try
+      (.render inst)
+      (.render inst)
+      (finally
+        (.componentWillUnmount inst)))))
+
 (deftest expand-seq-warns-on-an-unkeyed-child-not-on-keyed-ones
   (testing "a sequence holding an unkeyed child vector warns once"
     (let [calls (atom [])]
@@ -1209,6 +1224,27 @@
       (is (= 1 (count @calls)) "one unkeyed child, one warning")
       (is (re-find #"unique :key" (str (first @calls)))
           "the warning names the missing :key")))
+
+  (testing "several unkeyed children in one sequence warn once"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        #(template/as-element [:ul (list [:li "a"] [:li "b"] [:li "c"])]))
+      (is (= 1 (count (missing-key-warnings @calls)))
+          "three unkeyed children, one warning")))
+
+  (testing "a surrounding component warns once across its sequences and its
+            re-renders, and a different component still warns for itself"
+    (let [calls (atom [])
+          lists (fn [] [:div
+                        [:ul (list [:li "a"] [:li "b"])]
+                        [:ol (list [:li "c"] [:li "d"])]])
+          other (fn [] [:ul (list [:li "e"] [:li "f"])])]
+      (with-warn-spy calls #(render-component-twice! lists))
+      (is (= 1 (count (missing-key-warnings @calls)))
+          "two unkeyed sequences of two children, rendered twice: one warning")
+      (with-warn-spy calls #(render-component-twice! other))
+      (is (= 2 (count (missing-key-warnings @calls)))
+          "the other component's own unkeyed sequence adds exactly one warning")))
 
   (testing "a sequence of keyed children — meta and prop spellings — is silent"
     (let [calls (atom [])]
