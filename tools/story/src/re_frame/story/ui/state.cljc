@@ -70,7 +70,6 @@
                            shell's last poll. Advancing it re-renders the
                            panes that read the registry (sidebar, test
                            widget, Tests pane) without a hot-reload tick.
-  - `:pinned-snapshots`  — {variant-id → [{:label ... :epoch-id ...}]}.
   - `:panel-visibility`  — {panel-id → boolean}. Determines whether a
                            registered :story-panel renders in the chrome.
                            Ships a vanilla set of panels (controls +
@@ -136,7 +135,6 @@
    :substrate           :reagent
    :hot-reload-tick     0
    :fingerprints        {}
-   :pinned-snapshots    {}
    ;; `:dispatch-console` slot. Default is nil (not false)
    ;; so the per-story `:dispatch-console?` body flag is the effective
    ;; default. The shell's right-panel checks the per-story flag first
@@ -192,8 +190,6 @@
 (def append-repeater-row-id    rf.story.ui.state.transitions/append-repeater-row-id)
 (def remove-repeater-row-id    rf.story.ui.state.transitions/remove-repeater-row-id)
 (def bump-hot-reload-tick      rf.story.ui.state.transitions/bump-hot-reload-tick)
-(def record-fingerprints       rf.story.ui.state.transitions/record-fingerprints)
-(def pin-snapshot              rf.story.ui.state.transitions/pin-snapshot)
 (def toggle-panel              rf.story.ui.state.transitions/toggle-panel)
 (def dispatch-console-visible? rf.story.ui.state.transitions/dispatch-console-visible?)
 

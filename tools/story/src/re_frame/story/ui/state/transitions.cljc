@@ -4,8 +4,8 @@
 
   ## What lives here
 
-  Every selection / filter / mode / cell-override / fingerprint /
-  panel-visibility transition the shell uses. Every fn is pure
+  Every selection / filter / mode / cell-override / panel-visibility
+  transition the shell uses. Every fn is pure
   (state → state, or pure data → data) so the JVM test corpus can
   exercise them without booting Reagent.
 
@@ -364,27 +364,13 @@
                       (subvec current (inc i))))
       state)))
 
-;; ---- hot-reload + fingerprints + snapshots + panels ---------------------
+;; ---- hot-reload + panels -------------------------------------------------
 
 (defn bump-hot-reload-tick
   "Increment the hot-reload tick — variant components observe this slot
   and re-mount on change. Returns the new state map."
   [state]
   (update state :hot-reload-tick (fnil inc 0)))
-
-(defn record-fingerprints
-  "Stamp the current decorator fingerprints for `variant-id`. The
-  hot-reload trigger reads the previous map and compares against the
-  current registry; a mismatch bumps `:hot-reload-tick`."
-  [state variant-id fingerprints]
-  (assoc-in state [:fingerprints variant-id] fingerprints))
-
-(defn pin-snapshot
-  "Record a pinned snapshot label/epoch pair for `variant-id`."
-  [state variant-id label epoch-id]
-  (update-in state [:pinned-snapshots variant-id]
-             (fnil conj [])
-             {:label label :epoch-id epoch-id}))
 
 (defn toggle-panel
   "Flip a panel's visibility."
