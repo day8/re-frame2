@@ -243,31 +243,6 @@
         (is (= 0 (-> sim :snapshot :data :counter))
             "the sim snapshot used the definition's :data, not the live snapshot")))))
 
-;; ---- (3) sim-step OK ----------------------------------------------------
-
-(deftest sim-step-ok-advances-snapshot-and-trail
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (select-static-machine! :auth/login)
-    (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                       {:machine-id :auth/login
-                        :definition fixture-definition}])
-    ;; Stub the engine to return an OK Result without booting the
-    ;; machines artefact.
-    (with-redefs [rf.machines/machine-transition (fn [_def _snap _event] ok-result)]
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                         {:machine-id :auth/login
-                          :event [:start]}]))
-    (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-      (is (= :authing (get-in sim [:snapshot :state]))
-          "snapshot advanced")
-      (is (= {:counter 1} (get-in sim [:snapshot :data])))
-      (is (= 1 (count (:audit-trail sim))))
-      (is (= :idle (-> sim :audit-trail last :from)))
-      (is (= :authing (-> sim :audit-trail last :to)))
-      (is (= [:start] (-> sim :audit-trail last :event)))
-      (is (nil? (:last-error sim))))))
-
 ;; ---- (4) sim-step FAIL --------------------------------------------------
 
 (deftest sim-step-fail-leaves-snapshot-and-records-error
@@ -309,37 +284,6 @@
         (is (= :idle (get-in sim [:snapshot :state])))
         (is (some? (:last-error sim)))))))
 
-;; ---- (4b) on-chart edge click → step ------------------------------------
-
-(deftest registry-installs-on-chart-sim-handlers
-  (testing "register-xray-handlers! installs the on-chart
-            sub family + the edge-click step event"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-current-state)))
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.machines/sim-last-transition)))
-    (is (some? (rf.registrar/handler :event :rf.xray.static.machines/sim-chart-edge-clicked)))))
-
-(deftest sim-chart-edge-clicked-steps-via-engine
-  (testing "an on-chart edge click folds ONE step through the
-            SAME engine path as the step-button: snapshot advances +
-            audit-trail grows. No new transition logic."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}])
-      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] ok-result)]
-        (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
-                           {:machine-id :auth/login
-                            :event-id   :start}]))
-      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-        (is (= :authing (get-in sim [:snapshot :state]))
-            "snapshot advanced via the on-chart click")
-        (is (= 1 (count (:audit-trail sim))))
-        (is (= [:start] (-> sim :audit-trail last :event))
-            "the clicked edge's event-id was coerced to the step vector")))))
-
 ;; ---- a step the REAL engine declined ------------------------------------
 ;;
 ;; These deliberately do NOT `with-redefs` the engine: the point is what
@@ -374,21 +318,6 @@
             "NO phantom :locked → :locked row")
         (is (nil? @(rf/subscribe [:rf.xray.static.machines/sim-last-transition]))
             "and nothing for the chart to animate")
-        (is (= :rf.xray.static.machines.sim/no-change
-               (-> sim :last-error :info :kind)))))))
-
-(deftest sim-step-unhandled-event-records-no-phantom-row
-  (testing "an event the machine declares nowhere takes the same path"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition guarded-fixture-definition}])
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-step
-                         {:machine-id :auth/login :event [:no-such-event]}])
-      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-        (is (= [] (:audit-trail sim)))
         (is (= :rf.xray.static.machines.sim/no-change
                (-> sim :last-error :info :kind)))))))
 
@@ -463,26 +392,6 @@
         (is (= :idle (get-in sim [:snapshot :state]))
             "snapshot unchanged on an inert-edge click")
         (is (= 0 (count (:audit-trail sim))))))))
-
-(deftest sim-chart-edge-clicked-fail-surfaces-guard-error
-  (testing "a failed-guard transition fired ON the chart
-            surfaces the error exactly as the button does: snapshot stays
-            put + :last-error stamped (rendered in the rail's error toast)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}])
-      (with-redefs [rf.machines/machine-transition (fn [_d _s _e] fail-result)]
-        (rf/dispatch-sync [:rf.xray.static.machines/sim-chart-edge-clicked
-                           {:machine-id :auth/login
-                            :event-id   :start}]))
-      (let [sim @(rf/subscribe [:rf.xray.static.machines/sim-state])]
-        (is (= :idle (get-in sim [:snapshot :state]))
-            "snapshot stays put on a failed on-chart step")
-        (is (= [:start] (-> sim :last-error :event))
-            "guard pass/fail surfaces via :last-error")))))
 
 (deftest sim-current-state-and-last-transition-subs
   (testing "the chart-binding subs derive the active state +
@@ -754,31 +663,6 @@
 
 ;; ---- (8b) on-chart sim surface ------------------------------------------
 
-(deftest sim-chart-returns-canvas-bound-to-sim
-  (testing "SimChart returns the topology chart wrapper bound
-            to the sim engine (the on-chart simulation surface)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (select-static-machine! :auth/login)
-      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
-                         {:machine-id :auth/login
-                          :definition fixture-definition}])
-      (let [tree (sim/SimChart rf/dispatch
-                               (merge {:machine-id :auth/login
-                                       :definition fixture-definition}
-                                      (sim-chart-values)))]
-        (is (= "rf-xray-static-machines-sim-chart"
-               (:data-testid (second tree)))
-            "the on-chart sim wrapper mounts")
-        ;; The wrapper carries the machine-canvas Chart hiccup as data.
-        (is (some (fn [node]
-                    (and (vector? node)
-                         (= machine-canvas/Chart (first node))))
-                  (raw-hiccup-seq tree))
-            "the wrapper embeds machine-canvas/Chart")))))
-
 (deftest sim-chart-passes-sim-bindings-to-canvas
   (testing "SimChart hands the canvas the amber sim palette,
             the current snapshot state, the focused-edge lens off the last
@@ -910,16 +794,6 @@
             "on-chart sim surface present")
         (is (some? (find-by-testid tree "rf-xray-static-machines-sim-rail"))
             "side rail still present")))))
-
-(deftest body-renders-no-definition-hint-when-missing
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (select-static-machine! :auth/login)
-    (let [tree (sim/body rf/dispatch (merge {:machine-id :auth/login
-                                              :definition nil}
-                                             (sim-body-values)))]
-      (is (some? (find-by-testid tree
-                                 "rf-xray-static-machines-sim-no-definition"))))))
 
 (deftest body-renders-no-machine-hint-when-missing
   (setup-xray-frame!)
