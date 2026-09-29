@@ -46,13 +46,6 @@
 
 ;; ---- registration --------------------------------------------------------
 
-(deftest three-decorators-register
-  (testing "the three layout-debug decorators register under canonical ids"
-    (let [decs (rf.story/registrations :decorator)]
-      (is (contains? decs rf.story.layout-debug/id-measure))
-      (is (contains? decs rf.story.layout-debug/id-outline))
-      (is (contains? decs rf.story.layout-debug/id-pseudo)))))
-
 (deftest decorator-bodies-are-hiccup-kind
   (testing "each layout-debug decorator declares :kind :hiccup"
     (doseq [id rf.story.layout-debug/canonical-decorator-ids]

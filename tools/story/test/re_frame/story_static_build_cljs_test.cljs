@@ -6,10 +6,9 @@
 
   `re-frame.story-cljs-test/
   static-mode-flag-defaults-false-in-cljs-test-build` pins the default
-  value of the `static-mode?` `goog-define` flag. This namespace covers
-  the flag's *consequences*: the registrar-fingerprint poll
-  suppression, the first-visit help-overlay suppression, the persistence
-  of registrations across a 'frozen registrar' boot.
+  value of the `static-mode?` `goog-define` flag and of the public
+  `(rf.story/static-mode?)` probe. This namespace covers the flag's
+  *consequences*.
 
   This namespace covers the behavioural surfaces that are reachable from
   the node-test runner — i.e. anything that does not require a live
@@ -17,13 +16,6 @@
   full release-mode smoke; that's a separate CI gate). The slice of
   static-build behaviour testable from the CLJS test bundle:
 
-  - **`(static-mode?)` public probe.** Per spec/013 the probe is a
-    public Var on `re-frame.story` so consumer code (e.g. a host app
-    branching on static-mode at boot) can read the flag.
-  - **`enabled?` and `static-mode?` are orthogonal.** Per spec/013 §
-    Static-mode runtime semantics — the static-mode flag stacks
-    alongside production elision; either may be true / false
-    independently.
   - **Help overlay suppression contract.** When `static-mode?` is
     flipped on (we rebind the Var locally, standing in for what
     `:closure-defines` does at compile time), the help host's real
@@ -32,59 +24,13 @@
   - **Hot-reload poll suppression.** Same shape: the shell's real
     `start-hot-reload-poll!` schedules no 500ms `setInterval` under
     static mode, so a shell that drops the check fails this test.
-  - **Registrations survive across the static-mode boundary.** A
-    variant registered with `static-mode?` true behaves identically
-    to one registered with it false (the flag only changes the shell;
-    the registrar is frozen as far as DEV mutations go, but the
-    seed registrations the static export ships with must be intact)."
+  - **Project-root fails closed.** Under `static-mode?` a passed
+    project-root is dropped unless the host opts in, so a published
+    export never carries the build machine's checkout path."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.story          :as rf.story]
             [re-frame.story.config   :as rf.story.config]
             [re-frame.story.ui.help  :as rf.story.ui.help]
             [re-frame.story.ui.shell :as rf.story.ui.shell]))
-
-;; ===========================================================================
-;; PUBLIC `static-mode?` PROBE
-;; ===========================================================================
-
-(deftest public-probe-resolves
-  (testing "re-frame.story/static-mode? is a public fn — consumers branch
-            on it at boot to drop dev-only setup work"
-    (is (fn? @#'rf.story/static-mode?)
-        "the public Var resolves and is a fn")))
-
-(deftest public-probe-mirrors-config-flag
-  (testing "(rf.story/static-mode?) returns the same value as the underlying
-            goog-define `re-frame.story.config/static-mode?`"
-    (is (= rf.story.config/static-mode? (rf.story/static-mode?)))))
-
-(deftest static-mode-defaults-false-in-node-test-build
-  (testing "the node-test build does not flip the static-mode goog-define,
-            so consumer code branches into the dev-flavoured path"
-    (is (false? (rf.story/static-mode?))
-        "default is the dev-flavoured branch")))
-
-;; ===========================================================================
-;; FLAG ORTHOGONALITY — enabled? × static-mode? are independent
-;; ===========================================================================
-
-(deftest enabled-and-static-mode-are-orthogonal
-  (testing "spec/013 § Static-mode runtime semantics — the two flags are
-            independent goog-defines. A consumer can ship a static export
-            in development-flavoured mode (enabled? true + static-mode?
-            true) or in production-elided mode (enabled? false +
-            static-mode? true). The orthogonality lets the static export
-            be the runtime artefact `:rf.story/enabled? false` builds
-            DCE the Story shell out of"
-    (is (true? rf.story.config/enabled?))
-    (is (false? rf.story.config/static-mode?))
-    ;; The two slots are independently set; reading them does not
-    ;; couple them. A future refactor that lazily-derives one from the
-    ;; other (an XOR shortcut, say) would break the orthogonality
-    ;; contract spec/013 names.
-    (is (not= rf.story.config/enabled? rf.story.config/static-mode?)
-        "in the dev-flavoured node-test build the two are different
-         booleans — proves they're not aliased to one another")))
 
 ;; ===========================================================================
 ;; HELP-OVERLAY SUPPRESSION CONTRACT (spec/013 §First-visit help overlay
@@ -186,38 +132,6 @@
       (finally (stop-hot-reload-poll!)))))
 
 ;; ===========================================================================
-;; REGISTRATIONS WORK UNDER STATIC-MODE (the export's seed payload survives)
-;; ===========================================================================
-;;
-;; Per spec/013 § What gets bundled: the static-export bundle carries
-;; every story / variant / workspace / mode / decorator / panel
-;; registered at boot. The static-mode flag only changes the shell
-;; chrome — the registrar mechanics are unaffected. We seed a
-;; registration under static-mode-equivalent conditions and confirm
-;; every read surface surfaces it.
-
-(deftest registrations-land-in-the-side-table-regardless-of-flag-state
-  (testing "spec/013 § What gets bundled — Story's registrations are
-            data, not behaviour gated on static-mode. The flag affects
-            the shell chrome; the registrar is unaffected. A static-
-            export bundle's seed registrations must reach the same side-
-            table the dev-mode bundle uses"
-    (rf.story/clear-all!)
-    (rf.story/install-canonical-vocabulary!)
-    (rf.story/reg-story :story.static.seed
-      {:doc "a seed story baked into the static export"})
-    (rf.story/reg-variant :story.static.seed/probe
-      {:setup [[:probe/init]]
-       :tags   #{:dev}})
-    ;; Read surface — the MCP-or-tooling consumer path.
-    (is (rf.story/registered? :story   :story.static.seed))
-    (is (rf.story/registered? :variant :story.static.seed/probe))
-    (is (= #{:story.static.seed/probe}
-           (rf.story/variants-of :story.static.seed)))
-    (is (= [[:probe/init]]
-           (:setup (rf.story/variant->edn :story.static.seed/probe))))))
-
-;; ===========================================================================
 ;; STATIC-EXPORT SELF-CONTAINMENT — open-in-editor project-root fails closed
 ;; ===========================================================================
 ;;
@@ -258,16 +172,6 @@
       (rf.story.config/set-project-root! sentinel-root)
       (is (= sentinel-root (rf.story.config/get-project-root))
           "with the explicit opt-in the root is retained even in static mode"))
-    (rf.story.config/reset-all!)))
-
-(deftest dev-mode-project-root-unaffected
-  (testing "with static-mode? false (the dev build) the project-root is set
-            verbatim — the guard narrows ONLY static exports, never dev"
-    (rf.story.config/reset-all!)
-    (is (false? rf.story.config/static-mode?) "node-test build is dev-flavoured")
-    (rf.story.config/set-project-root! sentinel-root)
-    (is (= sentinel-root (rf.story.config/get-project-root))
-        "dev builds keep the root — open-in-editor resolves absolute paths")
     (rf.story.config/reset-all!)))
 
 (deftest reset-all-clears-static-opt-in

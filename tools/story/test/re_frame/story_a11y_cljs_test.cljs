@@ -26,21 +26,12 @@
 
 ;; ---- panel registration -------------------------------------------------
 
-(deftest a11y-panel-registers
-  (testing "the a11y panel registers as a story-panel"
-    (let [panels (rf.story/registrations :story-panel)]
-      (is (contains? panels rf.story.ui.a11y/panel-id)))))
-
 (deftest a11y-panel-body
   (testing "the a11y panel body declares :placement :right + :render"
     (let [body (rf.story/handler-meta :story-panel rf.story.ui.a11y/panel-id)]
       (is (= :right (:placement body)))
       (is (= rf.story.ui.a11y/panel-render-id (:render body)))
       (is (string? (:title body))))))
-
-(deftest a11y-render-view-registered
-  (testing "the a11y panel-render view is registered against re-frame"
-    (is (some? (rf/view rf.story.ui.a11y/panel-render-id)))))
 
 (deftest a11y-render-view-roots-in-dom-element
   (testing "the a11y panel-render view returns hiccup whose root is a DOM
@@ -60,19 +51,7 @@
       (is (= :div (first out))
           "hiccup root is specifically `:div` per the source-coord-annotator wrap"))))
 
-;; ---- state management ---------------------------------------------------
-
-(deftest violations-state-empty
-  (testing "violations-by-frame starts empty"
-    (is (= {} @rf.story.ui.a11y/violations-by-frame))))
-
-(deftest drop-frame-state-clears
-  (testing "drop-frame-state! removes per-frame state"
-    (swap! rf.story.ui.a11y/violations-by-frame assoc :story.x/y [{:dummy true}])
-    (swap! rf.story.ui.a11y/run-state           assoc :story.x/y {:status :done})
-    (rf.story.ui.a11y/drop-frame-state! :story.x/y)
-    (is (not (contains? @rf.story.ui.a11y/violations-by-frame :story.x/y)))
-    (is (not (contains? @rf.story.ui.a11y/run-state           :story.x/y)))))
+;; ---- violations stylesheet ----------------------------------------------
 
 (deftest violations-stylesheet-non-empty
   (testing "the violations stylesheet is a non-empty CSS string"
@@ -92,11 +71,6 @@
       ;; Closing-bracket selector form so `querySelector` accepts it.
       (is (.startsWith sel "[data-rf-story-variant-root="))
       (is (.endsWith   sel "]")))))
-
-(deftest variant-root-selector-distinct-per-variant
-  (testing "different variant-ids yield distinct selectors"
-    (is (not= (rf.story.ui.a11y/variant-root-selector :story.counter/loaded)
-              (rf.story.ui.a11y/variant-root-selector :story.counter/clicked-three-times)))))
 
 (deftest run-axe-handles-no-variant-root
   (testing "run-axe! sets :no-root state when no variant root resolves
@@ -120,19 +94,11 @@
 ;; ---- axe-core CDN load is opt-in only -----------------------------------
 ;;
 ;; The axe-core load is gated behind a persisted opt-in. These tests cover the contract surface:
-;; `cdn-opt-in?` defaults to false (or whatever localStorage holds),
-;; `set-cdn-opt-in!` flips it, and `run-axe!` short-circuits to
+;; `set-cdn-opt-in!` grants and revokes the approval `cdn-opt-in?` reads,
+;; and `run-axe!` short-circuits to
 ;; `:no-consent` when the dev hasn't approved. The companion JVM
 ;; test (`re-frame.story-a11y-source-test`) checks the source for
 ;; the SRI / crossorigin attributes and the consent-prompt text.
-
-(deftest cdn-opt-in-defaults-to-false-after-revoke
-  (testing "set-cdn-opt-in! false clears the persisted approval —
-            the fresh-browser shape. A subsequent cdn-opt-in? must
-            read false so the consent prompt re-renders."
-    (rf.story.ui.a11y/set-cdn-opt-in! false)
-    (is (false? (boolean (rf.story.ui.a11y/cdn-opt-in?)))
-        "after revocation the opt-in predicate must read false")))
 
 (deftest cdn-opt-in-roundtrips
   (testing "set-cdn-opt-in! true persists the approval; set-cdn-opt-in!

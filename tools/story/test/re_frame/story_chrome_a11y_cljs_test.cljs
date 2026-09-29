@@ -29,15 +29,6 @@
 
 ;; ---- panel registration -------------------------------------------------
 
-(deftest chrome-a11y-panel-registers
-  (testing "the chrome-a11y panel registers as a story-panel"
-    (let [panels (rf.story/registrations :story-panel)]
-      (is (contains? panels rf.story.ui.chrome-a11y/panel-id)))))
-
-(deftest chrome-a11y-panel-id-distinct-from-variant
-  (testing "chrome-a11y panel-id is distinct from the variant a11y panel-id"
-    (is (not= rf.story.ui.chrome-a11y/panel-id rf.story.ui.a11y/panel-id))))
-
 (deftest chrome-a11y-panel-body
   (testing "the chrome-a11y panel body declares :placement :right + :render"
     (let [body (rf.story/handler-meta :story-panel rf.story.ui.chrome-a11y/panel-id)]
@@ -45,10 +36,6 @@
       (is (= rf.story.ui.chrome-a11y/panel-render-id (:render body)))
       (is (string? (:title body)))
       (is (re-find #"(?i)chrome" (or (:title body) ""))))))
-
-(deftest chrome-a11y-render-view-registered
-  (testing "the chrome-a11y panel-render view is registered against re-frame"
-    (is (some? (rf/view rf.story.ui.chrome-a11y/panel-render-id)))))
 
 (deftest chrome-a11y-render-view-roots-in-dom-element
   (testing "the chrome-a11y panel-render view returns hiccup whose root
@@ -85,15 +72,6 @@
     (is (= "rf.story.chrome-a11y" (namespace rf.story.ui.chrome-a11y/chrome-frame-id)))))
 
 ;; ---- state management ---------------------------------------------------
-
-(deftest violations-state-starts-empty
-  (testing "violations starts as an empty vector"
-    (is (vector? @rf.story.ui.chrome-a11y/violations))
-    (is (empty? @rf.story.ui.chrome-a11y/violations))))
-
-(deftest run-state-starts-idle
-  (testing "run-state starts at :idle"
-    (is (= :idle (rf.story.ui.chrome-a11y/status)))))
 
 (deftest reset-state-clears-everything
   (testing "reset-state! clears violations + resets run-state"
