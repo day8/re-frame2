@@ -65,8 +65,22 @@
   are unbound and the egress surfaces walk the value with NO route re-seeding —
   there is no route slice to leak anyway.
 
+  ## Prior values
+
+  A navigation REPLACES the registry's route claims with the entering route's,
+  so a held route sub's `:rf.sub/prev-value` — the leaving route's slice — can
+  no longer be classified from the registry alone. It belongs to the route its
+  slice names, and is additionally classified by that route's own declaration
+  (`re-frame.routing.classification/classification-at`). `:rf/route`'s value
+  IS the slice; the `:rf.route/query` / `:rf.route/params` leaves read theirs
+  from their one input, the prior `[:rf/route]` value the memo path carries as
+  the prior inputs. The registry keeps no entry for the leaving route.
+
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.elision :as rf.elision]))
+  (:require [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.classification :as rf.routing.classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -91,6 +105,18 @@
   returns nil (the common non-route case — no work)."
   [sub-id]
   (get route-sub-seed-table sub-id))
+
+(defn- prior-route-classification
+  "The classification of the route a route read sub's PRIOR `value` was
+  computed under, re-rooted onto that value, or nil. The route is the one its
+  slice names: `:rf/route`'s value is the slice, and a leaf's is its one input
+  in `prior-inputs`."
+  [sub-id value prior-inputs seed]
+  (let [slice    (if (= :rf/route sub-id) value (first prior-inputs))
+        route-id (when (map? slice) (:route-id slice))]
+    (when (some? route-id)
+      (rf.routing.classification/classification-at
+        route-id (rf.registrar/lookup :route route-id) seed))))
 
 (defn project-route-sub-egress
   "Project a route read sub's `value` for egress, applying the route's
@@ -119,8 +145,20 @@
   Fail-closed posture is inherited from `elide-wire-value`: a route sub value
   walked under a nil / unresolvable `:frame` redacts whole (no live frame ⇒ no
   reachable registry). A live frame with no route classification rides verbatim
-  (the walk is path-precise, not a blanket scrub)."
-  [sub-id value opts]
-  (if-let [seed (route-sub-seed-path sub-id)]
-    (rf.elision/elide-wire-value value (assoc opts :path seed))
-    value))
+  (the walk is path-precise, not a blanket scrub).
+
+  The four-argument arity projects a PRIOR value (`:rf.sub/prev-value`), and
+  `prior-inputs` are the inputs it was computed from. Beside the registry walk
+  it is redacted by the declaration of the route it was computed under — see
+  the ns docstring's §Prior values."
+  ([sub-id value opts]
+   (if-let [seed (route-sub-seed-path sub-id)]
+     (rf.elision/elide-wire-value value (assoc opts :path seed))
+     value))
+  ([sub-id value opts prior-inputs]
+   (if-let [seed (route-sub-seed-path sub-id)]
+     (let [{:keys [sensitive large]} (prior-route-classification sub-id value prior-inputs seed)]
+       (rf.elision/elide-wire-value
+         (rf.classification/redact-with-paths value (or sensitive []) (or large []))
+         (assoc opts :path seed)))
+     value)))
