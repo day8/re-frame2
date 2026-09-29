@@ -41,7 +41,8 @@
        still wins over the built-in default on the always-on path.
 
   Companion suites:
-    - `re-frame.ssr-end-to-end-test` — the dev-posture end-to-end cascade.
+    - `re-frame.ssr-end-to-end-test` — the end-to-end cascade, and the
+      default projector's whole case table.
     - `re-frame.ssr-error-projector-substrate-test` — the always-on
       substrate install.
     - `re-frame.ssr-routing-egress-production-test` — the
