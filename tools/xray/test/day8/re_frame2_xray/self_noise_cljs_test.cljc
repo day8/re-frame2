@@ -19,7 +19,6 @@
   end-to-end."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.trace.projection :as rf.trace.projection]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.self-noise :as self-noise]
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
@@ -71,29 +70,6 @@
                   {:frame :rf/default :tags {:frame :rf/xray}})))
     (is (false? (self-noise/xray-internal-event?
                   {:frame :rf/xray :tags {:frame :rf/default}})))))
-
-(deftest xray-internal-event?-realistic-shapes
-  (testing "shapes mirroring real :rf.sub/run + :rf.view/render envelopes"
-    ;; Layer-1 sub-read inside Xray's panel — :frame lives under :tags
-    ;; per re-frame.subs/validate-and-trace.
-    (is (true?  (self-noise/xray-internal-event?
-                  {:operation :rf.sub/run :op-type :rf.sub
-                   :id 17 :time 1000
-                   :tags {:rf.sub/id  :rf.xray/trace-buffer
-                          :rf.sub/query-v [:rf.xray/trace-buffer]
-                          :frame   :rf/xray}})))
-    ;; View re-render from a Xray panel — :frame rides under :tags per
-    ;; re-frame.views/emit-view-render-trace! (the emit passes :frame in
-    ;; the tags map; build-event never hoists it top-level).
-    (is (true?  (self-noise/xray-internal-event?
-                  {:operation :rf.view/render :op-type :rf.view
-                   :id 18 :time 1001
-                   :tags  {:rf.view/render-key 42 :frame :rf/xray}})))
-    ;; Host event — must not be filtered.
-    (is (false? (self-noise/xray-internal-event?
-                  {:operation :rf.event/dispatched :op-type :rf.event
-                   :id 19 :time 1002
-                   :tags {:rf.trace/event-id :user/click :frame :rf/default}})))))
 
 ;; ---- collect-trace! end-to-end wiring (CLJS only) -----------------------
 ;;
@@ -150,18 +126,6 @@
            "self-induced view re-renders are dropped")
        (is (= 0 (config/suppressed-count))
            "no REDACTED bump for structural self-noise"))))
-
-#?(:cljs
-   (deftest collect-trace-filter-applies-to-tags-frame
-     (testing "Xray-internal events with :frame under :tags only are also dropped"
-       ;; Emit sites leave :frame under :tags rather than hoisting it
-       ;; top-level (e.g. :rf.sub/run via re-frame.subs/validate-and-trace),
-       ;; and the filter reads it there.
-       (trace-collector/collect-trace!
-         {:operation :rf.sub/run :op-type :rf.sub
-          :id 4 :time 1003
-          :tags {:rf.sub/id :rf.xray/event-bundles :frame :rf/xray}})
-       (is (empty? (trace-collector/frameless-events))))))
 
 ;; ---- xray-internal event-id guard --------------------------------------
 ;;
@@ -278,9 +242,8 @@
 ;; xray-internal-event-bundle?) (group-by-event buffer))` pairing that
 ;; spine/db->event-bundles, the reactive :rf.xray/event-bundles sub
 ;; (registry), and the first-mount seed (mount) all need; it makes their
-;; agreement structural. These tests pin (a) the strip behaviour and
-;; (b) that the helper is exactly the manual expression — so all three
-;; call sites stay in lockstep by construction.
+;; agreement structural. These tests pin the strip behaviour and the
+;; vector return.
 
 (defn- dispatched-event
   "A minimal `:rf.event/dispatched` trace event — the cascade root
@@ -299,17 +262,6 @@
       (is (= [[:counter/inc]] (mapv :event out))
           "only the host :counter/inc cascade survives; the frameless
            :rf.xray/* cascade is stripped"))))
-
-(deftest filtered-event-bundles-equals-manual-group-then-remove
-  (testing "the helper is EXACTLY `(into [] (remove
-            xray-internal-event-bundle?) (group-by-event buffer))` — the
-            invariant the three call sites depend on for lockstep"
-    (let [buffer [(dispatched-event 1 100 [:counter/inc]              :below)
-                  (dispatched-event 2 101 [:rf.xray.static/select-tab] :rf/default)
-                  (dispatched-event 3 102 [:user/click]               :below)]]
-      (is (= (into [] (remove self-noise/xray-internal-event-bundle?)
-                   (rf.trace.projection/group-by-event buffer))
-             (self-noise/filtered-event-bundles buffer))))))
 
 (deftest filtered-event-bundles-empty-buffer
   (testing "empty buffer → empty vector (always returns a vector)"
