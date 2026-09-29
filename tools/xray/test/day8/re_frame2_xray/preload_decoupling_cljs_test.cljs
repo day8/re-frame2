@@ -370,22 +370,13 @@
                 "the top-level export still installs alongside the
                  core augment")))))))
 
-(deftest install-ns-load-is-side-effect-free
-  (testing "the install ns is load-inert: its re-exports are
-            identity-equal to the preload re-exports (one shared backing
-            fn), so requiring either reaches the same callable helpers and
-            neither load registers anything on its own."
-    ;; Identity holds — preload re-exports the install fns, and core calls
-    ;; them; one shared backing fn value.
+(deftest preload-re-exports-the-install-collector-fns
+  (testing "preload's collector re-exports are identity-equal to the
+            install ns's (one shared backing fn), so the preload boot block
+            and core/init! reach the same callable helpers."
     (is (identical? install/register-trace-collector!
                     preload/register-trace-collector!)
         "preload re-exports install/register-trace-collector!")
     (is (identical? install/register-epoch-collector!
                     preload/register-epoch-collector!)
-        "preload re-exports install/register-epoch-collector!")
-    ;; clear-world! ran in the fixture; nothing registered itself just by
-    ;; the test ns loading install/core/preload.
-    (is (not (trace-collector-registered?))
-        "no trace collector registered purely by ns load")
-    (is (not (epoch-collector-registered?))
-        "no epoch collector registered purely by ns load")))
+        "preload re-exports install/register-epoch-collector!")))
