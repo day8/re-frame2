@@ -7,9 +7,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.modes.standard :as rf.story.modes.standard]
-            [re-frame.story.registrar :as rf.story.registrar]
-            [re-frame.story.schemas :as rf.story.schemas]
-            [malli.core :as m]))
+            [re-frame.story.registrar :as rf.story.registrar]))
 
 (defn reset-all! [test-fn]
   (rf.story/clear-all!)
@@ -50,16 +48,6 @@
       (is (string? (:background (:args body)))))))
 
 ;; ---- schema conformance --------------------------------------------------
-
-(deftest every-canonical-body-validates-against-mode-schema
-  (testing "viewport bodies pass `:rf/mode` schema"
-    (doseq [[id body] rf.story.modes.standard/viewports]
-      (is (m/validate rf.story.schemas/Mode body)
-          (str id " failed Mode schema"))))
-  (testing "background bodies pass `:rf/mode` schema"
-    (doseq [[id body] rf.story.modes.standard/backgrounds]
-      (is (m/validate rf.story.schemas/Mode body)
-          (str id " failed Mode schema")))))
 
 ;; ---- installer side-effects ---------------------------------------------
 

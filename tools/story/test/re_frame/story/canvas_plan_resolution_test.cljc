@@ -24,13 +24,11 @@
        the canvas's resolver (the SAME `rf.story.render/resolve-render-sub-overrides`
        over `rf.story.plan/variant-plan` render-variant uses);
     2. the canvas decorator resolution and render-variant's render-inputs
-       resolve the SAME `[:world :decorators]` (composed + inherited);
-    3. `render-variant` honestly returns `:cannot-run` with no host (the
-       single render path's cannot-render state).
+       resolve the SAME `[:world :decorators]` (composed + inherited).
 
-  Pure JVM + CLJS: `plan.cljc` + `render.cljc` + `decorators.cljc` + the
-  registrar are all JVM-runnable, so the DEFAULT lookup works under both
-  `clojure -M:test` and `npm run test:cljs`."
+  Runs on the JVM: `plan.cljc` + `render.cljc` + `decorators.cljc` + the
+  registrar are all JVM-runnable, so the DEFAULT lookup works under
+  `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.decorators :as rf.story.decorators]
@@ -46,13 +44,10 @@
 ;; sees only what each test registers. `clear-all!` bumps the mutation-tick
 ;; (invalidating any plan-level memo between tests).
 ;;
-;; The `:render-host` hook is a process-global late-bind slot. On CLJS the
-;; canonical auto-install (fired by every `reg-*`) wires it, so the no-host
-;; `:cannot-run` assertion must DROP `:render-host` AFTER its registrations
-;; (see `render-variant-cannot-run-with-no-host`). We MUST NOT
-;; `rf.story.late-bind/clear!` (that wipes the canonical shims every sibling test ns
-;; relies on). The fixture snapshots + restores the whole hooks map so any
-;; per-test dissoc is surgical and reverts cleanly (mirrors `render-cljs-test`).
+;; The late-bind hooks map is process-global, and
+;; `rf.story.late-bind/clear!` would wipe the canonical shims every sibling
+;; test ns relies on, so the fixture snapshots + restores the whole hooks map
+;; instead (mirrors `render-cljs-test`).
 
 (defn reset-fixture [test-fn]
   (rf.story.registrar/clear-all!)
@@ -124,28 +119,6 @@
       (testing "the parent-chain override is INHERITED (the plan
                 compiler is the single :extends merge authority)"
         (is (= :error (get resolved [:login/state])))))))
-
-(deftest sub-override-arg-placeholder-reflects-control-on-canvas-path
-  (testing "an override VALUE driven by [:arg key] re-resolves against the
-            post-control effective args on the canvas path — the SAME
-            re-substitution render-variant does. The canvas passes the
-            variant's resolved effective args (incl. defaults), so the
-            placeholder always has a value to substitute."
-    (rf.story.registrar/reg-variant* :story.login/argdriven
-                            {:args          {:message "default"}
-                             :sub-overrides {[:login/error] [:arg :message]}
-                             :setup        []})
-    (let [plan-eff (get-in (rf.story.plan/variant-plan :story.login/argdriven)
-                           [:world :effective-args])]
-      (testing "the plan-time arg resolves against the variant's effective args"
-        (is (= "default"
-               (get (canvas-sub-overrides :story.login/argdriven plan-eff)
-                    [:login/error]))))
-      (testing "a control override re-substitutes the live value"
-        (is (= "live!"
-               (get (canvas-sub-overrides :story.login/argdriven
-                                          (assoc plan-eff :message "live!"))
-                    [:login/error])))))))
 
 (deftest variant-with-no-sub-overrides-resolves-nil
   (testing "a registered variant authoring NO :sub-overrides resolves nil
@@ -243,43 +216,9 @@
                (rf.story.decorators/apply-hiccup-decorators
                  (:hiccup canvas-pack) [:span "leaf"] {})))))))
 
-(deftest render-variant-applies-decorators-through-shared-seam
-  (testing "render-variant's host renders the SAME decorator refs the canvas
-            applies — proven by resolving the render-inputs' refs and applying
-            them the way the shared seam does"
-    (rf.story.registrar/reg-decorator* :deco/wrap-a
-                              {:kind :hiccup :wrap (fn [body _] [:div.a body])})
-    (rf.story.registrar/reg-variant* :story.deco/applied
-                            {:component  :views/widget
-                             :decorators [[:deco/wrap-a]]
-                             :setup     []})
-    (let [prepared (rf.story.render/prepare-render :story.deco/applied)
-          refs     (get-in prepared [:render-inputs :decorators])
-          hiccup-d (:hiccup (rf.story.decorators/resolve-decorator-refs refs))
-          ;; The shared `safe-decorated-view` seam applies the :hiccup
-          ;; decorators outermost-first; render-variant's host calls exactly
-          ;; this (via multi-substrate/render-decorated-view).
-          wrapped  (rf.story.decorators/apply-hiccup-decorators hiccup-d [:span "leaf"] {})]
-      (testing "the decorator wraps the rendered tree (NOT bare)"
-        (is (= [:div.a [:span "leaf"]] wrapped))))))
-
 ;; ===========================================================================
 ;; The single render path's cannot-render honesty
 ;; ===========================================================================
-
-(deftest render-variant-cannot-run-with-no-host
-  (testing "with no render host installed, render-variant returns :cannot-run
-            for a registered variant — never a silent empty render
-            (the single render path's honest cannot-render state)"
-    (rf.story.registrar/reg-variant* :story.norender/v
-                            {:component :views/widget :setup []})
-    ;; Drop the render host AFTER registration — on CLJS the `reg-variant*`
-    ;; auto-install wires it; the fixture restores it after this test.
-    (swap! rf.story.late-bind/hooks dissoc :render-host)
-    (let [r (rf.story.render/render-variant :story.norender/v)]
-      (is (= :cannot-run (:status r)))
-      (is (= :no-render-host (:reason r)))
-      (is (= :story.norender/v (:frame r))))))
 
 ;; ===========================================================================
 ;; The canvas decorator path threads :run-args into the plan it

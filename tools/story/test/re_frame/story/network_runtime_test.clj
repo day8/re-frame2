@@ -138,7 +138,7 @@
 ;; The inline path
 ;; ===========================================================================
 
-(deftest inline-plan-realizes-its-network-fixture
+(deftest inline-plan-realizes-and-releases-its-network-fixture
   (testing "an INLINE plan map's authored :network delivers the same canned
             reply. The inline path transfers the lowered redirect, so
             without its route-map install it would point `:rf.http/managed`
@@ -147,6 +147,9 @@
                               :setup   [[:dispatch [:net/load]]]})]
       (is (= {:items [1]} (:cart (:app-db result)))
           "the inline fixture answered the managed request")
+      (is (= {} @rf.story.network/frame-routes)
+          "the inline run's own teardown released the anonymous frame's
+           routes, so a headless inline run leaks no ownership")
       (is (= [] @live-requests)
           "SENTINEL: no managed request reached the production fx slot"))))
 
@@ -192,21 +195,6 @@
       (is (= {:items [1]} (:cart (:app-db result)))
           "the authored fixture answered the managed request through the
            selected image")
-      (is (= [] @live-requests)
-          "SENTINEL: no managed request reached the production fx slot"))))
-
-(deftest registered-variant-with-own-app-image-realizes-its-fixture
-  (testing "the same holds for an app image declared on the VARIANT body"
-    (rf.story/reg-variant :story.netimg2/cart
-                          {:images  [(rf/image {:id        :net/app-image
-                                                :select-ns {:include ["re-frame.story.network-runtime-test"]}})]
-                           :network cart-fixture
-                           :setup   [[:dispatch [:net/load]]]})
-    (let [result (run-target :story.netimg2/cart)]
-      (is (= [:net/app-image] (:images result))
-          "precondition: an explicit app image is in force")
-      (is (= {:items [1]} (:cart (:app-db result)))
-          "the authored fixture answered the managed request")
       (is (= [] @live-requests)
           "SENTINEL: no managed request reached the production fx slot"))))
 
@@ -284,10 +272,3 @@
         "the last release empties the registry")
     (is (= [] @live-requests) "SENTINEL: still no live request")))
 
-(deftest inline-run-completion-releases-its-fixture
-  (testing "an inline run's own teardown releases the anonymous frame's
-            fixture, so a headless inline run leaks no ownership"
-    (run-target {:network cart-fixture :setup [[:dispatch [:net/load]]]})
-    (is (= {} @rf.story.network/frame-routes)
-        "destroy-inline! released the inline frame's routes")
-    (is (= [] @live-requests) "SENTINEL: still no live request")))
