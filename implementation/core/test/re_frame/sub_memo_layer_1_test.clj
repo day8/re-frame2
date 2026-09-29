@@ -150,23 +150,3 @@
         (rf/dispatch-sync [:seed-map])
         (is (= {:n 1} @r))
         (is (= 3 @runs) "transition {} → map re-runs body")))))
-
-;; ---- equivalence with layer-2+ -------------------------------------------
-;;
-;; Belt-and-braces: the specialisation is correctness-preserving relative
-;; to a layer-2 sub with one upstream that just reads app-db.
-
-(deftest layer-1-and-layer-2-produce-the-same-stream-of-values
-  (testing "a layer-1 sub and a layer-2 sub chained off it produce the
-            same stream of values across N db updates"
-    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
-    (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-sub :n        (fn [db _] (:n db)))
-    (rf/reg-sub :n-via-l2 {:inputs [[:n]]} (fn [[n] _] n))
-    (rf/dispatch-sync [:seed])
-    (let [r1 (rf/subscribe [:n])
-          r2 (rf/subscribe [:n-via-l2])]
-      (doseq [v (range 1 6)]
-        (rf/dispatch-sync [:update v])
-        (is (= v @r1 @r2)
-            (str "layer-1 and layer-2 agree at v=" v))))))

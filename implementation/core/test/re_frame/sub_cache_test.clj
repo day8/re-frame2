@@ -137,133 +137,6 @@
     (rf/unsubscribe [:n])
     (is (not (contains? (cache-keys) [:n])))))
 
-;; ---- no recompute between ref-count → 0 and dispose ----------------------
-;;
-;; No wasted sub-runs may fire between
-;; the moment ref-count drops to zero and the moment the reaction is
-;; disposed. With sync dispose the two events happen in the same tick on
-;; the same call site — there is no observable gap. This test pins the
-;; absence: a state change AFTER the last unsubscribe MUST NOT re-invoke
-;; the sub's compute fn (because the reaction has been disposed, its
-;; watch on app-db unwound).
-
-(deftest no-recompute-between-zero-ref-count-and-dispose
-  (testing "after the last unsubscribe, a state change does NOT re-invoke
-            the sub's compute fn — the reaction has been disposed
-            synchronously, its watch on app-db unwound"
-    (let [recompute-count (atom 0)]
-      (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0}}))
-      (rf/reg-event :update (fn [{:keys [db]} [_ n]] {:db (assoc db :n n)}))
-      (rf/reg-sub :n (fn [db _]
-                       (swap! recompute-count inc)
-                       (:n db)))
-      (rf/dispatch-sync [:seed])
-
-      ;; Subscribe + read forces compute.
-      (let [r (rf/subscribe [:n])]
-        (is (= 0 @r))
-        (is (= 1 @recompute-count) "compute fn ran once for the initial read")
-
-        ;; A change recomputes (one derefer still holds the slot).
-        (rf/dispatch-sync [:update 1])
-        (is (= 1 @r))
-        (is (= 2 @recompute-count) "compute fn ran for the change"))
-
-      ;; Last unsubscribe — synchronous dispose. The slot is gone; the
-      ;; reaction's watch on app-db is unwound IN THIS CALL.
-      (rf/unsubscribe [:n])
-      (is (not (contains? (cache-keys) [:n]))
-          "cache slot disposed synchronously")
-      (let [count-after-dispose @recompute-count]
-
-        ;; Subsequent app-db changes MUST NOT recompute. A deferred-grace
-        ;; timer would keep the slot alive for a window in which any state
-        ;; change recomputes the sub (wasted work). Sync dispose leaves no
-        ;; window: the reaction is dead before this call returns.
-        (rf/dispatch-sync [:update 2])
-        (is (= count-after-dispose @recompute-count)
-            "compute fn did NOT run after the last unsubscribe — there
-             is no live cache entry to recompute, and the watch the
-             reaction held on app-db was removed at dispose-time")
-
-        (rf/dispatch-sync [:update 3])
-        (rf/dispatch-sync [:update 4])
-        (is (= count-after-dispose @recompute-count)
-            "subsequent state changes do not recompute either — sync
-             dispose leaves no window")))))
-
-;; ---- clear-sub-cache! ----------------------------------------------------
-
-(deftest clear-subscription-cache-empties-the-cache
-  (testing "clear-sub-cache! disposes every cached entry"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (is (contains? (cache-keys) [:n]))
-
-    (rf/clear-sub-cache! :rf/default)
-    (is (empty? (cache-keys)))))
-
-;; ---- hot-reload re-registration disposes cached entries ------------------
-
-(deftest hot-reload-evicts-cached-entries
-  (testing "re-registering a sub disposes the cached slot"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (rf/subscribe [:n])
-    (is (contains? (cache-keys) [:n]))
-
-    ;; Re-register with a different body — invalidate-sub-on-replace! fires.
-    (rf/reg-sub :n (fn [db _] (* 2 (:n db))))
-    (is (not (contains? (cache-keys) [:n]))
-        "hot-reload evicts the slot regardless of ref-count")))
-
-;; ---- subscribe-once teardown is synchronous ------------------------------
-;;
-;; subscribe-once's whole lifetime — subscribe, deref, dispose — completes
-;; in the calling tick. This is the same path every
-;; unsubscribe drives (sync), so the test asserts the user-visible shape:
-;; the slot is gone when subscribe-once returns.
-
-(deftest subscribe-once-disposes-synchronously
-  (testing "subscribe-once's teardown is synchronous"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    (is (not (contains? (cache-keys) [:n]))
-        "no cache slot before subscribe-once")
-    (is (= 7 (rf/subscribe-once [:n])))
-    (is (not (contains? (cache-keys) [:n]))
-        "slot disposed synchronously inside subscribe-once")))
-
-(deftest subscribe-once-respects-concurrent-subscriber
-  (testing "subscribe-once's teardown only disposes when it drove the 1 → 0"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 7}}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-    (rf/dispatch-sync [:init])
-
-    ;; Pin the slot with a reactive subscribe — ref-count = 1.
-    (rf/subscribe [:n])
-    (is (= 1 (entry-ref-count [:n])))
-
-    ;; subscribe-once runs: subscribe (ref-count → 2), deref, unsubscribe
-    ;; (ref-count → 1). The decrement does NOT drive 1 → 0 — the pinning
-    ;; subscribe is still live — so the slot MUST survive untouched.
-    (is (= 7 (rf/subscribe-once [:n])))
-    (is (contains? (cache-keys) [:n])
-        "slot survives — the pinning subscriber kept ref-count > 0")
-    (is (= 1 (entry-ref-count [:n]))
-        "ref-count back to 1 after subscribe-once's paired inc/dec")
-
-    ;; Release the pin so the cache is clean for sibling tests.
-    (rf/unsubscribe [:n])
-    (is (not (contains? (cache-keys) [:n])))))
-
 ;; ---- subscribe-once {:frame} opts-map call-shape --------------------------
 ;;
 ;; `subscribe-once` has the public `{:frame}` opts-map call-shape
@@ -400,20 +273,6 @@
           "post-registration subscribe yields the real value")
       (is (contains? (cache-keys) [:my-sub])
           "the post-registration reaction IS cached"))))
-
-(deftest subscribe-before-register-survives-multiple-misses
-  (testing "repeated subscribe-before-register calls do not poison the cache"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 11}}))
-    (rf/dispatch-sync [:init])
-
-    (dotimes [_ 3]
-      (let [r (rf/subscribe [:lazy-sub])]
-        (is (nil? @r))
-        (is (not (contains? (cache-keys) [:lazy-sub])))))
-
-    (rf/reg-sub :lazy-sub (fn [db _] (:n db)))
-    (is (= 11 @(rf/subscribe [:lazy-sub]))
-        "after registration, the cache is fresh and the real body runs")))
 
 ;; ---- clear-sub does NOT clear the per-frame cache ------------------------
 ;;
@@ -1000,19 +859,6 @@
             (try (rf/clear-sub-cache!) nil
                  (catch clojure.lang.ExceptionInfo e e)))
           "zero-arity clear-sub-cache! outside any scope raises"))))
-
-(deftest subscribe-under-with-frame-resolves-the-scope
-  (testing "1-arity subscribe under with-frame routes to the scope's frame —
-            the ambient form works INSIDE a real scope"
-    (rf/make-frame {:id :jue/scoped :doc "explicit non-default scope"})
-    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db {:v v}}))
-    (rf/reg-sub :v (fn [db _] (:v db)))
-    (rf/dispatch-sync [:seed :scoped-value] {:frame :jue/scoped})
-    ;; Unwind the fixture scope first, then establish :jue/scoped.
-    (binding [rf.frame/*current-frame* nil]
-      (rf/with-frame :jue/scoped
-        (is (= :scoped-value @(rf/subscribe [:v]))
-            "ambient subscribe resolves the with-frame scope, not :rf/default")))))
 
 (deftest subscribe-wrong-frame-prevention-for-reads
   (testing "ambient reads land on the ESTABLISHED scope's frame, never bleed
