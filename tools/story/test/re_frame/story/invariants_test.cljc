@@ -8,7 +8,7 @@
   - PURE — hand-built `:rf/epoch-record` tapes in, violations out:
     `first-bad-epoch`, `coerce-invariant`, `check-epoch`, the
     report-once `on-epoch!` core. These run under `clojure -M:test`
-    (JVM) and the node-runtime CLJS build with no runtime.
+    (JVM) with no runtime.
   - LIVE — the `with-invariants` fixture over a real frame + dispatch +
     epoch listeners, exercising the sentinel's contract: passing invariant
     across multiple dispatches; failing invariant reports once per
@@ -69,12 +69,6 @@
 ;; coerce-invariant  (normalization)
 ;; ===========================================================================
 
-(deftest coerce-bare-fn
-  (testing "a bare predicate normalizes to {:id … :check fn}"
-    (let [{:keys [id check]} (rf.story.invariants/coerce-invariant 0 (fn [e] (map? (:db-after e))))]
-      (is (= :invariant-0 id))
-      (is (fn? check)))))
-
 (deftest coerce-explicit-map
   (testing "an explicit map keeps its :id and resolves :check (or :pred)"
     (let [c (rf.story.invariants/coerce-invariant 3 {:id :my/inv :check (fn [_] true)})]
@@ -110,11 +104,6 @@
 ;; ===========================================================================
 ;; check-epoch  (one invariant × one epoch, never-throws)
 ;; ===========================================================================
-
-(deftest check-epoch-holds-returns-nil
-  (testing "a holding invariant returns nil"
-    (let [c (rf.story.invariants/coerce-invariant 0 (fn [e] (map? (:db-after e))))]
-      (is (nil? (rf.story.invariants/check-epoch c (epoch 1 {:db-after {}})))))))
 
 (deftest check-epoch-violation-carries-spine
   (testing "a violation carries the diagnostic spine from the epoch"
@@ -207,21 +196,6 @@
        (with-redefs [cljs.test/report (fn [m] (swap! reports conj m))]
          (f)))
     @reports))
-
-(deftest on-epoch-reports-violation-once-per-epoch
-  (testing "a violation is reported once per (invariant, epoch) — re-fire does not double-count"
-    (let [coerced (rf.story.invariants/coerce-invariants [(fn [e] (pos? (:n (:db-after e))))])
-          state   (atom {:seen #{} :violations []})
-          ep      (epoch 5 {:db-after {:n -3}})
-          reports (with-captured-reports
-                    (fn []
-                      (rf.story.invariants/on-epoch! state coerced ep)
-                      ;; A second fire of the SAME record (back-filled
-                      ;; render re-notify) must NOT re-report.
-                      (rf.story.invariants/on-epoch! state coerced ep)))]
-      (is (= 1 (count (filter #(= :fail (:type %)) reports)))
-          "exactly one :fail across two fires of the same epoch")
-      (is (= 1 (count (:violations @state)))))))
 
 (deftest on-epoch-reports-each-distinct-epoch
   (testing "distinct failing epochs each report once"

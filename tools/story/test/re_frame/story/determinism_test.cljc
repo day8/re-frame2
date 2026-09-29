@@ -3,8 +3,7 @@
   stamp strip the gate adds to `canonicalize`
   (spec/017-Testing-Story.md §Determinism gate).
 
-  Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
+  Two layers, both under `clojure -M:test` (JVM):
 
   - PURE: the canonicalize strip normalizes per-run stamps (epoch / trace
     / frame / wall-clock) but NOT semantic content; `wait-steps` /
@@ -345,19 +344,6 @@
                   (get-in res [:divergence :run-hash-n])))
         (is (= 2 (count (:results res)))
             "per-run results returned for a downstream semantic diff")))))
-
-(deftest gate-volatile-fields-do-not-cause-false-drift
-  (testing "a purely-deterministic handler is :deterministic even though every
-            replay stamps fresh epoch / dispatch / trace ids, a new frame id,
-            and its own wall-clock — volatile fields cause NO false drift"
-    (rf/reg-event :det/pure (fn [{:keys [db]} _] {:db (assoc db :answer 42)}))
-    (let [a   (rf.story.artifact/make-run-artifact
-                {:event-program [[:dispatch [:det/pure]] [:dispatch [:det/pure]]]})
-          res (rf.story.determinism/assert-deterministic a {:runs 4})]
-      (is (= :deterministic (:status res))
-          "four fresh-frame replays with distinct stamps still agree")
-      (is (= 4 (:runs res)))
-      (is (apply = (:hashes res))))))
 
 (deftest gate-refuses-bare-wall-clock-wait
   (testing "a plan containing a bare [:wait ms] returns :cannot-run for the

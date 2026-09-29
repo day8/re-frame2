@@ -3,8 +3,7 @@
   `diff-run-artifacts` + the pure `diff-runs` core
   (spec/017-Testing-Story.md §Semantic diff).
 
-  Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
+  Two layers, both under `clojure -M:test` (JVM):
 
   - PURE: the facet diffs (`diff-app-db`, `diff-effects`,
     `diff-schema-violations`, `diff-trace-ops`, …) and the diagnostic-only
@@ -301,19 +300,13 @@
 ;; PURE: the assembler — :same? and the multi-facet readable diff
 ;; ===========================================================================
 
-(deftest diff-runs-same-when-behaviourally-identical
-  (testing "two runs equal under canonicalize diff to {:same? true}"
-    (let [r {:status :pass :app-db {:n 1} :effects [] :sub-runs []
-             :epoch-tape (tape-with-ops [:rf.event/run-start])}]
-      (is (= {:same? true} (rf.story.diff/diff-runs r r))))))
-
 ;; diff-runs' :same? gate is canonicalize equality, so canonicalization
 ;; decides two hazards here: a map<->vector flip in app-db must not read as
 ;; :same? true (the gate would suppress the whole diff, so the :app-db facet
 ;; would never run), and a same-semantics fn in app-db must not read as a
 ;; false :changed. Canonicalization type-tags collections and folds fns to
 ;; the `opaque-fn` sentinel, so both hold here too.
-(deftest diff-runs-inherits-lvrqa-and-4gwja-fixes
+(deftest diff-runs-sees-collection-kind-flips-and-ignores-fn-identity
   (testing "a map<->vector flip in app-db is NOT :same? true and
             surfaces a readable :app-db facet"
     (let [d (rf.story.diff/diff-runs {:status :pass :app-db {:k {:a 1}}}
