@@ -19,7 +19,7 @@
     5. route leave / supersession releases the prior route's owner token;
     6. `:when` gates a resource out (NOT sentinel nil params);
     7. `:after` orders dependent resources by route-local id;
-    8. a params PLANNING failure surfaces on the route slice's `:error`
+    8. an unresolved-scope PLANNING failure surfaces on the route slice's `:error`
        (not a silent cache miss);
     9. `:keep-previous?` projects the previous key's data while the new
        key first-loads WITHOUT polluting the new entry / its tags.
@@ -170,10 +170,10 @@
     @seen))
 
 ;; ===========================================================================
-;; 2. On route entry — owner + cause
+;; 2. On route entry — owner
 ;; ===========================================================================
 
-(deftest route-entry-ensures-with-route-owner-and-cause
+(deftest route-entry-ensures-with-route-owner
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
@@ -370,10 +370,10 @@
     (is (empty? (entries)) "the gated-out resource was not ensured")))
 
 ;; ===========================================================================
-;; 8. params PLANNING failure surfaces on the route slice
+;; 8. an unresolved-scope PLANNING failure surfaces on the route slice
 ;; ===========================================================================
 
-(deftest params-planning-failure-surfaces-on-route-slice
+(deftest unresolved-scope-planning-failure-surfaces-on-route-slice
   ;; a {:from-db …} scope whose reference resolves nil, with no route resolver,
   ;; is a fail-closed planning error at route entry (no silent cache miss).
   (rf/reg-resource :secret/doc (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)

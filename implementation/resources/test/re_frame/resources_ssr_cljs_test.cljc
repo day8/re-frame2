@@ -413,7 +413,7 @@
       (is (= 2 (count (set (map (comp rf.resources.state/key-id :projected-key) metas))))
           "…and two distinct BYTE identities, which is the form a collapse would take"))))
 
-(deftest project-scoped-key-is-pure
+(deftest project-scoped-key-by-disposition
   (testing "project-scoped-key: :serialize rides verbatim; :redact/:omit both
             redact scope+params and preserve the resource-id"
     (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :r {:a 1})

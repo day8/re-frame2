@@ -452,13 +452,14 @@
             "the pre-poll-generation reply was suppressed")))))
 
 ;; ===========================================================================
-;; 8. Invalidation resets the poll clock (cancel-then-arm, not stack)
+;; 8. A poll-refetch settle re-arms the poll
 ;; ===========================================================================
 
-(deftest reload-reschedules-poll-cancel-then-arm
-  ;; A poll tick that settles reschedules the poll (cancel-then-arm). The
-  ;; schedule-timers fx is cancel-then-arm by construction (rf.resources.timers/schedule!),
-  ;; so a re-load emits a fresh schedule rather than stacking timers.
+(deftest poll-refetch-settle-re-arms-poll
+  ;; A poll tick's refetch that settles re-emits the :poll interval. The
+  ;; schedule-timers fx is captured here, so this cannot observe the real
+  ;; table's cancel-then-arm; that no-stacking re-arm is pinned by
+  ;; timer_rearm's poll-only-rearm-preserves-sibling-stale-and-gc.
   (rf/reg-resource :rs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
         k (rf.resources.state/scoped-resource-key scope :rs/poll {:slug "w"})]
@@ -467,8 +468,7 @@
     (poll-fired! k)               ;; tick → refetch in flight
     (reset! scheduled-timers [])
     (succeed! k {:title "W2"})    ;; the poll refetch settles → reschedules
-    (testing "Spec 016 §Polling — a settle reschedules the poll (cancel-then-arm
-              via rf.resources.timers/schedule!), it does not stack a second poll timer"
+    (testing "Spec 016 §Polling — the poll refetch's settle re-arms the poll"
       (is (= {:title "W2"} (:data (entry k))) "new data landed")
       (let [args (last-schedule-for k)]
         (is (= 5000 (get-in args [:timers :poll])) "poll re-armed on the new settle")))))

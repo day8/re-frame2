@@ -624,7 +624,7 @@
 ;; 3. Pure lifecycle status transition fn (NOT a spawned machine)
 ;; ===========================================================================
 
-(deftest status-transition-fn-is-pure
+(deftest next-status-transition-table
   (testing "Spec 016 §Lifecycle is an FSM — a pure transition fn over the
             five states"
     (is (= :loading  (rf.resources.state/next-status :idle    :start-load false)))

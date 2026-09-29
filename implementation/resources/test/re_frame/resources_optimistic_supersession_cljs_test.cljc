@@ -233,7 +233,7 @@
     (is (not (stale?)) "an ordinary reply-driven rollback is exact, not staled")
     (is (= 0 (- (reads) before-reads)))))
 
-(deftest c3-a-successful-successor-commits-as-today
+(deftest c3-a-successful-successor-commits-without-a-stale-mark
   (setup!)
   (click! :sp/favorite)
   (let [click-2 (click! :sp/unfavorite)]

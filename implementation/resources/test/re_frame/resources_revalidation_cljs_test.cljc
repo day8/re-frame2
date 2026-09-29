@@ -316,9 +316,8 @@
       (is (not (contains? @rf.resources.revalidate-listeners/listener-table fa))
           "frame A's listener slot dropped on destroy"))))
 
-(deftest empty-reconcile-is-idempotent-and-is-the-removal-path
-  (testing "removal is the EMPTY reconcile, not a second code
-            path: reconciling a frame that has no listeners installed is a
+(deftest empty-reconcile-on-an-unwired-frame-is-a-noop
+  (testing "reconciling a frame that has no listeners installed is a
             harmless no-op for both nil and #{} (idempotent + JVM-safe)"
     (rf.resources.revalidate-listeners/reconcile-listeners! :rv/no-such-frame nil)
     (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rv/no-such-frame)))
