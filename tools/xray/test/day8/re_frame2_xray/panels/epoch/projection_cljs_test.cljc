@@ -3009,6 +3009,37 @@
             "the sub-run row still projects (the absence is in the
              attribution slot only, not the whole row)")))))
 
+(deftest subscriptions-row-carries-epoch-window-test
+  (testing "a run recorded after its cascade settled carries
+            `:rf.sub/epoch-window`; the projection lifts it onto the row
+            as `:epoch-window`, and its label names every epoch in it"
+    (let [row (-> (proj/subscriptions-step
+                    [(ev :rf.sub :rf.sub/run
+                         {:rf.sub/id             :runner/step
+                          :rf.sub/query-v        [:runner/step]
+                          :rf.sub/value-changed? true
+                          :rf.sub/prev-value     0
+                          :rf.sub/value          1
+                          :rf.sub/epoch-window   [5 7]})])
+                  :rows first)]
+      (is (= [5 7] (:epoch-window row)))
+      (is (= "recomputed after epochs #5..#7" (fmt/epoch-window-label (:epoch-window row))))
+      (is (= "recomputed after epoch #7" (fmt/epoch-window-label [7 7]))
+          "a one-epoch window names that epoch alone")))
+  (testing "a run recorded inside its cascade carries no window, and the row
+            key is ABSENT rather than nil"
+    (let [row (-> (proj/subscriptions-step
+                    [(ev :rf.sub :rf.sub/run
+                         {:rf.sub/id             :runner/step
+                          :rf.sub/query-v        [:runner/step]
+                          :rf.sub/value-changed? true
+                          :rf.sub/prev-value     0
+                          :rf.sub/value          1
+                          :rf.sub/cause-event-id :runner/step})])
+                  :rows first)]
+      (is (not (contains? row :epoch-window)))
+      (is (nil? (fmt/epoch-window-label (:epoch-window row)))))))
+
 (deftest subscriptions-row-wraps-cause-sub-as-query-vector-test
   (testing "`:rf.sub/cause-sub` is a SINGLE upstream query-
             vector (the one input whose value drove this recompute); the

@@ -2428,6 +2428,12 @@
                      Absent (key omitted) when the sub ran outside any
                      in-flight cascade. The view layer renders it as a
                      `caused by <event-id>` chrome on the row.
+      :epoch-window — `[first last]`, the settled epochs a run recorded
+                     after its cascade settled may reflect
+                     (`:rf.sub/epoch-window` tag): the epoch it is filed
+                     under did not necessarily cause it. Absent (key
+                     omitted) on a run recorded inside its cascade. The view
+                     layer renders it as `recomputed after epochs #N..#M`.
       :duration-ms — the sub's recompute duration (`:rf.sub/elapsed-ms` tag).
 
   The tag names match the substrate emit-site
@@ -2453,7 +2459,8 @@
                   ;; Threaded via `cond->` below so the
                   ;; row slot likewise stays absent in that case, parity
                   ;; with the OMIT-vs-nil semantics of the trace tag.
-                  cause-event-id (common/tag-of ev :rf.sub/cause-event-id)]]
+                  cause-event-id (common/tag-of ev :rf.sub/cause-event-id)
+                  epoch-window   (common/tag-of ev :rf.sub/epoch-window)]]
         (cond-> {:sub-id      sub-id
                  ;; `:rf.sub/cause-sub` is a SINGLE query-
                  ;; vector (the one upstream input whose value drove this
@@ -2483,7 +2490,10 @@
                  :duration-ms (or (common/tag-of ev :rf.sub/elapsed-ms)
                                   (common/tag-of ev :duration-ms))}
           (some? cause-event-id)
-          (assoc :cause-event-id cause-event-id))))))
+          (assoc :cause-event-id cause-event-id)
+
+          (some? epoch-window)
+          (assoc :epoch-window epoch-window))))))
 
 (defn disposed-subs-rows
   "Project `:rf.sub/dispose` events into rows. Each row

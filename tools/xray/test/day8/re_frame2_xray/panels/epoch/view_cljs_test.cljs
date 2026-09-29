@@ -3092,6 +3092,37 @@
         (is (some? (find-by-testid tree "rf-xray-epoch-sub-row-0"))
             "the row itself mounts; only the chrome is omitted")))))
 
+;; ---- `recomputed after epochs` chrome on SUBSCRIPTIONS rows ---------------
+
+(deftest subscriptions-row-renders-epoch-window-chrome-test
+  (testing "a row recorded after its cascade settled names the window of
+            epochs it may reflect, rather than implying the epoch it is
+            filed under caused it; a row recorded inside its cascade mounts
+            no such chrome"
+    (epoch-orchestrator/install!)
+    (rf/make-frame {:id :rf/xray})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id :runner/step :sub-vec [:runner/step]
+                          :inputs nil :changed? true :first-run? false
+                          :before 0 :after 1
+                          :epoch-window [5 7]}
+                         {:sub-id :runner/count :sub-vec [:runner/count]
+                          :inputs nil :changed? true :first-run? false
+                          :before 0 :after 1
+                          :cause-event-id :runner/inc}]
+                  :changed 2 :unchanged 0}
+            tree   (view/render-subscriptions-step step)
+            chrome (find-by-testid tree "rf-xray-epoch-sub-row-epoch-window-0")]
+        (is (some? chrome)
+            "the window chrome mounts when the row carries one")
+        (is (string/includes? (text-content chrome) "recomputed after epochs #5..#7")
+            "the chrome names every epoch in the window")
+        (is (some? (find-by-testid tree "rf-xray-epoch-sub-row-cause-event-id-1"))
+            "control: the in-cascade row mounts its caused-by chrome")
+        (is (nil? (find-by-testid tree "rf-xray-epoch-sub-row-epoch-window-1"))
+            "the in-cascade row mounts no window chrome")))))
+
 ;; ---- VIEWS row view-id keyword routes through ei/mini --------------------
 
 (deftest views-row-view-id-routes-through-mini-test
