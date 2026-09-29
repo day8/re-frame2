@@ -284,7 +284,7 @@
 ;; 3. succeeded settles the record :completed + prunes terminal rows
 ;; ===========================================================================
 
-(deftest succeeded-completes-and-prunes-record
+(deftest succeeded-settles-the-row-completed-and-clears-its-handle
   (rf/reg-resource :sc/article (article-spec) article-spec-request)
   (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sc/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sc/article :scope :rf.scope/global
@@ -293,12 +293,10 @@
       (rf/dispatch-sync [:rf.resource.internal/succeeded
                          {:resource/key scoped-key :work/id wid :generation 1
                           :data {:title "W"}}])
-      (testing "Spec 016 §Ledger row retention — a terminal :completed row is
-                pruned on the linked entry's successful transition (bounded
-                per-key tail kept)"
-        ;; with a single attempt + tail of 3, the row is retained as the tail
-        (is (or (nil? (record wid))
-                (= :completed (:status (record wid))))))
+      (testing "Spec 016 §Ledger row retention — the settled attempt's row
+                turns :completed and, as the only attempt, stays within the
+                bounded per-key tail of 3"
+        (is (= :completed (:status (record wid)))))
       (testing "the host handle for the settled attempt is cleared"
         (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid)))))))
 

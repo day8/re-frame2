@@ -16,7 +16,7 @@
        it stood, structural-shared) + the `:revision` observed at apply time.
     3. ABSENT-SEED — an optimistic patch over an ABSENT key seeds it `:loaded`
        and records the `:absent` sentinel inverse (so the settle can remove it).
-    4. OPTIMISTIC REMOVE — a `nil` patch-fn vanishes the entry and records the
+    4. OPTIMISTIC REMOVE — a `nil` patch-fn tombstones the entry in place and records the
        full `:before` (so the settle can restore it).
     5. TAG-ADDRESSED — `:optimistic-tags` patches EVERY tag-matched entry across
        the resolved scope (the cross-view-consistency demand); each records its
@@ -186,7 +186,7 @@
       (is (= :seed (:forward inv))))))
 
 ;; ===========================================================================
-;; 4. Optimistic REMOVE — a nil patch-fn vanishes the entry, recording the
+;; 4. Optimistic REMOVE — a nil patch-fn tombstones the entry in place, recording the
 ;;    full :before so the settle can restore it.
 ;; ===========================================================================
 

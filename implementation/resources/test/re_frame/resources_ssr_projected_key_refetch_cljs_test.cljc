@@ -831,11 +831,9 @@
         (str "the only row for this resource — "
              (pr-str (mapv (comp :resource/key second) (rows-for :bulky/report)))))))
 
-(deftest a-coarse-row-was-uncollectable-which-is-why-emptying-it-is-not-enough
-  (testing "removal, not an emptied row: an ownerless hydrated row
-            is reachable by nothing, so the claim is made against the
-            hydrated cache directly — after hydrate there is no coarse row for a
-            collector to want"
+(deftest hydrate-installs-no-coarse-row
+  (testing "removal, not an emptied row: the claim is made against the
+            hydrated cache directly — after hydrate there is no coarse row"
     (install-all!)
     (boot-client!)
     (is (empty? (rows-for :sealed/report))

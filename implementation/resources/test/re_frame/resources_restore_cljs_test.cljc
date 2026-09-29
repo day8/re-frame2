@@ -154,7 +154,7 @@
       (is (= :error  (:status (es (rf.resources.state/key-id kb)))))
       (is (= :idle   (:status (es (rf.resources.state/key-id kc))))))))
 
-(deftest settle-entry-to-last-stable-is-pure
+(deftest settle-entry-to-last-stable-resolutions
   (testing "settle-entry-to-last-stable: the three in-flight resolutions + pass-through"
     (is (= :idle   (:status (rf.resources.ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :loading :data nil})))))

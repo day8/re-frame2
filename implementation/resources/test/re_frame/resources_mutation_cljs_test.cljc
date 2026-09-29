@@ -1401,7 +1401,7 @@
           (str "invalidation (index " inv-ix ") must precede lowering (index "
                low-ix "); got fx ids " (pr-str fx-ids))))))
 
-(deftest no-before-request-invalidation-leaves-order-intact
+(deftest default-timing-emits-no-before-request-invalidation
   ;; A default (:after-success) timing emits NO before-request
   ;; dispatch; the lower fx is still present and the reorder is a no-op.
   (rf/reg-mutation :m/save (save-article-spec) save-article-request) ;; default :after-success
@@ -1626,7 +1626,7 @@
         (is (contains? (:affected-keys reply) rkey)
             "the populated key is in :affected-keys")))))
 
-(deftest reply-to-reconciles-the-list-on-settle
+(deftest reply-to-composes-with-success-invalidation-refetch
   ;; SCOPE: the continuation runs on settle + the mutation reconciles the
   ;; affected list. Here the mutation invalidates the list tag (cache
   ;; consequence), and the continuation observes the post-reconcile state.
