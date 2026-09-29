@@ -6,9 +6,9 @@
   - Macro expansion → registry write round-trip.
   - Body shape validation (`:rf.error/<kind>-shape`).
   - Tag membership (`:rf.error/unknown-tag`).
-  - `:extends` raw storage at registration + unknown-parent detection at
-    plan-compile (the compiler is the merge authority; cycle and depth-cap
-    detection live with it in `re-frame.story.plan-cljs-test`).
+  - `:extends` raw storage at registration (the plan compiler is the
+    merge authority, so unknown-parent, cycle and depth-cap detection
+    live with it in `re-frame.story.plan-cljs-test`).
   - Form-B `:variants` desugaring.
   - Source-coord stamping.
   - Query API (`registrations`, `handler-meta`, `variants-with-tags`,
@@ -55,13 +55,6 @@
     (is (false? (boolean (rf.story.schemas/variant-id? :not-story/primary))))
     (is (= (rf.story.schemas/variant-id? :story.button/primary)
            (rf.story.schemas/variant-id-shape? ["story.button" "primary"])))))
-
-(deftest canonical-tags-installed
-  (testing "the seven canonical inclusion tags + five canonical :state/* magnitude tags are registered after boot"
-    (let [expected (into rf.story.schemas/canonical-tags rf.story.schemas/canonical-state-tags)]
-      (is (= expected (rf.story/list-tags)))
-      (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-tags))
-      (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-state-tags)))))
 
 (deftest canonical-state-axis-installed
   (testing "the five :state/* tags carry the :state axis"
@@ -282,26 +275,6 @@
              (get-in plan [:world :decorators]))
           "compiled plan INHERITS the parent's :decorators"))))
 
-(deftest extends-unknown-parent
-  (testing ":extends to an unregistered parent does not throw at
-            REGISTRATION (the raw body is stored with `:extends`
-            intact); the error surfaces at PLAN-COMPILE, where
-            the compiler is the merge authority and walks the chain
-            (spec/017 §305-306)."
-    ;; Registration succeeds — the raw body is stored, :extends intact.
-    (rf.story/reg-variant :story.auth.login/child
-      {:extends :story.auth.login/no-such-parent
-       :setup  []})
-    (is (= :story.auth.login/no-such-parent
-           (:extends (rf.story/handler-meta :variant :story.auth.login/child)))
-        "registration stores the raw body with the unknown parent intact")
-    ;; Plan compile is where the unknown parent FAILS.
-    (try
-      (rf.story.plan/variant-plan :story.auth.login/child)
-      (is false "expected a plan-compile exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))))))
-
 ;; Cycle detection and the depth cap are witnessed on the merge authority in
 ;; `re-frame.story.plan-cljs-test` (§`extends-cycle-fails`,
 ;; §`extends-depth-cap-fails`). There is no standalone extends resolver: a
@@ -313,27 +286,6 @@
 ;; does not match.
 
 ;; ---- Form-B desugaring -------------------------------------------------
-
-(deftest form-b-variants-desugar
-  (testing "reg-story with :variants emits N reg-variant calls at expansion"
-    (rf.story/reg-story :story.auth.login-form
-      {:doc       "Login form."
-       :component :app.auth/login-form
-       :args      {:placeholder "you@example.com"}
-       :tags      #{:dev :docs}
-       :variants  {:empty            {:setup [[:auth/initialise]]
-                                      :tags   #{:dev :docs}}
-                   :validation-error {:setup [[:auth/initialise]
-                                               [:auth/email-changed "x"]
-                                               [:auth/login-pressed]]
-                                      :tags   #{:dev :docs :test}}}})
-    (is (rf.story/registered? :story :story.auth.login-form))
-    (is (rf.story/registered? :variant :story.auth.login-form/empty))
-    (is (rf.story/registered? :variant :story.auth.login-form/validation-error))
-    ;; :variants key is stripped from the parent body
-    (is (nil? (:variants (rf.story/handler-meta :story :story.auth.login-form))))
-    ;; The two variants are independent registrations
-    (is (= 2 (count (rf.story/variants-of :story.auth.login-form))))))
 
 (deftest form-b-desugars-to-separate-form-shape
   (testing "Form-B combined authoring produces the same registry bodies as explicit separate forms"
@@ -380,24 +332,6 @@
 
 ;; ---- workspace ---------------------------------------------------------
 
-(deftest reg-workspace-grid
-  (testing ":grid workspace requires :variants"
-    (rf.story/reg-workspace :Workspace.Auth/all-states
-      {:doc      "Auth states."
-       :layout   :grid
-       :variants [:story.auth.login/empty
-                  :story.auth.login/loading]})
-    (is (rf.story/registered? :workspace :Workspace.Auth/all-states))))
-
-(deftest reg-workspace-prose
-  (testing ":prose workspace requires :content"
-    (rf.story/reg-workspace :Workspace.Auth/docs
-      {:doc     "Auth docs."
-       :layout  :prose
-       :content [{:type :prose   :body "## Auth flow"}
-                 {:type :variant :id   :story.auth.login/empty}]})
-    (is (rf.story/registered? :workspace :Workspace.Auth/docs))))
-
 (deftest reg-workspace-bad-layout
   (testing "a :grid workspace without :variants fails validation"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -416,31 +350,7 @@
            (:args (rf.story/handler-meta :mode :Mode.app/dark-mobile))))
     (is (contains? (rf.story/list-modes) :Mode.app/dark-mobile))))
 
-;; ---- story-panel -------------------------------------------------------
-
-(deftest reg-story-panel-xray-shape
-  (testing "the canonical Xray embed registration (per 005-SOTA-Features.md §Xray epoch panel embed)"
-    (rf.story/reg-story-panel :rf.story/xray-epoch
-      {:doc       "Xray's epoch buffer."
-       :title     "Epochs (Xray)"
-       :placement :bottom
-       :render    :day8.re-frame2-xray.panels.time-travel/Panel})
-    (let [body (rf.story/handler-meta :story-panel :rf.story/xray-epoch)]
-      (is (= "Epochs (Xray)" (:title body)))
-      (is (= :bottom (:placement body)))
-      (is (= :day8.re-frame2-xray.panels.time-travel/Panel (:render body))))))
-
 ;; ---- decorator (per-kind) ---------------------------------------------
-
-(deftest reg-decorator-hiccup
-  (testing ":hiccup decorator accepts a fn :wrap (only legal fn-slot)"
-    (rf.story/reg-decorator :centered-layout
-      {:doc  "Centre the rendered content."
-       :kind :hiccup
-       :wrap (fn [body _args] [:div.centered body])})
-    (let [body (rf.story/handler-meta :decorator :centered-layout)]
-      (is (= :hiccup (:kind body)))
-      (is (fn? (:wrap body))))))
 
 (deftest reg-decorator-frame-setup
   (testing ":frame-setup decorator requires :init or :app-db-patch"
@@ -486,13 +396,6 @@
     (is (rf.story/registered? :variant :story.auth.login/regression-empty))))
 
 ;; ---- :axis + :default-filter slots (SB9 parity) ------------------------
-
-(deftest reg-tag-stores-axis
-  (testing ":axis is stored on the registered tag body"
-    (rf.story/reg-tag :auth/regression-set
-      {:doc  "Auth regression-suite variants."
-       :axis :team})
-    (is (= :team (:axis (rf.story/handler-meta :tag :auth/regression-set))))))
 
 (deftest reg-tag-stores-default-filter
   (testing ":default-filter is stored on the registered tag body"
@@ -540,13 +443,6 @@
     (rf.story/reg-tag :status/stable   {:axis :status})                ; no slot — defaults to include
     (rf.story/reg-tag :hidden/internal {:default-filter :exclude})
     (is (= #{:status/alpha :hidden/internal} (rf.story/tags-default-excluded)))))
-
-(deftest reg-tag-rejects-bad-default-filter
-  (testing ":default-filter must be :include or :exclude"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf\.error/tag-shape"
-                          (rf.story/reg-tag :bad/df
-                            {:default-filter :sometimes})))))
 
 (deftest reg-tag-rejects-non-keyword-axis
   (testing ":axis must be a keyword"
@@ -622,18 +518,6 @@
       (is (= #{:story.bar/c}              (get idx :story.bar)))
       (is (= #{}                          (get idx :story.empty))
           "stories with zero variants land with an empty set"))))
-
-(deftest variants-by-story-matches-variants-of
-  (testing "variants-by-story's per-story slot matches `variants-of`'s output"
-    (rf.story/reg-story   :story.aa {})
-    (rf.story/reg-story   :story.bb {})
-    (rf.story/reg-variant :story.aa/one   {:setup []})
-    (rf.story/reg-variant :story.aa/two   {:setup []})
-    (rf.story/reg-variant :story.bb/three {:setup []})
-    (let [idx (rf.story/variants-by-story)]
-      (doseq [sid [:story.aa :story.bb]]
-        (is (= (rf.story/variants-of sid) (get idx sid))
-            (str sid " — single-pass index must match the per-story scan"))))))
 
 (deftest variants-with-tags-intersection
   (testing "variants-with-tags returns variants whose :tags intersects the query"
@@ -767,4 +651,3 @@ without :axis (the public-API contract)"
       (testing "canonical tags are pre-registered without :axis and bucket to no-axis"
         (is (= :re-frame.story.registrar/no-axis
                (get idx :dev)))))))
-

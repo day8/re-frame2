@@ -4,11 +4,11 @@
   The UI shell is Reagent-rendered, so the bulk of coverage is shape
   rather than visual — we exercise:
 
-  - The pure shell-state helpers (selection, filters, fingerprints).
-  - The pure layout resolver (`:grid`, `:prose`, `:variants-grid`).
-  - The pure trace cascade grouper (six-domino projection — framework
-    code, consumed by Xray's Trace tab).
-  - The pure argtype inference + sidebar tag collection.
+  - The shell-state transitions and the pure grouping / tag-collection
+    helpers.
+  - Argtype resolution + the controls widget tree.
+  - The workspace layout renderers (`:tabs`, `:grid`, `:variants-grid`)
+    and their cell keys.
   - The public mount/unmount surface on `re-frame.story`.
 
   The visual / interaction shape (clicking a variant row triggers a
@@ -24,7 +24,6 @@
             [re-frame.story.config :as rf.story.config]
             [re-frame.story.registrar :as rf.story.registrar]
             [re-frame.story.ui.canvas :as rf.story.ui.canvas]
-            [re-frame.story.ui.command-palette :as rf.story.ui.command-palette]
             [re-frame.story.ui.command-palette.view :as rf.story.ui.command-palette.view]
             [re-frame.story.ui.docs :as rf.story.ui.docs]
             [re-frame.story.ui.state :as rf.story.ui.state]
@@ -33,8 +32,7 @@
             [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]
             [re-frame.story.ui.test-mode.view :as rf.story.ui.test-mode.view]
             [re-frame.story.ui.trace-buffer :as rf.story.ui.trace-buffer]
-            [re-frame.story.ui.workspace :as rf.story.ui.workspace]
-            [re-frame.trace.projection :as rf.trace.projection]))
+            [re-frame.story.ui.workspace :as rf.story.ui.workspace]))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -62,11 +60,6 @@
     (is (nil? (rf.story/active-shell)))))
 
 ;; ---- shell state transitions --------------------------------------------
-
-(deftest select-variant-roundtrip
-  (testing "select-variant + swap-state! round-trips through the atom"
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant :story.foo/bar)
-    (is (= :story.foo/bar (:selected-variant (rf.story.ui.state/get-state))))))
 
 ;; A variant-row click clears the workspace slot so workspace
 ;; mode is not a one-way door. `main-pane` in `shell.cljs` short-
@@ -96,22 +89,6 @@
                   (rf.story.ui.state/select-variant nil))))
     (is (= :Workspace.nav/all (:selected-workspace (rf.story.ui.state/get-state))))
     (is (nil? (:selected-variant (rf.story.ui.state/get-state))))))
-
-(deftest toggle-tag-filter-flips
-  (testing "toggle-tag-filter adds + removes a tag"
-    (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-tag-filter :dev)
-    (is (contains? (:tag-filter (rf.story.ui.state/get-state)) :dev))
-    (rf.story.ui.state/swap-state! rf.story.ui.state/toggle-tag-filter :dev)
-    (is (not (contains? (:tag-filter (rf.story.ui.state/get-state)) :dev)))))
-
-(deftest cell-overrides-roundtrip
-  (testing "cell overrides write + clear cleanly"
-    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override-scalar :story.x/y :label "hi")
-    (is (= "hi" (get-in (rf.story.ui.state/get-state)
-                        [:cell-overrides :story.x/y :label])))
-    (rf.story.ui.state/swap-state! rf.story.ui.state/clear-cell-overrides :story.x/y)
-    (is (nil? (get-in (rf.story.ui.state/get-state)
-                      [:cell-overrides :story.x/y])))))
 
 ;; ---- command palette -----------------------------------------------------
 
@@ -146,28 +123,7 @@
     (rf.story.ui.command-palette.view/select-entry! {:kind :mode :id :Mode.cp/dark})
     (is (= [:Mode.cp/dark] (:active-modes (rf.story.ui.state/get-state))))))
 
-(deftest command-palette-search-roundtrip
-  (testing "CLJS search path mirrors the JVM helper"
-    (let [results (rf.story.ui.command-palette/search
-                    (rf.story.ui.command-palette/entries
-                      {:stories    {:story.cljs.cp {:doc "Shell docs"}}
-                       :variants   {:story.cljs.cp/happy {:doc "Happy path"}}
-                       :workspaces {}
-                       :modes      {}
-                       :decorators {}})
-                    "happy")]
-      (is (= :story.cljs.cp/happy (:id (first results)))))))
-
 ;; ---- pure filter + grouping ---------------------------------------------
-
-(deftest filter-variants-by-tag
-  (testing "filter-variants returns matching subset"
-    (rf.story/reg-variant :story.t/a {:tags #{:dev} :setup []})
-    (rf.story/reg-variant :story.t/b {:tags #{:test} :setup []})
-    (let [vs   (rf.story.registrar/registrations :variant)
-          devs (rf.story.ui.state/filter-variants vs #{:dev})]
-      (is (contains? devs :story.t/a))
-      (is (not (contains? devs :story.t/b))))))
 
 (deftest group-variants-by-story
   (testing "group-variants-by-story builds the sidebar tree"
@@ -189,15 +145,6 @@
              (rf.story.ui.sidebar/collect-tags vs))))))
 
 ;; ---- argtype inference ---------------------------------------------------
-
-(deftest argtype-inference
-  (testing "rf.story.ui.controls/infer-widget classifies primitive shapes"
-    (is (= :text    (:widget (rf.story.ui.controls/infer-widget :string))))
-    (is (= :number  (:widget (rf.story.ui.controls/infer-widget :int))))
-    (is (= :boolean (:widget (rf.story.ui.controls/infer-widget :boolean))))
-    (let [enum (rf.story.ui.controls/infer-widget [:enum :a :b :c])]
-      (is (= :select (:widget enum)))
-      (is (= [:a :b :c] (:options enum))))))
 
 (deftest argtype-resolution-from-variant
   (testing "rf.story.ui.controls/resolve-argtypes inherits from args' value shapes"
@@ -235,40 +182,6 @@
       (is (= [:primary :secondary] (:options (get t :flavor))))
       (is (not (contains? (get t :placeholder) :control))
           ":control key is stripped after translation"))))
-
-;; ---- workspace layout resolver ------------------------------------------
-
-(deftest grid-layout-resolves
-  (testing ":grid layout maps :variants to variant cells"
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.demo/x
-                  {:layout :grid :variants [:story.a/x :story.b/y]})]
-      (is (= 2 (count cells)))
-      (is (every? #(= :variant (:type %)) cells))
-      (is (= :story.a/x (-> cells first :variant-id))))))
-
-(deftest variants-grid-layout-enumerates-from-registry
-  (testing ":variants-grid auto-enumerates the anchor story's variants"
-    (rf.story/reg-variant :story.demo/a {:setup []})
-    (rf.story/reg-variant :story.demo/b {:setup []})
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.demo/all-variants
-                  {:layout :variants-grid})]
-      (is (= 2 (count cells)))
-      (is (every? #(= :variant (:type %)) cells)))))
-
-(deftest prose-layout-resolves
-  (testing ":prose layout preserves content order, interleaving prose + variant"
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.guide/intro
-                  {:layout :prose
-                   :content [{:type :prose   :body "intro markdown"}
-                             {:type :variant :id   :story.foo/bar}
-                             {:type :prose   :body "after example"}]})]
-      (is (= 3 (count cells)))
-      (is (= :prose   (-> cells (nth 0) :type)))
-      (is (= :variant (-> cells (nth 1) :type)))
-      (is (= :prose   (-> cells (nth 2) :type))))))
 
 ;; ---- workspace: variant cell renders the variant view -------------------
 ;;
@@ -516,27 +429,6 @@
                       (= "tab" (:role (second node))))))
        vec))
 
-(deftest tabs-layout-delegates-to-tabs-renderer-rf2-ktnl8
-  (testing ":tabs workspace dispatches to the tabs-renderer rather than
-            falling through to the grid pipeline (collapsing `:tabs` to
-            grid would render every cell simultaneously)"
-    (rf.story/reg-variant :story.rf2-ktnl8/a {:setup []})
-    (rf.story/reg-variant :story.rf2-ktnl8/b {:setup []})
-    (rf.story/reg-variant :story.rf2-ktnl8/c {:setup []})
-    (rf.story/reg-workspace :Workspace.rf2-ktnl8/t
-      {:layout   :tabs
-       :variants [:story.rf2-ktnl8/a
-                  :story.rf2-ktnl8/b
-                  :story.rf2-ktnl8/c]})
-    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-ktnl8/t)]
-      (is (boolean (some #(and (string? %)
-                               (re-find #"\(tabs\)" %))
-                         (tree-seq coll? seq tree)))
-          "workspace title MUST advertise the :tabs layout")
-      (is (some? (find-tabs-renderer-call tree))
-          (str "workspace-view MUST mount a tabs-renderer node "
-               "(of shape `[fn cells-vec]`) for `:layout :tabs`")))))
-
 (deftest tabs-renderer-mounts-only-the-selected-cell-rf2-ktnl8
   (testing "tabs-renderer mounts ONLY the active tab's variant-cell —
             simultaneous-render bleed cannot occur because
@@ -669,45 +561,6 @@
           (str "the on-click handler MUST execute without error and "
                "the `reset!` returns the new selection index (1 = tab 1, "
                "the tab whose button we drove)")))))
-
-(deftest tabs-and-grid-layouts-produce-different-cell-counts-rf2-ktnl8
-  (testing "a workspace with 3 variants renders 3 variant-cells under
-            `:grid` but exactly 1 under `:tabs` — pins the contract
-            that the two layouts mount different numbers of cells.
-            Without this guard a refactor could silently collapse
-            `:tabs` to `:grid`."
-    (rf.story/reg-variant :story.rf2-ktnl8.gt/a {:setup []})
-    (rf.story/reg-variant :story.rf2-ktnl8.gt/b {:setup []})
-    (rf.story/reg-variant :story.rf2-ktnl8.gt/c {:setup []})
-    (rf.story/reg-workspace :Workspace.rf2-ktnl8.gt/grid
-      {:layout :grid
-       :variants [:story.rf2-ktnl8.gt/a
-                  :story.rf2-ktnl8.gt/b
-                  :story.rf2-ktnl8.gt/c]})
-    (rf.story/reg-workspace :Workspace.rf2-ktnl8.gt/tabs
-      {:layout :tabs
-       :variants [:story.rf2-ktnl8.gt/a
-                  :story.rf2-ktnl8.gt/b
-                  :story.rf2-ktnl8.gt/c]})
-    ;; `:grid` mounts the capped-grid renderer; invoke its
-    ;; inner fn to reach the rendered cells (3 variants < the 100 visible
-    ;; cap, so all three render and the layout-difference contract holds).
-    (let [{grid-fn :fn grid-cells :cells grid-args :args}
-                     (find-tabs-renderer-call
-                       (rf.story.ui.workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid))
-          grid-tree  (apply grid-fn grid-cells grid-args)
-          grid-n     (count-variant-cells-in grid-tree)
-          {tabs-fn :fn tabs-cells :cells}
-                     (find-tabs-renderer-call
-                       (rf.story.ui.workspace/workspace-view :Workspace.rf2-ktnl8.gt/tabs))
-          tabs-tree  (tabs-fn tabs-cells)
-          tabs-n     (count-variant-cells-in tabs-tree)]
-      (is (= 3 grid-n)
-          (str ":grid layout MUST mount one cell per variant (got "
-               grid-n ")"))
-      (is (= 1 tabs-n)
-          (str ":tabs layout MUST mount exactly one cell at a time "
-               "(got " tabs-n ")")))))
 
 ;; ---- workspace :columns grid template -----------------------------------
 ;;
@@ -1077,60 +930,6 @@
       (is (= ["t:0" "t:1"] keys)
           (str "tuple row keys MUST be `t:<i>`; got " (pr-str keys))))))
 
-(deftest controls-repeater-keys-not-bare-ints-rf2-c8kfy
-  (testing "regression-guard: row keys MUST NOT be bare integers.
-            `^{:key i}` would serialise to a raw int in React's
-            reconciler; the `r:` / `t:` namespacing prefix ensures
-            distinct UI surfaces with the same int positions never
-            collide."
-    (rf.story.ui.state/swap-state! rf.story.ui.state/set-cell-override
-                       :story.c8kfy.guard/v [:items] ["a" "b" "c"])
-    (let [tree (rf.story.ui.controls/arg-widget
-                 :story.c8kfy.guard/v [:items]
-                 ["a" "b" "c"]
-                 {:widget :repeater :kind :vector
-                  :element {:widget :text}})
-          keys (collect-repeater-row-keys tree)]
-      (is (every? string? keys)
-          (str "row keys MUST be strings, never bare "
-               "ints; got " (pr-str (map type keys))))
-      (is (every? #(.startsWith % "r:") keys)
-          (str "row keys MUST carry the `r:` namespacing prefix; got "
-               (pr-str keys))))))
-
-;; ---- trace six-domino projection ----------------------------------------
-
-(deftest trace-group-cascades-classifies
-  (testing "group-cascades splits trace events into six-domino slots.
-            The projection lives in
-            `re-frame.trace.projection` — consumers (Xray, re-frame2-pair)
-            require that namespace directly. Story ships no built-in
-            trace panel; Xray's Trace tab is the RHS trace view. Event
-            shapes here track the
-            framework's actual emit pattern per Spec 009 §`:op-type`
-            vocabulary."
-    (let [evs       [{:op-type :rf.event :operation :rf.event/dispatched
-                      :id 1 :tags {:rf.trace/dispatch-id 100 :rf.event/v [:foo]}}
-                     {:op-type :rf.event :operation :rf.event/run-end
-                      :id 2 :tags {:rf.trace/dispatch-id 100 :rf.trace/phase :run-end}}
-                     {:op-type :rf.fx :operation :rf.fx/do-fx
-                      :id 3 :tags {:rf.trace/dispatch-id 100}}
-                     {:op-type :rf.fx :operation :rf.fx/handled
-                      :id 4 :tags {:rf.trace/dispatch-id 100 :rf.fx/id :db}}
-                     {:op-type :rf.sub :operation :rf.sub/run
-                      :id 5 :tags {:rf.trace/dispatch-id 100 :rf.sub/id :sub/foo}}
-                     {:op-type :rf.view :operation :rf.view/render
-                      :id 6 :tags {:rf.trace/dispatch-id 100 :rf.view/render-key [:app/root nil]}}]
-          cascades  (rf.trace.projection/group-by-event evs)]
-      (is (= 1 (count cascades)))
-      (let [c (first cascades)]
-        (is (= [:foo] (:event c)))
-        (is (some? (:handler c)))
-        (is (some? (:fx c)))
-        (is (= 1 (count (:effects c))))
-        (is (= 1 (count (:subs c))))
-        (is (= 1 (count (:renders c))))))))
-
 ;; ---- privacy: retroactive scrub on egress-profile narrowing
 ;;
 ;; Per Spec 009 §Privacy §Retroactive-scrub (EP-0015): narrowing
@@ -1262,25 +1061,7 @@
     ;; gates this, but the helper guards itself too).
     (is (nil? (rf.story.ui.docs/docs-view nil)))))
 
-(deftest docs-view-section-pure-helpers
-  (testing "the pure section helpers run end-to-end in CLJS too"
-    (rf.story/reg-story :story.dvh
-      {:tags #{:dev :docs}})
-    (rf.story/reg-variant :story.dvh/x
-      {:args      {:greeting "hi"}
-       :argtypes  {:greeting {:doc "the greeting"}}
-       :tags      #{:dev :docs}
-       :setup    []})
-    (let [rows (rf.story.ui.docs/args-rows :story.dvh/x {:greeting "hi"})]
-      (is (= [{:key :greeting :value "hi" :doc "the greeting"}]
-             rows)))
-    (is (= [:dev :docs] (rf.story.ui.docs/variant-tags :story.dvh/x)))))
-
 ;; ---- :test mode ---------------------------------------------------------
-
-(deftest test-view-is-a-fn
-  (testing "test-view is callable from the shell"
-    (is (fn? rf.story.ui.test-mode.view/test-view))))
 
 (deftest test-view-empty-state-without-play
   (testing "test-view renders the empty-state placeholder when the

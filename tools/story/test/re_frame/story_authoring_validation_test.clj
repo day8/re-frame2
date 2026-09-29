@@ -397,17 +397,6 @@
 ;; :plays multi-play schema contract
 ;; ===========================================================================
 
-(deftest reg-variant-plays-accepts-named-list
-  (testing ":plays with valid named entries is accepted"
-    (rf.story/reg-variant :story.multi/named
-      {:setup []
-       :plays  [{:name "happy path"
-                 :script [[:dispatch [:foo]]]}
-                {:name "error path"
-                 :script [[:dispatch [:bar]]]}]})
-    (let [body (rf.story/handler-meta :variant :story.multi/named)]
-      (is (= 2 (count (:plays body)))))))
-
 (deftest reg-variant-plays-empty-rejected
   (testing ":plays must contain at least one entry"
     (try

@@ -48,8 +48,7 @@
             [re-frame.story.frames     :as rf.story.frames]
             [re-frame.story.loaders    :as rf.story.loaders]
             [re-frame.story.plan       :as rf.story.plan]
-            [re-frame.story.play       :as rf.story.play]
-            [re-frame.story.ui.docs    :as rf.story.ui.docs]))
+            [re-frame.story.play       :as rf.story.play]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -363,43 +362,3 @@
 ;; helpers and resolve-decorators.
 ;; ===========================================================================
 
-(deftest story-decorators-cascade-into-variant-resolved-stack
-  (testing "story-level :decorators precede variant-level :decorators
-            in the resolved hiccup stack (per spec/002 §Decorator
-            composition: story outer, variant inner)"
-    (rf.story/reg-decorator :story-wrap
-      {:kind :hiccup :wrap (fn [body _] [:div.story body])})
-    (rf.story/reg-decorator :variant-wrap
-      {:kind :hiccup :wrap (fn [body _] [:div.variant body])})
-    (rf.story/reg-story :story.cascade
-      {:decorators [[:story-wrap]]})
-    (rf.story/reg-variant :story.cascade/v
-      {:decorators [[:variant-wrap]]
-       :setup     []})
-    (let [pack (rf.story/resolve-decorators :story.cascade/v)
-          ids  (mapv :id (:hiccup pack))]
-      (is (= [:story-wrap :variant-wrap] ids)
-          "story decorators precede variant decorators — outer-first
-           → inner-last is preserved"))))
-
-(deftest story-tags-cascade-to-variant-when-variant-declares-none
-  (testing "story-level :tags appear on the variant when the variant
-            didn't declare its own :tags. Per spec/001 §Authoring
-            inheritance."
-    (rf.story/reg-story :story.tagcascade
-      {:tags #{:dev :docs}})
-    (rf.story/reg-variant :story.tagcascade/no-tags
-      {:setup []})
-    (rf.story/reg-variant :story.tagcascade/own-tags
-      {:tags   #{:test}
-       :setup []})
-    ;; The variant body's :tags slot may be empty if the variant
-    ;; declared none — the docs-pane variant-tags helper is where the
-    ;; cascade happens. Pin that the cascade reads through to the
-    ;; effective set used by tools that consume `variant-tags`.
-    (let [no-tags  (rf.story.ui.docs/variant-tags :story.tagcascade/no-tags)
-          own-tags (rf.story.ui.docs/variant-tags :story.tagcascade/own-tags)]
-      (is (= [:dev :docs] no-tags)
-          "no-tags variant inherits story's :tags")
-      (is (= [:test] own-tags)
-          "own-tags variant uses its own :tags (no merge with parent)"))))

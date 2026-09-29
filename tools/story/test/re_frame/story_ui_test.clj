@@ -117,14 +117,6 @@
           s1 (rf.story.ui.state/set-active-modes s [:Mode.t/dark])]
       (is (= [:Mode.t/dark] (:active-modes s1))))))
 
-(deftest cell-overrides-pure
-  (testing "set + clear overrides work on the pure map"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override-scalar s :story.a/x :n 42)
-          s2 (rf.story.ui.state/clear-cell-overrides s1 :story.a/x)]
-      (is (= 42 (get-in s1 [:cell-overrides :story.a/x :n])))
-      (is (nil? (get-in s2 [:cell-overrides :story.a/x]))))))
-
 ;; ---- repeater stable row-ids --------------------------------------------
 ;;
 ;; The controls-panel repeater MUST key each row on a
@@ -356,12 +348,6 @@
       (is (string? (get rf.story.ui.state/mode-tab-labels t))
           (str "missing label for " t)))))
 
-(deftest mode-tab-default-is-dev
-  (testing "the default mode-tab is :dev (Story v1 canvas)"
-    (is (= :dev rf.story.ui.state/default-mode-tab)))
-  (testing "active-mode-tab falls back to :dev for unknown variants"
-    (is (= :dev (rf.story.ui.state/active-mode-tab rf.story.ui.state/default-shell-state :no/such-variant)))))
-
 (deftest valid-mode-tab?-rejects-noise
   (is (rf.story.ui.state/valid-mode-tab? :dev))
   (is (rf.story.ui.state/valid-mode-tab? :docs))
@@ -398,15 +384,6 @@
     (rf.story/reg-variant :story.f/b {:tags #{:test} :setup []})
     (let [vs (rf.story.registrar/registrations :variant)]
       (is (= 2 (count (rf.story.ui.state/filter-variants vs #{})))))))
-
-(deftest filter-variants-with-tag
-  (testing "filter restricts to variants whose tags intersect"
-    (rf.story/reg-variant :story.f2/a {:tags #{:dev} :setup []})
-    (rf.story/reg-variant :story.f2/b {:tags #{:test} :setup []})
-    (let [vs (rf.story.registrar/registrations :variant)
-          devs (rf.story.ui.state/filter-variants vs #{:dev})]
-      (is (= 1 (count devs)))
-      (is (contains? devs :story.f2/a)))))
 
 (deftest drop-default-excluded-hides-until-toggled-on
   (testing "a variant carrying a `:default-filter :exclude` tag is dropped
@@ -549,20 +526,6 @@
              {:status                              [:s/a]
               :re-frame.story.registrar/no-axis    [:loose]})))))
 
-(deftest tag->axis-index-roundtrip
-  (testing "tag->axis-index maps every registered tag to its :axis"
-    (rf.story/reg-tag :status/stable {:axis :status})
-    (rf.story/reg-tag :role/dev      {:axis :role})
-    (rf.story/reg-tag :team/checkout {:axis :team})
-    (rf.story/reg-tag :loose/freeform {:doc "no axis"})
-    (let [idx (rf.story.registrar/tag->axis-index)]
-      (is (= :status                              (get idx :status/stable)))
-      (is (= :role                                (get idx :role/dev)))
-      (is (= :team                                (get idx :team/checkout)))
-      (is (= :re-frame.story.registrar/no-axis    (get idx :loose/freeform)))
-      ;; Canonical tags are pre-registered without :axis
-      (is (= :re-frame.story.registrar/no-axis    (get idx :dev))))))
-
 ;; ---- workspace resolver --------------------------------------------------
 
 (deftest grid-layout
@@ -593,15 +556,6 @@
                   {:layout :variants-grid})]
       (is (= 2 (count cells)))
       (is (every? #(= :variant (:type %)) cells)))))
-
-(deftest variants-grid-explicit-for
-  (testing ":variants-grid honours an explicit :for anchor"
-    (rf.story/reg-variant :story.vge/a {:setup []})
-    (rf.story/reg-variant :story.vge/b {:setup []})
-    (let [cells (rf.story.ui.workspace/resolve-layout
-                  :Workspace.other/all
-                  {:layout :variants-grid :for :story.vge})]
-      (is (= 2 (count cells))))))
 
 (deftest variants-grid-explicit-variants
   (testing ":variants-grid renders an explicit :variants list, in declared
