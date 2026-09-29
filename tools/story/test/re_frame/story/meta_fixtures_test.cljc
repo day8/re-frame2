@@ -28,11 +28,12 @@
   This is a `.cljc` file so the guard travels with the artefact's
   dual-target test set, but the scan itself is JVM-only — it reads source
   bytes off disk, which CLJS cannot do — hence the `#?(:clj ...)` reader
-  conditional around the scanning machinery. On CLJS the namespace is an
-  empty no-op."
-  (:require [clojure.test :refer [deftest is testing]]
-            #?(:clj [clojure.java.io :as io])
-            #?(:clj [clojure.string :as str])))
+  conditionals around the requires and the scanning machinery. On CLJS the
+  namespace is empty, and no CLJS build selects it: its name ends `-test`,
+  not `cljs-test`."
+  #?(:clj (:require [clojure.test :refer [deftest is testing]]
+                    [clojure.java.io :as io]
+                    [clojure.string :as str])))
 
 #?(:clj
    (do
@@ -115,10 +116,4 @@ the ns on the JVM half of `clojure -M:test`"
                     "\n\nUse the cross-platform fn form instead:\n"
                     "  (use-fixtures :each (fn [t] (reset-all!) (t)))\n"
                     "The map form is legitimate ONLY in pure-.cljs tests, "
-                    "where cljs.test honours it."))))))
-
-   :cljs
-   ;; CLJS half is a no-op: the guard reads source bytes off disk, which
-   ;; the cljs.test runtime cannot do. The scan runs on the JVM only.
-   (deftest map-form-guard-is-jvm-only
-     (is true "map-form use-fixtures meta-check runs on the JVM only")))
+                    "where cljs.test honours it.")))))))

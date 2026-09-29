@@ -171,14 +171,20 @@
     (install-schema-seam!)
     (reg-app-schema! :story.cart/halt [:cart]
                      [:map [:items [:vector :map]]])
-    (rf.story/reg-variant
-      :story.cart/halt
-      {:db-seed {:cart {:items "not-a-vector"}}
-       :script  [[:dispatch-sync [:cart/add-item {:sku "Z"}]]]})
-    (let [result (run-target :story.cart/halt)]
-      (is (= :error (:status result)))
-      (testing "the script never ran — the :cart/add-item dispatch did not land"
-        (is (not= "Z" (some-> (get-in result [:app-db :cart :items]) first :sku)))))))
+    ;; The probe counts the script's one dispatch directly, because an
+    ;; app-db read cannot witness it: a handler writing into a seed this
+    ;; malformed throws, so "never ran" and "ran and failed" leave the same
+    ;; app-db.
+    (let [script-ran (atom 0)]
+      (rf/reg-event :halt/probe (fn [_ _] (swap! script-ran inc) {}))
+      (rf.story/reg-variant
+        :story.cart/halt
+        {:db-seed {:cart {:items "not-a-vector"}}
+         :script  [[:dispatch-sync [:halt/probe]]]})
+      (let [result (run-target :story.cart/halt)]
+        (is (= :error (:status result)))
+        (testing "the script never ran — its one dispatch was never handled"
+          (is (zero? @script-ran)))))))
 
 ;; ===========================================================================
 ;; host-free floor — no schemas artefact / no validator → seed applied unchecked

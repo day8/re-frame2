@@ -164,14 +164,26 @@
       {:tags        #{:test}
        :script {:script [[:dispatch-sync [:is/set-status :loaded]]
                               [:assert-db [:status] :loaded]]}})
-    ;; A generous custom timeout still produces the normal unified result —
-    ;; proves the opt is accepted + stripped from the runner opts without
-    ;; disturbing the run.
-    (let [[result reports] (capture-reports
-                             #(rf.story/is :story.is/timeout {:timeout-ms 5000}))]
+    ;; A generous custom timeout still produces the normal unified result.
+    ;; The two seams `is` calls are observed through delegating redefs, so
+    ;; the bound the deref received and the opts the runner received are
+    ;; both read back rather than inferred from a passing run.
+    (let [bounds     (atom [])
+          run-opts   (atom [])
+          real-deref rf.story.async/deref-blocking
+          real-run   rf.story/run
+          [result reports]
+          (with-redefs [rf.story.async/deref-blocking
+                        (fn [p ms] (swap! bounds conj ms) (real-deref p ms))
+                        rf.story/run
+                        (fn [target opts] (swap! run-opts conj opts) (real-run target opts))]
+            (capture-reports
+              #(rf.story/is :story.is/timeout {:timeout-ms 5000})))]
       (is (= :pass (:status result)) "the run resolves inside the window")
       (is (= 1 (count reports)) "one report per assertion (1 assertion)")
-      (is (= :pass (:type (first reports)))))))
+      (is (= :pass (:type (first reports))))
+      (is (= [5000] @bounds) "the custom bound reached deref-blocking")
+      (is (= [nil] @run-opts) "the runner never saw :timeout-ms"))))
 
 (deftest deref-blocking-throws-at-its-timeout-bound
   (testing "the :timeout-ms value is the literal bound handed to the JVM

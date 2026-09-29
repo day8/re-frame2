@@ -41,8 +41,10 @@
   `re-frame.story.ui.fresco-substrate-dom-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
+            [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story :as rf.story]
             [re-frame.story.identity :as rf.story.identity]
             [re-frame.story.plan :as rf.story.plan]
@@ -55,6 +57,11 @@
   (rf.story/clear-all!)
   (rf.registrar/clear-all!)
   (reset! rf.frame/frames {})
+  ;; Registration and the default frame build state containers through the
+  ;; installed substrate adapter, so the namespace installs its own rather
+  ;; than relying on one an earlier namespace left behind.
+  (try (rf/init! rf.substrate.plain-atom/adapter)
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!))
 
@@ -125,10 +132,12 @@
             typo is a loud refusal rather than a variant that renders
             under whatever the shell defaulted to"
     (rf.story/reg-story* :story.hic-bad {:doc "fixture"})
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-          (rf.story/reg-variant* :story.hic-bad/typo
-            {:doc "declares a substrate nobody defines"
-             :substrates #{:hicaso}})))))
+    (let [e (try (rf.story/reg-variant* :story.hic-bad/typo
+                   {:doc "declares a substrate nobody defines"
+                    :substrates #{:hicaso}})
+                 nil
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
+      (is (= :rf.error/variant-shape (:rf.error/id (ex-data e)))))))
 
 ;; ===========================================================================
 ;; 3 · plan compilation — `[:world :substrates]` is where the host reads it

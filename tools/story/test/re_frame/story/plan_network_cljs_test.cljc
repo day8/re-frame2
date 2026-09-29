@@ -12,10 +12,11 @@
   and lowers it to the managed-request stub fx — the variant
   frame overrides `:rf.http/managed` with
   `re-frame.http.test-support/install-managed-request-stubs!`'s stub fx
-  id. These tests pin: mixed success/failure per route, the fail-closed
-  posture for unmatched routes (documented; enforced by the helper at run
-  time), the predictable `:network` vs explicit `:fx-overrides` conflict,
-  explain visibility, plan-hash sensitivity, and the schema acceptance.
+  id. These tests pin: mixed success/failure per route, the predictable
+  `:network` vs explicit `:fx-overrides` conflict, explain visibility,
+  plan-hash sensitivity, and the schema acceptance. The fail-closed posture
+  for unmatched routes is the stub helper's, enforced at run time, and is
+  not pinned here.
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a `-test` name would run it on the JVM only."

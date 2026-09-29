@@ -84,25 +84,14 @@
 ;; N1 — sidebar derivation emits BOUNDED output per story at floor scale
 ;; ---------------------------------------------------------------------------
 
-(deftest sidebar-derivation-is-bounded-per-story
-  (testing "at the floor, grouping then capping per story never emits more
-            than `sidebar-variant-cap` rows for any single story"
+(deftest sidebar-derivation-groups-every-story-at-floor
+  (testing "at the floor, grouping emits one row per story; the per-story
+            cap itself is `bound-variants`' contract, pinned against the
+            shipped sidebar in `implementation-reads-the-budgets`"
     (let [reg     (floor-registry rf.story.budgets/project-floor)
-          grouped (rf.story.ui.state.filters/group-variants-by-story reg)
-          cap     rf.story.budgets/sidebar-variant-cap]
+          grouped (rf.story.ui.state.filters/group-variants-by-story reg)]
       (is (= stories (count grouped))
-          "every story appears exactly once in the grouped tree")
-      (doseq [{:keys [variants]} grouped]
-        (let [shown (vec (take cap variants))]
-          (is (<= (count shown) cap)
-              "no story's visible (capped) row count exceeds the cap")))
-      (testing "the elided remainder is always reachable via +N more (F1
-                cap-and-page — nothing is dropped, only paged)"
-        (let [{:keys [variants]} (first grouped)
-              total (count variants)]
-          (when (> total cap)
-            (is (= total (+ cap (- total cap)))
-                "shown + hidden = total: the expander reveals the rest")))))))
+          "every story appears exactly once in the grouped tree"))))
 
 ;; ---------------------------------------------------------------------------
 ;; N4 — the filter pipeline is a SINGLE BOUNDED PASS (no O(n²))
