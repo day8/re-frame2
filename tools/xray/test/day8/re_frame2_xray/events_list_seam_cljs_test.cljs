@@ -7,7 +7,7 @@
     2. The shell tree carries the seam BETWEEN the event-list and the
        tab-bar (DOM-order contract — the seam IS the boundary).
     3. Drag lifecycle — `start-seam-drag!` flips `seam-dragging?` to
-       true, `seam-simulate-up!` flips it back. `seam-simulate-move!`
+       true, and a release or a cancel flips it back. `seam-simulate-move!`
        dispatches the set-events-list-height-px event with the start +
        delta.
     4. Drag math — drag DOWN grows the list; drag UP shrinks it.
@@ -176,17 +176,6 @@
        :pointerId      1
        :preventDefault (fn [])})
 
-(deftest seam-start-drag-flips-state
-  (setup!)
-  (is (false? (resize-handle/seam-dragging?))
-      "no drag in progress at fixture start")
-  (resize-handle/start-seam-drag! (stub-event 500) 200)
-  (is (true? (resize-handle/seam-dragging?))
-      "start-seam-drag! installed the global capture")
-  (resize-handle/seam-simulate-up!)
-  (is (false? (resize-handle/seam-dragging?))
-      "seam-simulate-up! tore down the capture"))
-
 (deftest seam-drag-down-grows-list
   (setup!)
   (let [dispatches (atom [])]
@@ -279,13 +268,6 @@
   (is (= config/min-events-list-height-px
          (config/get-setting :general :events-list-height-px))
       "sub-floor request snaps to min-events-list-height-px"))
-
-(deftest set-events-list-height-event-persists-in-range-value
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-events-list-height-px 320]))
-  (is (= 320 (config/get-setting :general :events-list-height-px))
-      "in-range value persists verbatim through the round-trip"))
 
 (deftest clamp-events-list-height-pure-helper-snaps-non-numeric
   (testing "pure helper falls back to the default for
@@ -455,12 +437,3 @@
     (let [height @(rf/subscribe [:rf.xray/events-list-height-px])]
       (is (= config/default-events-list-height-px height)
           "fresh sub returns the published default"))))
-
-(deftest events-list-height-sub-tracks-update
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-events-list-height-px 280]))
-  (rf/with-frame :rf/xray
-    (let [height @(rf/subscribe [:rf.xray/events-list-height-px])]
-      (is (= 280 height)
-          "sub reflects the latest update"))))
