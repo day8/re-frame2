@@ -5414,7 +5414,8 @@
         "Esc dispatches exactly one zoom-up, keyed by the panel and the
          persistent site-id rather than this mount's own id")
     ;; Run what was dispatched: it pops the stored zoom one level.
-    (rf/dispatch-sync (first @dispatched))
+    (when-let [ev (first @dispatched)]
+      (rf/dispatch-sync ev))
     (is (= [:a] (get @(rf/subscribe [ei/zoom-slot]) [:rf.xray/app-db site-id]))
         "the captured zoom-up pops the stored zoom from [:a :b] to [:a]")
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
