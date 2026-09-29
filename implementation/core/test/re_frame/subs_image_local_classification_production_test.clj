@@ -40,7 +40,7 @@
   would be the wrong fix.
 
   That half is nonetheless already proven under the gate: the projector is a
-  pure function of the tags handed to it, and the five chokepoint fixtures at
+  pure function of the tags handed to it, and the chokepoint fixtures at
   the head of the dev-posture suite drive it directly and pass in BOTH
   postures. `projector-redacts-per-the-actually-resolved-declaration` below
   closes the last link by feeding the projector the declaration the LIVE frame

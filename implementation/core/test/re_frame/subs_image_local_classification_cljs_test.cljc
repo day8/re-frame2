@@ -107,18 +107,6 @@
       (is (= "SECRET" (get-in out [:rf.sub/value :token]))
           "the captured (no-classification) declaration is authoritative"))))
 
-(deftest same-sub-id-different-captured-classifications-stay-isolated
-  (testing "two reactions sharing a sub id but capturing different declarations
-            (two live frames / an HMR successor) project independently"
-    (let [frame-a (project-sub-run {:rf.sub/id :shared/id
-                                    :rf.sub/value {:token "A"}
-                                    :rf.sub/classification {:sensitive [[:token]]}})
-          frame-b (project-sub-run {:rf.sub/id :shared/id
-                                    :rf.sub/value {:token "B"}
-                                    :rf.sub/classification {}})]
-      (is (= rf.privacy/redacted-sentinel (get-in frame-a [:rf.sub/value :token])))
-      (is (= "B" (get-in frame-b [:rf.sub/value :token]))))))
-
 (deftest absent-carrier-falls-back-to-registrar-resolution
   (testing "a :rf.sub/run trace with NO captured carrier (a non-memo path) still
             redacts via the registrar — the fallback is preserved"

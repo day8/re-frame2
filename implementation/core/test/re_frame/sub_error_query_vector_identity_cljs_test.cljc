@@ -199,12 +199,3 @@
 ;;    (the caller's opt-out must not weaken position-precise app-db elision —
 ;;    elision_test.clj's own pin lives in JVM; this is the CLJC restatement).
 ;; ---------------------------------------------------------------------------
-
-(deftest integer-path-still-matches-vector-coordinate-in-generic-walker
-  (testing "`elide-wire-value` redacts a concrete integer path against a
-            vector coordinate — the position-precise behaviour is correct;
-            only the always-on error CALLER opts out for a query vector."
-    (let [_ (install-probe!)]
-      (is (= [:some/event :rf/redacted]
-             (rf.elision/elide-wire-value [:some/event secret] {:frame :probe}))
-          "the walker redacts position 1 against decl `[1]`"))))

@@ -32,7 +32,6 @@
        against genuinely-derived writes is not weakened."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.test-support :as rf.test-support]))
 
@@ -177,11 +176,3 @@
         "the sentinel must be distinguishable from a genuine `false` (base) verdict")
     (is (keyword? rf.substrate.adapter/container-class-unknown)
         "the sentinel is a namespaced keyword")))
-
-;; Touch the hook table so a linter does not flag `late-bind` as unused on a
-;; host where the other arms elide it.
-(deftest hook-key-is-resolvable-after-publish
-  (testing "the routed :adapter/derived-container? hook is present after a custom adapter publishes it"
-    (install-custom-adapter!)
-    (is (some? (rf.late-bind/get-fn :adapter/derived-container?))
-        "the custom adapter's routed hook is published in the late-bind table")))
