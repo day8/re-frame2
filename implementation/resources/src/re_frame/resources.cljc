@@ -736,4 +736,10 @@
    ;; tool-pair applies this to EVERY row (it no-ops on a row carrying neither
    ;; slot), so no row predicate has to be kept in step with the emit sites.
    :resources/project-fx-args-egress
-   rf.resources.trace-egress/project-fx-args-egress})
+   rf.resources.trace-egress/project-fx-args-egress
+   ;; The resource and mutation READ SUBS' values on the `:rf.sub/run` trace:
+   ;; core's sub-trace chokepoint consults it, so the slots the owner
+   ;; declares are redacted in `:rf.sub/value` / `:rf.sub/prev-value` the way
+   ;; they are in the durable entry.
+   :resources/project-resource-sub-egress
+   rf.resources.trace-egress/project-read-sub-egress})

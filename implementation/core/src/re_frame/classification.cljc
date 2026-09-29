@@ -658,6 +658,29 @@
      (project sub-id v {:frame frame-id} prior-inputs)
      v)))
 
+(defn- project-resource-sub-slot
+  "Apply the resources-owned read-sub egress projector to a resource or
+  mutation read sub's value `v`. Defers to the late-bound
+  `:resources/project-resource-sub-egress` hook (resources publishes it; core
+  stays decoupled), which redacts the slots the owner's `reg-resource` /
+  `reg-mutation` declaration names, re-rooted onto the sub's value. The sub's
+  query vector `query-v` names the owner. A no-op pass-through when the hook
+  is unbound (resources artefact absent) or `query-v` names no resource or
+  mutation read sub.
+
+  The four-argument arity projects a PRIOR value, handing the projector the
+  inputs it was computed from (`prior-inputs`), because a mutation read sub
+  names its instance rather than its mutation, and a cleared instance survives
+  only in those inputs."
+  ([v query-v frame-id]
+   (if-let [project (rf.late-bind/get-fn :resources/project-resource-sub-egress)]
+     (project query-v v {:frame frame-id})
+     v))
+  ([v query-v frame-id prior-inputs]
+   (if-let [project (rf.late-bind/get-fn :resources/project-resource-sub-egress)]
+     (project query-v v {:frame frame-id} prior-inputs)
+     v)))
+
 (declare machine-classification snapshot-classification-in)
 
 (defn- machine-sub-classification
@@ -698,7 +721,7 @@
   input's sensitivity, and there is no whole-output `:sensitive? true` stamp from
   a propagation table. Only the registration's own declared paths redact.
 
-  Two families of framework read subs are the NARROW exceptions. The framework
+  Three families of framework read subs are the NARROW exceptions. The framework
   registers them, so no app can classify them, and each is an alternate
   PROJECTION of a subsystem-owned durable fact, so its value/prev-value also
   takes that fact's classification — only at egress (in-process `@(subscribe …)`
@@ -723,6 +746,15 @@
   prev-value is projected with the `::prev-inputs` it was computed from, because
   a navigation replaces the registry's route claims: the projector classifies
   the leaving route's slice by that route's own declaration.
+
+  The RESOURCE and MUTATION READ SUBS (`:rf/resource` / `:rf.resource/*` and
+  `:rf/mutation` / `:rf.mutation/*`) project the owner's durable entry or
+  instance, so their value/prev-value are ALSO run through the resources-owned
+  egress projector (late-bound, decoupled), which redacts the slots the
+  `reg-resource` / `reg-mutation` declaration names, re-rooted onto the sub's
+  value. The declaration is read from the owner spec rather than the registry,
+  so a prior value keeps its classification after an evict or a clear drops
+  the instance's lowered claims.
 
   EP-0002 — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
   so a sub trace with no carried frame is malformed; `:rf.sub/value` (and
@@ -758,26 +790,31 @@
       :else
       ;; Registration classification (none for the framework read subs) unioned
       ;; with the machine sub's snapshot classification in one walk, then the
-      ;; route-sub egress projection — composed so all can apply. Any other sub
-      ;; with no registration classification leaves both slots an identity
-      ;; transform (the walk early-exits on no paths; the projector fail-opens
-      ;; on a non-route id), so `tags` rides through reference-preserved (the
-      ;; common case).
+      ;; route-sub and resource-sub egress projections — composed so all can
+      ;; apply. Any other sub with no registration classification leaves both
+      ;; slots an identity transform (the walk early-exits on no paths; each
+      ;; projector fail-opens on a sub it does not own), so `tags` rides
+      ;; through reference-preserved (the common case).
       (let [[sens large]     (classification-paths class)
             [m-sens m-large] (classification-paths (machine-sub-classification tags frame-id))
             [p-sens p-large] (classification-paths prior)
             sens             (into sens m-sens)
-            large            (into large m-large)]
+            large            (into large m-large)
+            query-v          (:rf.sub/query-v tags)]
         (cond-> tags
           true            (assoc :rf.sub/value
-                                 (project-route-sub-slot
-                                   (redact-with-paths (:rf.sub/value tags) sens large)
-                                   sub-id frame-id))
+                                 (project-resource-sub-slot
+                                   (project-route-sub-slot
+                                     (redact-with-paths (:rf.sub/value tags) sens large)
+                                     sub-id frame-id)
+                                   query-v frame-id))
           has-prev?       (assoc :rf.sub/prev-value
-                                 (project-route-sub-slot
-                                   (redact-with-paths (:rf.sub/prev-value tags)
-                                                      (into sens p-sens) (into large p-large))
-                                   sub-id frame-id prev-inputs))
+                                 (project-resource-sub-slot
+                                   (project-route-sub-slot
+                                     (redact-with-paths (:rf.sub/prev-value tags)
+                                                        (into sens p-sens) (into large p-large))
+                                     sub-id frame-id prev-inputs)
+                                   query-v frame-id prev-inputs))
           (:large? class) (assoc :large? true))))))
 
 (defn- frame-has-declarations?
