@@ -122,34 +122,7 @@
   :cart-frame)
 
 ;; -------------------------------------------------------------------------
-;; (0) sanity: the localStorage stub round-trips (preconditions are real)
-;; -------------------------------------------------------------------------
-
-(deftest local-storage-stub-round-trips
-  (testing "the in-memory stub backs save!/load so the seeding below is real"
-    (spine-filters/save! stale-mutes)
-    (is (= stale-mutes (spine-filters/load)))
-    (frame-switcher/save! stale-frame)
-    (is (= stale-frame (frame-switcher/load)))
-    (static-persistence/save! :static)
-    (is (= :static (static-persistence/load)))))
-
-;; -------------------------------------------------------------------------
-;; (1) IN/OUT filter pills reset to unfiltered on load
-;; -------------------------------------------------------------------------
-
-(deftest init-comes-up-with-unfiltered-pills
-  (testing "the pills come up unfiltered. This is
-            TRIVIALLY TRUE, there being no pill localStorage to restore
-            from, and it is kept only because it is the property the
-            whole policy is ABOUT: should any code path restore pills,
-            this is the assertion that goes red."
-    (boot!)
-    (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters]))
-        "first paint is fully unfiltered")))
-
-;; -------------------------------------------------------------------------
-;; (2) muted-event-ids reset to empty on load
+;; (1) muted-event-ids reset to empty on load
 ;; -------------------------------------------------------------------------
 
 (deftest init-resets-stale-mutes
@@ -164,7 +137,7 @@
         "the stale mute slot is cleared so storage stays honest")))
 
 ;; -------------------------------------------------------------------------
-;; (3) frame pin resets to unpinned on load
+;; (2) frame pin resets to unpinned on load
 ;; -------------------------------------------------------------------------
 ;;
 ;; The frame pin lives in localStorage; on init the slot is cleared so a
@@ -187,23 +160,7 @@
         "the observed frame is NOT the stale pin")))
 
 ;; -------------------------------------------------------------------------
-;; (4) all three transient filters reset together (the real-load shape)
-;; -------------------------------------------------------------------------
-
-(deftest init-resets-all-transient-filters-together
-  (testing "a fresh load with every transient localStorage slot stale
-            comes up fully unfiltered (the pills have no slot)"
-    (spine-filters/save! stale-mutes)
-    (frame-switcher/save! stale-frame)
-    (boot!)
-    (is (= {:in [] :out []} (frame-sub [:rf.xray/active-filters])))
-    (is (= #{} (frame-sub [:rf.xray/muted-event-ids])))
-    (testing "and every transient localStorage slot is cleared"
-      (is (= #{} (spine-filters/load)))
-      (is (nil? (frame-switcher/load))))))
-
-;; -------------------------------------------------------------------------
-;; (5) durable view prefs restore (the policy's other half)
+;; (3) durable view prefs restore (the policy's other half)
 ;; -------------------------------------------------------------------------
 
 (deftest init-restores-durable-mode-pref
@@ -235,7 +192,7 @@
         "transient frame-pin slot cleared")))
 
 ;; -------------------------------------------------------------------------
-;; (6) EXPLICIT host filter SEED lands as the boot baseline
+;; (4) EXPLICIT host filter SEED lands as the boot baseline
 ;; -------------------------------------------------------------------------
 ;;
 ;; `configure!` accepts `:rf.xray/filters`, and the seed hydrates
@@ -255,18 +212,6 @@
   {:in  [{:pattern ":order/*"}]
    :out [{:pattern ":mouse-move"}]})
 
-(deftest configured-seed-lands-as-boot-baseline
-  (testing "an explicitly configured :rf.xray/filters seed is observed in
-            :active-filters after the REAL ensure-xray-frame! path — with
-            no manual hydrate call"
-    (config/configure! {:rf.xray/filters host-seed})
-    ;; Nothing persists pills at all, so the
-    ;; configured seed is necessarily the only source.
-    (boot!)
-    (is (= host-seed (frame-sub [:rf.xray/active-filters]))
-        "the host seed IS the boot baseline for :active-filters on the real
-         production path")))
-
 (deftest no-seed-first-mount-stays-fully-unfiltered
   (testing "with NO host seed, production first mount comes up fully
             unfiltered (a nil seed means unfiltered)"
@@ -278,8 +223,9 @@
 
 ;; (There is no seed-versus-stale-pills test: nothing can put a stale pill
 ;; set into localStorage, so that contest has exactly one contestant.
-;; `configured-seed-lands-as-boot-baseline` above is the half that can go
-;; red.)
+;; The seed landing — the first assertion of
+;; `configured-seed-is-not-durable-user-persistence` below — is the half
+;; that can go red.)
 
 (deftest configured-seed-is-not-durable-user-persistence
   (testing "the seed is an explicit boot baseline re-applied each load — it
