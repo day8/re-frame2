@@ -16,8 +16,8 @@
   The React-context tier is the *canonical* path
   for `(rf/subscribe ...)` and `(rf/dispatch ...)` from inside a
   rendered tree (subscribe / the dispatch envelope's `:frame` default
-  consult `:adapter/current-frame` through the late-bind hook). This
-  ns covers seven runtime scenarios:
+  consult `:adapter/current-frame` through the late-bind hook). The
+  contract has seven runtime scenarios:
 
     1. Nested-provider inheritance — inner provider wins over outer.
     2. No-provider → no-frame-context. EP-0002: a view
@@ -28,9 +28,11 @@
     3. Context-not-present error path — corrupted / non-keyword context
        value should surface diagnostically.
     4. Cross-frame subscribe resolution — subscribe routes against the
-       wrapped frame.
+       wrapped frame. Pinned in `re-frame.cross-spec-dom-cljs-test`
+       (`subscribe-routes-via-react-context-under-non-default-frame`).
     5. Cross-frame dispatch resolution — dispatch routes against the
-       wrapped frame.
+       wrapped frame. Pinned in `re-frame.cross-spec-dom-cljs-test`
+       (`dispatch-default-frame-routes-via-react-context`).
     6. React-19 strict-mode composition — frame-provider + reg-view'd
        descendants render correctly under React.StrictMode.
     7. React-19 concurrent-rendering / suspense — provider survives
@@ -45,12 +47,11 @@
 
   Adapter target: stock Reagent.
 
-  Some overlap with `cross_spec_dom_cljs_test.cljs` is
-  intentional — that suite covers the cross-spec interactions of
-  the React-context tier broadly; this suite covers the
-  seven-scenario surface contract in one place.
+  `cross_spec_dom_cljs_test.cljs` covers the cross-spec interactions of
+  the React-context tier broadly, scenarios 4 and 5 among them; this
+  suite covers the rest of the scenario surface.
 
-  Frame-id naming convention: the seven scenario tests below
+  Frame-id naming convention: the scenario tests below
   use unnamespaced frame keywords (e.g. `:rf-22ds-1-outer`); the
   `namespaced-frame-id-survives-react-context-round-trip`
   test pins the contract that `rf/frame-provider` with a namespaced
@@ -459,106 +460,6 @@
                 ":tags :type identifies empty-string distinctly from string")))
         (finally
           (set! (.-_currentValue ^js rf.adapter.context/frame-context) original)))))))
-
-;; ---- Scenario 4: cross-frame subscribe resolution -------------------------
-;;
-;; Per Spec 006 §Plain-fn footgun: `(rf/subscribe ...)` inside a wrapped
-;; view consults the React-context tier and resolves the query against
-;; the wrapped frame's app-db. This is also covered by
-;; cross_spec_dom_cljs_test/subscribe-routes-via-react-context-under-non-
-;; default-frame; pinned here as the canonical seven-scenario surface.
-
-(deftest scenario-4-subscribe-routes-against-wrapped-frame
-  "Scenario 4 — cross-frame subscribe resolution.
-
-   `(rf/subscribe ...)` from inside a wrapped reg-view resolves
-   against the wrapped frame's app-db, not :rf/default."
-  (if-not (browser?)
-    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (async done
-      (let [target :rf-22ds-4-wrapped]
-        (rf/make-frame {:id target :doc "scenario-4 wrapped frame"})
-        (rf/reg-event :seed-4 (fn [{:keys [db]} [_ v]] {:db {:s v}}))
-        ;; Seed the wrapped frame explicitly. EP-0002: no bare
-        ;; `:rf/default` seed — the assertion is that the wrapped-frame
-        ;; subscribe resolves to the wrapped value, which the single scoped
-        ;; seed establishes.
-        (rf/dispatch-sync [:seed-4 :wrapped] {:frame target})
-        (rf/reg-sub :scenario-4/s (fn [db _] (:s db)))
-
-        (let [resolved (atom nil)]
-          (rf/reg-view* :rf.22ds-4/probe
-                        (fn []
-                          (reset! resolved @(rf/subscribe [:scenario-4/s]))
-                          [:div "probe"]))
-          (let [render-fn  (rf/view :rf.22ds-4/probe)
-                mount-node (make-mount-node!)
-                root       (rdc/create-root mount-node)
-                finish     (fn [] (teardown-and-done! root done))]
-            (try
-              (react-dom/flushSync
-                (fn []
-                  (rdc/render root [rf/frame-provider {:frame target}
-                                    [render-fn]])))
-              (is (= :wrapped @resolved)
-                  "subscribe routes against the wrapped frame, not :rf/default")
-              ;; Await the deferred teardown.
-              (finish)
-              (catch :default e
-                (is false (str "scenario-4 threw: " (pr-str e)))
-                (finish)))))))))
-
-;; ---- Scenario 5: cross-frame dispatch resolution --------------------------
-;;
-;; Per Spec 006: the dispatch envelope's `:frame` default is
-;; built via the same `:adapter/current-frame` hook as subscribe, so a
-;; dispatch from inside a wrapped reg-view targets the wrapped frame's
-;; app-db. Covered also by
-;; cross_spec_dom_cljs_test/dispatch-default-frame-routes-via-react-context;
-;; pinned here as the canonical seven-scenario surface.
-
-(deftest scenario-5-dispatch-routes-against-wrapped-frame
-  "Scenario 5 — cross-frame dispatch resolution.
-
-   `(rf/dispatch ...)` (dispatch-sync here, for synchronous
-   observability) from inside a wrapped reg-view targets the wrapped
-   frame; the wrapped frame's app-db is mutated. A SIBLING registered
-   frame (no provider above it) is NOT stamped — the dispatch resolved
-   the wrapped frame via the provider, not some ambient default."
-  (if-not (browser?)
-    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (async done
-      (let [target  :rf-22ds-5-wrapped
-            sibling :rf-22ds-5-sibling]
-        (rf/make-frame {:id target :doc "scenario-5 wrapped frame"})
-        ;; EP-0002: no `:rf/default` floor — use an explicit
-        ;; sibling frame to prove the dispatch did NOT leak outside the
-        ;; provider scope.
-        (rf/make-frame {:id sibling :doc "scenario-5 sibling (no provider above)"})
-        (rf/reg-event :scenario-5/stamp (fn [{:keys [db]} _] {:db (assoc db :stamped :here)}))
-
-        (rf/reg-view* :rf.22ds-5/probe
-                      (fn []
-                        (rf/dispatch-sync [:scenario-5/stamp])
-                        [:div "probe"]))
-        (let [render-fn  (rf/view :rf.22ds-5/probe)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)
-              finish     (fn [] (teardown-and-done! root done))]
-          (try
-            (react-dom/flushSync
-              (fn []
-                (rdc/render root [rf/frame-provider {:frame target}
-                                  [render-fn]])))
-            (is (= :here (:stamped (rf/app-db-value target)))
-                "the wrapped frame's app-db carries the stamp — dispatch routed there")
-            (is (not= :here (:stamped (rf/app-db-value sibling)))
-                "the sibling frame's app-db is NOT stamped — the dispatch resolved the provider's frame, not an ambient default")
-            ;; Await the deferred teardown.
-            (finish)
-            (catch :default e
-              (is false (str "scenario-5 threw: " (pr-str e)))
-              (finish))))))))
 
 ;; ---- Scenario 6: React StrictMode composition -----------------------------
 ;;
@@ -1079,36 +980,6 @@
                   (.then (fn [_] (finish))))
               (catch :default e
                 (fail! e)))))))))
-
-;; ---- harness sanity: provider element shape -------------------------------
-;;
-;; A non-mounting headless sanity check — the provider hiccup composes
-;; the way the seven scenarios depend on. This catches a regression
-;; where the provider component shape drifts (e.g. a bad refactor of
-;; build-frame-provider) BEFORE any of the mount-based scenarios run,
-;; which makes per-scenario failures easier to read.
-
-(deftest harness-sanity-provider-element-shape
-  "Sanity — `[rf/frame-provider {:frame :x} child]` composes to a
-  React Context Provider element with the expected `:value`. Sister
-  to `frame-provider-emits-provider-hiccup` in
-  runtime_cljs_test; pinned here so a regression in the provider
-  shape surfaces alongside this suite's failures, not three suites
-  away."
-  ;; The SCOPE-only `frame-provider {:frame …}` fails loud if the
-  ;; frame is absent, so register it live before composing the element.
-  (rf/make-frame {:id :rf-22ds-sanity-x})
-  (let [child       [:span "x"]
-        tree        (rf/frame-provider {:frame :rf-22ds-sanity-x} child)
-        head        (first tree)
-        value       (second tree)
-        rest-args   (drop 2 tree)]
-    (is (fn? head)
-        "head is a fn (the Reagent component)")
-    (is (= :rf-22ds-sanity-x value)
-        "the frame keyword threads through as the first invocation arg")
-    (is (= [child] rest-args)
-        "children follow the frame keyword unchanged")))
 
 ;; ---- Namespaced frame-ids survive the React-context round trip -------------
 ;;

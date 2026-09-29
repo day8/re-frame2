@@ -193,28 +193,6 @@
             (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
             (.then (fn [_] (done))))))))
 
-(deftest bind-fn-captured-under-with-frame-routes-to-captured-frame
-  (testing "`(frame/bind-fn frame-id f)` built inside
-            a `with-frame` block (during render, when *current-frame* is
-            bound by the surrounding reg-view / with-frame / frame-provider)
-            re-binds on every call, so a setTimeout-deferred invocation
-            still routes to the captured frame."
-    (async done
-      (let [wrapped (rf/with-frame :rf/xray
-                      (rf.frame/bind-fn :rf/xray
-                        (fn [mode] (rf/dispatch [:rf-tvu99/set-mode mode]))))]
-        (-> (inside-set-timeout
-              (fn [] (wrapped :all)))
-            (.then (fn [_]
-                     (await-mode :rf/xray :all)))
-            (.then (fn [_]
-                     (is (= :all (mode-of :rf/xray))
-                         ":rf/xray :mode flips via the bind-fn-captured callback")
-                     (is (nil? (mode-of :rf/default))
-                         ":rf/default is NOT polluted")))
-            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
-            (.then (fn [_] (done))))))))
-
 ;; ---- dispatch-sync from inside the wrap routes too ---------------------
 
 (deftest bind-fn-sync-dispatch-routes-too

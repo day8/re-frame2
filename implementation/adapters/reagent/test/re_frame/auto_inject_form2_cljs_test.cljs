@@ -9,8 +9,8 @@
           body))
 
   For Form-1 (body is plain hiccup), `dispatch` / `subscribe` are
-  available straight in the body — covered by the macro tests
-  (views-macros-test).
+  available straight in the body — the same outer `let` whose body is
+  the Form-2 outer body the tests below capture from.
 
   For Form-2 (body returns an inner render fn), the outer `let`
   encloses the inner `(fn ... )`, so the inner fn captures the SAME
@@ -23,8 +23,8 @@
      fn refer to the same lexical bindings — Clojure lexical closure
      does the right thing.'
 
-  The Form-1 happy path is covered by views-macros-test; this file
-  pins the Form-2 boundary — does the inner fn see the injected names?
+  This file pins the Form-2 boundary — does the inner fn see the
+  injected names?
 
   Form-2's expansion is identical under v1 and v2 Reagent (lexical
   closure is Clojure semantics, not a Reagent feature)."
@@ -38,33 +38,6 @@
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter}))
-
-;; ---- Form-1 baseline: dispatch / subscribe are auto-injected -------------
-
-(deftest form-1-auto-inject-baseline
-  (testing "Form-1 body sees auto-injected `dispatch` / `subscribe`. The
-            outer `let` makes both names lex-scoped over the body — if
-            either name were not in scope, the CLJS compiler would
-            error at macro-expansion time. The runtime check below
-            asserts both names resolve to fns and the captured
-            dispatcher routes against the registered :rf/default frame."
-    (let [captured (atom {})]
-      (reg-view ^{:rf/id :rf.f2-inject/form-1-view} f1-view []
-        ;; Capture the auto-injected bindings as fn values. We don't
-        ;; invoke them here — invocation behaviour belongs to the
-        ;; dispatcher / subscriber tests in events_cljs_test. The point
-        ;; is: the names are bound, in scope, and bound to fns.
-        (swap! captured assoc
-               :dispatch  dispatch
-               :subscribe subscribe)
-        [:p "ok"])
-      (let [render (rf/view :rf.f2-inject/form-1-view)
-            out    (render)]
-        (is (vector? out) "Form-1 returns hiccup")
-        (is (fn? (:dispatch  @captured))
-            "Form-1: `dispatch` auto-injected as a fn")
-        (is (fn? (:subscribe @captured))
-            "Form-1: `subscribe` auto-injected as a fn")))))
 
 ;; ---- Form-2 boundary: inner fn captures the SAME dispatch / subscribe ----
 
