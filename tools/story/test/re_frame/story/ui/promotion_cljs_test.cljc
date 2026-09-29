@@ -219,6 +219,18 @@
 ;; The promote path drives the shared substrate (non-destructive, distinct)
 ;; ===========================================================================
 
+(deftest snippet-mirrors-substrate-body
+  (testing "the previewed snippet is built from the SAME body the substrate
+            registers — `artifact->variant-body` (no reimplemented logic)"
+    (let [art  (sample-artifact)
+          opts {:variant/id :story.x/r :tags #{:test}}
+          body (rf.story.promotion/artifact->variant-body art opts)]
+      ;; the snippet renders the substrate body's slots verbatim
+      (is (str/includes? (rf.story.ui.promotion/promotion-snippet art {:variant-id :story.x/r
+                                                          :tags #{:test}})
+                         (pr-str (:run-artifact body)))
+          "the snippet's :run-artifact is the substrate's trimmed link"))))
+
 (deftest promotion-snippet-carries-source-expectations
   (testing "a captured run whose source variant declared terminal :assertions
             previews them in the snippet, so the regression an author pastes
