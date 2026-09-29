@@ -213,6 +213,8 @@
                                               (required-symbols (ns-form f)))
                                     (.getName ^java.io.File f))))
                           sort))]
+      (is (.isDirectory xray-src)
+          "the Xray source root exists, so an empty scan means no cycle")
       (is (empty? cycles)
           (str "Xray sources must not require re-frame.story.* — found: "
                (str/join ", " cycles))))))

@@ -129,6 +129,7 @@
     (let [a (rf.story.artifact/make-run-artifact
               {:event-program [[:dispatch [:a]]
                                [:wait 100]
+                               [:wait-until [:queue-empty]]
                                [:dispatch [:b]]]})]
       (is (= [[:wait 100]] (rf.story.determinism/wait-steps a)))
       (is (rf.story.determinism/has-wall-clock-wait? a))))

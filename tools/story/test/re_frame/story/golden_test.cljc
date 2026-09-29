@@ -293,8 +293,8 @@
                                             :some-future-slot))
           runs  [;; equivalent ⇒ both GREEN
                  (run-result {:app-db {:n 1} :ops [:a :b]})
-                 ;; key-order-only ⇒ both GREEN (canonical)
-                 (run-result {:app-db (sorted-map :n 1)})
+                 ;; the same app-db as a sorted-map ⇒ both GREEN (canonical)
+                 (run-result {:app-db (sorted-map :n 1) :ops [:a :b]})
                  ;; app-db drift ⇒ both RED
                  (run-result {:app-db {:n 2} :ops [:a :b]})
                  ;; status flip ⇒ both RED

@@ -2,12 +2,12 @@
   "Tests for the pure expectation-authoring substrate (spec/021 §S5,
   spec/019).
 
-  Runs on the JVM under `clojure -M:test` AND on CLJS under shadow's
-  `:node-test` build — the substrate is pure data → data (catalog / atom
-  builders / cost projection / snippet), so it pins the contract the dialog
-  + assertion-strip + palette entry depend on without a host. The ns suffix
-  `-test` lands it in the JVM runner; the `-cljs-test` companion
-  (`author_expectations_cljs_test`) carries the dialog-transition coverage."
+  Runs on the JVM under `clojure -M:test` — the substrate is pure data →
+  data (catalog / atom builders / cost projection / snippet), so it pins the
+  contract the dialog + assertion-strip + palette entry depend on without a
+  host. The ns suffix `-test` lands it in the JVM runner only, since no CLJS
+  build's ns-regexp selects it; the `-cljs-test` companion
+  (`ui/author_expectations_cljs_test`) carries the dialog-transition coverage."
   (:require [clojure.string :as str]
             #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])

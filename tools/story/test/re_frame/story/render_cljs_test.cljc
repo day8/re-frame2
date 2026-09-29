@@ -210,27 +210,24 @@
 (deftest render-variant-does-not-run-script-or-expect
   (testing "render-variant prepares world + renders the view; it NEVER
             dispatches the :script or evaluates terminal :expect"
-    (let [dispatched (atom [])]
-      (rf.story.render/install-render-host!
-        (fn [inputs]
-          ;; A correct host renders the view; it must not be handed (and
-          ;; must not run) the plan's :script / :expect.
-          (is (not (contains? inputs :script)))
-          [:rendered]))
-      (let [body {:component  :view.button/primary
-                  :args       {:label "Go"}
-                  :script     [[:dispatch [:should/not-run]]]
-                  :assertions [[:rf.assert/path-equals [:x] 1]]}
-            r    (rf.story.render/render-variant
-                   :story.button/primary
-                   {:lookup {:story.button/primary body}})]
-        (is (= :rendered (:status r)))
-        (testing "the plan still carries the script/expect (visible, not run)"
-          (is (= [[:dispatch [:should/not-run]]] (get-in r [:plan :script])))
-          (is (= [[:rf.assert/path-equals [:x] 1]]
-                 (get-in r [:plan :expect :assertions]))))
-        (testing "nothing was dispatched (render is not a run)"
-          (is (= [] @dispatched)))))))
+    (rf.story.render/install-render-host!
+      (fn [inputs]
+        ;; A correct host renders the view; it must not be handed (and
+        ;; must not run) the plan's :script / :expect.
+        (is (not (contains? inputs :script)))
+        [:rendered]))
+    (let [body {:component  :view.button/primary
+                :args       {:label "Go"}
+                :script     [[:dispatch [:should/not-run]]]
+                :assertions [[:rf.assert/path-equals [:x] 1]]}
+          r    (rf.story.render/render-variant
+                 :story.button/primary
+                 {:lookup {:story.button/primary body}})]
+      (is (= :rendered (:status r)))
+      (testing "the plan still carries the script/expect (visible, not run)"
+        (is (= [[:dispatch [:should/not-run]]] (get-in r [:plan :script])))
+        (is (= [[:rf.assert/path-equals [:x] 1]]
+               (get-in r [:plan :expect :assertions])))))))
 
 (deftest render-variant-no-host-is-cannot-run
   (testing "without a host render hook (the bare JVM), render-variant

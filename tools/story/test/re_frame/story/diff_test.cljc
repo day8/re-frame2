@@ -585,9 +585,9 @@
                   :epoch-tape []}
           d      (rf.story.diff/diff-run-artifacts art result)]
       ;; The artifact replay's app-db {:v 9} matches the hand-built result's
-      ;; {:v 9}; the trace-op spine differs (the replay has trace events, the
-      ;; hand-built result none), so the diff is NOT :same? but the app-db
-      ;; facet is absent.
+      ;; {:v 9}, so the app-db facet is absent whether or not the differing
+      ;; trace-op spine (the replay has trace events, the hand-built result
+      ;; none) makes the diff :same?.
       (is (or (:same? d)
               (not (contains? (:facets d) :app-db)))
           "app-db agrees across the artifact-vs-result diff"))))

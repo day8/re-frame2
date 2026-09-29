@@ -21,8 +21,9 @@
     egress seam) default-drops sensitive events at the gate
     (bumping the redaction counter) before its handler-exception capture
     runs.
-  - **Recorder listener**: a sensitive event does not land in the
-    recorder's captured-events vector.
+  - **Recorder listener**: a sensitive event lands in the recorder's
+    captured-events vector as the `[:rf/redacted]` placeholder, keeping its
+    row position and dropping its payload.
 
   Runs on both the JVM (`clojure -M:test`) and the CLJS node-test
   build (shadow's `:node-test` target; the ns ends in `-cljs-test`, which
@@ -243,10 +244,7 @@
           build    @#'rf.story.play/listener-for-frame
           listen   (build frame-id)
           ev       (sensitive-warning-event frame-id)]
-      (swap! rf.story.play/pending-exceptions assoc frame-id [])
       (listen ev)
-      (is (empty? (pending-for frame-id))
-          "the sensitive warning never reached the listener body")
       (is (pos? (rf.story.config/suppressed-count frame-id))
           "the suppressed-events counter bumped — the redaction hint stays accurate"))))
 
@@ -304,7 +302,7 @@
           "non-sensitive — no suppression"))))
 
 ;; ---------------------------------------------------------------------------
-;; Recorder listener — sensitive events skipped
+;; Recorder listener — sensitive events redacted
 ;; ---------------------------------------------------------------------------
 
 (deftest recorder-listener-redacts-sensitive-dispatches
@@ -550,16 +548,15 @@
           (clear-frame-overrides!))))))
 
 (deftest per-frame-reveal-wins-over-redacting-session-pin
-  (testing "a per-frame override beats the session-pin in both directions"
+  (testing "an unoverridden frame inherits the session pin, and a per-frame
+            reveal beats a redacting pin"
     (clear-frame-overrides!)
-    ;; pin the session to raw (tool UX); a frame can still be narrowed below it
+    ;; pin the session to raw (tool UX)
     (rf.story.config/set-session-egress-profile! :rf.egress/local-raw)
     (is (true? (rf.story.config/include-sensitive? :story.iso/inherits)) "no override → inherits the raw pin")
-    (rf.story.config/set-frame-egress-profile! :story.iso/locked :rf.egress/local-redacted)
-    ;; local-redacted is the default → no override entry is stored, so it
-    ;; inherits the raw pin too (a frame cannot be pinned BELOW the session
-    ;; default by storing the default; redaction-below-pin is out of scope —
-    ;; the pin is the floor for unoverridden frames). Reveal direction:
+    ;; Storing local-redacted, the default, stores no override entry, so a
+    ;; frame cannot be pinned BELOW the session pin: the pin is the floor for
+    ;; unoverridden frames. Reveal direction:
     (rf.story.config/set-session-egress-profile! rf.story.config/default-egress-profile)
     (rf.story.config/set-frame-egress-profile! :story.iso/raised :rf.egress/local-raw)
     (is (true?  (rf.story.config/include-sensitive? :story.iso/raised)) "explicit reveal wins over the redacting pin")

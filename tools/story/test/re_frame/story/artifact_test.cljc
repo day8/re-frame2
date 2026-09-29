@@ -698,7 +698,4 @@
       ;; rides only the narrative projection) is invisible to the hash.
       (is (= (rf.story.fingerprint/run-hash res)
              (rf.story.fingerprint/run-hash (dissoc res :narrative)))
-          "dropping the stamped :narrative does not change the run-hash")
-      ;; And the run-hash is stable / idempotent on the stamped result.
-      (is (= (rf.story.fingerprint/run-hash res) (rf.story.fingerprint/run-hash res))
-          "run-hash is idempotent on the EXACT-attributed result"))))
+          "dropping the stamped :narrative does not change the run-hash"))))
