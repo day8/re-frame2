@@ -4,8 +4,8 @@
   The pure pieces (params projection, query-string composition, slot
   diff, parsed-application) are covered in
   `re-frame.story.ui.url-state-test` (.cljc). This ns exercises the
-  CLJS-only surfaces — pushState / replaceState idempotence,
-  popstate-driven hydration, and the install/teardown contract.
+  CLJS-only surfaces — pushState idempotence, popstate-driven
+  hydration, and the install/teardown contract.
 
   The window.history surface is mocked rather than driving the real
   browser back-stack so the test stays deterministic under the node

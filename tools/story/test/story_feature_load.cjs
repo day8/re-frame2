@@ -1210,17 +1210,16 @@ const COVERAGE_MATRIX = [
   //   - the count-3 baseline → reg_variant_e2e_cljs_test.cljs's
   //     `clicked-three-times-runs-clean-count-3`, which drives
   //     `story/run-variant` directly and so has no DOM-count race.
-  //   - story-level applies / variant-level does NOT leak to :loaded →
-  //     render_shell_cljs_test.cljs's `render-variant-and-canvas-resolve-
-  //     same-inherited-decorators` (inherited pack) and
-  //     `render-decorated-view-bare-when-no-decorators` (no spurious wrap).
+  //   - story-level applies → story_decorator_chain_test.clj's
+  //     `hiccup-multi-decorator-applies-in-declared-order`, which resolves
+  //     a variant's stack as its story's decorators then its own.
   //   - assertDecoratorFailure → called live by the 'Error projection'
   //     row below, and by the browser scenario's /decorator-throws leg.
   {
     feature: 'reg-decorator composition',
     kind: 'owned-by',
-    gate: 'npm run test:cljs + story_browser_scenarios.cjs',
-    why: 'composition/inheritance asserted in CLJS units; the rendered story-level + variant-level decorator text is asserted live by the sibling browser scenario.',
+    gate: 'clojure -M:test (tools/story) + npm run test:cljs + story_browser_scenarios.cjs',
+    why: 'composition asserted in JVM units, the count-3 baseline in CLJS units; the rendered story-level + variant-level decorator text is asserted live by the sibling browser scenario.',
   },
   {
     feature: 'reg-story-panel',

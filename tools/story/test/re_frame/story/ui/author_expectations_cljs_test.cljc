@@ -151,8 +151,7 @@
          (is (str/includes? flat ":assertions"))
          (is (str/includes? flat ":rf.assert/path-equals"))
          (is (str/includes? flat ":rf.assert/dom-text"))
-         (is (str/includes? flat ":extends"))
-         (is (str/includes? flat ":story.counter/happy-path")))
+         (is (str/includes? flat ":extends :story.counter/happy-path")))
        (rf.story.ui.author-expectations/close!))))
 
 #?(:cljs
@@ -195,9 +194,9 @@
        (let [flat (str (render-dialog))]
          (is (str/includes? flat "story-author-expectation-kind-picker"))
          ;; one chip per kind — spot-check the five acceptance surfaces
-         (is (str/includes? flat "app-db-equals"))
-         (is (str/includes? flat "sub-equals"))
-         (is (str/includes? flat "dom-text"))
-         (is (str/includes? flat "schema-error"))
-         (is (str/includes? flat "a11y")))
+         (is (str/includes? flat ":data-kind \"app-db-equals\""))
+         (is (str/includes? flat ":data-kind \"sub-equals\""))
+         (is (str/includes? flat ":data-kind \"dom-text\""))
+         (is (str/includes? flat ":data-kind \"schema-error\""))
+         (is (str/includes? flat ":data-kind \"a11y\"")))
        (rf.story.ui.author-expectations/close!))))

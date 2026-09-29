@@ -78,7 +78,7 @@
          (is (str/includes? flat ":counter/inc")
              "captured events appear in the snippet preview")
          (is (str/includes? flat ":counter/dec"))
-         (is (str/includes? flat ":story.x/source")
+         (is (str/includes? flat ":extends :story.x/source")
              "the recorded variant-id appears via :extends")))))
 
 ;; ---- CLJS-only: DOM interactions reach the PRIMARY snippet -------------
@@ -128,7 +128,7 @@
                "the recorded DOM click codegens a :click step")
            (is (str/includes? flat "[:type \\\"#email\\\" \\\"a@b.co\\\"]")
                "the recorded DOM type codegens a :type step")
-           (is (str/includes? flat ":story.login/form")
+           (is (str/includes? flat ":extends :story.login/form")
                "the recorded variant-id rides into :extends")
            ;; The displayed count must reflect the RICH entries, not the
            ;; one-element :events vector. Three recorded steps → the hint
@@ -191,7 +191,7 @@
                  "the dialog snippet is unchanged after start-recording!")
              (is (str/includes? snippet-after ":counter/inc")
                  "A's events still appear in the snippet")
-             (is (str/includes? snippet-after ":story.a/source")
+             (is (str/includes? snippet-after ":extends :story.a/source")
                  "A's variant-id still rides into :extends")
              (is (not (str/includes? snippet-after ":story.b/target"))
                  "B's variant-id does not leak into the open A dialog")))))))
@@ -257,7 +257,7 @@
               aria-modal + aria-labelledby on its panel"
        (open-picker-for-test!)
        (let [flat (str (rf.story.ui.recorder/assertion-picker))]
-         (is (str/includes? flat "dialog")     "role=dialog appears")
+         (is (str/includes? flat ":role \"dialog\"") "role=dialog appears")
          (is (str/includes? flat "aria-modal") "aria-modal flag is stamped")
          (is (str/includes? flat "aria-labelledby")
              "aria-labelledby points at the panel's visible title")
@@ -271,7 +271,7 @@
               has tabindex=0)."
        (open-picker-for-test!)
        (let [flat (str (rf.story.ui.recorder/assertion-picker))]
-         (is (str/includes? flat "menu")
+         (is (str/includes? flat ":role \"menu\"")
              "role=menu identifies the vocab container")
          (is (str/includes? flat "menuitem")
              "role=menuitem identifies each row")

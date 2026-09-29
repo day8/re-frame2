@@ -113,10 +113,11 @@
                    (doseq [[vid k] runs]
                      (is (= k (get-in @run-settled [vid :run-key]))
                          (str vid " is recorded under the run-key it ran for")))
-                   (done)))
+                   nil))
           (.catch (fn [e]
                     (is false (str "a canvas run rejected: " e))
-                    (done)))))))
+                    nil))
+          (.then (fn [_] (done)))))))
 
 (deftest a-superseded-run-records-nothing
   (async done
@@ -132,10 +133,11 @@
                        "precondition: the runtime settled the first run as superseded")
                    (is (nil? (get @run-settled vid))
                        "the superseded run's verdict is not recorded")
-                   (done)))
+                   nil))
           (.catch (fn [e]
                     (is false (str "the canvas run rejected: " e))
-                    (done)))))))
+                    nil))
+          (.then (fn [_] (done)))))))
 
 (deftest a-return-to-the-same-run-key-is-unstamped-until-its-fresh-run-settles
   ;; A settles, B runs, then A is selected again with the same
@@ -180,10 +182,11 @@
                        "precondition: the fresh generation settled pass")
                    (is (= "pass" (stamp a ka))
                        "the fresh generation's verdict is stamped once it settles")
-                   (done)))
+                   nil))
           (.catch (fn [e]
                     (is false (str "a canvas run rejected: " e))
-                    (done)))))))
+                    nil))
+          (.then (fn [_] (done)))))))
 
 ;; Every author-triggered run goes through `runtime/rerun!`, which
 ;; re-prepares the variant in place under the SAME run-key, so the canvas sees
@@ -224,10 +227,11 @@
                        "precondition: the Re-run settled fail on its flipped setup")
                    (is (= "fail" (stamp vid k))
                        "the canvas stamps the Re-run's verdict, under the canvas's run-key")
-                   (done)))
+                   nil))
           (.catch (fn [e]
                     (is false (str "a run rejected: " e))
-                    (done)))))))
+                    nil))
+          (.then (fn [_] (done)))))))
 
 ;; The stamp follows EVERY author-triggered run, whichever way it
 ;; settles, and following it costs no execution. Each prepare runs `:setup`
@@ -273,10 +277,11 @@
                    (is (= :pass (:status result)))
                    (is (= "pass" (stamp vid k)) "a Re-run reaching pass is stamped")
                    (is (= 3 @boots) "one execution for each run, none duplicated")
-                   (done)))
+                   nil))
           (.catch (fn [e]
                     (is false (str "a run rejected: " e))
-                    (done)))))))
+                    nil))
+          (.then (fn [_] (done)))))))
 
 (deftest the-section-carries-the-status-only-for-its-own-run
   (testing "`data-run-status` stamps the settled verdict of the run in view"

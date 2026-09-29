@@ -188,7 +188,7 @@
 (deftest autocomplete-filters-by-substring
   (testing "matches are case-insensitive substring on (pr-str id)"
     (let [ids #{:counter/inc :counter/dec :user/login}
-          out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "counter")]
+          out (rf.story.ui.dispatch-console/autocomplete-event-ids ids "Counter")]
       (is (= 2 (count out)))
       (is (every? #(re-find #"counter" (str %)) out)))))
 
@@ -376,6 +376,7 @@
                  :payload-input  "{:bad"})
          (rf.story.ui.dispatch-console/dispatch-from-inputs! vid :dispatch-sync)
          (is (some? (get-in @rf.story.ui.dispatch-console/input-state [vid :error])))
+         (is (nil? (:boomed? (rf/app-db-value vid))) "the handler never ran")
          (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))))))
 
 #?(:cljs

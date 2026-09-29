@@ -28,7 +28,8 @@
       or no element is hovered; renders the outline + tooltip when
       both are set."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            #?@(:cljs [[re-frame.core :as rf]
+            #?@(:cljs [[clojure.string :as str]
+                       [re-frame.core :as rf]
                        [re-frame.source-coords :as rf.source-coords]])
             [re-frame.story.ui.element-inspector :as rf.story.ui.element-inspector]))
 
@@ -151,7 +152,15 @@
 
 #?(:cljs
    (deftest overlay-renders-nothing-when-off
-     (testing "overlay returns nil when inspector mode is off"
+     (testing "overlay returns nil when inspector mode is off, even with a
+               hover snapshot left behind"
+       (swap! rf.story.ui.element-inspector/state assoc
+              :active? false
+              :hover {:coord-attr "counter.core:counter:47:11"
+                      :handler-id :counter.core/counter
+                      :parsed     {:ns "counter.core" :handler-id "counter"
+                                   :line 47 :col 11}
+                      :rect       {:top 100 :left 200 :width 300 :height 40}})
        (is (nil? (rf.story.ui.element-inspector/overlay))))))
 
 #?(:cljs
@@ -174,17 +183,19 @@
            :view view-id
            {:ns "rf.inspector-test" :file "src/sample.cljs"
             :line 12 :column 4})
-         (let [parsed   (rf.story.ui.element-inspector/parse-coord
-                          "rf.inspector-test:sample-view:42:7")
-               resolved (rf.story.ui.element-inspector/resolve-source-coord parsed)]
-           (is (= "src/sample.cljs" (:file resolved))
-               ":file pulled from the error-coords registry fallback")
-           (is (= 42 (:line resolved))
-               "DOM-side line beats meta-side line (the attr is the
-                most-recent ground truth)")
-           (is (= 7 (:column resolved))
-               "DOM-side col beats meta-side col")
-           (rf.source-coords/forget-error-coords!))))))
+         (try
+           (let [parsed   (rf.story.ui.element-inspector/parse-coord
+                            "rf.inspector-test:sample-view:42:7")
+                 resolved (rf.story.ui.element-inspector/resolve-source-coord parsed)]
+             (is (= "src/sample.cljs" (:file resolved))
+                 ":file pulled from the error-coords registry fallback")
+             (is (= 42 (:line resolved))
+                 "DOM-side line beats meta-side line (the attr is the
+                  most-recent ground truth)")
+             (is (= 7 (:column resolved))
+                 "DOM-side col beats meta-side col"))
+           (finally
+             (rf.source-coords/forget-error-coords!)))))))
 
 #?(:cljs
    (deftest resolve-source-coord-defaults-when-attr-degraded
@@ -196,14 +207,16 @@
            :view view-id
            {:ns "rf.inspector-test" :file "src/d.cljs"
             :line 99 :column 3})
-         (let [parsed   (rf.story.ui.element-inspector/parse-coord
-                          "rf.inspector-test:degraded:?:?")
-               resolved (rf.story.ui.element-inspector/resolve-source-coord parsed)]
-           (is (= 99 (:line resolved))
-               "meta-side line fills in when DOM-side is nil")
-           (is (= 3 (:column resolved))
-               "meta-side column fills in when DOM-side is nil")
-           (rf.source-coords/forget-error-coords!))))))
+         (try
+           (let [parsed   (rf.story.ui.element-inspector/parse-coord
+                            "rf.inspector-test:degraded:?:?")
+                 resolved (rf.story.ui.element-inspector/resolve-source-coord parsed)]
+             (is (= 99 (:line resolved))
+                 "meta-side line fills in when DOM-side is nil")
+             (is (= 3 (:column resolved))
+                 "meta-side column fills in when DOM-side is nil"))
+           (finally
+             (rf.source-coords/forget-error-coords!)))))))
 
 #?(:cljs
    (deftest overlay-renders-outline-and-tooltip-when-hovering
@@ -235,4 +248,4 @@
                   (:data-handler-id (second tooltip))))
            ;; The tooltip text carries the handler id + line:col so the
            ;; user can sanity-check before clicking.
-           (is (clojure.string/includes? (nth tooltip 2) "47")))))))
+           (is (str/includes? (nth tooltip 2) "47")))))))

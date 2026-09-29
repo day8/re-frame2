@@ -133,40 +133,33 @@
 
 (defn- mount-hydrate-modes!
   "Compose the shell-mount `:active-modes` hydration through the SINGLE
-  documented ownership path, exactly as `shell/shell`'s
-  `:component-did-mount` does, but with the URL search supplied as data
-  (`url-search`, e.g. \"?modes=Mode.app%2Fdark\" or \"\") so the test
-  drives both the localStorage seed and the URL authority without
-  touching `js/window.location`:
+  documented ownership path, as `shell/shell`'s `:component-did-mount`
+  does, with `url-search` (e.g. \"?modes=Mode.app%2Fdark\" or \"\")
+  written into the address bar for the duration of the call:
 
     1. `rf.story.ui.toolbar/hydrate-modes-from-storage!` — localStorage FALLBACK
        seeds `:active-modes` (idempotent, pruned against the registrar).
-    2. The url-state engine then folds the parsed `rf.story.share/parse-params`
-       shape via `rf.story.ui.url-state/apply-parsed-to-state` — the SINGLE
-       authoritative URL writer. A present `modes=` overwrites the seed;
-       an omitted `modes=` (but other params present) authoritatively
-       CLEARS `:active-modes` to []; a fully-empty search (`\"\"`) means
-       no URL state — `apply-parsed-to-state` is NOT run, so the
-       localStorage seed survives (the URL-over-localStorage precedence).
+    2. `rf.story.ui.url-state/hydrate-from-url!` parses `location.search`
+       and folds it into the shell state through `apply-parsed-to-state`,
+       the SINGLE authoritative URL writer. A present `modes=` overwrites
+       the seed; an omitted `modes=` (but other params present)
+       authoritatively CLEARS `:active-modes` to []; a fully-empty search
+       means no URL state — `parse-current-url` returns nil, nothing is
+       applied, and the localStorage seed survives.
 
-  `url-search` is the raw `location.search` string; `\"\"` / nil ⇒ no
-  URL params at all (fresh mount). Mirrors `shell/hydrate-url-state!`'s
-  `parse-current-url` gate: empty search ⇒ skip the apply."
+  The page's own URL is restored afterwards."
   [url-search]
   (rf.story.ui.toolbar/hydrate-modes-from-storage!)
-  (when (and (string? url-search) (seq url-search))
-    (let [usp    (js/URLSearchParams. url-search)
-          getter {"variant"    (.get usp "variant")
-                  "workspace"  (.get usp "workspace")
-                  "mode-tab"   (.get usp "mode-tab")
-                  "modes"      (.get usp "modes")
-                  "viewport"   (.get usp "viewport")
-                  "background" (.get usp "background")
-                  "tag-filter" (.get usp "tag-filter")
-                  "overrides"  (.get usp "overrides")
-                  "substrate"  (.get usp "substrate")}
-          parsed (rf.story.share/parse-params getter)]
-      (rf.story.ui.state/swap-state! rf.story.ui.url-state/apply-parsed-to-state parsed {}))))
+  (let [loc  (.-location js/window)
+        page (str (.-pathname loc) (.-search loc) (.-hash loc))]
+    (.replaceState (.-history js/window) nil "" (str (.-pathname loc) url-search))
+    (try
+      (rf.story.ui.url-state/hydrate-from-url!
+        rf.story.ui.state/shell-state-atom
+        (fn [state parsed]
+          (rf.story.ui.url-state/apply-parsed-to-state state parsed {})))
+      (finally
+        (.replaceState (.-history js/window) nil "" page)))))
 
 ;; ===========================================================================
 ;; Mode persistence across reload (the marquee scenario)
@@ -247,11 +240,11 @@
 ;;
 ;; The toolbar does not read the URL. Mount hydration is:
 ;;   1. rf.story.ui.toolbar/hydrate-modes-from-storage!  (localStorage FALLBACK)
-;;   2. rf.story.ui.url-state/apply-parsed-to-state       (the SINGLE URL authority)
+;;   2. rf.story.ui.url-state/hydrate-from-url!           (the SINGLE URL authority)
 ;; `mount-hydrate-modes!` composes exactly that with the URL search
-;; supplied as data. These three tests pin the precedence end-to-end
-;; against the canonical share/url-state path — no manual simulation of
-;; the parser, no second URL reader.
+;; written into the address bar. These three tests pin the precedence
+;; end-to-end against the canonical share/url-state path — no manual
+;; simulation of the parser, no second URL reader.
 ;; ===========================================================================
 
 (deftest mount-url-modes-beat-localstorage
@@ -289,6 +282,20 @@
         (mount-hydrate-modes! "?variant=story.counter/loaded")
         (is (= [] (:active-modes (rf.story.ui.state/get-state)))
             "omitted modes= cleared the localStorage seed — URL authoritative")))))
+
+(deftest mount-empty-search-keeps-localstorage-seed
+  (testing "a mount with no URL params at all is not URL state:
+            `parse-current-url` returns nil, nothing is applied, and the
+            localStorage seed survives"
+    (if-not (browser?)
+      (is true skip-msg)
+      (do
+        (rf.story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
+        (rf.story.ui.toolbar/save-modes-to-storage! [:Mode.persist.theme/dark])
+        (simulate-reload!)
+        (mount-hydrate-modes! "")
+        (is (= [:Mode.persist.theme/dark] (:active-modes (rf.story.ui.state/get-state)))
+            "the localStorage seed survived a URL with no params")))))
 
 ;; ===========================================================================
 ;; Unknown mode id in localStorage is dropped at hydrate

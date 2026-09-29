@@ -19,20 +19,21 @@
     collection / row / banner pieces are plain hiccup-returning fns so
     the whole tree is inline and walkable.
 
-  The inline-error test branches on the live validator's observed
-  behaviour (`validator-fns` is 'either nil or callable' per the schema-
+  The inline-error test branches on whether a live validator is
+  registered (`validator-fns` is 'either nil or callable' per the schema-
   validation panel's own test): with a validator present it asserts the
   banner + inline error; without, it asserts the documented soft-pass.
   The pure walk that PRODUCES violations is covered in
   `schema-validation-cljs-test`.
 
   The file is a `.cljc` for symmetry with sibling controls tests; every
-  body is CLJS-only (`#?(:cljs ...)`). The ns suffix `-cljs-test` is
-  picked up by both `cljs-test$` and `-cljs-test$` regexes."
+  body is CLJS-only (`#?(:cljs ...)`). The ns suffix `-cljs-test` puts
+  it in shadow's `:node-test` target (the `cljs-test$` regex)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             #?(:cljs [re-frame.core :as rf])
             #?(:cljs [re-frame.story :as rf.story])
             #?(:cljs [re-frame.story.ui.controls :as rf.story.ui.controls])
+            #?(:cljs [re-frame.story.ui.schema-validation :as rf.story.ui.schema-validation])
             [re-frame.story.ui.state :as rf.story.ui.state]))
 
 ;; ---- fixtures ------------------------------------------------------------
@@ -261,10 +262,11 @@
              banner  (node-with-attr tree :data-controls-validation "invalid")
              err-row (node-with-attr tree :data-controls-error)
              age-row (node-with-attr tree :data-controls-arg ":age")]
-         (if banner
-           ;; Live validator flagged the violation — the BEFORE-render
-           ;; claims contract: banner + inline error + row marked invalid.
+         (if (:validate (rf.story.ui.schema-validation/validator-fns))
+           ;; Live validator present — the BEFORE-render claims contract:
+           ;; banner + inline error + row marked invalid.
            (do
+             (is (some? banner) "the panel banner renders")
              (is (pos? (js/parseInt
                          (:data-controls-violation-count (attrs banner)))))
              (is (some? err-row) "inline error renders for the violating arg")

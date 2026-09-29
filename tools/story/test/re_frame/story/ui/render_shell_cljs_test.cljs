@@ -295,11 +295,7 @@
         ;; registered" text only appears on the error branch.
         (is (not-any? #(re-find #"is not registered" %) text-bits)
             "no error cell rendered on the happy path — the registered
-             render-fn took the registered branch")
-        ;; And the canonical reagent vector form survives — the grid
-        ;; outer wrap renders.
-        (is (= :div (first hiccup))
-            "grid outer wrap rendered")))))
+             render-fn took the registered branch")))))
 
 ;; ===========================================================================
 ;; render-variant host APPLIES decorators
@@ -350,8 +346,9 @@
           rendered  (rf.story.ui.multi-substrate/render-decorated-view
                       :reagent :story.hostnodeco/v :views/plain {} deco-refs)]
       (is (nil? deco-refs) "no decorators on the plan")
-      ;; render-view returns the bare [view eff-args] vector for :reagent.
-      (is (not= :div.themed (first rendered))
+      (is (= (rf.story.ui.multi-substrate/render-view
+               :reagent :story.hostnodeco/v :views/plain {})
+             rendered)
           "no decorator wrapper engaged — the bare view passes through"))))
 
 (deftest render-variant-and-canvas-resolve-same-inherited-decorators
