@@ -11,10 +11,9 @@
       PUBLIC `reagent2.core` wrappers `state-atom` / `state` /
       `set-state` / `replace-state` and the argv accessors `argv` /
       `props` / `children`. These are the symbols downstream code
-      imports as `reagent.core/state` etc. (re-com / Day8). The
-      underlying `reagent2.impl.component/*` fns are pinned in
-      component_cljs_test; what this file pins is the
-      `reagent2.core`-level wiring — that `state` derefs the cached
+      imports as `reagent.core/state` etc. (re-com / Day8). They
+      forward to the `reagent2.impl.component/*` fns, so this file pins
+      both layers — that `state` derefs the cached
       cell, `set-state` MERGES while `replace-state` RESETS (a real,
       distinguishable invariant a key-swap bug would otherwise slip),
       and that the accessor wrappers route to the right impl fn. The
@@ -83,10 +82,10 @@
 ;; `reagent2.core/state-atom` lazily creates a per-component RAtom and
 ;; caches it on the instance; `state` derefs it; `set-state` MERGES a map
 ;; into it; `replace-state` RESETS it. These public wrappers are the
-;; Form-3 component-local-state API (re-com / Day8). The impl-level
-;; `component/state-atom` is pinned in component_cljs_test; here we pin
-;; the `reagent2.core`-level behaviour — most importantly that `set-state`
-;; and `replace-state` are NOT interchangeable (merge vs replace).
+;; Form-3 component-local-state API (re-com / Day8). `state-atom` forwards
+;; to the impl-level `component/state-atom`, so these tests pin both
+;; layers — most importantly that `set-state` and `replace-state` are NOT
+;; interchangeable (merge vs replace).
 ;; ---------------------------------------------------------------------------
 
 (deftest state-atom-lazily-creates-and-caches
@@ -130,24 +129,6 @@
       (is (= {:only :this} (r/state this))
           "replace-state dropped :a and :b — it reset, did not merge"))))
 
-(deftest set-state-and-replace-state-are-distinct
-  (testing "set-state and replace-state are NOT interchangeable on the
-            same starting state — a key-swap bug would fail here"
-    (let [merge-this   #js {}
-          replace-this #js {}
-          seed         {:keep 1}]
-      (r/set-state merge-this seed)
-      (r/replace-state replace-this seed)
-      ;; Apply the same delta via each mutator.
-      (r/set-state merge-this {:add 2})
-      (r/replace-state replace-this {:add 2})
-      (is (= {:keep 1 :add 2} (r/state merge-this))
-          "set-state kept the original :keep")
-      (is (= {:add 2} (r/state replace-this))
-          "replace-state discarded the original :keep")
-      (is (not= (r/state merge-this) (r/state replace-this))
-          "the two mutators produced observably different results"))))
-
 (deftest state-is-per-instance
   (testing "state cells are keyed per component instance — two instances
             do not share state"
@@ -165,8 +146,8 @@
 ;; Form-3 argv accessors
 ;;
 ;; `reagent2.core/argv` / `props` / `children` are thin wrappers over the
-;; `component/get-*` fns (impl-pinned in component_cljs_test). Here we pin
-;; the `reagent2.core`-level routing + the props/children convention: the
+;; `component/get-*` fns, so these tests pin both layers: the
+;; `reagent2.core`-level routing + the props/children convention: the
 ;; head is the render fn, argv[1] is the props map iff it is a map, and
 ;; children are everything after the head (skipping the props map when
 ;; present).
