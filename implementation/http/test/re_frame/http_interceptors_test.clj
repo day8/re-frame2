@@ -24,6 +24,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -591,6 +592,102 @@
         (is (not (true? (:sensitive? ev))))
         (is (str/includes? (str (get-in ev [:tags :reason]))
                            (str "Cause: token rejected: " secret)))))))
+
+;; ---- 4d. the chain error core's fx boundary records ------------------------
+;;
+;; A request-side chain error leaves `:rf.http/managed` as its handler's throw,
+;; so core's fx boundary records it again as `:rf.error/fx-handler-exception`,
+;; on the dev trace and on the always-on error record, carrying the exception
+;; itself, its message, and a `:reason` quoting that message. On a sensitive
+;; request that exception must carry the secret no more than the HTTP row does.
+
+(def ^:private managed-url "https://api.example.invalid/v1?user_id=42")
+
+(defn- managed-args
+  [sensitive?]
+  {:sensitive? sensitive?
+   :request    {:url managed-url :headers {"Authorization" secret}}
+   :reply-to   [:core-row/reply]})
+
+(defn- throw-auth-before
+  [ctx]
+  (throw (ex-info (str "token rejected: " (get-in ctx [:request :headers "Authorization"])) {})))
+
+(defn- mark-sensitive-before [ctx] (assoc-in ctx [:request :sensitive?] true))
+
+(defn- core-fx-rows!
+  "Dispatch one `:rf.http/managed` request carrying `args` through the
+  `:before` interceptors `befores` (`[[id before-fn] …]`), with a trace
+  listener and an always-on error listener armed. Returns core's
+  `:rf.error/fx-handler-exception` rows as
+  `[dev-trace-event always-on-record]`."
+  [befores args]
+  (let [traces   (atom [])
+        records  (atom [])
+        trace-id (gensym "core-fx-row-trace-")
+        error-id (gensym "core-fx-row-record-")]
+    ;; Each call starts from an empty chain, so `befores` is the chain's order.
+    (rf.http.middleware/clear-all-http-interceptors!)
+    (doseq [[id before] befores]
+      (rf/reg-http-interceptor id {:before before}))
+    (rf/reg-event :core-row/load (fn [_ _] {:fx [[:rf.http/managed args]]}))
+    (rf.trace.tooling/register-listener! trace-id #(swap! traces conj %))
+    (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
+    (try
+      (rf/dispatch-sync [:core-row/load])
+      [(first (filter #(= :rf.error/fx-handler-exception (:operation %)) @traces))
+       (first (filter #(= :rf.error/fx-handler-exception (:error %)) @records))]
+      (finally
+        (rf.trace.tooling/unregister-listener! trace-id)
+        (rf.error-emit/unregister-error-listener! error-id)))))
+
+(deftest sensitive-chain-error-reaches-core-fx-row-without-the-secret
+  (doseq [[label befores args error-id data-of]
+          [[":before bad return on a request sensitive at the top level"
+            [[:probe echo-auth-before]] (managed-args true)
+            :rf.error/http-interceptor-bad-return
+            (fn [d] {:id (:id d) :returned (:returned d)})]
+           [":before throw quoting the token on a sensitive request"
+            [[:probe throw-auth-before]] (managed-args true)
+            :rf.error/http-interceptor-failed
+            (fn [d] {:id (:interceptor-id d) :cause (:cause d) :url (:url d)})]
+           [":before bad return after an EARLIER :before marked the request sensitive"
+            [[:mark mark-sensitive-before] [:probe echo-auth-before]] (managed-args false)
+            :rf.error/http-interceptor-bad-return
+            (fn [d] {:id (:id d) :returned (:returned d)})]]]
+    (testing label
+      (let [[ev record] (core-fx-rows! befores args)
+            ex          (get-in ev [:tags :exception])]
+        (is (some? ev) "core's fx boundary records the managed fx's throw")
+        (is (= :rf.http/managed (get-in ev [:tags :rf.fx/id])))
+        (is (= error-id (:rf.error/id (ex-data ex)))
+            "the escaping exception keeps the chain error's id")
+        (is (= :probe (:id (data-of (ex-data ex))))
+            "the escaping exception still names the failing interceptor")
+        (is (every? #{:rf/redacted "https://api.example.invalid/v1?user_id=:rf/redacted"}
+                    (vals (dissoc (data-of (ex-data ex)) :id)))
+            "its data-bearing slots project as the chain error's HTTP row does")
+        (is (not (carries-secret? (:tags ev)))
+            "no tag of the core row carries the secret: :exception, :exception-message and :reason included")
+        (is (some? record) "the always-on record fires")
+        (is (not (carries-secret? record))
+            "the always-on record carries no secret either")))))
+
+(deftest non-sensitive-chain-error-reaches-core-fx-row-unchanged
+  (testing "on a request that is not sensitive the escaping exception shows
+  what the interceptor returned or threw, as it does on the chain error's row"
+    (let [echo-url (fn [ctx] [(get-in ctx [:request :url])])
+          [ev _]   (core-fx-rows! [[:probe echo-url]] (managed-args false))
+          data     (ex-data (get-in ev [:tags :exception]))]
+      (is (= :rf.error/http-interceptor-bad-return (:rf.error/id data)))
+      (is (= [managed-url] (:returned data)))
+      (is (str/includes? (str (get-in ev [:tags :reason])) (pr-str [managed-url])))))
+  (testing "a throw's message rides the escaping exception verbatim"
+    (let [[ev _] (core-fx-rows! [[:probe throw-auth-before]] (managed-args false))
+          data   (ex-data (get-in ev [:tags :exception]))]
+      (is (= :rf.error/http-interceptor-failed (:rf.error/id data)))
+      (is (= (str "token rejected: " secret) (:cause data)))
+      (is (= managed-url (:url data))))))
 
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 

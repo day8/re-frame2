@@ -26,6 +26,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.http.handlers :as rf.http.handlers]
             ;; Requiring the managed artefact publishes the `:rf.http/managed`
             ;; fx + the `reg-http-interceptor` late-bind hooks the tests drive.
@@ -259,10 +260,14 @@
             that returns a slice of its ctx instead of the response leaves the
             secret in neither the bad-return row nor the
             :rf.error/http-reply-tail-failed row, whose :cause is the caught
-            throw's message and so echoes the returned value"
-    (let [secret "REPLY_TAIL_SECRET"
-          hits   (AtomicInteger. 0)
+            throw's message and so echoes the returned value, nor that row's
+            always-on record, which carries the caught throw itself"
+    (let [secret   "REPLY_TAIL_SECRET"
+          hits     (AtomicInteger. 0)
+          records  (atom [])
+          error-id (gensym "reply-tail-record-")
           {:keys [port] :as srv} (start-counting-200-server! hits)]
+      (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
       (try
         (with-trace-capture
           (fn [captured]
@@ -297,5 +302,15 @@
                   "the bad-return row names the :after interceptor")
               (is (true? (:sensitive? br)) "the bad-return row is stamped sensitive")
               (is (not (str/includes? (pr-str (:tags br)) secret))
-                  "no bad-return tag carries the secret"))))
-        (finally (stop-server! srv))))))
+                  "no bad-return tag carries the secret")
+              (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:error %))
+                                          @records))]
+                (is (some? record) "the reply-tail row's always-on record fires")
+                (is (= :rf.error/http-interceptor-bad-return
+                       (:rf.error/id (ex-data (:exception record))))
+                    "its exception is still the caught bad-return")
+                (is (not (str/includes? (pr-str record) secret))
+                    "the always-on record's exception carries no secret")))))
+        (finally
+          (rf.error-emit/unregister-error-listener! error-id)
+          (stop-server! srv))))))
