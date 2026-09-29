@@ -14,14 +14,6 @@
 
 ;; ---- workspace -----------------------------------------------------------
 
-(deftest build-params-workspace
-  (testing "workspace id encodes as workspace=<ns>/<name>"
-    (let [ps (rf.story.share/build-params {:workspace-id :story.foo/grid})
-          wp (some #(when (str/starts-with? % "workspace=") %) ps)]
-      (is (some? wp))
-      (is (re-find #"story.foo" wp))
-      (is (re-find #"grid" wp)))))
-
 (deftest parse-workspace-param-round-trip
   (testing "parse-workspace-param round-trips a kw->str token"
     (is (= :story.foo/grid

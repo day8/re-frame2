@@ -2,30 +2,16 @@
   "CLJS-side tests for the shared review-then-commit dialog primitive.
 
   Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
-  The pure-data corpus is identical to the JVM
-  `re-frame.story-review-dialog-test` arm; this file adds the CLJS-
-  only hiccup-renderer assertions that the recorder + save-variant
-  flows both depend on."
+  The pure state machine and id parsing are `.cljc` with no reader
+  conditional on their path, and the JVM
+  `re-frame.story-review-dialog-test` covers them in full; the few pure
+  rows here keep them running under CLJS. The rest cover the CLJS-only
+  surface: the hiccup renderer the recorder + save-variant flows both
+  depend on, and the clipboard shim."
   (:require [cljs.test :refer [async] :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.story.predicates :as rf.story.predicates]
             [re-frame.story.review-dialog :as rf.story.review-dialog]))
-
-;; ---- parse-variant-id-string ---------------------------------------------
-
-(deftest parse-with-leading-colon
-  (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string ":foo/bar")))
-  (is (= :plain   (rf.story.review-dialog/parse-variant-id-string ":plain"))))
-
-(deftest parse-without-leading-colon
-  (is (= :foo/bar (rf.story.review-dialog/parse-variant-id-string "foo/bar")))
-  (is (= :plain   (rf.story.review-dialog/parse-variant-id-string "plain"))))
-
-(deftest parse-nil-for-empty-or-bad-input
-  (is (nil? (rf.story.review-dialog/parse-variant-id-string nil)))
-  (is (nil? (rf.story.review-dialog/parse-variant-id-string "")))
-  (is (nil? (rf.story.review-dialog/parse-variant-id-string "foo/")))
-  (is (nil? (rf.story.review-dialog/parse-variant-id-string "/bar"))))
 
 ;; ---- default-variant-id-with-prefix --------------------------------------
 
@@ -36,36 +22,12 @@
     (is (= "story.counter" (namespace k)))
     (is (str/starts-with? (name k) "saved-"))))
 
-(deftest default-honors-custom-prefix
-  (is (= "recorded-0"
-         (name (rf.story.review-dialog/default-variant-id-with-prefix
-                 :story.x/y 0 "recorded"))))
-  (is (= "saved-0"
-         (name (rf.story.review-dialog/default-variant-id-with-prefix
-                 :story.x/y 0 "saved")))))
-
-(deftest default-nil-for-unqualified-source
-  (is (nil? (rf.story.review-dialog/default-variant-id-with-prefix nil 0 "saved")))
-  (is (nil? (rf.story.review-dialog/default-variant-id-with-prefix
-              :unqualified 0 "saved"))))
-
 ;; ---- dialog state machine ------------------------------------------------
 
 (deftest initial-state-is-idle
   (is (false? (:open?     rf.story.review-dialog/initial-state)))
   (is (nil?   (:draft-id  rf.story.review-dialog/initial-state)))
   (is (nil?   (:source-id rf.story.review-dialog/initial-state))))
-
-(deftest open-flips-open-and-seeds-defaults
-  (let [s (rf.story.review-dialog/open rf.story.review-dialog/initial-state
-                              :story.x/y
-                              {:args {:n 1}}
-                              12345
-                              "saved")]
-    (is (true? (:open? s)))
-    (is (= :story.x/y (:source-id s)))
-    (is (= {:args {:n 1}} (:context s)))
-    (is (qualified-keyword? (:draft-id s)))))
 
 (deftest close-returns-idle
   (let [opened (rf.story.review-dialog/open rf.story.review-dialog/initial-state

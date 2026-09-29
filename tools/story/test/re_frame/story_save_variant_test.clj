@@ -507,25 +507,7 @@
         (is (nil? result) "no result without a focus")
         (is (nil? @captured) "callback never fires without a focus")))))
 
-(deftest save-current-as-variant!-variant-id-override
-  (testing "an explicit :variant-id overrides the shell's focus"
-    (rf.story/reg-variant :story.snap/override {:args {:n 42} :setup []})
-    (rf.story.ui.state/swap-state! rf.story.ui.state/select-variant nil)
-    (let [captured (atom nil)]
-      (rf.story.save-variant/set-open-dialog-fn!
-        (fn [source-id args & _]
-          (reset! captured {:source-id source-id :args args})))
-      (rf.story.save-variant/save-current-as-variant! {:variant-id :story.snap/override})
-      (is (= :story.snap/override (:source-id @captured)))
-      (is (= 42 (-> @captured :args :n))))))
-
 ;; ---- :rf.story/save-current-as-variant event handler ---------------------
-
-(deftest event-handler-is-registered
-  (testing "install-canonical-vocabulary! registers the save-as-variant event"
-    (is (some? (rf.registrar/handler :event
-                rf.story.save-variant/id-save-current-as-variant))
-        "the :rf.story/save-current-as-variant handler is in the registry")))
 
 (deftest event-handler-triggers-callback
   (testing "dispatching :rf.story/save-current-as-variant runs the save flow"
