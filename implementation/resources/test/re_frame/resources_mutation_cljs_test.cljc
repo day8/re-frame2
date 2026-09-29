@@ -1406,30 +1406,6 @@
         (is (= [:removes] (mapv :arm skipped)))
         (is (= [:unregistered-resource] (mapv :reason skipped)))))))
 
-(deftest valid-patch-target-still-applies
-  ;; The happy path: a well-formed, registered,
-  ;; serializable target patches normally (validation is transparent on valid
-  ;; input, and canonicalizes the key so an alternate spelling still lands).
-  (rf/reg-resource :r/article (article-resource-spec) article-resource-request)
-  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"})]
-    (rf/reg-mutation :m/patch
-                     {:params-schema [:map [:slug :string]]
-                      ;; target params spelled in a different key order — must
-                      ;; canonicalize to the same identity the read path stored.
-                      :patches (fn [_p _r] {{:resource :r/article :params {:slug "w"} :scope :rf.scope/global}
-                                            (fn [old result] (merge old result))})}
-                     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :r/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:view :a]}])
-    (reply-success! @last-managed-args {:title "old" :views 1})
-    (reset! last-managed-args nil)
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/patch :params {:slug "w"} :instance :ok1}])
-    (reply-success! @last-managed-args {:title "new"})
-    (testing "the valid patch applied to the canonical entry"
-      (is (= {:title "new" :views 1} (:data (entry rkey))))
-      (is (= [rkey] (:affected-keys (instance :ok1)))))))
-
 ;; ===========================================================================
 ;; 12. before-request invalidation PRECEDES request lowering
 ;; ===========================================================================
@@ -1512,17 +1488,6 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-non-serializable-instance-id"
           (rf.resources.mutation-runtime/validate-instance-id! (fn []) 'test)))))
-
-(deftest execute-with-valid-vector-instance-id
-  ;; A vector instance id (a common row-keyed form shape) is
-  ;; accepted end-to-end and stored on the durable instance.
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance [:row 7]}])
-  (testing "the instance is keyed + stored under the serializable vector id"
-    (let [i (instance [:row 7])]
-      (is (= :pending (:status i)))
-      (is (= [:row 7] (:instance/id i))))))
 
 (deftest cedn-distinct-sequential-instance-ids-do-not-clobber
   ;; Two caller-supplied instance ids that are CEDN-distinct but

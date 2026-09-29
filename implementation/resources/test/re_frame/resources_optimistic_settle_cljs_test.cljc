@@ -19,7 +19,8 @@
        restore the stale inverse; it marks the entry stale + refetches the
        authoritative value (`:on-conflict :invalidate`).
     4. CONFLICT → FORCE — `:on-conflict :force` restores the (stale) inverse even
-       on conflict (single-writer last-write-wins) + emits the clobber warning.
+       on conflict (single-writer last-write-wins) + emits the clobber warning
+       (pinned by case 5 of `resources-optimistic-validation-cljs-test`).
     5. RESTORE-DANGLE-INSIDE-RECONCILER (Q3 GUARD) — a `:pending` optimistic
        write dangles on epoch restore and rolls back INSIDE the restore
        reconciler's single pure pass (NOT a racing post-restore event).
@@ -282,36 +283,6 @@
                (:dispositions rb))))
       (testing "the instance row's :reconciliation-refetches records the refetched key"
         (is (= [article-key] (:reconciliation-refetches (patch-summary :f1))))))))
-
-;; ===========================================================================
-;; 4. CONFLICT → FORCE — :on-conflict :force restores the (stale) inverse even
-;;    on conflict + emits the clobber warning.
-;; ===========================================================================
-
-(deftest conflict-rollback-force-restores-stale-inverse-with-a-warning
-  (reg-article-resource!)
-  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
-               {:article {:favorited false :favoritesCount 9}})
-  (rf/reg-mutation :m/favorite (assoc favorite-plan :on-conflict :force) favorite-plan-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :f1}])
-  ;; competing authoritative write moves the revision.
-  (competing-authoritative-write! {:article {:favorited false :favoritesCount 100}})
-  (let [traces (traces-of [:rf.mutation/optimistic-rolled-back
-                           :rf.warning/optimistic-force-clobber]
-                 #(reply-failure! @last-managed-args {:kind :rf.http/http-5xx :status 500}))
-        rb     (:rf.mutation/optimistic-rolled-back traces)
-        warn   (:rf.warning/optimistic-force-clobber traces)]
-    (testing ":force RESTORED the recorded (stale) inverse despite the conflict"
-      (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount]))
-          "the stale inverse (9) clobbered the concurrent value (100)")
-      (is (= false (get-in (entry article-key) [:data :article :favorited]))))
-    (testing "the trace marks the key restored AND conflicted (the forced clobber)"
-      (is (= [article-key] (:restored rb)))
-      (is (= [article-key] (:conflicted rb)))
-      (is (= :force (:on-conflict rb))))
-    (testing "a :force clobber over a conflicted key emits the loud tooling warning"
-      (is (some? warn) ":rf.warning/optimistic-force-clobber fired")
-      (is (= [article-key] (:forced-keys warn))))))
 
 ;; ===========================================================================
 ;; 5. RESTORE-DANGLE-INSIDE-RECONCILER (Q3 GUARD) — a :pending optimistic write

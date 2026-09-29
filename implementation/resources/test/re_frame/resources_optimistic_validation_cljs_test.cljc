@@ -7,10 +7,11 @@
   (revision substrate, apply, settle, tag-addressed, subs) trips here. Each
   `deftest` below is one numbered law; the docstring of each names the EP case.
 
-  Cases 1-5, 9, 10, 13 pin laws also covered by the APPLY and SETTLE suites;
+  Cases 1-4, 10, 13 pin laws also covered by the APPLY and SETTLE suites;
   they are restated here so the GATE is self-contained (one file proves the
-  whole contract). Cases 6, 7, 8 (settle), 11, and the Rider-1 `:optimistic?`
-  sub flag are the laws this suite ADDS:
+  whole contract). Cases 5 and 9 are pinned by this suite alone. Cases 6, 7,
+  8 (settle), 11, and the Rider-1 `:optimistic?` sub flag are the laws this
+  suite ADDS:
 
     6.  a STALE / superseded reply discards its inverse and never rolls back —
         the newer generation owns the entry;
