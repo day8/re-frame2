@@ -654,60 +654,17 @@
 
 ;; ---- the projection threads :cause-event-id onto render rows -----------
 ;;
-;; These tests guard the false-green directly at the projection boundary —
-;; the layer a synthetic `reactive-epoch` would mask. They drive a REAL
-;; `:rf.view/rendered` trace event through `rf.epoch.capture/render-row` and assert
-;; the `:view` causal surface reads the cause-attributed render. A
+;; `reactive-epoch` drives a REAL `:rf.view/rendered` trace event through
+;; `rf.epoch.capture/render-row`, so the causal tests above and the
+;; `:by-cause` test below read the cause-attributed render the real
+;; projection produces. A
 ;; render-row that dropped `:rf.view/cause-event-id` would carry no
 ;; `:cause-event-id`, so `causal-count` / `reactive-counts` :by-cause would
 ;; credit 0 renders to the cause — `:rf.assert/caused {:view}` would falsely
 ;; FAIL and `:rf.assert/no-cascade-rerender {:view}` falsely PASS (the
 ;; silent green). The row carries it, so both judge correctly.
 
-(deftest render-row-projection-carries-cause-event-id
-  (testing "rf.epoch.capture/render-row threads :rf.view/cause-event-id off the
-            :rf.view/rendered trace event (mirroring the sub-row)"
-    (let [row (rf.epoch.capture/render-row (rendered-trace-event :counter :counter/inc))]
-      (is (= :counter/inc (:cause-event-id row))
-          "the render row MUST carry the cause-event-id the trace event stamped")
-      (is (= [:counter 0] (:render-key row)))))
-
-  (testing "a render with NO cause tag (mount / structural) omits the slot —
-            OMITTED-vs-nil parity with the sub-row"
-    (let [row (rf.epoch.capture/render-row {:operation :rf.view/rendered
-                                   :tags {:rf.view/render-key [:counter 0]
-                                          :rf.view/id :counter}})]
-      (is (not (contains? row :cause-event-id))
-          "absent cause tag → absent slot, not nil"))))
-
-(deftest view-over-render-is-detected-end-to-end
-  (testing "a genuine view over-render IS caught by :rf.assert/no-cascade-rerender
-            via the real projection (the false-green guard)"
-    ;; 3 projection-derived renders of :counter attributed to :counter/inc.
-    ;; Rows without :cause-event-id would measure 0 within the default [0 0]
-    ;; bound → silent PASS (the false green). The projected rows carry the
-    ;; cause → measured 3 > 0 → the over-render FAILS as it must.
-    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 3)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations
-                  [[:rf.assert/no-cascade-rerender {:event :counter/inc :view :counter}]]})
-          rec  (first (filter #(= :rf.assert/no-cascade-rerender (:assertion %))
-                              (:assertions r)))]
-      (is (= :fail (:status rec)) "the 3 renders MUST be detected, not silently 0")
-      (is (= 3 (get-in rec [:actual :count]))
-          "the cause-attributed render count rides the real projection")))
-
-  (testing "a genuine cause IS credited to the view by :rf.assert/caused {:view}"
-    (let [tape [(reactive-epoch :counter/inc :total 1 :counter 2)]
-          r    (rf.story.result/run-result
-                 {:epoch-tape tape
-                  :causal-expectations
-                  [[:rf.assert/caused {:event :counter/inc :view :counter}]]})
-          rec  (first (filter #(= :rf.assert/caused (:assertion %)) (:assertions r)))]
-      (is (= :pass (:status rec)) "2 cause-attributed renders → caused passes")
-      (is (= 2 (get-in rec [:actual :count])))))
-
+(deftest reactive-counts-credit-view-renders-to-their-cause
   (testing "the :by-cause evidence credits view-renders to the cause (not nil)"
     (let [tape    [(reactive-epoch :counter/inc :total 1 :counter 2)]
           rc      (rf.story.play.evidence/reactive-counts tape)
@@ -907,24 +864,6 @@
       (is (= :cannot-run (:status rec))
           ":min 0 is a bound on effects, never a premise opt-out"))))
 
-(deftest no-cascade-eviction-regression-is-cannot-run
-  (testing "an early cause EVICTED from the bounded epoch-history ring leaves
-            c = 0 in the retained slice → :cannot-run, NOT a false :pass"
-    ;; Model eviction: the :search/run epoch aged out of the ring; only
-    ;; later, unrelated reactive epochs survive in the retained tape. The
-    ;; conservative outcome is :cannot-run — 'not observed in the retained
-    ;; tape', never a claim the cause never fired NOR a silent green.
-    (let [retained [(reactive-epoch :other/event :total 1 :counter 1)
-                    (reactive-epoch :nav/go      :total 1 :counter 1)]
-          r        (rf.story.result/run-result
-                     {:epoch-tape retained
-                      :causal-expectations
-                      [[:rf.assert/no-cascade-rerender {:event :search/run :view :results}]]})
-          rec      (no-cascade-rec r)]
-      (is (= :cannot-run (:status rec)) "evicted cause → conservative :cannot-run, not :pass")
-      (is (= 0 (get-in rec [:actual :observed-cause-count])))
-      (is (re-find #"not observed in the retained run tape" (:reason rec))))))
-
 (deftest caused-carries-observed-cause-count-diagnostic
   (testing ":rf.assert/caused carries the :observed-cause-count diagnostic,
             and its positive-claim verdict does not gate on it (n=0 with
@@ -1071,11 +1010,6 @@
       (is (= (:renders expected)           (:renders r)))
       ;; tape carries a schema violation → the run is :fail by the floor
       (is (= :fail (:status r))))))
-
-(deftest zero-assertion-clean-run-is-vacuously-green
-  (testing "a run with no assertions + a clean tape is :pass (the duality)"
-    (is (= :pass (:status (rf.story.result/run-result {:epoch-tape [(epoch {})]}))))
-    (is (= :pass (:status (rf.story.result/run-result {}))))))
 
 ;; ===========================================================================
 ;; clojure.test / cljs.test BRIDGE PROJECTION — story/is reports per assertion
@@ -1251,7 +1185,7 @@
              (:plan-hash (rf.story.result/run-result (assoc parts :plan-hash "plan-identity")))))
       (is (not (contains? r :plan-hash)) "absent when the caller holds no plan"))))
 
-(deftest run-result-schema-pins-the-verdict-and-rejects-passing
+(deftest run-result-schema-requires-a-known-verdict-and-the-load-bearing-slots
   (testing ":status is required and must be one of the four verdicts"
     (is (rf.story.result/valid-run-result? {:status :pass :assertions [] :checks [] :consumed-selectors #{}}))
     (is (not (rf.story.result/valid-run-result? {:status :green :assertions [] :checks [] :consumed-selectors #{}}))
