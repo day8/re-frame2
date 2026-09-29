@@ -11,6 +11,7 @@
   wrap-render / create-class* / fn-to-class live in
   reagent2/impl/component_cljs_test.cljs."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk]
             [reagent2.impl.component :as component]
             [re-frame.core :as rf]))
 
@@ -18,43 +19,27 @@
 ;; classify-form-body — Form-1 / Form-2 detection at compile time
 ;; ---------------------------------------------------------------------------
 
-(deftest classify-form-body-form-1-vector
-  (testing "body returning a hiccup vector classifies as Form-1"
-    (is (= :reagent2/form-1
-           (component/classify-form-body '([:p "x"]))))))
-
-(deftest classify-form-body-form-1-multi-expr
-  (testing "Form-1 with multiple body expressions (last is hiccup)"
-    (is (= :reagent2/form-1
-           (component/classify-form-body '((let [x 1] nil) [:p :y]))))))
-
-(deftest classify-form-body-form-2-fn
-  (testing "body whose last form is a literal (fn ...) classifies as Form-2"
-    (is (= :reagent2/form-2
-           (component/classify-form-body '((fn [n] [:p n])))))))
-
-(deftest classify-form-body-form-2-fn-star
-  (testing "fn* (the desugared form) is recognised too"
-    (is (= :reagent2/form-2
-           (component/classify-form-body '((fn* [n] [:p n])))))))
-
-(deftest classify-form-body-form-2-with-setup
-  (testing "Form-2 with setup expressions before the inner fn"
-    (is (= :reagent2/form-2
-           (component/classify-form-body
-             '((let [setup-state (atom 0)] nil)
-               (fn [n] [:p n])))))))
-
-(deftest classify-form-body-non-literal-fn-is-form-1
-  (testing "non-literal last form (e.g. let returning a fn) classifies as Form-1"
-    ;; The runtime fn? check in wrap-render handles this correctly;
-    ;; the compile-time classifier is conservative.
-    (is (= :reagent2/form-1
-           (component/classify-form-body '((let [f (fn [n] [:p n])] f)))))))
-
-(deftest classify-form-body-empty
-  (testing "empty body returns Form-1 (degenerate)"
-    (is (= :reagent2/form-1 (component/classify-form-body '())))))
+(deftest classify-form-body-classifies-by-the-literal-last-form
+  (doseq [[why body expected]
+          [["a body returning a hiccup vector is Form-1"
+            '([:p "x"])                                  :reagent2/form-1]
+           ["several body expressions whose last is hiccup is Form-1"
+            '((let [x 1] nil) [:p :y])                   :reagent2/form-1]
+           ["a body whose last form is a literal (fn ...) is Form-2"
+            '((fn [n] [:p n]))                           :reagent2/form-2]
+           ["fn*, the desugared form, is recognised too"
+            '((fn* [n] [:p n]))                          :reagent2/form-2]
+           ["setup expressions before the inner fn leave it Form-2"
+            '((let [setup-state (atom 0)] nil)
+              (fn [n] [:p n]))                           :reagent2/form-2]
+           ;; The runtime fn? check in wrap-render handles this shape; the
+           ;; compile-time classifier is conservative.
+           ["a non-literal last form (a let returning a fn) is Form-1"
+            '((let [f (fn [n] [:p n])] f))               :reagent2/form-1]
+           ["an empty body is Form-1 (degenerate)"
+            '()                                          :reagent2/form-1]]]
+    (testing why
+      (is (= expected (component/classify-form-body body))))))
 
 ;; ---------------------------------------------------------------------------
 ;; End-to-end fold integration: reg-view's expansion stamps the tag
@@ -87,28 +72,15 @@
       expansion)
     @seen))
 
-(deftest fold-reg-view-form-1-expansion-tags-form-1
-  (testing "reg-view with a Form-1 body emits an expansion carrying :reagent2/form-1"
-    (require 'clojure.walk)
-    (let [exp (rf/expand-reg-view {:line 1 :column 1}
-                                  'my.ns "my_ns.cljc"
-                                  'widget-1 '([n] [:p n]))]
-      (is (= :reagent2/form-1 (find-form-tag-in-expansion exp))
-          "Form-1 tag landed in the expansion"))))
-
-(deftest fold-reg-view-form-2-expansion-tags-form-2
-  (testing "reg-view with a Form-2 body (last form is a literal fn) emits :reagent2/form-2"
-    (require 'clojure.walk)
-    (let [exp (rf/expand-reg-view {:line 1 :column 1}
-                                  'my.ns "my_ns.cljc"
-                                  'widget-2 '([_n0]
-                                              (fn [n] [:p n])))]
-      (is (= :reagent2/form-2 (find-form-tag-in-expansion exp))
-          "Form-2 tag landed in the expansion"))))
-
-(deftest fold-reg-view-docstring-still-tags
-  (testing "a docstring slot doesn't disturb the form-tag stamping"
-    (require 'clojure.walk)
-    (let [exp (rf/expand-reg-view {} 'my.ns "my_ns.cljc"
-                                  'docced '("doc" [n] [:p n]))]
-      (is (= :reagent2/form-1 (find-form-tag-in-expansion exp))))))
+(deftest reg-view-expansion-carries-the-form-tag
+  (doseq [[why coords sym tail expected]
+          [["a Form-1 body stamps :reagent2/form-1"
+            {:line 1 :column 1} 'widget-1 '([n] [:p n])               :reagent2/form-1]
+           ["a Form-2 body (last form a literal fn) stamps :reagent2/form-2"
+            {:line 1 :column 1} 'widget-2 '([_n0] (fn [n] [:p n]))    :reagent2/form-2]
+           ["a docstring slot does not disturb the stamp"
+            {}                  'docced   '("doc" [n] [:p n])         :reagent2/form-1]]]
+    (testing why
+      (is (= expected
+             (find-form-tag-in-expansion
+               (rf/expand-reg-view coords 'my.ns "my_ns.cljc" sym tail)))))))

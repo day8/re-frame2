@@ -517,7 +517,7 @@
     (is (= "<input>"
            (server/render-to-static-markup [:input {:onchange "evil()"}])))))
 
-(deftest key-and-ref-still-stripped
+(deftest key-and-ref-stripped
   (testing ":key and :ref drop alongside the event-prop filter"
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {:key "k" :ref "r"}])))))

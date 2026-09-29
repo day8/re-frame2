@@ -61,7 +61,7 @@
 
 ;; ---- stock-shape structural parity (both shapes recognised) ---------------
 
-(deftest stock-reagent-shape-still-classified-form-3
+(deftest stock-reagent-shape-classified-form-3
   (testing "the stock-Reagent Form-3 marker (`prototype.reagentRender`) is
             recognised too — the slim branch sits beside it. Stock Reagent is not on
             slim's classpath, so this uses the exact structural marker the
