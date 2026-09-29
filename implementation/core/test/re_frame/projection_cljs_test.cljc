@@ -695,65 +695,29 @@
 ;; single-tree and `:slot-keys` forms, and case 4 (the opt-out ships raw).
 ;; ---------------------------------------------------------------------------
 
-(deftest derived-tree-nil-frame-fails-closed
-  (testing "case 3 — a derived-tree record with a NIL :frame and no opt-out
-            FAILS CLOSED: the whole single tree redacts to :rf/redacted (not
-            shipped raw)"
-    ;; Rebind the ambient frame AWAY so the record's nil :frame is genuinely
-    ;; frameless (no ambient scope leaks in).
-    (binding [rf.frame/*current-frame* nil]
-      (let [tree (derived-tree-with-token "super-secret-token")
-            out  (rf/project-egress
-                   {:kind  :rf.observe/derived-tree
-                    :frame nil
-                    :tree  tree}
-                   {:rf.egress/profile :rf.egress/off-box-tool})]
-        (is (redacted? out)
-            "a nil-frame derived tree fails closed to :rf/redacted")
-        ;; A raw-shipping carve-out would return `tree`, which leaks the
-        ;; token. The result must NOT be that raw tree.
-        (is (not= tree out)
-            "the whole raw tree is NOT shipped")
-        (is (not (string/includes? (pr-str out) "super-secret-token"))
-            "the re-keyed secret does not leak off-box")))))
-
-(deftest derived-tree-unknown-frame-fails-closed
-  (testing "case 3 — a derived-tree record naming an UNKNOWN (never-registered)
-            frame fails closed to :rf/redacted; an unresolvable :frame is not a
-            policy-bearing frame (same posture as elide-wire-value)"
-    (binding [rf.frame/*current-frame* nil]
-      (let [tree (derived-tree-with-token "super-secret-token")
-            out  (rf/project-egress
-                   {:kind  :rf.observe/derived-tree
-                    :frame :proj/never-registered
-                    :tree  tree}
-                   {:rf.egress/profile :rf.egress/off-box-tool})]
-        (is (redacted? out)
-            "an unknown-frame derived tree fails closed to :rf/redacted")
-        (is (not= tree out) "the raw tree is NOT shipped")
-        (is (not (string/includes? (pr-str out) "super-secret-token"))
-            "the re-keyed secret does not leak")))))
-
-(deftest derived-tree-destroyed-frame-fails-closed
-  (testing "case 3 — a derived-tree record naming a DESTROYED frame fails closed:
-            a frame that was live at capture but has since been torn down is no
-            longer policy-bearing, so its tree must redact whole, not ship raw"
+(deftest derived-tree-without-a-live-frame-fails-closed
+  (testing "case 3 — a derived-tree record whose :frame is NIL, never registered,
+            or DESTROYED (live at capture, torn down since) names no
+            policy-bearing frame, so with no opt-out the whole single tree
+            redacts to :rf/redacted rather than shipping raw. A raw-shipping
+            carve-out would return the tree itself, leaking the token."
     (mk-frame! :proj/derived-destroyed)
-    ;; Destroy the frame so its registry is unreachable — the capture-then-
-    ;; teardown race a raw-shipping carve-out would leak through.
     (rf/destroy-frame! :proj/derived-destroyed)
-    (binding [rf.frame/*current-frame* nil]
-      (let [tree (derived-tree-with-token "super-secret-token")
-            out  (rf/project-egress
-                   {:kind  :rf.observe/derived-tree
-                    :frame :proj/derived-destroyed
-                    :tree  tree}
-                   {:rf.egress/profile :rf.egress/off-box-tool})]
-        (is (redacted? out)
-            "a destroyed-frame derived tree fails closed to :rf/redacted")
-        (is (not= tree out) "the raw tree is NOT shipped")
-        (is (not (string/includes? (pr-str out) "super-secret-token"))
-            "the re-keyed secret does not leak")))))
+    (doseq [[label frame] [["a nil :frame"                       nil]
+                           ["an unknown (never-registered) frame" :proj/never-registered]
+                           ["a destroyed frame"                  :proj/derived-destroyed]]]
+      ;; Rebind the ambient frame AWAY so no ambient scope leaks in.
+      (binding [rf.frame/*current-frame* nil]
+        (let [tree (derived-tree-with-token "super-secret-token")
+              out  (rf/project-egress
+                     {:kind  :rf.observe/derived-tree
+                      :frame frame
+                      :tree  tree}
+                     {:rf.egress/profile :rf.egress/off-box-tool})]
+          (is (redacted? out) (str label ": the tree fails closed to :rf/redacted"))
+          (is (not= tree out) (str label ": the raw tree is NOT shipped"))
+          (is (not (string/includes? (pr-str out) "super-secret-token"))
+              (str label ": the re-keyed secret does not leak off-box")))))))
 
 (deftest derived-tree-slot-keys-no-live-frame-fails-closed
   (testing "case 3 — the MULTI-SLOT (:slot-keys) form also fails closed on no

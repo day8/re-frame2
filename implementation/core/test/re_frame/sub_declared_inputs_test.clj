@@ -128,15 +128,11 @@
                          ["map"                 {:a [:a]}]
                          ["string"              "[:a]"]
                          ["non-keyword head"    [["a"]]]
-                         ["mixed"               [[:a] :b]]]]
+                         ["mixed"               [[:a] :b]]
+                         ["nil (which is not the same as absent)" nil]]]
       (is (= :rf.error/reg-sub-bad-args
              (reg-sub-error :x {:inputs bad} (fn [in _] in)))
           (str "a " label " `:inputs` must be refused at registration")))))
-
-(deftest explicit-nil-inputs-is-not-absent
-  (testing "`{:inputs nil}` is refused — nil is not \"absent\""
-    (is (= :rf.error/reg-sub-bad-args
-           (reg-sub-error :x {:inputs nil} (fn [db _] db))))))
 
 (deftest inputs-cannot-be-combined-with-the-transitional-grammars
   (testing "`:inputs` beside a `:<-` chain or a second trailing fn is refused"

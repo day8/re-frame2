@@ -169,8 +169,8 @@
       (is (= :route-fact       (get-in nodes [[:rf/route :route/article] :refinement])))
       (is (= :machine-process  (get-in nodes [[:machine :upload/main] :refinement]))))))
 
-(deftest static-graph-edges-span-input-param-and-selector-roles
-  (testing "the assembled edges carry :input, :param, and :selector roles"
+(deftest static-graph-edges-carry-input-and-selector-roles
+  (testing "the assembled edges carry :input and :selector roles"
     (register-one-of-each!)
     (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           edges (:edges g)
