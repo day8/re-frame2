@@ -15,7 +15,7 @@
      to its Figma-aligned syntax token; keyword + builtin distinct.
   5. **Facade delegation** — `inspect` returns a Reagent component
      invocation of `views.edn-inspector`."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [are deftest is testing]]
             [clojure.string :as str]
             [day8.re-frame2-xray.views.edn-widget :as w]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
@@ -58,44 +58,31 @@
 
 ;; ---- code-block tokenizer ------------------------------------------------
 
-(deftest classify-token-keyword
-  (is (= :keyword  (w/classify-token ":foo")))
-  (is (= :keyword  (w/classify-token ":ns/foo"))))
-
-(deftest classify-token-string
-  (is (= :string   (w/classify-token "\"hi\"")))
-  (is (= :string   (w/classify-token "\"with \\\"quote\\\"\""))))
-
-(deftest classify-token-number
-  (is (= :number   (w/classify-token "42")))
-  (is (= :number   (w/classify-token "-3.14"))))
-
-(deftest classify-token-comment
-  (is (= :comment  (w/classify-token "; hi"))))
-
-(deftest classify-token-paren
-  (is (= :paren    (w/classify-token "(")))
-  (is (= :paren    (w/classify-token "}"))))
-
-(deftest classify-token-builtin
-  (testing "the CURRENT event registrar `reg-event` (EP-0018) is a builtin"
-    (is (= :builtin  (w/classify-token "reg-event"))))
-  (is (= :builtin  (w/classify-token "let"))))
-
-(deftest classify-token-retired-registrar-spellings
+(deftest classify-token-kinds
+  (are [kind token] (= kind (w/classify-token token))
+    :keyword ":foo"
+    :keyword ":ns/foo"
+    :string  "\"hi\""
+    :string  "\"with \\\"quote\\\"\""
+    :number  "42"
+    :number  "-3.14"
+    :comment "; hi"
+    :paren   "("
+    :paren   "}"
+    :builtin "reg-event" ; the CURRENT event registrar (EP-0018)
+    :builtin "let"
+    :symbol  "my-symbol"
+    :symbol  "x")
   (testing "`reg-event-db` / `-fx` / `-ctx` are not re-frame2 API (EP-0018);
             they sit in the highlighter set ONLY so a re-frame v1
             source-text snippet under inspection highlights. The
             highlighter is content-agnostic, so it paints them as
             builtins; this test pins that as intentional v1-source
             rendering, not an endorsement of the spellings as registrars."
-    (is (= :builtin  (w/classify-token "reg-event-db")))
-    (is (= :builtin  (w/classify-token "reg-event-fx")))
-    (is (= :builtin  (w/classify-token "reg-event-ctx")))))
-
-(deftest classify-token-symbol
-  (is (= :symbol   (w/classify-token "my-symbol")))
-  (is (= :symbol   (w/classify-token "x"))))
+    (are [token] (= :builtin (w/classify-token token))
+      "reg-event-db"
+      "reg-event-fx"
+      "reg-event-ctx")))
 
 (deftest tokenize-clojure-roundtrip
   (testing "concatenating tokenized literals reconstructs the source"
@@ -103,23 +90,13 @@
           toks (w/tokenize-clojure src)]
       (is (= src (apply str (map second toks)))))))
 
-(deftest tokenize-clojure-keyword-classification
-  (let [toks (w/tokenize-clojure "(:foo bar)")
-        kws  (filter #(= :keyword (first %)) toks)]
-    (is (= 1 (count kws)))
-    (is (= ":foo" (second (first kws))))))
-
-(deftest tokenize-clojure-string-classification
-  (let [toks (w/tokenize-clojure "(def s \"hello\")")
-        strs (filter #(= :string (first %)) toks)]
-    (is (= 1 (count strs)))
-    (is (= "\"hello\"" (second (first strs))))))
-
-(deftest tokenize-clojure-builtin-classification
-  (let [toks (w/tokenize-clojure "(reg-event :foo)")
-        blt  (filter #(= :builtin (first %)) toks)]
-    (is (= 1 (count blt)))
-    (is (= "reg-event" (second (first blt))))))
+(deftest tokenize-clojure-lexes-one-token-per-kind
+  (doseq [[src kind literal] [["(:foo bar)"        :keyword ":foo"]
+                              ["(def s \"hello\")" :string  "\"hello\""]
+                              ["(reg-event :foo)"  :builtin "reg-event"]]]
+    (let [toks (filter #(= kind (first %)) (w/tokenize-clojure src))]
+      (is (= 1 (count toks)) (str src " lexes exactly one " kind " token"))
+      (is (= literal (second (first toks)))))))
 
 ;; ---- code-block render ---------------------------------------------------
 
@@ -172,11 +149,12 @@
 
 ;; ---- zprint pre-format ---------------------------------------------------
 
-(deftest format-source-nil-input-returns-input
-  (is (nil? (w/format-source nil))))
-
-(deftest format-source-empty-input-returns-input
-  (is (= "" (w/format-source ""))))
+(deftest format-source-passes-degenerate-input-through
+  ;; nil, empty and malformed source all come back exactly as given.
+  (are [in] (= in (w/format-source in))
+    nil
+    ""
+    "(reg-event :foo "))
 
 (deftest format-source-pretty-prints-clojure
   (let [src       "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))"
@@ -185,10 +163,6 @@
     (is (re-find #"reg-event" formatted))
     (is (re-find #":counter/inc" formatted))
     (is (re-find #"update" formatted))))
-
-(deftest format-source-malformed-input-falls-through
-  (let [bad "(reg-event :foo "]
-    (is (= bad (w/format-source bad)))))
 
 ;; ---- multi-line :doc renders as real line breaks ------------------------
 
