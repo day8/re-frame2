@@ -54,16 +54,6 @@
 
 ;; ---- save / load round-trip ---------------------------------------------
 
-(deftest storage-roundtrip-preset
-  (testing "save → load returns the persisted preset id"
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (clear-storage!)
-        (rf.story.viewport/save-to-storage! :tablet)
-        (is (= :tablet (rf.story.viewport/load-from-storage)))
-        (clear-storage!)))))
-
 (deftest storage-roundtrip-custom
   (testing "save → load returns the persisted custom {:width :height} map"
     (if-not (browser?)

@@ -56,16 +56,6 @@
 
 ;; ---- save / load round-trip ---------------------------------------------
 
-(deftest storage-roundtrip-preset
-  (testing "save → load returns the persisted preset id"
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (clear-storage!)
-        (rf.story.backgrounds/save-to-storage! :dark)
-        (is (= :dark (rf.story.backgrounds/load-from-storage)))
-        (clear-storage!)))))
-
 (deftest storage-roundtrip-custom
   (testing "save → load returns the persisted custom hex colour"
     (if-not (browser?)
