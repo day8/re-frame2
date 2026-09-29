@@ -313,9 +313,11 @@
 
 (deftest from-db-descriptor-resolved-at-settle-time
   ;; Validation rule 7: a descriptor referencing a named scope resolver
-  ;; resolves against db AT SETTLE TIME. We log in as "zed" only AFTER the
-  ;; execute but before the reply settles — the descriptor must resolve to
-  ;; zed's session at settle.
+  ;; resolves against db AT SETTLE TIME. The mutation executes while "zed" is
+  ;; logged in, and the session switches to "yan" before the captured reply
+  ;; settles — so the descriptor must reach yan's feed and leave zed's alone.
+  ;; Both feeds are ownerless, so the invalidation marks them stale rather
+  ;; than refetching them.
   (reg-article-resource!)
   (reg-feed-resource!)
   (rf/reg-mutation :m/save
@@ -323,18 +325,20 @@
      :params-schema [:map [:slug :string]]
      :invalidates (fn [_p _r] [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
+  (doseq [u ["zed" "yan"]]
+    (ownerless-stale-load! {:resource :r/feed :scope [:rf.scope/session {:username u}]
+                            :params {} :owner [:v :feed u]}))
   (rf/dispatch-sync [:t/login "zed"])
-  (rf/dispatch-sync [:rf.resource/ensure {:resource :r/feed :scope {:from-db :t/session}
-                                          :params {} :owner [:v :feed]}])
-  (reply-success! @last-managed-args {:seed true})
-  (rf/dispatch-sync [:rf.resource/release-owner {:resource :r/feed :scope {:from-db :t/session}
-                                                 :params {} :owner [:v :feed]}])
-  (reset! last-managed-args nil)
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :z1}])
-  (reply-success! @last-managed-args {:title "new"})
-  (testing "the {:from-db} descriptor resolved zed's session at settle time and
-            invalidated zed's feed"
-    (is (some? (:invalidated-at (entry (session-feed-key "zed")))))))
+  (let [reply-args @last-managed-args]
+    (rf/dispatch-sync [:t/login "yan"])
+    (reply-success! reply-args {:title "new"}))
+  (testing "the {:from-db} descriptor resolved the SETTLE-time session (yan),
+            not the execute-time one (zed)"
+    (is (some? (:invalidated-at (entry (session-feed-key "yan"))))
+        "the settle-time session's feed is invalidated")
+    (is (nil? (:invalidated-at (entry (session-feed-key "zed"))))
+        "the execute-time session's feed is untouched")))
 
 (deftest from-db-descriptor-nil-fails-closed
   ;; A {:from-db} descriptor that resolves NIL (no logged-in user) produces NO
