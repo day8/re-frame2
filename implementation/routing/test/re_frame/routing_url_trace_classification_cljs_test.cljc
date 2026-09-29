@@ -1,8 +1,12 @@
 (ns re-frame.routing-url-trace-classification-cljs-test
-  "A route's `:sensitive` declaration reaches the URL STRINGS a navigation
-  puts on the trace bus: the `:url` of the `:rf.route/planned` trace, and the
-  URL argument of the `[:rf.route/handle-url-change url …]` event vector on
-  every event-bearing trace.
+  "A route's `:sensitive` declaration reaches the URL STRINGS and navigation
+  REQUESTS a navigation puts on the trace bus: the `:url` of the
+  `:rf.route/planned` trace, the URL argument of the
+  `[:rf.route/handle-url-change url …]` event vector, and the request of the
+  `[:rf.route/navigate {request}]` / `[:rf.route/url-requested {request}]`
+  event vectors on every event-bearing trace. A request's `:url` projects as a
+  URL; the `:params` / `:query` of a `:to` request carry the `:rf/redacted`
+  sentinel for each declared value.
 
   A declared path param's segment and a declared query key's value are
   replaced by the `rf/redacted` sentinel string (percent-encoded in a path
@@ -117,6 +121,75 @@
           "the in-process slice stays raw")
       (when rf.interop/debug-enabled?
         (is (= "/acct/rf%2Fredacted/visible?token=rf/redacted" (planned-url events)))))))
+
+(defn- event-args
+  "The first argument of every `:rf.event/v` carrying an `event-id` event."
+  [event-id events]
+  (into []
+        (keep (fn [ev]
+                (let [v (get-in ev [:tags :rf.event/v])]
+                  (when (and (vector? v) (= event-id (first v)))
+                    (second v)))))
+        events))
+
+(deftest a-navigate-request-redacts-its-routes-declared-params
+  (testing "[:rf.route/navigate {:to …}]: the request's declared params and
+            query values redact on the event vector, undeclared ones ride"
+    (reg-routes!)
+    (let [events (capture-traces
+                   #(rf/dispatch-sync [:rf.route/navigate {:to     :route/acct
+                                                           :params {:secret param-secret :other "visible"}
+                                                           :query  {:token query-secret :page "2"}}]))]
+      (is (= param-secret (get-in @(rf/subscribe [:rf/route]) [:params :secret]))
+          "the in-process slice stays raw")
+      (when rf.interop/debug-enabled?
+        (let [requests (event-args :rf.route/navigate events)]
+          (is (seq requests) "control: the window carries the navigate event")
+          (is (every? #{{:to     :route/acct
+                         :params {:secret :rf/redacted :other "visible"}
+                         :query  {:token :rf/redacted :page "2"}}}
+                      requests)))))))
+
+(deftest a-navigate-url-request-redacts-its-routes-declared-parts
+  (testing "[:rf.route/navigate {:url …}]: the URL projects as the URL-change
+            event's does"
+    (reg-routes!)
+    (let [url    (str "/acct/" param-secret "/visible?token=" query-secret "&page=2")
+          events (capture-traces #(rf/dispatch-sync [:rf.route/navigate {:url url}]))]
+      (is (= param-secret (get-in @(rf/subscribe [:rf/route]) [:params :secret]))
+          "the in-process slice stays raw")
+      (when rf.interop/debug-enabled?
+        (let [requests (event-args :rf.route/navigate events)]
+          (is (seq requests))
+          (is (every? #{{:url "/acct/rf%2Fredacted/visible?token=rf/redacted&page=2"}}
+                      requests)))))))
+
+(deftest a-url-request-redacts-its-routes-declared-parts
+  (testing "[:rf.route/url-requested {:url …}]: the link door's request projects
+            its URL, and the URL-change event it synthesises does too"
+    (reg-routes!)
+    (let [url    (str "/acct/" param-secret "/visible?token=" query-secret "&page=2")
+          events (capture-traces #(rf/dispatch-sync [:rf.route/url-requested {:url url}]))]
+      (is (= param-secret (get-in @(rf/subscribe [:rf/route]) [:params :secret]))
+          "the in-process slice stays raw")
+      (when rf.interop/debug-enabled?
+        (let [requests (event-args :rf.route/url-requested events)]
+          (is (seq requests))
+          (is (every? #{{:url "/acct/rf%2Fredacted/visible?token=rf/redacted&page=2"}}
+                      requests)))
+        (let [urls (url-change-urls events)]
+          (is (seq urls) "control: the link door synthesised the URL-change event")
+          (is (every? #{"/acct/rf%2Fredacted/visible?token=rf/redacted&page=2"} urls)))))))
+
+(deftest a-navigate-request-to-an-undeclared-route-rides-verbatim
+  (testing "control: a route declaring nothing leaves the request as it was"
+    (reg-routes!)
+    (let [request {:to :route/plain :params {:id "abc"} :query {:x "1"}}
+          events  (capture-traces #(rf/dispatch-sync [:rf.route/navigate request]))]
+      (when rf.interop/debug-enabled?
+        (let [requests (event-args :rf.route/navigate events)]
+          (is (seq requests))
+          (is (every? #(identical? request %) requests)))))))
 
 (deftest a-route-declaring-nothing-keeps-its-url-verbatim
   (testing "control: an undeclared route's URL rides the event vector verbatim,

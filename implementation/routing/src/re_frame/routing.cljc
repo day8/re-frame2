@@ -510,11 +510,13 @@
 (rf.late-bind/set-fn! :routing/route-sub-egress-path    rf.routing.sub-egress/route-sub-seed-path)
 (rf.late-bind/set-fn! :routing/project-route-sub-egress rf.routing.sub-egress/project-route-sub-egress)
 
-;; A URL string carries the route's params and query values as text, which no
-;; slice path reaches. Core's event-vector chokepoint projects the URL argument
-;; of `:rf.route/handle-url-change` through this hook, by the declaration of the
-;; route that URL resolves to.
-(rf.late-bind/set-fn! :routing/project-url-change-event-args rf.routing.resolve/redact-declared-url)
+;; A navigation event carries the route's params and query values in its first
+;; argument — as URL text, or in a request map — which no slice path reaches.
+;; Core's event-vector chokepoint projects the URL argument of
+;; `:rf.route/handle-url-change` and the request of `:rf.route/navigate` /
+;; `:rf.route/url-requested` through this hook, by the declaration of the route
+;; they name.
+(rf.late-bind/set-fn! :routing/project-url-change-event-args rf.routing.resolve/project-nav-event-arg)
 
 ;; Frame teardown reaches all routing-owned host-side state through one
 ;; optional late-bound hook.

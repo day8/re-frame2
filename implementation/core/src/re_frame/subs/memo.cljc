@@ -202,10 +202,14 @@
   declaration for the sub-id; there is no sub-output propagation (EP-0025).
   The framework read subs whose value projects a subsystem-owned durable
   fact are the narrow addition: `[:rf/machine <id>]` is also projected
-  through its machine's declared classification, and the three route
-  read-subs (`:rf/route`, `:rf.route/query`, `:rf.route/params`) through the
-  route's own egress classification. Both live in the frame's elision
-  registry in runtime-db.
+  through its machine's declared classification; the three route read-subs
+  (`:rf/route`, `:rf.route/query`, `:rf.route/params`) through the route's
+  own egress classification; and the resource and mutation read subs
+  (`:rf/resource` / `:rf.resource/*`, `:rf/mutation` / `:rf.mutation/*`)
+  through the slots their owner's `reg-resource` / `reg-mutation`
+  declaration names. The machine and route classifications are read from the
+  frame's elision registry in runtime-db, the resource and mutation ones from
+  the owner spec.
 
   The projection runs synchronously INSIDE this reaction's compute fn, so
   none of its reads may record a reactive dependency. A capturing read of a
@@ -214,7 +218,8 @@
   layering (the sub would recompute on ANY change to that container, not
   just its own input's). The registration classification is the captured
   declaration and the process-scoped registrar, neither of them reactive;
-  the machine and route projections read the elision registry through
+  the machine, route and mutation projections read the frame's runtime-db
+  (its elision registry, or a mutation's instance) through
   `re-frame.substrate.adapter/read-container-untracked`, a snapshot that
   records no dependency. A sub whose registration declares `:sensitive`
   output paths egresses those paths of `:prev-value` / `:value` as
@@ -223,11 +228,14 @@
   `:prev-value` is classified by what governed it when it was computed, not
   only by the registry as it stands now: destroying a machine actor drops its
   lowered claims while a held `[:rf/machine <id>]` sub still carries the dead
-  actor's snapshot as its prior value. So the emit also carries, under the
-  private `:re-frame.classification/prev-inputs` tag, the input value(s) the
-  prior value was computed from — for a runtime-db reader, the runtime-db
-  whose elision registry classified it. The chokepoint reads it and strips
-  it; it never egresses.
+  actor's snapshot as its prior value, and a navigation replaces the route's
+  claims while a held route read sub still carries the leaving slice. So the
+  emit also carries, under the private `:re-frame.classification/prev-inputs`
+  tag, the input value(s) the prior value was computed from — for a
+  runtime-db reader, the runtime-db whose elision registry classified it; for
+  a `:rf.route/query` / `:rf.route/params` leaf, the prior `[:rf/route]`
+  slice, which carries the declaration its route activated with. The
+  chokepoint reads it and strips it; it never egresses.
 
   The whole attribution branch (the enriched tag map) sits inside
   `(if rf.interop/debug-enabled? ...)` so Closure DCE folds it out under
