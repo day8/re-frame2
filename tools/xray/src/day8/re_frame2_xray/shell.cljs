@@ -1278,6 +1278,8 @@
                    :justify-content  "space-between"
                    :gap              "12px"
                    :height           (:top-strip-height layout)
+                   ;; Fixed chrome row: only L4 shrinks in a definite-height host.
+                   :flex-shrink      0
                    :padding          "0 12px"
                    ;; DARK chrome band (Figma-Make surface).
                    ;; The chrome ribbon paints the dedicated dark-chrome
@@ -2064,7 +2066,11 @@
     ;; `grid-template-rows: 0fr ⇄ 1fr` + opacity rule in motion-css.
     [:div {:data-testid "rf-xray-events-ribbon-collapse"
            :class       "rf-xray-filters-collapse"
-           :data-open   (if open? "true" "false")}
+           :data-open   (if open? "true" "false")
+           ;; The track, not the toolbar inside it, is the shell's flex
+           ;; child. Fixed chrome row: only L4 shrinks in a
+           ;; definite-height host.
+           :style       {:flex-shrink 0}}
      [:div {:data-testid "rf-xray-events-ribbon"
             :role        "toolbar"
             :aria-label  "Xray filters"
@@ -2416,7 +2422,8 @@
                                            (:frame focus-slot) focus))
         event-bundles (filterv #(l2-event-bundle-visible? % show-ungrouped?) event-bundles)]
     [:div {:data-testid "rf-xray-event-list-wrap"
-           :style {:display "flex" :flex-direction "column"}}
+           ;; Fixed chrome row: only L4 shrinks in a definite-height host.
+           :style {:display "flex" :flex-direction "column" :flex-shrink 0}}
      ;; The hidden-by-filters message lives in the
      ;; events ribbon (above this list); the list is just the scroll
      ;; container.
@@ -2742,6 +2749,8 @@
                    :align-items   "flex-end"
                    :gap           "3px"
                    :height        "34px"
+                   ;; Fixed chrome row: only L4 shrinks in a definite-height host.
+                   :flex-shrink   0
                    :padding       "0 12px"
                    :background    (:chrome-ribbon-bg tokens)
                    :border-top    (str "1px solid " (:border-subtle tokens))
