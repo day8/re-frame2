@@ -198,7 +198,11 @@
 #?(:cljs
    (deftest client-renders-the-declared-fallback-for-a-failed-boundary
      (testing "a boundary in the failed set renders its DECLARED
-               fallback — the markup the failed chunk left in the DOM"
+               fallback — the markup the failed chunk left in the DOM.
+               No frame scope is established: `boundary` is a plain fn
+               component, and on Reagent a plain fn cannot read the
+               enclosing provider's frame from React context, so the
+               render-time record is deliberately frame-free"
        (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky})
        (is (= [:p "loading"]
               (boundary {:id :card.flaky :fallback [:p "loading"]} [:div "body"]))
@@ -206,18 +210,6 @@
        (is (= [:div "body"]
               (boundary {:id :card.revenue :fallback [:p "loading"]} [:div "body"]))
            "a sibling that resolved still renders its body"))))
-
-#?(:cljs
-   (deftest the-render-time-record-needs-no-frame
-     (testing "`boundary` is a plain fn component, and on Reagent a plain
-               fn cannot read the enclosing provider's frame from React
-               context — so the render-time record is deliberately
-               frame-free and works with no scope established at all"
-       (rf.ssr.suspense/record-failed-boundaries! #{:card.flaky})
-       (is (= [:p "loading"]
-              (boundary {:id :card.flaky :fallback [:p "loading"]} [:div "body"])))
-       (is (= [:div "body"]
-              (boundary {:id :card.revenue :fallback [:p "loading"]} [:div "body"]))))))
 
 #?(:cljs
    (deftest the-durable-set-round-trips-through-hydration

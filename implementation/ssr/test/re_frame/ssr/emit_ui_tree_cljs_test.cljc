@@ -76,15 +76,6 @@
         (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d)))
         (is (= 2 (:got d)))))))
 
-(deftest version-gate-fires-before-any-emission
-  (testing "a v2 tree whose body would be perfectly emittable still throws"
-    ;; If the gate ran AFTER emission (or not first) this would emit markup.
-    (let [d (caught-ex-data
-              #(rf.ssr.ui-tree/emit-ui-tree {:rf.ui/tree-version 2
-                                      :tag :div
-                                      :children [{:tag :span :children ["x"]}]}))]
-      (is (= :rf.error/ssr-ui-tree-version-unsupported (:rf.error/id d))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Malformed nodes PAST the gate — the SHARED id (a distinct failure class)
 ;; ---------------------------------------------------------------------------

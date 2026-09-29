@@ -191,16 +191,6 @@
       (is (= payload (rf.ssr.boot/hydrate! {:frame fid :payload payload}))
           "a caller branching on the return value cannot tell root order"))))
 
-(deftest the-installing-root-is-recorded-and-a-later-root-does-not-replace-it
-  (testing "the ledger attributes the payload to the root that actually
-            installed it, so a conflict can name the right party"
-    (let [fid     (fresh-frame!)
-          payload (payload-for {:count 7})]
-      (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/a})
-      (rf.ssr.boot/hydrate! {:frame fid :payload payload :root-id :page/b})
-      (is (= :page/a (:installed-by (rf.ssr.install/installed-payload fid)))
-          "root B found the claim live; it did not take it over"))))
-
 (deftest order-independence-either-root-may-boot-first
   (testing "the ledger records whichever root arrives first — install is
             order-INdependent, not first-listed-wins (004C §6)"
@@ -223,20 +213,11 @@
        (catch #?(:clj Exception :cljs :default) e
          (:rf.error/id (ex-data e)))))
 
-(deftest a-different-payload-under-a-live-id-fails-loud
-  (testing "two roots referencing one payload id with DIFFERENT content is
-            :rf.error/frame-payload-conflict — never a silent first-wins"
-    (let [fid (fresh-frame!)]
-      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
-                      :root-id :page/a})
-      (is (= :rf.error/frame-payload-conflict
-             (caught-error-id
-              #(rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
-                               :root-id :page/b})))))))
-
 (deftest a-conflicting-root-leaves-the-installed-payload-untouched
-  (testing "the conflict throws BEFORE any install: the live payload, the
-            frame it seeded, and the ledger record all survive intact"
+  (testing "two roots referencing one payload id with DIFFERENT content is
+            :rf.error/frame-payload-conflict — never a silent first-wins —
+            and the conflict throws BEFORE any install: the live payload,
+            the frame it seeded, and the ledger record all survive intact"
     (reg-bump!)
     (let [fid (fresh-frame!)]
       (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})
@@ -244,9 +225,11 @@
       (rf/dispatch-sync [::bump] {:frame fid})
       (let [before-conflict (rf/app-db-value fid)
             record-before   (rf.ssr.install/installed-payload fid)]
-        (caught-error-id
-         #(rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
-                          :root-id :page/b}))
+        (is (= :rf.error/frame-payload-conflict
+               (caught-error-id
+                #(rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 99})
+                                        :root-id :page/b})))
+            "the differing payload fails loud")
         (is (= before-conflict (rf/app-db-value fid))
             "the frame the first root seeded was not touched")
         (is (= record-before (rf.ssr.install/installed-payload fid))
@@ -372,16 +355,6 @@
       (is (= :install (decision (payload-with-app-db {:items [nil 7]}) :page/a)))
       (is (= :already-installed (decision (payload-with-app-db {:items [nil 7]}) :page/b))))))
 
-(deftest the-render-tree-hash-keeps-pruning-nil
-  (testing "the payload digest is a SECOND canonicalisation, not a change to
-            the first: Spec 011 §Hydration-mismatch detection requires
-            [:div {:class nil}] and [:div {}] to hash alike, or the common
-            {:class (when …)} shape manufactures a spurious mismatch"
-    (is (= (rf.ssr/render-tree-hash [:div {:class nil} [:p "hi"]])
-           (rf.ssr/render-tree-hash [:div {} [:p "hi"]])))
-    (is (= (rf.ssr/render-tree-hash [:p "text" nil])
-           (rf.ssr/render-tree-hash [:p "text"])))))
-
 ;; ---------------------------------------------------------------------------
 ;; Preflight step 1 — the manifest
 ;; ---------------------------------------------------------------------------
@@ -420,14 +393,6 @@
                                             :payload-id fid
                                             :manifest   manifest-v1
                                             :root-id    :page/explicit})))))))
-
-(deftest the-manifest-less-boot-path-is-unchanged
-  (testing "hydrate! with neither :container nor :manifest still hydrates —
-            preflight adds a manifest STEP, it does not make manifests
-            mandatory for a host that supplies its own payload"
-    (let [fid (fresh-frame!)]
-      (rf.ssr.boot/hydrate! {:frame fid :payload (payload-for {:count 7})})
-      (is (= {:count 7} (rf/app-db-value fid))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Release

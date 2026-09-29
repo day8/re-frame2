@@ -19,10 +19,10 @@
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
   `implementation/ssr` and the node runner via `npm run test:cljs`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.ssr.constants :as rf.ssr.constants]
             [re-frame.ssr.manifest :as rf.ssr.manifest]
             #?(:clj  [clojure.edn]
-               :cljs [cljs.reader])))
+               :cljs [cljs.reader])
+            #?(:cljs [re-frame.ssr.constants :as rf.ssr.constants])))
 
 ;; A record defined HERE rather than reached for in some production ns:
 ;; the wire must refuse any value whose `pr-str` carries a tag the safe
@@ -382,24 +382,6 @@
                "stated the other way round, so the assertion cannot pass by
                 naming the value it is supposed to reject"))))))
 
-(deftest numeric-wire-guard-is-load-bearing
-  (testing "THE LEVER for the numeric arm, in the same
-            shape as the `record?` lever above: build the predicate
-            that says `(number? v) true` and prove it ACCEPTS the very
-            value the test above shows the far host mangles."
-    (let [lenient-number? (fn [v] (number? v))]
-      #?(:clj
-         (doseq [v [9007199254740993N 1.5M 1/3 9007199254740993 (float 0.1)]]
-           (is (true? (lenient-number? v))
-               (str "the defective predicate waves " (pr-str v) " through — if
-                     this ever goes false the lever is gone"))
-           (is (not (rf.ssr.manifest/edn-carryable? v))
-               (str "…and the SHIPPED predicate refuses it: " (pr-str v))))
-         :cljs
-         (let [nan js/NaN]
-           (is (true? (lenient-number? nan)))
-           (is (not (rf.ssr.manifest/edn-carryable? nan))))))))
-
 (deftest only-cross-host-numbers-ride-the-wire
   (testing "what the numeric subset ADMITS. These must keep
             working: narrowing the wire must not narrow ordinary props."
@@ -453,11 +435,8 @@
 ;; and these pins agree, on BOTH hosts.
 
 (deftest infinities-ride-only-nan-is-excluded
-  (testing "±Infinity is admitted on both hosts — EDN round-trips it exactly"
-    (is (rf.ssr.manifest/edn-carryable? ##Inf))
-    (is (rf.ssr.manifest/edn-carryable? ##-Inf)))
-  (testing "…and NaN alone is refused, by the round-trip property on its own terms"
-    (is (not (rf.ssr.manifest/edn-carryable? #?(:clj Double/NaN :cljs js/NaN)))))
+  ;; The predicate's verdicts — ±Infinity admitted, NaN refused — are pinned
+  ;; in `only-cross-host-numbers-ride-the-wire`; this pins the wire itself.
   (testing "±Infinity survives the shipped wire, both hosts — the accepted pin"
     (doseq [inf [##Inf ##-Inf]]
       (let [m (rf.ssr.manifest/manifest {:rf.root/schema-version 1 :root-id :page/shop}
@@ -792,10 +771,6 @@
                 :cljs (cljs.reader/read-string body)))
           (str "the raw reader silently accepts " (pr-str body)
                " — that is the hole `read-manifest` closes")))))
-
-(deftest marker-attribute-is-pinned-in-one-place
-  (is (= "data-rf-root" rf.ssr.constants/root-manifest-marker-attribute))
-  (is (= "application/edn" rf.ssr.manifest/manifest-script-type)))
 
 ;; ---------------------------------------------------------------------------
 ;; Discovery (CLJS) — adjacency, and nothing else

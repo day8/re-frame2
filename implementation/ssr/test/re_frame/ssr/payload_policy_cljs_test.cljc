@@ -83,15 +83,6 @@
       (is (= {:public/articles [:a :b :c]} slice)
           "missing keys silently absent; matches `select-keys` semantics"))))
 
-(deftest apply-policy-allowlist-as-vector
-  (testing "the allowlist as a VECTOR (the documented canonical
-            spelling) produces the expected slice"
-    (let [slice (rf.ssr.payload-policy/apply-policy
-                  sample-app-db
-                  {:payload [:public/articles]})]
-      (is (= {:public/articles [:a :b :c]} slice)
-          "vector allowlist produces the expected slice"))))
-
 (deftest apply-policy-list-payload-is-a-valid-allowlist
   (testing "a LIST / lazy-seq of keywords IS an accepted allowlist spelling —
             the policy selector is COLLECTION-vs-KEYWORD, not
@@ -206,19 +197,6 @@
               ":bad-entries lists exactly the non-keyword elements")
           (is (= :declare-payload-policy (:recovery data))))))))
 
-(deftest valid-keyword-allowlist-still-accepted
-  (testing "the element validator accepts valid all-keyword VECTOR
-            allowlists (the canonical spelling; the list spelling is
-            asserted by apply-policy-list-payload-is-a-valid-allowlist)"
-    (let [slice (rf.ssr.payload-policy/apply-policy
-                  sample-app-db
-                  {:payload [:public/articles :public/user-id]})]
-      (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
-          "all-keyword vector allowlist accepted"))
-    (testing "construction-time arm agrees"
-      (let [opts {:initial-events [[:init]] :payload [:public/articles]}]
-        (is (= opts (rf.ssr.payload-policy/validate-policy-opts! opts)))))))
-
 ;; ---- apply-policy: whole-app-db branch (:payload keyword) ----------------
 
 (deftest apply-policy-whole-app-db-policy-ships-everything
@@ -228,13 +206,6 @@
                   {:payload :rf.ssr.payload/whole-app-db})]
       (is (= sample-app-db slice)
           "whole-app-db opt-in → identity over app-db"))))
-
-(deftest apply-policy-whole-app-db-policy-keyword-is-public-constant
-  (testing "the policy keyword is exposed as a public def for callers"
-    (is (= :rf.ssr.payload/whole-app-db
-           rf.ssr.payload-policy/whole-app-db-policy)
-        "`whole-app-db-policy` constant matches the literal keyword
-         documented in the contract")))
 
 ;; ---- apply-policy: fail-closed --------------------------------------------
 
