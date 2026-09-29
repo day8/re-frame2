@@ -2,71 +2,61 @@
   "Pure-data unit tests for the Static Machines projection helpers.
   Dual-runtime so the projection contract is covered on
   the JVM and in the `:node-test` bundle alike."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is]]
+               :cljs [cljs.test :refer-macros [are deftest is]])
             [day8.re-frame2-xray.static.machines.helpers :as h]))
 
 ;; ---- sub-mode normalisation ---------------------------------------------
 
-(deftest sub-mode-defaults-to-topology
+(deftest normalise-sub-mode-keeps-the-four-modes-and-defaults-the-rest
   (is (= :topology h/default-sub-mode))
   (is (= 4 (count h/sub-modes))
-      "four sub-modes: topology + sim + instances + cascade"))
-
-(deftest normalise-sub-mode-accepts-valid
-  (doseq [m [:topology :sim :instances :cascade]]
-    (is (= m (h/normalise-sub-mode m))
-        (str m " survives normalisation"))))
-
-(deftest normalise-sub-mode-coerces-strings
-  (is (= :topology (h/normalise-sub-mode "topology")))
-  (is (= :sim      (h/normalise-sub-mode "sim")))
-  (is (= :instances (h/normalise-sub-mode "instances")))
-  (is (= :cascade  (h/normalise-sub-mode "cascade"))))
-
-(deftest normalise-sub-mode-rejects-unknown
-  (is (= :topology (h/normalise-sub-mode nil)))
-  (is (= :topology (h/normalise-sub-mode :nonsense)))
-  (is (= :topology (h/normalise-sub-mode "junk")))
-  (is (= :topology (h/normalise-sub-mode 42))))
+      "four sub-modes: topology + sim + instances + cascade")
+  (are [raw mode] (= mode (h/normalise-sub-mode raw))
+    ;; the four modes survive, as keywords or as their string names
+    :topology   :topology
+    :sim        :sim
+    :instances  :instances
+    :cascade    :cascade
+    "topology"  :topology
+    "sim"       :sim
+    "instances" :instances
+    "cascade"   :cascade
+    ;; anything else falls back to the default
+    nil         :topology
+    :nonsense   :topology
+    "junk"      :topology
+    42          :topology))
 
 ;; ---- sort-key normalisation ---------------------------------------------
 
-(deftest sort-key-defaults-to-name
+(deftest normalise-sort-key-keeps-the-three-axes-and-defaults-the-rest
   (is (= :name h/default-sort-key))
-  (is (= 3 (count h/sort-keys))))
-
-(deftest normalise-sort-key-rejects-unknown
-  (is (= :name (h/normalise-sort-key nil)))
-  (is (= :name (h/normalise-sort-key :nonsense)))
-  (is (= :states (h/normalise-sort-key :states)))
-  (is (= :live  (h/normalise-sort-key :live))))
+  (is (= 3 (count h/sort-keys)))
+  (are [raw k] (= k (h/normalise-sort-key raw))
+    :states   :states
+    :live     :live
+    nil       :name
+    :nonsense :name))
 
 ;; ---- source-coord lifting -----------------------------------------------
 
-(deftest lift-source-coord-pulls-canonical-slot
-  (is (= {:file "x.cljs" :line 42}
-         (h/lift-source-coord {:source-coord {:file "x.cljs" :line 42}})))
-  (testing "alternate :source slot — lenient fallback"
-    (is (= {:file "y.cljs"}
-           (h/lift-source-coord {:source {:file "y.cljs"}})))))
+(deftest lift-source-coord-reads-the-canonical-slot-then-the-lenient-one
+  (are [definition coord] (= coord (h/lift-source-coord definition))
+    {:source-coord {:file "x.cljs" :line 42}} {:file "x.cljs" :line 42}
+    ;; the alternate :source slot is the lenient fallback
+    {:source {:file "y.cljs"}}                {:file "y.cljs"}
+    nil                                       nil
+    {}                                        nil
+    {:initial :idle}                          nil))
 
-(deftest lift-source-coord-nil-safe
-  (is (nil? (h/lift-source-coord nil)))
-  (is (nil? (h/lift-source-coord {})))
-  (is (nil? (h/lift-source-coord {:initial :idle}))))
-
-(deftest format-source-coord-renders-file-line
-  (is (= "src/x.cljs:42"
-         (h/format-source-coord {:file "src/x.cljs" :line 42})))
-  (is (= "src/x.cljs"
-         (h/format-source-coord {:file "src/x.cljs"}))
-      "line is optional"))
-
-(deftest format-source-coord-nil-safe
-  (is (nil? (h/format-source-coord nil)))
-  (is (nil? (h/format-source-coord {:line 42}))
-      "no :file → no format"))
+(deftest format-source-coord-renders-file-and-optional-line
+  (are [coord label] (= label (h/format-source-coord coord))
+    {:file "src/x.cljs" :line 42} "src/x.cljs:42"
+    {:file "src/x.cljs"}          "src/x.cljs"
+    nil                           nil
+    ;; no :file, no label
+    {:line 42}                    nil))
 
 ;; ---- row projection -----------------------------------------------------
 
@@ -88,13 +78,6 @@
     (is (= {:file "src/a.cljs" :line 12} (:source-coord row)))
     (is (= "src/a.cljs:12" (:source-label row)))))
 
-(deftest project-row-degrades-on-missing-fields
-  (let [row (h/project-row :m/c (:m/c sample-defs) sample-snapshots)]
-    (is (= 0 (:state-count row)) "no :states → 0")
-    (is (= 1 (:live-count row)) ":m/c has a snapshot")
-    (is (nil? (:source-coord row)))
-    (is (nil? (:source-label row)))))
-
 (deftest project-rows-walks-all-machines
   (let [rows (h/project-rows [:m/a :m/b :m/c]
                              sample-defs
@@ -113,78 +96,54 @@
 ;; The count is exercised via the public `project-row` (`state-count`
 ;; itself is private).
 
-(deftest state-count-flat-counts-top-level-states
-  (testing "a flat machine counts its top-level states"
-    (let [row (h/project-row :m/flat
-                             {:initial :idle
-                              :states  {:idle    {:on {:go :busy}}
-                                        :busy    {:on {:done :idle}}
-                                        :stopped {}}}
-                             {})]
-      (is (= 3 (:state-count row))))))
+(deftest state-count-counts-every-rendered-state
+  (are [definition n] (= n (:state-count (h/project-row :m/x definition {})))
+    ;; flat: the top-level states
+    {:initial :idle
+     :states  {:idle    {:on {:go :busy}}
+               :busy    {:on {:done :idle}}
+               :stopped {}}}
+    3
 
-(deftest state-count-compound-includes-nested-substates
-  (testing "compound substates are counted, not omitted"
-    ;; :unauth + :authed + (:browsing + :paying) = 4 — the same occupiable-
-    ;; state count machines-viz `semantic-counts` emits for this definition.
-    (let [row (h/project-row :m/compound
-                             {:initial :unauth
-                              :states  {:unauth {:on {:login :authed}}
-                                        :authed {:initial :browsing
-                                                 :states  {:browsing {:on {:checkout :paying}}
-                                                           :paying   {:on {:done :browsing}}}}}}
-                             {})]
-      (is (= 4 (:state-count row))
-          ":unauth + :authed + :browsing + :paying"))))
+    ;; compound: :unauth + :authed + :browsing + :paying — the same
+    ;; occupiable-state count machines-viz `semantic-counts` emits
+    {:initial :unauth
+     :states  {:unauth {:on {:login :authed}}
+               :authed {:initial :browsing
+                        :states  {:browsing {:on {:checkout :paying}}
+                                  :paying   {:on {:done :browsing}}}}}}
+    4
 
-(deftest state-count-deeply-nested-compound
-  (testing "recursion descends every compound level"
-    ;; :a + (:b + (:c + :d)) = 4
-    (let [row (h/project-row :m/deep
-                             {:initial :a
-                              :states  {:a {:initial :b
-                                            :states  {:b {:initial :c
-                                                          :states  {:c {}
-                                                                    :d {}}}}}}}
-                             {})]
-      (is (= 4 (:state-count row))
-          ":a + :b + :c + :d across three nesting levels"))))
+    ;; three nesting levels: :a + :b + :c + :d
+    {:initial :a
+     :states  {:a {:initial :b
+                   :states  {:b {:initial :c
+                                 :states  {:c {}
+                                           :d {}}}}}}}
+    4
 
-(deftest state-count-parallel-sums-region-states
-  (testing "a :type :parallel machine sums its regions' states"
-    ;; region :r1 (:a + :b) + region :r2 (:c) = 3 — not 0, even though
-    ;; a parallel root carries no top-level :states key.
-    (let [row (h/project-row :m/par
-                             {:type    :parallel
-                              :regions {:r1 {:initial :a :states {:a {} :b {}}}
-                                        :r2 {:initial :c :states {:c {}}}}}
-                             {})]
-      (is (= 3 (:state-count row))
-          "two regions' states flatten: a + b + c"))))
+    ;; parallel: region :r1 (:a + :b) + region :r2 (:c), though a
+    ;; parallel root carries no top-level :states key
+    {:type    :parallel
+     :regions {:r1 {:initial :a :states {:a {} :b {}}}
+               :r2 {:initial :c :states {:c {}}}}}
+    3
 
-(deftest state-count-parallel-with-compound-regions
-  (testing "parallel regions whose states are themselves compound recurse"
-    ;; region :r1: :a + (:b + :b1 + :b2) = 4 ; region :r2: :c = 1 → 5
-    (let [row (h/project-row :m/par-compound
-                             {:type    :parallel
-                              :regions {:r1 {:initial :a
-                                             :states  {:a {}
-                                                       :b {:initial :b1
-                                                           :states  {:b1 {} :b2 {}}}}}
-                                        :r2 {:initial :c :states {:c {}}}}}
-                             {})]
-      (is (= 5 (:state-count row))
-          "region :r1 (a + b + b1 + b2) + region :r2 (c)"))))
+    ;; parallel regions recurse into compound states:
+    ;; :r1 (a + b + b1 + b2) + :r2 (c)
+    {:type    :parallel
+     :regions {:r1 {:initial :a
+                    :states  {:a {}
+                              :b {:initial :b1
+                                  :states  {:b1 {} :b2 {}}}}}
+               :r2 {:initial :c :states {:c {}}}}}
+    5
 
-(deftest state-count-degenerate-shapes-are-zero
-  (testing "nil / empty / no-states definitions count 0"
-    (is (= 0 (:state-count (h/project-row :m/nil nil {}))))
-    (is (= 0 (:state-count (h/project-row :m/empty {} {}))))
-    (is (= 0 (:state-count (h/project-row :m/no-states {:initial :idle} {})))
-        "an :initial-only map with no :states map → 0")
-    (is (= 0 (:state-count (h/project-row :m/empty-parallel
-                                          {:type :parallel :regions {}} {})))
-        "a parallel root with no regions → 0")))
+    ;; degenerate shapes count 0
+    nil                            0
+    {}                             0
+    {:initial :idle}               0
+    {:type :parallel :regions {}}  0))
 
 ;; ---- search -------------------------------------------------------------
 
@@ -214,28 +173,16 @@
 
 ;; ---- sort ---------------------------------------------------------------
 
-(deftest apply-sort-name-asc
-  (let [sorted (h/apply-sort sample-rows :name)]
-    (is (= [:bar/upload :foo/checkout :foo/login]
-           (mapv :machine-id sorted))
-        "alphabetical by `(str id)`")))
-
-(deftest apply-sort-states-desc
-  (let [sorted (h/apply-sort sample-rows :states)]
-    (is (= [:foo/checkout :bar/upload :foo/login]
-           (mapv :machine-id sorted))
-        "5 > 4 > 3")))
-
-(deftest apply-sort-live-desc
-  (let [sorted (h/apply-sort sample-rows :live)]
-    (is (= [:foo/checkout :bar/upload :foo/login]
-           (mapv :machine-id sorted))
-        "2 > 1 > 0, ties on name")))
-
-(deftest apply-sort-unknown-key-falls-back-to-name
-  (let [sorted (h/apply-sort sample-rows :unknown)]
-    (is (= [:bar/upload :foo/checkout :foo/login]
-           (mapv :machine-id sorted)))))
+(deftest apply-sort-orders-by-each-axis
+  (are [sort-key order] (= order (mapv :machine-id (h/apply-sort sample-rows sort-key)))
+    ;; alphabetical by `(str id)`
+    :name    [:bar/upload :foo/checkout :foo/login]
+    ;; state-count DESC: 5 > 4 > 3
+    :states  [:foo/checkout :bar/upload :foo/login]
+    ;; live-count DESC: 2 > 1 > 0
+    :live    [:foo/checkout :bar/upload :foo/login]
+    ;; an unknown key falls back to :name
+    :unknown [:bar/upload :foo/checkout :foo/login]))
 
 ;; ---- composite browse-list projection -----------------------------------
 
@@ -275,15 +222,14 @@
 
 ;; ---- pip render plan ----------------------------------------------------
 
-(deftest pip-render-plan-zero-is-none
-  (is (= {:kind :none} (h/pip-render-plan 0)))
-  (is (= {:kind :none} (h/pip-render-plan nil))))
+(deftest pip-render-plan-is-none-then-pips-then-a-count
+  (are [live plan] (= plan (h/pip-render-plan live))
+    nil {:kind :none}
+    0   {:kind :none}
+    1   {:kind :pips :count 1}
+    5   {:kind :pips :count 5}
+    ;; 12 is the pip cap
+    12  {:kind :pips :count 12}
+    13  {:kind :count :count 13}
+    999 {:kind :count :count 999}))
 
-(deftest pip-render-plan-under-cap-is-pips
-  (is (= {:kind :pips :count 1}  (h/pip-render-plan 1)))
-  (is (= {:kind :pips :count 12} (h/pip-render-plan 12)))
-  (is (= {:kind :pips :count 5}  (h/pip-render-plan 5))))
-
-(deftest pip-render-plan-over-cap-is-count
-  (is (= {:kind :count :count 13} (h/pip-render-plan 13)))
-  (is (= {:kind :count :count 999} (h/pip-render-plan 999))))
