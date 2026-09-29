@@ -1666,7 +1666,7 @@ colour) + the **category** (muted) + the **short description** (primary) + the *
 
 - **error** — handler/sub/fx exception, no-such-sub, flow-eval, schema violation, etc. → `error`
   (red), strongest.
-- **warning** — plain-fn-under-non-default-frame, missing-doc, etc. → `warning` (amber).
+- **warning** — missing-doc, etc. → `warning` (amber).
 - **advisory** — fx skipped-on-platform, SSR hydration mismatch, cofx skipped, etc. → `advisory`
   (cool blue; calm, ≠ warning).
 
@@ -1691,7 +1691,7 @@ Silent-by-default — a clean epoch shows a calm positive state, not an error lo
 | From | Reads | Severity |
 |---|---|---|
 | Focused epoch record | `:rf.error/*`, `:rf.schema/violation`, `:rf.a11y/violation` — read from the focused epoch's `:trace-events` (correlated via `focus.epoch-id`; cascade-wide tag `:rf.trace/dispatch-id`) | **error** |
-| Focused epoch record | `:rf.warning/*` (plain-fn-under-non-default-frame, missing-doc, …) | **warning** |
+| Focused epoch record | `:rf.warning/*` (missing-doc, …) | **warning** |
 | Focused epoch record | advisories — `:rf.fx/skipped-on-platform`, `:rf.ssr/*` (hydration mismatch), `:rf.cofx/*` (cofx skipped) | **advisory** |
 
 Each error carries the responsible handler's source coord (`:rf.trace/trigger-handler`) for

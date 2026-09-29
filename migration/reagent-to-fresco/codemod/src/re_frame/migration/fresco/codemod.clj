@@ -107,8 +107,8 @@
   with the file, line, column and source form. Returns
   `{:entries [...] :suggestions [...] :sites n :left-alone n}`.
 
-  **Crossing SITES, so inert subtrees are pruned rather than walked**
-  (rf2-xc11). A `#_`, a quote and a `(comment …)` body each parse into the
+  **Crossing SITES, so inert subtrees are pruned rather than walked.**
+  A `#_`, a quote and a `(comment …)` body each parse into the
   nodes a live crossing does, and nothing in any of them crosses into
   React. [[rewrite/past-subtree]] answers `nil` for an inert form that
   ends the file, and `z/end?` reads a `nil` loc as the end of the walk."

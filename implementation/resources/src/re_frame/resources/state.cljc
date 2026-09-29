@@ -343,10 +343,11 @@
 (defn canonicalize
   "Pure canonicalization of an EDN value for use in a cache key — delegates
   to the shared CEDN-1 `re-frame.identity/canonical` (Spec 016
-  §Canonicalization rule / Conventions §Canonical EDN identity). Map entries
-  and set elements are reordered into CEDN-1 canonical order so two spellings
-  (key/element order) collapse to one identity and `=`; nested values recurse;
-  vectors and LISTS preserve their kind and order (distinct EDN facts, not
+  §Canonicalization rule / Conventions §Canonical EDN identity). Nested
+  values recurse; map entries and set elements are not reordered, because two
+  spellings differing only in key or element order are already `=` as EDN
+  values, and CEDN-1 ordering belongs to `re-frame.identity/canonical-bytes`.
+  Vectors and LISTS preserve their kind and order (distinct EDN facts, not
   collapsed). Two map spellings differing only in insertion order return an
   `=` canonical value (and therefore the identical scoped resource key).
 
