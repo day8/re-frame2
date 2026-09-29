@@ -97,12 +97,15 @@
   ones somebody has looked at."
   (:require [re-frame.classification :as rf.classification]
             [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
             [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
             [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
             [re-frame.resources.registry :as rf.resources.registry]
             [re-frame.resources.reply :as rf.resources.reply]
             [re-frame.resources.ssr :as rf.resources.ssr]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.subs :as rf.resources.subs]
             [re-frame.substrate.adapter :as rf.substrate.adapter]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -1680,12 +1683,17 @@
 ;;
 ;;   - DATA: the owner's `:data`-rooted (or bare) paths, re-rooted under every
 ;;     place the sub's value carries the data projection — `:data` /
-;;     `:previous-data` on `:rf/resource`, `:items` / `:pages` on
+;;     `:previous-data` on `:rf/resource`, `:pages` on
 ;;     `:rf.resource/infinite-state`, `:result` on `:rf/mutation`, or the whole
 ;;     value for the single-projection subs. A resource's coarse `:sensitive?` /
 ;;     `:large?` claim covers the whole data projection. The walk is
-;;     INDEX-FREE, so one declaration reaches every page and item of an
-;;     infinite feed, as it does on the durable side.
+;;     INDEX-FREE, so one declaration reaches every page of an infinite feed,
+;;     as it does on the durable side.
+;;   - MERGED ITEMS: a feed's merged item list (`:rf.resource/items`, and
+;;     `:items` on `:rf.resource/infinite-state`) is not the page shape the
+;;     owner declared against, because `:page->items` has taken each page
+;;     apart. It takes the declaration through that same accessor instead
+;;     (`project-merged-items`).
 ;;   - KEYS: `:rf/resource`'s `:previous-key` and `:rf/mutation`'s
 ;;     `:affected-keys` are scoped keys, projected by `project-trace-scoped-key`,
 ;;     the owner classification the family's own rows give the same keys.
@@ -1698,13 +1706,16 @@
 (def ^:private data-roots
   "Where each read sub's value carries its owner's DATA projection, as paths
   into the value (`[]` — the value IS the projection). A sub absent here
-  carries no data projection."
+  carries no data projection. A feed's merged item list carries the data in
+  another shape, so `:rf.resource/items` has no root here and `:items` on
+  `:rf.resource/infinite-state` is not one; `project-feed-items` projects
+  both."
   {:rf/resource                [[:data] [:previous-data]]
    :rf.resource/data           [[]]
    :rf.resource/previous-data  [[]]
-   :rf.resource/items          [[]]
+   :rf.resource/items          []
    :rf.resource/pages          [[]]
-   :rf.resource/infinite-state [[:items] [:pages]]
+   :rf.resource/infinite-state [[:pages]]
    :rf/mutation                [[:result]]
    :rf.mutation/result         [[]]})
 
@@ -1719,6 +1730,13 @@
   the sub it describes."
   [frame-id]
   (when-let [container (rf.frame/runtime-db-container frame-id)]
+    (rf.substrate.adapter/read-container-untracked container)))
+
+(defn- live-frame-state
+  "`frame-id`'s frame-state, read as a SNAPSHOT for the reason
+  `live-runtime-db` gives."
+  [frame-id]
+  (when-let [container (rf.frame/frame-state-container frame-id)]
     (rf.substrate.adapter/read-container-untracked container)))
 
 (defn- owner-spec
@@ -1742,6 +1760,72 @@
         large  (cond-> (vec (keys (:large marks))) (:large? spec) (conj []))
         rebase (fn [paths] (into [] (for [root roots p paths] (into root p))))]
     [(rebase sens) (rebase large)]))
+
+(defn- project-merged-items
+  "Project a feed's MERGED item list `items` for egress under the owner
+  `spec`'s data declaration. `pages` is a thunk of the raw page vector the list
+  was merged from.
+
+  The owner declares its data against the PAGE, and `:page->items` is what
+  turns a page into items, so the list takes the declaration through that same
+  accessor: the declaration redacts the pages, and the list is the redacted
+  pages merged by the rule `rf.resources.state/merge-pages->items` applies — a
+  vector page is its own items, any other page is `(accessor page)`. A keyword
+  accessor thereby drops the envelope level from every declared path that runs
+  through it, and a callable accessor gets the same reading because it runs
+  over pages that are already redacted.
+
+  Pages are read only where they are needed. With no accessor every page is a
+  vector of items, so a page-relative path already names each item, and a
+  declaration covering the whole projection covers the list whatever the
+  accessor. Otherwise the whole list redacts when the pages cannot be read, do
+  not merge to `items`, or leave a page's redacted items no longer a list of
+  items — a declaration covering all of them — because a guess at where the
+  declared fields went could miss one."
+  [items spec resource-id pages]
+  (let [[sens large] (data-paths spec [[]])
+        accessor     (rf.resources.state/resolve-page->items (:page->items spec))]
+    (cond
+      (and (empty? sens) (empty? large))
+      items
+
+      (or (nil? accessor) (some empty? sens) (some empty? large))
+      (rf.classification/redact-with-paths items sens large {:index-free? true})
+
+      :else
+      (or (try
+            (let [raw (pages)]
+              (when (and (vector? raw)
+                         (= items (rf.resources.state/merge-pages->items
+                                    raw accessor resource-id 'rf.resource/items)))
+                (let [page-items (mapv #(if (vector? %) % (accessor %))
+                                       (rf.classification/redact-with-paths
+                                         raw sens large {:index-free? true}))]
+                  (when (every? #(or (nil? %) (and (coll? %) (not (map? %)))) page-items)
+                    (into [] cat page-items)))))
+            (catch #?(:clj Throwable :cljs :default) _ nil))
+          rf.privacy/redacted-sentinel))))
+
+(defn- project-feed-items
+  "Project the merged item list a feed read sub's `value` carries: the whole
+  value of `:rf.resource/items`, the `:items` of `:rf.resource/infinite-state`.
+  Any other sub's value is returned unchanged. `frame-state` is a thunk of the
+  frame-state the value was computed from, read only by the items sub, whose
+  value carries no pages — through `rf.resources.subs/pages-sub-fn`, the sub
+  layer's own read of the same entry."
+  [sub-id value spec query-v frame-state]
+  (let [resource-id (:resource (second query-v))]
+    (case sub-id
+      :rf.resource/items
+      (project-merged-items value spec resource-id
+                            #(rf.resources.subs/pages-sub-fn (frame-state) query-v))
+
+      :rf.resource/infinite-state
+      (if (map? value)
+        (update value :items project-merged-items spec resource-id #(:pages value))
+        value)
+
+      value)))
 
 (defn- project-key-slot
   "Project the scoped key(s) under `slot` of `value` — one key, or a vector of
@@ -1777,13 +1861,15 @@
          roots  (get data-roots sub-id)]
      (if (nil? roots)
        value
-       (let [payload    (second query-v)
-             runtime-db #(if (or (= ::live prior-inputs) (nil? prior-inputs))
-                           (live-runtime-db frame)
-                           (first prior-inputs))
-             spec       (when (map? payload) (owner-spec sub-id payload runtime-db))
-             value      (if (and spec roots)
-                          (let [[sens large] (data-paths spec roots)]
-                            (rf.classification/redact-with-paths value sens large {:index-free? true}))
-                          value)]
+       (let [payload     (second query-v)
+             live?       (or (= ::live prior-inputs) (nil? prior-inputs))
+             runtime-db  #(if live? (live-runtime-db frame) (first prior-inputs))
+             frame-state #(if live? (live-frame-state frame) (first prior-inputs))
+             spec        (when (map? payload) (owner-spec sub-id payload runtime-db))
+             value       (if (and spec roots)
+                           (let [[sens large] (data-paths spec roots)]
+                             (rf.classification/redact-with-paths
+                               (project-feed-items sub-id value spec query-v frame-state)
+                               sens large {:index-free? true}))
+                           value)]
          (project-keys sub-id value frame))))))
