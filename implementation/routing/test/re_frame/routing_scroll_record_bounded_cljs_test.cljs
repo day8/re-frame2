@@ -139,7 +139,9 @@
            never enter them in the first place")
       (is (nil? (:strategy record))
           "no raw `:strategy` slot at all")
-      (is (not (str/includes? (str (:reason record "")) sentinel))
+      (is (string? (:reason record))
+          "the record carries its `:reason`")
+      (is (not (str/includes? (:reason record) sentinel))
           "`:reason` is not built by pr-str'ing the rejected value"))))
 
 ;; ===========================================================================
@@ -277,10 +279,9 @@
             small-2  (step! :small-2  (adversarial-strategy 1))
             huger    (step! :huger    (adversarial-strategy 2000))]
         (is (= small-1 huge small-2 huger)
-            (str "the record is the SAME size for a 1-key value and a "
-                 "2000-key one — the bound is structural (the record carries "
-                 "no value-derived slot), not a truncation ceiling that a "
-                 "bigger value could push against. Observed: " @sizes))
-        (is (apply = (map second @sizes))
-            "…and identical at every step of the escalate/recover/re-escalate
-             sequence")))))
+            (str "the record is the SAME size at every step of the "
+                 "escalate/recover/re-escalate sequence, for a 1-key value "
+                 "and a 2000-key one — the bound is structural (the record "
+                 "carries no value-derived slot), not a truncation ceiling "
+                 "that a bigger value could push against. Observed: "
+                 @sizes))))))

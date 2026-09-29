@@ -78,6 +78,8 @@
                          {:on-success-event   [:article/loaded "A" "A-payload"]
                           :carried-nav-token  "nav-1"
                           :carried-route-id   :route/article}])
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "A's stale payload never reached app-db — read before B's could overwrite it")
 
       ;; 4. B's response carries "nav-2"; matches current; commits.
       (rf/dispatch-sync [:rf.test/simulate-http-resolution
@@ -254,6 +256,8 @@
                           :carried-route-id :route/article
                           :id               "A"
                           :payload          "A-payload"}])
+      (is (nil? (:article (rf/app-db-value :rf/default)))
+          "A's stale :rf/reply-to never reached app-db — read before B's could overwrite it")
 
       ;; 4. B's fresh :on-success arrives carrying "nav-2"; matches
       ;; current; inner :dispatch fires; :article/loaded commits.

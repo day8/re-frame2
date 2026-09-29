@@ -129,14 +129,7 @@
                ;; Per-thread :on-match event id so the closure binds
                ;; THIS thread's counter atom (registrar is global; one
                ;; shared id would only bind the last closure).
-               :tick-event (keyword "ksbur.stress" (str "tick-f" i))}))
-          ;; Stable route shared across threads — a single registry
-          ;; entry whose `:on-match` fans out to per-thread tick events.
-          ;; Per-frame `dispatch-sync` of `:rf.route/handle-url-change` produces
-          ;; the URL-change cascade that emits
-          ;; the on-match events to each thread's own frame.
-          on-match-events (mapv (fn [{:keys [tick-event]}] [tick-event])
-                                per-thread)]
+               :tick-event (keyword "ksbur.stress" (str "tick-f" i))}))]
       ;; Set up frames + on-match handlers + route on the main thread
       ;; before any futures launch. These registrar / frame-registry
       ;; writes are serialised here; the futures only DISPATCH against
@@ -150,18 +143,10 @@
                            (.incrementAndGet global-counter)
                            (swap! counter inc)
                            {:db (update db :n (fnil inc 0))})))
-      ;; A single shared route. Each frame runs its own `:on-match` —
-      ;; but the `:on-match` vector is the same across frames since
-      ;; the framework dispatches each on-match event to the calling
-      ;; frame (the `{:frame frame-id}` opt on the per-thread tick
-      ;; reg-event ensures the event lands on the right frame).
-      ;; Wait — :on-match dispatches honour the calling frame, so we
-      ;; actually need ONE on-match event registered per frame. Use
-      ;; per-frame routes so the `:on-match` payload is per-frame.
-      ;;
-      ;; Re-register: per-thread routes carrying the per-thread
-      ;; on-match event id. Each thread's :rf.route/handle-url-change dispatch
-      ;; matches that thread's URL pattern and fires its own
+      ;; One route per thread, carrying that thread's own on-match event id:
+      ;; `:on-match` dispatches to the calling frame, and each tick event is
+      ;; registered for one frame. Each thread's :rf.route/handle-url-change
+      ;; dispatch matches that thread's URL pattern and fires its own
       ;; on-match → per-thread counter bump.
       (rf.registrar/clear-kind! :route)
       (doseq [{:keys [idx tick-event]} per-thread]

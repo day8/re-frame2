@@ -285,8 +285,14 @@
                         ;; the byte-identical canonical-order URL.
                         url-fwd  (rf.routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) ks))})
                         url-rev  (rf.routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) (reverse ks)))})
+                        ;; route-url's two outputs are byte-identical once the
+                        ;; first branch below passes, so the inbound leg needs
+                        ;; a URL that really does spell the query in another
+                        ;; order: url-fwd's pairs, reversed.
+                        [path qs] (str/split url-fwd #"\?" 2)
+                        url-in   (str path "?" (str/join "&" (reverse (str/split qs #"&"))))
                         m-fwd    (rf.routing/match-url url-fwd)
-                        m-rev    (rf.routing/match-url url-rev)
+                        m-rev    (rf.routing/match-url url-in)
                         expected (canonical-key-order ks)]
                     (cond
                       (not= url-fwd url-rev)
@@ -297,6 +303,9 @@
 
                       (not= expected (vec (keys (:query m-fwd))))
                       [:match-url-key-order q expected (vec (keys (:query m-fwd)))]
+
+                      (not= expected (vec (keys (:query m-rev))))
+                      [:match-url-key-order-reversed q url-in (vec (keys (:query m-rev)))]
 
                       :else
                       (recur (inc i) (lcg-next s1))))))))]
