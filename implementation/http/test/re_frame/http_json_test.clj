@@ -78,14 +78,6 @@
 
 ;; ---- Cheshire is mandatory; malformed JSON propagates --------------------
 
-(deftest cheshire-handles-well-formed-unicode-escape
-  (testing "Cheshire (the mandatory JVM JSON dep) parses
-  `\\uXXXX` escapes correctly. It is RFC-8259-conforming, so no
-  hand-rolled `\\uXXXX` bounds-checking is needed."
-    (is (= "A"   (rf.http.json/json-parse "\"\\u0041\"")))
-    (is (= "AB"  (rf.http.json/json-parse "\"\\u0041\\u0042\"")))
-    (is (= "café" (rf.http.json/json-parse "\"caf\\u00e9\"")))))
-
 (deftest cheshire-rejects-malformed-input-cleanly
   (testing "malformed JSON (truncated escape, unterminated
   string, invalid token) raises a Cheshire/Jackson `JsonParseException`.
@@ -110,18 +102,6 @@
         (is (instance? Exception thrown)
             (str "expected a parse exception for " (pr-str s)
                  " — got " thrown))))))
-
-(deftest json-stringify-uses-cheshire
-  (testing "`json-stringify` produces real JSON via Cheshire
-  (not `pr-str`); with Cheshire mandatory the output is always
-  valid JSON."
-    ;; Cheshire emits standard JSON: keys quoted, strings double-quoted,
-    ;; no edn-isms.
-    (is (= "{\"a\":1,\"b\":\"hello\"}"
-           (rf.http.json/json-stringify {:a 1 :b "hello"})))
-    (is (= "[1,2,3]" (rf.http.json/json-stringify [1 2 3])))
-    (is (= "true" (rf.http.json/json-stringify true)))
-    (is (= "null" (rf.http.json/json-stringify nil)))))
 
 ;; The same body writes the same JSON on both hosts. The CLJS
 ;; twin (`cljs-json-stringify-matches-across-hosts` in

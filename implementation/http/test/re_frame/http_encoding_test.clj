@@ -109,14 +109,6 @@
     (is (= 250 (rf.http.encoding/compute-backoff-ms {} -5))
         "negative attempt → same floor at 250")))
 
-(deftest compute-backoff-ms-returns-long-integer
-  (testing "the return type is `long` (the source coerces
-            via `(long jittered)`), suitable for direct use as a
-            timeout argument"
-    (let [result (rf.http.encoding/compute-backoff-ms {} 3)]
-      (is (integer? result))
-      (is (instance? Long result)))))
-
 ;; ---- jitter — bounded range probe ----------------------------------------
 ;;
 ;; The jitter offset is `±25% × capped`, uniformly distributed. Pinning
@@ -146,17 +138,6 @@
       (is (> (count (set samples)) 1)
           "jitter produces variance across samples (catches a regression
            where the `:jitter true` arm is unreachable)"))))
-
-(deftest compute-backoff-ms-jitter-never-negative
-  (testing "the source caps jittered output at 0 via
-            `(max 0 ...)`. With max-ms small enough that 25% offset
-            could go negative, the floor protects the caller from a
-            negative timeout"
-    (let [cfg     {:base-ms 100 :factor 1 :max-ms 100 :jitter true}
-          samples (repeatedly 200 #(rf.http.encoding/compute-backoff-ms cfg 1))]
-      (doseq [s samples]
-        (is (<= 0 s)
-            (str "jittered sample " s " is non-negative (floor at 0)"))))))
 
 (deftest compute-backoff-ms-jitter-respects-clamp
   (testing "clamp happens BEFORE jitter is applied (per

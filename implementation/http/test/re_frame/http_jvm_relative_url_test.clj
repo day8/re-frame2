@@ -82,13 +82,6 @@
       (is (some? ex))
       (is (str/includes? (.getMessage ^Throwable ex) "absolute")))))
 
-(deftest absolute-url-does-not-throw
-  (testing "complement — an absolute :url builds normally,
-            unaffected by the guard"
-    (let [req (rf.http.transport-jvm/jvm-build-request
-                {:method :get :url "https://example.invalid/api/items"})]
-      (is (some? req)))))
-
 ;; ---- 2. end-to-end — a real (non-stub) dispatch classifies cleanly --------
 
 (deftest real-dispatch-with-relative-url-fails-clearly

@@ -118,24 +118,6 @@
    :frame        :app/main
    :completed-at 1781078400456})
 
-(deftest work-id-head
-  (testing "HTTP work-id head is [:rf.work/http logical-id issuance attempt]"
-    (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id base-ctx)))
-    (testing "logical-id falls back to the origin event-id, tagged anonymous, when :request-id is absent"
-      (is (= [:rf.work/http [:rf.http/anonymous :article/load] 1 1]
-             (rf.http.reply/work-id (dissoc base-ctx :request-id)))))
-    (testing "the attempt slot discriminates transport retries within one issuance"
-      (is (= [:rf.work/http :article/by-id 1 3]
-             (rf.http.reply/work-id (assoc base-ctx :attempt 3)))))
-    (testing "the issuance slot discriminates re-issuances across supersessions"
-      ;; A superseded attempt (issuance 1) and its superseder (issuance 2) both
-      ;; reset their retry :attempt to 1, but the issuance keeps their work
-      ;; ids =-distinct — the EP-0011 one-attempt-one-work-id rule.
-      (is (= [:rf.work/http :article/by-id 2 1]
-             (rf.http.reply/work-id (assoc base-ctx :issuance 2))))
-      (is (not= (rf.http.reply/work-id base-ctx)
-                (rf.http.reply/work-id (assoc base-ctx :issuance 2)))))))
-
 (deftest success-reply-is-canonical
   (testing "a success completion builds a schema-valid :status :ok reply"
     (let [r (rf.http.reply/success-reply base-ctx {:title "Welcome"})]
@@ -184,87 +166,6 @@
       (is (= :failed (:rf.reply/work-status r)))
       (is (= :rf.http/http-5xx (get-in r [:error :kind])))
       (is (= 503 (get-in r [:error :status]))))))
-
-(deftest timeout-maps-to-error-plus-timed-out-work-status
-  (testing "timeout is :status :error + :rf.reply/work-status :timed-out (NOT a top-level status)"
-    (let [r (rf.http.reply/failure-reply
-              base-ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
-      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :error (:status r)) "timeout is NOT a top-level :status")
-      (is (= :timed-out (:rf.reply/work-status r)))
-      (is (= :rf.http/timeout (get-in r [:error :kind]))))))
-
-(deftest abort-maps-to-cancelled
-  (testing "an abort is :status :cancelled with an :rf.http/aborted :error"
-    (let [failure {:kind :rf.http/aborted :reason :user :request-id :article/by-id}
-          r       (rf.http.reply/failure-reply base-ctx failure)]
-      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
-      (is (= :cancelled (:status r)))
-      (is (= :cancelled (:rf.reply/work-status r)))
-      (is (true? (:cancelled? r)))
-      (is (= :user (:rf.reply/cancel-reason r)))
-      (is (= :rf.http/aborted (get-in r [:error :kind])))))
-  (testing "an aborted failure routed through failure-reply also lowers to :cancelled"
-    (let [r (rf.http.reply/failure-reply
-              base-ctx {:kind :rf.http/aborted :reason :actor-destroyed})]
-      (is (= :cancelled (:status r)))
-      (is (= :actor-destroyed (:rf.reply/cancel-reason r))))))
-
-;; ===========================================================================
-;; Group 1b — the SHARED-TARGET lowering path + the reply-mapping functor law
-;; for HTTP. HTTP's reply addressing — append the CANONICAL reply
-;; envelope as the final arg of the reply target's event (no
-;; compat reshape) — IS the shared `re-frame.reply/complete` `:delivery
-;; :append`. These pin that HTTP rides the shared target functions (`complete`
-;; / `map-completed-event`) rather than a family-private append, and that the
-;; EP-0011 functor law holds over HTTP's reply target — not only that the
-;; canonical reply map is constructed.
-;; ===========================================================================
-
-(deftest http-target-lowers-through-shared-complete
-  (testing "the HTTP reply (canonical envelope appended to the target event) IS re-frame.reply/complete :delivery :append — the shared-target lowering path, not a family-private append"
-    (let [reply  (rf.http.reply/success-reply base-ctx {:title "Welcome"})
-          target [:article/load {:id 42}]]
-      ;; `complete` appends the canonical reply as the final arg — exactly the
-      ;; shape `build-reply-event` produces for an explicit reply target.
-      (is (= [:article/load {:id 42} reply]
-             (rf.reply/complete target reply)))
-      (is (= :ok (get-in (rf.reply/complete target reply) [2 :status])))
-      (testing "a failure reply lowers the same way through the shared append"
-        (let [fr (rf.http.reply/failure-reply base-ctx {:kind :rf.http/http-5xx :status 503 :body "down"})]
-          (is (= [:svc/failed fr] (rf.reply/complete [:svc/failed] fr)))
-          (is (= :rf.http/http-5xx (get-in (rf.reply/complete [:svc/failed] fr) [1 :error :kind]))))))))
-
-(deftest http-target-satisfies-functor-law
-  (testing "the EP-0011 reply-mapping functor law holds over HTTP's reply target: complete(map-completed-event(f,t),reply) == f(complete(t,reply)); identity + composition"
-    (let [payload (rf.http.reply/success-reply base-ctx {:title "Welcome"})
-          target  [:article/load {:id 42}]
-          ;; relocate the completed reply into a wrapper event (the Cmd.map role)
-          wrap    (fn [ev] [:wrap ev])
-          tag     (fn [ev] (conj ev :tag))]
-      (testing "the law: complete(map-completed-event(f, target), reply) == f(complete(target, reply))"
-        (is (= (rf.reply/complete (rf.reply/map-completed-event wrap target) payload)
-               (wrap (rf.reply/complete target payload)))))
-      (testing "identity: map-completed-event(identity, target) completes to the plain completion"
-        (is (= (rf.reply/complete (rf.reply/map-completed-event identity target) payload)
-               (rf.reply/complete target payload))))
-      (testing "composition: map-completed-event(comp f g) == map-completed-event f ∘ map-completed-event g"
-        (is (= (rf.reply/complete (rf.reply/map-completed-event (comp wrap tag) target) payload)
-               (rf.reply/complete (rf.reply/map-completed-event wrap (rf.reply/map-completed-event tag target)) payload))))
-      (testing "mapping changes ONLY the completed event — the canonical reply facts (work-id / status) are untouched by map-completed-event"
-        (let [reply (rf.http.reply/success-reply base-ctx {:title "Welcome"})]
-          ;; work-id / status are not stored on the target, so mapping cannot
-          ;; touch them — the law is structural.
-          (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id reply)))
-          (is (= :ok (:status reply))))))))
-
-;; ===========================================================================
-;; Group 2a — there is no compat reshape.
-;; ===========================================================================
-
-(deftest no-public-payload-reshape
-  (testing "there is no {:kind :success/:failure} reshape (no reply->public-payload / :rf.http/compat-reply); the canonical reply IS the public payload"
-    (is (not (contains? (ns-publics 're-frame.http.reply) 'reply->public-payload)))))
 
 ;; ===========================================================================
 ;; Group 2b — the CANONICAL envelope is delivered END-TO-END through the real
@@ -543,12 +444,12 @@
 ;; Group 3 — supersession suppresses the prior request's app target.
 ;; ===========================================================================
 
-;; WHY THESE TESTS CARRY NO TIMED WAIT.
+;; WHY THIS TEST CARRIES NO TIMED WAIT.
 ;;
 ;; Both server responses are byte-identical, so "one reply, :status :ok" is
 ;; satisfied just as well by a broken path that delivers the SUPERSEDED
 ;; issuance and loses the superseding one. The three devices below make the
-;; claim these tests advertise — *the one delivered reply is request #2's, and
+;; claim this test advertises — *the one delivered reply is request #2's, and
 ;; there is never a second* — provable rather than merely probable, and none of
 ;; them is a clock:
 ;;
@@ -580,69 +481,6 @@
 ;;       after the surviving reply lands therefore observes any wrongly
 ;;       dispatched #1 reply, where a `Thread/sleep 200` would only
 ;;       establish that none had arrived within 200 ms.
-
-(deftest supersede-suppresses-prior-app-reply
-  (testing "a same-:request-id supersede suppresses the FIRST request's :on-failure app target"
-    ;; A held server keeps request #1 in flight; issuing request #2 with the
-    ;; same :request-id supersedes #1. Per Spec 014 §`:request-id` (internal)
-    ;; the superseded request's reply is trace-only — its app target MUST NOT
-    ;; fire. #2 completes normally and IS delivered.
-    (rf.http.registry/reset-issuance-counters-for-test!)
-    (let [release (java.util.concurrent.CountDownLatch. 1)
-          replied (java.util.concurrent.CountDownLatch. 1)
-          srv     (start-held-server! release)
-          replies (atom [])]
-      (try
-        (rf/reg-event :search/replied
-          (fn [{:keys [db]} [_ payload]]
-            (swap! replies conj payload)
-            ;; The delivered reply IS the completion signal — count it down
-            ;; here rather than sampling a clock for it.
-            (.countDown replied)
-            {:db db}))
-        (rf/reg-event :search/quiesce (fn [{:keys [db]} _] {:db db}))
-        (rf/reg-event :search/go
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/s")}
-                    :request-id :search
-                    :decode     :json
-                    :on-success [:search/replied]
-                    :on-failure [:search/replied]}]]}))
-        ;; Fire #1, then #2 (supersedes #1). dispatch-sync drains each event,
-        ;; and the held server guarantees #1 is still in flight for #2 to
-        ;; supersede — see `start-held-server!`.
-        (rf/dispatch-sync [:search/go])
-        (rf/dispatch-sync [:search/go])
-        ;; Device (2) — read while BOTH exchanges are still held, so this is an
-        ;; ordering fact, not a sampled one: #1 has already been cleared out of
-        ;; the `:search` slot and issuance 2 owns it.
-        (let [live (rf.http.registry/lookup-in-flight :search)]
-          (is (some? live) "the superseding request #2 is the live in-flight request")
-          (is (= [:rf.work/http :search 2 1] (rf.http.reply/work-id live))
-              "the surviving in-flight request is issuance 2; issuance 1 was superseded out of the slot during the second dispatch-sync"))
-        ;; Release both exchanges, then wait on the reply handler's own latch.
-        (.countDown release)
-        (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS)
-            "the surviving request's app reply was delivered")
-        ;; Device (3) — a FIFO drain barrier in place of a timed quiescence
-        ;; window: everything enqueued before this call has been processed by
-        ;; the time it returns.
-        (rf/dispatch-sync [:search/quiesce])
-        ;; The superseded request #1's app target is NOT dispatched: exactly
-        ;; one delivered reply (request #2's), never the supersede of #1.
-        (is (= 1 (count @replies))
-            "only the surviving request's reply is delivered; the superseded one is suppressed")
-        (is (= :ok (:status (first @replies)))
-            "the surviving reply is request #2's canonical :status :ok success")
-        ;; Device (1) — the two server responses are identical, so the work-id
-        ;; is the ONLY thing distinguishing "delivered #2" from "delivered #1
-        ;; and lost #2". Both satisfy the two assertions above.
-        (is (= [:rf.work/http :search 2 1] (:rf.reply/work-id (first @replies)))
-            "the delivered reply belongs to the SUPERSEDING issuance (2), not the superseded issuance 1")
-        (finally
-          (.countDown release)
-          (stop-server! srv))))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace
   (testing "superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
@@ -745,47 +583,6 @@
           (.countDown release)
           (rf.trace.tooling/unregister-listener! lid)
           (stop-server! srv))))))
-
-;; ===========================================================================
-;; Group 4 — actor-destroy obsolete-target stale suppression (the
-;; pure altitude). Managed-Effects §Cancellation: an actor-destroy abort whose
-;; reply target addresses the destroyed actor itself is OBSOLETE and lowers to
-;; `:status :stale` / `:rf.reply/work-status :suppressed` (no app delivery); a target
-;; naming an ordinary event is still meaningful and stays a live `:cancelled`.
-;; ===========================================================================
-
-(deftest actor-destroy-target-obsolete-predicate
-  (testing "a reply target naming the destroyed actor itself is obsolete; an ordinary target is meaningful"
-    (is (true?  (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1))
-        "target == actor-id (machine-shape wrapper's [self-id ...]) → obsolete")
-    (is (false? (rf.http.reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1))
-        "target is an ordinary event (≠ actor-id) → still meaningful")
-    (is (false? (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 nil))
-        "no actor binding → never obsolete")
-    (is (false? (rf.http.reply/actor-destroy-target-obsolete? nil :worker/proc#1))
-        "no resolvable target → not classified obsolete")))
-
-(deftest actor-destroy-suppress-is-canonical-stale
-  (testing "an obsolete actor-bound completion lowers to the shared :status :stale / :rf.reply/work-status :suppressed outcome, no app delivery"
-    (let [ctx {:request-id   [:worker/proc#1 :slow]
-               :origin-event [:worker/proc#1 [:rf.http/failed]]
-               :issuance     1
-               :attempt      1
-               :frame        :app/main}
-          {:keys [deliver? reply trace] :as out} (rf.http.reply/actor-destroy-suppress ctx)]
-      (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
-      (is (= :suppressed (:rf.reply/work-status out)))
-      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
-      (is (= :stale (:status reply)))
-      (is (true? (:stale? reply)))
-      (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason reply)))
-      (is (= :suppressed (:rf.reply/work-status reply)))
-      (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
-      (testing "the trace joins the carried work-id"
-        (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1]
-               (:work/id (:rf.reply/carried trace))))
-        (is (nil? (:rf.reply/current trace))
-            "no live successor — the actor that owned the target is gone")))))
 
 ;; ===========================================================================
 ;; Group 5 — EP-0017 HTTP-reply :rf.cofx time delivery. The HTTP

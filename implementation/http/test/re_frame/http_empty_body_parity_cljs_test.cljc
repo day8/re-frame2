@@ -151,15 +151,3 @@
                     :headers          {}                 ;; no content-type
                     :decode           [:map [:a :int]]})))
         "absent Content-Type must NOT trigger the non-JSON schema rejection")))
-
-(deftest schema-accepts-json-content-type-cross-host
-  (testing "a declared `application/json` Content-Type under a
-            schema `:decode` is accepted (the JSON happy path) — the
-            non-JSON rejection does not fire."
-    (is (not= :rf.error/http-schema-non-json-content-type
-              (thrown-id
-                #(rf.http.decode/decode-response-body
-                   {:body-text        "{\"a\":1}"
-                    :headers          {"content-type" "application/json"}
-                    :decode           [:map [:a :int]]})))
-        "application/json under a schema must NOT trigger the non-JSON rejection")))

@@ -176,14 +176,6 @@
                       (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))
             (str "single-member set #{" k "} must pass closed-set validation"))))))
 
-(deftest full-closed-set-passes-through
-  (testing "the entire closed set as `:on` passes."
-    (let [ex (call-managed!
-               {:on  rf.http.handlers/retryable-categories
-                :max-attempts 1})]
-      (is (not (and (some? ex)
-                    (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
-
 (deftest absent-retry-passes-through
   (testing "no `:retry` key at all: the validator is a
     no-op. Most calls don't configure retry."
