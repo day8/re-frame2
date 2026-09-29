@@ -6,9 +6,10 @@
   Programmatic API (watch-variant, unwatch, destroy-variant!), § Per-
   variant frame allocation (unmount path), § Lifecycle state machine.
 
-  `re-frame.story-runtime-test` covers the happy-path
-  state transitions + assertion accretion + decorator composition.
-  This namespace targets the lifecycle EDGES and TEARDOWN guarantees
+  `re-frame.story-runtime-test` covers assertion accretion + decorator
+  composition; the happy-path state transitions are pinned here by
+  `multiple-watchers-each-see-every-transition`. This namespace
+  targets the lifecycle EDGES and TEARDOWN guarantees
   that the browser smoke does not exercise:
 
   - **Watcher unsubscribe.** The 0-arity fn `watch-variant` returns

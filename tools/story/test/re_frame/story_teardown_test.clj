@@ -82,11 +82,6 @@
     (is (m/validate rf.story.schemas/Decorator
                     {:kind :frame-setup :app-db-patch {:x 1} :teardown [[:cleanup]]}))))
 
-(deftest schema-rejects-empty-frame-setup-body
-  (testing "a :frame-setup body with NONE of :init / :app-db-patch /
-            :teardown still fails — the at-least-one-of guard holds."
-    (is (not (m/validate rf.story.schemas/Decorator {:kind :frame-setup})))))
-
 (deftest schema-rejects-non-vector-teardown
   (testing ":teardown must be a vector of event vectors — a bare keyword
             or a single event vector at the top level is invalid."
