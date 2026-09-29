@@ -401,27 +401,10 @@
     (is (= 1 (rf.resources.state/refetch-window-count {:refetch-window -4} 3)) "a negative window clamps UP to 1")))
 
 ;; ---- refetch-sweep-tail (R6 — the ordered pages beyond 0 to re-fetch) ------
-
-(deftest refetch-sweep-tail-default-is-empty
-  (testing "the window-preserving DEFAULT starts NO sweep — page 0 is the
-            issue-time replacement; there is no tail to chain"
-    (is (= [] (rf.resources.state/refetch-sweep-tail (accumulated-3) nil)))
-    (is (= [] (rf.resources.state/refetch-sweep-tail (accumulated-3) {})))))
-
-(deftest refetch-sweep-tail-all-pages
-  (testing ":refetch-all-pages? sweeps pages 1..N-1 in order (page 0 is issue-time),
-            each pair carrying that page's durable :page-param"
-    (let [tail (rf.resources.state/refetch-sweep-tail (accumulated-3) {:refetch-all-pages? true})]
-      ;; accumulated-3 :page-params == [nil "c1" "c2"]
-      (is (= [["c1" 1] ["c2" 2]] tail)
-          "pages 1 and 2, each with its original param + index, in order"))))
-
-(deftest refetch-sweep-tail-window
-  (testing ":refetch-window 2 sweeps only page 1 (the bounded leading window
-            minus the issue-time page 0)"
-    (is (= [["c1" 1]] (rf.resources.state/refetch-sweep-tail (accumulated-3) {:refetch-window 2})))
-    (testing ":refetch-window 1 is page-0-only ⇒ empty tail (no sweep)"
-      (is (= [] (rf.resources.state/refetch-sweep-tail (accumulated-3) {:refetch-window 1}))))))
+;;
+;; The policy rows (default ⇒ no tail; all-pages ⇒ pages 1..N-1 with their
+;; params; a window ⇒ its leading pages minus page 0) are pinned through the
+;; cursor `entry-begin-refetch-sweep` arms from this tail, below.
 
 (deftest refetch-sweep-tail-guard-arms
   (testing "a nil / non-infinite / empty-feed entry yields an empty tail"

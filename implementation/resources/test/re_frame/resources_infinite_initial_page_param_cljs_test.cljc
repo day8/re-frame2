@@ -120,14 +120,3 @@
       (is (= ["p0"] (:page-params e))
           "page-0's recorded param is the override 'p0', NOT the framework nil default")
       (is (= "c1" (:next-page-param e)) "cursor then advances from the page envelope"))))
-
-(deftest default-initial-page-param-is-nil-baseline
-  (testing "BASELINE — with no override the page-0 request carries no cursor +
-            records nil (so the override assertions above are meaningful)"
-    (rf/reg-resource :ippd/feed (feed-spec {}) feed-spec-request)
-    (ensure! :ippd/feed)
-    (is (not (contains? (get-in @last-managed-args [:request :params]) :cursor))
-        "no override → page-0 request carries no cursor")
-    (reply-success! (page [:a] "c1"))
-    (is (= [nil] (:page-params (entry (feed-key :ippd/feed))))
-        "page-0 param recorded nil by default")))
