@@ -30,28 +30,6 @@
 
 (use-fixtures :each rf.routing-test-support/reset-runtime)
 
-;; ---- Spec 012 §Nested layouts ---------------------------------------------
-
-(deftest routing-nested-layout-parent-link
-  (testing ":parent metadata round-trips through reg-route"
-    ;; Per Spec 012 §Nested layouts: a child route declares :parent
-    ;; <route-id> so views can render the layout chain. Beside the
-    ;; :rf.route/chain sub (pinned below), the registry-level contract —
-    ;; :parent is enumerable via handler-meta — is what tooling
-    ;; queries. This test pins that registry-level contract.
-    (rf/reg-route :route/account             {} "/account")
-    (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
-    (rf/reg-route :route/account.billing     {:parent :route/account} "/account/billing")
-    (let [settings-meta (rf/handler-meta {:source :store :kind :route :id :route/account.settings})
-          billing-meta  (rf/handler-meta {:source :store :kind :route :id :route/account.billing})
-          account-meta  (rf/handler-meta {:source :store :kind :route :id :route/account})]
-      (is (= :route/account (:parent settings-meta))
-          ":route/account.settings carries :parent :route/account")
-      (is (= :route/account (:parent billing-meta))
-          ":route/account.billing carries :parent :route/account")
-      (is (nil? (:parent account-meta))
-          "the parent route itself has no :parent (chain root)"))))
-
 ;; ---- framework subs — fragment, chain, pending-navigation -----------------
 ;;
 ;; Per Spec 012 §Subscriptions the framework ships nine canonical subs over

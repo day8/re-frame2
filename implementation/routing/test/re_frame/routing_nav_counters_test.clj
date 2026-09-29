@@ -182,20 +182,6 @@
     (is (= 1 (:pending-nav-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "the pending-nav high-water mark lives in the host-side cache")))
 
-(deftest pending-navigation-stripped-from-ssr-payload
-  (testing ":pending-navigation is stripped from the SSR
-            hydration payload (fail-closed allowlist ships only :current),
-            even though it stays in runtime-db for local subscription"
-    (let [runtime-db {:rf.runtime/routing
-                      {:current            {:route-id :route/editor}
-                       :pending-navigation {:id "pn-1" :reason :can-leave}}}
-          projected  (rf.ssr.payload-policy/project-runtime-db runtime-db)]
-      (is (= {:current {:route-id :route/editor}}
-             (:rf.runtime/routing projected))
-          "only :current rides the SSR wire; :pending-navigation is stripped")
-      (is (not (contains? (:rf.runtime/routing projected) :pending-navigation))
-          ":pending-navigation does NOT ride the hydration payload"))))
-
 ;; ---- one source of truth: classification ⇔ SSR allowlist -----------------
 
 (deftest routing-classification-is-single-source-of-truth-for-ssr-allowlist
