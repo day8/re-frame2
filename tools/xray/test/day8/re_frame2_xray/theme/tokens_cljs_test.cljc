@@ -210,7 +210,7 @@
             shipped tab without introducing a second inventory to
             drift. The shipped roster has exactly ONE control and it
             is registry-derived, not hand-listed:
-            `focus-cljs-test/valid-panels-mirrors-the-live-registry`
+            `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`
             asserts `focus/valid-panels` equals
             `panel-registry/tab-ids-for-mode :dynamic`.
 
