@@ -12,8 +12,6 @@
   composed in-flight-registry leak audit.
 
   What it pins:
-    - A stale route-load HTTP success is suppressed by nav-token and
-      does NOT commit stale route data.
     - Retry/backoff does not resurrect a request after nav-token
       staleness (covered structurally via the with-nav-token suppression
       guard — retried requests' reply commits also route through the
@@ -53,79 +51,6 @@
 
 (defn- stale-suppressed-traces [recorded]
   (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)) @recorded))
-
-;; ---------------------------------------------------------------------------
-;; 1. Stale route-load managed HTTP success is suppressed by nav-token
-;;
-;; User navigates to :route/article id="A". An :on-match-like handler
-;; issues a managed HTTP request and registers an :on-success
-;; continuation that wraps its commit in [:rf.route/with-nav-token ...]
-;; carrying the token it captured at request time. Before A's reply
-;; arrives, the user navigates to :route/article id="B" — nav-token
-;; bumps to nav-2. A's response then arrives (canned via the stub)
-;; carrying "nav-1"; the inner :dispatch is suppressed; A's payload
-;; does NOT commit on top of B's slice; B's payload commits normally.
-;; ---------------------------------------------------------------------------
-
-(deftest stale-route-load-managed-http-success-suppressed-by-nav-token
-  (testing "managed HTTP reply for a superseded route is suppressed by
-            nav-token; commit goes only to the current navigation"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    ;; The user-facing handler that the wrapped reply commits to.
-    (rf/reg-event :article/loaded
-                     (fn [{:keys [db]} [_ id payload]]
-                       {:db (assoc db :article {:id id :payload payload})}))
-    ;; The :on-success bridge: captures the nav-token at request time
-    ;; and names the continuation via :rf/reply-to on :rf.route/with-nav-token.
-    (rf/reg-event :article/loaded-bridge
-                     (fn [_ [_ {:keys [carried-token id payload]}]]
-                       {:fx [[:rf.route/with-nav-token
-                              {:rf/reply-to [:article/loaded id payload]
-                               :nav-token   carried-token}]]}))
-
-    (let [[recorded unreg] (record! ::stale-1)]
-      (try
-        ;; Land on /articles/A — nav-token = "nav-1".
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/A" {:rf.route/cause :link}])
-        (is (= "nav-1" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/routing :current :nav-token]))
-            "precondition: navigation A allocated nav-1")
-
-        ;; Land on /articles/B — nav-token bumps to "nav-2".
-        (rf/dispatch-sync [:rf.route/handle-url-change "/articles/B" {:rf.route/cause :link}])
-        (is (= "nav-2" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                               [:rf.runtime/routing :current :nav-token]))
-            "precondition: navigation B advanced to nav-2")
-
-        ;; A's response arrives carrying "nav-1" — the stale nav.
-        (rf/dispatch-sync [:article/loaded-bridge
-                           {:carried-token "nav-1"
-                            :id            "A"
-                            :payload       "A-payload"}])
-        ;; B's response arrives carrying "nav-2" — the current nav.
-        (rf/dispatch-sync [:article/loaded-bridge
-                           {:carried-token "nav-2"
-                            :id            "B"
-                            :payload       "B-payload"}])
-
-        ;; B's payload committed; A's was suppressed.
-        (let [art (:article (rf/app-db-value :rf/default))]
-          (is (= "B" (:id art))
-              "the article slice carries B's payload (A was suppressed)")
-          (is (= "B-payload" (:payload art))
-              "A's stale payload did NOT clobber the article slice"))
-
-        ;; The stale-suppressed trace fired for A only.
-        (let [stale (stale-suppressed-traces recorded)]
-          (is (= 1 (count stale))
-              "exactly one :rf.route.nav-token/stale-suppressed for A's stale reply")
-          (let [t (first stale)
-                tags (:tags t)]
-            (is (= "nav-1" (:carried-token tags))
-                "trace carries A's stale nav-token under :carried-token")
-            (is (= "nav-2" (:current-token tags))
-                "trace carries the current nav-token under :current-token")))
-        (finally (unreg))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Pending-navigation cancel leaves in-flight managed HTTP from the

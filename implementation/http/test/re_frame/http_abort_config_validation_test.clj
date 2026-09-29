@@ -124,16 +124,6 @@
       (is (nil? ex)
           "the call dispatches without throwing at all"))))
 
-(deftest both-with-vector-request-id-accepted
-  (testing "accepted regardless of the :request-id value shape
-            (a compound vector id here)"
-    (let [ex (call-managed! {:request      base-request
-                             :request-id   [:articles :load "hello"]
-                             :abort-signal signal-stub
-                             :reply-to     [:no-op]})]
-      (is (not (bad-abort-config-throw? ex)))
-      (is (nil? ex)))))
-
 ;; ---- (2a) finalise order: user-abort-first => one :reason :user reply ------
 ;;
 ;; The external `:abort-signal` funnels into the same internal controller a

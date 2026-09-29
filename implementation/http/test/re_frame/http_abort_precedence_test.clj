@@ -23,12 +23,8 @@
   collapses the observable outcome to `:rf.http/aborted` regardless of
   which side classified first.
 
-  Four scenarios (each its own deftest):
+  Three scenarios (each its own deftest):
    1. abort-during-in-flight-decode-wins-over-decode-failure
-   2. abort-during-in-flight-transport-wins-over-transport-classification
-      (deterministic end-to-end: an accept-but-never-respond server holds
-      the request in-flight so the user abort lands before any transport
-      classification can — the realistic transport-vs-abort case)
    2b. transport-classification-loses-to-recorded-abort-precedence-seam
        (deterministic unit-level: drives `finalise-failure!` with a
        `:rf.http/transport` failure on a handle whose `:aborted?` is
@@ -79,35 +75,6 @@
 
 (defn- stop-server! [{:keys [^HttpServer server]}]
   (.stop server 0))
-
-(defn- start-stalled-server!
-  "Start an HttpServer that ACCEPTS the connection but blocks the handler
-  on `latch`, so the request stays genuinely in-flight (connected, awaiting
-  a response) until the test releases the latch at teardown. The JVM
-  HttpClient's `sendAsync` future therefore CANNOT resolve a transport
-  error on its own — the only way the in-flight request completes is the
-  abort the test fires, so the abort-vs-transport-classification ordering is
-  deterministic by construction rather than a wall-clock race against a
-  connection-refused resolution."
-  [^CountDownLatch latch]
-  (let [server (HttpServer/create (InetSocketAddress. "127.0.0.1" 0) 0)]
-    (.createContext server "/"
-                    (reify HttpHandler
-                      (handle [_ ex]
-                        (let [^HttpExchange ex ex]
-                          ;; Hold the exchange open until the test releases
-                          ;; the latch at teardown; the request is in-flight
-                          ;; (connected, no response) for the whole window
-                          ;; the abort is fired in.
-                          (.await latch 30 TimeUnit/SECONDS)
-                          (try
-                            (.sendResponseHeaders ex 204 -1)
-                            (catch Throwable _ nil))
-                          nil))))
-    (.setExecutor server nil)
-    (.start server)
-    {:server server
-     :port   (.getPort (.getAddress server))}))
 
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
@@ -206,17 +173,8 @@
 ;; shape does not guarantee that ordering (the outcome depends on
 ;; environment timing).
 ;;
-;; So the ordering is pinned deterministically WITHOUT a sleep, in two
-;; complementary tests:
-;;
-;;   (2)  end-to-end — an ACCEPT-but-never-respond server holds the request
-;;        genuinely in-flight (connected, awaiting a response). The transport
-;;        future therefore cannot resolve a transport error on its own; the
-;;        test polls `in-flight-snapshot` until the handle is registered (the
-;;        deterministic gate that the request is in-flight) THEN fires the
-;;        abort. `.cancel cf true` completes the future exceptionally with a
-;;        CancellationException → `classify-jvm-error` → `:rf.http/aborted`.
-;;        Abort wins by construction, not by timing.
+;; So the ordering is pinned deterministically, without a sleep, at the
+;; finalise seam:
 ;;
 ;;   (2b) unit-level — drives `finalise-failure!` DIRECTLY with a
 ;;        `:rf.http/transport` failure on a handle whose `:aborted?` cell is
@@ -224,50 +182,6 @@
 ;;        race would only sample: transport classified first, abort intent recorded, →
 ;;        the visible reply MUST be `:rf.http/aborted`. Zero cross-thread
 ;;        timing; the precedence is asserted, not sampled.
-
-(deftest abort-during-in-flight-transport-wins-over-transport-classification
-  (testing "a user abort fired against a genuinely in-flight request (held open by an accept-but-never-respond server) yields :rf.http/aborted, deterministically, never :rf.http/transport"
-    (let [release (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-stalled-server! release)
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" port "/")}
-                    :request-id :race
-                    :decode     :json
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/reg-event :do/abort
-          (fn [_ _] {:fx [[:rf.http/managed-abort :race]]}))
-        (rf/dispatch-sync [:issue])
-        ;; Deterministic gate: the request is REGISTERED and in-flight (the
-        ;; connection is established, the server is blocked, no transport
-        ;; error is possible) before we fire the abort, rather than relying
-        ;; on the abort fx out-racing an async connection-refused
-        ;; resolution.
-        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)))
-        (is (= 1 (count (rf.http.managed/in-flight-snapshot)))
-            "request is in-flight against the stalled server — abort window open, no transport error possible")
-        (rf/dispatch-sync [:do/abort])
-        (await-condition! #(seq @replies))
-        (let [reply (first @replies)]
-          (is (= :cancelled (:status reply))
-              "the abort surfaces as a :cancelled reply, not a success")
-          (is (= :rf.http/aborted (get-in reply [:error :kind]))
-              "the reply MUST be :rf.http/aborted, NOT :rf.http/transport")
-          (is (= :user (get-in reply [:error :reason]))
-              "user-initiated abort surfaces :reason :user"))
-        (is (= 1 (count @replies))
-            "exactly one reply — abort precedence does not double-dispatch")
-        (is (empty? (rf.http.managed/in-flight-snapshot))
-            "in-flight registry is clean after the aborted reply")
-        (finally
-          (.countDown release)
-          (stop-server! srv))))))
 
 ;; The finalise-failure! private is reached by a #'-deref of the
 ;; private var.

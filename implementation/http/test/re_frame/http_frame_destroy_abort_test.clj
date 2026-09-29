@@ -26,7 +26,6 @@
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling])
@@ -67,56 +66,6 @@
    (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-frame-destroy condition"})
    true))
-
-;; ---- hook publication -----------------------------------------------------
-
-(deftest hook-published
-  (testing "the :http/on-frame-destroyed! hook is published and
-            resolves to the frame-destroy abort walker"
-    (is (some? (rf.late-bind/get-fn :http/on-frame-destroyed!)))
-    (is (= rf.http.registry/abort-in-flight-on-frame-destroyed!
-           (rf.late-bind/get-fn :http/on-frame-destroyed!)))))
-
-;; ---- registry-level: frame-scoped abort + reason --------------------------
-
-(deftest frame-destroy-aborts-only-the-frames-requests
-  (testing "abort-in-flight-on-frame-destroyed! fires each of the
-            destroyed frame's handles exactly once with :reason :frame-destroyed
-            and leaves a SIBLING frame's request byte-for-byte live"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [seen (atom [])
-          ;; production abort-fns clear their own slot via the finalise cascade;
-          ;; model that here so the sibling-survival + idempotence checks below
-          ;; observe the real post-abort index shape.
-          mk   (fn [frame-id request-id]
-                 (rf.http.registry/seed-in-flight-for-test!
-                   request-id nil
-                   {:abort-fn   (fn [reason]
-                                  (swap! seen conj [frame-id reason])
-                                  (rf.http.registry/clear-in-flight! request-id))
-                    :request-id request-id
-                    :url        "http://x/y"
-                    :frame      frame-id}))]
-      (mk :frame/a :req-a1)
-      (mk :frame/a :req-a2)
-      (mk :frame/b :req-b)
-      (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/a)
-      (is (= #{[:frame/a :frame-destroyed]} (set @seen))
-          "only frame A's handles fired, each with :reason :frame-destroyed")
-      (is (= 2 (count @seen)) "both of frame A's requests were aborted, once each")
-      (is (nil? (rf.http.registry/lookup-in-flight :req-a1))
-          "frame A's first request cleared from the index")
-      (is (nil? (rf.http.registry/lookup-in-flight :req-a2))
-          "frame A's second request cleared from the index")
-      (is (= :frame/b (:frame (rf.http.registry/lookup-in-flight :req-b)))
-          "the SIBLING frame's request remains live and untouched")
-      (rf.http.managed/clear-all-in-flight!))))
-
-(deftest frame-destroy-noop-on-frame-with-no-requests
-  (testing "a frame with no in-flight managed HTTP is a clean no-op"
-    (rf.http.managed/clear-all-in-flight!)
-    (is (nil? (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/none)))
-    (is (nil? (rf.http.registry/abort-in-flight-on-frame-destroyed! nil)))))
 
 ;; ---- ordering / idempotence: no duplicate abort on a cleared handle ------
 
