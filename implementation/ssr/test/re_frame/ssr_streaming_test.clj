@@ -28,7 +28,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr]
             [re-frame.ssr.html-helpers :as rf.ssr.html-helpers]
             [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.streaming :as rf.ssr.streaming]
