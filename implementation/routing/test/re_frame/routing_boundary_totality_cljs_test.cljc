@@ -11,7 +11,8 @@
   host-symmetric order. The non-map / missing-`:to` route-url guards are pinned
   here too so a future host divergence would fail the CLJS runner. The
   JVM-rich behavioural cases (slice-unchanged, no-push, the other `:reason`
-  discriminators) live in routing_navigation_test.clj + routing_registry_test.clj.
+  discriminators) live in routing_navigation_test.clj and
+  routing_address_extraction_test.clj.
 
   ## Posture split
 
@@ -59,10 +60,11 @@
 (deftest route-url-non-map-address-rejects-cross-host
   (testing "a non-map address rejects with :rf.error/route-url-validation
             (:reason :not-a-map) on both hosts — not a raw `(keys …)` throw"
-    (let [ex (thrown #(rf.routing/route-url "/dest"))]
-      (is (some? ex))
-      (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
-      (is (= :not-a-map (:reason (ex-data ex)))))))
+    (doseq [bad ["/dest" 5 [:to :route/x] :route/x]]
+      (let [ex (thrown #(rf.routing/route-url bad))]
+        (is (some? ex) (str "route-url threw for a non-map address " (pr-str bad)))
+        (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
+        (is (= :not-a-map (:reason (ex-data ex))))))))
 
 (deftest route-url-missing-to-rejects-cross-host
   (testing "a missing-:to address rejects with :rf.error/route-url-validation

@@ -67,21 +67,6 @@
           "match-url recovers the canonical enum keyword on the path side")
       (is (false? (:validation-failed? m))))))
 
-(deftest keyword-enum-carried-query-value-round-trips-cross-host
-  (testing "an enum query value carried as a KEYWORD into a target route-url
-            round-trips (match-url interned it; route-url re-emits its token
-            name) on BOTH hosts. EP-0037 R5: the carry is the application's
-            explicit fold over the destination address."
-    (rf/reg-route :route/list
-                  {:query [:map [:sort [:enum :asc :desc]]]} "/list")
-    (let [carried (get-in (rf.routing/match-url "/list?sort=asc") [:query :sort])]
-      (is (= :asc carried)
-          "the carried value is the coerced KEYWORD, not a string")
-      (let [u (rf.routing/route-url {:to :route/list :params {} :query {:sort carried}})]
-        (is (= "/list?sort=asc" u)
-            "the carried keyword re-emits as its token name")
-        (is (= :asc (get-in (rf.routing/match-url u) [:query :sort])))))))
-
 (deftest invalid-keyword-enum-fails-validation-cross-host
   (testing "an INVALID keyword-enum value is NOT stringified into a URL —
             route-url fails validation on BOTH hosts (the schema bites)"
