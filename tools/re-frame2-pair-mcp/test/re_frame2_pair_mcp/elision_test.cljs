@@ -11,10 +11,9 @@
   path.
 
   Tests pin `egress-opts-edn` directly from
-  `re-frame2-pair-mcp.tools.elision`. The snapshot eval-form composer
-  (`build-snapshot-form`) is a local copy, because its source
-  counterpart lives inlined in `tools.snapshot` and isn't surfaced as a
-  standalone public fn.
+  `re-frame2-pair-mcp.tools.elision`. The snapshot eval form's slice
+  arms are pinned against the form the real `snapshot-tool` ships, in
+  `re-frame2-pair-mcp.egress-elision-test`.
 
   `:elision` MCP-arg normalisation lives on the shared table-driven
   parser (`re-frame2-pair-mcp.tools.args/parse-bool-arg`);
@@ -24,7 +23,7 @@
   the `test/stdio-roundtrip.js` harness — that's where the
   walker actually fires and we verify the marker comes back as EDN.
   The CLJS layer here just pins the wiring."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [cljs.reader]
             [re-frame.mcp-base.egress :as rf.mcp-base.egress]
             [re-frame2-pair-mcp.tools.elision :as elision]
@@ -71,161 +70,6 @@
   (let [parsed (cljs.reader/read-string (elision/egress-opts-edn true true))]
     (is (= :rf.egress/local-raw (:rf.egress/profile parsed)))
     (is (true? (:rf.egress/include-large? parsed)))))
-
-;; ---------------------------------------------------------------------------
-;; Eval-form composition for snapshot-tool.
-;;
-;; The snapshot-tool builds a CLJS eval form sent over nREPL. The form
-;; wraps `(re-frame2-pair.runtime/snapshot-state ...)` with a `reduce-kv`
-;; that walks each frame's :app-db / :sub-cache slices through
-;; `re-frame.core/project-egress`, whatever the elision posture.
-;;
-;; That composition is inlined in `snapshot-tool` rather than exposed as
-;; a standalone public fn, so the tests below build a COPY of it. A
-;; production change does not reach the copy: the real form's egress
-;; boundary is asserted by the conformance corpus's `:raw-state/snapshot-*`
-;; fixtures and by egress-elision-test.
-;; ---------------------------------------------------------------------------
-
-(defn- build-snapshot-form
-  "Mirror of the snapshot-tool's eval-form composition. ONE arm: the
-  `:app-db` / `:sub-cache` slices ALWAYS route through
-  `re-frame.core/project-egress`, and the NAMED `:rf.egress/*` profile
-  decides the floor. Keep in lockstep with `snapshot-tool` in
-  `tools/snapshot.cljs`. The form wraps the snapshot in
-  `{:value <snap> :elided-count N}` so the count piggybacks on the same
-  nREPL round-trip — no separate client-side walk.
-
-  The projection fires on BOTH `:app-db` and `:sub-cache` slices;
-  `include-sensitive?` selects the boundary (off-box-tool vs local-raw)
-  rather than being threaded as a boolean.
-
-  Per EP-0001 ruling #14 the form ALSO default-redacts the `:machines`
-  slice (runtime-db-partition state) to `:rf/redacted` unless the
-  operator opted in (`include-sensitive?` true here mirrors the
-  production `incl?` opt-in axis)."
-  ([opts elision?] (build-snapshot-form opts elision? false))
-  ([opts elision? include-sensitive?]
-   ;; Helper takes walker-aligned `include-large?`; flip
-   ;; from the MCP-arg `elision?` polarity here, mirroring the
-   ;; production call site in `tools/snapshot.cljs`.
-   (let [egress-opts-form (elision/egress-opts-edn (not elision?) include-sensitive?)
-         ;; Runtime-db (`:machines`) is redacted off-box by
-         ;; default; the opt-in axis is `incl?` (here `include-sensitive?`).
-         redact-runtime-db? (not include-sensitive?)
-         ;; On the `:app` default scope the form piggybacks
-         ;; the excluded reserved tool frames; off that path it is `[]`.
-         tool-frames-form (if (= :app (:frames opts))
-                            "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
-                            "[]")]
-     (str "(let [snap (re-frame2-pair.runtime/snapshot-state "
-          (pr-str opts) ")"
-          "      walked (reduce-kv"
-          "               (fn [m fid fmap]"
-          "                 (if (map? fmap)"
-          "                   (let ["
-          (str "                         opts (merge {:frame fid} " egress-opts-form ")"
-               "                         f    (fn [v] (re-frame.core/project-egress v opts))"
-               "                         fmap (if (contains? fmap :app-db)"
-               "                                (update fmap :app-db f) fmap)"
-               ;; The :sub-cache slice is walked PER ENTRY,
-               ;; threading each entry's query-v as :query-v so a route
-               ;; read sub re-seeds at its storage position (mirror of the
-               ;; production slice-walk-src in tools/snapshot.cljs).
-               "                         fmap (if (and (contains? fmap :sub-cache) (map? (:sub-cache fmap)))"
-               "                                (update fmap :sub-cache"
-               "                                  (fn [sc] (reduce-kv"
-               "                                    (fn [m qv entry]"
-               "                                      (assoc m qv"
-               "                                        (if (and (map? entry) (contains? entry :value))"
-               "                                          (update entry :value"
-               "                                            (fn [v] (re-frame.core/project-egress v (assoc opts :query-v qv))))"
-               "                                          entry)))"
-               "                                    {} sc))) fmap)")
-          (if redact-runtime-db?
-            (str "                         fmap (if (contains? fmap :machines)"
-                 "                                (assoc fmap :machines :rf/redacted) fmap)")
-            "")
-          "]"
-          "                     (assoc m fid fmap))"
-          "                   (assoc m fid fmap)))"
-          "               {} snap)]"
-          "  {:value walked"
-          "   :elided-count (count (filter #(and (map? %) (contains? % :rf.size/large-elided))"
-          "                                (tree-seq coll? seq walked)))"
-          "   :tool-frames-excluded " tool-frames-form "})"))))
-
-(deftest snapshot-form-walks-both-app-db-and-sub-cache
-  ;; The snapshot eval form walks BOTH `:app-db` AND
-  ;; `:sub-cache` slices through `project-egress`. Per Tool-Pair
-  ;; §Direct-read privacy posture, the `sub-cache` direct-read surface
-  ;; MUST route through the wire walker with off-box defaults.
-  ;;
-  ;; The `:epochs` / `:traces` slices have their own wire-protocol
-  ;; mechanisms (dedup, diff-encode, sensitive-strip); the walker fires
-  ;; only on the two direct-read slices that need it.
-  (let [form (build-snapshot-form {:frames :all
-                                   :include [:app-db :sub-cache :machines :epochs]}
-                                  true)]
-    ;; The form's `f` binding is the walker call; we check both
-    ;; `update` arms cite the two direct-read slices by key.
-    (is (re-find #"contains\? fmap :app-db" form))
-    (is (re-find #"contains\? fmap :sub-cache" form))
-    ;; The door (`project-egress`) is NOT applied to :machines — its
-    ;; runtime-db redaction is a whole-slice `:rf/redacted` substitution,
-    ;; not a per-slot walk (see snapshot-form-redacts-machines-runtime-db).
-    (is (not (re-find #"update fmap :machines f" form)))
-    (is (not (re-find #"contains\? fmap :epochs" form)))))
-
-(deftest snapshot-form-redacts-machines-runtime-db-off-box-by-default
-  ;; EP-0001 ruling #14 — the `:machines` slice is RUNTIME-DB
-  ;; state (machine snapshots live in the runtime-db partition).
-  ;; Per Spec 011 §Off-box redaction the runtime-db partition
-  ;; is REDACTED/OMITTED off-box by default. So the elision-on form (the
-  ;; default off-box posture, `include-sensitive?` false) substitutes the
-  ;; `:machines` slice with `:rf/redacted`.
-  (let [form-default  (build-snapshot-form {:frames :all
-                                            :include [:app-db :machines]}
-                                           true false)
-        form-opted-in (build-snapshot-form {:frames :all
-                                            :include [:app-db :machines]}
-                                           true true)]
-    (is (re-find #"contains\? fmap :machines" form-default)
-        "default off-box ⇒ the form touches the :machines slice")
-    (is (re-find #"assoc fmap :machines :rf/redacted" form-default)
-        "default off-box ⇒ :machines redacts to :rf/redacted (runtime-db partition)")
-    ;; Operator opted in to richer reads (the --allow-sensitive-reads gate,
-    ;; surfaced as include-sensitive? here) ⇒ the runtime-db machine
-    ;; snapshots ship; no :machines redaction arm.
-    (is (not (re-find #"assoc fmap :machines :rf/redacted" form-opted-in))
-        "trusted-local opt-in ⇒ :machines is NOT redacted (richer diagnostics)")))
-
-(deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
-  ;; On the DEFAULT `:app` scope the eval form computes the
-  ;; reserved :rf/* tool frames it excluded (via the runtime predicate)
-  ;; and rides them back on the same round-trip under
-  ;; `:tool-frames-excluded`, so the wire response can name them in a
-  ;; :note. On the explicit `:all` / vector scopes the slot is `[]` —
-  ;; no extra cost when the agent already chose the scope.
-  (testing "elision-on, :app scope ⇒ form filters the registry through reserved-tool-frame?"
-    (let [form (build-snapshot-form {:frames :app :include [:app-db]} true)]
-      (is (re-find #":tool-frames-excluded \(filterv re-frame2-pair\.runtime/reserved-tool-frame\?"
-                   form))
-      (is (re-find #"re-frame\.core/frame-ids" form))))
-  (testing "full-raw opt-in, :app scope ⇒ same piggyback under the local-raw boundary"
-    ;; The full-raw opt-in (`:elision false` AND `:include-sensitive
-    ;; true`) still walks, under `:rf.egress/local-raw`, and carries the
-    ;; same tool-frame piggyback.
-    (let [form (build-snapshot-form {:frames :app :include [:app-db]} false true)]
-      (is (re-find #":tool-frames-excluded \(filterv re-frame2-pair\.runtime/reserved-tool-frame\?"
-                   form))))
-  (testing ":all scope ⇒ empty piggyback (agent opted into tool frames)"
-    (let [form (build-snapshot-form {:frames :all :include [:app-db]} true)]
-      (is (re-find #":tool-frames-excluded \[\]" form))
-      (is (not (re-find #"reserved-tool-frame\?" form)))))
-  (testing "explicit vector scope ⇒ empty piggyback"
-    (let [form (build-snapshot-form {:frames [:rf/xray] :include [:app-db]} true)]
-      (is (re-find #":tool-frames-excluded \[\]" form)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-pipeline `:server-elided` opt.

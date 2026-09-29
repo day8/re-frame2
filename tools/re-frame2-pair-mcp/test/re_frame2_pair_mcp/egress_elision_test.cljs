@@ -337,6 +337,24 @@
                            "still routes through the reactive sub-cache reader")
                        (done)))))))))
 
+(deftest list-subscriptions-form-threads-frame-and-include-values
+  (testing "the args reach the runtime reader, the walker reads the pinned frame's registry, and only a listing is walked"
+    (async done
+      (raw-state/set-allow-raw-state! false)
+      (let [forms (atom [])]
+        (-> (with-capture! forms sub-cache-canned
+              (fn [] (ls/list-subscriptions-tool
+                       nil (tu/args->js {:frame "app/other" :include-values true}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (str/includes? form "/sub-cache-info {:frame :app/other, :include-values? true})")
+                           "the frame and :include-values? reach sub-cache-info")
+                       (is (str/includes? form "(merge {:frame :app/other :query-v (:query-v entry)}")
+                           "each value projects against the pinned frame")
+                       (is (str/includes? form "(if (and (map? res) (vector? (:subs res)))")
+                           "a refusal map passes through unwalked")
+                       (done)))))))))
+
 (deftest list-subscriptions-gate-on-include-sensitive-passes-raw
   (testing "gate ON + include-values + include-sensitive true: walker passes declared-sensitive values raw"
     (async done
@@ -570,6 +588,64 @@
                        (is (str/includes? form ":rf.egress/profile :rf.egress/local-raw")
                            "full-raw opt-in (elision false + include-sensitive true) names local-raw")
                        (done)))))))))
+
+;; ---------------------------------------------------------------------------
+;; snapshot slice arms — `:app-db` walks whole, `:sub-cache` walks per
+;; entry, `:machines` (runtime-db state) is substituted whole rather than
+;; walked, and the default `:app` scope piggybacks the reserved tool
+;; frames it dropped.
+;; ---------------------------------------------------------------------------
+
+(defn- snapshot-slice-form
+  "Promise of the slice form the real `snapshot-tool` ships for `args`."
+  [args]
+  (let [forms (atom [])]
+    (-> (with-capture! forms snapshot-canned
+          (fn [] (snap/snapshot-tool nil (tu/args->js args))))
+        (.then (fn [_] (slice-form forms))))))
+
+(deftest snapshot-form-walks-app-db-whole-and-sub-cache-per-entry
+  (async done
+    (raw-state/set-allow-raw-state! false)
+    (-> (snapshot-slice-form {:frames "all" :include "[:app-db :sub-cache]"})
+        (.then (fn [form]
+                 (is (str/includes? form "(update fmap :app-db f)")
+                     ":app-db walks whole through the door")
+                 (is (str/includes? form "(re-frame.core/project-egress v (assoc opts :query-v qv))")
+                     ":sub-cache walks per entry, threading each entry's query-v")
+                 (done))))))
+
+(deftest snapshot-form-redacts-machines-unless-sensitive-opt-in
+  (async done
+    (raw-state/set-allow-raw-state! false)
+    (-> (snapshot-slice-form {:frames "all" :include "[:app-db :machines]"})
+        (.then (fn [form]
+                 (is (str/includes? form "(assoc fmap :machines :rf/redacted)")
+                     "gate OFF ⇒ the runtime-db :machines slice redacts whole")
+                 (raw-state/set-allow-raw-state! true)
+                 (snapshot-slice-form {:frames "all" :include "[:app-db :machines]"
+                                       :include-sensitive true})))
+        (.then (fn [form]
+                 (is (not (str/includes? form ":machines :rf/redacted"))
+                     "gate ON + include-sensitive ⇒ :machines ships")
+                 (done))))))
+
+(deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
+  (async done
+    (raw-state/set-allow-raw-state! false)
+    (-> (snapshot-slice-form {:include "[:app-db]"})
+        (.then (fn [form]
+                 (is (str/includes? form ":tool-frames-excluded (filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))")
+                     "the default :app scope names the tool frames it dropped")
+                 (snapshot-slice-form {:frames "all" :include "[:app-db]"})))
+        (.then (fn [form]
+                 (is (str/includes? form ":tool-frames-excluded []")
+                     "frames all ⇒ nothing was dropped")
+                 (snapshot-slice-form {:frames "[:rf/xray]" :include "[:app-db]"})))
+        (.then (fn [form]
+                 (is (str/includes? form ":tool-frames-excluded []")
+                     "an explicit frame vector ⇒ nothing was dropped")
+                 (done))))))
 
 ;; ===========================================================================
 ;; record / watch-until raw :app-db & :sub signal egress

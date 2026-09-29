@@ -13,8 +13,8 @@
   `re-frame2-pair-mcp.tools.args` — the source ns is the contract.
 
   Production-form integration coverage for the elision walk lives in
-  `re-frame2-pair-mcp.elision-test` (via the `build-snapshot-form`
-  mirror); see the note at the bottom of this file."
+  `re-frame2-pair-mcp.egress-elision-test`, which captures the form the
+  real tool ships; see the note at the bottom of this file."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame2-pair-mcp.tools.args :as args]))
 

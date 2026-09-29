@@ -16,7 +16,7 @@
   edit that adds a raw-pass-through claim trips this test.
 
   Behavioural redaction of the `:machines` slice itself (the server-side eval
-  form's `redact-runtime-db?`) is covered in `elision_test`."
+  form's `redact-runtime-db?`) is covered in `egress_elision_test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.tools.descriptors-data :as data]))
