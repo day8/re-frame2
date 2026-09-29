@@ -274,7 +274,16 @@ Errors are data, so you assert on them like any other data. Register a
 thing that should fail, filter for the category, and check the structured fields:
 
 ```clojure
-;; Requires [clojure.test :refer [deftest is testing]] and [re-frame.core :as rf].
+;; test/my_app/errors_test.clj
+(ns my-app.errors-test
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as plain-atom]   ;; the headless JVM adapter
+            [re-frame.test-support :as ts]))
+
+;; Installs the adapter every frame needs, and resets the runtime around each test.
+(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
 (deftest unknown-fx-is-dropped-and-siblings-fire
   (testing "an unknown fx id traces :rf.error/no-such-fx and the other fx still run"
     (let [traces (atom [])
