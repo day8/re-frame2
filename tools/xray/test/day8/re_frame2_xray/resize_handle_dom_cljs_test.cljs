@@ -38,9 +38,7 @@
   be stubbed, because `getComputedStyle` resolving an inline `resize:`
   declaration IS the behaviour under test."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
@@ -55,10 +53,6 @@
     {:tier       :runtime
      :post-reset (fn [] (resize-handle/simulate-up!))}))
 
-(defn- setup! []
-  (registry/register-xray-handlers!)
-  (rf/make-frame {:id :rf/xray}))
-
 (defn- browser?
   "True only under the real-DOM `:browser-test` build. The `:node-test`
   build loads this ns and has no `js/document` — and no jsdom either,
@@ -66,23 +60,6 @@
   []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
-
-;; ---- the handle's own markup --------------------------------------------
-;;
-;; `handle-tree` is the boundary's PURE inner fn. Driving it directly is
-;; what a test can assert without a React render window: `handle-view` is a
-;; Fresco boundary and its `rf.fresco/sub` is legal only inside one.
-
-(defn- handle-markup
-  "The handle's node as `handle-view` composes it.
-
-  The DISPATCHER is `(:dispatch (rf/capture-frame))`, the same door the
-  boundary uses — not `rf/dispatch`."
-  []
-  (resize-handle/handle-tree
-    @(rf/subscribe [:rf.xray/panel-width-px])
-    (resize-handle/aria-max-panel-width-px)
-    (:dispatch (rf/capture-frame))))
 
 ;; ---- yield-to-consumer -------------------------------------------------
 
@@ -154,44 +131,9 @@
 ;; boundary, `Handle` is DELETED. A spec'd product behaviour
 ;; parked there would be deleted with it, silently.
 ;;
-;; The two rows below assert the PREDICATE the boundary gates on, plus the
-;; markup it gates. The COMPOSITION of the two — the gate driving a real
-;; mount — is `resize_handle_boundary_dom_cljs_test`'s W3.
-
-(deftest handle-yields-when-host-asserts-own-handle
-  (testing "the yield path: `handle-view`'s gate
-            short-circuits, so the boundary renders nil and the page
-            carries exactly one handle (the consumer's)"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [host (ensure-stub-host! "horizontal")]
-        (try
-          (setup!)
-          (is (true? (resize-handle/host-asserts-own-handle?))
-              "yield path: the gate `handle-view` short-circuits on is true,
-               so the boundary renders nil and the page carries one handle")
-          (finally
-            (remove-stub-host! host)))))))
-
-(deftest handle-renders-when-host-does-not-yield
-  (testing "the no-yield path: the zero-config
-            consumer declares no `resize` at all, the gate is false, and
-            the markup the boundary then composes is the documented node"
-    (if-not (browser?)
-      (is true "skipped: no DOM (node lane — see ns docstring)")
-      (let [host (ensure-stub-host! nil)]
-        (try
-          (setup!)
-          (rf/with-frame :rf/xray
-            (is (false? (resize-handle/host-asserts-own-handle?))
-                "no-yield path: the boundary's gate is false, so it renders")
-            (let [tree (handle-markup)]
-              (is (some? tree)
-                  "and the markup it then composes is present")
-              (is (= "rf-xray-resize-handle" (:data-testid (second tree)))
-                  "the rendered tree is the documented handle node")))
-          (finally
-            (remove-stub-host! host)))))))
+;; The three rows above assert the PREDICATE the boundary gates on; the
+;; markup it gates is `resize_handle_cljs_test`'s, and the gate driving a
+;; real mount is `resize_handle_boundary_dom_cljs_test`'s W3.
 
 ;; ---- apply-panel-width! (CSS var write) --------------------------------
 

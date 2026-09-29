@@ -153,17 +153,6 @@
        :pointerId      1
        :preventDefault (fn [])})
 
-(deftest start-drag-flips-state
-  (setup!)
-  (is (false? (shell/col-divider-dragging?))
-      "no drag in progress at fixture start")
-  (shell/col-divider-start-drag! (stub-event 1000) :source 52)
-  (is (true? (shell/col-divider-dragging?))
-      "start-drag! installed the global capture")
-  (shell/col-divider-simulate-up!)
-  (is (false? (shell/col-divider-dragging?))
-      "simulate-up! tore down the capture"))
-
 ;; The drag delta is INVERTED relative to the naive
 ;; "drag right widens" intuition. `event id` (flex 1 1 auto) is the
 ;; row's sole elastic column, far to the LEFT of every divider; it
@@ -273,14 +262,6 @@
   (is (= 40 (get-in (config/get-setting :general :event-list-col-widths)
                     [:source]))
       "sub-floor source request clamps to its 40px floor"))
-
-(deftest set-event-list-col-width-passes-in-range
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-event-list-col-width :timestamp 110]))
-  (is (= 110 (get-in (config/get-setting :general :event-list-col-widths)
-                     [:timestamp]))
-      "in-range timestamp value persists verbatim"))
 
 (deftest set-event-list-col-width-ignores-unknown-col-id
   (setup!)

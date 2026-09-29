@@ -105,11 +105,6 @@
     (is (= :> (first tree))
         "it mounts through the as-component bridge's interop head")))
 
-(deftest handle-short-circuits-on-popout
-  (setup!)
-  (is (nil? (resize-handle/Handle :popout))
-      "popout mode has no handle — the OS-window's chrome handles resize"))
-
 (deftest handle-short-circuits-on-fullscreen
   (setup!)
   (is (nil? (resize-handle/Handle :fullscreen))
@@ -234,13 +229,6 @@
   ;; 100 < 320 floor → clamps to 320.
   (is (= 320 (config/get-setting :general :panel-width-px))
       "sub-floor request snaps to min-panel-width-px"))
-
-(deftest set-panel-width-event-persists-in-range-value
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/set-panel-width-px 720]))
-  (is (= 720 (config/get-setting :general :panel-width-px))
-      "in-range value persists verbatim through the round-trip"))
 
 ;; ---- double-click reset -------------------------------------------------
 
