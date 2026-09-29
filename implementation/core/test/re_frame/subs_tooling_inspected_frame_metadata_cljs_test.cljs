@@ -122,6 +122,8 @@
     (let [node (algebra-node :review/frame-a value-q)]
       (is (some? node))
       (is (= "IMAGE A" (:doc node)) "the image-local doc, not \"GLOBAL\"")
+      (is (= 42 (when-let [body (:derive node)] (body [42] value-q)))
+          "the image's body (fn [[n] _q] n), not the global's (fn [db _q] (:global db))")
       (is (= :static (:input-kind node)))
       (is (= [[:sub base-q]] (:inputs node))
           "the declared edges of the derivation this frame runs, in the

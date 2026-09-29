@@ -76,30 +76,20 @@
       (is (= 6 (f)) "derefs all 3 sources via mapv, applies compute-fn"))))
 
 (deftest build-recompute-fn-n-arity-uses-mapv-not-lazy-map
-  (testing "N-arity (≥3) uses eager mapv-deref — derefs happen before compute-fn runs"
-    ;; Side-effect counter inside the deref machinery is impossible
-    ;; (CLJS `atom/deref` is pure) — instead pin the property via the
-    ;; observable consequence of `mapv` vs `map`: every source's deref
-    ;; is visible to compute-fn as a fully-realised arg list, NOT a
-    ;; lazy sequence that defers. We verify this by making compute-fn
-    ;; close over the *number* of args it received (which a lazy seq
-    ;; would still report correctly via `count`, so we go further) and
-    ;; by asserting the args are positionally bound to deref'd values
-    ;; — a lazy chain would still work positionally if forced, so the
-    ;; strongest invariant is the no-lazy-cons property: the closure
-    ;; gives compute-fn each value already realised and apply-able.
-    (let [s0 (atom :a) s1 (atom :b) s2 (atom :c) s3 (atom :d)
-          received-args (atom nil)
-          f (rf.substrate.spine/build-recompute-fn [s0 s1 s2 s3]
-              (fn [& args]
-                (reset! received-args args)
-                (vec args)))]
-      (is (= [:a :b :c :d] (f)))
-      ;; `apply` flattens varargs into a seq; the underlying vector
-      ;; from `mapv` is observably eager (count + nth without realising
-      ;; further). The strongest pinning is value-equality of the
-      ;; received args against the source vals at call time.
-      (is (= [:a :b :c :d] (vec @received-args))))))
+  (testing "N-arity (≥3) derefs every source before the recompute returns"
+    ;; A lazy `map deref` over a vector realises in 32-element chunks, and
+    ;; `apply` forces only the head of its arg seq, so sources past the first
+    ;; chunk stay un-deref'd until compute-fn consumes them. 33 counting
+    ;; sources and a compute-fn that returns its args unread tell eager
+    ;; `mapv` (33 derefs) from lazy `map` (32).
+    (let [derefs  (atom 0)
+          sources (mapv (fn [i] (reify IDeref (-deref [_] (swap! derefs inc) i)))
+                        (range 33))
+          f       (rf.substrate.spine/build-recompute-fn sources (fn [& args] args))
+          result  (f)]
+      (is (= 33 @derefs)
+          "every source was deref'd inside the recompute, none deferred into its result")
+      (is (= (range 33) result) "compute-fn receives the values in source-vector order"))))
 
 (deftest build-recompute-fn-honours-source-vector-order
   (testing "1-arity: s0 is the single source; 2-arity: order is s0 then s1"

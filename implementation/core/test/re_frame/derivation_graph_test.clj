@@ -224,7 +224,9 @@
           b-id  [:flow :app/b :shared/total]]
       (is (contains? nodes a-id) "frame :app/a's flow node is present, frame-scoped")
       (is (contains? nodes b-id) "frame :app/b's flow node is present, frame-scoped")
-      (is (not= a-id b-id) "the two nodes have DISTINCT ids (no collapse)")
+      (is (= #{a-id b-id}
+             (set (keep (fn [[id node]] (when (= :shared/total (:id node)) id)) nodes)))
+          "the graph keys the shared flow-id under two DISTINCT ids (no collapse)")
       ;; Each keeps its own per-frame output — collapsing them onto one
       ;; slot would leave only one of these.
       (is (= [:db [:a-total]] (get-in nodes [a-id :output]))
@@ -469,12 +471,19 @@
 
   (testing "the STATIC graph draws NO realized route-resource edge — realized
             owners are live-only"
+    ;; The static-fns hand the composer the SAME realized route and resource
+    ;; nodes the first block draws an edge between, so the only thing keeping
+    ;; that edge out of the static graph is the composer's live-mode gate.
     (let [g (rf.derivation.graph/derivation-graph
-              (fixture-live-contributors (live-route-node-fixture)
+              {:routes    {:static-fn (constantly {:route/article (live-route-node-fixture)})}
+               :resources {:static-fn (constantly
+                                        {scoped-key-fixture
                                          (live-resource-node-fixture
-                                           #{[:route :route/article nav-token-fixture]})))]
-      ;; static-fns return {} so there are no nodes; the realized-edge derivation
-      ;; is also gated on :live mode regardless.
+                                           #{[:route :route/article nav-token-fixture]})})}})]
+      (is (contains? (:nodes g) [:rf/route :route/article])
+          "the static graph carries the route node and its realized owner")
+      (is (contains? (:nodes g) [:resource scoped-key-fixture])
+          "the static graph carries the resource node that owner owns")
       (is (not-any? #(= :param (:role %)) (:edges g))
           "the static graph emits no realized route-resource edge"))))
 
