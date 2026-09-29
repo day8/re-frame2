@@ -12,7 +12,7 @@
                                     precedence
 
   Pure data → data; no DOM / Reagent dependency."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.ui.state.transitions :as rf.story.ui.state.transitions]))
 
 ;; ---- defaults + read -----------------------------------------------------
@@ -58,46 +58,35 @@
 
 ;; ---- chrome-pane-visible? — precedence -----------------------------------
 
-(deftest chrome-pane-visible-defaults
-  (testing "default state: every pane visible"
-    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar {})))
-    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     {})))
-    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar {})))))
+;; One table. Each row is `[pane state expected]`; `=` on a boolean
+;; `expected` holds the predicate to a real boolean.
 
-(deftest chrome-pane-visible-embed-wins-absolute
-  (testing "embed mode hides every chrome pane"
-    (let [s {:chrome-visibility {:embed? true}}]
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s)))
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar s)))))
-
-  (testing "embed wins over a per-pane true"
-    (let [s {:chrome-visibility {:embed? true :sidebar? true :rhs? true}}]
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s))))))
-
-(deftest chrome-pane-visible-full-screen-hides
-  (testing "full-screen hides every chrome pane"
-    (let [s {:chrome-visibility {:full-screen? true}}]
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s)))
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar s))))))
-
-(deftest chrome-pane-visible-per-pane-toggle
+(deftest chrome-pane-visible-truth-table
+  (testing "default state: every pane visible, an unknown pane kw included"
+    (are [pane state expected] (= expected (rf.story.ui.state.transitions/chrome-pane-visible? pane state))
+      :sidebar {} true
+      :rhs     {} true
+      :toolbar {} true
+      :unknown {} true))
+  (testing "embed mode hides every chrome pane, over a per-pane true too"
+    (are [pane state expected] (= expected (rf.story.ui.state.transitions/chrome-pane-visible? pane state))
+      :sidebar {:chrome-visibility {:embed? true}}                           false
+      :rhs     {:chrome-visibility {:embed? true}}                           false
+      :toolbar {:chrome-visibility {:embed? true}}                           false
+      :sidebar {:chrome-visibility {:embed? true :sidebar? true :rhs? true}} false
+      :rhs     {:chrome-visibility {:embed? true :sidebar? true :rhs? true}} false))
+  (testing "full-screen hides every chrome pane; with embed as well it
+            stays hidden"
+    (are [pane state expected] (= expected (rf.story.ui.state.transitions/chrome-pane-visible? pane state))
+      :sidebar {:chrome-visibility {:full-screen? true}}              false
+      :rhs     {:chrome-visibility {:full-screen? true}}              false
+      :toolbar {:chrome-visibility {:full-screen? true}}              false
+      :sidebar {:chrome-visibility {:embed? true :full-screen? true}} false))
   (testing "per-pane false hides only that pane"
-    (let [s {:chrome-visibility {:sidebar? false}}]
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s)))
-      (is (true?  (rf.story.ui.state.transitions/chrome-pane-visible? :rhs     s)))
-      (is (true?  (rf.story.ui.state.transitions/chrome-pane-visible? :toolbar s))))))
-
-(deftest chrome-pane-visible-precedence-embed-over-fullscreen
-  (testing "embed and full-screen both true → still hidden (both project hidden)"
-    (let [s {:chrome-visibility {:embed? true :full-screen? true}}]
-      (is (false? (rf.story.ui.state.transitions/chrome-pane-visible? :sidebar s))))))
-
-(deftest chrome-pane-visible-unknown-pane
-  (testing "unknown pane kw → defaults visible (forward-compat)"
-    (is (true? (rf.story.ui.state.transitions/chrome-pane-visible? :unknown {})))))
+    (are [pane state expected] (= expected (rf.story.ui.state.transitions/chrome-pane-visible? pane state))
+      :sidebar {:chrome-visibility {:sidebar? false}} false
+      :rhs     {:chrome-visibility {:sidebar? false}} true
+      :toolbar {:chrome-visibility {:sidebar? false}} true)))
 
 ;; ---- Xray-embed collapse ------------------------------------------------
 ;;

@@ -12,45 +12,41 @@
   - `url-relevant-slots-changed?` — diff for the state watcher.
   - `apply-parsed-to-state` — fold parsed slots back into shell-state."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [are deftest is testing]]
             [re-frame.story.share :as rf.story.share]
             [re-frame.story.ui.url-state :as rf.story.ui.url-state]))
 
 ;; ---- params-from-state ---------------------------------------------------
 
-(deftest params-from-state-empty
-  (testing "an empty shell state projects to {}"
-    (is (= {} (rf.story.ui.url-state/params-from-state {})))))
+;; Exact `=` on the whole projection, so a nil-valued extra key fails a row.
 
-(deftest params-from-state-variant-only
-  (testing "a focused variant projects to {:variant-id ...} only"
-    (is (= {:variant-id :story.foo/bar}
-           (rf.story.ui.url-state/params-from-state
-             {:selected-variant :story.foo/bar})))))
+(deftest params-from-state-projects-exactly-the-focused-slots
+  (are [shell expected] (= expected (rf.story.ui.url-state/params-from-state shell))
+    ;; an empty shell state projects to {}
+    {}
+    {}
 
-(deftest params-from-state-workspace-only
-  (testing "a focused workspace projects to {:workspace-id ...} only"
-    (is (= {:workspace-id :story.foo/grid}
-           (rf.story.ui.url-state/params-from-state
-             {:selected-workspace :story.foo/grid})))))
+    ;; a focused variant projects to {:variant-id ...} only
+    {:selected-variant :story.foo/bar}
+    {:variant-id :story.foo/bar}
 
-(deftest params-from-state-mode-tab-keyed-on-variant
-  (testing "mode-tab is projected from the focused variant's slot"
-    (is (= {:variant-id :story.foo/bar
-            :mode-tab   :docs}
-           (rf.story.ui.url-state/params-from-state
-             {:selected-variant :story.foo/bar
-              :active-mode-tab  {:story.foo/bar :docs
-                                 :story.other/x :test}})))))
+    ;; a focused workspace projects to {:workspace-id ...} only
+    {:selected-workspace :story.foo/grid}
+    {:workspace-id :story.foo/grid}
 
-(deftest params-from-state-cell-overrides-scoped-to-variant
-  (testing "cell-overrides only project for the focused variant"
-    (is (= {:variant-id     :story.foo/bar
-            :cell-overrides {:label "Hi"}}
-           (rf.story.ui.url-state/params-from-state
-             {:selected-variant :story.foo/bar
-              :cell-overrides   {:story.foo/bar  {:label "Hi"}
-                                 :story.other/x  {:label "Hidden"}}})))))
+    ;; mode-tab is projected from the focused variant's slot
+    {:selected-variant :story.foo/bar
+     :active-mode-tab  {:story.foo/bar :docs
+                        :story.other/x :test}}
+    {:variant-id :story.foo/bar
+     :mode-tab   :docs}
+
+    ;; cell-overrides only project for the focused variant
+    {:selected-variant :story.foo/bar
+     :cell-overrides   {:story.foo/bar  {:label "Hi"}
+                        :story.other/x  {:label "Hidden"}}}
+    {:variant-id     :story.foo/bar
+     :cell-overrides {:label "Hi"}}))
 
 (deftest params-from-state-full
   (testing "every URL-relevant slot projects"
@@ -250,55 +246,27 @@
 
 ;; ---- url-relevant-slots-changed? ----------------------------------------
 
-(deftest url-relevant-slots-changed-detects-variant-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:selected-variant :foo/a}
-        {:selected-variant :foo/b})))
-
-(deftest url-relevant-slots-changed-detects-workspace-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:selected-workspace :foo/a}
-        {:selected-workspace :foo/b})))
-
-(deftest url-relevant-slots-changed-detects-mode-tab-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:active-mode-tab {:foo/a :dev}}
-        {:active-mode-tab {:foo/a :docs}})))
-
-(deftest url-relevant-slots-changed-detects-viewport-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:viewport :full}
-        {:viewport :tablet})))
-
-(deftest url-relevant-slots-changed-detects-background-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:background :light}
-        {:background :dark})))
-
-(deftest url-relevant-slots-changed-detects-tag-filter-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:tag-filter #{}}
-        {:tag-filter #{:tag/a}})))
-
-(deftest url-relevant-slots-changed-detects-active-modes-change
-  (is (rf.story.ui.url-state/url-relevant-slots-changed?
-        {:active-modes []}
-        {:active-modes [:m/dark]})))
-
-(deftest url-relevant-slots-changed-ignores-non-url-slots
+(deftest url-relevant-slots-changed-diffs-only-url-slots
+  (testing "a change to any URL-owned slot triggers a push"
+    (are [old new] (rf.story.ui.url-state/url-relevant-slots-changed? old new)
+      {:selected-variant :foo/a}       {:selected-variant :foo/b}
+      {:selected-workspace :foo/a}     {:selected-workspace :foo/b}
+      {:active-mode-tab {:foo/a :dev}} {:active-mode-tab {:foo/a :docs}}
+      {:viewport :full}                {:viewport :tablet}
+      {:background :light}             {:background :dark}
+      {:tag-filter #{}}                {:tag-filter #{:tag/a}}
+      {:active-modes []}               {:active-modes [:m/dark]}))
   (testing "changes to non-URL slots (hot-reload-tick, fingerprints,
             panel-visibility) do NOT trigger a push"
-    (is (not (rf.story.ui.url-state/url-relevant-slots-changed?
-               {:selected-variant :foo/a :hot-reload-tick 0}
-               {:selected-variant :foo/a :hot-reload-tick 99})))
-    (is (not (rf.story.ui.url-state/url-relevant-slots-changed?
-               {:selected-variant :foo/a :fingerprints {}}
-               {:selected-variant :foo/a :fingerprints {:foo/a {:dec :h}}})))
-    (is (not (rf.story.ui.url-state/url-relevant-slots-changed?
-               {:selected-variant :foo/a
-                :panel-visibility {:trace true}}
-               {:selected-variant :foo/a
-                :panel-visibility {:trace false}})))))
+    (are [old new] (not (rf.story.ui.url-state/url-relevant-slots-changed? old new))
+      {:selected-variant :foo/a :hot-reload-tick 0}
+      {:selected-variant :foo/a :hot-reload-tick 99}
+
+      {:selected-variant :foo/a :fingerprints {}}
+      {:selected-variant :foo/a :fingerprints {:foo/a {:dec :h}}}
+
+      {:selected-variant :foo/a :panel-visibility {:trace true}}
+      {:selected-variant :foo/a :panel-visibility {:trace false}})))
 
 (deftest url-relevant-slots-changed-detects-focused-overrides-change
   (testing "a controls edit on the FOCUSED variant changes
