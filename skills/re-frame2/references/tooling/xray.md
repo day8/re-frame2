@@ -40,6 +40,8 @@ Do **not** load this leaf to learn what Xray is — load `tools/xray/README.md` 
 #app { flex: 1; min-width: 0; overflow: auto; }
 ```
 
+Keep the three overflow-related rules when adapting this: the row is exactly the viewport's height, so the page never scrolls; `#app` scrolls on its own; and the host clips, so nothing inside Xray can widen the page and put the app and Xray under one shared scrollbar. Keep the host's width in `var(--rf-xray-inline-width, …)` too: Xray's drag handle writes that variable, so a literal basis such as `flex: 0 0 420px` leaves the splitter unable to move.
+
 That's it. The preload installs Xray's trace + epoch listeners, mounts the shell into the host once the substrate adapter is ready, and auto-opens after `rf/init!`. Production builds (`goog.DEBUG=false`) elide every Xray surface.
 
 ## Launch-mode decision tree
