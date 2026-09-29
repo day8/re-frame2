@@ -2,10 +2,12 @@
   "CLJS-side tests for the Test Codegen recorder.
 
   Runs under shadow's `:node-test` build (ns-regexp `cljs-test$`).
-  The pure-data corpus is identical to the JVM
-  `re-frame.story-recorder-test` arm — same predicates and same
-  snippet generator — so the cljs build proves the namespace compiles
-  under CLJS as well as the JVM.
+  The recorder's pure predicates and state transitions carry no reader
+  conditional and are covered on the JVM by
+  `re-frame.story-recorder-test`. This ns keeps the paths that do
+  differ by platform running under CLJS — the `now-ms*` clock and
+  `start-recording!` behind `append` and the start/stop cycle — and
+  round-trips the snippet generator through the CLJS reader.
 
   Browser-only behaviour (Reagent mirror, modal dialog) lives in the
   CLJS-only `re-frame.story.ui.recorder` ns, which
@@ -23,28 +25,7 @@
 
 (use-fixtures :each reset-recorder!)
 
-;; ---- recordable-event? ---------------------------------------------------
-
-(deftest recordable-event?-accepts-user-events
-  (is (rf.story.recorder/recordable-event? [:counter/inc]))
-  (is (rf.story.recorder/recordable-event? [:auth/login {:email "a@b"}])))
-
-(deftest recordable-event?-skips-assertions
-  (is (not (rf.story.recorder/recordable-event? [:rf.assert/path-equals [:a] 1])))
-  (is (not (rf.story.recorder/recordable-event? [:rf.assert/no-warnings]))))
-
-(deftest recordable-event?-skips-internal-story-events
-  (is (not (rf.story.recorder/recordable-event? [:rf.story/lifecycle-tick])))
-  (is (not (rf.story.recorder/recordable-event?
-             [:re-frame.story.runtime/append-assertion {}]))))
-
 ;; ---- pure state machine --------------------------------------------------
-
-(deftest start-replaces-state
-  (let [s (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 1000)]
-    (is (:recording? s))
-    (is (= :story.x/y (:variant-id s)))
-    (is (= [] (:events s)))))
 
 (deftest append-captures-recordable-events
   (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.x/y 0)
@@ -53,14 +34,6 @@
                (rf.story.recorder/append [:rf.assert/path-equals [:a] 1])
                (rf.story.recorder/append [:counter/dec]))]
     (is (= [[:counter/inc] [:counter/dec]] (:events s1)))))
-
-(deftest stop-preserves-events
-  (let [s (-> rf.story.recorder/initial-state
-              (rf.story.recorder/start :story.x/y 0)
-              (rf.story.recorder/append [:counter/inc])
-              (rf.story.recorder/stop))]
-    (is (not (:recording? s)))
-    (is (= [[:counter/inc]] (:events s)))))
 
 ;; ---- impure entrypoints --------------------------------------------------
 
@@ -92,28 +65,6 @@
     (is (str/includes? snippet "[:counter/dec]"))))
 
 ;; ---- mid-recording assertion insertion ----------------------------------
-
-(deftest assertion-vocabulary-covers-canonical-seven
-  (let [ids (set (map :id rf.story.recorder/assertion-vocabulary))]
-    (is (= #{:rf.assert/path-equals
-             :rf.assert/path-matches
-             :rf.assert/sub-equals
-             :rf.assert/dispatched?
-             :rf.assert/state-is
-             :rf.assert/no-warnings
-             :rf.assert/effect-emitted}
-           ids))))
-
-(deftest make-assertion-builds-well-formed-events
-  (is (= [:rf.assert/path-equals [:auth :status] :ok]
-         (rf.story.recorder/make-assertion :rf.assert/path-equals
-                                  {:path [:auth :status] :expected :ok})))
-  (is (= [:rf.assert/sub-equals [:counter] 3]
-         (rf.story.recorder/make-assertion :rf.assert/sub-equals
-                                  {:sub [:counter] :expected 3})))
-  (is (= [:rf.assert/no-warnings]
-         (rf.story.recorder/make-assertion :rf.assert/no-warnings {})))
-  (is (nil? (rf.story.recorder/make-assertion :rf.assert/not-a-real-one {}))))
 
 (deftest insert-assertion!-interleaves-with-recorded-events
   (rf.story.recorder/start-recording! :story.x/y 0)
