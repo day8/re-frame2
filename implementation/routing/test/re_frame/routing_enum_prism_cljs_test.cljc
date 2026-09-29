@@ -1,9 +1,8 @@
 (ns re-frame.routing-enum-prism-cljs-test
   "Cross-host round-trip tests for the keyword-enum leg of the route PRISM
-  (EP-0012 §Route Prism Laws). The companion JVM-only example
-  cases live in `routing_registry_test.clj` (`rf2-dcmkke-*`); THIS file is
-  `*-cljs-test.cljc` so the shadow-cljs `:node-test` build (`cljs-test$`)
-  ALSO exercises the keyword-enum round-trip on the CLJS host — a
+  (EP-0012 §Route Prism Laws). This file is `*-cljs-test.cljc`, so the JVM
+  runner and the shadow-cljs `:node-test` build (`cljs-test$`) both
+  exercise the keyword-enum round-trip — a
   host-`(str :asc)` -> `%3Aasc` emission is host-dependent, and the cross-host
   conformance bar (Spec 000 Goal 2) requires the prism leg to hold identically
   on both hosts.
