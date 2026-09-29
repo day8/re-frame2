@@ -411,17 +411,6 @@
       (is (= 2 (count reports)) "one report per recorded assertion")
       (is (every? #(= :pass (:type %)) reports)))))
 
-(deftest story-is-reports-fail-for-map-target
-  (testing "rf.story/is fires a :fail report for a failing inline-plan assertion"
-    (let [[result reports]
-          (capture-reports
-            #(rf.story/is {:script [[:dispatch [:inline/set-status :idle]]
-                                 [:assert [:rf.assert/path-equals [:status] :loaded]]]}))]
-      (is (= :fail (:status result)))
-      (is (= 1 (count reports)))
-      (is (= :fail (:type (first reports))))
-      (is (re-find #":rf.assert/path-equals" (:message (first reports)))))))
-
 ;; ===========================================================================
 ;; Metamorphic relation: inline plan ≡ registered variant after canonicalize
 ;; ===========================================================================

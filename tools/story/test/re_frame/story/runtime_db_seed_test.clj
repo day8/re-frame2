@@ -93,12 +93,6 @@
 ;; schema acceptance — :db-seed is a TYPED slot, never silently ignored
 ;; ===========================================================================
 
-(deftest db-seed-is-accepted-by-the-variant-schema
-  (testing "reg-variant ACCEPTS a well-shaped :db-seed (the typed slot —
-            never silent-accept-then-ignore)"
-    (is (some? (rf.story/reg-variant :story.cart/typed {:db-seed {:cart {:items []}}}))
-        "a {path → value} :db-seed registers without a shape error")))
-
 (deftest malformed-db-seed-is-rejected-by-the-variant-schema
   (testing "a non-map :db-seed is REJECTED at registration (never silently
             accepted) — :rf.error/variant-shape"

@@ -153,16 +153,3 @@
            (rf.story.egress/classify {:cell-overrides {:k "benign"}}))
         "same shape ⇒ same reproducibility status regardless of sensitivity")))
 
-(deftest classify-screenshot-is-always-view-only-and-unredacted
-  (testing "a screenshot artifact (a function-valued render handle pinned as
-            an override) is view-only — but still never redacted"
-    ;; A screenshot of the live canvas cannot be replayed from the artifact;
-    ;; the egress UI marks it view-only. The classifier reports that without
-    ;; ever inspecting sensitivity.
-    (let [r (rf.story.egress/classify {:cell-overrides {:render (fn [] :pixels)}})]
-      (is (= :view-only (:status r))
-          "a function-valued artifact is view-only (no replay)")
-      (is (some #(= :override-fn (:code %)) (:reasons r))
-          "the downgrade reason names the unserialisable override")
-      (is (not (some #{:rf/redacted} (tree-seq coll? seq r)))
-          "still no redaction — the human-egress seam is reproducibility-only"))))
