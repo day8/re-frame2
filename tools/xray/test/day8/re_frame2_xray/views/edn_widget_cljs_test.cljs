@@ -157,12 +157,17 @@
     "(reg-event :foo "))
 
 (deftest format-source-pretty-prints-clojure
-  (let [src       "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))"
-        formatted (w/format-source src)]
+  ;; A 97-column one-liner, past the 72-column cap, so zprint has to
+  ;; break it. An identity `format-source` hands the long line back.
+  (let [src       "(reg-event :counter/inc (fn [{:keys [db]} [_ amount]] {:db (update db :counter/value + amount)}))"
+        formatted (w/format-source src)
+        squash    #(str/replace % #"\s+" " ")]
     (is (string? formatted))
-    (is (re-find #"reg-event" formatted))
-    (is (re-find #":counter/inc" formatted))
-    (is (re-find #"update" formatted))))
+    (is (< 72 (count src)) "precondition: the input overflows the cap")
+    (is (every? #(<= (count %) 72) (str/split-lines formatted))
+        "every formatted line fits the 72-column cap")
+    (is (= (squash src) (squash formatted))
+        "only whitespace moved — the tokens are the input's, in order")))
 
 ;; ---- multi-line :doc renders as real line breaks ------------------------
 

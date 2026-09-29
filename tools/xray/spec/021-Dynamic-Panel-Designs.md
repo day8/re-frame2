@@ -4873,7 +4873,7 @@ types win. CLJS protocol dispatch is not class-hierarchy-based;
 the most-recently-loaded impl is the one that fires. The bundled
 defaults are inert when a consumer takes the seam for a type they
 own. Regression-anchored by
-`consumer-extension-wins-over-default-on-its-own-type` in
+`consumer-extend-type-wins-over-the-uuid-default` in
 `tools/xray/test/day8/re_frame2_xray/views/edn_inspector_default_formatters_cljs_test.cljs`.
 
 **Surface** — `day8.re-frame2-xray.views.edn-inspector-default-formatters`.

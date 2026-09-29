@@ -19,6 +19,7 @@
        so the for-table sub re-reads the restored value."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.frame :as rf.frame]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
@@ -137,8 +138,24 @@
 (deftest hydrate-is-no-op-pre-frame-registration
   (testing "hydrate! short-circuits when :rf/xray is not
             yet registered (the preload-time call from registry's
-            install! fan-out lands here and must not throw)"
-    (rt/save! {:t1 {:a 100}})
-    ;; Don't call xray-setup! → :rf/xray is NOT registered.
-    (is (nil? (rt/hydrate!))
-        "hydrate! returns nil rather than dispatching")))
+            install! fan-out lands here): it dispatches nothing, so no
+            error is emitted"
+    ;; Node has no localStorage, so `load` answers {} and hydrate! would
+    ;; stop at its empty-map check before the frame check was ever
+    ;; asked. A stored map puts the frame check in charge. Without it,
+    ;; the dispatch into the unregistered frame does not throw — it is
+    ;; refused with `:rf.error/frame-destroyed` and dropped — so the
+    ;; always-on error channel is what this row reads.
+    (let [errors (atom [])]
+      (rf.error-emit/register-error-listener!
+        ::pre-registration-observer #(swap! errors conj %))
+      (try
+        (with-redefs [rt/load (constantly {:t1 {:a 100}})]
+          ;; Don't call xray-setup! → :rf/xray is NOT registered.
+          (is (nil? (rt/hydrate!))
+              "hydrate! returns nil"))
+        (is (empty? @errors)
+            "and emits no error — nothing was dispatched into the
+             unregistered frame")
+        (finally
+          (rf.error-emit/unregister-error-listener! ::pre-registration-observer))))))
