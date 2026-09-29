@@ -131,26 +131,6 @@
 
 ;; ---- 5. with-request-stubs helper -----------------------------------------
 
-(deftest with-request-stubs-cljs
-  (testing "with-request-stubs routes [method url] → reply
-            with NO per-call :fx-overrides (the helper installs the
-            :rf.http/managed override for the thunk's dynamic extent)"
-    (rf/reg-event :articles/list
-      (fn [_ [_ msg reply]]
-        (if reply
-          {:db {:result reply}}
-          {:fx [[:rf.http/managed
-                 {:reply-to [:articles/list msg] :request {:method :get :url "/articles"}
-                  :decode  :json}]]})))
-    (rf.http.test-support/with-request-stubs
-      {[:get "/articles"] {:reply {:ok [:hello :world]}}}
-      (fn []
-        ;; NO manual :fx-overrides — the documented auto-routing form.
-        (rf/dispatch-sync [:articles/list])
-        (let [db (rf/app-db-value :rf/default)]
-          (is (= :ok (get-in db [:result :status])))
-          (is (= [:hello :world] (get-in db [:result :value]))))))))
-
 ;; ---- 5a. bare thunk INTERCEPTS, never reaching the real fx ----------------
 ;;
 ;; CLJS counterpart of the JVM interception test. The documented

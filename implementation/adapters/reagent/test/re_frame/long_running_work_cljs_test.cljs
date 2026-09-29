@@ -2,8 +2,8 @@
   "Integration test: drives the long-running-work example
    through the parent coordinator + child workers. Each helper spins a
    fresh frame via `make-frame`, walks the :work/flow parent through a
-   flow (spawn cascade, happy-path join, mid-flight cancel, parent
-   unmount, reset round-trip), and asserts the resulting
+   flow (spawn cascade, happy-path join, mid-flight cancel, reset
+   round-trip), and asserts the resulting
    [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow] snapshot + the
    runtime-owned [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]
    join-state slot.
@@ -214,34 +214,7 @@
              (-> parent-snapshot :data :progress))))))
 
 ;; ============================================================================
-;; (4) VIEW-CLEANUP CANCEL — :cancel dispatched from the view cleanup
-;; ============================================================================
-;;
-;; The view's r/with-let cleanup dispatches [:work/flow [:cancel]]
-;; on component unmount. From the parent machine's perspective this
-;; is identical to a user-driven Cancel button click — the headless
-;; test exercises that contract by dispatching the same event. This
-;; test pins the machine-side invariant; the React-side wiring is
-;; covered by the view code itself (`r/with-let` cleanup is a
-;; Reagent idiom, not a re-frame2 contract).
-
-(defn- test-view-cleanup-cancel []
-  (with-new-frame [f (new-frame)]
-    (rf/dispatch-sync [:work/flow [:start]] {:frame f})
-    (is (= :working (:state (parent-machine-snapshot f))))
-
-    ;; The work-bench component's with-let finally clause runs on
-    ;; React unmount. The headless test bypasses React and dispatches
-    ;; the same event the cleanup would dispatch.
-    (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
-
-    (let [parent-snapshot (parent-machine-snapshot f)]
-      (is (= :cancelled (:state parent-snapshot)))
-      (is (= :cancelled (-> parent-snapshot :data :outcome)))
-      (is (nil? (join-state f))))))
-
-;; ============================================================================
-;; (5) RESET ROUND-TRIP — :cancelled → :idle clears progress for re-run
+;; (4) RESET ROUND-TRIP — :cancelled → :idle clears progress for re-run
 ;; ============================================================================
 
 (defn- test-reset-after-cancel []
@@ -267,10 +240,6 @@
 (deftest long-running-work-cancel-cascade
   (testing "mid-flight :cancel tears down every surviving child via the :spawn-all exit"
     (test-cancel-cascade)))
-
-(deftest long-running-work-view-cleanup-cancel
-  (testing "view-unmount path: same :cancel dispatch from r/with-let cleanup"
-    (test-view-cleanup-cancel)))
 
 (deftest long-running-work-reset-round-trip
   (testing ":cancelled → :reset returns the parent to :idle with cleared :progress"

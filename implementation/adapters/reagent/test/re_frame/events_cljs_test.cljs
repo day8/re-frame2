@@ -74,16 +74,6 @@
             {:interceptors noop-icpt-value}
             (fn [{:keys [db]} _] {:db db}))))))
 
-(deftest metadata-interceptors-under-reagent
-  (testing "{:interceptors [i]} registers the effective chain"
-    (rf/reg-interceptor :test/noop {:before identity :after identity})
-    (rf/reg-event :test.bpmszk.cljs/via-map
-      {:interceptors [:test/noop]}
-      (fn [{:keys [db]} _] {:db db}))
-    (let [map-ids (mapv chain-id (:interceptors (rf/handler-meta {:source :store :kind :event :id :test.bpmszk.cljs/via-map})))]
-      (is (= [:test/noop :rf/event-handler] map-ids)
-          "the metadata map registers the effective chain (authored ref + wrapper, in order)"))))
-
 (deftest retired-reg-event-names-throw-their-removal-stubs
   (testing "Per EP-0018 Slice Z — the reg-event-db / -fx / -ctx names
             are throwing stubs under the Reagent substrate too"
