@@ -226,30 +226,6 @@
 ;; sub-id across every frame. The invalidate path emits one
 ;; `:rf.sub/dispose` per evicted slot with `:reason :hot-reload`.
 
-(deftest ^:requires-debug dispose-emits-on-hot-reload
-  (testing "re-registering a :sub fires :rf.sub/dispose with :reason
-            :hot-reload for the affected slot (regardless of ref-count)"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 42}}))
-    (rf/reg-sub :sub/a (fn [db _] (:a db)))
-    (rf/dispatch-sync [:init])
-    (let [acc (collect-traces! ::hot-reload)]
-      (try
-        (rf/subscribe [:sub/a])
-        ;; Re-register the same sub-id with a different body — the
-        ;; cached slot must be evicted so the new body is observed.
-        (rf/reg-sub :sub/a (fn [db _] (* 10 (:a db))))
-        (let [disposes (dispose-events @acc)]
-          (is (= 1 (count disposes))
-              "one :rf.sub/dispose for the hot-reload eviction")
-          (let [[ev] disposes]
-            (is (= :sub/a (-> ev :tags :rf.sub/id)))
-            (is (= [:sub/a] (-> ev :tags :rf.sub/query-v)))
-            (is (= :hot-reload (-> ev :tags :rf.sub/reason))
-                ":tags :rf.sub/reason :hot-reload discriminates re-registration")
-            (is (= :rf/default (-> ev :tags :frame)))))
-        (finally
-          (rf/unregister-listener! :trace ::hot-reload))))))
-
 (deftest ^:requires-debug dispose-hot-reload-fires-per-evicted-slot
   (testing "hot-reloading a sub with N cached query-arg variants fires
             N :rf.sub/dispose events, one per evicted slot, all with
@@ -274,7 +250,11 @@
           (is (= #{[:sub/item :a] [:sub/item :b] [:sub/item :c]} query-vs)
               "every cached query-arg variant got its own dispose emit")
           (is (every? #(= :hot-reload (-> % :tags :rf.sub/reason))
-                      disposes)))
+                      disposes))
+          (is (every? #(= :sub/item (-> % :tags :rf.sub/id)) disposes)
+              "every emit names the re-registered sub-id")
+          (is (every? #(= :rf/default (-> % :tags :frame)) disposes)
+              "every emit carries the canonical :frame"))
         (finally
           (rf/unregister-listener! :trace ::hot-reload-many))))))
 
@@ -283,31 +263,6 @@
 ;; An explicit `clear-sub-cache!` walks the cache and disposes every
 ;; slot; each evicted slot emits a `:rf.sub/dispose` with `:reason
 ;; :cache-clear`.
-
-(deftest ^:requires-debug dispose-emits-on-clear-sub-cache
-  (testing "(clear-sub-cache!) fires :rf.sub/dispose per evicted slot
-            with :reason :cache-clear (regardless of ref-count)"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 1 :b 2}}))
-    (rf/reg-sub :sub/a (fn [db _] (:a db)))
-    (rf/reg-sub :sub/b (fn [db _] (:b db)))
-    (rf/dispatch-sync [:init])
-    (let [acc (collect-traces! ::cache-clear)]
-      (try
-        (rf/subscribe [:sub/a])
-        (rf/subscribe [:sub/b])
-        (rf.subs.cache/clear-sub-cache!)
-        (let [disposes (dispose-events @acc)
-              ids      (set (map #(-> % :tags :rf.sub/id) disposes))]
-          (is (= 2 (count disposes))
-              "two slots evicted by the cache-clear")
-          (is (= #{:sub/a :sub/b} ids))
-          (is (every? #(= :cache-clear (-> % :tags :rf.sub/reason))
-                      disposes)
-              "every emit carries the :cache-clear reason")
-          (is (every? #(= :rf/default (-> % :tags :frame))
-                      disposes)))
-        (finally
-          (rf/unregister-listener! :trace ::cache-clear))))))
 
 (deftest ^:requires-debug clear-sub-cache-emits-exactly-one-dispose-per-slot-for-layered-sub
   (testing "clear-sub-cache! on a layered (two declared inputs) sub: every cached
@@ -344,68 +299,11 @@
           (is (every? #(= :cache-clear (-> % :tags :rf.sub/reason)) disposes)
               "every emit is reasoned :cache-clear — the cascade found the
                already-cleared cache and never re-emitted :no-more-derefers
-               for an input"))
+               for an input")
+          (is (every? #(= :rf/default (-> % :tags :frame)) disposes)
+              "every emit carries the canonical :frame"))
         (finally
           (rf/unregister-listener! :trace ::cache-clear-layered))))))
-
-;; ---- emit-shape pin ------------------------------------------------------
-;;
-;; The exact tag-map shape downstream consumers (Xray Epoch panel
-;; SUBSCRIPTIONS section) depend on.
-
-(deftest ^:requires-debug dispose-tag-shape-is-canonical
-  (testing "the :rf.sub/dispose tag-map carries exactly the four
-            canonical tags + nothing extra: :frame, :rf.sub/id,
-            :rf.sub/query-v, :rf.sub/reason. Required for consumer
-            compatibility with the Xray Epoch panel."
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 1}}))
-    (rf/reg-sub :sub/a (fn [db _] (:a db)))
-    (rf/dispatch-sync [:init])
-    (let [acc (collect-traces! ::tag-shape)]
-      (try
-        (rf/subscribe [:sub/a])
-        (rf/unsubscribe [:sub/a])
-        (let [[ev] (dispose-events @acc)
-              tags (:tags ev)]
-          (is (some? ev) "an emit fired")
-          ;; The four canonical keys MUST be present. Trace framework
-          ;; may add cross-cutting correlation slots (`:rf.trace/*`)
-          ;; via build-event — those are framework-level, not part of
-          ;; this event's shape.
-          (is (contains? tags :frame))
-          (is (contains? tags :rf.sub/id))
-          (is (contains? tags :rf.sub/query-v))
-          (is (contains? tags :rf.sub/reason))
-          (is (#{:no-more-derefers :hot-reload :cache-clear :frame-destroy}
-                (:rf.sub/reason tags))
-              "reason is in the closed-enum"))
-        (finally
-          (rf/unregister-listener! :trace ::tag-shape))))))
-
-;; ---- elision pin ---------------------------------------------------------
-;;
-;; The emit-dispose! helper sits inside `rf.interop/debug-enabled?`, so
-;; under prod CLJS (`:advanced` + `goog.DEBUG=false`) it folds out.
-;; The CLJS-side production elision is pinned by
-;; `re-frame.trace-bus-elision-prod-test` + the artefact-level
-;; `npm run test:elision` probe; on JVM the gate is read at runtime
-;; but `debug-enabled?` is `true` so the emit runs — this test pins
-;; the runtime path's correctness, not the prod-elision shape.
-
-(deftest ^:requires-debug emits-fire-under-jvm-debug-enabled
-  (testing "debug-enabled? is true on the JVM test runtime — dispose
-            emits land in the trace stream"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:x 1}}))
-    (rf/reg-sub :sub/x (fn [db _] (:x db)))
-    (rf/dispatch-sync [:init])
-    (let [acc (collect-traces! ::elision-pin)]
-      (try
-        (rf/subscribe [:sub/x])
-        (rf/unsubscribe [:sub/x])
-        (is (seq (dispose-events @acc))
-            "an emit landed — JVM dev path is wired")
-        (finally
-          (rf/unregister-listener! :trace ::elision-pin))))))
 
 ;; ---- per-input dispose-throw is surfaced + isolated -----------------------
 ;;
