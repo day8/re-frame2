@@ -419,22 +419,24 @@
       event)
     event))
 
-(defn- project-url-change-event-url
-  "Per-event-id DYNAMIC projection for a `[:rf.route/handle-url-change url …]`
-  event vector. The URL argument carries the matched route's path params and
-  query values, whose classification lives on the ROUTE the URL resolves to
-  (its `:sensitive` declaration), not on the event registration, so the static
-  registration layer cannot express it. Defers to the late-bound
-  `:routing/project-url-change-event-args` hook (published by
+(defn- project-navigation-event-arg
+  "Per-event-id DYNAMIC projection for a routing navigation event vector —
+  `[:rf.route/handle-url-change url …]`, `[:rf.route/navigate {request}]` and
+  `[:rf.route/url-requested {request}]`. The first argument (the URL, or the
+  request's `:url` or `:to` route's `:params` / `:query` / `:fragment`) carries
+  a route's path params and query values, whose classification lives on the
+  ROUTE it names (its `:sensitive` declaration), not on the event registration,
+  so the static registration layer cannot express it. Defers to the
+  late-bound `:routing/project-url-change-event-args` hook (published by
   `re-frame.routing`; core stays decoupled). Hook unbound (routing artefact
   absent) ⇒ pass-through: without the artefact the event has no handler at
   all. Identity-preserving when nothing applies."
   [event]
   (if-let [project (rf.late-bind/get-fn :routing/project-url-change-event-args)]
     (if (>= (count event) 2)
-      (let [url  (nth event 1)
-            url' (project url)]
-        (if (identical? url url') event (assoc event 1 url')))
+      (let [arg  (nth event 1)
+            arg' (project arg)]
+        (if (identical? arg arg') event (assoc event 1 arg')))
       event)
     event))
 
@@ -450,10 +452,11 @@
      MUTATION spec named inside the args (the per-owner declaration
      surface), so the resources-published
      `:resources/project-execute-event-args` hook projects it
-     (`project-execute-event-payload`); `:rf.route/handle-url-change` — the
-     URL's classification lives on the ROUTE it resolves to, so the
+     (`project-execute-event-payload`); `:rf.route/handle-url-change`,
+     `:rf.route/navigate` and `:rf.route/url-requested` — the URL's or
+     request's classification lives on the ROUTE it names, so the
      routing-published `:routing/project-url-change-event-args` hook projects
-     it (`project-url-change-event-url`). Unbound ⇒ pass-through.
+     it (`project-navigation-event-arg`). Unbound ⇒ pass-through.
 
   A no-op when `event` is not a `[event-id arg-map …]` vector or nothing
   applies.
@@ -474,8 +477,10 @@
                    (redact-event-vec event sens large))
                  event)]
     (case (when (vector? event') (first event'))
-      :rf.mutation/execute        (project-execute-event-payload event')
-      :rf.route/handle-url-change (project-url-change-event-url event')
+      :rf.mutation/execute (project-execute-event-payload event')
+      (:rf.route/handle-url-change
+       :rf.route/navigate
+       :rf.route/url-requested) (project-navigation-event-arg event')
       event')))
 
 (defn- project-event-tags

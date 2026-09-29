@@ -34,6 +34,9 @@
     - `redact-declared-url` — a URL string projected for egress by the
       `:sensitive` declaration of the route it resolves to: the plan trace's
       `:url`, and the URL argument of the `:rf.route/handle-url-change` event.
+    - `project-nav-event-arg` — the first argument of a routing navigation
+      event projected the same way: that URL, or the request map of
+      `:rf.route/navigate` / `:rf.route/url-requested`.
 
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
@@ -357,9 +360,10 @@
 ;; event it dispatches and the slice it writes keep the raw value.
 ;;
 ;; Consulted by the `:rf.route/planned` trace (`plan-trace-tags` below) and,
-;; through the late-bound `:routing/project-url-change-event-args` hook, by
-;; core's event-vector chokepoint for the URL argument of
-;; `[:rf.route/handle-url-change url …]`.
+;; through `project-nav-event-arg` and the late-bound
+;; `:routing/project-url-change-event-args` hook, by core's event-vector
+;; chokepoint for the URL argument of `[:rf.route/handle-url-change url …]` and
+;; the `:url` of a navigation request.
 
 (def ^:private redacted-value
   "The `:rf/redacted` sentinel as the plain string a query value or fragment
@@ -457,6 +461,64 @@
         url
         (let [url' (redact-url-parts url compiled decls)]
           (if (= url url') url url'))))))
+
+;; ---- a navigation request, projected by its route's declaration -----------
+;;
+;; `[:rf.route/navigate {request}]` and `[:rf.route/url-requested {request}]`
+;; carry the same values in a request map: a `:url` string, or the `:params` /
+;; `:query` / `:fragment` of a destination request, keyed as the `:to` route's
+;; declaration names them. The `:url` is projected by `redact-declared-url`;
+;; each declared param, query value and fragment of a `:to` request is replaced
+;; by the `:rf/redacted` sentinel, read off the same declaration. `:to`, the
+;; policy keys and everything the route does not declare ride as they are. An
+;; in-place request names no route, so it rides unchanged.
+
+(defn- redact-named
+  "`m` with the value of every key `named?` names replaced by the sentinel;
+  `m` itself when it names none, or when `m` is not a map."
+  [m named?]
+  (if (map? m)
+    (reduce-kv (fn [acc k _]
+                 (if (named? k) (assoc acc k rf.privacy/redacted-sentinel) acc))
+               m m)
+    m))
+
+(defn- redact-declared-target
+  "A destination `request` with the params, query values and fragment its `:to`
+  route declares `:sensitive` replaced by the sentinel."
+  [request]
+  (let [route-id   (:to request)
+        route-meta (when (some? route-id) (rf.registrar/lookup :route route-id))]
+    (if-let [{:keys [param? query? fragment?]}
+             (when (some? route-meta) (url-declarations route-id route-meta))]
+      (cond-> request
+        (contains? request :params)
+        (update :params redact-named param?)
+
+        (contains? request :query)
+        (update :query redact-named #(query? (key-name %)))
+
+        (and fragment? (some? (:fragment request)))
+        (assoc :fragment rf.privacy/redacted-sentinel))
+      request)))
+
+(defn project-nav-event-arg
+  "Project the first argument of a routing navigation event for egress by the
+  `:sensitive` declaration of the route it names: the URL of
+  `[:rf.route/handle-url-change url …]` (`redact-declared-url`), and the
+  request map of `[:rf.route/navigate {request}]` /
+  `[:rf.route/url-requested {request}]` (see the section comment above).
+  Anything else rides unchanged, and so does an argument nothing in which is
+  declared — the same object. Published as the
+  `:routing/project-url-change-event-args` hook."
+  [arg]
+  (cond
+    (string? arg) (redact-declared-url arg)
+    (map? arg)    (let [arg' (cond-> arg
+                               (string? (:url arg)) (update :url redact-declared-url)
+                               (some? (:to arg))    redact-declared-target)]
+                    (if (= arg arg') arg arg'))
+    :else         arg))
 
 ;; ---- the projection as trace tags -----------------------------------------
 ;;
