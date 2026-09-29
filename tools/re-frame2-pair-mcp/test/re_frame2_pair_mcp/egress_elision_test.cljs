@@ -597,7 +597,9 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- snapshot-slice-form
-  "Promise of the slice form the real `snapshot-tool` ships for `args`."
+  "Promise of the slice form the real `snapshot-tool` ships for `args`.
+  `:frames` / `:include` arrive as JSON arrays over MCP, so pass `#js [...]`:
+  an EDN string is not parsed and falls back to the default scope."
   [args]
   (let [forms (atom [])]
     (-> (with-capture! forms snapshot-canned
@@ -607,7 +609,7 @@
 (deftest snapshot-form-walks-app-db-whole-and-sub-cache-per-entry
   (async done
     (raw-state/set-allow-raw-state! false)
-    (-> (snapshot-slice-form {:frames "all" :include "[:app-db :sub-cache]"})
+    (-> (snapshot-slice-form {:frames "all" :include #js ["app-db" "sub-cache"]})
         (.then (fn [form]
                  (is (str/includes? form "(update fmap :app-db f)")
                      ":app-db walks whole through the door")
@@ -618,12 +620,12 @@
 (deftest snapshot-form-redacts-machines-unless-sensitive-opt-in
   (async done
     (raw-state/set-allow-raw-state! false)
-    (-> (snapshot-slice-form {:frames "all" :include "[:app-db :machines]"})
+    (-> (snapshot-slice-form {:frames "all" :include #js ["app-db" "machines"]})
         (.then (fn [form]
                  (is (str/includes? form "(assoc fmap :machines :rf/redacted)")
                      "gate OFF ⇒ the runtime-db :machines slice redacts whole")
                  (raw-state/set-allow-raw-state! true)
-                 (snapshot-slice-form {:frames "all" :include "[:app-db :machines]"
+                 (snapshot-slice-form {:frames "all" :include #js ["app-db" "machines"]
                                        :include-sensitive true})))
         (.then (fn [form]
                  (is (not (str/includes? form ":machines :rf/redacted"))
@@ -633,16 +635,18 @@
 (deftest snapshot-form-app-scope-piggybacks-excluded-tool-frames
   (async done
     (raw-state/set-allow-raw-state! false)
-    (-> (snapshot-slice-form {:include "[:app-db]"})
+    (-> (snapshot-slice-form {:include #js ["app-db"]})
         (.then (fn [form]
                  (is (str/includes? form ":tool-frames-excluded (filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))")
                      "the default :app scope names the tool frames it dropped")
-                 (snapshot-slice-form {:frames "all" :include "[:app-db]"})))
+                 (snapshot-slice-form {:frames "all" :include #js ["app-db"]})))
         (.then (fn [form]
                  (is (str/includes? form ":tool-frames-excluded []")
                      "frames all ⇒ nothing was dropped")
-                 (snapshot-slice-form {:frames "[:rf/xray]" :include "[:app-db]"})))
+                 (snapshot-slice-form {:frames #js [":rf/xray"] :include #js ["app-db"]})))
         (.then (fn [form]
+                 (is (str/includes? form "snapshot-state {:frames [:rf/xray],")
+                     "control: the named frame reached the form, so the scope is explicit")
                  (is (str/includes? form ":tool-frames-excluded []")
                      "an explicit frame vector ⇒ nothing was dropped")
                  (done))))))
