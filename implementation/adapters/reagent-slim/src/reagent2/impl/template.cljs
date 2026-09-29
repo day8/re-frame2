@@ -773,9 +773,9 @@
 ;; takes the props slot; `react-key-from-argv` finds the slot first, for a caller
 ;; that holds only a vector. The constructors that have already shaped their
 ;; argv (`converted-props-element`, `fragment-element`) call the rule;
-;; `expand-seq`'s
-;; per-child missing-key DEBUG warning — which runs on the RAW list children
-;; of EVERY head shape — and the cold component constructors call the finder.
+;; `expand-seq`'s missing-key DEBUG check — which runs on the RAW list
+;; children of EVERY head shape and warns once per surrounding component —
+;; and the cold component constructors call the finder.
 ;;
 ;; That warning path is why each interop head keeps a
 ;; case here — including `:r>`: `raw-element` owns `:r>` key stamping during
