@@ -306,18 +306,17 @@
         (is (not (contains? r :origin)))
         (is (not (contains? r :rf.trace/trigger-handler)))))))
 
-;; ---- 6. No handler-meta :sensitive? drop ----------------------------------
+;; ---- 6. An ordinary handler's record fans out -----------------------------
 ;;
-;; There is no handler-meta `:sensitive?` annotation, and event-emit records
-;; are not dropped based on handler-level sensitivity. Per-path elision
-;; (driven by the per-frame `[:rf.runtime/elision]` runtime-db registry, which
-;; the EP-0025 commit-plane classification effects and the other declaration
-;; sources `re-frame.elision` names populate) is the load-bearing privacy
-;; surface here.
+;; The one handler-meta key the substrate consults is `:rf.trace/no-emit?`.
+;; Data sensitivity is per-path (the per-frame `[:rf.runtime/elision]`
+;; runtime-db registry, which the EP-0025 commit-plane classification effects
+;; and the other declaration sources `re-frame.elision` names populate), so it
+;; redacts values inside a record rather than suppressing the record.
 
-(deftest non-sensitive-handler-meta-fires-normally
-  (testing "Handlers fan out — no handler-meta `:sensitive?` short-circuits
-            the substrate."
+(deftest ordinary-handler-record-fans-out
+  (testing "An ordinary handler's record fans out to the listener, carrying
+            its event payload."
     (let [seen (atom [])]
       (rf.event-emit/register-event-listener!
         :test/recorder

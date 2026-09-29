@@ -12,7 +12,7 @@
   every event, and no `:event/kind` sub-tag.
 
   `:interceptors` inside the metadata-map is the documented home, not a
-  typo, so no `:rf.warning/interceptors-in-metadata-map` fires for it. A
+  typo: the chain is honoured, never dropped. A
   malformed `:interceptors` value is a loud
   `:rf.error/reg-event-bad-interceptors`.
 
@@ -76,13 +76,6 @@
   (let [a (atom [])]
     (rf/register-listener! :trace listener-id (fn [ev] (swap! a conj ev)))
     a))
-
-(defn- warning-events
-  [recorded operation]
-  (filterv (fn [ev]
-             (and (= :warning (:op-type ev))
-                  (= operation (:operation ev))))
-           @recorded))
 
 (defn- error-events
   [recorded operation]
@@ -434,12 +427,10 @@
 ;;
 ;; `normalise-args` dispatches on the *tail* count via `case`. This deftest
 ;; locks in the canonical shapes: each must register cleanly, surface the
-;; metadata, retain metadata `:interceptors`, and dispatch cleanly, with no
-;; `:rf.warning/interceptors-in-metadata-map`.
+;; metadata, retain metadata `:interceptors`, and dispatch cleanly.
 
 (deftest normalise-args-accepts-documented-shapes
-  (let [recorded (record-traces! ::shapes)
-        marker   (reg-noop! :test.fuudi/marker)]   ;; a registered ref (chains are reference-only)
+  (let [marker (reg-noop! :test.fuudi/marker)]   ;; a registered ref (chains are reference-only)
     (testing "shape 1 — bare handler: (reg-event :id handler)"
       (rf/reg-event :test.fuudi/shape-1
         (fn [{:keys [db]} _] {:db (assoc db :test.fuudi/touched-1? true)}))
@@ -492,11 +483,7 @@
           (is (= "metadata AND interceptors" (:doc meta))
               ":doc from the metadata-map is retained on the registry entry"))
         (is (= [:test.fuudi/marker :rf/event-handler] ids)
-            "the user interceptor ref sits before the runtime wrapper in registration order")))
-
-    (testing "none of the canonical shapes fire :rf.warning/interceptors-in-metadata-map"
-      (is (empty? (warning-events recorded :rf.warning/interceptors-in-metadata-map))
-          "canonical shapes are well-formed; no metadata-misuse warning expected"))))
+            "the user interceptor ref sits before the runtime wrapper in registration order")))))
 
 (deftest normalise-args-rejects-overlong-and-malformed
   (testing "an over-long tail (four args after the id) throws the arity error"
