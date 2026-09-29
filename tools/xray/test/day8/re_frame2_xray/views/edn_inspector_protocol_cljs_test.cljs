@@ -103,52 +103,26 @@
 
 ;; ---- 1. built-in dispatch untouched -------------------------------------
 
-(deftest plain-map-does-not-pick-up-protocol-path
-  (let [h (ei/render-node {:value {:a 1 :b 2}
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (nil? (find-attr h :data-rf-protocol "1"))
-        "plain map MUST NOT render via the protocol path")
-    (is (some? (find-attr h :data-rf-kind "map"))
-        "plain map renders via built-in :map dispatch")))
-
-(deftest plain-vector-does-not-pick-up-protocol-path
-  (let [h (ei/render-node {:value [1 2 3]
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (nil? (find-attr h :data-rf-protocol "1")))
-    (is (some? (find-attr h :data-rf-kind "vector")))))
-
-(deftest plain-scalar-does-not-pick-up-protocol-path
-  (let [h (ei/render-node {:value 42
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (nil? (find-attr h :data-rf-protocol "1")))))
-
-(deftest sentinel-does-not-pick-up-protocol-path
-  ;; Sentinels are first-class types — they must stay on the built-in
-  ;; dispatch, not be accidentally diverted by the protocol seam.
-  (let [h (ei/render-node {:value :rf/redacted
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (nil? (find-attr h :data-rf-protocol "1")))
-    (is (some? (find-attr h :data-rf-type "rf-redacted")))))
+(deftest built-in-values-do-not-pick-up-protocol-path
+  ;; Plain collections, scalars and sentinels stay on the built-in
+  ;; dispatch. Sentinels are first-class types, and the protocol seam
+  ;; must not divert them either.
+  (doseq [[v k kv] [[{:a 1 :b 2}  :data-rf-kind "map"]
+                    [[1 2 3]      :data-rf-kind "vector"]
+                    [42           nil           nil]
+                    [:rf/redacted :data-rf-type "rf-redacted"]]]
+    (let [h (ei/render-node {:value v
+                             :panel-id :test
+                             :mount-id "m1"
+                             :path []
+                             :depth 0
+                             :expansion-map {}
+                             :opts {}})]
+      (is (nil? (find-attr h :data-rf-protocol "1"))
+          (str (pr-str v) " MUST NOT render via the protocol path"))
+      (when k
+        (is (some? (find-attr h k kv))
+            (str (pr-str v) " renders via the built-in " kv " dispatch"))))))
 
 ;; ---- 2. protocol-implementing types use the protocol --------------------
 
