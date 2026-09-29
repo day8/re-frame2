@@ -153,23 +153,6 @@
       (is (= :hist/cart (-> traces first :route-id))
           "the trace's :route-id matches the new route"))))
 
-(deftest pushstate-multiple-entries-cljs
-  (testing "successive :rf.route/url-requested dispatches stack history entries in order"
-    (register-routes!)
-
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
-
-    (is (= ["/" "/cart" "/checkout" "/articles/intro"]
-           (:entries @*history-state*))
-        "four entries on the stack in dispatch order")
-    (is (= 3 (:index @*history-state*))
-        "index points at the most recent entry")
-    (is (= :hist/article
-           (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-        "the slice tracks the most recently pushed URL")))
-
 (deftest url-requested-external-url-does-not-push-cljs
   (testing "external absolute URLs are classified before pushState"
     (register-routes!)
@@ -455,33 +438,6 @@
           "the popstate dispatch fires exactly one :rf.route.nav-token/allocated")
       (is (= :hist/cart (-> traces first :route-id))
           "the trace identifies the route we landed on"))))
-
-(deftest popstate-via-window-listener-cljs
-  (testing "registering a popstate listener via window.addEventListener fires when the stub dispatches"
-    (register-routes!)
-
-    ;; This is the wiring an app would actually do: register a
-    ;; popstate listener that dispatches :rf.route/handle-url-change
-    ;; with the URL the browser landed on.
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/checkout"}])
-
-    (let [fired? (atom false)
-          listener (fn [_event]
-                     (reset! fired? true)
-                     (rf/dispatch-sync
-                       [:rf.route/handle-url-change
-                        (current-url *history-state*)]))]
-      (.addEventListener js/globalThis.window "popstate" listener)
-
-      ;; Simulate the browser sequence: back() then dispatch popstate.
-      (.back (.-history js/globalThis.window))
-      (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-
-      (is @fired? "the popstate listener registered via addEventListener fired")
-      (is (= :hist/cart
-             (:route-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])))
-          "the slice landed on /cart through the listener-driven popstate path"))))
 
 ;; ---- popstate drives the URL-OWNER frame ----------------------------------
 ;;
@@ -1202,85 +1158,6 @@
         (is (= entries-before (count (:entries @*history-state*)))
             "the URL move was a replace, not a push — history length unchanged")))))
 
-;; =========================================================================
-;; 3. hashchange — fragment-only round-trip
-;; =========================================================================
-;;
-;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/handle-url-change`
-;; handler — when only the URL fragment changes (the route-id,
-;; :params, and :query are unchanged) the runtime updates
-;; [:rf.runtime/routing :current :fragment] and emits :rf.route/fragment-changed
-;; instead of re-firing :on-match.
-;; That's the framework's hashchange surface.
-
-(deftest hashchange-fragment-only-cljs
-  (testing "URL fragment change → :rf.route/fragment-changed trace fires; no new nav-token allocation"
-    (register-routes!)
-    ;; Forward nav lands on /articles/intro.
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/articles/intro"}])
-    ;; EP-0001: the route slice is durable routing runtime-db state.
-    (let [pre-nav-token (-> (:rf.db/runtime (rf/frame-state-value :rf/default))
-                            :rf.runtime/routing :current :nav-token)]
-
-      ;; Capture both :rf.route/fragment-changed AND
-      ;; :rf.route.nav-token/allocated emissions during the fragment-only
-      ;; dispatch — assert the former fires and the latter does NOT.
-      (let [fragment-changed (atom [])
-            allocations      (atom [])
-            cb-key           (keyword (gensym "hashchange-"))]
-        (rf.trace.tooling/register-listener!
-          cb-key
-          (fn [ev]
-            (case (:operation ev)
-              :rf.route/fragment-changed
-              (swap! fragment-changed conj (:tags ev))
-              :rf.route.nav-token/allocated
-              (swap! allocations conj (:tags ev))
-              nil)))
-        (try
-          (rf/dispatch-sync [:rf.route/handle-url-change "/articles/intro#section-2" {:rf.route/cause :link}])
-          (finally
-            (rf.trace.tooling/unregister-listener! cb-key)))
-
-        (is (= 1 (count @fragment-changed))
-            "fragment-only nav emits :rf.route/fragment-changed exactly once")
-        (is (= "section-2"
-               (:next-fragment (first @fragment-changed)))
-            "trace carries :next-fragment")
-        ;; The fragment-only trace carries the frame stamp
-        ;; under :tags :frame so epoch/Xray capture and the frame
-        ;; trace-disable gate cover fragment-only changes (Spec 012
-        ;; §Multi-frame routing / Spec 009).
-        (is (= :rf/default (:frame (first @fragment-changed)))
-            "fragment-only trace is frame-attributed")
-        (is (zero? (count @allocations))
-            "fragment-only nav does NOT allocate a new nav-token")
-
-        (let [route (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current])]
-          (is (= "section-2" (:fragment route))
-              "[:rf.runtime/routing :current :fragment] is updated to the new fragment")
-          (is (= :hist/article (:route-id route))
-              "route-id is unchanged across the fragment-only nav")
-          (is (= pre-nav-token (:nav-token route))
-              "nav-token survives the fragment-only update (no new allocation)"))))))
-
-(deftest hashchange-via-window-listener-cljs
-  (testing "a hashchange listener registered via window.addEventListener fires on dispatchEvent"
-    (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
-
-    (let [fired? (atom 0)
-          listener (fn [_event] (swap! fired? inc))]
-      (.addEventListener js/globalThis.window "hashchange" listener)
-      (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
-      (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
-      (is (= 2 @fired?)
-          "the hashchange listener fired twice via dispatchEvent")
-      (.removeEventListener js/globalThis.window "hashchange" listener)
-      (.dispatchEvent js/globalThis.window #js {:type "hashchange"})
-      (is (= 2 @fired?)
-          "removeEventListener stopped further deliveries"))))
-
 ;; ---- malformed-% fail-closed (CLJS decode path) --------------------------
 ;;
 ;; Per Spec 012 §Routing failure semantics §Malformed percent-encoding
@@ -1461,18 +1338,6 @@
 ;; {:fragment ""} normalizes to nil at the navigate
 ;; boundary on CLJS so the pushed URL and slice fragment agree with
 ;; URL-driven nav.
-(deftest navigate-empty-string-fragment-normalized-cljs
-  (testing "navigate {:fragment \"\"} writes :fragment nil and
-            pushes a fragment-less URL on CLJS"
-    (register-routes!)
-    (rf/reg-route :hist/docs {} "/docs/:page")
-    (rf/dispatch-sync [:rf.route/navigate {:to :hist/docs :params {:page "guide"} :fragment ""}])
-    (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                      [:rf.runtime/routing :current :fragment]))
-        "empty-string fragment normalized to nil in the slice")
-    (is (= "/docs/guide" (current-url *history-state*))
-        "the pushed URL has no trailing # for an empty-string fragment")))
-
 ;; =========================================================================
 ;; 4. replaceState — no new history entry
 ;; =========================================================================

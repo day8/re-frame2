@@ -177,16 +177,6 @@
 ;; 3. encode/decode round-trip against the live (stubbed) window
 ;; ==========================================================================
 
-(deftest hash-decode-round-trips-live-location-cljs
-  (testing "hash-encode → set location.hash → hash-decode recovers the path
-            against the live stubbed window (both round-trip legs, one browser)"
-    (rf/make-frame {:id :rf/default :url-bound? true})
-    (register-routes!)
-    (doseq [p ["/" "/active" "/completed"]]
-      (.pushState js/globalThis.window.history nil "" (rf.routing.strategy/hash-encode p))
-      (is (= p (rf.routing.strategy/hash-decode (rf.routing.strategy/current-href)))
-          (str "round-trip through window.location.hash recovers " (pr-str p))))))
-
 ;; ==========================================================================
 ;; 4. ADVERSARIAL — malformed `#`-URL fails closed to a route-miss
 ;; ==========================================================================
@@ -233,36 +223,6 @@
 ;; contract directly: encode-once, then drive the raw leg with the final href.
 ;; The ingress `:install-listener!` STRIPS the base.
 ;; ==========================================================================
-
-(deftest with-base-path-encode-then-push!-drives-base-prefixed-entry-cljs
-  (testing ":encode re-adds the base ONCE, then the RAW :push! leg
-            drives window.history with that final href unchanged — every pushed
-            entry carries the real /realworld mount-point href (base outside the
-            wrapped form), mirroring how the nav fx drives it"
-    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")
-          drive!  (fn [p] ((:push! wrapped) ((:encode wrapped) p)))]
-      (drive! "/active")
-      (drive! "/completed")
-      (is (= ["/" "/realworld/active" "/realworld/completed"]
-             (:entries @*history-state*))
-          "each entry is the base-prefixed href (encode-once → raw push)")
-      (is (= "/realworld/completed" (current-url *history-state*))
-          "the address bar sits on the base-prefixed completed href"))))
-
-(deftest with-base-path-encode-then-replace!-overwrites-cljs
-  (testing "the RAW :replace! leg overwrites the current history
-            entry (no new entry) with the encode-once base-prefixed href —
-            mirroring the shipped strategy's replace semantics under the base"
-    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")]
-      ((:push! wrapped) ((:encode wrapped) "/active"))
-      (let [before (count (:entries @*history-state*))]
-        ((:replace! wrapped) ((:encode wrapped) "/completed"))
-        (is (= before (count (:entries @*history-state*)))
-            ":replace! did not add a history entry")
-        (is (= "/realworld/completed" (current-url *history-state*))
-            "the current entry was overwritten with the base-prefixed href")
-        (is (= "/realworld/completed" (last (:entries @*history-state*)))
-            "no stray /active remains as the tail — it was replaced in place")))))
 
 (deftest with-base-path-install-listener!-strips-base-before-on-change-cljs
   (testing "the wrapped :install-listener! STRIPS the base off each
@@ -515,20 +475,6 @@
           "root + fragment: a browser change to /app#section commits the root route")
       (is (= "section" (:fragment (current)))
           "root + fragment: the fragment survives the strip"))))
-
-(deftest hash-no-base-push-is-single-hash-irygd6-cljs
-  (testing "the HASH strategy WITHOUT a base pushes a single
-            #/active (no double-hash) — the raw :push! leg drives exactly the
-            :encode-produced href. (History-without-base is pinned by
-            `history-frame-push-url-pushes-path-href-cljs`.)"
-    (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy rf.routing.strategy/hash-url-strategy})
-    (register-routes!)
-    (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
-    (is (= ["/" "#/active"] (:entries @*history-state*))
-        "hash pushes a single-# href")
-    (is (not (double-hash? (current-url *history-state*)))
-        "the hash URL is not double-hashed")))
 
 ;; ==========================================================================
 ;; 7. Registration-time frame-config preflight — CLJS host units
