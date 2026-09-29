@@ -1156,11 +1156,16 @@
           "every event-node carries the same on-event-click callback"))))
 
 (deftest xyflow-graph-omits-on-click-when-no-callback
-  (testing "omitting `:on-edge-click` leaves `:onClick` nil
-            so the edge label stays inert (no wiring)"
-    (let [parsed (layout/project-definition idle-loading)
-          graph  (projection/xyflow-graph parsed {} {})]
-      (is (every? #(nil? (:onClick (:data %))) (:edges graph))))))
+  (testing "omitting `:on-edge-click` leaves `:onClick` nil on every edge
+            AND on every event-node — the event-node is where a transition
+            is clicked, so it stays inert (no wiring)"
+    (let [parsed      (layout/project-definition idle-loading)
+          graph       (projection/xyflow-graph parsed {} {})
+          event-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
+      (is (every? #(nil? (:onClick (:data %))) (:edges graph)))
+      (is (and (seq event-nodes)
+               (every? #(nil? (:onClick (:data %))) event-nodes))
+          "the fixture's event-nodes carry no :onClick"))))
 
 ;; ---- ->elk-children (G3) -----------------------------------------------
 
@@ -1252,8 +1257,7 @@
             (str "padding tracks the " density " density constants"))))))
 
 (deftest container-elk-padding-defaults-to-regular
-  (testing "the nil-arity (and a nil chart-vc) fall back to
-            the regular density"
+  (testing "the zero-arity falls back to the regular density"
     (is (= (projection/container-elk-padding vc/chart-regular)
            (projection/container-elk-padding)))
     ;; Regular: title strip 26 + body-pad 14 = 40 top; 14 on each side.
@@ -2523,13 +2527,17 @@
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
                         first)
+          other    (->> (:edges parsed)
+                        (remove #(or (= (:id %) (:id start)) (:internal? %)))
+                        first)
           graph    (projection/xyflow-graph
                      parsed {} {:fired-edge-ids #{(:id start)}})
-          fired-e  (edge-by-id graph (:id start))
-          plain-e  (first (remove #(or (= (:id %) (:id start))
-                                       (:entry (:data %)))
-                                  (:edges graph)))]
-      (is (some? plain-e) "fixture has a non-fired transition edge")
+          ;; Compare like with like: the primary `__out` arrowhead of the
+          ;; fired transition against the `__out` arrowhead of a resting one.
+          fired-e  (outbound-edge-for graph (:id start))
+          plain-e  (outbound-edge-for graph (:id other))]
+      (is (and (some? fired-e) (some? plain-e))
+          "both transitions project an outbound arrowhead")
       (is (not= (:color (:markerEnd fired-e))
                 (:color (:markerEnd plain-e)))
           "fired vs non-fired arrowheads are distinct colours"))))
@@ -2731,9 +2739,10 @@
 ;; returns false, `getEdgePosition` returns null, and such an edge — having
 ;; survived the projector + ELK — is silently dropped from the DOM before
 ;; render. These JVM pins guard the projector half (every compound-endpoint
-;; edge that the parser emits MUST survive the projection; the renderer half
-;; is pinned by `chart_dom_cljs_test`'s
-;; `data-edge-count == data-edge-count-projected` parity gate).
+;; edge that the parser emits MUST survive the projection); the renderer half
+;; — the container handles xyflow needs — is pinned by `chart_dom_cljs_test`'s
+;; `chart-renders-compound-node-with-handle-class-targets` and
+;; `chart-renders-parallel-region-with-handle-class-targets`.
 
 (def ^:private parent-level-transition-machine
   "A machine that mirrors the testdeck `:ws/connection` shape
@@ -3453,8 +3462,10 @@
 
 (deftest no-fork-no-connector-edges
   (testing "a machine with no guarded multi-branch fork emits
-            NO connector edges (a single transition / distinct triggers /
-            a guardless multi-target group are not forks)."
+            NO connector edges (a single transition per trigger and
+            distinct triggers are not forks; the guardless multi-target
+            case is pinned by `fork-order-guardless-multi-target-not-badged`,
+            since badges and connectors share `fork-groups`)."
     (doseq [m [self-loop-machine compound-machine idle-loading]]
       (let [parsed (layout/project-definition m)
             graph  (projection/xyflow-graph parsed {} {})]

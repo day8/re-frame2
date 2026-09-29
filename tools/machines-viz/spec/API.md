@@ -323,20 +323,23 @@ rewrite to leaf-to-leaf form, no synthetic ghost nodes).
 
 The chart root surfaces `data-edge-count-projected` (the projector's
 edge-array length) alongside the existing `data-edge-count` (the
-parser's transition count) so a visual-regression test can pin
-parity at every stage of the parser → projector → DOM chain — the
-silent-drop bug cannot recur at any layer without failing the gate.
+parser's transition count). The two are not equal: events-as-nodes
+projects each transition as an `__in` half plus, unless it is internal,
+an `__out` half, and adds one entry edge per initial marker. The browser
+chart suite pins `data-edge-count-projected` at exactly that sum for a
+compound-endpoint machine, so a parsed edge dropped at the projector
+boundary fails there; the xyflow render half — the container handles
+that keep a compound-endpoint edge in the DOM — is pinned by the
+compound-node and region-container handle tests in the same suite.
 
 ### Rendered-topology geometry gate (rf2-dplwxh)
 
 The browser chart suite (`chart-dom-cljs-test`) asserts FIRST-COMMIT
 DOM — node count, edge count, class/testid contract — BEFORE the async
 elkjs pass resolves, so it cannot catch layout-quality regressions
-(wrong fit, overlapped bands/nodes, bad route geometry, missing
-projected edges, adaptive-layout drift). The Xray feature gate only
-requires `nodeCount > 0`; the PNG exporter test proves nonblank output,
-not topology correctness. Those failure classes were therefore
-invisible to CI.
+(wrong fit, overlapped nodes, bad route geometry, missing projected
+edges). The Xray feature gate only requires `nodeCount > 0`; the PNG
+exporter test proves nonblank output, not topology correctness.
 
 `topology-layout-gate-cljs-test` closes the gap. It drives the REAL
 `chart/compute-layout!` (elkjs — the SAME engine xyflow uses as its
@@ -353,13 +356,20 @@ case. Per-machine the gate pins:
   bounding box is finite + positive.
 - **No overlap** — no two leaf siblings (same coordinate frame) overlap;
   every compound / region container ENCLOSES each of its children (a
-  band painted over its contents fails here).
+  child laid out outside its container fails here). Sibling region
+  containers are not checked against each other.
 - **No missing edges** — every projected transition has BOTH routed
   halves present (events-as-nodes splits each edge into an `__in` +
   `__out` segment), each a polyline of ≥ 2 points.
-- **Route placement** — each half's polyline stays within a finite
-  tolerance of the union box of its endpoint nodes (the route attaches
-  to the right nodes rather than flying off into empty canvas).
+- **Route placement** — the `__in` half STARTS, and the `__out` half
+  ENDS, within a finite tolerance of its endpoint node's box (the route
+  attaches to the right nodes rather than flying off into empty canvas).
+  Interior bend points are not checked.
+
+Every machine is laid out top-to-bottom (`:tb`), so the adaptive
+`:direction :auto` path is outside this gate; and the Context-band
+machine runs the same battery with the band's rows reserved, so the
+band's own placement is not asserted.
 
 Geometry invariants are used in lieu of committed pixel/screenshot
 baselines: pixel baselines are cross-platform-flaky (this project's
