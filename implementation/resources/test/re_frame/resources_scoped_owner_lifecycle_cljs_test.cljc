@@ -5,8 +5,8 @@
 
   The single-scope GC mechanics (a fired GC re-check removes an owner-free idle
   entry, skips an owned / in-flight one, re-arms on skip) are pinned by
-  `resources_invalidation_gc_cljs_test.cljc`; the owner handoff across a
-  mid-session `{:from-db}` re-key by `resources_from_db_scope_cljs_test.cljc`.
+  `resources_invalidation_gc_cljs_test.cljc`; the sub re-key across a
+  mid-session `{:from-db}` input change by `resources_from_db_scope_cljs_test.cljc`.
   THIS suite pins the property those two do not: an owner is a hold on ONE
   RESOLVED scoped key, so two simultaneously-live scopes (admin impersonating
   tenant A while tenant B stays cached) hold INDEPENDENT owners on INDEPENDENT
@@ -178,20 +178,13 @@
           "tenant A's owner is NOT on tenant B's entry"))))
 
 ;; ===========================================================================
-;; 2. HOLD — a held owner pins ONLY its own scope's entry
-;; ===========================================================================
-
-(deftest hold-pins-only-its-own-scope
-  (let [[ka kb] (two-live-tenants!)]
-    (testing "Spec 016 §The scoped-cache owner lifecycle (hold) — a GC
-              re-check finds BOTH entries owned and collects neither"
-      (gc-recheck! ka)
-      (gc-recheck! kb)
-      (is (some? (entry ka)) "owned tenant A entry kept (GC skipped)")
-      (is (some? (entry kb)) "owned tenant B entry kept (GC skipped)"))))
-
-;; ===========================================================================
-;; 3. RELEASE — releasing one scope's owner is scoped to that entry only
+;; 3. RELEASE — releasing one scope's owner is scoped to that entry only.
+;;    The owner tracks the RESOLVED scope across a mid-session input change:
+;;    tenant A's owner was acquired while the viewer input named A, and is
+;;    released against A's key after the input switched to B (release names
+;;    the owner, not the live resolver output). The HOLD half — an owned entry
+;;    survives a GC re-check — is `gc-on-last-release-collects-only-the-
+;;    unowned-scope` below.
 ;; ===========================================================================
 
 (deftest release-is-scoped-to-its-own-entry
@@ -199,6 +192,8 @@
     (testing "Spec 016 §The scoped-cache owner lifecycle (release) — releasing
               tenant A's owner drops it from A's entry ONLY; tenant B's
               separately-owned entry + its owner are untouched"
+      (is (= "globex" (get-in (rf/app-db-value :rf/default) [:viewer :tenant-id]))
+          "the live viewer input is now tenant B, not the tenant being released")
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
       (is (empty? (:active-owners (entry ka))) "tenant A entry now owner-free")
       (is (nil? (get (owner-index) [:app :a 1])) "A's owner gone from the index")
@@ -230,49 +225,3 @@
           "tenant B's data intact after tenant A's collection")
       (is (= #{kb} (set (keys (entries))))
           "exactly tenant B remains — GC of A touched nothing of B's"))))
-
-(deftest gc-skipped-while-owned-then-collected-after-last-release
-  (let [ka (tenant-key "acme" 1)]
-    (ensure-feed! "acme" 1 [:app :a 1])
-    (settle-loaded! ka {:for "acme"})
-    (testing "Spec 016 §The scoped-cache owner lifecycle — while the owner is
-              HELD, a GC re-check keeps the entry"
-      (gc-recheck! ka)
-      (is (some? (entry ka)) "owned entry kept"))
-    (testing "dropping the LAST owner makes the entry owner-free; the next GC
-              re-check collects it deterministically (acquire→hold→release→GC)"
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-      (is (empty? (:active-owners (entry ka))) "owner-free after last release")
-      (is (some? (entry ka)) "GC-eligible, but not yet collected by the release")
-      (gc-recheck! ka)
-      (is (nil? (entry ka)) "the GC re-check collected the owner-free idle entry")
-      (is (empty? (entries)) "no entry survives"))))
-
-;; ===========================================================================
-;; 5. The owner tracks the RESOLVED scope across a mid-session input change —
-;;    an owner acquired while impersonating tenant A names tenant A's key, and
-;;    is released against tenant A's key even after the viewer input switched
-;;    to tenant B (release names the owner, not the live resolver output).
-;; ===========================================================================
-
-(deftest owner-release-names-the-resolved-key-not-the-live-resolver
-  (let [ka (tenant-key "acme" 1)
-        kb (tenant-key "globex" 1)]
-    (ensure-feed! "acme" 1 [:app :a 1])
-    (settle-loaded! ka {:for "acme"})
-    ;; switch the viewer input to tenant B and ensure B under its own owner
-    (ensure-feed! "globex" 1 [:app :b 1])
-    (settle-loaded! kb {:for "globex"})
-    (testing "after the viewer input switched to tenant B, releasing tenant A's
-              owner still drops it from tenant A's entry (the owner names the
-              resolved-at-acquire scoped key; release is owner-keyed, not a
-              re-resolution against the now-current viewer)"
-      (is (= "globex" (get-in (rf/app-db-value :rf/default) [:viewer :tenant-id]))
-          "the live viewer input is now tenant B")
-      (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :a 1]}])
-      (is (empty? (:active-owners (entry ka))) "tenant A's owner released from A")
-      (is (contains? (:active-owners (entry kb)) [:app :b 1])
-          "tenant B's owner (current viewer) untouched")
-      (gc-recheck! ka)
-      (is (nil? (entry ka)) "tenant A collected on its last-owner drop")
-      (is (some? (entry kb)) "tenant B still owned + cached"))))
