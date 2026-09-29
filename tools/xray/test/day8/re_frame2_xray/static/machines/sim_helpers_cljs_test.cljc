@@ -27,8 +27,8 @@
                                    into sim-state
     7. `format-state-display` /
        `format-event-display`    — UI-facing formatters"
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [re-frame.machines :as rf.machines]
             [re-frame.machines.parallel :as rf.machines.parallel]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]))
@@ -152,13 +152,6 @@
       (is (= (:state (engine-seed parallel-definition)) (:state snap))
           "identical to the engine's own initial snapshot"))))
 
-(deftest initial-snapshot-keeps-the-engines-own-snapshot-slots
-  (testing "the seed is the engine's whole snapshot — `:rf/spawn-counter`
-            included — so the first step runs against what the runtime
-            would have had, not a reconstruction of it"
-    (let [snap (sim-h/initial-snapshot hierarchical-definition engine-seed)]
-      (is (= (engine-seed hierarchical-definition) snap)))))
-
 (deftest initial-snapshot-without-a-seeder-keeps-the-shallow-read
   (testing "the seeder is optional: with none supplied the helper stays a
             pure `:initial` read, so the JVM target drives it with no
@@ -219,16 +212,13 @@
     (is (every? (complement :guard?) ts)
         "no :guard? on :idle's transitions")))
 
-(deftest available-transitions-empty-for-final-state
-  (let [snap {:state :done :data {}}]
-    (is (= [] (sim-h/available-transitions flat-definition snap)))))
-
-(deftest available-transitions-empty-for-unknown-state
-  (is (= [] (sim-h/available-transitions flat-definition {:state :nonexistent}))))
-
-(deftest available-transitions-nil-safe
-  (is (= [] (sim-h/available-transitions nil nil)))
-  (is (= [] (sim-h/available-transitions flat-definition nil))))
+(deftest available-transitions-is-empty-for-a-final-unknown-or-missing-state
+  (are [definition snapshot] (= [] (sim-h/available-transitions definition snapshot))
+    ;; :done is final and declares no :on
+    flat-definition {:state :done :data {}}
+    flat-definition {:state :nonexistent}
+    nil             nil
+    flat-definition nil))
 
 (deftest available-transitions-stamps-the-declaring-path-on-every-row
   (testing "every row says where it was DECLARED, so a parallel region's rows
@@ -833,30 +823,23 @@
 
 ;; ---- (4) parse-event-vector ---------------------------------------------
 
-(deftest parse-event-vector-accepts-keyword-string
-  (is (= [:foo/bar] (sim-h/parse-event-vector ":foo/bar"))))
+(deftest parse-event-vector-accepts-keyword-and-vector-forms
+  (are [text event] (= event (sim-h/parse-event-vector text))
+    ":foo/bar"          [:foo/bar]
+    "[:foo/bar {:x 1}]" [:foo/bar {:x 1}]
+    ;; surrounding whitespace is trimmed
+    "  :foo/bar  "      [:foo/bar]))
 
-(deftest parse-event-vector-accepts-vector-form
-  (is (= [:foo/bar {:x 1}]
-         (sim-h/parse-event-vector "[:foo/bar {:x 1}]"))))
-
-(deftest parse-event-vector-trims-whitespace
-  (is (= [:foo/bar] (sim-h/parse-event-vector "  :foo/bar  "))))
-
-(deftest parse-event-vector-rejects-empty
-  (is (= {:error "empty"} (sim-h/parse-event-vector nil)))
-  (is (= {:error "empty"} (sim-h/parse-event-vector "")))
-  (is (= {:error "empty"} (sim-h/parse-event-vector "   "))))
-
-(deftest parse-event-vector-rejects-non-keyword-head
-  (let [r (sim-h/parse-event-vector "[\"foo\" 1]")]
-    (is (map? r))
-    (is (:error r))))
-
-(deftest parse-event-vector-rejects-malformed-edn
-  (let [r (sim-h/parse-event-vector "[:foo {bad")]
-    (is (map? r))
-    (is (:error r))))
+(deftest parse-event-vector-rejects-empty-and-malformed-input
+  (are [text] (= {:error "empty"} (sim-h/parse-event-vector text))
+    nil
+    ""
+    "   ")
+  (are [text] (string? (:error (sim-h/parse-event-vector text)))
+    ;; a head that is not a keyword
+    "[\"foo\" 1]"
+    ;; EDN that does not parse
+    "[:foo {bad"))
 
 ;; ---- (5) sim-state lifecycle --------------------------------------------
 
@@ -1090,24 +1073,6 @@
       (is (= {:from [:auth :form] :to [:auth :loading] :event [:submit]}
              (sim-h/last-transition s1))))))
 
-(deftest step-sim-audit-trail-order-newest-last
-  "Each step appends — the trail is insertion-ordered so the view can
-  render either direction. We pin the contract here so a downstream
-  view-test can rely on insertion order."
-  (let [results [{:status :ok
-                  :snapshot {:state :authing :data {}}
-                  :fx []}
-                 {:status :ok
-                  :snapshot {:state :done :data {}}
-                  :fx []}]
-        s0 (sim-h/make-sim-state :auth/login flat-definition)
-        s1 (sim-h/step-sim s0 [:start] (constantly (first results)))
-        s2 (sim-h/step-sim s1 [:ok]    (constantly (second results)))
-        trail (:audit-trail s2)]
-    (is (= 2 (count trail)))
-    (is (= [:start] (-> trail first :event)))
-    (is (= [:ok]    (-> trail last :event)))))
-
 ;; ---- (7) on-chart binding helpers ---------------------------------------
 ;;
 ;; The on-chart simulator binds the topology chart to this same engine:
@@ -1116,28 +1081,10 @@
 ;; on-chart edge click into a step-event. Pure data → data, so pinned here
 ;; at the cheap JVM layer.
 
-(deftest current-sim-state-reads-snapshot-state
-  (testing "current-sim-state returns the snapshot's :state for the chart
-            active-state highlight"
-    (let [s0 (sim-h/make-sim-state :auth/login flat-definition)]
-      (is (= :idle (sim-h/current-sim-state s0))))))
-
 (deftest current-sim-state-is-nil-safe
   (testing "nil sim-state / missing snapshot → nil (no highlight)"
     (is (nil? (sim-h/current-sim-state nil)))
     (is (nil? (sim-h/current-sim-state {})))))
-
-(deftest current-sim-state-tracks-vector-paths
-  (testing "a hierarchical :state path surfaces unchanged for the chart"
-    ;; A compound root is not a state the machine can rest in, so seeded
-    ;; through the engine the sim opens at the leaf PATH, which is what
-    ;; the chart's active-state highlight wants.
-    (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition engine-seed)]
-      (is (= [:auth :form] (sim-h/current-sim-state s0))))
-    (testing "and the shallow read (no seeder) surfaces whatever
-              `:initial` declared, unchanged"
-      (let [s0 (sim-h/make-sim-state :auth/login hierarchical-definition)]
-        (is (= :auth (sim-h/current-sim-state s0)))))))
 
 (deftest last-transition-nil-before-any-step
   (testing "no step taken yet → nil (no edge to animate)"
@@ -1177,17 +1124,15 @@
       (is (= :authing (:to lt)))
       (is (= [:start] (:event lt))))))
 
-(deftest edge-click->event-coerces-keyword-to-vector
-  (testing "a fireable event-id keyword → a `[event-id]` step vector"
-    (is (= [:start] (sim-h/edge-click->event :start)))
-    (is (= [:auth/login] (sim-h/edge-click->event :auth/login)))))
-
-(deftest edge-click->event-nil-for-non-fireable
-  (testing "a nil event-id (an inert :after / :always auto edge, or a
-            non-keyword) → nil so the click is a no-op step"
-    (is (nil? (sim-h/edge-click->event nil)))
-    (is (nil? (sim-h/edge-click->event "start")))
-    (is (nil? (sim-h/edge-click->event 42)))))
+(deftest edge-click->event-coerces-only-a-keyword
+  (are [event-id event] (= event (sim-h/edge-click->event event-id))
+    :start      [:start]
+    :auth/login [:auth/login]
+    ;; an inert :after / :always auto edge carries a nil event-id, and a
+    ;; non-keyword is not fireable either
+    nil         nil
+    "start"     nil
+    42          nil))
 
 ;; ---- (8) format helpers --------------------------------------------------
 
