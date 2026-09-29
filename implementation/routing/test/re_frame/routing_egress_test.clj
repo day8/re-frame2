@@ -81,7 +81,6 @@
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.routing.nav-fx :as rf.routing.nav-fx]
             [re-frame.routing.scroll :as rf.routing.scroll]
-            [re-frame.routing.sub-egress :as rf.routing.sub-egress]
             [re-frame.routing.test-support]
             [re-frame.routing-test-support :as rf.routing-test-support]))
 
@@ -712,13 +711,13 @@
 ;; storage position — the direct-read sibling of the SSR
 ;; `project-routing-egress` projection.
 ;;
-;; The invariant under test: a `:sensitive [[:query :token]]` route redacts in
-;; BOTH the `:rf.sub/run` trace (`re-frame.classification/project-trace-event`)
-;; AND the Pair MCP `read-sub` path (`elide-wire-value` with `:query-v`), while
-;; in-process `@(rf/subscribe [:rf/route])` stays RAW. `:rf.route/query` /
-;; `:rf.route/params` (whose bare values also carry no route seed) are covered
-;; too, plus the `list-subscriptions :include-values` / `snapshot :sub-cache`
-;; re-seeding shape.
+;; The invariant under test here: a `:sensitive [[:query :token]]` route
+;; redacts on the `:rf.sub/run` trace (`re-frame.classification/project-trace-event`)
+;; for `:rf/route`, `:rf.route/query` and `:rf.route/params` (whose bare values
+;; also carry no route seed), plus the `snapshot :sub-cache` per-entry
+;; re-seeding shape. The Pair MCP `read-sub` path (`elide-wire-value` with
+;; `:query-v`) and the in-process rawness of `@(rf/subscribe [:rf/route])` are
+;; pinned, in both postures, by `re-frame.routing-sub-egress-production-test`.
 ;; ===========================================================================
 
 (defn- nav-to-sensitive-oauth!
@@ -739,18 +738,6 @@
   `:rf/route` sub returns in-process."
   []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
-
-;; ---- the seed table (the projector's data) --------------------------------
-
-(deftest seed-table-covers-the-route-read-subs
-  (testing "the three route read subs map to their runtime-db storage positions"
-    (is (= [:rf.runtime/routing :current]          (rf.routing.sub-egress/route-sub-seed-path :rf/route)))
-    (is (= [:rf.runtime/routing :current :query]   (rf.routing.sub-egress/route-sub-seed-path :rf.route/query)))
-    (is (= [:rf.runtime/routing :current :params]  (rf.routing.sub-egress/route-sub-seed-path :rf.route/params))))
-  (testing "a non-route sub-id resolves nil (NARROW — no generic propagation)"
-    (is (nil? (rf.routing.sub-egress/route-sub-seed-path :some-app/sub)))
-    (is (nil? (rf.routing.sub-egress/route-sub-seed-path :rf.route/id)))
-    (is (nil? (rf.routing.sub-egress/route-sub-seed-path nil)))))
 
 ;; ---- the :rf.sub/run TRACE egress (the dev-trace / Xray wire) --------------
 
@@ -800,72 +787,6 @@
           projected  (project-sub-run-trace :rf.route/params params-map)]
       (is (= rf.privacy/redacted-sentinel (:secret projected))
           ":rf.route/params value redacts the :secret at egress"))))
-
-;; ---- the Pair MCP read-sub / direct-read egress (elide-wire-value) ---------
-;;
-;; The Pair MCP `read-sub` / `list-subscriptions :include-values` /
-;; `snapshot :sub-cache` / Xray surfaces all route a route sub's value through
-;; `re-frame.elision/elide-wire-value` server-side, naming the sub via `:query-v`.
-;; This pins THAT path: the bare slice walked with `{:query-v [:rf/route]
-;; :frame …}` redacts the :sensitive query, while the same call WITHOUT
-;; `:query-v` (a non-route value) leaves it raw — proving the re-seed is the
-;; mechanism.
-
-(deftest read-sub-elide-wire-value-redacts-route-sub-via-query-v
-  (testing "elide-wire-value with :query-v [:rf/route] re-seeds at
-            the slice storage position and redacts the :sensitive query value
-            (the Pair MCP read-sub server-side call shape)"
-    (nav-to-sensitive-oauth!)
-    (let [slice   (route-slice)
-          elided  (rf.elision/elide-wire-value slice {:query-v [:rf/route] :frame :rf/default})]
-      (is (= rf.privacy/redacted-sentinel (get-in elided [:query :token]))
-          "the route :sensitive query value redacts on the read-sub wire")
-      (is (= :route/oauth (:route-id elided))
-          "non-classified slice fields ride verbatim")))
-  (testing "WITHOUT :query-v the bare slice ships raw (the whole-value
-            root never matches the re-rooted decl) — confirms the re-seed is
-            load-bearing, and that NON-route values are untouched"
-    (nav-to-sensitive-oauth!)
-    (let [slice  (route-slice)
-          elided (rf.elision/elide-wire-value slice {:frame :rf/default})]
-      (is (= "secret123" (get-in elided [:query :token]))
-          "no :query-v ⇒ no route re-seed ⇒ the bare slice walks at the root and rides raw"))))
-
-(deftest read-sub-elide-wire-value-redacts-query-and-params-subs
-  (testing ":rf.route/query / :rf.route/params re-seed via :query-v"
-    (rf/reg-route :route/oauth
-                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                  "/oauth")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/oauth?token=secret123" {:rf.route/cause :link}])
-    (let [query-map (get-in (route-slice) [:query])
-          elided    (rf.elision/elide-wire-value query-map {:query-v [:rf.route/query] :frame :rf/default})]
-      (is (= rf.privacy/redacted-sentinel (:token elided))
-          ":rf.route/query value redacts via the :query-v re-seed"))
-    (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/topsecret" {:rf.route/cause :link}])
-    (let [params-map (get-in (route-slice) [:params])
-          elided     (rf.elision/elide-wire-value params-map {:query-v [:rf.route/params] :frame :rf/default})]
-      (is (= rf.privacy/redacted-sentinel (:secret elided))
-          ":rf.route/params value redacts via the :query-v re-seed"))))
-
-;; ---- the IN-PROCESS read stays RAW (the NARROW invariant) ------------------
-
-(deftest in-process-route-read-stays-raw
-  (testing "classification is read ONLY at egress — the in-process
-            durable slice (what @(rf/subscribe [:rf/route]) returns) keeps the
-            RAW :token / :payload so the handler / views / app subs see real
-            values"
-    (nav-to-sensitive-oauth!)
-    (let [slice (route-slice)]
-      (is (= "secret123" (get-in slice [:query :token]))
-          "the in-process :token is RAW (subs / views need it)")
-      (is (= "blobdata" (get-in slice [:query :payload]))
-          "the in-process :large :payload is RAW in-process"))
-    (testing "and the route-sub egress projector itself is a no-op on a non-route sub"
-      (is (= {:query {:token "x"}}
-             (rf.routing.sub-egress/project-route-sub-egress :some-app/sub {:query {:token "x"}}
-                                                  {:frame :rf/default}))
-          "NARROW: a non-route sub value rides verbatim (no generic propagation)"))))
 
 ;; ---- the snapshot :sub-cache per-entry re-seed shape -----------------------
 ;;

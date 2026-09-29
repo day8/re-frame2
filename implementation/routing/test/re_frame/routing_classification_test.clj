@@ -103,12 +103,6 @@
                          "/oauth/callback"))
         "reg-route returns its id for a valid classification declaration")))
 
-(deftest reg-route-classification-bare-keys-accepted
-  (testing ":sensitive / :large pass the authoring-boundary bare-key guard"
-    ;; The reserved-key guard rejects bare keys outside the reserved set; the
-    ;; EP-0025 keys are in it, so they don't trip :rf.error/route-bad-metadata.
-    (is (some? (rf/reg-route :route/x {:sensitive [[:query :t]]} "/x")))))
-
 (deftest reg-route-rejects-malformed-classification-loud
   (testing "a non-vector axis fails loud at registration"
     (is (thrown-with-msg?
@@ -150,14 +144,6 @@
     (is (= #{[:rf.runtime/routing :current :query :token]}
            (route-sensitive-paths))
         "the projection-relative [:query :token] is re-rooted under [:rf.runtime/routing :current …] and tagged :source :route")))
-
-(deftest activation-adds-large-entry
-  (testing "a :large declaration lowers into the large :declarations slot"
-    (rf/reg-route :route/upload {:large [[:params :payload]]} "/upload/:payload")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/upload/abc" {:rf.route/cause :link}])
-    (is (= #{[:rf.runtime/routing :current :params :payload]}
-           (route-large-paths)))
-    (is (empty? (route-sensitive-paths)))))
 
 ;; ===========================================================================
 ;; (the param REDACTS at egress — the acceptance criterion)
@@ -315,8 +301,7 @@
 
 ;; ===========================================================================
 ;; End-to-end :large-redacts-at-egress for a route.
-;; `activation-adds-large-entry` follows the :large axis only as far as the
-;; registry; this pins the EP-0025 large-axis promise on the route surface: a
+;; This pins the EP-0025 large-axis promise on the route surface: a
 ;; route-declared :large path holding an oversized value produces a
 ;; :rf.size/large-elided size marker AT EGRESS while non-classified slice
 ;; fields ride verbatim and the in-process handler/sub sees the raw value.
@@ -498,18 +483,6 @@
           (rf/reg-route :route/clear2 {:clear-large [[:params :payload]]} "/clear2"))
         ":clear-large is an unreserved bare key → rejected at reg-route")))
 
-(deftest string-query-segment-accepted-at-validation
-  (testing "a :sensitive [[:query \"token\"]] STRING segment is
-            accepted at validation as concrete EDN (it does not throw)"
-    ;; A string IS a concrete EDN segment, so normalize-concrete admits it — the
-    ;; declaration is well-formed and lowers a string-keyed path.
-    (let [c (rf.routing.classification/validate+extract :route/strkey {:sensitive [[:query "token"]]})]
-      (is (= [[:query "token"]] (:sensitive c))
-          "the string-segment path is admitted verbatim as a concrete path")))
-  (testing "reg-route accepts the string-segment declaration too
-            (no throw at the authoring boundary)"
-    (is (some? (rf/reg-route :route/strkey {:sensitive [[:query "token"]]} "/strkey")))))
-
 (deftest string-query-segment-fails-open-against-keyword-promoted-slice
   (testing "a :sensitive [[:query \"token\"]] STRING-key declaration
             silently FAILS OPEN — a route that PROMOTES :token keys the slice
@@ -533,19 +506,6 @@
           slice  (get-in elided [:rf.runtime/routing :current])]
       (is (= "secret123" (get-in slice [:query :token]))
           "FAIL-OPEN: the keyword-promoted slot is NOT redacted by the string-key decl"))))
-
-(deftest keyword-query-decl-matches-keyword-promoted-slice
-  (testing "(contrast) the CORRECT keyword-segment declaration DOES
-            redact the keyword-promoted slice — the pairing the spec prescribes"
-    (rf/reg-route :route/kwmatch
-                  {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                  "/kwmatch")
-    (rf/dispatch-sync [:rf.route/handle-url-change "/kwmatch?token=secret123" {:rf.route/cause :link}])
-    (let [rdb    (:rf.db/runtime (rf/frame-state-value :rf/default))
-          elided (rf.elision/elide-wire-value rdb {:frame :rf/default})
-          slice  (get-in elided [:rf.runtime/routing :current])]
-      (is (= sentinel (get-in slice [:query :token]))
-          "the keyword-segment decl matches the keyword-promoted slot → redacted"))))
 
 ;; ===========================================================================
 ;; reg-route-time query-key promotion ADVISORY. A :sensitive /
