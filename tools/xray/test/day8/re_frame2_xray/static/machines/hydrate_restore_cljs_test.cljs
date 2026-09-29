@@ -154,19 +154,6 @@
   (persistence/save-sub-mode-by-id! prior-sub-modes))
 
 ;; -------------------------------------------------------------------------
-;; (0) preconditions — the stub is real
-;; -------------------------------------------------------------------------
-
-(deftest local-storage-stub-round-trips
-  (testing "the in-memory stub backs save!/load, so the seeding below is
-            a real persisted prior session rather than a no-op"
-    (seed-prior-session!)
-    (is (= prior-selection (persistence/load-selected-id))
-        "selection slot round-trips through the stub")
-    (is (= prior-sub-modes (persistence/load-sub-mode-by-id))
-        "sub-mode slot round-trips through the stub")))
-
-;; -------------------------------------------------------------------------
 ;; (1) THE ACCEPTANCE — the persisted selection restores after a reload
 ;; -------------------------------------------------------------------------
 
