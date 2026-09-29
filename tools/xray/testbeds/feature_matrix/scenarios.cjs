@@ -1275,10 +1275,6 @@ async function readLaunchModeProjection(page) {
     }
     function shellProjection(root) {
       const shell = root && root.querySelector('[data-testid="rf-xray-shell"]');
-      const active = root
-        ? Array.from(root.querySelectorAll('[data-testid^="rf-xray-sidebar-item-"]'))
-          .find((el) => (el.textContent || '').includes('◉'))
-        : null;
       // The Epoch panel is the canonical focused-cascade surface; its
       // DISPATCH step is the rendering proxy for "a cascade is in focus
       // and its data is rendered".
@@ -1289,7 +1285,6 @@ async function readLaunchModeProjection(page) {
         rootMode: root ? root.getAttribute('data-rf-xray-mode') : null,
         shellPresent: Boolean(shell),
         shellMode: shell ? shell.getAttribute('data-rf-xray-mode') : null,
-        activePanel: active ? active.getAttribute('data-testid') : null,
         // The Epoch panel doesn't stamp a top-level `:data-dispatch-id` /
         // `:data-frame` (the dispatch info lives inside the rendered
         // DISPATCH step's text). The pop-out vs overlay agreement
