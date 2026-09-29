@@ -15,11 +15,11 @@
  *       script directly. Asserts the warning fires for a real diff that
  *       crosses an MCP source path, and is silent for a diff that doesn't.
  *
- * These tests are `.cjs` rather than CLJS: the hook is a sh/Node-side
- * artefact with no CLJS source of truth, so its tests live as `.cjs`
- * siblings rather than under `re_frame2_pair_mcp/*_test.cljs`.
+ * It sits beside the hook it tests, and `test-pre-commit.sh` runs it as its
+ * post-merge layer, so the always-on PR guards job grades every change to
+ * the hook or its library.
  *
- * Run with: node test/post-merge-hook-test.cjs
+ * Run with: node scripts/git-hooks/post-merge-hook-test.cjs
  * Exit 0 = all-pass, 1 = any failure.
  */
 
@@ -30,7 +30,7 @@ const os       = require('os');
 const path     = require('path');
 const child    = require('child_process');
 
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LIB_PATH  = path.join(REPO_ROOT, 'scripts', 'git-hooks', 'lib', 'check-stale-mcp-binary.sh');
 const HOOK_PATH = path.join(REPO_ROOT, 'scripts', 'git-hooks', 'post-merge');
 

@@ -22,7 +22,8 @@ disturbing beads-managed segments (`bd hooks install`).
 | `lib/check-mayor-commit-boundary.sh` | POSIX-sh library used by `pre-commit` (rf2-ydl2p). |
 | `lib/check-beads-boundary.sh` | POSIX-sh library carrying two checks over one file: `check_beads_boundary` (rf2-ia8o7), used by `pre-commit` **and** by `scripts/check-beads-pr-boundary.sh`, the CI arm; and `check_beads_truncation` (rf2-or8te), used by `pre-commit` alone. |
 | `lib/check-commit-attribution.sh` | POSIX-sh library used by `commit-msg` **and** by `scripts/check-commit-attribution.sh`, its CI arm over the branch's commits **and** its PR body (rf2-2e8f) — one detector, every arm. |
-| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for all three pre-commit blocks and the commit-msg block, both CI arms, the installer, real pulls of both shapes, and the checkpoint helper. |
+| `test-pre-commit.sh` | Library unit tests, sandboxed end-to-end smoke for all three pre-commit blocks and the commit-msg block, both CI arms, the installer, real pulls of both shapes, and the checkpoint helper. Its last layer runs `post-merge-hook-test.cjs`. |
+| `post-merge-hook-test.cjs` | Node unit + smoke tests for `post-merge`'s MCP-staleness block: `lib/check-stale-mcp-binary.sh` over synthetic path lists, and the hook end to end in a throwaway repo. |
 
 The unit of installation is a marker block, not a hook: `pre-commit`
 carries three of them. The installers key their registries on block id
@@ -691,6 +692,12 @@ The marker's verbs and decoration, and the identity:
     a human, a human named Claude, another address at that domain and a
     message naming the address in prose all pass
 37. A commit recorded as the assistant on the BASE does not red a clean branch
+
+The MCP-staleness block in `post-merge`, through `post-merge-hook-test.cjs`:
+
+38. A changed path inside an MCP server's source surface warns, naming the
+    server and its rebuild command, and any other path is silent — both
+    through the library and through the hook over a real `ORIG_HEAD` diff
 
 ## Discovery context
 

@@ -7,8 +7,8 @@
 # whose compiled artefact under `out/` is gitignored and rebuilt locally.
 #
 # This file is intentionally a pure shell library (no `set -e`, no global
-# state mutations) so the Node-side test runner under
-# `tools/re-frame2-pair-mcp/test/post-merge-hook-test.cjs` can invoke it
+# state mutations) so the Node-side test runner
+# `scripts/git-hooks/post-merge-hook-test.cjs` can invoke it
 # with synthetic stdin streams and assert against stdout / stderr / exit.
 #
 # Exit codes:
