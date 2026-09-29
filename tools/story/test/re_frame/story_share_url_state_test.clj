@@ -166,9 +166,11 @@
       (is (= :uix                  (:substrate    out))))))
 
 (deftest parse-params-handles-missing-keys
-  (testing "parse-params returns nil for absent slots — caller decides defaults"
-    (let [out (rf.story.share/parse-params {})]
-      (is (every? nil? (vals out))))))
+  (testing "parse-params returns every slot, nil when absent — caller decides defaults"
+    (is (= {:variant-id nil :workspace-id nil :mode-tab nil :active-modes nil
+            :viewport nil :background nil :tag-filter nil :cell-overrides nil
+            :substrate nil}
+           (rf.story.share/parse-params {})))))
 
 (deftest parse-params-with-workspace
   (testing "workspace round-trips when present"

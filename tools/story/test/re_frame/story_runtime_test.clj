@@ -289,9 +289,9 @@
           "the replacement body (v2) is the one applied"))))
 
 (deftest reg-global-decorator-mixed-kinds
-  (testing "a global :frame-setup decorator's :init events fire before any
-            story / variant events — the global slot lands in the
-            :frame-setup bucket exactly like a story-level decorator would"
+  (testing "global :hiccup, :frame-setup and :fx-override decorators each
+            land in their own kind-bucket, exactly like story-level
+            decorators would"
     (rf.story/reg-global-decorator :app/setup
       {:kind :frame-setup :init [[:noop]]})
     (rf.story/reg-global-decorator :app/theme
@@ -1769,8 +1769,8 @@
           "the handler-backed terminal assertion recorded EXACTLY ONE record
            (not double-counted)")
       (is (true? (:passed? (first path-recs))))
-      (is (<= (count schema-recs) 1)
-          "the schema-error expectation is minted at most ONCE — by the
+      (is (= 1 (count schema-recs))
+          "the schema-error expectation is minted exactly ONCE — by the
            result boundary's tape matcher, NOT a second time by the terminal
            auto-run dispatching a (non-existent) handler"))
     (rf.story/destroy-variant! :story.nyjoa/mixed)))
@@ -2683,7 +2683,7 @@
 
 (deftest extends-child-own-classification-still-applies
   (testing "companion — a child that DECLARES its own
-            `:sensitive` axis on an `:extends`ed variant still redacts
+            `:large` axis on an `:extends`ed variant still elides
             (classifying from the compiled plan keeps the non-inherited case)"
     (rf/reg-event :docs/upload-lsr95i
       (fn [{:keys [db]} _] {:db (assoc-in db [:docs :blob] "large-blob-lsr95i")}))
