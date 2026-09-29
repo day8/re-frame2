@@ -146,6 +146,10 @@
   is de-duped (no second `:renders` row, no re-notify) — that is the
   mount-burst tail being absorbed rather than re-filed.
 
+  A render attributed through a post-settle sub-run is no more certain than
+  that run, so its row carries the run's `:epoch-window`
+  (`state/render-epoch-window`).
+
   Re-fans the corrected record out to epoch listeners so snapshot
   consumers (Xray Views / Reactive panel, which cache `epoch-history`
   at settle time) re-sync to the corrected `:renders`.
@@ -175,8 +179,14 @@
           ;; Back-fill stores the raw event and row; egress projection remains
           ;; the only redaction boundary.
           (when-let [updated-record
-                     (rf.epoch.state/back-fill-render! frame-id target-epoch-id event
-                                              (rf.epoch.capture/render-row event))]
+                     (let [render-row   (rf.epoch.capture/render-row event)
+                           epoch-window (when render-row
+                                          (rf.epoch.state/render-epoch-window
+                                            frame-id render-key target-epoch-id))]
+                       (rf.epoch.state/back-fill-render!
+                         frame-id target-epoch-id event
+                         (cond-> render-row
+                           epoch-window (assoc :epoch-window epoch-window))))]
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
@@ -203,6 +213,12 @@
   `:rf.sub/skip` it projects no `:sub-runs` row, so it rides only
   `:trace-events`, where Xray attaches it to the SUBSCRIPTIONS row.
 
+  The last-settled epoch is where the run is FILED, not necessarily what
+  caused it: every epoch settled since the sub's previous run may have
+  changed its inputs. So a `:rf.sub/run` is stamped `:rf.sub/epoch-window`
+  (`state/sub-run-epoch-window`) before it is stored, and `sub-run-row`
+  threads the same window onto its row.
+
   No-op when the frame has no settled epoch yet (a sub-run before the
   first cascade) or when the target epoch has been evicted from the ring
   — `back-fill-sub-run!` returns nil and we skip the re-notify."
@@ -211,8 +227,14 @@
     (when-let [epoch-id (rf.epoch.state/last-settled-epoch-id frame-id)]
       ;; Store raw; projection remains the egress boundary.
       (when-let [updated-record
-                 (rf.epoch.state/back-fill-sub-run! frame-id epoch-id event
-                                           (rf.epoch.capture/sub-run-row event))]
+                 (let [event (cond-> event
+                               (= :rf.sub/run (:operation event))
+                               (assoc-in [:tags :rf.sub/epoch-window]
+                                         (rf.epoch.state/sub-run-epoch-window
+                                           frame-id epoch-id
+                                           (-> event :tags :rf.sub/query-v))))]
+                   (rf.epoch.state/back-fill-sub-run! frame-id epoch-id event
+                                                     (rf.epoch.capture/sub-run-row event)))]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render back-fill above.

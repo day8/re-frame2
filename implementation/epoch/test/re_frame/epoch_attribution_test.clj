@@ -2224,3 +2224,142 @@
       (is (= 1 (count-traces (partial sub-failure? :sub-override :cart/total)
                              (epoch-by-id :test/main settled)))
           "the :sub-override failure is back-filled into the last-settled epoch"))))
+
+;; ===========================================================================
+;; INVARIANT 11 — a post-settle :rf.sub/run names the epoch window it reflects
+;; ===========================================================================
+;;
+;; A post-settle recompute is filed under the last-settled epoch, but when more
+;; than one epoch settled since the sub last ran, any of them may have changed
+;; its inputs, and nothing the epoch layer receives says which. So the row says
+;; what IS known: `:epoch-window [first last]`, the settled epochs since the
+;; sub's previous recorded run, with the same window as `:rf.sub/epoch-window`
+;; on the retained `:rf.sub/run`. A run recorded inside its cascade is
+;; attributed exactly and carries no window.
+;;
+;; The subs here are REAL `reg-sub`s derefed on the plain-atom substrate after
+;; `dispatch-sync` returned, so every `:rf.sub/run` comes from the runtime's
+;; own emit site.
+
+(defn- window-of
+  "`record`'s window for `sub-id` as `[<row :epoch-window> <trace
+  :rf.sub/epoch-window>]` — the structured row and the retained raw trace."
+  [record sub-id]
+  [(:epoch-window (sub-run-for record sub-id))
+   (some #(when (sub-run-trace? sub-id %)
+            (get-in % [:tags :rf.sub/epoch-window]))
+         (:trace-events record))])
+
+(defn- register-runner!
+  "Two layer-1 subs and a run-step event whose `:fx` child bumps the count."
+  []
+  (rf/make-frame {:id :test/main})
+  (rf/reg-sub :runner/step  (fn [db _] (:step db)))
+  (rf/reg-sub :runner/count (fn [db _] (:count db)))
+  (rf/reg-event :runner/seed (fn [_ _] {:db {:step 0 :count 0}}))
+  (rf/reg-event :runner/step
+    (fn [{:keys [db]} [_ n]]
+      {:db (assoc db :step n)
+       :fx [[:dispatch [:runner/inc]]]}))
+  (rf/reg-event :runner/inc (fn [{:keys [db]} _] {:db (update db :count inc)})))
+
+(deftest inv-11-post-settle-sub-run-window-names-every-epoch-since-its-last-run
+  (testing "a run-step epoch whose :fx child settles a second epoch before
+            anything derefs: each sub recomputes once, post-settle, and is
+            filed under the child's epoch — so its row names BOTH epochs
+            instead of implying the child caused it"
+    (register-runner!)
+    (rf/dispatch-sync [:runner/seed] {:frame :test/main})
+    (let [step-sub  (rf/subscribe [:runner/step]  {:frame :test/main})
+          count-sub (rf/subscribe [:runner/count] {:frame :test/main})]
+      (is (= [0 0] [@step-sub @count-sub])
+          "precondition: both subs ran once, after the seed epoch settled")
+      (rf/dispatch-sync [:runner/step 1] {:frame :test/main})
+      (let [[step-epoch inc-epoch] (take-last 2 (rf/epoch-history :test/main))]
+        (is (= [:runner/step :runner/inc] (mapv :event-id [step-epoch inc-epoch]))
+            "precondition: the drain settled two epochs")
+        (is (= [1 1] [@step-sub @count-sub])
+            "precondition: each sub recomputed once, post-settle")
+        (let [step-epoch (epoch-by-id :test/main step-epoch)
+              inc-epoch  (epoch-by-id :test/main inc-epoch)
+              window     [(:epoch-id step-epoch) (:epoch-id inc-epoch)]]
+          (is (= #{:runner/step :runner/count} (sub-run-ids inc-epoch))
+              "filing is unchanged: both rows land under the last-settled epoch")
+          (is (empty? (:sub-runs step-epoch))
+              "filing is unchanged: nothing lands under the run-step epoch")
+          (is (= [window window] (window-of inc-epoch :runner/step))
+              ":runner/step changed in the run-step epoch; its row and trace name both")
+          (is (= [window window] (window-of inc-epoch :runner/count))
+              ":runner/count changed in the child epoch; its row and trace name both"))))))
+
+(deftest inv-11-single-event-post-settle-sub-run-reads-a-one-epoch-window
+  (testing "one epoch settled since the sub's previous post-settle run, so the
+            window is that epoch alone — and the previous run's own epoch is
+            not in it"
+    (register-runner!)
+    (rf/dispatch-sync [:runner/seed] {:frame :test/main})
+    (let [seed  (last-epoch :test/main)
+          count-sub (rf/subscribe [:runner/count] {:frame :test/main})]
+      (is (= 0 @count-sub))
+      (is (= [[(:epoch-id seed) (:epoch-id seed)] [(:epoch-id seed) (:epoch-id seed)]]
+             (window-of (epoch-by-id :test/main seed) :runner/count))
+          "the first recompute after the seed reads the seed epoch alone")
+      (rf/dispatch-sync [:runner/inc] {:frame :test/main})
+      (let [inc-epoch (last-epoch :test/main)
+            window    [(:epoch-id inc-epoch) (:epoch-id inc-epoch)]]
+        (is (= 1 @count-sub))
+        (is (= [window window] (window-of (epoch-by-id :test/main inc-epoch) :runner/count))
+            "a one-epoch window: exactly the epoch that caused the recompute")))))
+
+(deftest inv-11-in-cascade-sub-run-carries-no-window
+  (testing "a sub-run recorded inside its cascade is attributed exactly, so
+            neither its row nor its trace carries a window"
+    (register-runner!)
+    (rf/reg-event :runner/read-then-inc
+      (fn [{:keys [db]} _]
+        @(rf/subscribe [:runner/count] {:frame :test/main})
+        {:db (update db :count inc)}))
+    (rf/reg-event :runner/other (fn [{:keys [db]} _] {:db (assoc db :other true)}))
+    (rf/dispatch-sync [:runner/seed] {:frame :test/main})
+    (rf/dispatch-sync [:runner/read-then-inc] {:frame :test/main})
+    (let [read-epoch (last-epoch :test/main)]
+      (is (= #{:runner/count} (sub-run-ids read-epoch))
+          "precondition: the run rode its own cascade")
+      (is (= 1 (count-traces (partial sub-run-trace? :runner/count) read-epoch))
+          "precondition: its trace is retained")
+      (is (= [nil nil] (window-of read-epoch :runner/count))
+          "no window on the row, none on the trace")
+      (is (not (contains? (sub-run-for read-epoch :runner/count) :epoch-window))
+          "the row key is absent, not nil")
+      (testing "and a later post-settle run counts that cascade in its window,
+                because the cascade changed the sub's input after the run"
+        (rf/dispatch-sync [:runner/other] {:frame :test/main})
+        (let [other-epoch (last-epoch :test/main)
+              window      [(:epoch-id read-epoch) (:epoch-id other-epoch)]]
+          (is (= 1 @(rf/subscribe [:runner/count] {:frame :test/main})))
+          (is (= [window window]
+                 (window-of (epoch-by-id :test/main other-epoch) :runner/count))))))))
+
+(deftest inv-11-render-inherits-the-window-of-the-sub-run-it-follows
+  (testing "a post-settle render resolved through a windowed sub-run carries
+            the same window, so the view is no more certain than its sub"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [_ _] {:db {:step 0}}))
+    (rf/reg-event :a    (fn [{:keys [db]} _] {:db (assoc db :a true)}))
+    (rf/reg-event :b    (fn [{:keys [db]} _] {:db (assoc db :b true)}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    ;; Mount: the in-render deref teaches the read-set, then the view renders.
+    (emit-mount-sub-run! :test/main :step cv-rk nil 0)
+    (emit-render! :test/main cv-rk)
+    (rf/dispatch-sync [:a] {:frame :test/main})
+    (let [a (last-epoch :test/main)]
+      (rf/dispatch-sync [:b] {:frame :test/main})
+      (let [b      (last-epoch :test/main)
+            window [(:epoch-id a) (:epoch-id b)]]
+        (emit-sub-run! :test/main :step 0 1)
+        (emit-render! :test/main cv-rk)
+        (let [b (epoch-by-id :test/main b)]
+          (is (= window (:epoch-window (sub-run-for b :step)))
+              "precondition: the sub-run the render follows is windowed")
+          (is (= window (:epoch-window (render-row-for b cv-rk)))
+              "the render resolved to that epoch carries the same window"))))))

@@ -646,9 +646,9 @@
   (reset! mount-attribution {})
   nil)
 
-(defn- epoch-value-changed-for-view?
-  "True when epoch `record` carries a value-changed `:sub/run` belonging
-  to the view named by `render-key`.
+(defn- view-value-changed-sub-runs
+  "The value-changed `:sub/run` evidence in epoch `record` belonging to the
+  view named by `render-key`, as a seq of raw trace events or structured rows.
 
   Two evidence sources, in priority order:
 
@@ -675,22 +675,28 @@
   falls back to the structured rows only when traces are absent."
   [record render-key render-deps]
   (if (contains? record :trace-events)
-    (some (fn [trace-event]
-            (and (= :rf.sub/run (:operation trace-event))
-                 (true? (-> trace-event :tags :rf.sub/value-changed?))
-                 (let [event-tags (:tags trace-event)]
-                   (or (= render-key (:rf.sub/reader-render-key event-tags))
-                       (and render-deps
-                            (contains? render-deps (:rf.sub/id event-tags)))))))
-          (:trace-events record))
+    (filter (fn [trace-event]
+              (and (= :rf.sub/run (:operation trace-event))
+                   (true? (-> trace-event :tags :rf.sub/value-changed?))
+                   (let [event-tags (:tags trace-event)]
+                     (or (= render-key (:rf.sub/reader-render-key event-tags))
+                         (and render-deps
+                              (contains? render-deps (:rf.sub/id event-tags)))))))
+            (:trace-events record))
     ;; `:trace-events` elided (keep-0, or this record below the
     ;; elision boundary). The structured `:sub-runs` rows are retained for
     ;; every record; match a value-changed row by the view's learned read-set.
-    (and render-deps
-         (some (fn [sub-run-row]
-                 (and (true? (:value-changed? sub-run-row))
-                      (contains? render-deps (:sub-id sub-run-row))))
-               (:sub-runs record)))))
+    (when render-deps
+      (filter (fn [sub-run-row]
+                (and (true? (:value-changed? sub-run-row))
+                     (contains? render-deps (:sub-id sub-run-row))))
+              (:sub-runs record)))))
+
+(defn- epoch-value-changed-for-view?
+  "True when epoch `record` carries a value-changed `:sub/run` belonging
+  to the view named by `render-key` (see `view-value-changed-sub-runs`)."
+  [record render-key render-deps]
+  (boolean (seq (view-value-changed-sub-runs record render-key render-deps))))
 
 (defn- value-changed-epoch-for
   "Scan `frame-id`'s ring (from the last-settled anchor, newest-first) for
@@ -803,6 +809,77 @@
         (some (fn [render-row]
                 (= render-key (:render-key render-row)))
               (:renders (nth history record-index)))))))
+
+;; ---- post-settle epoch windows --------------------------------------------
+;;
+;; A post-settle recompute is filed under the last-settled epoch, but it runs
+;; against the db as it stands after EVERY epoch that settled since the sub
+;; last ran, and any of them may have changed its inputs. Which one did is
+;; decided inside the sub body, and the epoch layer never runs user code to
+;; find out. So the filed run carries the window of epochs it reflects, and a
+;; render attributed through it carries the same window.
+
+(defn sub-run-epoch-window
+  "Return `[first last]`: the ids of the oldest and newest settled epochs that
+  a post-settle recompute of `query-v`, filed under `anchor-epoch-id`, may
+  reflect.
+
+  `last` is the anchor. `first` comes from a newest-first scan of the frame's
+  ring, starting at the anchor, back to the sub's previous recorded run — the
+  newest `:sub-runs` row carrying `query-v`. That run's own epoch is in the
+  window when the run was recorded inside its cascade, because the cascade
+  may have changed the sub's inputs after it ran, and out of it when the run
+  was itself post-settle (it carries a window). With no previous run retained
+  the window reaches back to the oldest retained settled epoch; with no epoch
+  settled since the previous run it is the anchor alone.
+
+  Only `:ok` records join, since a halted record never settled. Starting at
+  the anchor, as `value-changed-epoch-for` does, keeps records newer than a
+  restore rewind out of the window."
+  [frame-id anchor-epoch-id query-v]
+  (let [history (history-for frame-id)]
+    (loop [history-index  (or (epoch-index history anchor-epoch-id) -1)
+           first-epoch-id anchor-epoch-id]
+      (if (neg? history-index)
+        [first-epoch-id anchor-epoch-id]
+        (let [record       (nth history history-index)
+              settled?     (= :ok (get record :outcome :ok))
+              previous-run (last (filter #(= query-v (:query-v %))
+                                         (:sub-runs record)))]
+          (cond
+            (nil? previous-run)
+            (recur (dec history-index)
+                   (if settled? (:epoch-id record) first-epoch-id))
+
+            (and settled? (not (contains? previous-run :epoch-window)))
+            [(:epoch-id record) anchor-epoch-id]
+
+            :else
+            [first-epoch-id anchor-epoch-id]))))))
+
+(defn- epoch-window-of
+  "The epoch window on a sub-run, read off a structured row or a raw trace."
+  [sub-run]
+  (or (:epoch-window sub-run)
+      (-> sub-run :tags :rf.sub/epoch-window)))
+
+(defn render-epoch-window
+  "The epoch window a post-settle render filed under `epoch-id` inherits from
+  the value-changed sub-runs that attributed it there (see
+  `resolve-render-epoch`): the widest `[first last]` across the view's
+  windowed evidence in that epoch, or nil when none of it carries a window."
+  [frame-id render-key epoch-id]
+  (when render-key
+    (let [history      (history-for frame-id)
+          record-index (epoch-index history epoch-id)
+          windows      (when record-index
+                         (keep epoch-window-of
+                               (view-value-changed-sub-runs
+                                 (nth history record-index) render-key
+                                 (render-deps-for frame-id render-key))))]
+      (when (seq windows)
+        [(apply min (map first windows))
+         (apply max (map second windows))]))))
 
 ;; ---- post-settle event back-fill ------------------------------------------
 ;;
