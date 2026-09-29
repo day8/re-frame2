@@ -168,3 +168,18 @@
       (is (= #{:http} (rf.story.fx-stubs/observed-fx-ids :story.fxisolation/b))))
     (rf.story/destroy-variant! :story.fxisolation/a)
     (rf.story/destroy-variant! :story.fxisolation/b)))
+
+(deftest destroy-variant-drops-stub-call-log
+  (testing "destroy-variant! clears the destroyed variant's stub-call log"
+    (rf/reg-event :do/http-drop
+      (fn [_ _]
+        {:fx [[:http {:url "/drop"}]]}))
+    (rf.story/reg-variant :story.fxdrop/v
+      {:decorators [[:rf.story/force-fx-stub :http {:status :ok}]]
+       :setup     []
+       :script [[:dispatch-sync [:do/http-drop]]]})
+    (rf.story.async/deref-blocking (rf.story/run-variant :story.fxdrop/v) 5000)
+    (is (= 1 (count (rf.story.frames/stub-call-log-for :story.fxdrop/v)))
+        "precondition: the run logged the stubbed call")
+    (rf.story/destroy-variant! :story.fxdrop/v)
+    (is (empty? (rf.story.frames/stub-call-log-for :story.fxdrop/v)))))

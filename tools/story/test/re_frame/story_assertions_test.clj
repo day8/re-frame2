@@ -105,7 +105,9 @@
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.auth/happy) 5000)]
       (is (= 1 (count (:assertions r))))
       (is (true? (-> r :assertions first :passed?)))
-      (is (= :rf.assert/path-equals (-> r :assertions first :assertion))))
+      (is (= :rf.assert/path-equals (-> r :assertions first :assertion)))
+      (is (= :authenticated (-> r :assertions first :actual)))
+      (is (= :authenticated (-> r :assertions first :expected))))
     (rf.story/destroy-variant! :story.auth/happy)))
 
 (deftest path-equals-fail
@@ -143,7 +145,9 @@
       {:setup [[:test/set-bad]]
        :script [[:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
     (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.malli/bad) 5000)]
-      (is (false? (-> r :assertions first :passed?))))
+      (is (false? (-> r :assertions first :passed?)))
+      (is (some? (-> r :assertions first :explanation))
+          "the failure record carries the Malli explanation"))
     (rf.story/destroy-variant! :story.malli/bad)))
 
 ;; ===========================================================================
