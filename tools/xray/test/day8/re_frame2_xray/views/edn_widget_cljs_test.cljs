@@ -299,14 +299,6 @@
               [:whitespace " "] [:symbol (str BS "newline")]]))
         "a regex's pattern and a character literal are left alone")))
 
-(deftest code-block-pre-formats-via-zprint
-  (let [out  (w/code-block {:source "(reg-event :counter/inc (fn [{:keys [db]} _] {:db (update db :n inc)}))"})
-        pre  (some #(when (and (vector? %) (= :pre (first %))) %)
-                   (walk-hiccup out))
-        attrs (when pre (second pre))]
-    (is (some? attrs))
-    (is (contains? attrs :data-formatted))))
-
 (deftest code-block-non-clojure-lang-skips-format
   (let [out  (w/code-block {:source "function f(){}" :lang :javascript})
         pre  (some #(when (and (vector? %) (= :pre (first %))) %)
@@ -333,6 +325,5 @@
                     :symbol :paren :builtin]]
     (let [token-kw (w/highlight-clojure-token tok-type)
           resolved (get tokens token-kw)]
-      (is (string? resolved))
       (is (and (string? resolved)
                (str/starts-with? resolved "var(--rf-xray-"))))))

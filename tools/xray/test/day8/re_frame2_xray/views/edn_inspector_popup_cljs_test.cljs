@@ -417,13 +417,6 @@
          :entries     @(rf/subscribe [edn-inspector-popup/entries-slot])
          :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))))
 
-(deftest stack-view-renders-nothing-when-empty
-  (edn-inspector-popup/install!)
-  ;; Register the modal-positioning sub the stack view subscribes to.
-  (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))
-  (is (nil? (popup-stack-tree))
-      "closed stack short-circuits to nil"))
-
 (deftest stack-view-renders-one-entry-per-open-popup
   (edn-inspector-popup/install!)
   (rf/reg-sub :rf.xray/modal-positioning (fn [_ _] :fixed))

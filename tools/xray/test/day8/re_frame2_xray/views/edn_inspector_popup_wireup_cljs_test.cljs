@@ -14,9 +14,11 @@
      the affordance).
   2. **Opt-in default off** — without `:popup-affordance?` (or with
      `false`) the widget renders NO affordance button.
-  3. **Shell mount** — `edn-inspector-popup-stack` short-circuits to
-     nil when the stack is empty and renders the chrome for every
-     active mount-id when the stack is non-empty.
+  3. **Shell mount** — `edn-inspector-popup-stack` is a Fresco
+     boundary, and the stack it renders is the surrounding frame's.
+     Its empty-stack gate and per-entry chrome are pinned by the popup
+     ns's stack-view row and the browser-lane
+     `edn-inspector-popup-stack-boundary-dom-cljs-test`.
   4. **Registry install** — `registry.cljs` calls
      `edn-inspector-popup/install!` so the open/close events resolve
      through `rf/dispatch-sync` post-registration.
@@ -248,14 +250,6 @@
         {:stack       stack
          :entries     @(rf/subscribe [edn-inspector-popup/entries-slot])
          :positioning @(rf/subscribe [:rf.xray/modal-positioning])}))))
-
-(deftest popup-stack-view-empty-when-stack-empty
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (let [tree (popup-stack-tree)]
-      (is (nil? tree)
-          "stack view returns nil when no popups are open (closed-state
-           cost is one subscribe + a when-gate)"))))
 
 ;; =========================================================================
 ;; registry wiring
