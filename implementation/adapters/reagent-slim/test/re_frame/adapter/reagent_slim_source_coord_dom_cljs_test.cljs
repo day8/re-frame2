@@ -13,19 +13,20 @@
 
   Coverage mirrors the bridge's shape where it applies to slim:
 
-    - DOM-keyword root with no attrs map: attrs map spliced in.
-    - DOM-keyword root WITH an existing attrs map: coord merged in
-      alongside the user's attrs.
+    - DOM-keyword root with no attrs map: attrs map spliced in, its value
+      matching `<ns>:<sym>:<line>:<col>`.
     - User-supplied data-rf2-source-coord wins (don't overwrite).
     - Form-2 (render-fn returns a fn): inner-fn output gets annotated.
     - React Fragment root (`:<>`): root is exempt; no attribute injected.
     - Programmatic reg-view* without source-coords: degrades to
       `<ns>:<sym>:?:?`.
-    - Format: the attribute value matches `<ns>:<sym>:<line>:<col>`.
+
+  A root WITH an existing attrs map gets both attributes merged in by the
+  same splice; `re-frame.adapter.reagent-slim-view-id-attr-cljs-test` pins
+  that case for both of them.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as rf.adapter.reagent-slim]
             [re-frame.test-support :as rf.test-support]
@@ -61,24 +62,6 @@
       (is (re-find #"^rf\.slim-src-coord:no-attrs:\d+:\d+$" attr)
           (str ":data-rf2-source-coord matches <ns>:<sym>:<line>:<col>; got "
                (pr-str attr))))))
-
-;; ---- DOM-keyword root with attrs map --------------------------------------
-
-(deftest annotates-dom-root-with-existing-attrs
-  (testing "a reg-view'd component with [:tag {:class …} children…] has
-            :data-rf2-source-coord merged into the existing attrs map"
-    (rf/reg-view ^{:rf/id :rf.slim-src-coord/with-attrs} with-attrs-view []
-      [:div {:class "card" :id "x"} "body"])
-    (let [render (rf/view :rf.slim-src-coord/with-attrs)
-          out    (render)
-          attrs  (second out)]
-      (is (vector? out))
-      (is (= :div (first out)))
-      (is (map? attrs))
-      (is (= "card" (:class attrs)) "user :class preserved")
-      (is (= "x"    (:id    attrs)) "user :id preserved")
-      (is (string? (:data-rf2-source-coord attrs))
-          ":data-rf2-source-coord merged in"))))
 
 ;; ---- user-supplied coord wins ---------------------------------------------
 
@@ -138,24 +121,3 @@
       (is (string? attr))
       (is (= "rf.slim-src-coord:programmatic:?:?" attr)
           "format degrades to <ns>:<sym>:?:? when coords are absent"))))
-
-;; ---- attribute format -----------------------------------------------------
-
-(deftest attribute-format-shape
-  (testing "the attribute value is exactly <ns>:<sym>:<line>:<col>"
-    (rf/reg-view ^{:rf/id :rf.slim-src-coord/format-shape} format-shape-view []
-      [:i "x"])
-    (let [out  ((rf/view :rf.slim-src-coord/format-shape))
-          attr (root-attr out)]
-      (is (string? attr))
-      (let [parts (str/split attr #":")]
-        (is (= 4 (count parts))
-            "exactly four colon-separated segments")
-        (is (= "rf.slim-src-coord" (first parts))
-            "first segment is the id keyword's namespace")
-        (is (= "format-shape" (second parts))
-            "second segment is the id keyword's name")
-        (is (re-matches #"\d+" (nth parts 2))
-            "third segment is the line integer")
-        (is (re-matches #"\d+" (nth parts 3))
-            "fourth segment is the column integer")))))

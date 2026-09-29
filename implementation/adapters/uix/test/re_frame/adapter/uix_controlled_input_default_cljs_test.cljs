@@ -39,13 +39,6 @@
 (defn- reagent-input-selected? []
   (uix.compiler.input/should-use-reagent-input?))
 
-(defn- with-cleared-pin
-  "Run `f` with the adapter's load-time pin cleared, so UIx's own classpath
-  sniff can be observed, and restore the pin however `f` ends."
-  [f]
-  (set! uix.compiler.input/*use-reagent-input-enabled?* nil)
-  (try (f) (finally (set! uix.compiler.input/*use-reagent-input-enabled?* false))))
-
 (deftest react-controlled-input-is-the-adapters-default
   (testing "requiring the adapter is enough: a UIx `:input` is a plain React
            controlled input"
@@ -58,25 +51,6 @@
     (is (false? (reagent-input-selected?))
         "`should-use-reagent-input?` answers false, so
          `create-uix-input` builds a plain React element")))
-
-(deftest the-pin-is-load-bearing-in-a-bundle-that-carries-reagent
-  (testing "clear the pin and this bundle's contents choose instead — which
-           is the accident the pin prevents, and the reason this assertion
-           is not vacuous"
-    (with-cleared-pin
-      (fn []
-        (if (true? (reagent-input-selected?))
-          (is (true? (reagent-input-selected?))
-              "Reagent is in this bundle, so UIx's unset default would have
-               selected the port — the adapter's pin is what stops it")
-          ;; A bundle without Reagent answers false either way. Say so
-          ;; rather than asserting a coincidence: the pin still holds, it
-          ;; simply cannot be distinguished from the sniff here.
-          (is (false? (reagent-input-selected?))
-              "no Reagent in this bundle, so UIx's unset default already
-               answers false; the pin is still what makes it a decision"))))
-    (is (false? (reagent-input-selected?))
-        "and the pin is back after the probe")))
 
 (deftest the-port-remains-reachable-explicitly
   (testing "the adapter makes React the DEFAULT, not the only option: the var

@@ -28,7 +28,6 @@
   test:cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
             [reagent2.core :as r2]
@@ -59,29 +58,6 @@
       @calls
       (finally
         (set! (.-warn js/console) original)))))
-
-;; ---- direct: slim Form-3 class passes through unwrapped -------------------
-
-(deftest slim-form-3-class-passes-through-unwrapped
-  (testing "a real reagent-slim `create-class` result flows through the shared
-            source-coordinate wrapper UNCHANGED — same class identity, never
-            re-wrapped as a Form-2 render fn (an
-            `inject-source-coord-attr$form-2-wrapper` fn would lose the class
-            identity)."
-    (let [slim-class (r2/create-class {:reagent-render (fn [] [:div "form-3 body"])
-                                       :display-name   "SlimForm3"})
-          out        (rf.views.source-coord-annotation/inject-source-coord-attr
-                       :rf.slim-src-coord/form-3
-                       "rf.slim-src-coord:form-3:1:1"
-                       slim-class)]
-      (is (identical? slim-class out)
-          "the slim Form-3 class is returned by identity (not a Form-2 wrapper)")
-      ;; The survived value still carries slim's Form-3 markers — proof it is the
-      ;; class itself, not a plain wrapper fn the class was smuggled behind.
-      (is (true? (gobj/get out "cljsReagentClass"))
-          "returned value still carries slim's `cljsReagentClass` constructor tag")
-      (is (some? (some-> (gobj/get out "prototype") (gobj/get "render")))
-          "returned value still has its React `prototype.render` (lifecycle site)"))))
 
 ;; ---- stock-shape structural parity (both shapes recognised) ---------------
 

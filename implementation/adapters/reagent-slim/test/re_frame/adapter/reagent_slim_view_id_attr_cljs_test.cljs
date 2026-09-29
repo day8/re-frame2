@@ -14,13 +14,15 @@
   Coverage mirrors the bridge's shape where it applies to slim:
 
     - DOM-keyword root with no attrs map: BOTH data-rf2-source-coord
-      AND data-rf-view spliced in.
+      AND data-rf-view spliced in, the view attribute's value being
+      `(str id)` — i.e. `\":ns/sym\"`.
     - DOM-keyword root WITH an existing attrs map: both merged in
       alongside the user's attrs.
     - User-supplied data-rf-view wins (don't overwrite).
     - Form-2 (render-fn returns a fn): inner-fn output gets BOTH attrs.
-    - React Fragment root: exempt; no attribute injected.
-    - Format: the attribute value is `(str id)` — i.e. `\":ns/sym\"`.
+
+  A React Fragment root is exempt from both attributes by the same branch;
+  `re-frame.adapter.reagent-slim-source-coord-dom-cljs-test` pins it.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -120,34 +122,3 @@
         (is (= :section.f2 (first inner-out)))
         (is (= ":rf.slim-view-id/form-2" (root-view-attr inner-out))
             ":data-rf-view landed on the inner output's root")))))
-
-;; ---- React Fragment / non-DOM root: skip ----------------------------------
-
-(deftest fragment-root-is-exempt-for-view-id
-  (testing "a render-fn that returns a React Fragment :<> at the root is
-            exempt for :data-rf-view (same exemption as source-coord)"
-    (rf/reg-view ^{:rf/id :rf.slim-view-id/fragment} fragment-view []
-      [:<> [:p "a"] [:p "b"]])
-    (let [render (rf/view :rf.slim-view-id/fragment)
-          out    (render)]
-      (is (= :<> (first out)) "fragment marker preserved")
-      (is (not (and (map? (second out))
-                    (contains? (second out) :data-rf-view)))
-          "no :data-rf-view on fragment root"))))
-
-;; ---- attribute format -----------------------------------------------------
-
-(deftest attribute-format-is-str-id
-  (testing "the :data-rf-view value is exactly (str id) — preserving the
-            leading colon so a walker can disambiguate keyword ids from
-            raw strings"
-    (rf/reg-view ^{:rf/id :rf.slim-view-id/format-check} format-check-view []
-      [:i "x"])
-    (let [out  ((rf/view :rf.slim-view-id/format-check))
-          attr (root-view-attr out)]
-      (is (string? attr))
-      (is (= ":rf.slim-view-id/format-check" attr)
-          "format is (str :ns/sym) — leading-colon preserved")
-      (is (= :rf.slim-view-id/format-check
-             (keyword (subs attr 1)))
-          "walker round-trips ':<ns>/<sym>' → keyword cleanly"))))
