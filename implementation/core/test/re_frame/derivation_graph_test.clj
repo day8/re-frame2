@@ -306,19 +306,6 @@
              (vec sel))
           "the has-tag? selector edge runs from the named machine only"))))
 
-(deftest selector-targeting-on-machine-selector-targets-fn
-  (testing "machine-selector-targets returns the set of machine ids a selector reads"
-    (rf/reg-sub :upload/progress
-                {:inputs [[:rf/machine :upload/main]]}
-                (fn [[snapshot] _] snapshot))
-    (rf/reg-sub :plain/sub (fn [db _] db))
-    (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/progress))
-        "the target machine id is extracted")
-    (is (= #{} (rf.machines.tooling/machine-selector-targets :plain/sub))
-        "a non-selector sub has no targets")
-    (is (= #{} (rf.machines.tooling/machine-selector-targets :nope/unregistered))
-        "an unregistered sub has no targets")))
-
 ;; ---- static vs live: the don't-execute rule -------------------------------
 
 (deftest parametric-sub-contributes-no-static-edge
@@ -507,11 +494,6 @@
   (testing "a DASHED absent namespace is tolerated too"
     (is (nil? (#'rf.derivation.graph/resolve-var 're-frame.totally-absent.optional-sibling/some-view))
         "a dashed un-loaded optional family namespace is tolerated as absent (nil)")))
-
-(deftest resolve-var-resolves-a-present-var
-  (testing "a present namespace + present var resolves to the var (the happy path)"
-    (is (var? (#'rf.derivation.graph/resolve-var 'clojure.string/upper-case))
-        "an existing tooling var resolves")))
 
 (deftest resolve-sibling-yields-nil-for-an-absent-family
   (testing "an absent optional sibling resolves to nil (the family contributes

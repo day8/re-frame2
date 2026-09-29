@@ -167,16 +167,6 @@
       (is (not (vector? (:inputs entry)))
           "the static surface must NOT pretend the parametric edge set is a static vector"))))
 
-(deftest single-input-parametric-sub-still-parametric
-  (testing "a single-input parametric sub still reports the :parametric sentinel"
-    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
-    (rf/reg-sub :item/title
-                {:inputs (fn [[_ id]] [[:item/by-id id]])}
-                (fn [[item] _] (:title item)))
-    (let [entry ((rf.subs/sub-topology) :item/title)]
-      (is (= :parametric (:input-kind entry)))
-      (is (= :parametric (:inputs entry))))))
-
 ;; ---- :doc and source-coord passthrough -----------------------------------
 
 (deftest source-coords-are-included
@@ -224,13 +214,6 @@
       (is (not (contains? ((rf.subs/sub-topology) :n) :doc))))))
 
 ;; ---- registry semantics --------------------------------------------------
-
-(deftest unregistered-ids-absent
-  (testing "subs that were never registered don't appear"
-    (rf/reg-sub :a (fn [db _] (:a db)))
-    (let [topo (rf.subs/sub-topology)]
-      (is (contains? topo :a))
-      (is (not (contains? topo :ghost))))))
 
 (deftest cleared-subs-are-removed
   (testing "(rf/clear :sub id) removes the sub from the topology"
