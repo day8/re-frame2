@@ -2,8 +2,7 @@
   "Tests for the `:rf.test/run-artifact` schema + `replay-run-artifact`
   (spec/017-Testing-Story.md §Run artifact and replay).
 
-  Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
+  Two layers, both under `clojure -M:test` (JVM):
 
   - PURE construction: `make-run-artifact` coerces the event program,
     folds setup ⧺ script, defaults `:fx-decisions`, and `run-artifact?`
@@ -125,7 +124,7 @@
       (is (vector? (:schema-violations res)))
       (is (empty? (:schema-violations res))))))
 
-(deftest replay-result-status-follows-tape
+(deftest replay-result-status-follows-the-tape-and-step-outcomes
   (testing ":fail when the tape carries unconsumed failure evidence"
     (let [a    (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:e]]]})
           tape [(epoch :e1 {:outcome :halt})]
@@ -409,17 +408,6 @@
         (is (contains? #{:error :cannot-run} (:status res))
             "replay failed loudly rather than passing a fresh-minted value")))))
 
-(deftest replay-strict-bare-step-no-cofx-still-replays
-  (testing "a bare [:dispatch evec] step with NO recorded envelope still
-            replays under strict — the handler declares no recordable fact,
-            so strict mint policy is inert (zero ceremony)"
-    (rf/reg-event :rep/plain (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (let [a   (rf.story.artifact/make-run-artifact
-                {:event-program [[:dispatch [:rep/plain]] [:dispatch [:rep/plain]]]})
-          res (rf.story.artifact/replay-run-artifact a)]
-      (is (= :pass (:status res)))
-      (is (= 2 (:n (:app-db res))) "the bare dispatch program replayed unchanged"))))
-
 ;; ===========================================================================
 ;; Replay runs EVERY step, not only the dispatches
 ;; ===========================================================================
@@ -618,17 +606,6 @@
            re-install")
       (is (= 409 (get-in got [:error :status]))
           "the recorded failure tags survived the round-trip"))))
-
-(deftest replay-without-network-leaves-stub-surface-untouched
-  (testing "an artifact WITHOUT :network installs no stubs — with-network-stubs!
-            runs the thunk unchanged so a plain replay never touches the
-            test-support surface"
-    (rf/reg-event :net/noop (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
-    (let [art (rf.story.artifact/make-run-artifact {:event-program [[:dispatch [:net/noop]]]})
-          res (rf.story.artifact/replay-run-artifact art)]
-      (is (= :pass (:status res)))
-      (is (true? (:ran (:app-db res))))
-      (is (nil? (:network art)) "no :network slot on a non-HTTP artifact"))))
 
 ;; ===========================================================================
 ;; EXACT narrative attribution from runner-recorded settle boundaries

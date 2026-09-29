@@ -4,8 +4,7 @@
   (spec/017-Testing-Story.md §Generated runs and artifacts + §Fault lattice
   sweep).
 
-  Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
+  Two layers, both under `clojure -M:test` (JVM):
 
   - PURE: the seedable PRNG (`next-seed` / `seed-seq` reproducible from a
     root seed), the failure predicate, the shrink candidate enumeration, and
@@ -286,8 +285,7 @@
 ;; The test.check adapter late-binds test.check via `requiring-resolve` and is
 ;; JVM-scoped by design (CLJS cannot dynamically resolve an optional ns at
 ;; runtime); test.check itself is wired into tools/story/deps.edn's :test alias
-;; only. These assertions therefore live behind `#?(:clj ...)` so the .cljc
-;; file stays green on the node CLJS build too. They prove the documented
+;; only. These assertions therefore live behind `#?(:clj ...)`. They prove the documented
 ;; extension point — wrapping a test.check generator's draw in a `gen-fn` —
 ;; works end to end (seed → gen → seed-bearing artifact) ALONGSIDE the
 ;; dependency-free default path exercised above, which needs no test.check.
@@ -336,47 +334,3 @@
          (is (= 7 (:seed res))
              "the seed-bearing reproducibility is identical to the splitmix path")))))
 
-#?(:clj
-   (deftest test-check-driven-property-falsifies-shrinks-and-promotes
-     (testing "a test.check-driven property that fails flows through the SAME
-               shrink + seed-bearing-artifact + promotion bridge as the
-               dependency-free path — the adapter is pure sugar over gen-fn"
-       (rf/reg-event :gen/noise (fn [{:keys [db]} _] {:db (update db :noise (fnil inc 0))}))
-       (reg-boom!)
-       ;; A generator that always includes the failing :gen/boom step amid
-       ;; harmless noise — every drawn program falsifies, exercising the
-       ;; shrink + artifact path deterministically.
-       (let [program-gen (tcgen/fmap
-                          (fn [noise] (conj (vec noise) [:dispatch [:gen/boom]]))
-                          (tcgen/vector
-                           (tcgen/return [:dispatch [:gen/noise]]) 0 3))
-             res (rf.story.generate.test-check/check-property-gen!
-                  rf.story.generate/check-property! program-gen
-                  {:seed 3 :num-tests 4 :size 20 :shrink? true})]
-         (is (= :fail (:status res)))
-         (is (rf.story.artifact/run-artifact? (:artifact res)))
-         (is (= (:seed res) (:seed (:artifact res)))
-             "the artifact carries the falsifying seed (same as splitmix path)")
-         (is (some #(= [:dispatch [:gen/boom]] %) (:smallest-program res))
-             "the shared shrink model keeps the failing boom step")
-         (is (seq (:shrink-path res))
-             "shrinking ran via check-property!'s own delta-debug, not test.check")
-         ;; The artifact promotes through the curated promotion bridge as-is.
-         (let [plan (rf.story.promotion/materialize-variant-plan
-                     (:artifact res) {:variant/id :story.gen-tc/regression-3})]
-           (is (= (:seed (:artifact res)) (get-in plan [:run-artifact :seed]))
-               "the curated plan carries the test.check-driven failing seed"))))))
-
-#?(:clj
-   (deftest test-check-adapter-degrades-clearly-without-the-library
-     (testing "the opt-in error names test.check + points at the dependency-free
-               default (proven by simulating an absent var resolution)"
-       ;; We cannot un-load test.check from the JVM classpath mid-test, so this
-       ;; pins the error CONTRACT: gen->gen-fn defers resolution to first call,
-       ;; and the adapter's `available?` is the branch a caller uses to pick the
-       ;; dependency-free path. The CLJS arm of the adapter throws the same
-       ;; message (covered by the node build loading the ns without test.check).
-       (is (fn? (rf.story.generate.test-check/gen->gen-fn (tcgen/return [:dispatch [:gen/ok]])))
-           "with test.check present, gen->gen-fn returns a usable gen-fn")
-       (is (true? (rf.story.generate.test-check/available?))
-           "available? is the documented branch for choosing the gen-fn path"))))

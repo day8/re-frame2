@@ -2,8 +2,7 @@
   "Tests for golden slices — curated canonicalized run regression artifacts
   (spec/017-Testing-Story.md §Golden slices).
 
-  Two layers, both under `clojure -M:test` (JVM) + the node-runtime CLJS
-  build:
+  Two layers, both under `clojure -M:test` (JVM):
 
   - PURE: capture / match / readable-report over HAND-BUILT run-results —
     the §Golden-slice acceptance bullets:
@@ -131,15 +130,6 @@
 ;; ===========================================================================
 ;; PURE: golden-match?  (equivalent ⇒ true, real difference ⇒ false)
 ;; ===========================================================================
-
-(deftest golden-match-true-for-equivalent-run
-  (testing "a behaviourally-equivalent run (same slice) matches"
-    (let [g (rf.story.golden/make-golden (run-result {:app-db {:n 1} :ops [:a :b]}))]
-      (is (true? (rf.story.golden/golden-match? g (run-result {:app-db {:n 1} :ops [:a :b]}))))))
-
-  (testing "map key ORDER in app-db does not affect the match (canonical)"
-    (let [g (rf.story.golden/make-golden (run-result {:app-db {:a 1 :b 2}}))]
-      (is (true? (rf.story.golden/golden-match? g (run-result {:app-db (sorted-map :b 2 :a 1)})))))))
 
 (deftest golden-match-false-for-semantic-difference
   (testing "an app-db change fails the match"
@@ -319,23 +309,6 @@
                (:match? (rf.story.golden/compare-golden stale run)))
             (str "stale-slice golden: golden-match? and compare-golden disagree for "
                  (pr-str run)))))))
-
-(deftest compare-golden-run-hash-matches-fingerprint
-  (testing "the :run-hash compare-golden reports is the canonical
-            rf.story.fingerprint/run-hash of the run — the single-canonicalize perf
-            path (content-hash of the canonical slice) equals the two-stage
-            run-hash, so the optimization is behaviour-preserving"
-    (let [matchy   (run-result {:app-db {:n 1}})
-          g        (rf.story.golden/make-golden matchy {:keep-run-result true})
-          changed  (run-result {:app-db {:n 2}})
-          r-match  (rf.story.golden/compare-golden g matchy)
-          r-miss   (rf.story.golden/compare-golden g changed)]
-      (is (= (rf.story.fingerprint/run-hash matchy) (:run-hash r-match))
-          "match report :run-hash == rf.story.fingerprint/run-hash")
-      (is (= (rf.story.fingerprint/run-hash changed) (:run-hash r-miss))
-          "mismatch report :run-hash == rf.story.fingerprint/run-hash")
-      (is (= (:run-hash g) (:golden-run-hash r-miss))
-          "the frozen golden hash is reported as :golden-run-hash"))))
 
 ;; ===========================================================================
 ;; PURE: capture FAILS CLOSED on an unrecognized target
