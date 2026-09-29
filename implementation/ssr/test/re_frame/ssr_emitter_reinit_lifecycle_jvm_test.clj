@@ -16,7 +16,7 @@
   `:reagent/set-hiccup-emitter!` chain), so the durable
   `:ssr/current-hiccup-emitter` slot has no per-adapter arm to run —
   retention alone keeps the JVM path armed."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.ssr]
