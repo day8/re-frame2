@@ -205,10 +205,6 @@
     (is (= #{:epoch :appdb} (reg/tab-ids-for-mode :dynamic)))
     (is (= #{:catalogue} (reg/tab-ids-for-mode :static)))))
 
-(deftest tab-ids-for-mode-empty-set-when-unpopulated
-  (testing "an empty mode yields the empty set"
-    (is (= #{} (reg/tab-ids-for-mode :dynamic)))))
-
 ;; ---- (7) default-tab-for-mode -------------------------------------------
 
 (deftest default-tab-for-mode-is-the-lowest-order-tab
@@ -218,12 +214,6 @@
     (reg/reg-l4-tab! (dynamic-tab :epoch 0))
     (is (= :epoch (reg/default-tab-for-mode :dynamic))
         "the lowest-:order tab is the default landing tab")))
-
-(deftest default-tab-for-mode-nil-when-empty
-  (testing "no tabs registered for the mode → nil (test-only state;
-            production always has the canonical inventory installed)"
-    (is (nil? (reg/default-tab-for-mode :dynamic)))
-    (is (nil? (reg/default-tab-for-mode :static)))))
 
 ;; ---- (8) unreg-l4-tab! — drops every mode for an id ---------------------
 

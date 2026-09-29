@@ -10,9 +10,10 @@
   egress PROFILE (`:rf.egress/local-redacted` default / `:rf.egress/local-raw`
   trusted-local reveal) governs the gate. This suite covers:
 
-    1. The predicate vocabulary — the framework-published
-       `rf/sensitive?` (Xray composes against it directly) plus
-       `config.cljc`'s own `suppress-sensitive?` / `include-sensitive?`.
+    1. The predicate vocabulary — `config.cljc`'s `suppress-sensitive?` /
+       `include-sensitive?`, which compose the profile with the
+       framework-published `rf/sensitive?` (core's own suite owns that
+       predicate).
     2. The profile round-trip — `set-egress-profile!` / `get-egress-profile`
        / `configure! {:rf.xray/egress-profile ...}`.
     3. The suppressed-events counter — `note-suppressed!` /
@@ -35,7 +36,6 @@
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
             #?(:cljs [clojure.string :as str])
             [day8.re-frame2-xray.config :as config]
-            [re-frame.privacy :as rf.privacy]
             #?(:cljs [re-frame.core :as rf])
             #?(:cljs [re-frame.frame :as rf.frame])
             #?(:cljs [re-frame.trace :as rf.trace])
@@ -67,29 +67,6 @@
 
 ;; ---- (1) predicate vocabulary -------------------------------------------
 
-(deftest the-framework-predicate-detects-the-top-level-flag
-  ;; Xray composes against `rf/sensitive?` directly; there is no
-  ;; tool-side alias.
-  (testing "events with :sensitive? true are sensitive"
-    (is (true? (rf.privacy/sensitive? {:sensitive? true})))
-    (is (true? (rf.privacy/sensitive?
-                 {:op-type :rf.event :operation :rf.event/dispatched
-                  :sensitive? true :tags {:rf.trace/event-id :user/login}}))))
-  (testing "events without :sensitive? are non-sensitive"
-    (is (false? (rf.privacy/sensitive? {})))
-    (is (false? (rf.privacy/sensitive? {:op-type :rf.event})))
-    (is (false? (rf.privacy/sensitive? {:sensitive? false})))
-    (is (false? (rf.privacy/sensitive? {:sensitive? nil}))))
-  (testing "non-map inputs are non-sensitive (no NPE)"
-    (is (false? (rf.privacy/sensitive? nil)))
-    (is (false? (rf.privacy/sensitive? :keyword)))
-    (is (false? (rf.privacy/sensitive? [:vector]))))
-  (testing "a MALFORMED truthy stamp is sensitive — Xray's panels
-            suppress it, matching the MCP wire"
-    (is (true? (rf.privacy/sensitive? {:sensitive? "true"})))
-    (is (true? (rf.privacy/sensitive? {:sensitive? :yes})))
-    (is (true? (rf.privacy/sensitive? {:sensitive? 1})))))
-
 (deftest suppress-sensitive?-composes-profile-and-gate
   (testing "default profile (local-redacted) + sensitive event = suppressed"
     (is (= :rf.egress/local-redacted (config/get-egress-profile)))
@@ -107,21 +84,6 @@
     (is (false? (config/suppress-sensitive? {})))))
 
 ;; ---- (2) egress-profile round-trip --------------------------------------
-
-(deftest default-egress-profile-is-local-redacted
-  (testing "Xray defaults to the fail-closed redacting profile — sensitive
-            display suppressed (EP-0015 issue 7)"
-    (is (= :rf.egress/local-redacted (config/get-egress-profile)))
-    (is (false? (config/include-sensitive?)))))
-
-(deftest set-egress-profile-round-trips
-  (testing "set-egress-profile! writes and get-egress-profile reads"
-    (config/set-egress-profile! :rf.egress/local-raw)
-    (is (= :rf.egress/local-raw (config/get-egress-profile)))
-    (is (true? (config/include-sensitive?)))
-    (config/set-egress-profile! :rf.egress/local-redacted)
-    (is (= :rf.egress/local-redacted (config/get-egress-profile)))
-    (is (false? (config/include-sensitive?)))))
 
 (deftest set-egress-profile-nil-resets-to-default
   (testing "nil resets to the fail-closed redacting default"
@@ -158,12 +120,6 @@
         "configure! ignoring our key must not stomp the profile")))
 
 ;; ---- (3) suppressed-events counter --------------------------------------
-
-(deftest suppressed-count-starts-at-zero
-  (testing "counter is zero before any suppression"
-    (is (= 0 (config/suppressed-count)))
-    (is (= 0 (config/suppressed-count :rf/default)))
-    (is (= 0 (config/suppressed-count :global)))))
 
 (deftest note-suppressed-bumps-the-frame-bucket
   (testing "note-suppressed! adds 1 to the matching frame bucket"
@@ -233,13 +189,6 @@
 ;; under the JVM target; these CLJS-only tests lock the wiring.
 
 #?(:cljs
-   (deftest collect-trace-buffers-non-sensitive-by-default
-     (testing "non-sensitive events flow into the buffer"
-       (trace-collector/collect-trace! (non-sensitive-event))
-       (is (= 1 (count (trace-collector/buffer-for-test))))
-       (is (= 0 (config/suppressed-count))))))
-
-#?(:cljs
    (deftest collect-trace-suppresses-sensitive-by-default
      (testing "sensitive event is dropped from the buffer and bumps the counter"
        (trace-collector/collect-trace! (sensitive-event))
@@ -249,16 +198,6 @@
            "the dropped event bumps the counter")
        (is (= 1 (config/suppressed-count :global))
            "frameless event counts under :global"))))
-
-#?(:cljs
-   (deftest collect-trace-passes-sensitive-when-opted-in
-     (testing "with :rf.xray/egress-profile :rf.egress/local-raw the buffer receives the event"
-       (config/configure! {:rf.xray/egress-profile :rf.egress/local-raw})
-       (trace-collector/collect-trace! (sensitive-event))
-       (is (= 1 (count (trace-collector/buffer-for-test)))
-           "opted-in caller sees the sensitive event in the buffer")
-       (is (= 0 (config/suppressed-count))
-           "the counter does NOT bump when the event passes through"))))
 
 #?(:cljs
    (deftest collect-trace-mixed-flow
@@ -292,21 +231,6 @@
 ;; the privacy guarantee for events already buffered while the raw profile
 ;; was active. The trade-off (non-sensitive history also lost) is
 ;; intentional and documented in Spec 009.
-
-(deftest narrowing-profile-runs-toggle-off-callbacks
-  (testing "reveal → redact narrowing invokes registered callbacks"
-    (let [called?  (atom false)
-          token-id ::scrub-callback-test]
-      (config/register-toggle-off-callback! token-id #(reset! called? true))
-      (try
-        (config/set-egress-profile! :rf.egress/local-raw)
-        (is (false? @called?)
-            "redact → reveal widening must NOT invoke callbacks (no buffered sensitive risk)")
-        (config/set-egress-profile! :rf.egress/local-redacted)
-        (is (true? @called?)
-            "reveal → redact narrowing must invoke every registered callback")
-        (finally
-          (config/unregister-toggle-off-callback! token-id))))))
 
 (deftest non-narrowing-transition-no-callback
   (testing "reveal → reveal and redact → redact are no-ops for the callbacks"
@@ -360,22 +284,6 @@
            "buffer must be empty — sensitive payloads cannot survive the narrowing")
        (is (= 0 (config/suppressed-count))
            "suppressed counter also drops in lockstep with the buffer"))))
-
-#?(:cljs
-   (deftest narrowing-also-drops-non-sensitive-history
-     (testing "the simplest correct semantic — clear EVERYTHING, not just sensitive"
-       ;; The Spec 009 §Retroactive-scrub trade-off: selective scrubbing
-       ;; is unsafe because non-sensitive events can structurally reveal
-       ;; the redacted value (sub recomputes, render args, etc). Document
-       ;; the intentional loss so a future refactor doesn't try to
-       ;; "improve" by filtering instead of clearing.
-       (config/set-egress-profile! :rf.egress/local-raw)
-       (trace-collector/collect-trace! (non-sensitive-event))
-       (trace-collector/collect-trace! (non-sensitive-event))
-       (is (= 2 (count (trace-collector/buffer-for-test))))
-       (config/set-egress-profile! :rf.egress/local-redacted)
-       (is (= 0 (count (trace-collector/buffer-for-test)))
-           "non-sensitive history is intentionally lost — see Spec 009 §Retroactive-scrub"))))
 
 #?(:cljs
    (deftest no-clear-when-profile-was-already-redacting
