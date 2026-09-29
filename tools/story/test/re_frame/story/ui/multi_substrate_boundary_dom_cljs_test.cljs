@@ -190,17 +190,22 @@
 
 (deftest a-captured-error-clears-when-the-cell-renders-something-else
   (testing "the boundary is one long-lived instance per cell, so a captured
-            error must not outlive its inputs: moving the grid to a variant
-            that renders cleanly clears the red cell"
+            error must not outlive its inputs: replacing the :uix render fn
+            re-renders the same cell with new inputs, which clears the red
+            cell"
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (with-root
         (fn [node root]
           (mount-grid! root :story.grid-boundary/boom)
           (is (re-find #"uix — render error" (text node)) "control: the :uix cell is red")
-          (mount-grid! root :story.grid-boundary/healthy)
+          (is (= 1 @!mounts) "control: the :reagent subject mounted once")
+          (rf.story/register-substrate! :uix (fn [_ _ _] [:div {:data-test "uix-healthy"} "healthy under uix"]))
+          (rf.story.ui.state/swap-state! assoc ::unrelated (random-uuid))
+          (settle!)
           (is (nil? @!escaped))
+          (is (= 1 @!mounts) "the grid re-rendered in place: nothing remounted")
           (is (found? node "[data-test=\"uix-healthy\"]")
-              "the :uix cell renders the new variant")
+              "the :uix cell renders through its new render fn")
           (is (not (re-find #"render error" (text node)))
               "no error cell is left behind"))))))
