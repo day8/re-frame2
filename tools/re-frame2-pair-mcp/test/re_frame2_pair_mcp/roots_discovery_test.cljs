@@ -173,13 +173,20 @@
 
 (deftest walk-handles-readdir-throwing
   (testing "a readdir error on a subdir doesn't bubble; the walk continues"
-    (let [root "/p"
-          tree {root [{:name "good" :kind :dir}
-                      {:name "shadow-cljs.edn" :kind :file}]
-                ;; Missing entry for the "good" subdir → fs-stub returns empty.
-                }
-          hits (vec (array-seq (rd/walk-for-shadow-edns* (fs-stub tree) root)))]
-      (is (= [(jp root "shadow-cljs.edn")] hits)))))
+    (let [root    "/p"
+          locked  (jp root "locked")
+          ;; The unreadable dir is listed BEFORE the file, so the file is
+          ;; only found if the walk survives the throw.
+          tree    {root [{:name "locked" :kind :dir}
+                         {:name "shadow-cljs.edn" :kind :file}]}
+          stub    (fs-stub tree)
+          readdir (fn [dir opts]
+                    (if (= dir locked)
+                      (throw (js/Error. "EACCES"))
+                      (stub dir opts)))
+          hits    (vec (array-seq (rd/walk-for-shadow-edns* readdir root)))]
+      (is (= [(jp root "shadow-cljs.edn")] hits)
+          "the file after the unreadable dir is still found"))))
 
 ;; ===========================================================================
 ;; project-home->candidate* — port file beside a shadow-cljs.edn.

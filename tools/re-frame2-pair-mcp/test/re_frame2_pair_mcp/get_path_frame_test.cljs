@@ -32,13 +32,8 @@
 
   So the same test body distinguishes a guarded form from an
   unguarded one, and the singular/batch refusal tests fail on an
-  implicit-frame tree.
-
-  Note `elision_test/build-get-path-form` is a hand-written MIRROR of
-  the form composition and asserts against itself, so it can go green
-  while production drifts. The tests here drive `get-path-tool`
-  itself."
-  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
+  implicit-frame tree. The tests here drive `get-path-tool` itself."
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]

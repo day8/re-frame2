@@ -206,3 +206,13 @@
     (is (< (count out) 500) "the preview is truncated under the source length"))
   (is (= "short" (tu/truncate-preview "short"))
       "a short preview is returned verbatim"))
+
+(deftest wrap-form-truncates-preview-at-preview-cap
+  ;; The runtime truncation itself: the wrap source cuts at the
+  ;; single-sourced cap and appends the char-count suffix — the shape
+  ;; `tu/truncate-preview` reproduces for the tests above.
+  (let [src (renv/wrap-form "(form)")]
+    (is (str/includes? src (str "(if (> n# " renv/preview-cap ")"))
+        "a preview longer than the cap is cut")
+    (is (str/includes? src (str "(str (subs text# 0 " renv/preview-cap ") \" …(\" n# \" chars)\")"))
+        "the cut keeps cap chars and appends the source length")))

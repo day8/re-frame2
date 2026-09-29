@@ -183,3 +183,40 @@
                       (set! probe/resolve-build-by-port orig-port)
                       (set! get-path/get-path-tool orig-get-path)))
           (.then (fn [_] (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; A typed SUFFIX :build sticks as the CANONICAL running id, so a later
+;; no-build call inherits the full id rather than the suffix.
+;; ---------------------------------------------------------------------------
+
+(deftest suffix-build-sticks-as-the-canonical-id
+  (async done
+    (let [conn          (fresh-conn)
+          orig-eval     nrepl/cljs-eval-value
+          orig-jvm      nrepl/jvm-eval
+          orig-running  probe/running-builds
+          orig-get-path get-path/get-path-tool
+          eval-stub     (fn ([_c _b _f] (js/Promise.resolve healthy-health))
+                          ([_c _b _f _o] (js/Promise.resolve healthy-health)))
+          jvm-stub      (fn [& _] (js/Promise.resolve {:value ""}))]
+      (swap! conn update :probed-builds conj :examples/machine-epochs)
+      (set! probe/running-builds
+            (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
+      (set! nrepl/cljs-eval-value eval-stub)
+      (set! nrepl/jvm-eval jvm-stub)
+      (set! get-path/get-path-tool
+            (fn [_c _args]
+              (js/Promise.resolve
+                #js {:content #js [#js {:type "text" :text "{:ok? true}"}]})))
+      (-> (tools/invoke conn "get-path"
+                        (tu/args->js {:path "[:k]" :build "machine-epochs"})
+                        nil)
+          (.then (fn [_]
+                   (is (= :examples/machine-epochs (:resolved-build-id @conn))
+                       "the sticky default holds the canonical id, not the typed suffix")))
+          (.finally (fn []
+                      (tu/restore-eval! eval-stub orig-eval)
+                      (tu/restore-jvm-eval! jvm-stub orig-jvm)
+                      (set! probe/running-builds orig-running)
+                      (set! get-path/get-path-tool orig-get-path)))
+          (.then (fn [_] (done)))))))
