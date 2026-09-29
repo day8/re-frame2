@@ -9,8 +9,10 @@
   accessor the declared path is read both without the accessor key and as
   written, because a vector page merges by identity and never reaches the
   accessor, so its items keep the key. Through a callable
-  accessor nothing says where a declared field lands, so a sensitive data
-  declaration redacts the whole `:value`. A vector-page feed's items are its
+  accessor nothing says where a declared field lands, so a data declaration
+  covers the whole `:value`: a sensitive one redacts it and a large one elides
+  it, the sensitive one winning where both are declared. A vector-page feed's
+  items are its
   pages' elements, so its declaration reads as written.
 
   The reply is read where it leaves the box: in the fx carrier slots
@@ -181,3 +183,37 @@
     [{:items {:ssn redacted} :name "zero"}]
     nested-page
     ssn))
+
+;; ---- the large axis --------------------------------------------------------
+
+(def ^:private blob "feed-reply-blob-LARGE")
+
+(defn- large-elided? [v] (and (map? v) (contains? v :rf.size/large-elided)))
+
+(deftest control-a-keyword-accessor-feeds-reply-elides-the-large-field-through-the-accessor
+  (assert-reply-value
+    (settle-feed :feed-reply/keyword-large {:page->items :items :large [[:data :items :blob]]}
+                 {:items [{:blob blob :name "zero"}] :cursor nil})
+    (fn [v] (and (large-elided? (:blob (first v))) (= "zero" (:name (first v)))))
+    [{:blob blob :name "zero"}]
+    blob))
+
+(deftest a-callable-accessor-feeds-reply-elides-its-whole-value-as-large
+  (testing "nothing says where a declared large field lands, so the whole :value elides"
+    (assert-reply-value
+      (settle-feed :feed-reply/callable-large {:page->items (fn [pg] (:items pg))
+                                               :large       [[:data :items :blob]]}
+                   {:items [{:blob blob :name "zero"}] :cursor nil})
+      large-elided?
+      [{:blob blob :name "zero"}]
+      blob))
+  (testing "a sensitive declaration on the same feed still redacts the whole :value"
+    (reset! delivered [])
+    (assert-reply-value
+      (settle-feed :feed-reply/callable-both {:page->items (fn [pg] (:items pg))
+                                              :sensitive   [[:data :items :ssn]]
+                                              :large       [[:data :items :blob]]}
+                   {:items [{:ssn ssn :blob blob :name "zero"}] :cursor nil})
+      redacted
+      [{:ssn ssn :blob blob :name "zero"}]
+      ssn)))

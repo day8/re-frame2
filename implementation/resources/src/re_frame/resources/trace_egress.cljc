@@ -833,9 +833,11 @@
   vector page's — a vector page is its own items and never reaches the
   accessor, and the merged list does not say which kind of page it came from.
   Any other path keeps its vector-page reading. Through a CALLABLE
-  accessor nothing says where a declared field lands in the list, so a
-  sensitive data declaration covers the whole `:value`, which fails closed
-  off-box and costs nothing in process. `:params` / `:scope` paths name the
+  accessor nothing says where a declared field lands in the list, so a data
+  declaration on either axis covers the whole `:value` — a sensitive one
+  redacts it and a large one elides it, the sensitive one winning where both
+  are declared — which fails closed off-box and costs nothing in process.
+  `:params` / `:scope` paths name the
   reply's other slots and are untouched."
   [spec]
   (let [accessor (:page->items spec)]
@@ -860,7 +862,7 @@
             callable (fn? accessor)]
         (cond-> spec
           (seq (:sensitive spec)) (update :sensitive read-as callable)
-          (seq (:large spec))     (update :large read-as false))))))
+          (seq (:large spec))     (update :large read-as callable))))))
 
 (defn- redact-reply-declarations
   "The READ-CONTINUATION analogue of the mutation's source-side
