@@ -243,8 +243,7 @@ async function readXrayState(page) {
       return document.querySelectorAll(selector).length;
     }
     function activePanel() {
-      const active = Array.from(document.querySelectorAll('[data-testid^="rf-xray-sidebar-item-"]'))
-        .find((el) => (el.textContent || '').includes('◉'));
+      const active = document.querySelector('[data-testid^="rf-xray-tab-"][aria-selected="true"]');
       return active ? active.getAttribute('data-testid') : null;
     }
     function traceEvents() {
