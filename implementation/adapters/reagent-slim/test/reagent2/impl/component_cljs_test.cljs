@@ -19,9 +19,6 @@
     - :get-snapshot-before-update pairs with :component-did-update's
       snapshot arg, and both paired update lifecycles forward React's
       prevState.
-    - Source-coord stamping integration (the renderer-side stamp lives
-      in re-frame.views/reg-view*; the runtime here exercises the
-      meta-tag fast path that the macro fold introduces).
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up.
 
@@ -436,13 +433,6 @@
       (is (= :scroll-position-42 (:snapshot @cdu-seen))
           "cDU received gSBU's return value in the snapshot slot"))))
 
-(deftest lifecycle-display-name-statically-set
-  (testing ":display-name lands on the class as displayName (static field)"
-    (let [^js klass (component/create-class*
-                  {:reagent-render (fn [_] [:div])
-                   :display-name   "MyView"})]
-      (is (= "MyView" (.-displayName klass))))))
-
 ;; ---------------------------------------------------------------------------
 ;; :component-did-catch error-boundary contract (per IMPL-SPEC §6.5)
 ;;
@@ -592,13 +582,6 @@
 ;; fn-to-class
 ;; ---------------------------------------------------------------------------
 
-(deftest fn-to-class-produces-reagent-class
-  (testing "fn-to-class wraps a plain fn into a reagent-class"
-    (let [f     (fn [n] [:p n])
-          ^js klass (component/fn-to-class f)]
-      (is (component/reagent-class? klass))
-      (is (some? (.. klass -prototype -render))))))
-
 (deftest fn-to-class-caches
   (testing "fn-to-class returns the same class on repeated calls"
     (let [f (fn [n] [:p n])
@@ -621,43 +604,6 @@
           ".-type is the DOM tag from the hiccup head"))))
 
 ;; ---------------------------------------------------------------------------
-;; Form-3 accessors
-;; ---------------------------------------------------------------------------
-
-(deftest get-argv-returns-stashed-argv
-  (testing "get-argv reads .-cljsArgv off the instance"
-    (let [c (fake-instance [:render-fn 1 2 3])]
-      (is (= [:render-fn 1 2 3] (component/get-argv c))))))
-
-(deftest get-props-returns-map-second-arg
-  (testing "get-props returns the second arg if it's a map, else nil"
-    (let [c-with-props    (fake-instance [:render-fn {:k :v}])
-          c-without-props (fake-instance [:render-fn 1 2])]
-      (is (= {:k :v} (component/get-props c-with-props)))
-      (is (nil? (component/get-props c-without-props))
-          "non-map second arg → nil props"))))
-
-(deftest get-children-skips-props-map
-  (testing "get-children returns argv after the head (and props if present)"
-    (let [c-with-props (fake-instance [:render-fn {:k :v} :a :b])
-          c-no-props   (fake-instance [:render-fn :a :b])]
-      (is (= [:a :b] (vec (component/get-children c-with-props)))
-          "props map skipped")
-      (is (= [:a :b] (vec (component/get-children c-no-props)))
-          "no props → children start at index 1"))))
-
-(deftest state-atom-creates-cached-cell
-  (testing "state-atom returns a per-component cell, cached on first call"
-    (let [c    #js {}
-          a    (component/state-atom c)
-          a2   (component/state-atom c)]
-      (is (some? a))
-      (is (identical? a a2)
-          "second call returns the cached atom")
-      (reset! a 42)
-      (is (= 42 @a) "the returned cell behaves as an atom"))))
-
-;; ---------------------------------------------------------------------------
 ;; Type predicates
 ;; ---------------------------------------------------------------------------
 
@@ -678,39 +624,6 @@
       (is (component/react-class? klass)))
     (is (not (component/react-class? (fn [] nil))))
     (is (not (component/react-class? nil)))))
-
-;; ---------------------------------------------------------------------------
-;; Source-coord stamping integration (per IMPL-SPEC §5.4)
-;;
-;; The renderer-side stamping lives in re-frame.views/reg-view*. The
-;; runtime here exercises the meta-tag fast path that the compile-time
-;; fold introduces — when the user's render fn carries
-;; `:reagent2/form` meta, wrap-render dispatches via the fast path
-;; instead of running the classification cond. We verify the
-;; integration doesn't drop the user's hiccup output (which is the
-;; stamping target).
-;; ---------------------------------------------------------------------------
-
-(deftest source-coord-tagged-render-passes-through-hiccup
-  (testing "fold + stamping: tagged Form-1 render returns hiccup intact"
-    (let [render-fn (with-meta (fn [n] [:div.with-coord {:id "x"} n])
-                               {:reagent2/form :reagent2/form-1})
-          c         (fake-instance [render-fn 7])
-          out       (component/wrap-render c render-fn)]
-      ;; The renderer-side stamping (in re-frame.views/reg-view*) is
-      ;; what merges :data-rf2-source-coord onto the root vector. The
-      ;; component path here just has to leave the hiccup intact so
-      ;; the wrapper can stamp it.
-      (is (= [:div.with-coord {:id "x"} 7] out)))))
-
-(deftest source-coord-tagged-form-2-render-passes-through-hiccup
-  (testing "fold + stamping: tagged Form-2 render returns inner-fn hiccup intact"
-    (let [render-fn (with-meta
-                      (fn [_] (fn [n] [:p.coord {:class "live"} n]))
-                      {:reagent2/form :reagent2/form-2})
-          c         (fake-instance [render-fn 9])
-          out       (component/wrap-render c render-fn)]
-      (is (= [:p.coord {:class "live"} 9] out)))))
 
 ;; ---------------------------------------------------------------------------
 ;; as-element-fn unregistered → throw

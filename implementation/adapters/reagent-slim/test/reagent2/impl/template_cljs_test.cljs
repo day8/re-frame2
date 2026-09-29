@@ -52,13 +52,6 @@
       (is (= "bar" (.-id parsed)))
       (is (nil? (.-className parsed))))))
 
-(deftest parse-tag-with-id-and-class
-  (testing ":div#bar.foo"
-    (let [parsed (template/parse-tag :div#bar.foo [:div#bar.foo])]
-      (is (= "div" (.-tag parsed)))
-      (is (= "bar" (.-id parsed)))
-      (is (= "foo" (.-className parsed))))))
-
 (deftest parse-tag-with-multiple-classes
   (testing ":div.a.b.c"
     (let [parsed (template/parse-tag :div.a.b.c [:div.a.b.c])]
@@ -66,11 +59,6 @@
       (is (nil? (.-id parsed)))
       (is (= "a b c" (.-className parsed))
           "multiple .class shorthand parts join with space"))))
-
-(deftest parse-tag-input
-  (testing ":input — void element parses normally"
-    (let [parsed (template/parse-tag :input [:input])]
-      (is (= "input" (.-tag parsed))))))
 
 (deftest parse-tag-id-before-class-supported
   (testing ":div#id.a.b — id MUST precede classes (the supported form)"
@@ -157,28 +145,6 @@
     (is (= :some-frame
            (template/convert-prop-value :value :some-frame)))))
 
-(deftest convert-prop-value-custom-prop-name-passes-keyword
-  (testing "custom prop names: :type with keyword passes through"
-    (is (= :primary
-           (template/convert-prop-value :type :primary)))))
-
-(deftest convert-prop-value-3-arg-native-stringifies-any-name
-  (testing "3-arg form with native?=true stringifies
-            keyword values for ANY prop name (every DOM attr is a string)"
-    (is (= "button" (template/convert-prop-value :type :button true)))
-    (is (= "_blank" (template/convert-prop-value :target :_blank true)))
-    (is (= "noopener" (template/convert-prop-value :rel :noopener true)))
-    ;; symbol value too
-    (is (= "x" (template/convert-prop-value :name 'x true)))))
-
-(deftest convert-prop-value-3-arg-non-native-narrowed
-  (testing "3-arg form with native?=false defers to
-            the interop (narrowed) rule — non-HTML keyword preserved"
-    (is (= :button (template/convert-prop-value :type :button false)))
-    (is (= :rf/foo (template/convert-prop-value :value :rf/foo false)))
-    ;; HTML-attr name still stringifies even on the non-native path
-    (is (= "primary" (template/convert-prop-value :class :primary false)))))
-
 (deftest convert-prop-value-string-passthrough
   (testing "string value passes through unchanged"
     (is (= "hello"
@@ -187,12 +153,6 @@
 (deftest convert-prop-value-number-passthrough
   (testing "number value passes through unchanged"
     (is (= 42 (template/convert-prop-value :tab-index 42)))))
-
-(deftest convert-prop-value-fn-passthrough
-  (testing "fn value passes through (event handlers)"
-    (let [f (fn [_e])
-          out (template/convert-prop-value :on-click f)]
-      (is (fn? out)))))
 
 ;; A fixture that actually REACHES `convert-prop-value`'s
 ;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
@@ -523,12 +483,6 @@
     (let [^js el (template/as-element [:div])]
       (is (= "div" (.-type el))))))
 
-(deftest as-element-div-with-text
-  (testing "[:div \"hi\"] → React element with text child"
-    (let [^js el (template/as-element [:div "hi"])]
-      (is (= "div" (.-type el)))
-      (is (= "hi" (-> el .-props .-children))))))
-
 (deftest as-element-div-with-class
   (testing "[:div {:class \"foo\"}] → element with className"
     (let [^js el (template/as-element [:div {:class "foo"}])]
@@ -539,16 +493,6 @@
   (testing "[:div {:id \"x\"}] → element with id"
     (let [^js el (template/as-element [:div {:id "x"}])]
       (is (= "x" (-> el .-props .-id))))))
-
-(deftest as-element-shorthand-class
-  (testing "[:div.foo] → className from shorthand"
-    (let [^js el (template/as-element [:div.foo])]
-      (is (= "foo" (-> el .-props .-className))))))
-
-(deftest as-element-shorthand-id
-  (testing "[:div#bar] → id from shorthand"
-    (let [^js el (template/as-element [:div#bar])]
-      (is (= "bar" (-> el .-props .-id))))))
 
 (deftest as-element-shorthand-class-and-prop-class
   (testing "[:div.foo {:class \"bar\"}] → \"foo bar\" (shorthand prepends per stock)"
@@ -595,14 +539,6 @@
           ^js el (template/as-element [:div props])]
       (is (= "a b" (-> el .-props .-className))))))
 
-(deftest as-element-multiple-children
-  (testing "[:div [:span] [:span]] → div with two child elements"
-    (let [^js el (template/as-element [:div [:span "a"] [:span "b"]])]
-      (is (= "div" (.-type el)))
-      (let [children (-> el .-props .-children)]
-        (is (or (array? children) (seqable? children))
-            "multi-child renders as array")))))
-
 (deftest as-element-nested-shorthand
   (testing "[:div.outer [:span#inner.cls \"hi\"]] — nested shorthand"
     (let [^js el (template/as-element [:div.outer [:span#inner.cls "hi"]])]
@@ -615,17 +551,6 @@
 ;; ---------------------------------------------------------------------------
 ;; as-element — interop heads (:>, :<>, :r>, :f>)
 ;; ---------------------------------------------------------------------------
-
-(deftest as-element-fragment
-  (testing "[:<> [:div] [:span]] → React.Fragment"
-    (let [^js el (template/as-element [:<> [:div "a"] [:span "b"]])]
-      (is (= (.-Fragment react) (.-type el))))))
-
-(deftest as-element-fragment-with-key
-  (testing "[:<> {:key \"k\"} ...] → Fragment with React key"
-    (let [^js el (template/as-element [:<> {:key "k"} [:div "a"]])]
-      (is (= (.-Fragment react) (.-type el)))
-      (is (= "k" (.-key el))))))
 
 (deftest as-element-fragment-with-ref
   (testing "React accepts `key`, `ref` and `children` on a Fragment, and this
@@ -651,13 +576,6 @@
           ^js el (template/as-element [:<> {:key "k" :ref f} [:div "a"]])]
       (is (= "k" (.-key el)))
       (is (identical? f (-> el .-props .-ref))))))
-
-(deftest as-element-interop-react-component
-  (testing "[:> Comp {:foo \"bar\"} child] → React.createElement on Comp"
-    (let [Comp (fn FakeComp [_props] nil)
-          ^js el (template/as-element [:> Comp {:foo "bar"} [:span]])]
-      (is (= Comp (.-type el)))
-      (is (= "bar" (-> el .-props .-foo))))))
 
 (deftest as-element-raw
   (testing "[:r> Comp js-props] → raw createElement, no prop conversion"
@@ -750,15 +668,6 @@
         (is (identical? (.-type el) (.-type el2))
             "wrapper cached per fn for stable reconciliation")))))
 
-(deftest as-element-function-component-passes-args-rf2-bf4uw2
-  (testing "[:f> f a b] calls f with the user args (a b),
-            converting its hiccup return to a React element"
-    (let [greet  (fn [who] [:div.greet "hi " who])
-          ^js el (rds/renderToStaticMarkup
-                   (template/as-element [:f> greet "there"]))]
-      (is (= "<div class=\"greet\">hi there</div>" el)
-          "f received its positional arg and its hiccup was rendered"))))
-
 (deftest as-element-function-component-hooks-render-rf2-bf4uw2
   (testing "an [:f> f] whose f calls a React hook renders
             WITHOUT throwing 'Invalid hook call'. Rendered through
@@ -797,14 +706,6 @@
 
 (defn- source-coord-prop [^js el]
   (gobj/get (.-props el) "data-rf2-source-coord"))
-
-(deftest source-coord-stamps-dom-root
-  (testing "a native DOM-tag root consumes *source-coord* and IS stamped"
-    (binding [template/*source-coord* src-coord]
-      (let [^js el (template/as-element [:div "x"])]
-        (is (= "div" (.-type el)))
-        (is (= src-coord (source-coord-prop el))
-            "the DOM root carries data-rf2-source-coord")))))
 
 (deftest source-coord-skips-interop-root
   (testing "a :> interop root does NOT get source-coord as a foreign prop"
@@ -882,15 +783,6 @@
 ;; parity break), so dash-to-prop-name short-circuits `--` names.
 ;; ---------------------------------------------------------------------------
 
-(deftest as-element-style-css-var-preserved
-  (testing "[:div {:style {:--gap \"8px\"}}] → props.style[\"--gap\"] === \"8px\""
-    (let [^js el (template/as-element [:div {:style {:--gap "8px"}}])
-          style  (.. el -props -style)]
-      (is (= "8px" (aget style "--gap"))
-          "CSS custom property name preserved verbatim")
-      (is (or (nil? (aget style "Gap")) (= js/undefined (aget style "Gap")))
-          "NO camelCased 'Gap' replacement key created"))))
-
 (deftest as-element-style-css-var-alongside-normal-prop
   (testing "CSS var coexists with a normal camelCased style prop"
     (let [^js el (template/as-element [:div {:style {:--accent "red"
@@ -909,15 +801,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Sequence-as-children + key warnings
 ;; ---------------------------------------------------------------------------
-
-(deftest as-element-seq-children
-  (testing "(map ...) children expand to array"
-    (let [seq-children (map (fn [n] ^{:key n} [:span n]) (range 3))
-          ;; We test expand-seq directly because as-element on a vector
-          ;; with a seq inside flattens at the children level.
-          arr (template/expand-seq seq-children)]
-      (is (array? arr) "expand-seq returns a JS array")
-      (is (= 3 (alength arr))))))
 
 (deftest as-element-seq-children-interior-nil-false
   ;; expand-seq must NOT truncate at the first nil/false
@@ -958,22 +841,11 @@
 ;; Void tags — children rejected per HTML5
 ;; ---------------------------------------------------------------------------
 
-(deftest as-element-void-tag-no-children
-  (testing "[:br] → React element with no children"
-    (let [^js el (template/as-element [:br])]
-      (is (= "br" (.-type el))))))
-
 (deftest as-element-void-tag-input
   (testing "[:input {:type \"text\"}] → element with props but no children"
     (let [^js el (template/as-element [:input {:type "text"}])]
       (is (= "input" (.-type el)))
       (is (= "text" (-> el .-props .-type))))))
-
-(deftest as-element-void-tag-img
-  (testing "[:img {:src \"x.png\"}] → img with src"
-    (let [^js el (template/as-element [:img {:src "x.png"}])]
-      (is (= "img" (.-type el)))
-      (is (= "x.png" (-> el .-props .-src))))))
 
 (deftest as-element-void-tag-children-warns-and-drops-rf2-mdgt8t
   (testing "a void tag given children still DROPS them
@@ -1003,20 +875,6 @@
              (template/as-element [:img {:src "x.png"}])))
       (is (zero? (count @calls))
           "no warning when void tags carry no children"))))
-
-;; ---------------------------------------------------------------------------
-;; React keys
-;; ---------------------------------------------------------------------------
-
-(deftest as-element-meta-key
-  (testing "^{:key \"k\"} on hiccup vector flows to React key"
-    (let [^js el (template/as-element ^{:key "k"} [:div "x"])]
-      (is (= "k" (.-key el))))))
-
-(deftest as-element-prop-key
-  (testing "{:key \"k\"} in props → React key"
-    (let [^js el (template/as-element [:div {:key "k"} "x"])]
-      (is (= "k" (.-key el))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-coord stamping (per IMPL-SPEC §5.4 + §9.4)

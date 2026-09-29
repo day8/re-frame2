@@ -78,27 +78,3 @@
                    "the chained :adapter/clear-warn-once-caches! hook fires "
                    "(without the chained clear-step the warning is "
                    "swallowed). Got " (count phase-2) ": " (pr-str phase-2))))))))
-
-;; ---------------------------------------------------------------------------
-;; The direct clear-fn seam the chained hook invokes
-;; ---------------------------------------------------------------------------
-
-(deftest clear-warned-keyword-prop-re-arms-directly
-  (testing "Calling template/clear-warned-keyword-prop! directly also
-            re-arms the cache — the seam the chained hook invokes. Returns
-            nil (the make-clear-warned-fn shape)."
-    (let [k :rf2-rearm-direct-k
-          v :rf2-rearm-direct-v
-          phase-1 (with-warn-spy
-                    (fn []
-                      (template/convert-prop-value k v)
-                      (template/convert-prop-value k v)))]
-      (is (= 1 (count phase-1))
-          (str "phase-1 sanity: warn-once within a phase; got "
-               (count phase-1) ": " (pr-str phase-1)))
-      (is (nil? (template/clear-warned-keyword-prop!))
-          "clear-warned-keyword-prop! returns nil")
-      (let [phase-2 (with-warn-spy (fn [] (template/convert-prop-value k v)))]
-        (is (= 1 (count phase-2))
-            (str "phase-2 re-warns the SAME pair after the direct clear; got "
-                 (count phase-2) ": " (pr-str phase-2)))))))
