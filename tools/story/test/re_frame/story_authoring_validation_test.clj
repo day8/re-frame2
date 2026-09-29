@@ -450,16 +450,6 @@
 ;; not slots — the closed schema rejects them like any unknown key (a red
 ;; witness per key below).
 
-(defn- shape-error
-  "Register `body` under `id` and return the thrown `:rf.error/id`, or nil
-  when registration succeeded."
-  [id body]
-  (try
-    (rf.story/reg-variant* id body)
-    nil
-    (catch clojure.lang.ExceptionInfo e
-      (:rf.error/id (ex-data e)))))
-
 (deftest reg-variant-rejects-retired-events-slot
   (testing "a variant body carrying :events (the retired setup spelling)
             fails shape validation, naming the key and the slot it means"

@@ -81,19 +81,6 @@
             "different fx-ids yield distinct stub-event-ids")))))
 
 ;; ===========================================================================
-;; expand-ref-args helper
-;; ===========================================================================
-
-(deftest expand-ref-args-helper
-  (testing "expand-ref-args returns a body map for force-fx-stub refs"
-    (is (= {:kind :fx-override :fx-id :http :response {:n 1}}
-           (rf.story.fx-stubs/expand-ref-args
-             [:rf.story/force-fx-stub :http {:n 1}])))
-    (is (nil? (rf.story.fx-stubs/expand-ref-args [:some-other-decorator :http])))
-    (is (nil? (rf.story.fx-stubs/expand-ref-args nil)))
-    (is (nil? (rf.story.fx-stubs/expand-ref-args [])))))
-
-;; ===========================================================================
 ;; :rf.assert/effect-emitted with force-fx-stub
 ;; ===========================================================================
 

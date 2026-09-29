@@ -28,8 +28,8 @@
     A subsequent `variant-frames` call must not list the destroyed id.
   - **Lifecycle reaches `:ready` after `destroy + run` cycle.** The
     UI shell re-runs variants in place; teardown then
-    re-allocation must leave the lifecycle in `:ready` without
-    requiring an explicit `reset-watchers!`.
+    re-allocation must leave the lifecycle in `:ready` with no
+    separate reset step.
 
   Per `002-Runtime.md` §Per-variant frame allocation the caller (UI shell / test fixture) owns
   teardown — these tests pin the contract the caller relies on."
