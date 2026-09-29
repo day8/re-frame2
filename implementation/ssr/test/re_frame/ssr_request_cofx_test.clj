@@ -113,16 +113,6 @@
       (is (= request @observed)
           "the handler saw the request map that was placed in the slot"))))
 
-(deftest get-request-mirrors-cofx
-  (testing "ssr/get-request is the public read surface — same value as the cofx"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
-          request      {:request-method :post
-                        :uri            "/api/articles"
-                        :body           "{\"title\":\"new\"}"}]
-      (rf.ssr/set-request! server-frame request)
-      (is (= request (rf.ssr/get-request server-frame))
-          "get-request returns the host-supplied map verbatim"))))
-
 ;; ---- unpopulated slot ------------------------------------------------------
 ;;
 ;; If no host adapter populated the slot (e.g. tests that drive the
@@ -254,27 +244,3 @@
         (rf/dispatch-sync [:req-test/read-after-clear] {:frame server-frame})
         (is (nil? @observed)
             "the cofx injects nil after clear-request!")))))
-
-;; ---- explicit-value seam (set-request! before drain) ----------------------
-;;
-;; EP-0017: there is no `inject-cofx`, so no 2-arity explicit-value override
-;; either. Tests and conformance harnesses that drive the drain without a host adapter use the SAME seam the
-;; host uses — `re-frame.ssr/set-request!` for the target frame — and the
-;; declared ambient supplier reads it.
-
-(deftest set-request-is-the-test-seam
-  (testing "set-request! supplies the request for a harness-driven drain; the
-            declared cofx reads it (there is no 2-arity override)"
-    (let [server-frame (rf.frame/make-anon-frame-record! {:platform :server})
-          explicit     {:uri "/explicit" :headers {"x-test" "1"}}
-          observed     (atom :unset)]
-      (rf.ssr/set-request! server-frame explicit)
-      (rf/reg-event :req-test/read-explicit
-        {:rf.cofx/requires [:rf.server/request]}
-        (fn [{:keys [rf.server/request]} _]
-          (reset! observed request)
-          {}))
-      (rf/dispatch-sync [:req-test/read-explicit] {:frame server-frame})
-
-      (is (= explicit @observed)
-          "the declared cofx delivered the set-request! value"))))

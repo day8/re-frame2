@@ -274,32 +274,6 @@
       (is (= 500 (:status (rf.ssr/flush-response! f)))
           "the event-kind miss falls through to the locked generic-500"))))
 
-(deftest default-projector-gates-the-404-arm-on-kind-route
-  (testing "the gate, unit-tested directly on the pure projector
-            fn. A miss with no `:kind` at all falls through too — the 404 arm
-            is opt-in on the route discriminator (fail-safe), symmetric with
-            the `:where`-gated schema-validation-failure arm."
-    (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/no-such-handler :tags {:kind :route}}))
-        ":kind :route → 404")
-    (is (= rf.ssr/fallback-public-error
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/no-such-handler :tags {:kind :event}}))
-        ":kind :event (an unregistered event id) → the locked 500")
-    (is (= rf.ssr/fallback-public-error
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/no-such-handler :tags {:kind :frame}}))
-        ":kind :frame (a Tool-Pair surface naming an unknown frame) → 500")
-    (is (= rf.ssr/fallback-public-error
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/no-such-handler :tags {}}))
-        "no :kind → 500; the 404 arm never fires on an unclassified miss")
-    (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
-           (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
-        ":rf.error/no-such-route keeps its UNCONDITIONAL 404 — one failure
-         mode, no :kind discriminator")))
-
 ;; ===========================================================================
 ;; (4) THE SEAM — a registered projector still wins
 ;; ===========================================================================

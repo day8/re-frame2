@@ -4,14 +4,13 @@
   under production hardening.
 
   Context. Per-frame attribution routes solely by `[:tags :frame]`, with
-  no single-frame fallback. Two neighbouring suites each cover only one
-  of the two listener substrates:
+  no single-frame fallback. The neighbouring suites reach that routing
+  through other emit sites:
 
-    - `ssr_error_two_frame_attribution_test` drives TWO server frames, but
-      exclusively through `:rf.error/schema-validation-failure` — the
-      DEV-only `error-projection-listener` path. It DCEs under
-      `interop/debug-enabled? = false` and so does not cover the channel
-      that survives production hardening.
+    - `ssr_error_two_frame_attribution_test` drives TWO server frames
+      through `:rf.error/schema-validation-failure` on the DEV-only
+      `error-projection-listener` path, and through a throwing HANDLER on
+      the always-on path, in both directions.
     - `ssr_error_projector_substrate_test` exercises the ALWAYS-ON
       `error-emit-projection-listener`, but with a SINGLE frame — so it
       cannot catch a per-frame mis-attribution.
@@ -34,10 +33,11 @@
     1. fail-closed to a 500 on THAT frame's response accumulator, and
     2. leave the SIBLING frame's response untouched (no cross-frame
        bleed) — provable only with >1 server frame live, the exact shape
-       a single-frame fallback cannot handle, and
-    3. project an ELIDED public body (the locked four keys only — no
-       `:exception` / message / internal detail across the HTTP
-       boundary).
+       a single-frame fallback cannot handle.
+
+  The 500 body a sub-exception projects is the default projector's
+  fall-through arm, the locked four keys with no `:details`; that shape is
+  pinned by `re-frame.ssr-end-to-end-test`.
 
   ## SCOPE — core/accumulator layer ONLY
 
@@ -103,7 +103,7 @@
   frame-id)
 
 ;; ===========================================================================
-;; (1) Two live server frames, production hardening — a sub-throw in frame-a
+;; Two live server frames, production hardening — a sub-throw in frame-a
 ;;     stamps 500 on frame-a ONLY; frame-b stays 200.
 ;; ===========================================================================
 
@@ -144,68 +144,3 @@
              sub-throw did not bleed onto the sibling. A single-frame
              fallback would no-op with >1 server frame, masking the
              per-frame contract this asserts")))))
-
-;; ===========================================================================
-;; (2) Symmetry — a throw in frame-b stamps frame-b only; frame-a stays clean.
-;; ===========================================================================
-
-(deftest two-server-frames-sub-exception-attributes-each-frame-independently
-  (testing "The mirror of (1) — a sub-throw in frame-b fails
-            closed on frame-b while frame-a stays 200. Proves attribution
-            follows the EMITTING frame in both directions on the
-            production path, not a fixed/first-registered server frame."
-    (register-subs!)
-    (let [fa (make-server-frame frame-a)
-          fb (make-server-frame frame-b)]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (rf/subscribe-once [:throwing-sub] {:frame fb})
-        (rf/subscribe-once [:clean-sub] {:frame fa})
-        (is (= 500 (:status (rf.ssr/get-response fb)))
-            "frame-b (the emitting frame) fails closed to 500")
-        (is (= 200 (:status (rf.ssr/get-response fa)))
-            "frame-a stays at the default 200 — clean")))))
-
-;; ===========================================================================
-;; (3) The projected 500 body is ELIDED — the locked four keys only, no
-;;     exception / message / internal detail crosses the HTTP boundary.
-;; ===========================================================================
-
-(deftest sub-exception-projected-body-is-elided
-  (testing "The 5xx the sub-throw
-            projects under production hardening carries ONLY the locked
-            public-error shape — `:status` / `:code` / `:message` /
-            `:retryable?`. The exception, its message, the sub query, and
-            any other internal detail never cross the HTTP boundary
-            (Spec 011 §Where sanitisation happens). `:dev-error-detail?`
-            is false (the prod default) so no `:details` slot leaks the
-            raw trace."
-    (register-subs!)
-    (let [project-error rf.ssr/project-error
-          fa            (make-server-frame frame-a)]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (rf/subscribe-once [:throwing-sub] {:frame fa})
-        (let [resp (rf.ssr/get-response fa)]
-          (is (= 500 (:status resp))
-              "sub-exception fails closed to 500 under production hardening")
-          ;; The wire response carries the public-error status, not the
-          ;; internal trace. Project the (default-projector) public shape
-          ;; for the sub-exception category and assert it is exactly the
-          ;; locked generic-500 — no leak surface.
-          (let [public (project-error fa {:operation :rf.error/sub-exception
-                                          :tags      {:exception         (ex-info "sub-boom" {})
-                                                      :exception-message "sub-boom"
-                                                      :sub-query         [:throwing-sub]}})]
-            (is (= {:status     500
-                    :code       :internal-error
-                    :message    "Something went wrong"
-                    :retryable? false}
-                   public)
-                "default projector's prod shape carries exactly the four
-                 locked keys — the elided fail-closed payload")
-            (is (not (contains? public :details))
-                "prod shape (:dev-error-detail? false) — :details is absent
-                 so no exception / message / sub-query leaks across the
-                 HTTP boundary (the AI/human-facing egress threat model)")
-            (is (not-any? #{:exception :exception-message :sub-query :reason}
-                          (keys public))
-                "no internal error slot survives into the public body")))))))

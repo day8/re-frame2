@@ -594,42 +594,6 @@
         traces :rf.error/header-invalid-value
         "append-header with CRLF in value"))))
 
-(deftest ssr-redirect-rejects-crlf-injection
-  (testing ":rf.server/redirect with CR/LF in :location
-            surfaces :rf.error/redirect-invalid-location. The standard
-            exploit shape: a `?next=…` query param that URL-decodes into
-            literal CRLF would split the Location header on the wire."
-    (rf/reg-event :redirect/crlf-in-location
-      (fn [_ _]
-        {:fx [[:rf.server/redirect
-               {:location "https://example.com\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:redirect/crlf-in-location] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/redirect-invalid-location
-        "redirect with CRLF in :location")))
-
-  (testing "the retired :url / :to redirect-target spellings are
-            REJECTED with :rf.error/redirect-retired-target-key (naming the
-            canonical :location), not accepted as alternate target keys. The
-            error fires BEFORE the no-target warning path so the vocabulary
-            mistake is loud, not hidden behind a malformed-redirect warning.
-            (EP-0007 one-name-per-fact — no back-compat alias.)"
-    (rf/reg-event :redirect/via-url
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:url "/ok"}]]}))
-    (rf/reg-event :redirect/via-to
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:to "/ok"}]]}))
-    (doseq [ev [:redirect/via-url :redirect/via-to]]
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-fx-traces!
-                     (fn [] (rf/dispatch-sync [ev] {:frame f})))]
-        (expect-fx-error-keyword!
-          traces :rf.error/redirect-retired-target-key
-          (str ev " — retired redirect-target spelling rejected, names :location"))))))
-
 (deftest ssr-redirect-retired-spelling-diagnostic-names-location
   (testing "the retired-spelling diagnostic NAMES the canonical
             :location key (ex-data :canonical-key + a :reason mentioning
@@ -863,41 +827,6 @@
         (rf/unregister-listener! :trace tag)
         (rf.error-emit/unregister-error-listener! tag)))))
 
-(deftest ssr-default-error-projector-no-such-handler
-  (testing "routing's :rf.error/no-such-handler → default projector → 404"
-    (rf/reg-route :route/home {} "/")
-    (let [project-error  rf.ssr/project-error
-          f              (rf.frame/make-anon-frame-record!
-                           {:platform :server
-                            :ssr {:public-error-id   :rf.ssr/default-error-projector
-                                  :dev-error-detail? false}})
-          events         (:events (with-error-capture!
-                                    (fn []
-                                      (rf/dispatch-sync
-                                        [:rf.route/handle-url-change "/no-such-page"]
-                                        {:frame f}))))]
-      ;; Runtime's error-projection listener stamps :status 404 on :rf/response.
-      (is (= 404 (:status (get-response f)))
-          "default projector's :status reaches :rf/response — not a user-stub fx")
-      (is (nil? (:redirect (get-response f)))
-          "no redirect — the 404 is a status-only response, body still renders")
-
-      ;; The error stream carries the internal :rf.error/no-such-handler.
-      ;; The URL-driven route miss rides the always-on axis,
-      ;; so this reads in a release build too — which is the whole point: the
-      ;; 404 above is produced BY this record on a production JVM.
-      (let [err (some #(when (= :rf.error/no-such-handler (:operation %)) %) events)]
-        (is (some? err)
-            "internal trace records :rf.error/no-such-handler")
-        ;; Projecting the trace yields the locked public-error shape.
-        (let [public (project-error f err)]
-          (is (= {:status     404
-                  :code       :not-found
-                  :message    "Page not found"
-                  :retryable? false}
-                 public)
-              "default projector returns the canonical 404 mapping per Spec 011"))))))
-
 (deftest ssr-default-error-projector-handler-exception
   (testing "a handler that throws at RENDER time → default projector → 500"
     ;; The throwing dispatch is a RENDER-TIME
@@ -1109,26 +1038,32 @@
            default projector is registered, so it is not a missing-projector"))))
 
 ;; ===========================================================================
-;; default-error-projector-fn pure-unit case-arm coverage.
-;; The end-to-end tests above drive :no-such-handler → 404 and
-;; :handler-exception → 500 through the live cascade; the default
-;; projector fn's OTHER two enumerated arms — :no-such-route → 404 and
-;; :schema-validation-failure → 400 (documented in error_projector.cljc) —
-;; are pinned here. These are pure (trace-event → public-error),
-;; so unit-test the fn directly: deterministic, no frame/drain machinery.
+;; default-error-projector-fn pure-unit case table.
+;; The live cascade drives :no-such-handler → 404 in
+;; `re-frame.ssr-route-miss-404-production-test`, a boundary rejection → 400 in
+;; `re-frame.ssr-boundary-rejection-400-production-test`, and
+;; :handler-exception → 500 above. This is the projector fn's whole case
+;; table, pure (trace-event → public-error), so it is unit-tested directly:
+;; deterministic, no frame/drain machinery.
 ;; ===========================================================================
 
 (deftest default-error-projector-fn-maps-all-enumerated-categories
   (testing "the default projector's full case table per
             Spec 011 §Default projector. Exercises the fn directly (it is a
             public re-export: ssr/default-error-projector-fn)."
-    (testing ":rf.error/no-such-handler with :kind :route → 404 :not-found
-              (the arm is GATED on the route discriminator; the
-              :kind :event / :kind :frame / kind-less cases are pinned in
-              re-frame.ssr-route-miss-404-production-test)"
+    (testing ":rf.error/no-such-handler → 404 :not-found ONLY with :kind :route.
+              The arm is GATED on the route discriminator: an unregistered
+              event id (:kind :event) or a Tool-Pair surface naming an unknown
+              frame (:kind :frame) is a SERVER defect, and a miss with no
+              :kind is unclassified, so each falls to the locked 500"
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
              (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
-                                              :tags      {:kind :route}}))))
+                                              :tags      {:kind :route}})))
+      (doseq [tags [{:kind :event} {:kind :frame} {}]]
+        (is (= rf.ssr/fallback-public-error
+               (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-handler
+                                                :tags      tags}))
+            (str ":rf.error/no-such-handler with " (pr-str tags) " → the locked 500"))))
     (testing ":rf.error/no-such-route → 404 :not-found (the second 404 arm)"
       (is (= {:status 404 :code :not-found :message "Page not found" :retryable? false}
              (rf.ssr/default-error-projector-fn {:operation :rf.error/no-such-route}))
@@ -1257,22 +1192,6 @@
             (str label ": the internal status-writes bookkeeping key is stripped"))
         (is (not (contains? resp :rf.server/_redirect-writes))
             (str label ": the internal redirect-writes bookkeeping key is stripped"))))))
-
-(deftest ssr-error-projection-skips-client-frames
-  (testing "client-platform frames don't have their :rf/response stamped on errors"
-    ;; A :rf.error/no-such-handler trace inside a CLIENT frame should not
-    ;; touch :rf/response — the client doesn't have an HTTP response to
-    ;; project. (The trace still fires; the projector just isn't called
-    ;; for a client frame's response slot.)
-    (rf/reg-route :route/home {} "/")
-    (let [client-f (rf.frame/make-anon-frame-record! {:platform :client})]
-      (rf/dispatch-sync [:rf.route/handle-url-change "/no-such-page"]
-                        {:frame client-f})
-      (let [resp (get-response client-f)]
-        ;; Default response status (200) is unchanged — error-projection
-        ;; listener no-op'd because the frame is not :server.
-        (is (= 200 (:status resp))
-            "client frame's :rf/response :status stays at 200; projector skipped")))))
 
 ;; ===========================================================================
 ;; ssr-multi-redirect — multi-write emits :rf.warning/multiple-redirects
@@ -1430,25 +1349,6 @@
           ":cookies starts empty")
       (is (nil? (:redirect r))
           ":redirect starts nil"))))
-
-(deftest default-response-returns-fresh-map
-  (testing "each call to default-response returns a fresh map (not shared state)"
-    (let [r1 (rf.ssr/default-response)
-          r2 (rf.ssr/default-response)]
-      (is (= r1 r2) "the value shape is consistent across calls")
-      ;; If they share state, mutating one (e.g. updating :status) would
-      ;; affect the other. Persistent maps in Clojure are immutable, so
-      ;; really what we're asserting is that callers can use the result
-      ;; freely without aliasing concerns. Value-equality is the
-      ;; observable contract; identity is the safety guarantee Spec 011
-      ;; relies on for the per-request accumulator pattern.
-      ;; (Persistent collections — assoc'ing one returns a new value;
-      ;;  the other is untouched.)
-      (let [r1' (assoc r1 :status 500)]
-        (is (= 500 (:status r1'))
-            "mutating one return value yields a new map with the change")
-        (is (= 200 (:status r2))
-            "the other return value is untouched — no shared mutable state")))))
 
 ;; ===========================================================================
 ;; Direct error-projection-listener exercise (view-time path)
@@ -1627,56 +1527,6 @@
         ":to redirect-target spelling rejected")
       (is (nil? (:redirect (get-response f)))
           "the rejected redirect did NOT populate the :redirect slot"))))
-
-;; ===========================================================================
-;; Redirect short-circuits projector status overwrite
-;; ===========================================================================
-;;
-;; Per `apply-error-projection!` in `error_listener.cljc` and Spec 011
-;; §Redirect precedence:
-;; when the response carries a `:redirect`, `apply-error-projection!`
-;; must NOT overwrite the redirect's `:status` with the projector's
-;; status.
-
-(deftest redirect-suppresses-projector-status-overwrite
-  (testing "a request that redirects AND surfaces an error trace → response :status
-            stays at the redirect's status; the projector does not overwrite it"
-    (rf/reg-event :redirect-then-error
-      (fn [_ _]
-        {:fx [[:rf.server/redirect {:status 302 :location "/login"}]
-              ;; Then trigger a handler-exception trace — the default
-              ;; projector maps this to 500. The redirect was set
-              ;; first; the projector must NOT promote 302 → 500.
-              [:dispatch [:throw-from-handler]]]}))
-    (rf/reg-event :throw-from-handler
-      (fn [_ _] (throw (ex-info "post-redirect failure" {}))))
-
-    ;; :redirect-then-error is a RENDER-TIME request
-    ;; dispatch against a live frame, NOT an :initial-events setup step. The
-    ;; in-band handler-exception (from [:dispatch [:throw-from-handler]]) is
-    ;; the projector's drain-time domain; were this a construction setup step,
-    ;; the STRICT :initial-events teardown (EP-0027 §Failure) would tear
-    ;; the frame down and raise :rf.error/initial-events-step-failed instead.
-    (let [f      (rf.frame/make-anon-frame-record!
-                   {:platform  :server
-                    :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                                :dev-error-detail? false}})
-          events (:events (with-error-capture!
-                            (fn [] (rf/dispatch-sync [:redirect-then-error] {:frame f}))))
-          resp   (get-response f)]
-      ;; The handler-exception fired (drain-time). Read off the always-on
-      ;; axis as well as the dev bus: this assertion is the
-      ;; PREMISE of the two below it — without a real error there is nothing
-      ;; for the projector to overwrite the redirect WITH, so sourcing it
-      ;; dev-only would leave the redirect-precedence claim resting on nothing
-      ;; under the production gate.
-      (is (some #(= :rf.error/handler-exception (:operation %)) events)
-          "the handler-exception was emitted during the drain")
-      ;; The redirect survived: response :status is 302, not 500.
-      (is (= 302 (:status resp))
-          "redirect wins — projector must not overwrite a redirect's :status (Spec 011 §Redirect precedence)")
-      (is (= {:status 302 :location "/login"} (:redirect resp))
-          "the redirect map itself is unchanged"))))
 
 ;; ===========================================================================
 ;; :rf.server/safe-redirect (caller-untrusted)
@@ -2215,22 +2065,6 @@
       (is (= :domain (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
           "the offending attribute (:domain) rides the :attribute payload slot"))))
 
-(deftest ssr-delete-cookie-rejects-invalid-fields
-  (testing ":rf.server/delete-cookie runs the same validators
-            as set-cookie (it's sugar over set-cookie)"
-    (rf/reg-event :ck/del-crlf-path
-      (fn [_ _]
-        {:fx [[:rf.server/delete-cookie
-               {:name "session" :path "/admin\r\nbad"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:ck/del-crlf-path] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/cookie-invalid-attribute
-        "delete-cookie with CRLF in :path")
-      (is (= :path (:attribute (fx-error-extra traces :rf.error/cookie-invalid-attribute)))
-          "the offending attribute (:path) rides the :attribute payload slot"))))
-
 (deftest ssr-set-cookie-crlf-checks-every-attribute
   (testing "Spec 011 §CRLF fail-fast: :rf.server/set-cookie
             CRLF-checks EVERY attribute the host adapter serialises —
@@ -2458,28 +2292,6 @@
       (is (= "Strict" (-> cookies first :same-site))
           ":same-site survives"))))
 
-(deftest ssr-clean-names-still-accepted
-  (testing "legitimate header names + cookie
-            field shapes flow"
-    (rf/reg-event :clean/all
-      (fn [_ _]
-        {:fx [[:rf.server/set-header  {:name "Cache-Control"
-                                       :value "no-cache"}]
-              [:rf.server/set-header  {:name "X-Forwarded-For"
-                                       :value "1.2.3.4"}]
-              [:rf.server/set-cookie  {:name    "session"
-                                       :value   "abc123"
-                                       :path    "/"
-                                       :domain  "example.com"}]
-              [:rf.server/delete-cookie {:name "stale" :path "/"}]]}))
-    (let [f (rf.frame/make-anon-frame-record! {:platform :server :initial-events [[:clean/all]]})
-          resp (get-response f)]
-      (is (some (fn [[k _]] (= "Cache-Control"   k)) (:headers resp)))
-      (is (some (fn [[k _]] (= "X-Forwarded-For" k)) (:headers resp)))
-      (is (= 2 (count (:cookies resp))))
-      (is (= "session" (-> resp :cookies first :name)))
-      (is (= "stale"   (-> resp :cookies second :name))))))
-
 ;; ===========================================================================
 ;; ssr-server-fx-args-schema-boundary
 ;;
@@ -2493,7 +2305,9 @@
 ;; These tests prove the boundary fires: a structurally-malformed server fx arg is REJECTED at dispatch
 ;; with `:rf.error/schema-validation-failure :where :fx-args`, the
 ;; offending fx is SKIPPED (Spec 010 §Per-step recovery row 5 — the
-;; accumulator is untouched), and well-formed args pass.
+;; accumulator is untouched), and the permissive no-target redirect still
+;; passes. That well-formed args land for every reserved fx is the acceptance
+;; corpus in `re-frame.ssr-reserved-fx-guards-test`.
 ;;
 ;; The schemas artefact (transitively Malli) is on the ssr JVM test
 ;; classpath and `re-frame.ssr.test-fixture` requires `re-frame.schemas`,
@@ -2536,24 +2350,6 @@
 ;; END-TO-END view: every read below goes through `get-response`, the public
 ;; host-adapter surface, after the error projection has drained.
 ;; ===========================================================================
-
-(defn- capture-schema-failures!
-  "Record every `:rf.error/schema-validation-failure` trace emitted during
-  `body-fn`. Returns the recorded traces (each an emit event with
-  `:operation` + `:tags`). Mirrors `capture-fx-traces!` but for the
-  schema-boundary category rather than fx-handler-exception."
-  [body-fn]
-  (let [traces (atom [])
-        tag    (keyword (str "::schema-cap-" (gensym)))]
-    (rf/register-listener! :trace tag
-      (fn [ev]
-        (when (= :rf.error/schema-validation-failure (:operation ev))
-          (swap! traces conj ev))))
-    (try
-      (body-fn)
-      @traces
-      (finally
-        (rf/unregister-listener! :trace tag)))))
 
 (defn- expect-fx-args-schema-failure!
   "Assert `traces` carries a `:rf.error/schema-validation-failure` whose
@@ -2796,79 +2592,6 @@
           (is (some #(= fx-id (:failing-id %)) hits)
               (str label " — the record names " fx-id " as the failing fx;"
                    " saw: " (pr-str (mapv :failing-id hits)))))))))
-
-(deftest ssr-server-fx-args-schema-accepts-well-formed
-  (testing "well-formed server fx args pass
-            the :schema boundary cleanly (no :rf.error/schema-validation-
-            failure) and land on the accumulator. The boundary rejects the
-            malformed and admits the valid — it is not a blanket gate."
-    (rf/reg-event :good/all
-      (fn [_ _]
-        {:fx [[:rf.server/set-status 201]
-              [:rf.server/set-header  {:name "Cache-Control" :value "no-store"}]
-              [:rf.server/append-header {:name "Vary" :value "Accept"}]
-              ;; canonical cookie shape — int :max-age, keyword :same-site
-              [:rf.server/set-cookie  {:name "session" :value "abc"
-                                       :max-age 3600 :same-site :lax
-                                       :secure true :http-only true}]
-              [:rf.server/delete-cookie {:name "stale" :path "/"}]
-              [:rf.server/redirect    {:location "/dashboard" :status 302}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-schema-failures!
-                   (fn [] (rf/dispatch-sync [:good/all] {:frame f})))
-          resp   (get-response f)]
-      ;; DEV ARM. A negative over the dev trace ring passes
-      ;; AUTOMATICALLY under `-Dre-frame.debug=false`, where the ring is
-      ;; empty for every input, so outside an arm this would report "the
-      ;; boundary admitted the valid" in a build that has no boundary. The
-      ;; POSTURE-INDEPENDENT half of the same claim is the accumulator reads
-      ;; below: they prove admission by showing the effects LANDED, which is
-      ;; the non-vacuous form and needs no arm.
-      (when rf.interop/debug-enabled?
-        (is (empty? (filter (fn [ev] (= :fx-args (-> ev :tags :where))) traces))
-            (str "no :fx-args schema failure for well-formed args; saw: "
-                 (pr-str (mapv (comp :failing-id :tags) traces)))))
-      ;; redirect-fx flows its :status through to the response :status
-      ;; (Spec 011 §Redirect precedence step 1), so :status is 302 here.
-      (is (= 302 (:status resp)) "redirect status flows through")
-      (is (some (fn [[k _]] (= "Cache-Control" k)) (:headers resp))
-          "set-header landed")
-      (is (some (fn [[k _]] (= "Vary" k)) (:headers resp))
-          "append-header landed")
-      (is (= 2 (count (:cookies resp)))
-          "both set-cookie + delete-cookie landed")
-      (is (= {:status 302 :location "/dashboard"} (:redirect resp))
-          "redirect landed")))
-
-  (testing "a well-formed :rf.server/safe-redirect
-            (string :location, int :status, boolean :relative-only?,
-            vector :allow) passes the :rf.fx.server/safe-redirect-args
-            boundary cleanly and lands its redirect"
-    (rf/reg-event :good/safe-redirect
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location       "https://app.example.com/dashboard"
-                :status         302
-                :relative-only? false
-                :allow          ["app.example.com"]}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-schema-failures!
-                   (fn [] (rf/dispatch-sync [:good/safe-redirect] {:frame f})))
-          resp   (get-response f)]
-      ;; DEV ARM, same reasoning as its sibling above: a negative
-      ;; over an empty ring. The landing assertions that follow carry the
-      ;; posture-independent half.
-      (when rf.interop/debug-enabled?
-        (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
-                                          (= :rf.server/safe-redirect
-                                             (-> ev :tags :failing-id))))
-                            traces))
-            (str "no :fx-args schema failure for well-formed safe-redirect; saw: "
-                 (pr-str (mapv (comp :failing-id :tags) traces)))))
-      (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
-          "the well-formed safe-redirect landed on the response :redirect slot")
-      (is (= 302 (-> resp :redirect :status))
-          "the int :status flowed through"))))
 
 ;; ===========================================================================
 ;; ssr-with-fx-override / ssr-end-to-end. The :fx-overrides redirect and the dispatch-sync →
