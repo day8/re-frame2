@@ -65,7 +65,14 @@
   (rf.story/install-canonical-vocabulary!)
   (rf.frame/ensure-default-frame!))
 
-(use-fixtures :each (fn [t] (reset-all!) (t)))
+;; The adapter slot is handed back as found: one this fixture seated is
+;; disposed afterwards rather than left for a later namespace to lean on.
+(use-fixtures :each
+  (fn [t]
+    (let [seated? (some? (rf/current-adapter))]
+      (reset-all!)
+      (try (t)
+           (finally (when-not seated? (rf/destroy-adapter!)))))))
 
 ;; ===========================================================================
 ;; 1 · the enum — admits :fresco, and is CLOSED

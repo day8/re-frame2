@@ -169,22 +169,32 @@
   (testing "a schema-violating seed FAILS before the script runs — a malformed
             precondition is not a thing to assert against"
     (install-schema-seam!)
-    (reg-app-schema! :story.cart/halt [:cart]
-                     [:map [:items [:vector :map]]])
     ;; The probe counts the script's one dispatch directly, because an
     ;; app-db read cannot witness it: a handler writing into a seed this
     ;; malformed throws, so "never ran" and "ran and failed" leave the same
     ;; app-db.
-    (let [script-ran (atom 0)]
+    (let [script-ran    (atom 0)
+          probe-variant (fn [variant-id items]
+                          (reg-app-schema! variant-id [:cart]
+                                           [:map [:items [:vector :map]]])
+                          (rf.story/reg-variant
+                            variant-id
+                            {:db-seed {:cart {:items items}}
+                             :script  [[:dispatch-sync [:halt/probe]]]}))]
       (rf/reg-event :halt/probe (fn [_ _] (swap! script-ran inc) {}))
-      (rf.story/reg-variant
-        :story.cart/halt
-        {:db-seed {:cart {:items "not-a-vector"}}
-         :script  [[:dispatch-sync [:halt/probe]]]})
+      (probe-variant :story.cart/halt "not-a-vector")
+      (probe-variant :story.cart/go [{:sku "A"}])
       (let [result (run-target :story.cart/halt)]
         (is (= :error (:status result)))
+        (is (= [:cart] (-> result seed-error-record :violations first :path))
+            "the stop is the structured :rf.error/story-db-seed-invalid record")
         (testing "the script never ran — its one dispatch was never handled"
-          (is (zero? @script-ran)))))))
+          (is (zero? @script-ran))))
+      (testing "the probe counts the same script behind a seed the schema
+                accepts, so its zero above is the seed rejection's"
+        (reset! script-ran 0)
+        (is (= :pass (:status (run-target :story.cart/go))))
+        (is (= 1 @script-ran))))))
 
 ;; ===========================================================================
 ;; host-free floor — no schemas artefact / no validator → seed applied unchecked

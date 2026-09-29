@@ -14,6 +14,8 @@
   selects it; a plain `-test` name would run on the JVM only."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
+            [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
             [re-frame.story.late-bind :as rf.story.late-bind]
             [re-frame.story.plan :as rf.story.plan]
@@ -216,18 +218,39 @@
         ;; must not run) the plan's :script / :expect.
         (is (not (contains? inputs :script)))
         [:rendered]))
-    (let [body {:component  :view.button/primary
-                :args       {:label "Go"}
-                :script     [[:dispatch [:should/not-run]]]
-                :assertions [[:rf.assert/path-equals [:x] 1]]}
-          r    (rf.story.render/render-variant
-                 :story.button/primary
-                 {:lookup {:story.button/primary body}})]
-      (is (= :rendered (:status r)))
-      (testing "the plan still carries the script/expect (visible, not run)"
-        (is (= [[:dispatch [:should/not-run]]] (get-in r [:plan :script])))
-        (is (= [[:rf.assert/path-equals [:x] 1]]
-               (get-in r [:plan :expect :assertions])))))))
+    ;; The script's event has a counting handler and the variant's frame is
+    ;; live, so a render that dispatched the script would be counted rather
+    ;; than dropped as unhandled or refused for want of a frame.
+    (let [handled (atom 0)
+          seated? (some? (rf/current-adapter))]
+      (try (rf/init! rf.substrate.plain-atom/adapter)
+           (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
+      (rf/reg-event :should/not-run (fn [_ _] (swap! handled inc) {}))
+      (rf/make-frame {:id :story.button/primary})
+      (try
+        (let [body {:component  :view.button/primary
+                    :args       {:label "Go"}
+                    :script     [[:dispatch [:should/not-run]]]
+                    :assertions [[:rf.assert/path-equals [:x] 1]]}
+              r    (rf.story.render/render-variant
+                     :story.button/primary
+                     {:lookup {:story.button/primary body}})]
+          (is (= :rendered (:status r)))
+          (testing "the plan still carries the script/expect (visible, not run)"
+            (is (= [[:dispatch [:should/not-run]]] (get-in r [:plan :script])))
+            (is (= [[:rf.assert/path-equals [:x] 1]]
+                   (get-in r [:plan :expect :assertions]))))
+          (testing "nothing was dispatched (render is not a run)"
+            (is (zero? @handled)))
+          (testing "the counter sees the script's event when it is dispatched
+                    on purpose into the frame render names"
+            (rf/dispatch-sync (second (first (get-in r [:plan :script])))
+                              {:frame (:frame r)})
+            (is (= 1 @handled))))
+        (finally
+          (rf/destroy-frame! :story.button/primary)
+          (rf/clear :event :should/not-run)
+          (when-not seated? (rf/destroy-adapter!)))))))
 
 (deftest render-variant-no-host-is-cannot-run
   (testing "without a host render hook (the bare JVM), render-variant
