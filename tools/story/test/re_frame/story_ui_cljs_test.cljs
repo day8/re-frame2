@@ -562,6 +562,31 @@
                "the `reset!` returns the new selection index (1 = tab 1, "
                "the tab whose button we drove)")))))
 
+;; ---- :variants-grid :isolation :shared ----------------------------------
+
+(deftest variants-grid-shared-isolation-mounts-one-cell-behind-a-navigator
+  (testing ":isolation :shared mounts ONE cell at a time behind a prev/next
+            navigator, where the default :isolated grid mounts every cell"
+    (rf.story/reg-variant :story.shared-iso/a {:setup []})
+    (rf.story/reg-variant :story.shared-iso/b {:setup []})
+    (rf.story/reg-variant :story.shared-iso/c {:setup []})
+    (rf.story/reg-workspace :Workspace.shared-iso/all
+      {:layout    :variants-grid
+       :isolation :shared})
+    (let [{renderer :fn cells :cells args :args}
+          (find-tabs-renderer-call
+            (rf.story.ui.workspace/workspace-view :Workspace.shared-iso/all))
+          rendered  (apply renderer cells args)
+          positions (->> (tree-seq coll? seq rendered)
+                         (filter #(and (vector? %) (map? (second %))))
+                         (keep #(:data-test-shared-position (second %))))]
+      (is (= 3 (count cells))
+          "precondition: the anchor story enumerates three variants")
+      (is (= 1 (count-variant-cells-in rendered))
+          "exactly one variant-cell is mounted")
+      (is (= ["1/3"] positions)
+          "the navigator shows the first of three cells"))))
+
 ;; ---- workspace :columns grid template -----------------------------------
 ;;
 ;; The workspace body's `:columns` slot pins the CSS grid's column count:
