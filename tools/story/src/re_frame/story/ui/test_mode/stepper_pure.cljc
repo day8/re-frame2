@@ -15,9 +15,7 @@
     `step-back!` / `rewind!` / `toggle-breakpoint!` / `end!`).
   - `re-frame.story.ui.test-mode.stepper-styles` — pure style map.
   - `re-frame.story.ui.test-mode.stepper-view`   — CLJS Reagent component."
-  (:require [re-frame.story.predicates :as rf.story.predicates]
-            [re-frame.story.play.runner :as rf.story.play.runner]
-            [re-frame.story.ui.test-mode.pure :as rf.story.ui.test-mode.pure]))
+  (:require [re-frame.story.play.runner :as rf.story.play.runner]))
 
 ;; ---- step-outcome (full-script step list) -------------------------------
 ;;
@@ -182,14 +180,3 @@
   [cursor breakpoints]
   (and (set? breakpoints)
        (contains? breakpoints cursor)))
-
-;; ---- event-label re-export ----------------------------------------------
-;;
-;; The scrubber ticks' `(first event)` label projection, re-exported on the
-;; stepper's pure surface.
-
-(def play-step-label rf.story.ui.test-mode.pure/play-step-label)
-
-;; ---- assertion-event? re-export -----------------------------------------
-
-(def assertion-event? rf.story.predicates/assertion-event?)

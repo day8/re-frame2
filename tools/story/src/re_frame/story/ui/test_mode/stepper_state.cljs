@@ -288,9 +288,9 @@
                (fn [s] (assoc s :auto-playing? true :interval-id hid)))))))
 
 (defn toggle-breakpoint!
-  "Toggle a breakpoint on step `index` (0-based). No-ops when the slot
-  isn't active. Auto-play hitting a breakpoint pauses BEFORE the event
-  is dispatched (see `auto-tick!`)."
+  "Toggle a breakpoint on step `index` (0-based). No-ops when the variant
+  has no slot or `index` is not an integer. Auto-play hitting a breakpoint
+  pauses BEFORE the event is dispatched (see `auto-tick!`)."
   [variant-id index]
   (when (and (integer? index)
              (get @results-atom variant-id))
