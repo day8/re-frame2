@@ -245,6 +245,13 @@ mayor.
 - **A queued measurement window makes an otherwise-free slot not free.** Hold the fleet thin on purpose
   and keep dispatching work whose gates leave the machine quiet. **Quiet is a property of the whole set
   of gates an item arms** — no single classifier describes that set.
+- **An exclusive heavyweight gate gets ONE window per worker, at the END, carrying only what CI cannot
+  supply: base counts and planted faults.** Head counts come from the change's CI. **Take a base count
+  for a before/after delta at the FIRST PARENT of the merge CI graded** — the trunk as it stood at the
+  push — never at the branch's merge base, or the delta silently absorbs whatever landed upstream in
+  between: measured, one trunk move under a worker's branch added test namespaces of its own. Across a
+  one-hour trial one window ran 24 minutes plus a 2.3-minute follow-up against an estimate of 45 to 75,
+  by dropping its clean-head run; another halved to base-only, and a third dropped its clean-head step.
 - **Where a window registers that no peer WRITES in its bracket, any write voids it however cheap.**
   Merging a change and creating a worktree cost nothing and are both writes, so a rule ordered by cost
   gets those backwards.
