@@ -156,7 +156,8 @@ A resource/mutation request fn describes **the domain request** — method, url,
 
 ```clojure
 (rf/reg-http-interceptor :auth
-  {:before (fn [ctx]
+  {:frame  :app                                 ;; the frame whose requests it decorates
+   :before (fn [ctx]
              (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
@@ -173,6 +174,8 @@ A resource/mutation request fn describes **the domain request** — method, url,
   (fn [_params _ctx]
     {:request {:method :get :url "/api/user"} :decode :app/user}))
 ```
+
+**Name the frame when you register.** An HTTP interceptor chain belongs to one frame, so registration needs one: the explicit `:frame` above, or an enclosing `(rf/with-frame :app …)` around a block of registrations. At namespace load no frame is in scope, so a frameless `reg-http-interceptor` there raises `:rf.error/no-frame-context` and installs nothing — there is no `:rf/default` to fall back to. The frame need not exist yet: the chain is keyed by frame id and read each time a request is issued, so register at load or boot, before `frame-root {:id :app}` or `(rf/make-frame {:id :app})` creates the frame. It decorates that frame's requests and no other frame's. The scope and resource registrations beside it are global and need no frame.
 
 The interceptor reads the token from `(:frame ctx)` (EP-0002 carried-frame-correct), not an ambient db, and returns `ctx` unchanged when no token is present. An interceptor's `:before` decorates the **`:request`** only — that is the one slot of its returned `ctx` the runtime carries forward, so an `:args`-level key such as `:retry` set there is silently dropped. **Retry is per request**: return a top-level `:retry` from the request fn, and keep it read-focused — retrying writes can duplicate side effects, so a mutation arms `:retry` only when its third-slot request fn returns a managed-HTTP args map carrying one. Traces report *that* an auth interceptor applied, never the bearer value itself.
 
