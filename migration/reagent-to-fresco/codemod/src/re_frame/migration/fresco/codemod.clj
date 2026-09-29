@@ -110,9 +110,8 @@
   **Crossing SITES, so inert subtrees are pruned rather than walked**
   (rf2-xc11). A `#_`, a quote and a `(comment …)` body each parse into the
   nodes a live crossing does, and nothing in any of them crosses into
-  React. The `nil` guard below is not defensive: [[rewrite/past-subtree]]
-  answers `nil` for an inert form that ends the file, and `z/end?` alone
-  would fault on it."
+  React. [[rewrite/past-subtree]] answers `nil` for an inert form that
+  ends the file, and `z/end?` reads a `nil` loc as the end of the walk."
   [source {:keys [file] :as ctx}]
   (loop [loc      (z/of-string source {:track-position? true})
          entries  []
@@ -121,7 +120,7 @@
          calls    {}          ; symbol -> [line …], the same-file call sites
          sites    0
          quiet    0]
-    (if (or (nil? loc) (z/end? loc))
+    (if (z/end? loc)
       {:entries    (into entries (map #(adapt-def-entry % calls)) defs)
        :suggestions suggests
        :sites      sites
