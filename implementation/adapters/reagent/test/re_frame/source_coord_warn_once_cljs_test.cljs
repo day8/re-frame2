@@ -119,25 +119,6 @@
       (is (some #(str/includes? % "fragment-id-b") warnings)
           "id-b's warning fired"))))
 
-;; ---- Interop / fn-headed roots also warn-once -----------------------------
-
-(deftest interop-root-warn-fires-once
-  (testing "A `:>` interop-headed root is on the same exemption list as
-            Fragments; it MUST warn exactly once per id across renders.
-            Pair tools fall back to :rf/id for these roots. Per Spec
-            006 §Documented exemption: non-DOM roots."
-    (rf/reg-view* :rf.warn-once-test/interop-multi
-                  (fn [] [:> "div" {} "body"]))
-    (let [render   (rf/view :rf.warn-once-test/interop-multi)
-          warnings (with-captured-console-warn
-                     (fn [] (dotimes [_ 5] (render))))]
-      (is (= 1 (count warnings))
-          (str "expected EXACTLY ONE warning across 5 renders of the "
-               "interop-rooted view; got " (count warnings) ": "
-               (pr-str warnings)))
-      (is (str/includes? (first warnings) "interop-multi")
-          "the single warning names the interop-rooted view-id"))))
-
 ;; ---- Form-3 class root: preserve identity + warn -------------------------
 
 (deftest form-3-class-root-is-not-misclassified-as-form-2

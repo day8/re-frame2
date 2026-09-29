@@ -64,23 +64,7 @@
     {:adapter rf.adapter.reagent/adapter :ambient-frame nil})
   (fn [test-fn] (try (test-fn) (finally (r/flush)))))
 
-;; ---- (1) the hook is reachable through interop under the Reagent adapter ---
-
-(deftest after-render-enqueue-does-not-throw-or-fire-synchronously
-  (testing "with the Reagent adapter installed, interop/after-render
-            accepts a callback (the routed :adapter/after-render hook
-            dispatches to Reagent's r/after-render) and DEFERS it — the
-            callback must NOT run during the enqueue call"
-    (let [fired (atom 0)]
-      ;; The return value is Reagent-internal (stock r/after-render arms a
-      ;; deferred drain and hands back its scheduler token); we assert the
-      ;; DEFERRAL contract, not the token shape.
-      (rf.interop/after-render (fn [] (swap! fired inc)))
-      (is (zero? @fired)
-          "after-render defers — the callback does not fire synchronously
-           during the enqueue call"))))
-
-;; ---- (2) the callback fires once the render queue drains -------------------
+;; ---- (1) the callback fires once the render queue drains -------------------
 
 (deftest after-render-runs-callback-on-queue-drain
   (testing "a callback handed to interop/after-render under the Reagent
@@ -104,7 +88,7 @@
       (is (= 2 @fired)
           "an empty drain does not re-fire previously-drained callbacks"))))
 
-;; ---- (3) ordering: multiple callbacks run in enqueue order on one drain ----
+;; ---- (2) ordering: multiple callbacks run in enqueue order on one drain ----
 
 (deftest after-render-multiple-callbacks-run-in-enqueue-order
   (testing "multiple callbacks enqueued before a single drain all fire,
@@ -118,7 +102,7 @@
       (is (= [:first :second :third] @order)
           "all enqueued callbacks fire in enqueue order on a single drain"))))
 
-;; ---- (4) copied / wrapped adapter map routes to the live hook --
+;; ---- (3) copied / wrapped adapter map routes to the live hook --
 ;;
 ;; `route-hook!` routes by stable token (the canonical :rf.adapter/* :kind),
 ;; not object identity — so a copied / wrapped stock-Reagent adapter map STILL

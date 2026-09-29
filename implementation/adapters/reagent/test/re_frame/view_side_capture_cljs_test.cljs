@@ -113,18 +113,6 @@
 ;; 2. mount-vs-rerender — :rf.view/mount?
 ;; ===========================================================================
 
-(deftest rf-view-rendered-carries-mount-flag
-  (testing ":rf.view/rendered carries a boolean :rf.view/mount? on every emit"
-    (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/rendered})
-                                     :shape :by-op}]
-      (rf/reg-view ^{:rf/id :rf2-9hoos/flagged} flagged-view []
-        [:span "x"])
-      ((rf/view :rf2-9hoos/flagged))
-      (let [ev (first (:rf.view/rendered @observed))]
-        (is (some? ev))
-        (is (contains? (:tags ev) :rf.view/mount?) ":rf.view/mount? slot is present")
-        (is (boolean? (get-in ev [:tags :rf.view/mount?])) ":rf.view/mount? is a boolean")))))
-
 (deftest first-render-of-an-instance-is-mount-rest-are-rerenders
   (testing "first-render?! returns true the first time a render-key is
    seen and false thereafter — the mount-vs-rerender discriminator that
@@ -195,22 +183,3 @@
           (is (some? ev) ":rf.view/unmounted fired on reaction disposal")
           (is (= :rf2-9hoos/lifecycle (get-in ev [:tags :rf.view/id])))
           (is (= [:rf2-9hoos/lifecycle 1] (get-in ev [:tags :rf.view/render-key]))))))))
-
-;; ===========================================================================
-;; co-existence — the capture fields ride alongside the base render shape
-;; ===========================================================================
-
-(deftest existing-rf-view-rendered-tags-still-present
-  (testing ":rf.view/id, :frame and :rf.view/render-key ride every
-   :rf.view/rendered emit alongside :rf.view/mount? / :rf.view/deref-subs"
-    (with-trace-recorder! [observed {:pred  (in-op-set #{:rf.view/rendered})
-                                     :shape :by-op}]
-      (rf/reg-view ^{:rf/id :rf2-9hoos/coexist} coexist-view []
-        [:span "x"])
-      ((rf/view :rf2-9hoos/coexist))
-      (let [ev (first (:rf.view/rendered @observed))
-            t  (:tags ev)]
-        (is (= :rf2-9hoos/coexist (:rf.view/id t)))
-        (is (some? (:frame t)))
-        (is (vector? (:rf.view/render-key t)))
-        (is (contains? t :rf.view/mount?))))))

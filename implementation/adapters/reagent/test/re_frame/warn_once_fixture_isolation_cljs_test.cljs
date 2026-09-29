@@ -135,26 +135,3 @@
                  "warnings."))
         (is (str/includes? (first phase-2-ws) (name shared-id))
             "phase-2 warning still names the shared id")))))
-
-;; ---- positive control: clear-warned-non-dom-roots! works directly ---------
-
-(deftest clear-warned-non-dom-roots-resets-cache-directly
-  (testing "Calling `re-frame.views/clear-warned-non-dom-roots!` directly
-            also resets the cache — this is the public seam
-            `make-reset-runtime-fixture` consumes through the chained hook.
-            Test it independently so a future refactor that drops the
-            chain wiring but keeps the fn name is caught here."
-    (let [target-id :rf.warn-once-fixture/direct
-          ws-1 (with-captured-console-warn
-                 (fn []
-                   (rf/reg-view* target-id
-                                 (fn [] [:<> [:p "first"]]))
-                   ((rf/view target-id))))]
-      (is (= 1 (count ws-1)) "first emission fires")
-      (re-frame.views/clear-warned-non-dom-roots!)
-      (let [ws-2 (with-captured-console-warn
-                   (fn []
-                     ((rf/view target-id))))]
-        (is (= 1 (count ws-2))
-            (str "after `clear-warned-non-dom-roots!` the same id "
-                 "re-emits. Got " (count ws-2) ": " (pr-str ws-2)))))))

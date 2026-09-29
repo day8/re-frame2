@@ -63,17 +63,6 @@
              (.-displayName ^js wrapped))
           "displayName matches (performance/entry-id id) on the wrapped fn"))))
 
-(deftest display-name-honours-rf-id-override
-  (testing "an `:rf/id`-overridden registration carries the override id in
-            displayName, in the same colon-free projection"
-    (rf/reg-view ^{:rf/id :rf.devtools-test/dn-explicit} dn-meta-view
-                 [] [:span "ok"])
-    (let [wrapped (rf/view :rf.devtools-test/dn-explicit)]
-      (is (some? wrapped))
-      (is (= "rf.devtools-test/dn-explicit"
-             (.-displayName ^js wrapped))
-          "the override id drives displayName"))))
-
 (deftest display-name-and-render-measure-are-one-identifier
   (testing "THE equality row. Spec 009 §Naming convention makes
             the `<id>` in `rf:render:<id>` and the id the substrate

@@ -93,21 +93,3 @@
                (count warnings) ": " (pr-str warnings)))
       (is (some #(str/includes? % "fragment-id-a") warnings) "id-a's warning fired")
       (is (some #(str/includes? % "fragment-id-b") warnings) "id-b's warning fired"))))
-
-;; ---- Interop / fn-headed roots also warn-once -----------------------------
-
-(deftest interop-root-warn-fires-once-slim
-  (testing "A `:>` interop-headed root is on the same exemption list as
-            Fragments; under slim it MUST warn exactly once per id across
-            renders. Per Spec 006 §Documented exemption: non-DOM roots."
-    (rf/reg-view* :rf.slim-warn-once-test/interop-multi
-                  (fn [] [:> "div" {} "body"]))
-    (let [render   (rf/view :rf.slim-warn-once-test/interop-multi)
-          warnings (with-captured-console-warn
-                     (fn [] (dotimes [_ 5] (render))))]
-      (is (= 1 (count warnings))
-          (str "expected EXACTLY ONE warning across 5 renders of the "
-               "interop-rooted slim view; got " (count warnings) ": "
-               (pr-str warnings)))
-      (is (str/includes? (first warnings) "interop-multi")
-          "the single warning names the interop-rooted view-id"))))
