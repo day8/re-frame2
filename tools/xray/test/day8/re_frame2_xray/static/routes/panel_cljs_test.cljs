@@ -316,9 +316,9 @@
   (testing ":routes is in the Static tab inventory + the shell mounts it.
 
             The row asserts ONE LEVEL UP from the panel's own testid,
-            exactly as `static/shell_cljs_test`'s
-            `static-machines-mounts-live-panel` does and for the same
-            reason. `static.routes.panel/Panel` is an `rf.fresco/defview`
+            exactly as `static/machines/panel_cljs_test`'s
+            `static-shell-mounts-machines-panel-on-machines-tab` does and
+            for the same reason. `static.routes.panel/Panel` is an `rf.fresco/defview`
             behind an `as-component` bridge, so this hiccup walk reaches
             the bridge's `[:>]` interop head and stops —
             `rf-xray-static-routes` is committed by React, not present in

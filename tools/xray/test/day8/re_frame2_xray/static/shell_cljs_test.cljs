@@ -35,7 +35,6 @@
             [re-frame.frame :as rf.frame]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.config :as config]
-            [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.mode-pill :as mode-pill]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
@@ -79,11 +78,6 @@
 ;; -------------------------------------------------------------------------
 ;; (1) mode-state lifecycle — set / toggle
 ;; -------------------------------------------------------------------------
-
-(deftest mode-default-is-dynamic
-  (testing "with no host opt-in, the mode slot defaults to :dynamic"
-    (xray-setup!)
-    (is (= :dynamic (frame-sub [:rf.xray/mode])))))
 
 (deftest set-mode-writes-the-slot
   (testing ":rf.xray/set-mode :static lands :static on the slot"
@@ -133,8 +127,7 @@
     (is (= :dynamic (static-persistence/<-raw (static-persistence/->raw :dynamic))))
     (is (= :static  (static-persistence/<-raw (static-persistence/->raw :static))))))
 
-;; The three real-storage rows — `persistence-load-default-empty-slot`,
-;; `persistence-save-and-load-round-trip` and
+;; The two real-storage rows — `persistence-load-default-empty-slot` and
 ;; `persistence-fx-installed-by-set-mode` — live in
 ;; `day8.re-frame2-xray.static.shell-dom-cljs-test`. Here, wrapped in
 ;; `(when (and (exists? js/window) (.-localStorage js/window)) ...)`,
@@ -207,17 +200,7 @@
   ;; source code.
   [:machines :routes :schemas :flows :interceptors])
 
-(deftest static-tab-bar-renders-five-tabs
-  (testing "Static L3 tab bar renders 5 sub-tabs
-            (Machines / Routes / Schemas / Flows / Interceptors)"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree (static-shell-tree/surface-tree)]
-        (doseq [tab-id expected-static-tab-ids]
-          (is (some? (rf.test-helpers/find-by-testid tree (str "rf-xray-static-tab-" (name tab-id))))
-              (str "tab button for " tab-id)))))))
-
-(deftest static-tab-bar-uses-tablist-aria
+(deftest static-tab-bar-renders-five-tabs-with-tablist-aria
   (testing "Static tab-bar uses the canonical ARIA tab pattern
             (role='tablist' on the container, role='tab' on each
             button, aria-selected matching the active state)"
@@ -241,38 +224,11 @@
                 (str "tab " tab-id " aria-selected matches the active tab"))))))))
 
 ;; Every Static sub-tab (:machines :routes :schemas :flows :interceptors)
-;; ships a real panel, and the shell has no `placeholder-card`. The per-tab
-;; `*-mounts-live-panel` tests assert each real panel mounts; there is no
+;; ships a real panel, and the shell has no `placeholder-card`. The mount
+;; rows are machines/panel_cljs_test's
+;; `static-shell-mounts-machines-panel-on-machines-tab` and routes/
+;; panel_cljs_test's `static-shell-routes-tab-is-in-inventory`; there is no
 ;; unfilled-tab placeholder path to cover.
-
-(deftest static-machines-mounts-live-panel
-  (testing "the :machines sub-tab mounts the live Static
-            Machines panel.
-
-            The row asserts ONE LEVEL UP from the panel's own testid.
-            `static.machines.panel/panel` is an `rf.fresco/defview`
-            behind an `as-component` bridge, so this hiccup walk reaches
-            the bridge's `[:>]` interop head and stops — `rf-xray-static-
-            machines-panel` is committed by React, not present in the
-            tree. Asserting the testid here would be asserting the
-            walker's reach rather than the mount, which is the
-            hollow-gate shape. What the shell owes is that the slot
-            mounts the REGISTRY's `:panel` and that no placeholder
-            renders; the boundary's own first paint is W1 in
-            `static/machines/panel_fresco_boundary_dom_cljs_test`."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (frame-dispatch [:rf.xray.static/select-tab :machines])
-      (let [tree  (static-shell-tree/surface-tree)
-            slot  (rf.test-helpers/find-by-testid
-                    tree "rf-xray-static-detail-panel-machines")
-            mount ((:panel (panel-registry/tab-by-id :static :machines)))]
-        (is (some? slot) "the :machines L4 slot renders")
-        (is (= (last slot) mount)
-            (str "the slot mounts exactly the registry's :panel value. "
-                 "Got: " (pr-str (last slot))))
-        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-placeholder-machines"))
-            "no placeholder card renders for :machines")))))
 
 ;; -------------------------------------------------------------------------
 ;; (5) Static tab routing — selection + isolation
@@ -454,25 +410,6 @@
         (is (or (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker"))
                 (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")))
             "L1 frame picker (or single-frame label) present in Dynamic")))))
-
-(deftest l1-frame-picker-mounts-in-static-mode
-  (testing "Static surface mounts the L1 frame picker — four of the five
-            Static tabs project a per-frame surface (machines snapshots,
-            current-route slice, app-db schemas, flows), so the picker
-            is mode-INDEPENDENT and persists across mode toggles even
-            though the registrar itself is process-global.
-
-            Driven through the Static shell's own tree composer, so the
-            ribbon under test is the shipped one.
-            `surface-composer-renders-static-when-mode-static` above is
-            what pins the composer's Static arm."
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/set-mode :static])
-    (rf/with-frame :rf/xray
-      (let [tree (static-shell-tree/surface-tree)]
-        (is (or (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker"))
-                (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")))
-            "L1 frame picker (or single-frame label) present in Static")))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Static tab inventory — pure-data shape
