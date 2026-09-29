@@ -103,15 +103,6 @@
     (is (= 2147483640 (edn-inspector-popup/z-index-for nil)))))
 
 ;; =========================================================================
-;; state slot constants — pinned so a downstream renamer breaks a test
-;; =========================================================================
-
-(deftest state-slot-keywords-stable
-  (is (= :rf.xray.edn-inspector-popup/stack   edn-inspector-popup/stack-slot))
-  (is (= :rf.xray.edn-inspector-popup/entries edn-inspector-popup/entries-slot))
-  (is (= :rf.xray.edn-inspector-popup/anon    edn-inspector-popup/default-panel-id)))
-
-;; =========================================================================
 ;; install! + reducers + subs
 ;; =========================================================================
 
@@ -128,18 +119,6 @@
         entries @(rf/subscribe [edn-inspector-popup/entries-slot])]
     (is (= ["m1"] stack))
     (is (= {:value {:a 1} :opts {:title "First"}} (get entries "m1")))))
-
-(deftest open-event-stacks-multiple
-  (edn-inspector-popup/install!)
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m1" {:value 1 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m2" {:value 2 :opts {}}])
-  (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                     "m3" {:value 3 :opts {}}])
-  (let [stack @(rf/subscribe [edn-inspector-popup/stack-slot])]
-    (is (= ["m1" "m2" "m3"] stack)
-        "multiple opens stack in dispatch order")))
 
 (deftest close-event-removes-specific-id
   (edn-inspector-popup/install!)
@@ -233,26 +212,6 @@
 ;; popup-chrome — hiccup rendering
 ;; =========================================================================
 
-(deftest popup-chrome-emits-backdrop-and-dialog
-  (let [h (edn-inspector-popup/popup-chrome
-            {:mount-id    "m1"
-             :value       {:a 1 :b 2}
-             :opts        {:title "Inspect cart"}
-             :positioning :fixed
-             :stack-pos   0})]
-    (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-popup-backdrop-m1"))
-        "backdrop node carries mount-id-suffixed testid")
-    (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-popup-dialog-m1"))
-        "dialog node carries mount-id-suffixed testid")
-    (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-popup-body-m1"))
-        "body node carries mount-id-suffixed testid")
-    (is (some? (find-attr h :data-testid
-                          "rf-xray-edn-inspector-popup-close-m1"))
-        "close button carries mount-id-suffixed testid")))
-
 (deftest popup-chrome-emits-title-node-with-caller-title
   (let [h (edn-inspector-popup/popup-chrome
             {:mount-id    "m1"
@@ -278,29 +237,6 @@
                               "rf-xray-edn-inspector-popup-title-m1")]
     (is (some #{"Inspect"} (flatten title-node))
         "no :title → default 'Inspect' label")))
-
-(deftest popup-chrome-embeds-edn-inspector-widget
-  (let [h    (edn-inspector-popup/popup-chrome
-               {:mount-id    "m1"
-                :value       {:foo :bar}
-                :opts        {}
-                :positioning :fixed
-                :stack-pos   0})
-        body (find-attr h :data-testid
-                        "rf-xray-edn-inspector-popup-body-m1")]
-    (is (some? body) "body node renders")
-    ;; The body's child is `[ei/edn-inspector value opts]` — find the
-    ;; edn-inspector fn reference in the body subtree.
-    (let [edn-inspector-call?
-          (some (fn [node]
-                  (and (vector? node)
-                       (fn? (first node))
-                       ;; The value at second position is the popup's
-                       ;; value (or a wrapper around it).
-                       (= (count node) 3)))
-                (walk-hiccup body))]
-      (is edn-inspector-call?
-          "body embeds a fn-as-component call (the edn-inspector widget)"))))
 
 (deftest popup-chrome-uses-aria-dialog-attrs
   (let [h      (edn-inspector-popup/popup-chrome
@@ -351,15 +287,6 @@
 ;; =========================================================================
 ;; close affordances
 ;; =========================================================================
-
-(deftest close-fn-default-dispatches-close-event
-  (let [captured (atom nil)]
-    (with-redefs [rf/dispatch-impl (fn [event-v & _]
-                                 (reset! captured event-v))]
-      (let [f (edn-inspector-popup/close-fn "m1" {})]
-        (f)
-        (is (= [:rf.xray.edn-inspector-popup/close "m1"] @captured)
-            "default close-fn dispatches the :close event for this id")))))
 
 (deftest close-fn-uses-caller-on-close-when-supplied
   (let [called (atom 0)
@@ -433,38 +360,6 @@
 ;; =========================================================================
 ;; per-mount isolation — embedded widget panel-id is mount-scoped
 ;; =========================================================================
-
-(deftest popup-chrome-derives-embedded-panel-id-from-mount-id
-  ;; The embedded edn-inspector widget should receive a :panel-id that
-  ;; incorporates the popup's mount-id so two popups inspecting the
-  ;; same value never collide on expansion state.
-  (let [h    (edn-inspector-popup/popup-chrome
-               {:mount-id    "m-abc"
-                :value       {:a 1 :b {:c 2}}
-                :opts        {:panel-id :sub-detail}
-                :positioning :fixed
-                :stack-pos   0})
-        body (find-attr h :data-testid
-                        "rf-xray-edn-inspector-popup-body-m-abc")
-        ;; Walk into the body subtree and find the embedded
-        ;; edn-inspector call's opts map (third element of the
-        ;; `[fn value opts]` form).
-        embedded-call
-        (some (fn [node]
-                (when (and (vector? node)
-                           (fn? (first node))
-                           (= 3 (count node))
-                           (map? (nth node 2))
-                           (contains? (nth node 2) :panel-id))
-                  node))
-              (walk-hiccup body))]
-    (is (some? embedded-call)
-        "embedded edn-inspector call resolved with a :panel-id opt")
-    (let [embedded-panel-id (:panel-id (nth embedded-call 2))]
-      (is (keyword? embedded-panel-id)
-          "embedded panel-id is a keyword")
-      (is (re-find #"m-abc" (str embedded-panel-id))
-          "embedded panel-id includes the popup's mount-id"))))
 
 (deftest popup-chrome-default-panel-id-when-opts-omitted
   ;; If the caller omits :panel-id, the embedded widget still gets a

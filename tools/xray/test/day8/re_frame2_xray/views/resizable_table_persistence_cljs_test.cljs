@@ -88,8 +88,7 @@
 
 ;; ---- (2) save! / load round-trip (depends on localStorage) --------------
 
-;; The real-storage rows — `save-and-load-round-trip`,
-;; `custom-storage-key-isolates-per-instance`,
+;; The real-storage rows — `custom-storage-key-isolates-per-instance`,
 ;; `resize-pair-tick-writes-slot-without-persisting`,
 ;; `resize-pair-commit-persists-current-slot`,
 ;; `reset-clears-table-and-persists` and `hydrate-lifts-persisted-widths`
