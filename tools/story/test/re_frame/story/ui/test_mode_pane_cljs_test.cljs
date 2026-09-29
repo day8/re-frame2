@@ -17,9 +17,9 @@
     `:ran-at-ms`, `:play-events`, and the trailing `:epoch-ids` slice.
     Re-invoking against the SAME variant updates the slot in place.
 
-  - **Re-run debounce** — the slot's `:running? true` is the flag the
-    Re-run button reads to disable itself, so a second rapid click
-    cannot start a second run over the one in flight.
+  - **Running flag** — the slot's `:running?` is true while a run is in
+    flight and clears when it settles; the Re-run button disables itself
+    on it.
 
   Per spec/009 §`:test` mode pane the renderer is a thin projection
   over the local `results-atom`; pinning the atom shape covers the
@@ -286,13 +286,13 @@
 ;;
 ;; `run-variant-pane!` is the pane's Re-run. Asserts:
 ;;
-;;   1. First call seeds the per-variant slot with the run's result map,
+;;   1. A call seeds the per-variant slot with the run's result map,
 ;;      :ran-at-ms timestamp, :play-events copy, and trailing :epoch-ids.
-;;   2. Switching variants fires a fresh run for the new id without
-;;      disturbing the previous variant's slot.
+;;   2. A run of a second variant seeds its own slot without disturbing
+;;      the first variant's.
 ;; ===========================================================================
 
-(deftest run-variant-pane-seeds-slot-on-mount
+(deftest run-variant-pane-seeds-the-variants-slot
   (testing "run-variant-pane! against a fresh variant seeds the per-
             variant slot with all the renderer-required fields"
     (rf/reg-event :test/set
@@ -320,12 +320,10 @@
               (rf.story/destroy-variant! :story.pane.mount/v)
               (done)))))))
 
-(deftest run-variant-pane-switching-variants-keeps-slots-distinct
-  (testing "switching the pane between two variants leaves the previous
-            variant's slot intact AND seeds the new variant's slot
-            independently — proves the slots are per-variant, not a
-            singleton, so the pane's scroll-position / expanded set /
-            scrubber state isolate"
+(deftest run-variant-pane-keeps-a-slot-per-variant
+  (testing "running a second variant leaves the first variant's slot
+            intact AND seeds its own slot independently — the slots are
+            per-variant, not a singleton"
     (rf/reg-event :test/set-a
       (fn [{:keys [db]} _] {:db (assoc db :v "a")}))
     (rf/reg-event :test/set-b
@@ -356,34 +354,21 @@
                       (done))))))))))
 
 ;; ===========================================================================
-;; re-run debounce
+;; The running flag
 ;;
 ;; The per-variant slot carries :running? true while a run is in flight,
-;; and the Re-run button reads it to disable itself, so two runs are
-;; never started over one frame from the pane.
-;;
-;; We can't easily await a *busy* state from the resolved promise (the
-;; resolve loop happens too fast in CLJS test mode), so we test the
-;; gate directly: seed :running? true, call run-variant-pane!, observe
-;; that no run was triggered.
+;; and the Re-run button reads it to disable itself. These rows pin the
+;; flag's lifecycle on the slot: set synchronously by the call, cleared
+;; when the run settles, after which another run can start.
 ;; ===========================================================================
 
-(deftest run-variant-pane-debounce-gate-observable
-  (testing "`:running?` is the single debounce gate the pane
-            uses across all its mutation paths. Pin the contract that
-            consumers (the Re-run button, the chrome widget's Run-all)
-            read this flag to decide whether to fire a second run.
-
-            The pure-data gate this test pins:
-              1. After begin-run! the slot's :running? is true.
-              2. After store-result! resolves the slot's :running? is false.
-              3. While :running? is true the renderer must read 'in-flight'
-                 (the disabled-button state).
-
-            The companion JVM tests (test-widget-cljs-test) cover the
-            shell-state :tests :runs :status :running stamp the chrome
-            widget reads against; this test pins the pane-local
-            results-atom flag the pane's own Re-run button reads."
+(deftest run-variant-pane-marks-the-slot-running-until-it-settles
+  (testing "the slot's :running? is true synchronously after the call
+            (begin-run!) and false once the run settles, with :ran-at-ms
+            stamped. The companion JVM tests (test-widget-cljs-test) cover
+            the shell-state :tests :runs :status :running stamp the chrome
+            widget reads; this row pins the pane-local results-atom flag
+            the pane's own Re-run button reads."
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf.story/reg-variant :story.pane.debounce/v
       {:setup [[:test/inc]]
@@ -414,7 +399,7 @@
                 (rf.story/destroy-variant! :story.pane.debounce/v)
                 (done))))))))
 
-(deftest run-variant-pane-records-on-resolve
+(deftest run-variant-pane-can-run-again-once-settled
   (testing "after a run resolves, :running? clears AND a fresh re-run is
             allowed (the gate is :running?, not a permanent lock)"
     (rf/reg-event :test/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
