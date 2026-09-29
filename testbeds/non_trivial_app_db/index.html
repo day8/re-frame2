@@ -5,9 +5,9 @@
   <title>re-frame2 testbed: non-trivial-app-db</title>
   <style>
     body { margin: 0; font-family: sans-serif; }
-    .rf2-testbed-shell { display: flex; min-height: 100vh; }
-    [data-rf-xray-host] { flex: 0 0 420px; min-width: 320px; box-sizing: border-box; border-left: 1px solid #2a2a2a; }
-    #app { flex: 1; min-width: 0; padding: 2em; }
+    .rf2-testbed-shell { display: flex; height: 100vh; }
+    [data-rf-xray-host] { flex: 0 0 var(--rf-xray-inline-width, 420px); min-width: 320px; box-sizing: border-box; overflow: hidden; border-left: 1px solid #2a2a2a; }
+    #app { flex: 1; min-width: 0; overflow: auto; padding: 2em; }
   </style>
 </head>
 <body>
