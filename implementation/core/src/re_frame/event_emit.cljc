@@ -70,9 +70,11 @@
   drops the record entirely — framework-internal bookkeeping handlers
   (Xray, Story) are not user-domain observable signal.
 
-  Sensitive data marking is path-based per the data-classification
-  mechanism (separate spec doc); handler-meta `:sensitive?` is not
-  consulted here."
+  That is the one handler-meta key this substrate consults. Data
+  sensitivity is per-path, not per-handler: the record's `:event` runs
+  through `re-frame.elision/elide-wire-value` against the frame's
+  `[:rf.runtime/elision]` registry (Spec 015), which redacts a sensitive
+  value inside the record rather than suppressing the record."
   (:require [re-frame.elision       :as rf.elision]
             [re-frame.emit-substrate :as rf.emit-substrate]
             [re-frame.late-bind     :as rf.late-bind]
