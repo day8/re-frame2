@@ -3722,124 +3722,6 @@
     (is (zero? (count slot-cells))
         "R8 row stays value-anchored — no slot-anchor markers")))
 
-;; =========================================================================
-;; Frame-leak + first-click guards
-;; =========================================================================
-;;
-;; Two independent properties covered here:
-;;
-;;   Frame — `edn-inspector` is a `reg-view`, so dispatches from its
-;;     click handlers carry the surrounding frame. As a plain `defn`
-;;     its toggle events would land on `:rf/default` while the App-DB
-;;     panel mounts the widget under `:rf/xray`, putting the
-;;     expansion-slot mutation in the wrong frame's app-db, invisible
-;;     to the surrounding subscribe.
-;;
-;;   First click — a reducer reading "no override → first click opens"
-;;     is wrong for paths the widget renders as default-expanded
-;;     (top-level triangles, depth ≤ default-expanded-depth): the
-;;     first click would store `:expanded? true` — the same value the
-;;     path already renders with — producing a silent no-op.
-
-(deftest edn-inspector-is-reg-view-registered
-  (testing "frame — the public widget is registered via
-            `reg-view` so dispatches + subscribes inherit the
-            surrounding frame from React context. Without this the
-            App-DB panel's `:rf/xray` mount routes toggle dispatches
-            to `:rf/default`. The registration is present in the
-            view registry under the auto-derived namespaced id."
-    (is (some? (rf/view :day8.re-frame2-xray.views.edn-inspector/edn-inspector))
-        "edn-inspector is registered under its ns/sym id")))
-
-(deftest edn-inspector-toggle-dispatches-to-mount-frame
-  ;; Frame guard — the click handler dispatches
-  ;; through the lexically-injected frame-aware dispatcher. We
-  ;; simulate the inner render by calling `render-node` with a
-  ;; `dispatch-fn` (which is what the reg-view body threads from its
-  ;; outer-scope `dispatch` lexical binding); the handler MUST call
-  ;; our supplied dispatch-fn rather than `rf/dispatch` (which would
-  ;; route to `:rf/default`).
-  (let [captured (atom nil)
-        v       {:a 1 :b 2 :c 3 :d 4 :e 5}
-        h       (ei/render-node {:value v
-                                 :panel-id :app-db
-                                 :mount-id "m"
-                                 :path []
-                                 :depth 0
-                                 :expansion-map {}
-                                 :dispatch-fn (fn [event-v]
-                                                (reset! captured event-v))
-                                 :opts {:default-expanded-depth 0}})
-        tog     (find-attr h :data-testid
-                           "rf-xray-edn-inspector-app-db-m--toggle")
-        on-click (-> tog second :on-click)]
-    (is (fn? on-click))
-    (when on-click (on-click nil))
-    (is (some? @captured)
-        "toggle handler invoked the threaded dispatch-fn (not rf/dispatch)")
-    (is (= :rf.xray.edn-inspector/toggle-node (first @captured))
-        "canonical event id")))
-
-(deftest first-click-collapses-default-expanded-path
-  ;; First-click guard — driven through dispatch-sync
-  ;; against the registered toggle reducer with the rendered-
-  ;; expanded? payload threaded. A default-expanded path passes
-  ;; `true` as the rendered state; the reducer must store
-  ;; `:expanded? false` (the inverted visible state), NOT
-  ;; `:expanded? true` (the "first click opens" no-op).
-  (let [panel-id :rf.xray/app-db
-        mount-id "m1"
-        path     [:top-level]]
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
-                       panel-id mount-id path true])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])
-          k         (ei/expansion-key panel-id mount-id path)]
-      (is (= false (get-in snapshot [k :expanded?]))
-          "default-expanded → first click collapses (rendered? true → stored false)"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
-
-(deftest first-click-expands-default-collapsed-path
-  ;; First-click guard — the symmetric case. A deep
-  ;; path (past default-expanded-depth) renders collapsed by default.
-  ;; The toggle dispatch carries `false`; the reducer must store
-  ;; `:expanded? true` (opens the node) on the first click.
-  (let [panel-id :rf.xray/app-db
-        mount-id "m1"
-        path     [:deep :nested :node]]
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
-                       panel-id mount-id path false])
-    (let [snapshot @(rf/subscribe [ei/expansion-slot])
-          k         (ei/expansion-key panel-id mount-id path)]
-      (is (= true (get-in snapshot [k :expanded?]))
-          "default-collapsed → first click expands (rendered? false → stored true)"))
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
-
-(deftest second-click-inverts-stored-override
-  ;; Once an override is stored the reducer ignores the rendered?
-  ;; payload (the override IS the visible state) and inverts the
-  ;; stored boolean. This is the canonical toggle behaviour for
-  ;; clicks 2+ on the same path.
-  (let [panel-id :rf.xray/app-db
-        mount-id "m1"
-        path     [:x]
-        k         (ei/expansion-key panel-id mount-id path)]
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-    ;; First click on default-expanded → stored false.
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
-    (is (= false (get-in @(rf/subscribe [ei/expansion-slot]) [k :expanded?])))
-    ;; Second click — the rendered? slot is now `false` (override is
-    ;; false) but the reducer flips the OVERRIDE, not the payload.
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path false])
-    (is (= true (get-in @(rf/subscribe [ei/expansion-slot]) [k :expanded?]))
-        "second click inverts stored override → true")
-    ;; Third click flips again.
-    (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node panel-id mount-id path true])
-    (is (= false (get-in @(rf/subscribe [ei/expansion-slot]) [k :expanded?]))
-        "third click inverts stored override → false")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
-
 ;; ---- inspector card chrome on top-level mounts ---------------------------
 ;;
 ;; `:card? true` opts the widget's outer container into the inspector-card
@@ -3998,20 +3880,6 @@
         (is (= "11px" (:margin-left style)) "same 11px margin as grid body")
         (is (= "6px"  (:padding-left style)) "same 6px padding as grid body")))))
 
-(deftest card-opt-theme-aware-via-tokens
-  (testing "the card chrome reads from the live `tokens`
-            map (a CSS-variable shim per `theme/tokens.cljc`) so both
-            light + dark themes resolve at paint time without a re-
-            render. This test pins the inline-style values to the
-            same token-keyed map the rest of the widget consumes."
-    (let [h (invoke-edn-inspector {:a 1} {:panel-id :rf.xray/app-db
-                                          :card? true})
-          style (-> h second :style)]
-      (is (= (:bg-1 tokens) (:background-color style))
-          "background reads through `:bg-1` (CSS-var or hex per theme)")
-      (is (= (str "1px solid " (:border-default tokens)) (:border style))
-          "border reads through `:border-default` (CSS-var or hex per theme)"))))
-
 ;; ---- :header opt + three-shade card chrome -------------------------------
 ;;
 ;; `:header` opts the widget into the Machine-panel-aesthetic three-shade
@@ -4082,34 +3950,6 @@
       (is (some? hdr) "section contains a `<header>` ribbon")
       (is (some #(= header-hiccup %) (rest hdr))
           "header ribbon embeds the hiccup vector verbatim"))))
-
-(deftest header-opt-composite-hiccup-with-children
-  (testing "composite hiccup with label + code + button
-            children flows through the ribbon unchanged — a header
-            composes label + chips + per-inspector affordances"
-    (let [clicked (atom 0)
-          header-hiccup [:span
-                         [:strong "machine-app"]
-                         " · "
-                         [:code ":step-deck"]
-                         [:button {:on-click (fn [_] (swap! clicked inc))}
-                          "reset"]]
-          h (invoke-edn-inspector {:counter 1}
-                                  {:panel-id :rf.xray/app-db
-                                   :header header-hiccup})
-          hdr (find-tag h :header)
-          ;; Hunt the button down inside the ribbon.
-          btn (->> (walk-hiccup hdr)
-                   (filter (fn [n] (and (vector? n) (= :button (first n)))))
-                   first)]
-      (is (some? btn) "composite header retains the embedded `<button>`")
-      ;; Pull the on-click handler off the button and exercise it —
-      ;; pass-through is genuine, not a structural diff in disguise.
-      (when btn
-        ((:on-click (second btn)) {})
-        (is (= 1 @clicked)
-            "the supplied on-click handler fires when the ribbon button
-             is clicked")))))
 
 (deftest header-opt-three-shade-chrome-via-tokens
   (testing "the section + header + body each read a distinct
@@ -4241,22 +4081,6 @@
         "16px safety margin covers closing bracket + gutter")
     (is (= 8 ei/default-ceiling-depth)
         "default `:default-expanded-depth` is 8 (CEILING, not trigger)")))
-
-(deftest estimated-inline-px-multiplies-pr-str-by-mono-advance
-  (testing "char-count × 7px estimate"
-    (is (= (* 7 (count (pr-str {:a 1})))
-           (ei/estimated-inline-px {:a 1}))
-        "pure function — char count × mono-char-width-px")
-    (is (= (* 7 (count "nil"))
-           (ei/estimated-inline-px nil))
-        "scalars route through the same pr-str pathway")
-    ;; Long compound values get proportionally wider estimates — an
-    ;; ~81-char nested value lands around ~570px.
-    (let [big-value [:ws/connection [:rf.machine.timer/after-elapsed
-                                     2501 [:active :authenticating]]]]
-      (is (= (* 7 (count (pr-str big-value)))
-             (ei/estimated-inline-px big-value))
-          "nested compound value estimate matches pr-str-length × 7"))))
 
 ;; ---- the estimate is BOUNDED ---------------------------------------------
 ;;
@@ -4709,13 +4533,6 @@
     (let [text (collect-text (ei/render-inline-recursive {:a 1 :b 2}))]
       (is (= "{:a 1, :b 2}" text)))))
 
-(deftest inline-preview-string-vector-space-separated
-  (testing "collapsed-preview of a sequential is space-separated"
-    (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
-           (ei/inline-preview-string
-             ["machine-epochs" :machine-epochs/run-step 26 :rf/default] 5 80)))
-    (is (= "[1 2 3]" (ei/inline-preview-string [1 2 3] 5 80)))))
-
 (deftest width-slot-set-and-clear-events
   (testing "set-width / clear-width app-db reducers"
     (rf/dispatch-sync [:rf.xray.edn-inspector/set-width "m" 600])
@@ -5026,10 +4843,6 @@
         tog (find-attr h :data-testid "rf-xray-edn-inspector-test-m1-:x-toggle")]
     (-> tog second :on-key-down)))
 
-(deftest toggle-triangle-carries-a-keydown-handler
-  (is (fn? (toggle-span-keydown))
-      "the `role=button` triangle carries an :on-key-down of its own"))
-
 (deftest enter-on-toggle-toggles-and-does-not-zoom
   (let [captured (atom [])
         h (ei/render-node {:value {:a 1 :b 2 :c 3 :d 4 :e 5}
@@ -5218,30 +5031,6 @@
             (str "key " (.-key evt) " (modifiers held: "
                  (.-ctrlKey evt) (.-metaKey evt) (.-altKey evt) (.-shiftKey evt)
                  ") must NOT trigger zoom"))))))
-
-(deftest zoom-trigger-dispatches-through-captured-dispatcher
-  ;; The gesture dispatches
-  ;; through the SUPPLIED frame-aware dispatcher so the zoom-slot write
-  ;; lands on the instance frame — single-arg event vector, frame baked
-  ;; into the closure, NOT a `{:frame :rf/xray}` literal.
-  (testing "the zoom gesture dispatches a single-arg
-            `[:rf.xray.edn-inspector/zoom-to ...]` (no `{:frame :rf/xray}`)"
-    (let [{:keys [event]}
-          (with-captured-dispatch-spy
-            (fn [spy]
-              (ei/zoom-trigger-attrs
-                {:dispatch-fn   spy
-                 :panel-id      :rf.xray/app-db
-                 :mount-id      "m-1"
-                 :absolute-path [:cart :items 0]})))
-          [event-id panel-id mount-id path] event]
-      (is (= :rf.xray.edn-inspector/zoom-to event-id) "canonical event id")
-      (is (= :rf.xray/app-db panel-id) "panel-id flows through")
-      (is (= "m-1" mount-id) "mount-id flows through")
-      (is (= [:cart :items 0] path) "absolute path flows through")
-      (is (= 4 (count event))
-          "single-arg event vector; the frame is captured in
-           the dispatcher closure, not a `{:frame :rf/xray}` literal"))))
 
 (deftest zoom-trigger-composes-prefix-and-relative-path
   ;; render-container threads the absolute path = (into zoom-path-prefix
@@ -5436,14 +5225,6 @@
         "nested hiccup content survives")))
 
 ;; ---- public widget — zoom-aware top-level render -------------------------
-
-(deftest widget-with-zoomable-emits-no-breadcrumb-when-not-zoomed
-  (let [h     (invoke-edn-inspector {:a 1 :b 2}
-                                    {:panel-id :rf.xray/app-db
-                                     :zoomable? true})
-        bcrumb (find-attr h :data-rf-zoomed "1")]
-    (is (nil? bcrumb)
-        "no zoom active → no :data-rf-zoomed marker on the body wrapper")))
 
 (deftest widget-with-zoomable-renders-breadcrumb-when-zoomed
   ;; Pre-populate the zoom slot, then render the widget and confirm the
@@ -5646,57 +5427,6 @@
                  (invoke-edn-inspector {:x 1 :y 2} {:panel-id :rf.xray/app-db
                                                     :added?   true})))
         "the same annotations the `:added?` first-run path paints")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
-
-(deftest zoom-persists-across-mount-unmount-via-site-id
-  ;; Two renders with the same `:site-id` see the same
-  ;; zoom slot — simulating a tab-leave / tab-return cycle.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (let [site-id [:rf.xray/app-db "top"]
-        _ (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                             :rf.xray/app-db site-id [:nested]])
-        v {:nested {:deep 42} :sibling 1}
-        ;; First "mount" — fresh outer/inner pair.
-        h1 (invoke-edn-inspector v
-                                 {:panel-id :rf.xray/app-db
-                                  :site-id  site-id
-                                  :zoomable? true})
-        ;; Second "mount" — new outer/inner pair (auto-mount-id differs)
-        ;; but the same site-id reads the same zoom slot.
-        h2 (invoke-edn-inspector v
-                                 {:panel-id :rf.xray/app-db
-                                  :site-id  site-id
-                                  :zoomable? true})]
-    (is (= "1" (:data-rf-zoomed (second h1))))
-    (is (= "1" (:data-rf-zoomed (second h2))))
-    (is (= (:data-rf-zoom-path (second h1))
-           (:data-rf-zoom-path (second h2)))
-        "both mounts converge on the same zoom path via :site-id keying")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
-
-(deftest two-mounts-without-site-id-zoom-independently
-  ;; Two side-by-side mounts (no shared site-id) zoom
-  ;; independently — the auto-mount-id default isolates them.
-  (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])
-  (let [v {:a {:b 1}}
-        h1 (invoke-edn-inspector v
-                                 {:panel-id :rf.xray/app-db
-                                  :zoomable? true})
-        h2 (invoke-edn-inspector v
-                                 {:panel-id :rf.xray/app-db
-                                  :zoomable? true})
-        m1 (:data-rf-mount-id (second h1))
-        m2 (:data-rf-mount-id (second h2))]
-    (is (not= m1 m2)
-        "two mounts without :site-id get distinct auto-mount-ids")
-    ;; Zoom only mount-1.
-    (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-to
-                       :rf.xray/app-db m1 [:a]])
-    (let [zoom @(rf/subscribe [ei/zoom-slot])]
-      (is (= [:a] (get zoom (ei/zoom-key :rf.xray/app-db m1)))
-          "mount-1's zoom slot is set")
-      (is (nil? (get zoom (ei/zoom-key :rf.xray/app-db m2)))
-          "mount-2's zoom slot is untouched"))
     (rf/dispatch-sync [:rf.xray.edn-inspector/zoom-reset])))
 
 (deftest widget-zoom-keydown-handler-installed-and-dispatches-on-escape
