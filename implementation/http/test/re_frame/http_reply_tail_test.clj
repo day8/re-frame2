@@ -314,3 +314,48 @@
         (finally
           (rf.error-emit/unregister-error-listener! error-id)
           (stop-server! srv))))))
+
+(deftest non-sensitive-after-throw-leaves-no-denylisted-param-in-reply-tail-record
+  (testing "(JVM) on a request that is not sensitive, an :after that throws
+            leaves a denylisted query param's value out of the
+            :rf.error/http-reply-tail-failed row's always-on record, whose
+            exception is the caught chain error carrying the request :url; a
+            param that is not denylisted rides verbatim"
+    (let [denied   "REPLY_TAIL_DENYLISTED"
+          hits     (AtomicInteger. 0)
+          records  (atom [])
+          error-id (gensym "reply-tail-denylist-record-")
+          {:keys [port] :as srv} (start-counting-200-server! hits)
+          url      (str "http://127.0.0.1:" port "/x?api_key=" denied "&page=2")]
+      (rf.error-emit/register-error-listener! error-id #(swap! records conj %))
+      (try
+        (with-trace-capture
+          (fn [captured]
+            (rf/reg-http-interceptor :boom-after
+              {:after (fn [_ctx _resp] (throw (ex-info "after kaboom" {})))})
+            (rf/reg-event :rtdeny/reply
+              (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
+            (rf/reg-event :rtdeny/load
+              (fn [_ _]
+                {:fx [[:rf.http/managed
+                       {:request    {:url url}
+                        :decode     :json
+                        :on-success [:rtdeny/reply]
+                        :on-failure [:rtdeny/reply]}]]}))
+            (rf/dispatch-sync [:rtdeny/load])
+            (rf.test-support/poll-until
+              #(seq (ops captured :rf.error/http-reply-tail-failed))
+              {:timeout-ms 5000 :label ":rf.error/http-reply-tail-failed surfaced (denylist)"})
+            (let [record (first (filter #(= :rf.error/http-reply-tail-failed (:error %))
+                                        @records))
+                  data   (ex-data (:exception record))]
+              (is (some? record) "the reply-tail row's always-on record fires")
+              (is (= :rf.error/http-interceptor-failed (:rf.error/id data))
+                  "its exception is the caught :after failure")
+              (is (= (str "http://127.0.0.1:" port "/x?api_key=:rf/redacted&page=2") (:url data))
+                  "the exception's :url redacts the denylisted value and keeps the rest")
+              (is (not (str/includes? (pr-str record) denied))
+                  "the always-on record carries no denylisted value"))))
+        (finally
+          (rf.error-emit/unregister-error-listener! error-id)
+          (stop-server! srv))))))

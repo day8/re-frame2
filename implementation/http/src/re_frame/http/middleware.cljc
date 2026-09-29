@@ -364,19 +364,18 @@
   escapes the `:rf.http/managed` handler into core's fx boundary, on the
   response side the reply-tail fence catches it, and each boundary records
   the exception and text quoting its message, on the always-on error record
-  as well as the dev trace, so in production too. So under the effective
-  `sensitive?` the slots are the failure composer's projection and the
-  sentence is rendered from the projected slot: the error keeps its id and
-  names its interceptor, and carries no more of the author's data than its
-  own trace row does. The projection needs no carrier names, because a
-  sensitive request redacts every query value and a chain error carries no
-  headers. A non-sensitive chain error carries its slots verbatim.
+  as well as the dev trace, so in production too. So the slots are the
+  failure composer's projection under the effective `sensitive?`, with the
+  registration's carriers, and the sentence is rendered from the projected
+  slot: the error keeps its id and names its interceptor, and carries no more
+  of the author's data than its own trace row does. On every request that
+  projection redacts the URL's denylisted query values; a non-sensitive chain
+  error carries its other slots verbatim.
 
   The trace row is that ex-data through the privacy composer under the same
-  `sensitive?`, which also scrubs a denylisted query param and stamps
-  `:sensitive?` on a denylist hit."
+  `sensitive?`, which stamps `:sensitive?` on a denylist hit."
   [error-id where extra echo-key reason-of sensitive?]
-  (let [extra (cond-> extra sensitive? (rf.http.privacy/redact-failure true))
+  (let [extra (rf.http.privacy/redact-failure extra sensitive? (rf.http.privacy/managed-carriers))
         data  (rf.error/thrown-ex-info error-id where (reason-of (get extra echo-key))
                                        {:extra extra})]
     (when rf.interop/debug-enabled?
