@@ -723,8 +723,8 @@
 
   The live roster is `panel-registry/tab-ids-for-mode`, mirrored by
   `focus/valid-panels` and pinned against the registry by
-  `focus-cljs-test/valid-panels-mirrors-the-live-registry`. A
-  re-diverge derives from THAT rather than restating it here.
+  `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`.
+  A re-diverge derives from THAT rather than restating it here.
 
   Returns a `\"var(--rf-xray-<key>)\"` string — the
   active theme class scope on the shell root decides which palette's

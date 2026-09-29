@@ -149,19 +149,6 @@
            :resources :derivation-graph :module-view :fresco}
          focus/valid-panels)))
 
-(deftest valid-panels-mirrors-the-live-registry
-  ;; The static mirror MUST equal the live
-  ;; Dynamic L4 registry so focus can never drift from the shipped tab
-  ;; inventory (the shell mounts a tab via the same registry; a drift
-  ;; would let focus validate a panel that lands the unknown-tab stub,
-  ;; or reject a shipped tab). `register-xray-handlers!` populates the
-  ;; registry; the companion cross-check in `registry_cljs_test.cljs`
-  ;; guards the same invariant from the registry side.
-  (setup-xray-frame!)
-  (is (= focus/valid-panels
-         (panel-registry/tab-ids-for-mode :dynamic))
-      "focus/valid-panels == the live Dynamic L4 tab registry ids"))
-
 (deftest routes-alias-normalises-to-routing
   ;; A host that sends the display-noun `:routes`
   ;; lands the real `:routing` tab, not the unknown-tab stub.
@@ -233,7 +220,8 @@
             It walks `focus/valid-panels` rather than a hand-listed
             roster, so the claim is true by construction
             and a tab cannot be skipped by omission; that the walked set
-            IS the shipped set is `valid-panels-mirrors-the-live-registry`."
+            IS the shipped set is
+            `registry-cljs-test/focus-valid-panels-mirrors-live-dynamic-registry`."
     (setup-xray-frame!)
     (doseq [panel focus/valid-panels]
       (let [result (focus/focus! {:frame :checkout :panel panel :sync? true})]
