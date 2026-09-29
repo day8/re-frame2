@@ -83,6 +83,14 @@
           (js/Promise.resolve nil)
           (range n)))
 
+(defn- fail-on-throw
+  "A `.catch` handler that reports a throw anywhere in a test's promise
+  chain as a failure and ends the test, so `done` is never left uncalled."
+  [done]
+  (fn [e]
+    (is false (str "the promise chain threw: " e))
+    (done)))
+
 ;; ---- pins -----------------------------------------------------------------
 
 (deftest completion-after-unmount-is-finalized-cljs-test
@@ -100,7 +108,8 @@
                          "the late completion finalized the widget it created")
                      (is (nil? ((:held w)))
                          "and nothing was written back into the torn-down closure")
-                     (done))))))))
+                     (done)))
+            (.catch (fail-on-throw done)))))))
 
 (deftest out-of-order-completions-keep-only-the-newest-cljs-test
   (testing "two overlapping requests settling in reverse order leak nothing"
@@ -126,7 +135,8 @@
                      (is (= ["older" "newer"] @finalized)
                          "final unmount retires the owned result, exactly once")
                      (is (nil? ((:held w))))
-                     (done))))))))
+                     (done)))
+            (.catch (fail-on-throw done)))))))
 
 (deftest ordinary-lifecycle-retires-each-instance-once-cljs-test
   (testing "mount → update → unmount finalizes each accepted instance once"
@@ -151,7 +161,8 @@
                      ((:will-unmount w))
                      (is (= ["one" "two"] @finalized) "unmount retires it once")
                      (is (nil? ((:held w))))
-                     (done))))))))
+                     (done)))
+            (.catch (fail-on-throw done)))))))
 
 (deftest unmount-during-pending-update-leaks-neither-cljs-test
   (testing "teardown with an update in flight releases both the held and the late result"
@@ -174,4 +185,5 @@
                      (is (= ["one" "two"] @finalized)
                          "both the retired and the post-unmount result were released")
                      (is (nil? ((:held w))))
-                     (done))))))))
+                     (done)))
+            (.catch (fail-on-throw done)))))))

@@ -74,9 +74,11 @@
 
 (deftest unreserved-keyword-heads-still-render
   (testing "ordinary and custom-element heads are untouched"
-    (is (some? (template/as-element [:div "x"])))
-    (is (some? (template/as-element [:my-element "x"])))
-    (is (some? (template/as-element [:div.cls#id "x"]))))
+    ;; Read `.-type`: a head `parse-tag` cannot parse still yields an
+    ;; element, with a nil type, so `some?` alone would pass on it.
+    (is (= "div" (.-type (template/as-element [:div "x"]))))
+    (is (= "my-element" (.-type (template/as-element [:my-element "x"]))))
+    (is (= "div" (.-type (template/as-element [:div#id.cls "x"])))))
 
   (testing "a NON-rf namespaced head is not reserved"
     ;; Only the framework-owned `:rf/*` root is reserved. A `:svg/circle`

@@ -220,7 +220,7 @@
       (async done
         (let [act-fn (get-act)]
           (if-not (fn? act-fn)
-            (do (is true "React flushSync unavailable in this runner") (done))
+            (do (is (fn? act-fn) "React flushSync missing: a broken React 19 floor, not a skip") (done))
             (let [events (atom [])
                   done? (atom false)
                   done! (fn [] (when (compare-and-set! done? false true) (done)))
@@ -341,7 +341,7 @@
       (async done
         (let [act-fn (get-act)]
           (if-not (fn? act-fn)
-            (do (is true "React flushSync unavailable in this runner") (done))
+            (do (is (fn? act-fn) "React flushSync missing: a broken React 19 floor, not a skip") (done))
             (let [events (atom [])
                   done? (atom false)
                   done! (fn [] (when (compare-and-set! done? false true) (done)))
@@ -434,7 +434,7 @@
       (async done
         (let [act-fn (get-react-act)]
           (if-not (fn? act-fn)
-            (do (is true "React.act unavailable in this runner") (done))
+            (do (is (fn? act-fn) "React.act missing: a broken React 19 floor, not a skip") (done))
             (let [events (atom [])
                   done? (atom false)
                   done! (fn [] (when (compare-and-set! done? false true) (done)))
@@ -596,7 +596,7 @@
       (async done
         (let [act-fn (get-act)]
           (if-not (fn? act-fn)
-            (do (is true "React flushSync unavailable in this runner") (done))
+            (do (is (fn? act-fn) "React flushSync missing: a broken React 19 floor, not a skip") (done))
             (let [feeds   (atom {})
                   done?   (atom false)
                   done!   (fn [] (when (compare-and-set! done? false true) (done)))
@@ -679,7 +679,7 @@
       (async done
         (let [act-fn (get-react-act)]
           (if-not (fn? act-fn)
-            (do (is true "React.act unavailable in this runner") (done))
+            (do (is (fn? act-fn) "React.act missing: a broken React 19 floor, not a skip") (done))
             (let [feeds (atom {})
                   done? (atom false)
                   done! (fn [] (when (compare-and-set! done? false true) (done)))
@@ -755,7 +755,7 @@
       (async done
         (let [act-fn (get-act)]
           (if-not (fn? act-fn)
-            (do (is true "React act() unavailable in this runner") (done))
+            (do (is (fn? act-fn) "React act() missing: a broken React 19 floor, not a skip") (done))
             (let [events  (atom [])
                   done?   (atom false)
                   done!   (fn [] (when (compare-and-set! done? false true) (done)))

@@ -10,10 +10,13 @@
 
     #4 view-unmount → :rf.sub/dispose fires with :reason
        :no-more-derefers when the last derefer drops.
-    #5 conditional-deref flip → :rf.sub/dispose fires when the
-       condition stops the deref (the runtime ref-count drops to 0
-       even though the component stays mounted). Pinned by
-       `conditional-deref-re-execution-fires-rf-sub-dispose`.
+    #5 conditional teardown → the `rf/unsubscribe` a conditionally
+       rendered child's cleanup fires evicts that sub and its inputs
+       while a sub the surviving render still holds stays cached.
+       Pinned by `conditional-teardown-unsubscribe-evicts-only-its-own-slots`.
+       Reagent's auto-track leg — a render reaction that stops
+       derefing the sub when a condition flips — is not exercised
+       here.
 
   Plus a multi-derefer negative control — two derefers, one drops →
   NO emit; only when the LAST drops does the slot evict.
@@ -53,8 +56,6 @@
   up; no DOM required (the contract under test is the substrate's
   ref-count machinery, not a React render)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [reagent.core :as r]
-            [reagent.ratom :as ratom]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -202,7 +203,7 @@
 ;; surrounding reaction derefs the sub's reaction, then *the surrounding
 ;; reaction* loses its last watcher and disposes — which calls `subscribe`-
 ;; side teardown via the `add-on-dispose!` callback installed in
-;; `compute-and-cache!`. The two tests below close that gap.
+;; `compute-and-cache!`. Test #1 below closes that gap; test #2 does not.
 ;;
 ;; Test #1 — reaction-disposal path. Drives the production teardown sequence
 ;; by disposing the surrounding reaction (NOT by `rf/unsubscribe`). Mirrors
@@ -211,13 +212,11 @@
 ;; `interop/dispose!` simulates the React unmount signal at the reagent-
 ;; reaction layer.
 ;;
-;; Test #2 — conditional-deref re-execution. A surrounding reaction
-;; conditionally derefs the sub: `(when @cond? @sub)`. Flipping `@cond?`
-;; via a backing ratom re-runs the surrounding reaction's body; the new
-;; pass does NOT deref the sub; Reagent's auto-track removes the sub
-;; from the dependency set; the sub's reaction loses its last watcher
-;; and Reagent reaps it. The "component stays mounted" claim is pinned
-;; here at the actual reagent seam, not by a bare `rf/unsubscribe`.
+;; Test #2 — conditional teardown. Two subs are held; the explicit
+;; `rf/unsubscribe` a conditionally-rendered child's cleanup fires releases
+;; one of them. It pins that the eviction cascades to that sub's inputs and
+;; leaves the still-held sub cached. It does NOT exercise Reagent's
+;; auto-track: nothing here is a reactive render that stops derefing the sub.
 
 (deftest reaction-disposal-fires-rf-sub-dispose
   (testing "#1: disposing the cached Reagent reaction directly
@@ -291,23 +290,17 @@
               (is (= :rf/default (:frame t))
                   ":frame is canonical (the Reagent adapter's default frame)"))))))))
 
-(deftest conditional-deref-re-execution-fires-rf-sub-dispose
-  (testing "#2: a Reagent reaction whose body conditionally
-   derefs a sub. The conditional teardown — `rf/unsubscribe` fired by
-   the production cleanup path (r/with-let :finally, a
-   componentWillUnmount hook, an effect cleanup) — evicts the
-   conditional sub's slot + cascades to inputs while the surrounding
-   reaction stays alive (the bead's component-stays-mounted invariant).
+(deftest conditional-teardown-unsubscribe-evicts-only-its-own-slots
+  (testing "#2: the conditional teardown — `rf/unsubscribe` fired by the
+   production cleanup path (r/with-let :finally, a componentWillUnmount
+   hook, an effect cleanup) — evicts the conditional sub's slot and
+   cascades to its inputs, while a sub the surviving render still holds
+   stays cached.
 
-   This exercises the reagent-reaction layer alongside the cache
-   cascade: the surrounding reaction is real Reagent infrastructure
-   (the production seam Reagent uses on a component's render
-   reaction), but cache ref-counting is explicit subscribe/unsubscribe
-   — Reagent's auto-tracking handles dep-set changes for downstream
-   recomputation but does NOT drive cache eviction. Pairs with the
-   `reaction-disposal-fires-rf-sub-dispose` test above (which
-   exercises Reagent's reap-on-no-watchers leg via direct
-   `interop/dispose!`)."
+   Cache ref-counting is explicit subscribe/unsubscribe. This test does
+   not drive Reagent's auto-track: no reactive render stops derefing the
+   sub, so what it pins is the explicit-unsubscribe half of the
+   conditional-render lifecycle."
     (rf/reg-event :rf2-b2bxk/init (fn [{:keys [db]} _] {:db {:n 5 :a 3 :b 4}}))
     (rf/reg-sub :rf2-b2bxk.cond-rea/n (fn [db _] (:n db)))
     (rf/reg-sub :rf2-b2bxk.cond-rea/a (fn [db _] (:a db)))
@@ -317,39 +310,18 @@
       (fn [[a b] _] (+ a b)))
     (rf/dispatch-sync [:rf2-b2bxk/init])
 
-    (let [cond?   (ratom/atom true)
-          n-rea   (rf/subscribe [:rf2-b2bxk.cond-rea/n])
-          sum-rea (rf/subscribe [:rf2-b2bxk.cond-rea/sum])
-          ;; The outer reaction stands in for a component's render
-          ;; reaction. Body unconditionally derefs n-rea; sum-rea is
-          ;; derefed only while @cond? is true. Once made-active by a
-          ;; watcher, Reagent re-runs the body when its deps invalidate.
-          outer   (ratom/make-reaction
-                    (fn [] (when @cond? @sum-rea) @n-rea))]
+    ;; The surviving render holds `n`; the conditionally-rendered child
+    ;; holds `sum`.
+    (let [n-rea   (rf/subscribe [:rf2-b2bxk.cond-rea/n])
+          sum-rea (rf/subscribe [:rf2-b2bxk.cond-rea/sum])]
       (with-trace-recorder! [traces {:pred sub-dispose-pred}]
         (try
-          ;; Add a watcher so Reagent treats outer as active and runs
-          ;; auto-track on body re-execution. Stands in for a component
-          ;; instance that has subscribed to outer (e.g. via render).
-          (add-watch outer ::keep-mounted (fn [_ _ _ _] nil))
-          (is (= 5 @outer)
-              "precondition: outer reaction observes n-rea's value (returned via the body's tail)")
+          (is (= 5 @n-rea) "precondition: the held sub reads the seeded app-db")
+          (is (= 7 @sum-rea) "precondition: the conditional sub reads the seeded app-db")
           (is (empty? @traces)
-              "precondition: nothing evicted while sum-rea is held + derefed")
+              "precondition: nothing evicted while both subs are held")
 
-          ;; Flip the condition; force the outer body to re-run via flush.
-          ;; In production this is "Reagent re-renders the component because
-          ;; the condition atom changed". The body skips @sum-rea this time.
-          (reset! cond? false)
-          (r/flush)
-          @outer
-          (is (empty? @traces)
-              "Reagent's dep-set update alone did NOT evict the cache slot —
-               cache ref-counting is explicit subscribe/unsubscribe")
-
-          ;; Production cleanup fires (r/with-let :finally clause on the
-          ;; conditionally-rendered child, etc.). The outer reaction is
-          ;; still alive — component-stays-mounted invariant.
+          ;; Production cleanup fires on the conditionally-rendered child.
           (rf/unsubscribe [:rf2-b2bxk.cond-rea/sum])
 
           (let [a-evs   (dispose-by-id @traces :rf2-b2bxk.cond-rea/a)
@@ -363,17 +335,14 @@
             (is (= 1 (count b-evs))
                 "input :b evicted via the conditional-teardown cascade")
             (is (empty? n-evs)
-                "the unconditionally-derefed :n sub stays cached — the conditional
+                "the still-held :n sub stays cached — the conditional
                  teardown did NOT touch unrelated derefers")
             (doseq [ev (concat a-evs b-evs sum-evs)]
               (let [t (:tags ev)]
                 (is (= :no-more-derefers (:rf.sub/reason t))
                     ":reason is :no-more-derefers — the ref-count-drop path")
                 (is (= :rf/default (:frame t))
-                    ":frame is canonical")))
-            (is (= 5 @outer)
-                "outer reaction still alive — component-stays-mounted invariant"))
+                    ":frame is canonical"))))
 
           (finally
-            (remove-watch outer ::keep-mounted)
             (rf/unsubscribe [:rf2-b2bxk.cond-rea/n])))))))

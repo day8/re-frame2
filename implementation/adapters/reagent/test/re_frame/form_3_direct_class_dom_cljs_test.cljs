@@ -106,7 +106,7 @@
   [view-id dom-id label done after-mount after-unmount]
   (let [act-fn (get-act)]
     (if-not (fn? act-fn)
-      (do (is true "React flushSync unavailable in this runner") (done))
+      (do (is (fn? act-fn) "React flushSync missing: a broken React 19 floor, not a skip") (done))
       (let [el    (mount-element)
             root  (rdc/create-root el)
             done? (atom false)

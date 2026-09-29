@@ -2311,10 +2311,10 @@
   [{:keys [name]}]
   (testing (str name " — #9 reactive substrate without React-context")
     (rf/make-frame {:id :alt :doc "alt frame"})
-    (is (= :rf/default (rf/current-frame-id)) "no dynamic binding → resolves to :rf/default")
+    (is (= :rf/default (rf/current-frame-id)) "outside any with-frame the fixture's ambient :rf/default scope resolves")
     (rf/with-frame :alt
-      (is (= :alt (rf/current-frame-id)) "dynamic-var tier wins over :rf/default"))
-    (is (= :rf/default (rf/current-frame-id)) "with-frame's binding is scoped — dynamic var reverts on exit")))
+      (is (= :alt (rf/current-frame-id)) "with-frame's binding wins over the ambient scope"))
+    (is (= :rf/default (rf/current-frame-id)) "with-frame's binding is scoped — the ambient scope returns on exit")))
 
 (defn assert-xspec-machine-action-throws
   "#11 Machine action throws."
@@ -2555,16 +2555,12 @@
   (testing (str name " — public surface: flush-views! returns nil and is node-safe")
     (let [flush-views! (:flush-views! public-surface)]
       (is (nil? (flush-views!)) "0-arity flush returns nil")
-      (let [ran (atom false)]
-        (is (nil? (flush-views! (fn [] (reset! ran true))))
-            "1-arity flush returns nil")
-        ;; When act() IS reachable (React 19 hosts it on the React ns) the
-        ;; thunk runs; when it is NOT, the thunk is skipped. Either way the
-        ;; call is a safe no-throw nil — assert only the contract that
-        ;; holds on every React build (no @ran assertion: that is
-        ;; React-version dependent and would be flaky).
-        (is (contains? #{true false} @ran)
-            "thunk-ran flag is a clean boolean (no partial/throwing state)")))))
+      ;; When act() IS reachable (React 19 hosts it on the React ns) the
+      ;; thunk runs; when it is NOT, the thunk is skipped. Either way the
+      ;; call is a safe no-throw nil, which is the whole contract asserted
+      ;; here — whether the thunk ran is React-build dependent.
+      (is (nil? (flush-views! (fn [] nil)))
+          "1-arity flush returns nil"))))
 
 (defn assert-adapter-map-satisfies-nine-fn-contract
   "The adapter map carries the substrate's :kind discriminator

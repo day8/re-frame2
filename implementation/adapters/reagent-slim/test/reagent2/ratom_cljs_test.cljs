@@ -94,8 +94,7 @@
     (let [a (ratom/atom 1)
           b (ratom/atom 1)]
       (is (= a a))
-      (is (not= a b))
-      (is (not (identical? a b))))))
+      (is (not= a b)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Reaction — derived value
@@ -146,9 +145,13 @@
 
 (deftest reaction-multiple-deps
   (testing "Reaction tracks multiple dependencies"
+    ;; :auto-run so the body runs through `_run` and captures its deps; a
+    ;; deref then reads the cached state. On the fast path (no :auto-run,
+    ;; non-reactive deref) every deref just re-calls f and tracks nothing,
+    ;; so the values below would hold with no dependency capture at all.
     (let [a (ratom/atom 2)
           b (ratom/atom 3)
-          r (ratom/make-reaction (fn [] (+ @a @b)))]
+          r (ratom/make-reaction (fn [] (+ @a @b)) :auto-run true)]
       (is (= 5 @r))
       (reset! a 10)
       (is (= 13 @r))
@@ -157,18 +160,26 @@
 
 (deftest reaction-dependency-pruning
   (testing "Reaction unsubscribes from no-longer-watched ratoms"
+    ;; :auto-run so r captures its deps and recomputes when one changes; the
+    ;; fast path re-calls f on every deref and cannot tell a pruned dep from
+    ;; a live one. `runs` counts body executions.
     (let [flag (ratom/atom true)
           a    (ratom/atom 1)
           b    (ratom/atom 100)
-          r    (ratom/make-reaction (fn [] (if @flag @a @b)))]
+          runs (atom 0)
+          r    (ratom/make-reaction (fn [] (swap! runs inc) (if @flag @a @b))
+                                    :auto-run true)]
       (is (= 1 @r))
       ;; Switch the branch.
       (reset! flag false)
       (is (= 100 @r))
       ;; Now `a` is no longer a dependency. Mutating it must not
-      ;; recompute (no watchers wired to a anymore in r's path).
-      (reset! a 999)
-      (is (= 100 @r)))))
+      ;; recompute (no watch from r left on a).
+      (let [runs-before @runs]
+        (reset! a 999)
+        (is (= runs-before @runs)
+            "mutating the dropped dependency `a` does not re-run r's body")
+        (is (= 100 @r))))))
 
 (deftest reaction-dispose-clears-watches
   (testing "dispose! removes watches from upstream RAtoms"
@@ -279,15 +290,11 @@
 ;; flush! — rea-queue drain
 ;; ---------------------------------------------------------------------------
 
-(deftest flush-drains-queue
-  (testing "flush! recomputes queued Reactions"
-    ;; A Reaction enqueues itself only if it had wired upstream watches
-    ;; (i.e. went through _run / deref-capture). The fast-path deref
-    ;; does NOT wire watches (IMPL-SPEC §3.2). Use :auto-run nil but
-    ;; deref under another reactive context to wire watches, OR use
-    ;; an explicit upstream Reaction. We choose the latter: r1 has
-    ;; auto-run, so it's subscribed; mutating a triggers r1's queue
-    ;; entry.
+;; Neither block below reaches the queue: `:auto-run true` recomputes inside
+;; the `reset!`. The queue + `flush!` drain is pinned by
+;; `queued-reaction-drains-on-flush`.
+(deftest auto-run-recompute-notifies-watchers-synchronously
+  (testing "an auto-run Reaction's watch fires inside the source reset!"
     (let [a     (ratom/atom 1)
           fired (atom [])
           r     (ratom/make-reaction (fn [] @a) :auto-run true)]
@@ -299,11 +306,10 @@
       (reset! a 2)
       (is (= [2] @fired))))
 
-  (testing "flush! drains downstream cascades"
-    ;; r1 has no auto-run; r2 derefs r1, so r2's deref-capture
-    ;; subscribes r2 to r1. r1 in turn must subscribe to a — give r1
-    ;; auto-run so it does. Then mutating a fires r1 (synchronous), r1
-    ;; fires r2 via its watcher (enqueued); flush! drains r2.
+  (testing "a chain of auto-run Reactions recomputes synchronously end to end"
+    ;; r2 derefs r1, so r2's deref-capture subscribes r2 to r1, and r1
+    ;; subscribes to a. Both are auto-run, so mutating a recomputes r1 and
+    ;; then r2 inside the reset!.
     (let [a       (ratom/atom 1)
           r1      (ratom/make-reaction (fn [] (* @a 10)) :auto-run true)
           r2-vals (atom [])
