@@ -16,7 +16,7 @@
     "watch": "shadow-cljs watch server",
     "gen:descriptors": "node scripts/descriptor-manifest-gen.cjs",
     "check:descriptors": "node scripts/descriptor-manifest-gen.cjs --check",
-    "test": "shadow-cljs compile server-test && node out/server-test.js",
+    "test": "shadow-cljs compile server-test && node out/server-test.js && node test/post-merge-hook-test.cjs",
     "start": "node out/server.js",
     "stdio-roundtrip": "node test/stdio-roundtrip.js",
     "test:stdin-eof-shutdown": "node test/stdin-eof-shutdown.cjs",

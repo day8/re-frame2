@@ -20,7 +20,8 @@ integration scripts.
 If a regression would only be visible after the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
 CLJS test. The two layers are complementary: `npm test` runs the CLJS
-suite, while the Node integration scripts are explicit package commands.
+suite and then the hermetic `post-merge-hook-test.cjs`, while the Node
+integration scripts are explicit package commands.
 
 ## The two layers
 
@@ -261,8 +262,9 @@ Two layers:
   end-to-end. Asserts the warning fires for a real cross-MCP diff and
   is silent for an unrelated diff.
 
-Run with: `npm run test:post-merge-hook` (or
-`node test/post-merge-hook-test.cjs`).
+`npm test` runs it after the CLJS suite, so CI's pair-mcp job runs it
+on every change that arms that job. Run it alone with
+`npm run test:post-merge-hook` (or `node test/post-merge-hook-test.cjs`).
 
 ## Adding a new test — decision tree
 
