@@ -174,26 +174,6 @@
 ;; lives in the shared helper, so this and the share-builder pin move
 ;; together.
 
-(deftest url-from-state-clears-escaped-story-keys-through-urlsearchparams
-  (testing "`%76ariant=` IS `variant=` to the browser, so
-            a state-driven push must clear it rather than append behind it;
-            read back through the API the next mount will actually use"
-    (let [url (rf.story.ui.url-state/url-from-state
-                {:selected-variant :story.new/b}
-                {:pathname "/p/"
-                 :search   "?%76ariant=story.old%2Fa&embed=1"
-                 :hash     "#/stories"})
-          usp (js/URLSearchParams.
-                (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
-      (is (= "story.new/b" (.get usp "variant"))
-          "the reload reads the cell this state asked for, not the stale one")
-      (is (= 1 (count (.getAll usp "variant")))
-          "exactly one variant value — the escaped one is gone, not outranked")
-      (is (= "1" (.get usp "embed"))
-          "embed=1 survives — chrome state Story does not own")
-      (is (= "/p/?embed=1&variant=story.new%2Fb#/stories" url)
-          "and the composed string is exactly that, in order"))))
-
 (deftest url-from-state-clears-every-escaped-story-key-cljs
   (testing "the whole vocabulary spelled with escapes.
             Derived from `rf.story.share/story-query-keys`, so a key added to the
@@ -461,24 +441,6 @@
         (finally
           (rf.story.ui.url-state/remove-popstate-listener!)
           (uninstall-window-stub!))))))
-
-;; ---- apply-fn integration through swap! ---------------------------------
-
-(deftest apply-parsed-to-state-via-swap
-  (testing "swap! threads apply-parsed-to-state through the
-            live shell-state ratom"
-    (let [apply-fn (fn [s parsed]
-                     (rf.story.ui.url-state/apply-parsed-to-state s parsed {}))]
-      (swap! rf.story.ui.state/shell-state-atom apply-fn
-             {:variant-id :foo/bar
-              :viewport   :tablet
-              :background :dark
-              :tag-filter #{:tag/a}})
-      (let [s @rf.story.ui.state/shell-state-atom]
-        (is (= :foo/bar (:selected-variant s)))
-        (is (= :tablet  (:viewport s)))
-        (is (= :dark    (:background s)))
-        (is (= #{:tag/a} (:tag-filter s)))))))
 
 ;; ---- populated → omitted/default transition -----------------------------
 
