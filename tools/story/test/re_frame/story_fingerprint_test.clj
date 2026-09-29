@@ -123,12 +123,18 @@
 
 (deftest project-strips-volatile-fields
   (testing "every volatile field is dropped recursively"
-    (let [projected (rf.story.fingerprint/project base-run)]
+    (let [every-volatile (zipmap rf.story.fingerprint/volatile-fields (repeat :v))
+          projected      (rf.story.fingerprint/project
+                           (assoc base-run
+                                  :nested {:rows [(assoc every-volatile :keep 1)]
+                                           :set  #{(assoc every-volatile :keep 2)}}))
+          maps           (filter map? (tree-seq coll? seq projected))]
       (doseq [k rf.story.fingerprint/volatile-fields]
-        (is (not (contains? projected k))
-            (str k " must be stripped from the projection")))
-      (is (not (contains? (get-in projected [:effects 0]) :dispatch-id)))
-      (is (not (contains? (get-in projected [:epoch-tape 0]) :source-coord)))))
+        (is (not-any? #(contains? % k) maps)
+            (str k " must be stripped from the projection at every depth")))
+      (is (= [{:keep 1}] (get-in projected [:nested :rows]))
+          "the non-volatile key beside them survives")
+      (is (= #{{:keep 2}} (get-in projected [:nested :set])))))
   (testing ":source / :elapsed-ms / :runner are stripped STRUCTURALLY, on the
             carriers that stamp them"
     (let [stripped (rf.story.fingerprint/project
@@ -581,11 +587,17 @@
 (deftest nan-and-inf-canonicalize-host-portably
   (testing "every NaN folds to the single `:rf/nan` sentinel — a `##NaN` slot
             hashes deterministically and never perturbs a hash by bit-pattern"
-    (is (= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form Double/NaN)))
-    (is (= (rf.story.fingerprint/content-hash Double/NaN) (rf.story.fingerprint/content-hash Double/NaN)))
-    (is (= (rf.story.fingerprint/canonical-hash {:x Double/NaN})
-           (rf.story.fingerprint/canonical-hash {:x Double/NaN}))
-        "two NaN-bearing slices hash equal"))
+    (let [payload-nan (Double/longBitsToDouble 0x7ff8000000000001)]
+      (is (Double/isNaN payload-nan))
+      (is (not= (Double/doubleToRawLongBits Double/NaN)
+                (Double/doubleToRawLongBits payload-nan))
+          "the two NaNs differ in bit-pattern")
+      (is (= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form Double/NaN)))
+      (is (= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form payload-nan)))
+      (is (= (rf.story.fingerprint/content-hash Double/NaN) (rf.story.fingerprint/content-hash payload-nan)))
+      (is (= (rf.story.fingerprint/canonical-hash {:x Double/NaN})
+             (rf.story.fingerprint/canonical-hash {:x payload-nan}))
+          "two NaN-bearing slices hash equal whatever the NaN's bit-pattern")))
   (testing "±Inf ride the bit-double path — host-stable bits, mutually distinct
             and distinct from every finite double"
     (is (= [rf.story.fingerprint/double-tag "7ff0000000000000"] (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY)))
@@ -595,11 +607,10 @@
     (is (not= (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY) (rf.story.fingerprint/canonical-form 1.5)))
     (is (not= rf.story.fingerprint/nan-tag (rf.story.fingerprint/canonical-form Double/POSITIVE_INFINITY)))))
 
-(deftest canon-set-has-a-stable-equal-pr-str-tiebreak
+(deftest canon-set-hashes-equal-pr-str-elements-stably
   (testing "two DISTINCT fns in a set both fold to `:rf/opaque-fn` (equal
-            `pr-str`); the `stable-canon-order` comparator gives them a
-            deterministic order, so the set hashes stably across independent
-            builds, where a bare `(sort-by pr-str)` leaves the tie open"
+            `pr-str`); tied elements render identically, so the set hashes
+            stably across independent builds whichever order they sort in"
     (let [build (fn [] #{(fn [] 1) (fn [] 2) :marker})]
       (is (= (rf.story.fingerprint/content-hash (build)) (rf.story.fingerprint/content-hash (build)))
           "an equal-pr-str-bearing set hashes identically across builds")))

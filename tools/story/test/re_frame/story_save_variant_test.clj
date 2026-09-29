@@ -163,13 +163,14 @@
 
 (deftest gen-variant-snippet-sorted-keys
   (testing "args keys render in sorted order for determinism"
-    (let [args   {:z 1 :a 2 :m 3}
-          snip   (rf.story.save-variant/gen-variant-snippet
-                   {:variant-id :story.x/y :args args})
-          a      (str/index-of snip ":a")
-          m      (str/index-of snip ":m")
-          z      (str/index-of snip ":z")]
-      (is (< a m z) ":a < :m < :z by index in the rendered form"))))
+    (let [args     {:z 1 :a 2 :m 3}
+          snip     (rf.story.save-variant/gen-variant-snippet
+                     {:variant-id :story.x/y :args args})
+          ;; Read the order inside the :args map alone: the snippet's own
+          ;; `:args` slot key also starts with `:a`.
+          args-str (extract-args-map snip)]
+      (is (= [":a" ":m" ":z"] (re-seq #":\w+" args-str))
+          ":a < :m < :z in the rendered :args map"))))
 
 ;; ---- default-variant-id --------------------------------------------------
 

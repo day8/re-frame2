@@ -250,7 +250,7 @@
       {:args {:label "v1"}
        :setup []})
     (let [identity-1 (rf.story/snapshot-identity :story.mcp.snap/probe)]
-      (is (some? identity-1) ":content-hash present")
+      (is (string? (:content-hash identity-1)) ":content-hash present")
       ;; Re-register with the same body but a different :source slot
       ;; — cosmetic, the same as moving the registration to a new line.
       (rf.story/reg-variant* :story.mcp.snap/probe
