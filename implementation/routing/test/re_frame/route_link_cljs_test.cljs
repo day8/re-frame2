@@ -182,45 +182,19 @@
 
 ;; ---- modifier-key clicks defer to browser ------------------------------
 
-(deftest cmd-click-defers
-  (testing "cmd-click does NOT preventDefault and does NOT dispatch"
+(deftest modified-and-middle-clicks-defer
+  (testing "a modified or middle click does NOT preventDefault and does NOT
+            dispatch — the browser owns it"
     (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched prevented?]}
-          (click! {:to :route/cart} (mk-event {:meta true}))]
-      (is (not prevented?) "cmd-click leaves the click for the browser")
-      (is (nil? dispatched) "no :rf.route/url-requested event"))))
-
-(deftest ctrl-click-defers
-  (testing "ctrl-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched prevented?]}
-          (click! {:to :route/cart} (mk-event {:ctrl true}))]
-      (is (not prevented?))
-      (is (nil? dispatched)))))
-
-(deftest shift-click-defers
-  (testing "shift-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched prevented?]}
-          (click! {:to :route/cart} (mk-event {:shift true}))]
-      (is (not prevented?))
-      (is (nil? dispatched)))))
-
-(deftest alt-click-defers
-  (testing "alt-click does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched prevented?]}
-          (click! {:to :route/cart} (mk-event {:alt true}))]
-      (is (not prevented?))
-      (is (nil? dispatched)))))
-
-(deftest middle-click-defers
-  (testing "middle-click (button 1) does NOT preventDefault and does NOT dispatch"
-    (rf/reg-route :route/cart {} "/cart")
-    (let [{:keys [dispatched prevented?]}
-          (click! {:to :route/cart} (mk-event {:button 1}))]
-      (is (not prevented?))
-      (is (nil? dispatched)))))
+    (doseq [[label event-opts] [["cmd-click"               {:meta true}]
+                                ["ctrl-click"              {:ctrl true}]
+                                ["shift-click"             {:shift true}]
+                                ["alt-click"               {:alt true}]
+                                ["middle-click (button 1)" {:button 1}]]]
+      (let [{:keys [dispatched prevented?]}
+            (click! {:to :route/cart} (mk-event event-opts))]
+        (is (not prevented?) (str label " leaves the click for the browser"))
+        (is (nil? dispatched) (str label " dispatches no :rf.route/url-requested event"))))))
 
 ;; ---- native-anchor attributes defer to the browser ---------------------
 ;;

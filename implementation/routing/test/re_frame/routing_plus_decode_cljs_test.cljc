@@ -21,8 +21,8 @@
   (`cljs-test$`). The assertions are the SAME on both hosts — that
   host-symmetry IS the contract (Spec 012 §`+` is a literal)."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [are deftest is testing use-fixtures]]
+      :cljs [cljs.test :refer-macros [are deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.routing :as rf.routing]
    [re-frame.routing.url :as rf.routing.url]
@@ -60,63 +60,23 @@
     (is (= "a + b" (rf.routing.url/url-decode "a%20%2B%20b"))
         "mixed: %20 → space, %2B → literal +")))
 
-;; ---- match-url: `+` literal in path captures + query ---------------------
+;; ---- match-url: `+`, `%20` and empty query pairs --------------------------
 
-(deftest match-url-plus-literal-in-path-capture
-  (testing "a `+` in a path-capture segment decodes to a literal `+`
-            on every host (RFC-3986 path semantics)"
+(deftest match-url-decodes-plus-space-and-empty-pairs-alike-on-every-host
+  (testing "match-url reads the same path capture and query map on every host"
     (rf/reg-route :route/files {} "/files/:name")
-    (let [m (rf.routing/match-url "/files/a+b")]
-      (is (some? m) "the route matches")
-      (is (= "a+b" (get-in m [:params :name]))
-          "the `+` is preserved as a literal in the captured param"))))
-
-(deftest match-url-plus-literal-in-query
-  (testing "a `+` in a query value decodes to a literal `+` on every
-            host (NOT a space)"
     (rf/reg-route :route/search {} "/search")
-    (let [m (rf.routing/match-url "/search?q=a+b")]
-      (is (some? m) "the route matches")
-      (is (= "a+b" (get-in m [:query "q"]))
-          "the `+` is preserved as a literal in the query value"))))
-
-(deftest match-url-percent-20-is-space-in-query
-  (testing "`%20` decodes to a real space in a query value on every
-            host — only `+` is exempt from space-decoding, not %20"
-    (rf/reg-route :route/search {} "/search")
-    (let [m (rf.routing/match-url "/search?q=a%20b")]
-      (is (some? m) "the route matches")
-      (is (= "a b" (get-in m [:query "q"]))
-          "`%20` decodes to a space"))))
-
-;; ---- empty query-key filter ----------------------------------------------
-
-(deftest match-url-trailing-question-mark-no-empty-key
-  (testing "a trailing `?` yields an EMPTY :query, not `{\"\" \"\"}`"
-    (rf/reg-route :route/search {} "/search")
-    (let [m (rf.routing/match-url "/search?")]
-      (is (some? m) "the route matches")
-      (is (= {} (:query m))
-          "a trailing `?` produces an empty query map, no spurious key"))))
-
-(deftest match-url-doubled-ampersand-no-empty-key
-  (testing "a doubled `&&` / leading `&` does not inject a `{\"\" \"\"}`
-            pair"
-    (rf/reg-route :route/search {} "/search")
-    (let [m (rf.routing/match-url "/search?a=1&&b=2")]
-      (is (some? m) "the route matches")
-      (is (= {"a" "1" "b" "2"} (:query m))
-          "the empty pair from `&&` is dropped — only real pairs survive"))
-    (let [m (rf.routing/match-url "/search?&a=1")]
-      (is (= {"a" "1"} (:query m))
-          "a leading `&` empty pair is dropped"))))
-
-(deftest match-url-empty-value-still-kept
-  (testing "an explicit empty VALUE (`?foo=`) is NOT a blank pair — the
-            key survives with an empty-string value (distinct from the
-            blank-pair filter above)"
-    (rf/reg-route :route/search {} "/search")
-    (let [m (rf.routing/match-url "/search?foo=")]
-      (is (some? m) "the route matches")
-      (is (= {"foo" ""} (:query m))
-          "`?foo=` keeps the key with an empty-string value"))))
+    (are [url path expected] (= expected (get-in (rf.routing/match-url url) path))
+      ;; RFC-3986 path semantics: `+` is a literal in a path capture
+      "/files/a+b"       [:params :name] "a+b"
+      ;; `+` is a literal in a query value too, NOT a space
+      "/search?q=a+b"    [:query "q"]    "a+b"
+      ;; only `+` is exempt from space-decoding, not `%20`
+      "/search?q=a%20b"  [:query "q"]    "a b"
+      ;; a trailing `?` yields an EMPTY :query, not `{"" ""}`
+      "/search?"         [:query]        {}
+      ;; the empty pair from `&&`, or a leading `&`, is dropped
+      "/search?a=1&&b=2" [:query]        {"a" "1" "b" "2"}
+      "/search?&a=1"     [:query]        {"a" "1"}
+      ;; an explicit empty VALUE is not a blank pair — the key survives
+      "/search?foo="     [:query]        {"foo" ""})))

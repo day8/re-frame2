@@ -29,7 +29,7 @@
   witness: `/a/7` really does resolve to the earlier registration and really
   does carry ITS capture name, and the three disjoint static routes really are
   all reachable."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [clojure.string :as string]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
@@ -1688,47 +1688,35 @@
 ;;   - non-matching URL returns nil cleanly (no throw, no error)
 ;; ===========================================================================
 
-(deftest match-against-literal-segment-exact-match
-  (testing "literal-segment pattern matches its exact URL
-            and returns an empty params map; a sibling URL with the
-            same shape but different literal returns nil"
-    (let [compiled (rf.routing.match/parse-pattern "/foo/bar")]
-      (is (= {} (rf.routing.match/match-against compiled "/foo/bar"))
-          "exact literal URL → empty params map (no captures registered)")
-      (is (nil? (rf.routing.match/match-against compiled "/foo/baz"))
-          "sibling literal that differs on last segment → nil (no-match)")
-      (is (nil? (rf.routing.match/match-against compiled "/foo"))
-          "partial-prefix URL → nil (no-match; re-matches anchors both ends)")
-      (is (nil? (rf.routing.match/match-against compiled "/foo/bar/extra"))
-          "URL longer than pattern → nil (anchored end)"))))
-
-(deftest match-against-named-param-extraction
-  (testing "a `:id` segment captures the URL segment value
-            into the params map under the keyword key"
-    (let [compiled (rf.routing.match/parse-pattern "/users/:id")]
-      (is (= {:id "42"} (rf.routing.match/match-against compiled "/users/42"))
-          "param captured under :id, value is the raw URL segment")
-      (is (= {:id "alice"} (rf.routing.match/match-against compiled "/users/alice"))
-          "alphabetic param value captured")
-      (is (nil? (rf.routing.match/match-against compiled "/users/"))
-          "empty param segment → nil (regex requires non-empty capture)")
-      (is (nil? (rf.routing.match/match-against compiled "/users"))
-          "missing param segment → nil"))))
-
-(deftest match-against-splat-captures-multi-segment-tail
-  (testing "a `*rest` splat captures the entire trailing
-            path (slashes preserved) into the params map"
-    (let [compiled (rf.routing.match/parse-pattern "/files/*path")]
-      (is (= {:path "a"}
-             (rf.routing.match/match-against compiled "/files/a"))
-          "single-segment splat captured under :path")
-      (is (= {:path "a/b/c"}
-             (rf.routing.match/match-against compiled "/files/a/b/c"))
-          "multi-segment splat captured with slashes preserved")
-      (is (nil? (rf.routing.match/match-against compiled "/files/"))
-          "empty splat tail → nil (regex requires non-empty capture)")
-      (is (nil? (rf.routing.match/match-against compiled "/files"))
-          "missing splat tail → nil"))))
+(deftest match-against-captures-and-anchors-both-ends
+  (testing "match-against returns the captured params map for a URL its
+            compiled pattern matches, anchored at both ends, and nil (no
+            throw) for one it does not"
+    (are [pattern url expected]
+         (= expected (rf.routing.match/match-against (rf.routing.match/parse-pattern pattern) url))
+      ;; a literal pattern matches only its exact URL, with no captures
+      "/foo/bar"                  "/foo/bar"            {}
+      "/foo/bar"                  "/foo/baz"            nil
+      "/foo/bar"                  "/foo"                nil
+      "/foo/bar"                  "/foo/bar/extra"      nil
+      ;; a `:id` segment captures the raw, non-empty URL segment
+      "/users/:id"                "/users/42"           {:id "42"}
+      "/users/:id"                "/users/alice"        {:id "alice"}
+      "/users/:id"                "/users/"             nil
+      "/users/:id"                "/users"              nil
+      ;; a `*path` splat captures the whole non-empty tail, slashes kept
+      "/files/*path"              "/files/a"            {:path "a"}
+      "/files/*path"              "/files/a/b/c"        {:path "a/b/c"}
+      "/files/*path"              "/files/"             nil
+      "/files/*path"              "/files"              nil
+      ;; the root pattern matches `/` and the empty string, nothing deeper
+      "/"                         "/"                   {}
+      "/"                         ""                    {}
+      "/"                         "/foo"                nil
+      ;; a miss is nil, and the same pattern still matches when both captures are present
+      "/users/:id/posts/:post-id" "/unrelated/path"     nil
+      "/users/:id/posts/:post-id" "/users/42/posts"     nil
+      "/users/:id/posts/:post-id" "/users/42/posts/9"   {:id "42" :post-id "9"})))
 
 ;; ---- named splat out-ranks the bare catch-all --------------------------
 ;;
@@ -1940,31 +1928,6 @@
             positional ambiguity the emission-side reject exists to prevent"
     (is (= {:section "5"} (:params (rf.routing/match-url "/docs/5")))
         "/docs/5 matches section, not page — so emitting page-only would corrupt")))
-
-(deftest match-against-root-pattern-matches-root-path
-  (testing "the special `/` pattern matches the root URL
-            and returns an empty params map; a deeper URL returns nil"
-    (let [compiled (rf.routing.match/parse-pattern "/")]
-      (is (= {} (rf.routing.match/match-against compiled "/"))
-          "root pattern matches root path → empty params map")
-      (is (= {} (rf.routing.match/match-against compiled ""))
-          "root pattern also matches the empty string (leading `/?` in regex)")
-      (is (nil? (rf.routing.match/match-against compiled "/foo"))
-          "root pattern does NOT match a deeper path"))))
-
-(deftest match-against-no-match-returns-nil
-  (testing "when re-matches misses, match-against returns
-            nil cleanly (no throw, no exception)"
-    (let [compiled (rf.routing.match/parse-pattern "/users/:id/posts/:post-id")]
-      (is (nil? (rf.routing.match/match-against compiled "/unrelated/path"))
-          "completely unrelated URL → nil")
-      (is (nil? (rf.routing.match/match-against compiled "/users/42/posts"))
-          "URL missing trailing capture segment → nil")
-      (is (= {:id "42" :post-id "9"}
-             (rf.routing.match/match-against
-               compiled "/users/42/posts/9"))
-          "the same pattern DOES match when both captures are present —
-           sanity-check the test isn't accepting only the negative cases"))))
 
 ;; ---- reg-route authoring-boundary metadata validation --------------------
 ;;
