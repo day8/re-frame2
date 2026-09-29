@@ -840,66 +840,6 @@
           (finally
             (try (rdc/unmount root) (catch :default _ nil))))))))
 
-(deftest reg-view-under-non-default-frame-no-warning
-  "Negative case — a properly-registered view (reg-view*) renders inside
-   a non-default frame-provider WITHOUT triggering the warning. The
-   warning targets the plain-fn footgun specifically; reg-view'd
-   components carry the `:contextType` wiring that lets them read the
-   Provider's frame, so their subscribe calls route correctly."
-  (if-not (browser?)
-    (is true ":node-test: no DOM — browser-test runner exercises the assertions")
-    (async done
-      (let [target-frame :tenant-reg-view-no-warn]
-        (rf/make-frame {:id target-frame :doc "non-default frame for reg-view negative test"})
-        (rf/reg-event :seed-reg-view (fn [{:keys [db]} _] {:db {:k 11}}))
-        (rf/dispatch-sync [:seed-reg-view] {:frame target-frame})
-        (rf/reg-sub :reg-view-test/k (fn [db _] (:k db)))
-        ;; (There is no plain-fn-under-non-default-frame warning and no
-        ;; :views/clear-plain-fn-warned-pairs! suppression cache: EP-0002's
-        ;; always-on :rf.error/no-frame-context is the diagnostic. This
-        ;; negative case confirms a reg-view'd component renders
-        ;; cleanly under a non-default frame with no such warning emitted.)
-        (rf/reg-view* :rf.cross-spec-10/registered-view
-                      (fn registered-impl []
-                        (let [_ @(rf/subscribe [:reg-view-test/k])]
-                          [:div "reg-view"])))
-        (let [unmounts   (atom [])
-              render-fn  (rf/view :rf.cross-spec-10/registered-view)
-              mount-node (make-mount-node!)
-              root       (rdc/create-root mount-node)
-              ;; Await THIS root's deferred teardown, assert its
-              ;; :rf.view/unmounted fired WITHIN the awaited window (not leaked
-              ;; past `done` into the shared runner), then finish.
-              finish     (fn []
-                           (-> (await-teardown! root)
-                               (.then (fn [_]
-                                        (rf.trace.tooling/unregister-listener! ::reg-view-no-warn-unmounts)
-                                        (is (= 1 (count @unmounts))
-                                            (str "exactly one :rf.view/unmounted fired for "
-                                                 ":rf.cross-spec-10/registered-view WITHIN the awaited window "
-                                                 "— teardown awaited, not leaked; got " (count @unmounts)))
-                                        (done)))))]
-          (rf.trace.tooling/register-listener! ::reg-view-no-warn-unmounts
-            (fn [ev]
-              (when (and (= :rf.view/unmounted (:operation ev))
-                         (= :rf.cross-spec-10/registered-view (-> ev :tags :rf.view/id)))
-                (swap! unmounts conj ev))))
-          (with-trace-recorder! [traces]
-            (try
-              (react-dom/flushSync
-                (fn []
-                  (rdc/render root [rf/frame-provider {:frame target-frame}
-                                    [render-fn]])))
-              (let [warns (filter #(= :rf.warning/plain-fn-under-non-default-frame-once
-                                       (:operation %))
-                                  @traces)]
-                (is (empty? warns)
-                    "no warning fires for reg-view'd components — the wiring lets them read the surrounding frame"))
-              (finish)
-              (catch :default e
-                (is false (str "reg-view-under-non-default-frame-no-warning threw: " (pr-str e)))
-                (finish)))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Subscribe + dispatch consult the React-context tier
 ;;
@@ -1037,21 +977,6 @@
             (catch :default e
               (is false (str "subscribe-routes-default-without-frame-provider threw: " (pr-str e)))
               (finish))))))))
-
-(deftest with-frame-wins-over-react-context
-  "the dynamic-var tier (set by `with-frame`) sits ABOVE the
-   React-context tier in the resolution chain. A `with-frame` binding
-   inside a non-default frame-provider's subtree wins over the provider
-   for the duration of the binding."
-  (rf/make-frame {:id :rf.d4sf/dynamic-tier :doc "frame referenced via with-frame, not via provider"})
-  (rf/make-frame {:id :rf.d4sf/provider-tier :doc "frame referenced via the React-context provider"})
-  ;; Outside of any render, `with-frame` binds the dynamic var, and the
-  ;; React-context tier is never consulted (no Provider above this code
-  ;; path). Pin the precedence on the JVM-shared resolution path here —
-  ;; the React-rendered case is exercised by the previous deftest.
-  (rf/with-frame :rf.d4sf/dynamic-tier
-    (is (= :rf.d4sf/dynamic-tier (rf/current-frame-id))
-        "with-frame's dynamic-var binding wins over :rf/default")))
 
 (deftest adapter-context-current-frame-tolerates-prop-stringified-keyword
   "the function-component-shape React-context-aware

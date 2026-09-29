@@ -71,34 +71,35 @@
 
 ;; ---- 1. Synchronous direct rf/dispatch ------------------------------------
 ;;
-;; A reg-event handler running on :tenant-a calls (rf/dispatch [:landed])
-;; in its body and returns no fx. The expectation: the queued :landed
-;; event lands on :tenant-a (the in-flight handler's frame), not
-;; :rf/default.
+;; A reg-event handler running on :tenant-a calls (rf/dispatch [:rf-l5q3/leaf …])
+;; in its body and returns no fx. The expectation: the queued event
+;; lands on :tenant-a (the in-flight handler's frame), not :rf/default.
 ;;
 ;; The drain loop's `process-event!` binds `frame/*current-frame*` to
-;; the envelope's :frame for the
-;; duration of the chain, so a synchronous rf/dispatch from inside the
-;; handler body picks up the right frame.
+;; the envelope's :frame for the duration of the chain, so a synchronous
+;; rf/dispatch from inside the handler body picks up the right frame. The
+;; binding is established and torn down PER EVENT, so the same pattern
+;; fired next on :tenant-b stays on :tenant-b — sibling frames do not see
+;; each other's bindings.
 
-(deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
-  (testing "rf/dispatch called synchronously from inside a handler routes to that handler's frame"
+(deftest sync-dispatch-isolation-between-frames
+  (testing "synchronous dispatch from :tenant-a handler stays in :tenant-a; :tenant-b is untouched"
     (seed-frames!)
-    (rf/reg-event :rf-l5q3/parent
-                     (fn [_ _]
-                       (rf/dispatch [:rf-l5q3/landed])
+    (rf/reg-event :rf-l5q3/fan
+                     (fn [_ [_ payload]]
+                       (rf/dispatch [:rf-l5q3/leaf payload])
                        {}))
-    (rf/reg-event :rf-l5q3/landed
-                     (fn [{:keys [db]} _]
-                       {:db (update db :received (fnil conj []) :landed-sync)}))
-    ;; Fire the parent under :tenant-a; the synchronous dispatch inside
-    ;; its body MUST route to :tenant-a too. dispatch-sync drains the
-    ;; full cascade before returning.
-    (rf/dispatch-sync [:rf-l5q3/parent] {:frame :rf-l5q3/tenant-a})
-    (is (= [:landed-sync] (received :rf-l5q3/tenant-a))
-        "the :landed event must land on :tenant-a, not :rf/default")
+    (rf/reg-event :rf-l5q3/leaf
+                     (fn [{:keys [db]} [_ payload]]
+                       {:db (update db :received (fnil conj []) payload)}))
+    (rf/dispatch-sync [:rf-l5q3/fan :a-payload] {:frame :rf-l5q3/tenant-a})
+    (rf/dispatch-sync [:rf-l5q3/fan :b-payload] {:frame :rf-l5q3/tenant-b})
+    (is (= [:a-payload] (received :rf-l5q3/tenant-a))
+        ":tenant-a only sees its own :a-payload")
+    (is (= [:b-payload] (received :rf-l5q3/tenant-b))
+        ":tenant-b only sees its own :b-payload")
     (is (empty? (received :rf/default))
-        ":rf/default must NOT have received :landed — the dispatch was scoped to :tenant-a")))
+        ":rf/default sees nothing — neither cascade leaked")))
 
 ;; ---- 2. setTimeout-deferred direct rf/dispatch ----------------------------
 ;;
@@ -260,31 +261,3 @@
               (done))
             10))
         10))))
-
-;; ---- 5. cross-frame isolation hardness check ------------------------------
-;;
-;; Sanity: when a handler on :tenant-a synchronously dispatches and
-;; *another* handler is also running on :tenant-b in a separate
-;; dispatch-sync, neither cascade leaks into the other's frame.
-;; *current-frame* is bound per `process-event!`, so the
-;; binding is established and torn down PER EVENT — sibling frames
-;; do not see each other's bindings.
-
-(deftest sync-dispatch-isolation-between-frames
-  (testing "synchronous dispatch from :tenant-a handler stays in :tenant-a; :tenant-b is untouched"
-    (seed-frames!)
-    (rf/reg-event :rf-l5q3/fan
-                     (fn [_ [_ payload]]
-                       (rf/dispatch [:rf-l5q3/leaf payload])
-                       {}))
-    (rf/reg-event :rf-l5q3/leaf
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (update db :received (fnil conj []) payload)}))
-    (rf/dispatch-sync [:rf-l5q3/fan :a-payload] {:frame :rf-l5q3/tenant-a})
-    (rf/dispatch-sync [:rf-l5q3/fan :b-payload] {:frame :rf-l5q3/tenant-b})
-    (is (= [:a-payload] (received :rf-l5q3/tenant-a))
-        ":tenant-a only sees its own :a-payload")
-    (is (= [:b-payload] (received :rf-l5q3/tenant-b))
-        ":tenant-b only sees its own :b-payload")
-    (is (empty? (received :rf/default))
-        ":rf/default sees nothing — neither cascade leaked")))

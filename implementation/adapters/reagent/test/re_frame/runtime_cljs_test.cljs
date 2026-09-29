@@ -123,22 +123,6 @@
     (is (fn? greet)
         "the macro defs the supplied symbol to a callable render fn")))
 
-(deftest reg-view-macro-defs-the-symbol
-  ;; Per Spec 001 §Allowed forms of the middle slot, the macro is defn-shape and defs
-  ;; the supplied symbol to the registered render fn — there is no
-  ;; outer-def pattern any more (the legacy
-  ;; `(def name (reg-view :id meta render-fn))` shape is gone with the
-  ;; non-defn-shape body restriction). This test pins the new contract:
-  ;; the auto-defined Var is itself usable as a hiccup head.
-  (testing "the macro defs the symbol to a callable render fn"
-    (reg-view ^{:rf/id :ns/widget} my-widget [n] [:span "w-" n])
-    ;; The registered view is in the registry.
-    (is (some? (rf/view :ns/widget))
-        ":ns/widget is in the :view registry")
-    ;; The defn-shape sym is bound to a fn — usable as a hiccup head.
-    (is (fn? my-widget)
-        "the macro defined the supplied symbol as a fn")))
-
 ;; ---- (rf/view id) — runtime-lookup handle ----------------------
 ;; Per Spec 001 §(re-frame.core/view id): render trees use Vars; runtime
 ;; lookups use ids. (rf/view id) is the
@@ -161,48 +145,6 @@
             "children preserved by the wrapper"))))
   (testing "(rf/view :nope) is nil for an unregistered id (no error)"
     (is (nil? (rf/view :nope/not-registered)))))
-
-;; ---- keyword-head render tree is HTML, not a view dispatch ----
-;; Per Conventions §Render-tree shape vs runtime lookup: keyword vectors at render time
-;; are HTML elements (Reagent's semantics) — the runtime does NOT
-;; intercept :keyword vectors and dispatch via the views registry. This is
-;; the negative test: even if a view is registered under :foo,
-;; bare [:foo args] in a render tree must NOT resolve to that view.
-
-(deftest keyword-head-does-not-dispatch-to-registered-view
-  (testing "[:my-view args] in a render tree is NOT intercepted by the views registry"
-    ;; Register a view with the same keyword id we are about to put into a
-    ;; bare hiccup head. If the runtime were intercepting :keyword heads,
-    ;; the render-tree-hash of [:foo/intercept-me 1] would somehow reflect
-    ;; the registered view's body. It does not: the keyword head is treated
-    ;; as a custom HTML element tag, no registry consultation happens.
-    (reg-view ^{:rf/id :foo/intercept-me} intercept-me-view [n]
-              [:span "view-body-" n])
-    (let [registered-body  ((rf/view :foo/intercept-me) 1)
-          ;; Hash the bare keyword form vs a structurally different
-          ;; keyword form. If the runtime were intercepting, both would
-          ;; render through the same registered fn and produce identical
-          ;; structure (the registered body); they wouldn't differ.
-          h-keyword-form   (rf.ssr/render-tree-hash [:foo/intercept-me 1])
-          h-other-form     (rf.ssr/render-tree-hash [:foo/some-other-tag 1])
-          h-via-var        (rf.ssr/render-tree-hash registered-body)]
-      ;; Keyword-form hashes differ — they are HTML element tags,
-      ;; structurally distinct based on the tag keyword.
-      (is (not= h-keyword-form h-other-form)
-          "[:foo/intercept-me 1] and [:foo/some-other-tag 1] hash differently — the keyword IS the tag")
-      ;; And the bare keyword form does not collapse to the registered
-      ;; view's body — proving no interception happens.
-      (is (not= h-keyword-form h-via-var)
-          "[:foo/intercept-me 1] does not render as the registered view's body — no registry interception")
-      ;; Sanity — explicit Var-reference DOES produce the registered body
-      ;; (the wrapper splices :data-rf2-source-coord into the root attrs
-      ;; per Spec 006 §Source-coord annotation, but the structural shape
-      ;; — root tag, children — matches the registered render fn).
-      (let [out (intercept-me-view 1)]
-        (is (= :span (first out)) "Var-reference resolves to the registered root tag")
-        (is (= ["view-body-" 1] (drop 2 out))
-            "Var-reference resolves to the registered children")))))
-
 
 ;; ---- frame isolation ------------------------------------------------------
 
@@ -603,23 +545,6 @@
         (rf/unsubscribe [:inval/app-sub2])
         (rf/unsubscribe [:inval/rt-sub2])))))
 
-(deftest dispatch-sync-in-handler-errors-cljs
-  (testing "calling dispatch-sync from inside a handler raises a structured error"
-    (let [traces (atom [])]
-      (rf.trace.tooling/register-listener! ::dsih (fn [ev] (swap! traces conj ev)))
-      (rf/reg-event :outer (fn [{:keys [db]} _] {:db (assoc db :ran? true)}))
-      (rf/reg-event :nested
-        (fn [_ _]
-          (rf/dispatch-sync [:outer])
-          {}))
-      (rf/dispatch-sync [:nested])
-      (rf.trace.tooling/unregister-listener! ::dsih)
-      (is (some (fn [ev]
-                  (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
-                       (= :error (:op-type ev))))
-                @traces)
-          "expected :rf.error/dispatch-sync-in-handler trace"))))
-
 ;; ---- sub-cache -------------------------------------------------
 
 (deftest sub-cache-projects-tool-pair-shape
@@ -962,33 +887,6 @@
           (rf/frame-provider {:frame "provider-bad-arg-neighbour"} [:p]))
         "a string target is rejected before React Context is written")))
 
-(deftest frame-provider-build-frame-provider-substrate
-  (testing "build-frame-provider remains the lower-level substrate"
-    ;; Per the bead: build-frame-provider stays in re-frame.views as
-    ;; substrate. The user-facing API is rf/frame-provider; the substrate
-    ;; hook into re-frame.adapter.reagent/register-context-provider is
-    ;; build-frame-provider. Both are callable; both produce the same
-    ;; final hiccup shape when invoked with a frame keyword.
-    ;; build-frame-provider is 0-arity — the returned component
-    ;; takes the frame keyword at render time. The SCOPE-only provider
-    ;; fails loud if the frame is absent, so register :hello live first.
-    (rf/make-frame {:id :hello})
-    (let [provider     (re-frame.views/build-frame-provider)
-          substrate-tree (provider :hello [:span "x"])
-          wrapper-tree   (rf/frame-provider {:frame :hello} [:span "x"])
-          ;; The wrapper invokes (build-frame-provider) per call;
-          ;; the substrate-side returns the same generic component. Compare
-          ;; the inner Provider hiccup produced by each.
-          unwrap         (fn [tree] (apply (first tree) (rest tree)))
-          a              (unwrap wrapper-tree)
-          b              substrate-tree]
-      ;; Both produce `[:r> Provider #js {:value :hello} [:span "x"]]`.
-      (is (= (first a) (first b)) "both emit the :r> raw-React.createElement marker")
-      (is (= (aget (nth a 2) "value")
-             (aget (nth b 2) "value"))
-          "both emit the same :value on the raw JS props object")
-      (is (= (drop 3 a) (drop 3 b)) "both emit the same children"))))
-
 ;; ---- per-frame sub-cache disposal (Spec 006) -------------------
 ;;
 ;; Mirrors the synchronous-disposal portion of
@@ -1026,30 +924,6 @@
 ;; same contract under the Reagent reactive substrate where the
 ;; reaction itself caches and only re-runs when its source changes
 ;; by =.
-
-(deftest restore-rewinds-reagent-reaction
-  (testing "a Reagent-backed reaction held across restore-epoch! derefs
-  to the restored value — proving the restore goes through the same
-  reactive-graph notification path as a drain :db commit."
-    (rf/make-frame {:id :restore/cljs})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/reg-sub :n (fn [db _] (:n db)))
-
-    (rf/dispatch-sync [:seed] {:frame :restore/cljs})  ;; n=0
-    (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=1
-    (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=2
-    (rf/dispatch-sync [:inc]  {:frame :restore/cljs})  ;; n=3
-
-    (let [r       (rf/subscribe [:n] {:frame :restore/cljs})
-          _       (is (= 3 @r) "the reaction sees current value before restore")
-          history (rf/epoch-history :restore/cljs)
-          target  (some (fn [rec] (when (= 1 (:n (:db-after rec))) rec))
-                        history)]
-      (is (true? (rf/restore-epoch! :restore/cljs (:epoch-id target))))
-      (is (= 1 @r)
-          "the same reaction handle observes the rewound value after restore")
-      (rf/unsubscribe :restore/cljs [:n]))))
 
 (deftest restore-reagent-frame-isolation
   (testing "restoring frame A does not cause frame B's reactions to

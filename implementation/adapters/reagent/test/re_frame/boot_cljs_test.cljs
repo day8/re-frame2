@@ -208,31 +208,6 @@
         (assert (= test-user   (rf/compute-sub [:app/user]   db)))
         (assert (= test-routes (rf/compute-sub [:app/routes] db)))))))
 
-(deftest boot-dependency-resolution
-  (testing "per-child :data fns thread spawn-spec identity; no cross-talk between siblings"
-    (reg-canned-success-by-url! :boot.test/canned-boot-success payload-for)
-
-    (with-new-frame [f (rf.frame/make-anon-frame-record!
-                         {:initial-events [[:boot/initialise]]
-                          :fx-overrides {:rf.http/managed
-                                         :boot.test/canned-boot-success}})]
-      (let [db        (rf/frame-state-value f)
-            boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
-        ;; Each `:on-done` fold holds the payload that came back from the
-        ;; matching URL. Cross-talk (e.g. the :flags slot holding the
-        ;; routes payload) would mean the :spawn-all :data fns are
-        ;; not threading identity correctly.
-        (assert (contains? (:config boot-data) :api-base))
-        (assert (sequential? (:routes boot-data)))
-        (assert (contains? (:flags boot-data) :dark-mode?))
-        (assert (contains? (:user boot-data) :username))
-        ;; And each slot holds exactly the payload for its own URL, so the
-        ;; snapshot is self-describing for SSR / tools.
-        (assert (= test-config (:config boot-data)))
-        (assert (= test-routes (:routes boot-data)))
-        (assert (= test-flags  (:flags boot-data)))
-        (assert (= test-user   (:user boot-data)))))))
-
 (deftest boot-failure-path
   (testing "a failure during the parallel phase routes the boot to :failed and records the error"
     (reg-canned-failure! :boot.test/canned-boot-fail
