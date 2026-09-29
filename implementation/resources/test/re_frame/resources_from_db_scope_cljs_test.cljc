@@ -330,6 +330,7 @@
       (is (= :resource-scope (:kind row)))
       (is (= [:username] (:inputs row)) "the declared input NAMES")
       (is (= {:username "jake"} (:input-values row)) "the resolved input VALUES")
+      (is (false? (:whole-db? row)) "a path input is not a whole-db read")
       (is (= [:rf.scope/session {:username "jake"}] (:scope row)) "the resolved scope")
       (is (false? (:resolved-nil? row))))))
 
@@ -548,6 +549,7 @@
                         {:scope {:from-db :t/session} :tags #{[:feed]}}])
                      (catch #?(:clj Throwable :cljs :default) _ nil))))
           row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
+      (is (= 1 (count rows)) "exactly one scope-resolved row")
       (is (some? row) "a scope-resolved row fired for the :t/session resolver")
       (is (true? (:resolved-nil? row)) "the row records the nil resolution")
       (is (nil? (:scope row)) "with a nil resolved scope")))
@@ -690,6 +692,7 @@
                                               :scope {:from-db :t/session}}])
                      (catch #?(:clj Throwable :cljs :default) _ nil))))
           row  (some (fn [ev] (when (= :t/session (:resource-id (:tags ev))) (:tags ev))) rows)]
+      (is (= 1 (count rows)) "exactly one scope-resolved row")
       (is (some? row) "a scope-resolved row fired for the :t/session resolver")
       (is (true? (:resolved-nil? row)) "the row records the nil resolution")
       (is (nil? (:scope row)) "with a nil resolved scope")))

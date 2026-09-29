@@ -311,7 +311,10 @@
 (deftest last-owner-release-cancels-poll-timer
   (rf/reg-resource :or/poll (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :or/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :or/poll {:slug "w"})
+        cancelled-all (atom [])]
+    ;; the all-kinds cancel (stale + GC + poll) — release must NOT emit it
+    (rf.fx/reg-fx :rf.resource/cancel-timers (fn [_ctx args] (swap! cancelled-all conj args) nil))
     (ensure! :or/poll scope "w" [:app :x 1])
     (succeed! k {:title "W"})
     (reset! cancelled-poll [])
@@ -321,7 +324,9 @@
               entry's GC)"
       (is (empty? (:active-owners (entry k))) "entry is owner-free after release")
       (let [args (last (filter #(some #{k} (:resource/keys %)) @cancelled-poll))]
-        (is (some? args) "cancel-poll-timers emitted for the now-owner-free entry")))))
+        (is (some? args) "cancel-poll-timers emitted for the now-owner-free entry"))
+      (is (not-any? #(some #{k} (:resource/keys %)) @cancelled-all)
+          "no all-kinds cancel names the entry, so its stale/GC timers stay armed"))))
 
 (deftest poll-tick-on-owner-free-entry-stops-no-refetch-no-rearm
   ;; Belt-and-braces: even if a poll timer fires AFTER the owner released (a
@@ -503,14 +508,12 @@
 
 (deftest poll-timer-kind-is-cancelled-with-the-key
   (testing "Spec 016 §Polling — cancel-for-key! cancels the :poll kind too (so
-            entry removal / clear-scope stops polling); release-frame! drops it"
-    (let [fired (atom 0)]
-      ;; arm a real poll timer via the substrate (long delay — we cancel before
-      ;; it fires; we only assert the side-table slot is dropped)
-      (rf.resources.timers/schedule! :pk/frame [:s :pk/r {}] rf.resources.timers/poll-kind 60000)
-      (is (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind])
-          "poll timer armed in the side table")
-      (rf.resources.timers/cancel-for-key! :pk/frame [:s :pk/r {}])
-      (is (not (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind]))
-          "cancel-for-key! dropped the :poll slot")
-      @fired)))
+            entry removal / clear-scope stops polling)"
+    ;; arm a real poll timer via the substrate (long delay — we cancel before
+    ;; it fires; we only assert the side-table slot is dropped)
+    (rf.resources.timers/schedule! :pk/frame [:s :pk/r {}] rf.resources.timers/poll-kind 60000)
+    (is (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind])
+        "poll timer armed in the side table")
+    (rf.resources.timers/cancel-for-key! :pk/frame [:s :pk/r {}])
+    (is (not (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind]))
+        "cancel-for-key! dropped the :poll slot")))

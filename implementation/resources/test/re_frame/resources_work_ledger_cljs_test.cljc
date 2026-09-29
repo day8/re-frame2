@@ -961,8 +961,7 @@
           ;; seed the index live so put/prune keep it in step from step 0
           start   (rf.resources.work-ledger/recompute-ledger-index {:rf.runtime/work-ledger {}})]
       (loop [step 0, rdb start, gen 0]
-        (if (= step 500)
-          (is true "500 randomised ledger ops stayed in lock-step with the rebuild")
+        (when (< step 500)
           (let [op  (nextint 2)
                 k   (nth keys' (nextint (count keys')))
                 rdb' (case op

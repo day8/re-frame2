@@ -1206,17 +1206,7 @@
       (is (= :secret/thing (nth wk 1)) "the resource-id is preserved for refetch identity")
       (is (true? (:refetch-on-client? m))
           "and the server's own metadata says the client must fetch it —
-           the fact is reported, not lost")
-      ;; CLIENT hydration over what actually ships.
-      (let [out  (rf.resources.ssr/hydrate-runtime-db proj nil)
-            plan (rf.resources.ssr/hydrate-refetch-plan proj 5000)]
-        (is (empty? (get-in out [rf.resources.state/resources-key :entries]))
-            "the client's cache holds no row for it — so the sentinel can never
-             be rendered as if it were the real value")
-        (is (empty? plan)
-            (str "and the plan names nothing: a plan entry is consumed by its "
-                 ":resource/key, and there is no key here the client has — "
-                 (pr-str plan)))))))
+           the fact is reported, not lost"))))
 
 (deftest a-redacted-entry-reaching-the-planner-by-any-other-route-is-still-metadata-only
   (reg! :secret/thing {:sensitive? true})

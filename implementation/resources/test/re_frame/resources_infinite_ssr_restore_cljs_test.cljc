@@ -97,7 +97,7 @@
 
 ;; The three accumulated pages (N=3, non-terminal — a 4th page exists, "c3"),
 ;; built by replaying the pure append transition the reply path drives.
-(def ^:private p0 (page [:a :b] "c1" nil))
+(def ^:private p0 (page [:a :b] "c1" "c0"))
 (def ^:private p1 (page [:c :d] "c2"))
 (def ^:private p2 (page [:e :f] "c3"))
 
@@ -156,7 +156,7 @@
 (def ^:private expected-items   [:a :b :c :d :e :f])
 (def ^:private expected-params  [nil "c1" "c2"])
 (def ^:private expected-cursor  "c3")    ;; next-page-param after 3 non-terminal pages
-(def ^:private expected-prev    nil)     ;; p0 declared no :prev-cursor → mirror nil
+(def ^:private expected-prev    "c0")    ;; p0's :prev-cursor → the prev mirror
 
 (defn- merged-items*
   "Merge an infinite `entry` to its flat `:items` list through the

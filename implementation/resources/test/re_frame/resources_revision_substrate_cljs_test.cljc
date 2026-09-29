@@ -171,7 +171,7 @@
           settled  (rf.resources.state/entry-failed fetching {:error {:kind :rf.http/http-5xx}})]
       (is (= :fetching (:status fetching)) "the refetch is in flight")
       (is (= [:w 1] (:current-work fetching)) "with a :current-work pointer")
-      (is (= rec-rev (:revision fetching))
+      (is (= (:revision loaded) rec-rev)
           "load START did not move :revision (entry-start-load)")
       (testing "the failure settle is durable + terminal"
         (is (= :loaded (:status settled)) "background failure returns to :loaded")

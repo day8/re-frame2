@@ -324,7 +324,7 @@
              (rf.resources/reg-resource-scope :s/claim
                                            (assoc session-meta :rf.egress/output-sensitivity claim)
                                            session-resolve)))
-      (is (nil? (:output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/claim})))))))
+      (is (nil? (:rf.egress/output-sensitivity (:rf/resource-scope (rf/handler-meta {:source :store :kind :resource-scope :id :s/claim})))))))
   (testing "a whole-db (root-path input) resolver carries no :output-sensitivity"
     (rf.resources/reg-resource-scope :s/whole-db-claim
                                   {:inputs {:db [:db []]}}
