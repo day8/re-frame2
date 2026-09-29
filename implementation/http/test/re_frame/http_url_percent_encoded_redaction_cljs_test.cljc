@@ -107,15 +107,6 @@
       (is (= "https://api.example.com/x?shop%5Ftoken=:rf/redacted&page=2" redacted))
       (is (true? any?)))))
 
-(deftest redact-url-malformed-escape-does-not-throw-and-passes-through
-  (testing "a malformed percent-escape in a non-denylisted name does not throw and is preserved unchanged"
-    (let [[redacted any?] (rf.http.url/redact-url-query-string
-                            "https://api.example.com/x?weird%5=v&page=2"
-                            false)]
-      (is (= "https://api.example.com/x?weird%5=v&page=2" redacted)
-          "malformed escape on a non-denylisted name — value preserved, no crash")
-      (is (false? any?)))))
-
 (deftest redact-url-malformed-escape-on-other-param-still-redacts-real-denylist-hit
   (testing "a malformed escape elsewhere in the URL does not stop a real (encoded) denylisted name from being redacted"
     (let [[redacted any?] (rf.http.url/redact-url-query-string

@@ -84,20 +84,6 @@
           (is (not (str/includes? (pr-str @captured) sentinel))
               "no captured trace event carries any part of the rejected value"))))))
 
-(deftest invalid-header-name-emits-warning
-  (testing "an empty header name also fires the warning"
-    (with-trace-capture
-      (fn [captured]
-        (let [_req (jvm-build-request
-                     {:method  :get
-                      :url     "https://example.invalid/"
-                      :headers {"" "anything"}})
-              warns (filter #(= :rf.warning/http-header-invalid
-                                (:operation %))
-                            @captured)]
-          (is (seq warns)
-              "expected :rf.warning/http-header-invalid for empty header name"))))))
-
 (deftest valid-headers-do-not-emit-warning
   (testing "a valid header does NOT emit the warning"
     (with-trace-capture

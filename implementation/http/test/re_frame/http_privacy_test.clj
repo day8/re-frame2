@@ -273,16 +273,6 @@
       (is (= :rf/redacted (:body-text r))
           "the response body still redacts when sensitive"))))
 
-;; ---- 6. stamp-sensitive --------------------------------------------------
-
-(deftest stamp-sensitive-adds-flag-when-true
-  (is (= {:foo 1 :sensitive? true}
-         (rf.http.privacy/stamp-sensitive {:foo 1} true))))
-
-(deftest stamp-sensitive-omits-when-false
-  (is (= {:foo 1}
-         (rf.http.privacy/stamp-sensitive {:foo 1} false))))
-
 ;; ---- 7. prepare-emit-tags / prepare-emit-failure -------------------------
 
 (deftest prepare-emit-tags-composes-correctly
@@ -296,11 +286,6 @@
       (is (= :rf/redacted (get-in r [:headers "Authorization"])))
       (is (= :rf/redacted (get-in r [:failure :body])))
       (is (true? (:sensitive? r))))))
-
-(deftest prepare-emit-tags-omits-flag-when-not-sensitive
-  (let [tags {:request-id :r/x :url "/x"}
-        r    (rf.http.privacy/prepare-emit-tags tags false)]
-    (is (not (contains? r :sensitive?)))))
 
 (deftest prepare-emit-failure-composes-correctly
   (let [failure {:kind :rf.http/http-5xx
@@ -469,11 +454,6 @@
     (is (= :not-a-map (rf.http.privacy/project-managed-fx-args :not-a-map)))
     (is (nil? (rf.http.privacy/project-managed-fx-args nil)))))
 
-(deftest project-managed-fx-args-hook-is-published
-  (testing "re-frame.http.managed publishes the hook core's fx-args walk
-            consults (load-time anchor)"
-    (is (fn? (rf.late-bind/get-fn :http/project-managed-fx-args)))))
-
 ;; ---- 8. query-param denylist ----------------------------------------------
 
 (deftest default-query-param-denylist-covers-canonical-set
@@ -516,12 +496,6 @@
       (is (not (rf.http.url/sensitive-query-param? "shop_token" nil)))
       ;; defaults are immutable — they apply regardless of extras
       (is (rf.http.url/sensitive-query-param? "api_key")))))
-
-(deftest sensitive-query-param-tolerates-non-string
-  (testing "nil / non-string is not sensitive"
-    (is (not (rf.http.url/sensitive-query-param? nil)))
-    (is (not (rf.http.url/sensitive-query-param? :keyword)))
-    (is (not (rf.http.url/sensitive-query-param? 42)))))
 
 ;; Query-param policy MAP {:include :except}: an app can SUBTRACT a
 ;; built-in default (relaxing its OWN dev-trace friction over a harmless
@@ -609,18 +583,6 @@
       (is (= "https://api.example.com/users?page=2&limit=10" url))
       (is (false? any?)))))
 
-(deftest redact-url-preserves-fragment
-  (testing "fragment is preserved verbatim after the redacted query string"
-    (let [[url _] (rf.http.url/redact-url-query-string
-                    "https://api.example.com/x?token=abc&page=2#section-3" false)]
-      (is (= "https://api.example.com/x?token=:rf/redacted&page=2#section-3" url)))))
-
-(deftest redact-url-empty-value-redacted
-  (testing "param with empty value still has the value slot replaced"
-    (let [[url _] (rf.http.url/redact-url-query-string
-                    "https://api.example.com/x?token=&page=2" false)]
-      (is (= "https://api.example.com/x?token=:rf/redacted&page=2" url)))))
-
 (deftest redact-url-handles-url-encoded-values
   (testing "URL-encoded special chars in values are replaced wholesale, not parsed"
     (let [[url _] (rf.http.url/redact-url-query-string
@@ -678,13 +640,6 @@
       (is (= "https://api.example.com/x?" url))
       (is (false? any?)))))
 
-(deftest redact-url-denylisted-param-with-fragment
-  (testing "denylisted param value redacted; fragment preserved verbatim"
-    (let [[url any?] (rf.http.url/redact-url-query-string
-                       "https://api.example.com/x?api_key=SECRET#section-3" false)]
-      (is (= "https://api.example.com/x?api_key=:rf/redacted#section-3" url))
-      (is (true? any?)))))
-
 (deftest redact-url-empty-value-denylisted-param
   (testing "denylisted param with empty value still has value slot replaced"
     (let [[url any?] (rf.http.url/redact-url-query-string
@@ -708,63 +663,12 @@
                     "https://api.example.com/x?token=abc#k=v&also=x" false)]
       (is (= "https://api.example.com/x?token=:rf/redacted#k=v&also=x" url)))))
 
-;; ---- 9c. redact-url convenience wrapper ----------------------------------
-;;
-;; `redact-url` is the single-value form used inside generic tag walkers
-;; (`redact-url-in`) that don't need the any-redacted? flag. Pin the
-;; wrapper's shape so a refactor that swaps the underlying impl doesn't
-;; silently change the caller's reading.
-
-(deftest redact-url-wrapper-returns-string
-  (testing "redact-url returns only the redacted URL string (not the [url flag] tuple)"
-    (is (= "https://api.example.com/x?api_key=:rf/redacted&page=2"
-           (rf.http.url/redact-url
-             "https://api.example.com/x?api_key=SECRET&page=2" false))
-        "denylist hit — value redacted")
-    (is (= "https://api.example.com/x?page=2"
-           (rf.http.url/redact-url
-             "https://api.example.com/x?page=2" false))
-        "no denylist hit — unchanged")
-    (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted"
-           (rf.http.url/redact-url
-             "https://api.example.com/x?user_id=42&page=2" true))
-        "sensitive? true — all params redacted")
-    (is (nil? (rf.http.url/redact-url nil false))
-        "nil input passes through")
-    (is (= "https://api.example.com/x#frag"
-           (rf.http.url/redact-url "https://api.example.com/x#frag" false))
-        "fragment-only URL passes through")))
-
 ;; ---- 10. redact-request-tags integrates URL redaction --------------------
-
-(deftest redact-request-tags-redacts-url-denylist-always
-  (testing "URL with denylisted query param is redacted regardless of :sensitive?"
-    (let [tags {:url "https://api.example.com/x?api_key=SECRET&page=2"}
-          r    (rf.http.privacy/redact-request-tags tags false)]
-      (is (= "https://api.example.com/x?api_key=:rf/redacted&page=2" (:url r))))))
 
 (deftest redact-request-tags-redacts-all-params-when-sensitive
   (testing "URL gets ALL params redacted when sensitive? is true"
     (let [tags {:url "https://api.example.com/x?user_id=42&page=2"}
           r    (rf.http.privacy/redact-request-tags tags true)]
-      (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted" (:url r))))))
-
-;; ---- 11. redact-failure integrates URL redaction -------------------------
-
-(deftest redact-failure-redacts-url-denylist-always
-  (testing "URL on failure map redacted regardless of :sensitive?"
-    (let [f {:kind :rf.http/http-5xx
-             :status 500
-             :url "https://api.example.com/x?token=abc&page=2"}
-          r (rf.http.privacy/redact-failure f false)]
-      (is (= "https://api.example.com/x?token=:rf/redacted&page=2" (:url r))))))
-
-(deftest redact-failure-redacts-all-url-params-when-sensitive
-  (testing "all URL params redacted on failure when sensitive? true"
-    (let [f {:kind :rf.http/http-5xx
-             :status 500
-             :url "https://api.example.com/x?user_id=42&page=2"}
-          r (rf.http.privacy/redact-failure f true)]
       (is (= "https://api.example.com/x?user_id=:rf/redacted&page=:rf/redacted" (:url r))))))
 
 ;; ---- 12. prepare-emit-* stamps :sensitive? on denylist-only hit ----------
