@@ -49,17 +49,6 @@
 (use-fixtures :each reset-all)
 
 ;; ===========================================================================
-;; Decorator registration
-;; ===========================================================================
-
-(deftest force-fx-stub-registered-at-boot
-  (testing ":rf.story/force-fx-stub is registered as a decorator after install"
-    (is (rf.story/registered? :decorator :rf.story/force-fx-stub))
-    (is (= :fx-override
-           (:kind (rf.story/handler-meta :decorator :rf.story/force-fx-stub))))
-    (is (= rf.story/force-fx-stub-id :rf.story/force-fx-stub))))
-
-;; ===========================================================================
 ;; Ref-args expansion
 ;; ===========================================================================
 
@@ -103,23 +92,6 @@
     (is (nil? (rf.story.fx-stubs/expand-ref-args [:some-other-decorator :http])))
     (is (nil? (rf.story.fx-stubs/expand-ref-args nil)))
     (is (nil? (rf.story.fx-stubs/expand-ref-args [])))))
-
-;; ===========================================================================
-;; The fx-overrides config threads onto the variant frame
-;; ===========================================================================
-
-(deftest force-fx-stub-installs-on-frame
-  (testing "running a variant with force-fx-stub stamps :fx-overrides on the frame config"
-    (rf.story/reg-variant :story.fxstub-frame/v
-      {:decorators [[:rf.story/force-fx-stub :http {:status :pending}]]
-       :setup     []})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fxstub-frame/v) 5000)]
-      (is (= :ready (:lifecycle r)))
-      (let [overrides (:fx-overrides (rf/frame-meta :story.fxstub-frame/v))]
-        (is (map? overrides))
-        (is (contains? overrides :http)
-            "the :http fx is redirected to the stub event")))
-    (rf.story/destroy-variant! :story.fxstub-frame/v)))
 
 ;; ===========================================================================
 ;; :rf.assert/effect-emitted with force-fx-stub

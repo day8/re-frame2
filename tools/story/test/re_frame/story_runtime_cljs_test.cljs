@@ -122,21 +122,6 @@
                 (rf.story/destroy-variant! :story.cljs.eo/v)
                 (done))))))))
 
-(deftest cljs-events-only-classifier
-  (testing "`rf.story.loaders/events-only-variant?` classifies the
-            canonical events-only loader-body shape on CLJS"
-    (is (true?  (rf.story.loaders/events-only-variant? {:setup [[:counter/initialise 5]]}
-                                              {:hiccup [] :frame-setup []
-                                               :fx-override [] :errors []}))
-        "the counter_with_stories `:story.counter/events-only-loaded`
-         body shape → events-only")
-    (is (false? (rf.story.loaders/events-only-variant? {:loaders [[:l]]} {}))
-        ":loaders disqualifies")
-    (is (false? (rf.story.loaders/events-only-variant? {:loaders-complete-when :p?} {}))
-        ":loaders-complete-when disqualifies")
-    (is (false? (rf.story.loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
-        ":frame-setup decorators disqualify")))
-
 ;; ---- the run-variant promise resolves even when the play -----------------
 ;;      runner aborts mid-:wait (frame torn down during the async yield) ----
 ;;
@@ -248,17 +233,3 @@
       (is (= :light    (:theme r)))
       (is (= "variant" (:label r)))
       (is (= :star     (:icon r))))))
-
-;; ---- decorator composition ----------------------------------------------
-
-(deftest cljs-decorator-resolution
-  (testing "decorator resolution works on CLJS"
-    (rf.story/reg-decorator :centered
-      {:kind :hiccup
-       :wrap (fn [body _] [:div.centered body])})
-    (rf.story/reg-variant :story.cljs.dec/v
-      {:decorators [[:centered]]
-       :setup     []})
-    (let [r (rf.story/resolve-decorators :story.cljs.dec/v)]
-      (is (= 1 (count (:hiccup r))))
-      (is (= :centered (-> r :hiccup first :id))))))

@@ -24,10 +24,8 @@
     so the only thing distinguishing the two frames' final app-db is
     the seed.
 
-  Pure-data-side coverage of the resolve order lives in
-  `re-frame.story-runtime-test` §`decorators-story-then-variant-order`
-  and §`decorators-apply-hiccup-outermost-first`. This namespace covers
-  the *end-to-end* invariants: the decorator stack actually runs in
+  This namespace covers the resolve order and the *end-to-end*
+  invariants: the decorator stack actually runs in
   the spec'd order AND the frame-isolation pair actually keeps two
   parallel runs separate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
