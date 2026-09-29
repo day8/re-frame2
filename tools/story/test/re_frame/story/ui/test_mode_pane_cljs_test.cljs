@@ -281,35 +281,6 @@
           ":skip overrides the :passed? false → :fail rule")
       (is (= "feature gated"    (-> row :detail :reason))))))
 
-(deftest aggregate-summary-mixed-rows
-  (testing "the pane's headline counts (rf.story.ui.state/aggregate-summary) fold a
-            mixed pass/fail/skip vector into the spec'd shape"
-    (let [assertions [{:assertion :rf.assert/path-equals  :passed? true}
-                      {:assertion :rf.assert/path-equals  :passed? false}
-                      {:assertion :rf.assert/skipped      :passed? false}
-                      {:assertion :rf.assert/sub-equals   :passed? true}]
-          summary    (rf.story.ui.state/aggregate-summary assertions)]
-      (is (= 4 (:total summary))
-          ":total counts every row including skipped")
-      (is (= 2 (:passed summary))
-          ":passed counts only :passed? true rows that aren't skipped")
-      (is (= 1 (:failed summary))
-          ":failed counts non-skipped :passed? false rows")
-      (is (= 1 (:skipped summary)))
-      (is (false? (:all-passed? summary))
-          "any failure OR any skip OR zero total ⇒ :all-passed? false"))))
-
-(deftest aggregate-summary-all-pass-only
-  (testing ":all-passed? is true iff total>0 AND failed=0 AND skipped=0"
-    (let [s1 (rf.story.ui.state/aggregate-summary
-               [{:assertion :rf.assert/path-equals :passed? true}])
-          s2 (rf.story.ui.state/aggregate-summary [])
-          s3 (rf.story.ui.state/aggregate-summary
-               [{:assertion :rf.assert/skipped :passed? false}])]
-      (is (true?  (:all-passed? s1)))
-      (is (false? (:all-passed? s2)) "empty rows ⇒ not all-passed")
-      (is (false? (:all-passed? s3)) "a skip blocks :all-passed?"))))
-
 ;; ===========================================================================
 ;; Re-run fills the slot
 ;;

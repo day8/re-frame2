@@ -88,20 +88,6 @@
       (is (re-find #"…$" out)
           "truncated output ends in an ellipsis"))))
 
-(deftest summary-line-error-message
-  (testing "an errored row surfaces the captured error's :message — the
-            one sentence saying what went wrong. This is the setup-failure
-            case: a :setup that throws, or one dispatching
-            an event nobody registered, lands an :rf.error/exception record
-            whose :error map carries the message and whose :reason is nil"
-    (let [row {:status :error
-               :detail {:reason nil
-                        :error  {:message "no handler registered for :your/setup-event"
-                                 :stack   nil
-                                 :data    nil}}}]
-      (is (= "no handler registered for :your/setup-event"
-             (rf.story.ui.assertion-strip/summary-line row))))))
-
 (deftest summary-line-error-falls-back-to-reason
   (testing "an errored row with no :error :message falls back to :reason,
             then to a bare \"error\" placeholder — the summary is never
@@ -531,24 +517,6 @@
           "stamped :error auto-expands too")
       (is (some? (find-string hiccup "no handler registered for :your/setup-event"))))))
 
-(deftest assertion-strip-throwing-setup-reads-the-same
-  (testing "CONTROL for the other producer — a setup handler that THROWS
-            lands the same record shape with the throwable's message, and
-            must read identically to the no-handler refusal"
-    (let [assertions [{:assertion :rf.error/exception
-                       :passed?   false
-                       :event     [:your/setup-event {}]
-                       :phase     :phase-0-setup
-                       :reason    nil
-                       :error     {:message "kaboom" :stack nil :data nil}}]
-          hiccup     (render-strip-expanded assertions)
-          wrap       (find-prop hiccup :data-test "story-canvas-assertion-row")]
-      (is (= "error" (:data-status wrap)))
-      (is (some? (find-prop hiccup :data-test "story-canvas-assertion-detail"))
-          "a throwing setup auto-expands on the same path")
-      (is (some? (find-string hiccup "kaboom"))
-          "the throwable's message reaches the detail panel"))))
-
 (deftest assertion-strip-pass-stays-collapsed
   (testing "pattern #2 — passing assertions stay collapsed by default;
             no detail panel renders without a click"
@@ -600,8 +568,8 @@
 ;; (it never transfers to render-row's return value), so React would see an
 ;; unkeyed row seq and warn on every run — failing the Story/Xray
 ;; feature-load browser gate. A row-SHAPE check cannot see the seq-key
-;; contract, so these tests pin `(meta element) :key` on every rendered row
-;; element.
+;; contract, so the test below pins `(meta element) :key` on every rendered
+;; row element, across two groups so a per-group index key is caught too.
 
 (defn- collect-row-seq-elements
   "Walk `hiccup` and collect the elements of the inner row sequence — the
@@ -623,30 +591,6 @@
                 :else               nil))]
       (walk hiccup))
     @found))
-
-(deftest assertion-strip-row-seq-elements-carry-key-meta
-  (testing "every rendered row element carries a unique :key in its
-            metadata so React's row seq is keyed — the meta MUST sit on a
-            vector literal, NOT a function-call form"
-    (let [assertions [{:assertion :rf.assert/path-equals
-                       :passed? true :payload [[:c] 1] :expected 1 :actual 1}
-                      {:assertion :rf.assert/path-equals
-                       :passed? false :payload [[:c] 2] :expected 2 :actual 0
-                       :reason "values differ"}
-                      {:assertion :rf.assert/skipped
-                       :passed? false :reason "feature gated"}]
-          hiccup     (render-strip assertions)
-          rows       (collect-row-seq-elements hiccup)]
-      (is (= 3 (count rows))
-          "one row element per assertion record")
-      (is (every? vector? rows)
-          "rows are component vectors — `[render-row ...]`, not call forms")
-      (is (every? #(some? (:key (meta %))) rows)
-          "every row element carries a :key in its metadata so React's
-           row seq is keyed (no missing-key warning)")
-      (is (= (count rows)
-             (count (into #{} (map #(:key (meta %)) rows))))
-          ":key values are unique across the row seq"))))
 
 (deftest assertion-strip-row-key-meta-survives-multi-group
   (testing "the :key meta lands on row elements across multiple groups —

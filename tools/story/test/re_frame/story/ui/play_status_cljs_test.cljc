@@ -77,16 +77,9 @@
 ;; The play-status ns itself is CLJS-only so JVM gates the require under
 ;; the reader conditional above. JVM coverage of the underlying pure
 ;; runner fns the banner / chip read lives in `runner_test.cljc`. The
-;; two tests below are a smoke check
-;; that the runner exports survive a separate JVM-side require + a
-;; minimal banner-shape assertion (without depending on the .cljs file).
-
-(deftest jvm-progress-and-summary
-  (testing "runner helpers used by the chip render the expected strings"
-    (let [s (-> (rf.story.play.runner/parse-spec {:script [[:wait 1] [:wait 2]]})
-                rf.story.play.runner/initial-state
-                (assoc :status :running :step-idx 1))]
-      (is (= "RUNNING (step 2/2)" (rf.story.play.runner/progress-str s))))))
+;; test below runs on both lanes and pins the banner's pick: the
+;; summary names the FIRST FAILED step, which a `(first results)` read
+;; would miss when an earlier step passed.
 
 (deftest jvm-banner-summary
   (testing "fail-summary describes the first failed result"

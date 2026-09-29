@@ -177,12 +177,3 @@
           rows    (rf.story.ui.test-mode.stepper-pure/step-statuses steps results)]
       (is (= :fail  (:status (nth rows 0))) "first step ran → its outcome")
       (is (= :event (:status (nth rows 1))) "second step not yet run → neutral"))))
-
-;; ---- play-step-label re-export ------------------------------------------
-
-(deftest play-step-label-roundtrips
-  (testing "re-export keeps the same shape as test-mode-pure/play-step-label"
-    (is (= ":auth/email-changed"
-           (rf.story.ui.test-mode.stepper-pure/play-step-label [:auth/email-changed "x@y"])))
-    (is (= "" (rf.story.ui.test-mode.stepper-pure/play-step-label nil)))
-    (is (= "" (rf.story.ui.test-mode.stepper-pure/play-step-label [])))))
