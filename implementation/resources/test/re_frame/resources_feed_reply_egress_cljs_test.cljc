@@ -6,7 +6,9 @@
   declares `[:data :items :ssn]` against a page `{:items [...] ...}`, and the
   `:page->items` accessor has taken the `:items` level away from the merged
   list, so the page-relative path names nothing in it. Through a keyword
-  accessor the declared path loses the accessor key. Through a callable
+  accessor the declared path is read both without the accessor key and as
+  written, because a vector page merges by identity and never reaches the
+  accessor, so its items keep the key. Through a callable
   accessor nothing says where a declared field lands, so a sensitive data
   declaration redacts the whole `:value`. A vector-page feed's items are its
   pages' elements, so its declaration reads as written.
@@ -119,16 +121,21 @@
     #(rf/dispatch-sync (conj (:on-success @last-managed-args) {:status :ok :value page}))))
 
 (defn- assert-reply-value
-  "The projected replies in `rows` carry `expected` as their `:value`, and the
-  in-process reply carries the raw merged items."
-  [rows expected]
-  (let [replies (read-replies rows)]
-    (is (seq replies) "the continuation reply rides a carrier slot")
-    (doseq [reply replies]
-      (is (= expected (:value reply))))
-    (is (not (str/includes? (pr-str (map :tags rows)) ssn)) "no carrier carries the secret"))
-  (is (= [[{:ssn ssn :name "zero"}]] (map :value @delivered))
-      "the app's own :reply-to handler receives the raw merged items"))
+  "The projected replies in `rows` carry `expected` as their `:value` and no
+  carrier carries `secret`, while the in-process reply carries the raw merged
+  items `raw`."
+  ([rows expected]
+   (assert-reply-value rows expected [{:ssn ssn :name "zero"}] ssn))
+  ([rows expected raw secret]
+   (let [replies (read-replies rows)]
+     (is (seq replies) "the continuation reply rides a carrier slot")
+     (doseq [reply replies]
+       (if (fn? expected)
+         (is (expected (:value reply)) (pr-str (:value reply)))
+         (is (= expected (:value reply)))))
+     (is (not (str/includes? (pr-str (map :tags rows)) secret)) "no carrier carries the secret"))
+   (is (= [raw] (map :value @delivered))
+       "the app's own :reply-to handler receives the raw merged items")))
 
 ;; ===========================================================================
 
@@ -151,3 +158,26 @@
                                          :sensitive   [[:data :items :ssn]]}
                    {:items [{:ssn ssn :name "zero"}] :cursor nil})
       redacted)))
+
+;; ---- a vector page under a keyword accessor --------------------------------
+
+(def ^:private nested-page
+  "A vector page whose items carry a nested field under the key a keyword
+  accessor would name."
+  [{:items {:ssn ssn} :name "zero"}])
+
+(deftest a-keyword-accessor-feeds-vector-page-reply-redacts-the-declaration-as-written
+  (testing "a vector page merges by identity, so its items keep the accessor key"
+    (assert-reply-value
+      (settle-feed :feed-reply/keyword-vector {:page->items :items :sensitive [[:data :items :ssn]]}
+                   nested-page)
+      [{:items {:ssn redacted} :name "zero"}]
+      nested-page
+      ssn)))
+
+(deftest control-the-same-vector-page-without-an-accessor-redacts-the-declaration-as-written
+  (assert-reply-value
+    (settle-feed :feed-reply/vector-nested {:sensitive [[:data :items :ssn]]} nested-page)
+    [{:items {:ssn redacted} :name "zero"}]
+    nested-page
+    ssn))
