@@ -1518,6 +1518,34 @@
   (when (some? payload)
     (rf.projection/project-egress payload (egress-opts frame-id opts))))
 
+(defn- redact-by-recorded-registry
+  "Redact a recorded runtime-db partition at the claims its OWN elision registry
+  (`:rf.runtime/elision`) carried when it was recorded.
+
+  The live walk classifies by the frame's registry as it stands NOW, and an
+  owner's teardown drops its claims from that registry — destroying a machine
+  actor drops the `:sensitive` / `:large` paths lowered for its snapshot — while
+  an older frame-state still holds the snapshot those claims governed. The
+  recorded registry travels inside the partition it classified, so a historic
+  value keeps its classification without the live registry retaining a dead
+  owner's entries, and the in-process record stays raw.
+
+  Runs BEFORE the live walk: every recorded `:sensitive` claim becomes the
+  sentinel, so a live large marker is never sized over a secret the live
+  registry has forgotten, and a recorded `:large` claim the live registry no
+  longer carries becomes a marker (one it still carries is marked by the live
+  walk, which passes a marker through). Each axis honours its
+  `:rf.egress/include-*` opt-in."
+  [runtime-db frame-id {:rf.egress/keys [include-sensitive? include-large?]}]
+  (let [recorded  (:rf.runtime/elision runtime-db)
+        sensitive (when-not include-sensitive?
+                    (keys (:sensitive-declarations recorded)))
+        large     (when-not include-large?
+                    (remove (rf.elision/declarations frame-id)
+                            (keys (:declarations recorded))))]
+    (rf.classification/redact-with-paths runtime-db sensitive large
+                                         {:index-free? true})))
+
 (defn- project-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
   egress. The frame-state value is
@@ -1541,7 +1569,9 @@
       genuinely needs runtime-db diagnostics opts in explicitly with
       `:rf.egress/include-runtime-db? true`; the runtime-db value is then projected
       through the same frame/profile walk (its own per-slot sensitive /
-      large declarations still apply) rather than redacted whole.
+      large declarations still apply) rather than redacted whole, after
+      `redact-by-recorded-registry` has applied the claims the partition's
+      own recorded registry carried.
 
   Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
   the projection MUST NOT fabricate a value)."
@@ -1558,7 +1588,10 @@
       (assoc :rf.db/runtime :rf/redacted)
 
       (and (contains? frame-state :rf.db/runtime) include-runtime-db?)
-      (update :rf.db/runtime rf.projection/project-egress (egress-opts frame-id opts)))))
+      (update :rf.db/runtime
+              #(rf.projection/project-egress
+                 (redact-by-recorded-registry % frame-id opts)
+                 (egress-opts frame-id opts))))))
 
 (defn- reroot-trace-event-db-slots
   "The `:rf.event/db-pending` (t1) and
