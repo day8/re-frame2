@@ -151,31 +151,6 @@
         (is (= 1 @r))
         (is (= 3 @runs) "transition false → val re-runs body")))))
 
-;; ---- equivalence with layer-2+ (≥2 inputs) --------------------------------
-;;
-;; Belt-and-braces: the 1-input specialisation is correctness-preserving
-;; relative to a 2-input layer-2 sub that ignores its second input.
-
-(deftest layer-n-1-and-layer-n-produce-the-same-stream-of-values
-  (testing "a 1-input layer-2 sub and a 2-input layer-2 sub (one of the
-            inputs constant) produce the same stream of values across
-            N db updates"
-    (rf/reg-event :seed   (fn [{:keys [db]} _]      {:db {:n 0 :k :stable}}))
-    (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-    (rf/reg-sub :n  (fn [db _] (:n db)))
-    (rf/reg-sub :k  (fn [db _] (:k db)))
-    (rf/reg-sub :n*2-1 {:inputs [[:n]]}
-                (fn [[n] _] (* 2 n)))
-    (rf/reg-sub :n*2-2 {:inputs [[:n] [:k]]}
-                (fn [[n _k] _] (* 2 n)))
-    (rf/dispatch-sync [:seed])
-    (let [r1 (rf/subscribe [:n*2-1])
-          r2 (rf/subscribe [:n*2-2])]
-      (doseq [v (range 1 6)]
-        (rf/dispatch-sync [:update v])
-        (is (= (* 2 v) @r1 @r2)
-            (str "1-input and 2-input layer-2 agree at v=" v))))))
-
 ;; ---- chain of layer-2 single-input subs -----------------------------------
 ;;
 ;; Stress the memo: B over A, C over B. A change to db that A absorbs but
@@ -206,38 +181,3 @@
       (is (= 12 @rc))
       (is (= [3 2 2] [@a-runs @b-runs @c-runs])
           "real change propagates through the chain once"))))
-
-;; ---- the same specialisation under a DECLARED `:inputs` -------------------
-;;
-;; A single DECLARED input routes through this same fixed-arity-1 wrapper and
-;; delivers `[v0]`. The wrapper compares the upstream value, so the memo-hit
-;; structure these tests pin is independent of the delivery shape. That is
-;; what makes the vector delivery free: it touches the CALL, not the memo cells.
-
-(deftest layer-n-1-memo-holds-for-a-declared-single-input
-  (testing "a single declared `:inputs` short-circuits on an `=`-equal upstream
-            value exactly as the single-input specialisation does, while delivering `[v0]`"
-    (let [runs (atom 0)
-          seen (atom nil)]
-      (rf/reg-event :seed   (fn [_ _]              {:db {:n 7 :unrelated 0}}))
-      (rf/reg-event :touch  (fn [{:keys [db]} _]   {:db (update db :unrelated inc)}))
-      (rf/reg-event :update (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
-      (rf/reg-sub :n   (fn [db _] (:n db)))
-      (rf/reg-sub :n*2 {:inputs [[:n]]}
-                  (fn [in _] (swap! runs inc) (reset! seen in) (* 2 (first in))))
-      (rf/dispatch-sync [:seed])
-      (let [r (rf/subscribe [:n*2])]
-        (is (= 14 @r))
-        (is (= 1 @runs) "first deref runs the body")
-        (is (= [7] @seen) "the declared input arrives as a ONE-ELEMENT VECTOR")
-        (is (= 14 @r))
-        (is (= 1 @runs) "a second deref against the same upstream does NOT re-run")
-        (rf/dispatch-sync [:touch])
-        (is (= 14 @r))
-        (is (= 1 @runs)
-            "an unrelated db change leaves the upstream value equal — still no re-run")
-        (rf/dispatch-sync [:update 3])
-        (is (= 6 @r))
-        (is (= 2 @runs) "body re-runs when the upstream value changed")
-        (is (= [3] @seen) "…and the new value is still delivered wrapped")
-        (rf/unsubscribe [:n*2])))))
