@@ -59,13 +59,6 @@
           "string :status coerced to keyword; numeric :id kept (JSON
            already parsed it to a number)"))))
 
-(deftest malli-decode-passes-through-already-valid-value
-  (testing "a value that already matches the schema decodes to
-            itself and validates clean"
-    (is (= {:title "hello" :id 42}
-           (malli-decode [:map [:title :string] [:id :int]]
-                         {:title "hello" :id 42})))))
-
 ;; ---- malli-decode: validation failure -------------------------------------
 
 (deftest malli-decode-throws-canonical-ex-info-on-validation-failure

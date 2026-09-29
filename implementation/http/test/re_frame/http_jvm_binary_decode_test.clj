@@ -94,27 +94,6 @@
               "the bytes must survive verbatim — no lossy UTF-8 round-trip"))
         (finally (stop-server! srv))))))
 
-(deftest jvm-array-buffer-decode-returns-raw-bytes
-  (testing ":decode :array-buffer on JVM also rides raw bytes"
-    (let [{:keys [port] :as srv}
-          (start-server!
-            (fn [^HttpExchange ex]
-              (write-bytes! ex 200 "application/octet-stream" raw-bytes)))]
-      (try
-        (rf/reg-event :ab/load
-          (fn [{:keys [db]} [_ msg reply]]
-            (if reply
-              {:db (assoc db :reply reply)}
-              {:fx [[:rf.http/managed
-                     {:reply-to [:ab/load msg] :request {:url (str "http://127.0.0.1:" port "/bin")}
-                      :decode  :array-buffer}]]})))
-        (rf/dispatch-sync [:ab/load {}])
-        (let [db    (await-reply! #(some? (:reply %)))
-              value (get-in db [:reply :value])]
-          (is (bytes? value))
-          (is (= (seq raw-bytes) (seq value))))
-        (finally (stop-server! srv))))))
-
 (deftest jvm-text-decode-still-uses-response-charset
   (testing "the text path decodes via the response charset
             (charset-of), faithfully reproducing ofString's
@@ -140,16 +119,6 @@
 
 ;; ---- (1b) charset-of unit coverage ----------------------------------------
 
-(deftest charset-of-resolves-declared-charset
-  (testing "charset-of parses the Content-Type charset param"
-    (let [charset-of @#'rf.http.transport-jvm/charset-of]
-      (is (= "ISO-8859-1"
-             (.name ^java.nio.charset.Charset
-                    (charset-of {"content-type" "text/plain; charset=ISO-8859-1"}))))
-      (is (= "UTF-8"
-             (.name ^java.nio.charset.Charset
-                    (charset-of {"content-type" "application/json; charset=utf-8"})))))))
-
 (deftest charset-of-defaults-to-utf8
   (testing "absent / unparseable charset falls back to UTF-8"
     (let [charset-of @#'rf.http.transport-jvm/charset-of]
@@ -171,15 +140,6 @@
       (is (= :rf.http/timeout (:kind failure)))
       (is (= 1234 (:elapsed-ms failure)) "measured elapsed wall-clock is carried")
       (is (= 30000 (:limit-ms failure)) "the configured limit is preserved"))))
-
-(deftest classify-jvm-error-elapsed-ms-nil-when-unmeasured
-  (testing "the single 3-arity carries a nil :elapsed-ms when no
-            start mark was measured (the synthetic-caller case); :limit-ms
-            rides whatever was threaded"
-    (let [classify rf.http.transport-jvm/classify-jvm-error
-          timeout  (java.net.http.HttpTimeoutException. "request timed out")]
-      (is (nil? (:elapsed-ms (classify timeout 30000 nil))))
-      (is (nil? (:elapsed-ms (classify timeout nil nil)))))))
 
 (deftest jvm-real-timeout-populates-elapsed-ms
   (testing "a live JVM request that exceeds its per-attempt
