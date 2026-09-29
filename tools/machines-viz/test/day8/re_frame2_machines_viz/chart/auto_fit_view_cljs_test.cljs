@@ -1,5 +1,5 @@
 (ns day8.re-frame2-machines-viz.chart.auto-fit-view-cljs-test
-  "Pins for the chart's auto-fit lifecycle.
+  "Pins for the chart's auto-fit and measure-then-relayout lifecycle.
 
   ## What this guards
 
@@ -10,617 +10,446 @@
   the viewport would never re-fit — the operator would see a tiny /
   off-screen chart and have to click the manual Fit button every time.
 
-  So the chart captures the xyflow instance via `:onInit` and re-fits
-  the viewport once after each successful layout settle whose
-  `layout-key` differs from the last key it fit. Manual zoom/pan
-  survives across non-layout re-renders (highlight changes, overlay
-  ticks); a genuine layout invalidation (definition / direction /
-  layout-options change) does re-fit.
+  So `MachineChart`:
 
-  This suite pins the contract WITHOUT loading xyflow or the real
-  React runtime — it exercises `compute-layout!`'s callback path
-  directly with the same `set!`-based stubs that the
-  `compute-layout-error` tests use (so a Node runtime can drive it).
-  The DOM-side end-to-end behaviour (the actual `<ReactFlow>` instance
-  receiving `.fitView`) is outside this suite's reach.
+    - captures the xyflow instance via `:onInit` and re-fits the viewport
+      once after each successful layout settle whose layout key differs
+      from the last key it fit, so a manual zoom/pan survives re-renders
+      that do not invalidate the layout;
+    - re-fits whenever the host's `:fit-signal` CHANGES — the chart-side
+      half of Xray's Machine-tab fit-on-entry;
+    - re-runs ELK once with xyflow's measured node boxes
+      (measure-then-relayout), and never loops.
 
-  ## What is pinned here
+  ## How the production gates are driven
 
-    1. The auto-fit DOES fire on successful layout settle (the
-       happy path).
-    2. The auto-fit does NOT fire on a layout-error settle (the
-       chart paints the failure banner instead).
-    3. The auto-fit gates on `layout-key` change (re-running
-       `compute-layout!` with the SAME key does not re-fit).
+  Every gate lives in a closure inside the Form-2 `MachineChart`, so this
+  suite drives the real component: `(chart/MachineChart props)` returns
+  the inner render fn, calling it with new props IS the host-driven
+  re-render sequence, and the ReactFlow `:onInit` / `:onNodesChange`
+  handlers are taken off the returned hiccup and called with a stand-in
+  instance. Building the hiccup is pure CLJS data, and every
+  framework-reaching call goes through a `set!`-able seam:
 
-  ## Why this is a `-cljs-test` (node), not a DOM test
+    - `chart/compute-layout!` captures each pass's done-fn, so a test
+      settles passes itself, in the order its scenario needs;
+    - `chart/invoke-fit-view!` records every `.fitView` call;
+    - `chart/invoke-project-definition!` answers a fixed parse where a
+      scenario names one, and `projection/xyflow-graph` answers an empty
+      graph (projection is not under test here).
 
-  We test the lifecycle WIRING — the predicate that decides whether
-  to call `.fitView` — not xyflow's render path. That predicate is
-  fully driven by `compute-layout!`'s callback contract + the
-  `invoke-fit-view!` test seam; both are Node-runnable. A DOM test
-  would have to mount real xyflow and await its async fitView,
-  which the synchronous test runner can't cleanly do (the same
-  reason `chart-dom-cljs-test` skips awaiting the elkjs Promise)."
-  (:require [cljs.test :refer-macros [deftest is testing async]]
+  The stand-in instance answers `getNodes` / `getInternalNode` off an
+  atom, so the REAL `read-measured-dims` reads whatever boxes a scenario
+  has 'measured'. Node has no `requestAnimationFrame`, so `schedule-fit!`
+  calls `.fitView` synchronously there; the double-rAF test installs a
+  stepped frame queue to observe the deferral. The same idioms drive
+  `stale-settle-cljs-test` and `parse-cache-cljs-test`."
+  (:require [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-machines-viz.chart :as chart]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.post-elk :as post-elk]
-            [re-frame.trace :as rf.trace]))
+            [day8.re-frame2-machines-viz.chart.projection :as projection]))
 
 ;; ---- fixtures ----------------------------------------------------------
 
-(def ^:private sample-parsed
-  "Same minimal parse shape `compute-layout-error` uses."
-  {:nodes [{:id "idle"} {:id "loading"}]
-   :edges [{:id "idle->loading"
-            :source "idle"
-            :target "loading"
-            :event-label "start"}]
-   :parallel? false})
+(def ^:private machine-a
+  {:initial :idle
+   :states  {:idle    {:on {:start :loading}}
+             :loading {:on {:ok :idle}}}})
 
-(def ^:private ok-elk-result
-  "A minimally-shaped elk JS success result — two laid-out children at
-  distinct positions. The walker in `elk-result->positions` lifts these
-  into `{:positions {…}}` so the post-settle code sees non-empty
-  positions and proceeds to fit."
-  #js {:id "root"
-       :children #js [#js {:id "idle"
-                           :x 10 :y 20 :width 100 :height 50
-                           :children #js []}
-                      #js {:id "loading"
-                           :x 10 :y 80 :width 100 :height 50
-                           :children #js []}]
-       :edges #js []})
+(def ^:private machine-b
+  {:initial :off
+   :states  {:off {:on {:flip :on}}
+             :on  {:on {:flip :off}}}})
 
-(def ^:private fake-instance
-  "Stand-in for the xyflow ReactFlowInstance. The chart only calls
-  `.fitView` on it; opaque pointer-equality is all the call site
-  needs."
-  #js {:__name "fake-xyflow-instance"})
+(def ^:private parsed-a
+  "Fixed parse of `machine-a`: two leaf states and no edges, so the chart's
+  measurable-id set is exactly `#{\"idle\" \"loading\"}`."
+  {:nodes [{:id "idle"} {:id "loading"}] :edges [] :initial-path [:idle]})
 
-;; ---- helpers ------------------------------------------------------------
+(def ^:private parsed-b
+  {:nodes [{:id "off"} {:id "on"}] :edges [] :initial-path [:off]})
 
-(defn- with-fit-spy
-  "Run `f` with `chart/invoke-fit-view!` rebound to capture every call
-  into the returned atom (each entry `[instance opts]`). `set!`-based
-  so it survives async microtasks. Calls `(f spy)` and `(done)` only
-  after restoration."
-  [done f]
-  (let [spy     (atom [])
-        orig    chart/invoke-fit-view!]
+(def ^:private ok-result
+  "A successful settle: non-empty positions and no `:layout-error`."
+  {:positions   {"idle"    {:x 10 :y 20 :width 100 :height 50}
+                 "loading" {:x 10 :y 80 :width 100 :height 50}}
+   :edge-points {}
+   :edge-labels {}})
+
+(def ^:private error-result
+  "The layout-error result shape `compute-layout!`'s failure path produces."
+  {:positions    {}
+   :edge-points  {}
+   :edge-labels  {}
+   :layout-error {:error {:message "elk: boom"} :input-summary {}}})
+
+;; ---- harness ------------------------------------------------------------
+
+(defn- measuring-instance
+  "A stand-in ReactFlowInstance modelling xyflow v12's measured-box shape:
+  `.getNodes()` returns the user-facing nodes WITHOUT `.measured` (this
+  non-interactive chart never applies dimension changes back into its
+  controlled `:nodes`), while `.getInternalNode(id)` returns the INTERNAL
+  node the store merges the DOM-measured box onto. Both read `boxes` — an
+  atom of `{id [width height]}` — at call time, so a scenario can change
+  what xyflow has measured between handler calls. A nil or zero box is a
+  node still awaiting measurement."
+  [boxes]
+  #js {:getNodes
+       (fn [] (clj->js (mapv (fn [id] {:id id}) (keys @boxes))))
+       :getInternalNode
+       (fn [id]
+         (let [[w h] (get @boxes id)]
+           (cond-> #js {:id id}
+             (and w h) (doto (aset "measured" #js {:width w :height h})))))})
+
+(defn- find-prop
+  "The value of key `k` on the first hiccup map carrying it — in practice
+  the ReactFlow `:onInit` / `:onNodesChange` handlers."
+  [hiccup k]
+  (->> (tree-seq sequential? seq hiccup)
+       (filter map?)
+       (some #(when (contains? % k) (get % k)))))
+
+(defn- with-chart-seams
+  "Run `(f seams)` with the chart's framework seams rebound, then restore
+  them. `parses` maps a definition to the fixed parse the chart sees; a
+  definition absent from it is parsed for real. `seams` holds two atoms:
+  `:passes` — one `{:measured-dims md :done done-fn}` per `compute-layout!`
+  call — and `:fits` — one `[instance opts]` per `.fitView`."
+  [parses f]
+  (let [passes      (atom [])
+        fits        (atom [])
+        capture!    (fn [measured-dims done]
+                      (swap! passes conj {:measured-dims measured-dims :done done})
+                      nil)
+        orig-parse  chart/invoke-project-definition!
+        orig-proj   projection/xyflow-graph
+        orig-layout chart/compute-layout!
+        orig-fit    chart/invoke-fit-view!]
+    (set! chart/invoke-project-definition!
+          (fn [definition] (or (get parses definition) (orig-parse definition))))
+    (set! projection/xyflow-graph (fn [_parsed _positions _opts] {:nodes [] :edges []}))
+    ;; `compute-layout!` is multi-arity and the render calls its 8-arity
+    ;; through shadow's direct `arity$8` dispatch, so the stub mirrors the
+    ;; real fn's arity shape.
+    (set! chart/compute-layout!
+          (fn
+            ([_p done] (capture! nil done))
+            ([_p _d _lo done] (capture! nil done))
+            ([_p _d _lo _mid done] (capture! nil done))
+            ([_p _d _lo _mid md done] (capture! md done))
+            ([_p _d _lo _mid md _cv done] (capture! md done))
+            ([_p _d _lo _mid md _cv _cr done] (capture! md done))))
     (set! chart/invoke-fit-view!
-          (fn [instance opts] (swap! spy conj [instance opts])))
+          (fn [instance opts] (swap! fits conj [instance opts])))
     (try
-      (f spy
-         (fn []
-           (set! chart/invoke-fit-view! orig)
-           (done)))
-      (catch :default e
-        (set! chart/invoke-fit-view! orig)
-        (throw e)))))
+      (f {:passes passes :fits fits})
+      (finally
+        (set! chart/invoke-project-definition! orig-parse)
+        (set! projection/xyflow-graph orig-proj)
+        (set! chart/compute-layout! orig-layout)
+        (set! chart/invoke-fit-view! orig-fit)))))
+
+(defn- settle!
+  "Resolve captured layout pass `i` with `result`."
+  [passes i result]
+  ((:done (nth @passes i)) result))
+
+(defn- init!
+  "Call the `:onInit` handler of the render `rfn` produces for `props`
+  with `instance`, as xyflow does once it has mounted."
+  [rfn props instance]
+  ((find-prop (rfn props) :onInit) instance))
 
 ;; ---- 1. happy path — settle DOES fit ----------------------------------
 
 (deftest auto-fit-fires-after-successful-layout-settle
-  (testing "the post-settle predicate that drives the
-            auto-fit calls `invoke-fit-view!` with the captured
-            instance + the canonical 0.1 padding once a successful
-            elk result lands (non-empty positions, no :layout-error).
-            Without this call the viewport would stay framed on the
-            pre-settle degenerate cluster."
-    (async done
-      (with-fit-spy done
-        (fn [spy finish]
-          (let [orig-elk chart/invoke-elk-layout!]
-            (set! chart/invoke-elk-layout!
-                  (fn [_input] (js/Promise.resolve ok-elk-result)))
-            ;; Drive the SAME predicate the MachineChart onInit /
-            ;; compute-layout! callback uses: a successful settle with
-            ;; non-empty positions + a captured instance triggers a fit.
-            ;; We exercise it by calling compute-layout! directly + then
-            ;; gating on the result map the way the chart does.
-            (chart/compute-layout!
-              sample-parsed :tb nil :test/machine
-              (fn [result]
-                (try
-                  (is (map? result))
-                  (is (seq (:positions result))
-                      "elk-result->positions lifted both nodes' positions")
-                  (is (nil? (:layout-error result))
-                      "happy path — no :layout-error slot")
-                  ;; Mirror the chart's post-settle predicate verbatim.
-                  (let [should-fit? (and (seq (:positions result))
-                                         (nil? (:layout-error result)))]
-                    (when should-fit?
-                      (chart/invoke-fit-view! fake-instance
-                                              #js {:padding 0.1})))
-                  (is (= 1 (count @spy))
-                      "exactly one .fitView call on successful settle")
-                  (let [[inst opts] (first @spy)]
-                    (is (identical? fake-instance inst)
-                        "called against the captured xyflow instance")
-                    (is (= 0.1 (.-padding opts))
-                        "called with the canonical 0.1 padding ratio"))
-                  (finally
-                    (set! chart/invoke-elk-layout! orig-elk)
-                    (finish)))))))))))
+  (testing "a successful settle (non-empty positions, no :layout-error)
+            calls `.fitView` once, against the instance `:onInit`
+            captured, with the canonical 0.1 padding. Without it the
+            viewport stays framed on the pre-settle origin cluster."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [rfn  (chart/MachineChart {:definition machine-a})
+              inst (measuring-instance (atom {}))]
+          (init! rfn {:definition machine-a} inst)
+          (is (empty? @fits) "no fit before the layout settles")
+          (settle! passes 0 ok-result)
+          (is (= 1 (count @fits)) "exactly one .fitView call on the settle")
+          (let [[called-on opts] (first @fits)]
+            (is (identical? inst called-on)
+                "called against the captured xyflow instance")
+            (is (= 0.1 (.-padding opts))
+                "called with the canonical 0.1 padding ratio")))))))
 
 ;; ---- 2. error settle does NOT fit -------------------------------------
 
 (deftest auto-fit-does-not-fire-on-layout-error-settle
-  (testing "when elk fails (the layout-error path), the
-            callback receives a result-map with empty :positions + a
-            :layout-error slot. The chart paints the in-panel banner
-            and MUST NOT call .fitView (an auto-fit on empty positions
-            would frame the degenerate origin cluster). This pins
-            the failure-branch gate.
-
-            `silence-console!` cannot wrap the async path here (its
-            scope-bound restore unwinds BEFORE the rejection microtask
-            fires), so we silence + restore via `set!` keyed off the
-            test's async `done` instead — mirrors the pattern the
-            `compute-layout-error` async-reject test uses."
-    (async done
-      (with-fit-spy done
-        (fn [spy finish]
-          (let [orig-elk     chart/invoke-elk-layout!
-                orig-emit    rf.trace/emit-error!
-                orig-console (.-error js/console)]
-            (set! (.-error js/console) (fn [& _] nil))
-            (set! chart/invoke-elk-layout!
-                  (fn [_input]
-                    (js/Promise.reject (js/Error. "elk: boom"))))
-            (set! rf.trace/emit-error! (fn [_op _tags] nil))
-            (chart/compute-layout!
-              sample-parsed :tb nil :test/machine
-              (fn [result]
-                (try
-                  (is (map? result))
-                  (is (empty? (:positions result))
-                      "error result carries empty :positions")
-                  (is (some? (:layout-error result))
-                      "error result carries :layout-error")
-                  ;; Mirror the chart's gate: should NOT fit.
-                  (let [should-fit? (and (seq (:positions result))
-                                         (nil? (:layout-error result)))]
-                    (when should-fit?
-                      (chart/invoke-fit-view! fake-instance
-                                              #js {:padding 0.1})))
-                  (is (zero? (count @spy))
-                      "no .fitView call on a layout-error settle")
-                  (finally
-                    (set! chart/invoke-elk-layout! orig-elk)
-                    (set! rf.trace/emit-error! orig-emit)
-                    (set! (.-error js/console) orig-console)
-                    (finish)))))))))))
+  (testing "a layout-error settle (empty :positions + :layout-error) paints
+            the in-panel banner and MUST NOT call .fitView — a fit on
+            empty positions would frame the degenerate origin cluster."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [rfn (chart/MachineChart {:definition machine-a})]
+          (init! rfn {:definition machine-a} (measuring-instance (atom {})))
+          (settle! passes 0 error-result)
+          (is (empty? @fits) "no .fitView call on a layout-error settle"))))))
 
 ;; ---- 3. key-gating semantics ------------------------------------------
 
 (deftest auto-fit-gate-keys-on-layout-key
-  (testing "the chart's `fit-state` gates on `:fit-key`
-            inequality so a manual operator zoom/pan SURVIVES non-
-            layout re-renders. This pins the key-gate logic directly:
+  (testing "a settle re-fits only when its layout key differs from the key
+            last fit. The measured relayout settles under the SAME key, so
+            it leaves a manual zoom/pan alone; a key change re-fits; and a
+            return to an earlier key is a change too."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [rfn   (chart/MachineChart {:definition machine-a})
+              boxes (atom {})]
+          (init! rfn {:definition machine-a} (measuring-instance boxes))
+          (settle! passes 0 ok-result)
+          ;; The first post-settle render also fires the orthogonal
+          ;; first-observed `:fit-signal` entry fit, so count from after it.
+          (let [hiccup (rfn {:definition machine-a})
+                base   (count @fits)]
+            (reset! boxes {"idle" [200 60] "loading" [260 72]})
+            ((find-prop hiccup :onNodesChange) #js [])
+            (is (= 2 (count @passes)) "the measurement launched the relayout pass")
+            (settle! passes 1 ok-result)
+            (is (= base (count @fits)) "a same-key settle does NOT re-fit")
+            (rfn {:definition machine-a :direction :lr})
+            (settle! passes 2 ok-result)
+            (is (= (inc base) (count @fits)) "a new layout key re-fits")
+            (rfn {:definition machine-a :direction :tb})
+            (settle! passes 3 ok-result)
+            (is (= (+ 2 base) (count @fits))
+                "returning to an earlier key counts as a change and re-fits")))))))
 
-              fit-state starts at {:fit-key nil}
-              key K1 arrives → predicate fires → fit-key becomes K1
-              key K1 arrives AGAIN → predicate does NOT fire
-              key K2 arrives → predicate fires → fit-key becomes K2
-
-            (The predicate the chart uses: `(not= this-key (:fit-key
-            @fit-state))`. Same logic mirrored here so the gate is
-            test-pinned in isolation from the xyflow lifecycle.)"
-    (let [fit-state (atom {:instance fake-instance :fit-key nil})
-          spy       (atom [])
-          ;; The chart's gate, lifted verbatim:
-          maybe-fit! (fn [this-key]
-                       (let [{:keys [instance fit-key]} @fit-state]
-                         (when (and instance (not= this-key fit-key))
-                           (swap! fit-state assoc :fit-key this-key)
-                           (swap! spy conj this-key))))]
-      (maybe-fit! :K1)
-      (maybe-fit! :K1)
-      (maybe-fit! :K1)
-      (maybe-fit! :K2)
-      (maybe-fit! :K2)
-      (maybe-fit! :K1)              ;; back to K1 after K2 — counts as a change
-      (is (= [:K1 :K2 :K1] @spy)
-          "exactly one fit per distinct layout-key change; repeats are
-           gated out so manual zoom/pan survives")
-      (is (= :K1 (:fit-key @fit-state))
-          "the final fit-key matches the last fit"))))
-
-;; ---- 4. no instance yet → gate defers --------------------------------
+;; ---- 4. no instance yet → the fit waits for :onInit --------------------
 
 (deftest auto-fit-defers-when-instance-not-yet-captured
-  (testing "if compute-layout! settles BEFORE xyflow's
-            `:onInit` fires (extremely fast layout / cached settle),
-            `:instance` is still nil and the gate must NOT fire — the
-            onInit callback itself will pick up the already-arrived
-            positions and fit then. This pins the nil-instance branch
-            of the gate."
-    (let [fit-state (atom {:instance nil :fit-key nil})
-          spy       (atom [])
-          maybe-fit! (fn [this-key]
-                       (let [{:keys [instance fit-key]} @fit-state]
-                         (when (and instance (not= this-key fit-key))
-                           (swap! fit-state assoc :fit-key this-key)
-                           (swap! spy conj this-key))))]
-      (maybe-fit! :K1)
-      (is (zero? (count @spy))
-          "no fit while instance is nil")
-      (is (nil? (:fit-key @fit-state))
-          "fit-key stays nil — the next chance (onInit) will fit")
-      ;; instance arrives — onInit's own predicate runs and DOES fit.
-      (swap! fit-state assoc :instance fake-instance)
-      (maybe-fit! :K1)
-      (is (= [:K1] @spy)
-          "fit fires once the instance arrives (single fit per key)"))))
+  (testing "a settle that lands BEFORE xyflow's `:onInit` (a fast layout)
+            has no instance to fit; `:onInit` then fits the positions that
+            have already arrived."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [rfn    (chart/MachineChart {:definition machine-a})
+              hiccup (rfn {:definition machine-a})
+              inst   (measuring-instance (atom {}))]
+          (settle! passes 0 ok-result)
+          (is (empty? @fits) "no fit while no instance is captured")
+          ((find-prop hiccup :onInit) inst)
+          (is (seq @fits) ":onInit fits the already-settled positions")
+          (is (every? #(identical? inst (first %)) @fits)
+              "against the instance it captured"))))))
 
 ;; ---- 5. focused-machine change ---------------------------------------
 
 (deftest auto-fit-fires-on-focused-machine-change
-  (testing "when the Xray Machine panel swaps the focused
-            machine (the parent passes a NEW `:definition` for a NEW
-            `:machine-id`), the chart's `layout-key` (`[definition
-            direction layout-options]`) changes, `compute-layout!` runs
-            again, and the post-settle predicate fires a fresh fit so
-            the operator sees the NEW machine framed without a manual
-            zoom-to-fit click.
-
-            This pins that the layout-key gate distinguishes between
-            two different definitions (the focused-machine-change path)
-            so each focused machine triggers exactly one auto-fit."
-    (let [fit-state (atom {:instance fake-instance :fit-key nil})
-          spy       (atom [])
-          maybe-fit! (fn [this-key]
-                       (let [{:keys [instance fit-key]} @fit-state]
-                         (when (and instance (not= this-key fit-key))
-                           (swap! fit-state assoc :fit-key this-key)
-                           (swap! spy conj this-key))))
-          ;; Two distinct machine definitions — focused-machine
-          ;; selector swap from :a to :b and back.
-          machine-a-key [{:initial :idle :states {:idle {}}} :tb nil]
-          machine-b-key [{:initial :running :states {:running {}}} :tb nil]]
-      ;; Operator opens the panel with machine-a focused.
-      (maybe-fit! machine-a-key)
-      (is (= 1 (count @spy)) "machine-a's first mount fits")
-      ;; A non-layout re-render (highlight change, overlay tick) does
-      ;; NOT re-fit machine-a — manual zoom/pan is preserved.
-      (maybe-fit! machine-a-key)
-      (maybe-fit! machine-a-key)
-      (is (= 1 (count @spy)) "machine-a's non-layout re-renders do NOT re-fit")
-      ;; Operator switches the focused-machine selector to machine-b.
-      (maybe-fit! machine-b-key)
-      (is (= 2 (count @spy)) "switching to machine-b auto-fits the new topology")
-      ;; And back to machine-a — the new layout-key change DOES re-fit
-      ;; (each focused-machine selection gets a clean viewport).
-      (maybe-fit! machine-a-key)
-      (is (= 3 (count @spy)) "switching back to machine-a re-fits"))))
+  (testing "a new `:definition` (Xray's Machine panel swapping the focused
+            machine) changes the layout key, so the chart launches a fresh
+            layout pass whose settle re-fits — each machine is framed
+            without a manual Fit click. A re-render that keeps the machine
+            launches no pass and fits nothing."
+    (with-chart-seams {machine-a parsed-a machine-b parsed-b}
+      (fn [{:keys [passes fits]}]
+        (let [rfn (chart/MachineChart {:definition machine-a})]
+          (init! rfn {:definition machine-a} (measuring-instance (atom {})))
+          (settle! passes 0 ok-result)
+          (rfn {:definition machine-a})
+          (let [base (count @fits)]
+            (rfn {:definition machine-a})
+            (is (= [1 base] [(count @passes) (count @fits)])
+                "a same-machine re-render launches no pass and fits nothing")
+            (rfn {:definition machine-b})
+            (settle! passes 1 ok-result)
+            (is (= (inc base) (count @fits))
+                "switching to machine-b fits the new topology")
+            (rfn {:definition machine-a})
+            (settle! passes 2 ok-result)
+            (is (= (+ 2 base) (count @fits))
+                "switching back to machine-a re-fits")))))))
 
 ;; ---- 6. schedule-fit! defers via two animation frames ----------------
 
 (deftest schedule-fit-deferral-uses-double-raf
-  (testing "the chart's `schedule-fit!` helper defers its
-            `.fitView` call through TWO nested `requestAnimationFrame`
-            tasks (not one). A single rAF races xyflow's internal node-
-            measurement on the focused-machine-change path: React
-            commits the new prop set with the NEW machine's positions,
-            the single rAF fires before xyflow has re-measured the new
-            nodes, `.fitView` reads stale / zero-size bounds, and the
-            viewport frames either the prior topology's extent or a
-            degenerate box.
-
-            Two rAFs guarantee the fit runs in the frame AFTER React's
-            commit + xyflow's measurement pass — the same trick xyflow's
-            own examples use for post-load fit calls. This pins the
-            deferral pattern so a refactor cannot silently collapse it
-            to a single rAF."
-    (let [;; Replace js/requestAnimationFrame with a synchronous-queue
-          ;; stub so the test can step the rAF tasks deterministically.
-          orig-raf   (.-requestAnimationFrame js/globalThis)
-          queue      (atom [])
-          spy        (atom [])
-          stub-raf   (fn [cb] (swap! queue conj cb) 1)]
-      (set! (.-requestAnimationFrame js/globalThis) stub-raf)
+  (testing "`.fitView` runs through TWO nested `requestAnimationFrame`
+            tasks, not one. A single frame races xyflow's node measurement
+            on the focused-machine-change path: React commits the new
+            machine's positions, the frame fires before xyflow has
+            re-measured the new nodes, and `.fitView` reads stale or
+            zero-size bounds. Two frames put the fit after React's commit
+            AND xyflow's measurement pass."
+    (let [g        js/globalThis
+          had-raf? (js-in "requestAnimationFrame" g)
+          orig-raf (.-requestAnimationFrame g)
+          queue    (atom [])
+          step!    (fn []
+                     (let [cb (first @queue)]
+                       (swap! queue subvec 1)
+                       (cb 0)))]
+      (set! (.-requestAnimationFrame g) (fn [cb] (swap! queue conj cb) 1))
       (try
-        (let [orig-fit chart/invoke-fit-view!]
-          (set! chart/invoke-fit-view!
-                (fn [instance opts] (swap! spy conj [instance opts])))
-          (try
-            ;; Mirror `schedule-fit!` verbatim with the same double-rAF
-            ;; shape the chart uses.
-            (let [opts #js {:padding 0.1}
-                  schedule! (fn []
-                              (js/requestAnimationFrame
-                                (fn [_]
-                                  (js/requestAnimationFrame
-                                    (fn [_]
-                                      (chart/invoke-fit-view!
-                                        fake-instance opts))))))]
-              (schedule!)
-              ;; After scheduling, NO fit has fired yet — both rAFs are
-              ;; still pending. (Real browser: fit hasn't read DOM yet.)
-              (is (= 1 (count @queue)) "first rAF enqueued, none fired yet")
-              (is (zero? (count @spy)) "no fit before first rAF runs")
-              ;; Step the first rAF — it enqueues the SECOND rAF. Still
-              ;; no fit (xyflow could still be measuring at this point).
-              (let [first-cb (first @queue)]
-                (reset! queue [])
-                (first-cb 0))
-              (is (= 1 (count @queue)) "second rAF enqueued by first")
-              (is (zero? (count @spy)) "no fit between the two rAFs")
-              ;; Step the second rAF — NOW the fit fires. xyflow has
-              ;; had a full commit + measurement cycle to settle.
-              (let [second-cb (first @queue)]
-                (reset! queue [])
-                (second-cb 0))
-              (is (= 1 (count @spy))
-                  "fit fires after BOTH rAFs — single-rAF would race
-                   xyflow's measurement on focused-machine swap"))
-            (finally
-              (set! chart/invoke-fit-view! orig-fit))))
+        (with-chart-seams {machine-a parsed-a}
+          (fn [{:keys [passes fits]}]
+            (let [rfn (chart/MachineChart {:definition machine-a})]
+              (init! rfn {:definition machine-a} (measuring-instance (atom {})))
+              (settle! passes 0 ok-result)
+              (is (= [1 0] [(count @queue) (count @fits)])
+                  "the settle queues ONE frame and fits nothing yet")
+              (step!)
+              (is (= [1 0] [(count @queue) (count @fits)])
+                  "the first frame queues a SECOND frame, still no fit")
+              (step!)
+              (is (= [0 1] [(count @queue) (count @fits)])
+                  "the fit runs in the second frame"))))
         (finally
-          (set! (.-requestAnimationFrame js/globalThis) orig-raf))))))
+          (if had-raf?
+            (set! (.-requestAnimationFrame g) orig-raf)
+            (js-delete g "requestAnimationFrame")))))))
 
 ;; ---- 7. measure-then-relayout -----------------------------------------
 ;;
 ;; Fed CONSTANT floor dims, ELK would lay a node whose content exceeds the
 ;; floor over its neighbours. So the chart runs the canonical React Flow +
-;; ELK two-pass: mount at content size → xyflow measures
-;; (`node.measured`) → re-run ELK with the measured box. These pins guard
-;; the read seam + the loop-free gate at the Node layer (the live xyflow
-;; render needs a browser), mirroring why the auto-fit lifecycle above is a
-;; -cljs-test and not a DOM test.
-
-(defn- fake-instance-with-measured
-  "A stand-in ReactFlowInstance modelling xyflow v12's measured-box shape:
-  `.getNodes()` returns the user-facing nodes WITHOUT
-  `.measured` (this non-interactive chart never applies dimension changes
-  back into its controlled `:nodes`, so xyflow leaves the user nodes
-  unmeasured), while `.getInternalNode(id)` returns the INTERNAL node the
-  store merges the DOM-measured `{width height}` onto. `read-measured-dims`
-  must read the latter. `node-specs` is a vector of `[id width height]`
-  (width/height nil → that node is still awaiting measurement, so its
-  internal node carries no `.measured`)."
-  [node-specs]
-  (let [internal-by-id (into {}
-                             (map (fn [[id w h]]
-                                    [id (cond-> #js {:id id}
-                                          (and w h)
-                                          (doto (aset "measured"
-                                                      #js {:width w :height h})))]))
-                             node-specs)]
-    #js {:getNodes
-         (fn []
-           ;; User-facing nodes: id only, NO `.measured` — mirrors what
-           ;; getNodes() returns for an unsynced controlled `:nodes` prop.
-           (clj->js (mapv (fn [[id _ _]] {:id id}) node-specs)))
-         :getInternalNode
-         (fn [id] (get internal-by-id id))}))
+;; ELK two-pass: mount at content size → xyflow measures (`node.measured`)
+;; → re-run ELK with the measured box.
 
 (deftest read-measured-dims-keeps-only-fully-measured-nodes
-  (testing "`read-measured-dims` lifts xyflow's
-            measured box (read off the INTERNAL node via `getInternalNode`,
-            NOT the user-facing `getNodes()` objects) into
-            `{id {:width :height}}`, KEEPING only nodes with a positive
-            measured w AND h. A node still awaiting measurement (measured
-            nil / 0) is omitted so the caller can tell when the whole
-            topology has been measured."
-    (let [inst (fake-instance-with-measured
-                 [["idle" 200 60]
-                  ["loading" 260 72]
-                  ["pending" nil nil]      ;; not yet measured
-                  ["zero" 0 0]])           ;; degenerate — omitted
-          dims (chart/read-measured-dims inst)]
+  (testing "`read-measured-dims` lifts xyflow's measured box (read off the
+            INTERNAL node via `getInternalNode`, NOT the user-facing
+            `getNodes()` objects) into `{id {:width :height}}`, KEEPING only
+            nodes with a positive measured width AND height. A node still
+            awaiting measurement is omitted so the caller can tell when the
+            whole topology has been measured."
+    (let [dims (chart/read-measured-dims
+                 (measuring-instance (atom {"idle"    [200 60]
+                                            "loading" [260 72]
+                                            "pending" nil
+                                            "zero"    [0 0]})))]
       (is (= {"idle"    {:width 200 :height 60}
               "loading" {:width 260 :height 72}}
              dims)
           "only fully + positively measured nodes survive"))))
 
 (deftest measure-then-relayout-fires-once-and-does-not-loop
-  (testing "the relayout gate fires the second ELK pass once
-            (when the whole topology is measured + the boxes differ from
-            what ELK was last fed) and NEVER loops: a relayout moves
-            positions only, so the next measurement reports the SAME
-            boxes, the signature matches, and no further pass fires.
-
-            This mirrors the `maybe-relayout!` gate verbatim (the chart
-            wires the real one onto xyflow's `:onNodesChange` / `:onInit`)
-            so the loop-freedom contract is pinned in isolation from the
-            xyflow render."
-    (let [;; Two measurable leaf nodes; both exceed the floor.
-          measurable-ids #{"idle" "loading"}
-          this-key       :K1
-          relayout-state (atom {:key nil :measured nil})
-          relayouts      (atom [])
-          run-layout!    (fn [dims] (swap! relayouts conj dims))
-          ;; The gate, lifted verbatim from chart.cljs/maybe-relayout!.
-          maybe-relayout!
-          (fn [measured-map]
-            (let [dims (select-keys measured-map measurable-ids)
-                  {:keys [key measured]} @relayout-state
-                  fresh?   (not= key this-key)
-                  ready?   (and (seq measurable-ids)
-                                (= (count dims) (count measurable-ids)))
-                  changed? (or fresh? (not= dims measured))]
-              (when (and ready? changed?)
-                (reset! relayout-state {:key this-key :measured dims})
-                (run-layout! dims))))]
-      ;; New topology → seed the gate (as the layout-key trigger does).
-      (reset! relayout-state {:key this-key :measured nil})
-      ;; First measurement arrives PARTIAL — only one node measured. The
-      ;; gate must NOT fire (a partial relayout would lay the rest at the
-      ;; floor and re-fire endlessly).
-      (maybe-relayout! {"idle" {:width 200 :height 60}})
-      (is (zero? (count @relayouts)) "partial measurement does NOT relayout")
-      ;; Full measurement arrives → exactly one relayout with the real box.
-      (maybe-relayout! {"idle"    {:width 200 :height 60}
-                        "loading" {:width 260 :height 72}})
-      (is (= 1 (count @relayouts)) "full measurement triggers one relayout")
-      (is (= {"idle"    {:width 200 :height 60}
-              "loading" {:width 260 :height 72}}
-             (first @relayouts))
-          "ELK is re-fed the real measured boxes")
-      ;; The relayout moved POSITIONS only — content (hence measured box)
-      ;; is unchanged → the SAME measurement re-arrives. No second pass.
-      (maybe-relayout! {"idle"    {:width 200 :height 60}
-                        "loading" {:width 260 :height 72}})
-      (maybe-relayout! {"idle"    {:width 200 :height 60}
-                        "loading" {:width 260 :height 72}})
-      (is (= 1 (count @relayouts))
-          "stable measurement does NOT re-fire — the loop is closed"))))
+  (testing "the relayout gate fires the second ELK pass once the whole
+            topology is measured, feeding ELK the measured boxes, and does
+            not loop: a relayout moves positions only, so the next
+            measurement reports the SAME boxes and fires nothing. A box
+            that genuinely changes does relayout again."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes]}]
+        (let [rfn       (chart/MachineChart {:definition machine-a})
+              hiccup    (rfn {:definition machine-a})
+              boxes     (atom {"idle" [200 60]})
+              relayout! (find-prop hiccup :onNodesChange)]
+          ((find-prop hiccup :onInit) (measuring-instance boxes))
+          (is (= 1 (count @passes)) "a partial measurement does NOT relayout")
+          (swap! boxes assoc "loading" [260 72])
+          (relayout! #js [])
+          (is (= 2 (count @passes)) "the full measurement triggers one relayout")
+          (is (= {"idle"    {:width 200 :height 60}
+                  "loading" {:width 260 :height 72}}
+                 (:measured-dims (nth @passes 1)))
+              "ELK is re-fed the real measured boxes")
+          (relayout! #js [])
+          (relayout! #js [])
+          (is (= 2 (count @passes))
+              "a stable measurement does NOT re-fire — the loop is closed")
+          (swap! boxes assoc "loading" [300 72])
+          (relayout! #js [])
+          (is (= 3 (count @passes)) "a box that changes relayouts again"))))))
 
 (deftest measure-then-relayout-new-topology-resets-signature
-  (testing "a NEW layout-key (focused-machine swap / new
-            definition) clears the stored measured signature so the new
-            machine gets its own single relayout, even if its measured
-            boxes coincidentally equal the prior machine's."
-    (let [measurable-ids #{"a"}
-          relayout-state (atom {:key nil :measured nil})
-          relayouts      (atom [])
-          gate (fn [this-key measured-map]
-                 (let [dims (select-keys measured-map measurable-ids)
-                       {:keys [key measured]} @relayout-state
-                       fresh?   (not= key this-key)
-                       ready?   (= (count dims) (count measurable-ids))
-                       changed? (or fresh? (not= dims measured))]
-                   (when (and ready? changed?)
-                     (reset! relayout-state {:key this-key :measured dims})
-                     (swap! relayouts conj this-key))))]
-      ;; Machine K1 measured + relaid out once.
-      (reset! relayout-state {:key :K1 :measured nil})
-      (gate :K1 {"a" {:width 100 :height 40}})
-      (is (= [:K1] @relayouts))
-      ;; Swap to K2 — same measured box, but a fresh key resets the
-      ;; signature so K2 still gets its single relayout.
-      (reset! relayout-state {:key :K2 :measured nil})
-      (gate :K2 {"a" {:width 100 :height 40}})
-      (is (= [:K1 :K2] @relayouts)
-          "a new layout-key gets its own relayout despite identical boxes"))))
+  (testing "a NEW layout key clears the stored measured signature, so the
+            new layout gets its own relayout even though its measured boxes
+            equal the prior key's."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes]}]
+        (let [rfn   (chart/MachineChart {:definition machine-a})
+              boxes (atom {"idle" [200 60] "loading" [260 72]})]
+          (init! rfn {:definition machine-a} (measuring-instance boxes))
+          (is (= 2 (count @passes)) "the first key's measured relayout ran")
+          (let [hiccup (rfn {:definition machine-a :direction :lr})]
+            (is (= 3 (count @passes)) "the new key launched its own first pass")
+            ((find-prop hiccup :onNodesChange) #js [])
+            (is (= 4 (count @passes))
+                "identical boxes still relayout under the new key")
+            (is (= {"idle"    {:width 200 :height 60}
+                    "loading" {:width 260 :height 72}}
+                   (:measured-dims (nth @passes 3)))
+                "that pass is the measured relayout")))))))
 
 ;; ---- 8. fit-on-entry signal -------------------------------------------
 ;;
-;; The layout-key auto-fit (tests 1-6 above) deliberately PRESERVES the
-;; operator's manual zoom/pan across non-layout re-renders. On its own that
-;; would leave a chart RE-ENTERED from a panel/tab switch at its prior
-;; viewport. The orthogonal `:fit-signal` prop (an opaque nonce the host
-;; bumps on panel-entry / tab-activation) forces a re-fit when its value
-;; CHANGES, independent of the layout-key gate.
-;;
-;; This pins the `maybe-fit-on-signal!` gate the chart wires onto every
-;; render verbatim (the live xyflow `.fitView` needs a browser — the same
-;; reason tests 1-6 are Node-layer pins of the predicate, not DOM tests).
+;; The layout-key auto-fit deliberately PRESERVES the operator's manual
+;; zoom/pan across non-layout re-renders, which on its own would leave a
+;; chart RE-ENTERED from a panel/tab switch at its prior viewport. The
+;; orthogonal `:fit-signal` prop (an opaque nonce the host bumps on
+;; panel-entry / tab-activation) forces a re-fit when its value CHANGES.
+;; These are the chart-side pins of that contract; the host-side wiring
+;; (Xray bumping the signal on Machine-tab activation) is pinned in Xray.
 
 (deftest fit-on-entry-fits-once-per-signal-change
-  (testing "the fit-on-entry gate fires exactly once each time
-            the host `:fit-signal` CHANGES (panel re-entry), and is a
-            no-op while the signal is steady (ordinary re-renders, so
-            manual zoom/pan survives). It requires a captured instance +
-            non-empty positions + no :layout-error — the same
-            preconditions the layout-settle fit checks. The `::unfit`
-            sentinel start means the FIRST observed signal (even nil)
-            fits once.
-
-            This mirrors `chart.cljs/maybe-fit-on-signal!` verbatim."
-    (let [;; The chart's `fit-state` shape (sentinel start per chart.cljs).
-          fit-state (atom {:instance fake-instance
-                           :fit-key  nil
-                           :fit-sig  ::chart-unfit})
-          spy       (atom [])
-          ;; Stand-ins for the chart's two render-derived inputs.
-          positions (atom {"idle" {:x 0 :y 0}})  ;; non-empty → ready
-          layout-error (atom nil)
-          ;; The gate, lifted verbatim from chart.cljs/maybe-fit-on-signal!.
-          maybe-fit-on-signal!
-          (fn [fit-signal]
-            (let [{:keys [instance fit-sig]} @fit-state]
-              (when (and instance
-                         (not= fit-signal fit-sig)
-                         (seq @positions)
-                         (nil? @layout-error))
-                (swap! fit-state assoc :fit-sig fit-signal)
-                (swap! spy conj fit-signal))))]
-      ;; First entry — signal 1 differs from the ::chart-unfit sentinel → fit.
-      (maybe-fit-on-signal! 1)
-      (is (= [1] @spy) "first activation fits once")
-      ;; Ordinary re-renders with the SAME signal — manual zoom/pan survives.
-      (maybe-fit-on-signal! 1)
-      (maybe-fit-on-signal! 1)
-      (is (= [1] @spy) "steady signal does NOT re-fit (manual viewport preserved)")
-      ;; Operator leaves + re-enters the tab → host bumps the counter to 2.
-      (maybe-fit-on-signal! 2)
-      (is (= [1 2] @spy) "a fresh activation signal re-fits on entry")
-      ;; And again — every distinct entry re-frames.
-      (maybe-fit-on-signal! 3)
-      (is (= [1 2 3] @spy) "each entry signal fits exactly once")
-      (is (= 3 (:fit-sig @fit-state)) "fit-state records the last signal fit"))))
+  (testing "the fit-on-entry gate fires once each time the host
+            `:fit-signal` CHANGES and is a no-op while the signal is
+            steady, so ordinary re-renders keep a manual zoom/pan. The
+            `::unfit` sentinel start makes the FIRST observed signal fit."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [rfn   (chart/MachineChart {:definition machine-a :fit-signal 1})
+              props (fn [sig] {:definition machine-a :fit-signal sig})]
+          (init! rfn (props 1) (measuring-instance (atom {})))
+          (settle! passes 0 ok-result)
+          (let [after-settle (count @fits)]
+            (rfn (props 1))
+            (is (= (inc after-settle) (count @fits))
+                "the first observed signal fits once")
+            (rfn (props 1))
+            (rfn (props 1))
+            (is (= (inc after-settle) (count @fits))
+                "a steady signal does NOT re-fit")
+            (rfn (props 2))
+            (is (= (+ 2 after-settle) (count @fits))
+                "a bumped signal (panel re-entry) re-fits")
+            (rfn (props 3))
+            (is (= (+ 3 after-settle) (count @fits))
+                "every distinct entry signal fits exactly once")))))))
 
 (deftest fit-on-entry-defers-until-instance-and-positions-ready
-  (testing "an entry signal that arrives BEFORE the instance
-            is captured (or before the first layout settles) must NOT
-            record the signal as fit — it stays pending so the onInit /
-            next-render re-check honours it once the preconditions hold.
-            Pins the deferral branch: no instance → no fit + signal stays
-            unrecorded; empty positions → no fit + signal stays
-            unrecorded; once both arrive → the SAME pending signal fits."
-    (let [fit-state (atom {:instance nil
-                           :fit-key  nil
-                           :fit-sig  ::chart-unfit})
-          spy       (atom [])
-          positions (atom {})         ;; empty → not ready
-          layout-error (atom nil)
-          maybe-fit-on-signal!
-          (fn [fit-signal]
-            (let [{:keys [instance fit-sig]} @fit-state]
-              (when (and instance
-                         (not= fit-signal fit-sig)
-                         (seq @positions)
-                         (nil? @layout-error))
-                (swap! fit-state assoc :fit-sig fit-signal)
-                (swap! spy conj fit-signal))))]
-      ;; Entry signal 1 arrives but no instance yet → no fit, not recorded.
-      (maybe-fit-on-signal! 1)
-      (is (zero? (count @spy)) "no fit while instance is nil")
-      (is (= ::chart-unfit (:fit-sig @fit-state))
-          "signal stays unrecorded so the next chance still honours it")
-      ;; Instance captured (onInit) but positions still empty → still no fit.
-      (swap! fit-state assoc :instance fake-instance)
-      (maybe-fit-on-signal! 1)
-      (is (zero? (count @spy)) "no fit while positions are empty")
-      (is (= ::chart-unfit (:fit-sig @fit-state))
-          "still unrecorded — degenerate origin cluster not framed")
-      ;; Layout settles (positions arrive) → the SAME pending signal fits.
-      (reset! positions {"idle" {:x 0 :y 0}})
-      (maybe-fit-on-signal! 1)
-      (is (= [1] @spy) "the pending entry signal fits once preconditions hold"))))
+  (testing "an entry signal that arrives BEFORE the instance is captured,
+            or before the first layout settles, is not recorded as fit: it
+            stays pending, and the SAME signal fits once both have
+            arrived."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [props  {:definition machine-a :fit-signal 1}
+              rfn    (chart/MachineChart props)
+              hiccup (rfn props)]
+          (is (empty? @fits) "no entry fit while no instance is captured")
+          ((find-prop hiccup :onInit) (measuring-instance (atom {})))
+          (is (empty? @fits) "nor while the layout has no positions")
+          (settle! passes 0 ok-result)
+          (let [after-settle (count @fits)]
+            (rfn props)
+            (is (= (inc after-settle) (count @fits))
+                "the pending signal fits once the positions arrive")))))))
 
 (deftest fit-on-entry-skips-layout-error-settle
-  (testing "a fit-signal bump on a chart whose layout FAILED
-            (the layout-error path: empty positions + :layout-error)
-            must NOT fit — an auto-fit on empty positions would frame the
-            degenerate origin cluster. The chart paints the error banner
-            instead. Pins the :layout-error guard on the entry path
-            (mirrors test 2's gate for the settle path)."
-    (let [fit-state (atom {:instance fake-instance
-                           :fit-key  nil
-                           :fit-sig  ::chart-unfit})
-          spy       (atom [])
-          positions (atom {})
-          layout-error (atom {:elk-error "boom"})  ;; error settle
-          maybe-fit-on-signal!
-          (fn [fit-signal]
-            (let [{:keys [instance fit-sig]} @fit-state]
-              (when (and instance
-                         (not= fit-signal fit-sig)
-                         (seq @positions)
-                         (nil? @layout-error))
-                (swap! fit-state assoc :fit-sig fit-signal)
-                (swap! spy conj fit-signal))))]
-      (maybe-fit-on-signal! 1)
-      (is (zero? (count @spy)) "no entry-fit on a layout-error settle")
-      (is (= ::chart-unfit (:fit-sig @fit-state))
-          "signal unrecorded — banner paints, not a degenerate fit"))))
+  (testing "a `:fit-signal` bump on a chart whose layout FAILED must not
+            fit — the chart paints the error banner instead of framing the
+            degenerate origin cluster."
+    (with-chart-seams {machine-a parsed-a}
+      (fn [{:keys [passes fits]}]
+        (let [rfn (chart/MachineChart {:definition machine-a :fit-signal 1})]
+          (init! rfn {:definition machine-a :fit-signal 1} (measuring-instance (atom {})))
+          (settle! passes 0 error-result)
+          (rfn {:definition machine-a :fit-signal 1})
+          (rfn {:definition machine-a :fit-signal 2})
+          (is (empty? @fits) "no entry fit on a layout-error settle"))))))
 
 ;; ---- 9. layout-key folds in the adaptive post-ELK mode ----------------
 ;;
@@ -648,50 +477,36 @@
              :alarming {:on {:reset :locked}}}})
 
 (deftest layout-key-folds-in-adaptive-mode
-  (let [parsed   (layout/project-definition door-cyclic-definition)]
+  (let [parsed (layout/project-definition door-cyclic-definition)]
     (testing "sanity: :auto resolves to the SAME direction as a forced :tb here"
       ;; this is what makes the resolved-direction-only key collide.
       (is (= :tb (post-elk/resolve-direction :auto parsed)))
       (is (= :tb (post-elk/resolve-direction :tb parsed))))
 
-    (let [;; what the chart computes on each path: the RESOLVED elk-direction
-          ;; is :tb for BOTH, but adaptive? differs (true on :auto, false on
-          ;; :tb). All other key components are held constant.
-          forced-tb-key (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 false)
-          auto-key      (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 true)]
-      (testing "the forced-:tb and resolved-to-:tb-:auto keys DIFFER (mode is in the key)"
-        (is (not= forced-tb-key auto-key)
-            "without adaptive? in the key these would collide — the post-ELK
-             pass would never apply on opt-in and would stale-stay on opt-out"))
+    (testing "the forced-:tb and resolved-to-:tb-:auto keys DIFFER (mode is in the key)"
+      ;; what the chart computes on each path: the RESOLVED elk-direction is
+      ;; :tb for BOTH, but adaptive? differs (true on :auto, false on :tb).
+      (is (not= (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 false)
+                (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 true))
+          "without adaptive? in the key these would collide — the post-ELK
+           pass would never apply on opt-in and would stale-stay on opt-out"))
 
-      (testing "a :tb → :auto → :tb flip re-invalidates each way (the gate fires)"
-        ;; model the auto-fit/relayout gate: a fit (and a relayout) fires only
-        ;; when the new key differs from the last one. Walk the flip.
-        (let [fit-state (atom {:instance fake-instance :fit-key nil})
-              spy       (atom [])
-              maybe-fit! (fn [k]
-                           (let [{:keys [instance fit-key]} @fit-state]
-                             (when (and instance (not= k fit-key))
-                               (swap! fit-state assoc :fit-key k)
-                               (swap! spy conj k))))]
-          (maybe-fit! forced-tb-key)   ;; mount as :tb
-          (maybe-fit! auto-key)        ;; flip to :auto (transform must APPLY)
-          (maybe-fit! forced-tb-key)   ;; flip back to :tb (transform must REMOVE)
-          (is (= [forced-tb-key auto-key forced-tb-key] @spy)
-              "each direction-prop flip invalidates the layout, so the post-ELK
-               transform applies on opt-in and is removed on opt-out")))
-
-      (testing "an unrelated re-render with the SAME prop set does NOT re-run"
-        (let [fit-state (atom {:instance fake-instance :fit-key nil})
-              spy       (atom [])
-              maybe-fit! (fn [k]
-                           (let [{:keys [instance fit-key]} @fit-state]
-                             (when (and instance (not= k fit-key))
-                               (swap! fit-state assoc :fit-key k)
-                               (swap! spy conj k))))]
-          (maybe-fit! auto-key)
-          (maybe-fit! auto-key)
-          (maybe-fit! auto-key)
-          (is (= 1 (count @spy))
-              "same prop set → same key → no needless relayout (the flag does
-               not over-invalidate)"))))))
+    (testing "a :tb → :auto → :tb flip launches a layout pass each way; a
+              re-render with the SAME prop set launches none"
+      (with-chart-seams {}
+        (fn [{:keys [passes]}]
+          (let [props (fn [direction] {:definition door-cyclic-definition
+                                       :direction  direction})
+                rfn   (chart/MachineChart (props :tb))]
+            (rfn (props :tb))
+            (rfn (props :auto))
+            (rfn (props :tb))
+            (is (= 3 (count @passes))
+                "each direction-prop flip invalidates the layout, so the
+                 post-ELK transform applies on opt-in and is removed on
+                 opt-out")
+            (rfn (props :tb))
+            (rfn (props :tb))
+            (is (= 3 (count @passes))
+                "the same prop set keeps the same key — the flag does not
+                 over-invalidate")))))))
