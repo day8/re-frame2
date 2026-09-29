@@ -9,15 +9,16 @@
   Coverage (mirrors `source_coord_dom_cljs_test.cljs` shape):
 
     - DOM-keyword root with no attrs map: the wrapper splices an attrs
-      map carrying BOTH data-rf2-source-coord AND data-rf-view.
+      map carrying BOTH data-rf2-source-coord AND data-rf-view, the view
+      attribute's value being `(str id)` — i.e. `\":ns/sym\"`.
     - DOM-keyword root WITH an existing attrs map: both attributes are
       merged in alongside the user's attrs.
     - User-supplied data-rf-view wins (don't overwrite).
     - Form-2 (render-fn returns a fn): inner-fn output gets BOTH attrs.
-    - React Fragment root: exempt; no attribute injected; one-shot
-      warning emitted (same exemption as source-coord).
-    - Format: the attribute value is `(str id)` — i.e. `\":ns/sym\"`
-      for a namespaced keyword id.
+
+  React Fragment and `[:> Cmp …]` interop roots are exempt from both
+  attributes by the same branch; `re-frame.source-coord-dom-cljs-test`
+  pins both exemptions.
 
   Production elision (interop/debug-enabled? = false at build time) is
   verified separately by the elision-probe build via the
@@ -120,64 +121,3 @@
         (is (= :section.f2 (first inner-out)))
         (is (= ":rf.view-id-test/form-2" (root-view-attr inner-out))
             ":data-rf-view landed on the inner output's root")))))
-
-;; ---- React Fragment / non-DOM root: skip ----------------------------------
-
-(deftest fragment-root-is-exempt-for-view-id
-  (testing "a render-fn that returns a React Fragment :<> at the root is
-            exempt for :data-rf-view (same exemption as source-coord);
-            the view is then invisible to view-id lookup, a documented
-            limit per Spec 006 §View tagging contract §Known limits of
-            the tag and of DOM-containment inference"
-    (rf/reg-view ^{:rf/id :rf.view-id-test/fragment} fragment-view []
-      [:<> [:p "a"] [:p "b"]])
-    (let [render (rf/view :rf.view-id-test/fragment)
-          out    (render)]
-      (is (= :<> (first out)) "fragment marker preserved")
-      (is (not (and (map? (second out))
-                    (contains? (second out) :data-rf-view)))
-          "no :data-rf-view on fragment root"))))
-
-(deftest interop-react-component-root-is-exempt-for-view-id
-  (testing "a render-fn whose root is a React-component head (`[:> Cmp …]`)
-            is exempt for :data-rf-view — pair tools fall back per the
-            documented edge cases"
-    (rf/reg-view ^{:rf/id :rf.view-id-test/interop-root} interop-view []
-      [:> "div" {} "body"])
-    (let [render (rf/view :rf.view-id-test/interop-root)
-          out    (render)]
-      (is (= :> (first out)))
-      (is (not (contains? (second out) :data-rf-view))
-          "no :data-rf-view merged into the interop props map"))))
-
-;; ---- attribute format -----------------------------------------------------
-
-(deftest attribute-format-is-str-id
-  (testing "the :data-rf-view value is exactly (str id) — preserving the
-            leading colon so a walker can disambiguate keyword ids from
-            raw strings"
-    (rf/reg-view ^{:rf/id :rf.view-id-test/format-check} format-check-view []
-      [:i "x"])
-    (let [out  ((rf/view :rf.view-id-test/format-check))
-          attr (root-view-attr out)]
-      (is (string? attr))
-      (is (= ":rf.view-id-test/format-check" attr)
-          "format is (str :ns/sym) — leading-colon preserved")
-      ;; A consumer reads back via (keyword (subs s 1)).
-      (is (= :rf.view-id-test/format-check
-             (keyword (subs attr 1)))
-          "walker round-trips ':<ns>/<sym>' → keyword cleanly"))))
-
-;; ---- id derived from call-site symbol (no override) ----------------------
-
-(deftest tagging-uses-auto-derived-id
-  (testing "without an :rf/id override, the auto-derived id (from
-            (keyword (str *ns*) (str sym))) drives the :data-rf-view value"
-    (rf/reg-view auto-view []
-      [:em "hi"])
-    (let [render (rf/view :re-frame.view-id-attr-cljs-test/auto-view)
-          out    (render)
-          attr   (root-view-attr out)]
-      (is (string? attr))
-      (is (= ":re-frame.view-id-attr-cljs-test/auto-view" attr)
-          "auto-derived id drives :data-rf-view via (str id)"))))

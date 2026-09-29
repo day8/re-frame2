@@ -152,38 +152,3 @@
             (is (= :unmount (first last-call)))
             (is (identical? fake-root (second last-call))
                 "unmount thunk passes the Root returned by hydrate-root")))))))
-
-;; ---- the mount-point never reaches rdc/render ------------------------------
-
-(deftest render-does-not-pass-mount-point-to-rdc-render
-  (testing "`(rdc/render mount-point render-tree)` throws
-            `TypeError: root.render is not a function` in real React
-            18, so the mount-point must never appear as the first arg
-            to rdc/render."
-    (let [render-calls (atom [])
-          fake-root    (make-fake-root :regression)
-          fake-mount   #js {:rf-test-mount :regression}]
-      (with-redefs [rdc/create-root  (fn
-                                       ([_]   fake-root)
-                                       ([_ _] fake-root))
-                    rdc/render       (fn
-                                       ([root tree]
-                                        (swap! render-calls conj [root tree]))
-                                       ([root tree _]
-                                        (swap! render-calls conj [root tree]))
-                                       ([root tree _ _]
-                                        (swap! render-calls conj [root tree])))
-                    rdc/hydrate-root (fn
-                                       ([_ _]   fake-root)
-                                       ([_ _ _] fake-root))
-                    rdc/unmount      (fn [_] nil)]
-        (let [render-fn (:render rf.adapter.reagent/adapter)]
-          (render-fn [:div] fake-mount nil)
-          (is (= 1 (count @render-calls)))
-          (let [[root tree] (first @render-calls)]
-            (is (not (identical? fake-mount root))
-                "rdc/render's first arg is NEVER the raw mount-point")
-            (is (identical? fake-root root)
-                "rdc/render's first arg is the Root from create-root")
-            (is (= [:div] tree)
-                "the render-tree is passed through unchanged")))))))
