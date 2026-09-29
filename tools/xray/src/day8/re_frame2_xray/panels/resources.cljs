@@ -725,7 +725,7 @@
       (capped-body {:panel-id "resources-timeline"
                     :testid   "rf-xray-resources-timeline-body"}
                    timeline-row-view rows)
-      (empty-caption "No resource lifecycle events in this epoch."
+      (empty-caption "No resource lifecycle events in the trace buffer."
                      "rf-xray-resources-timeline-empty"))))
 
 ;; ---- §6 INVALIDATION GRAPH ----------------------------------------------
@@ -798,7 +798,7 @@
       (capped-body {:panel-id "resources-invalidation"
                     :testid   "rf-xray-resources-invalidation-body"}
                    invalidation-row-view rows)
-      (empty-caption "No invalidations in this epoch."
+      (empty-caption "No invalidations in the trace buffer."
                      "rf-xray-resources-invalidation-empty"))))
 
 ;; ---- §6b SCOPE RESOLUTION TIMELINE (EP-0016 D3) -------------------------
@@ -840,7 +840,7 @@
       (capped-body {:panel-id "resources-scope-resolution"
                     :testid   "rf-xray-resources-scope-resolution-body"}
                    scope-resolution-row-view rows)
-      (empty-caption "No named-scope resolutions in this epoch."
+      (empty-caption "No named-scope resolutions in the trace buffer."
                      "rf-xray-resources-scope-resolution-empty"))))
 
 ;; ---- §6c MUTATION CONTINUATIONS + DESCRIPTOR EVIDENCE (EP-0016 D1/D2) ----
@@ -927,14 +927,14 @@
        (capped-body {:panel-id "resources-mutation-invalidation"
                      :testid   "rf-xray-resources-mutation-invalidation-body"}
                     mutation-invalidation-row-view mutation-invalidations)
-       (empty-caption "No scoped mutation invalidations in this epoch."
+       (empty-caption "No scoped mutation invalidations in the trace buffer."
                       "rf-xray-resources-mutation-invalidation-empty"))
      ;; the call-site :reply-to continuation dispatch (workflow)
      (if (seq continuations)
        (capped-body {:panel-id "resources-continuations"
                      :testid   "rf-xray-resources-continuations-body"}
                     continuation-row-view continuations)
-       (empty-caption "No :reply-to continuations dispatched in this epoch."
+       (empty-caption "No :reply-to continuations dispatched in the trace buffer."
                       "rf-xray-resources-continuations-empty"))]))
 
 ;; ---- §6d OPTIMISTIC MUTATIONS (EP-0019) ---------------------------------
@@ -1084,7 +1084,7 @@
                      :testid   "rf-xray-resources-optimistic-body"
                      :gap      "3px"}
                     optimistic-mutation-row-view optimistic-mutations)
-       (empty-caption "No optimistic mutations in this epoch."
+       (empty-caption "No optimistic mutations in the trace buffer."
                       "rf-xray-resources-optimistic-empty"))
      ;; the loud :force-over-a-concurrent-write clobber warnings
      (when (seq optimistic-force-clobbers)
