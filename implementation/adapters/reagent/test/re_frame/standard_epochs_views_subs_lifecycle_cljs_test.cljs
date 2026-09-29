@@ -5,9 +5,8 @@
   The standard-epochs testbed (`tools/xray/testbeds/standard_epochs/core.cljs`)
   is test-free: its BUTTONS demonstrate the
   behaviour for Xray + re-frame2-pair inspection. The hard ASSERTIONS
-  live here — the substrate subs/views contract suite — exactly
-  mirroring the section's shape so the testbed wiring and the
-  framework contract are pinned together. Sibling to
+  live here — the substrate subs/views contract suite — mirroring
+  the section's shape. Sibling to
   `re-frame.sub-dispose-view-cljs-test` (the `:rf.sub/dispose` emit
   axis); this file pins the cache-STATE + render-CAUSE axes.
 
@@ -50,9 +49,9 @@
   the substrate-agnostic `views.cljs` wrapper stamps
   `:rf.view/triggered-by` from the in-flight buffer.
 
-  The subs / views here are byte-for-byte the testbed's, registered
-  under the same `:standard-epochs/*` ids, so a drift between the testbed
-  and this contract surfaces as a failure here.
+  The subs / views here are a copy of the testbed's, registered under
+  the same `:standard-epochs/*` ids. This ns never loads the testbed, so
+  it pins the framework contract, not the testbed's wiring.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]

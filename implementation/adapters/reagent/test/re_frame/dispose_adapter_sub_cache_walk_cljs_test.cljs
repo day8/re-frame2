@@ -352,8 +352,8 @@
                 "active-root ownership released with the install slot despite the throw")))))))
 
 (deftest dispose-adapter-happy-teardown-still-returns-nil
-  (testing "a teardown with nothing failing is unchanged: nil return, and an
-  empty frames/roots registry stays no-op-safe"
+  (testing "a teardown with nothing failing is unchanged: nil return over a
+  live frame and sub cache, and a fresh rf/init! installs over it"
     (reset! rf.frame/frames {})
     (rf/make-frame {:id :walk/clean})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))

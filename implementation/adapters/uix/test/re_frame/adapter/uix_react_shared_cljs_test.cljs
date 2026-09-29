@@ -8,7 +8,7 @@
   config. The suite is parameterised: any other React-hook adapter picks
   up the whole surface by adding one entry file like this one.
 
-  The ~50 deftest forwarders are generated from a single `test-specs`
+  The deftest forwarders are generated from a single `test-specs`
   literal in `re-frame.adapter.react-shared-suite-tests` (a `.clj`
   compile-time macro ns, mirroring the conformance-fixtures pattern).
   The entry file reduces to: an adapter `:require`, a fixture, a `cfg`
