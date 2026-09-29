@@ -112,37 +112,19 @@
     (is (= {:queries []}            (rf.subs/normalize-sub-inputs []))
         "empty is unusual but valid")))
 
-(deftest normalize-rejects-scalar-query-vector
-  (testing "a scalar query vector [:x :y] is rejected (ambiguous: arg vs two inputs)"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs [:x :y])))))
-
-(deftest normalize-rejects-bare-keyword
-  (testing "a bare keyword is rejected — no shorthand"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs :viewer/current)))))
-
-(deftest normalize-rejects-map
-  (testing "a map return is rejected"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs {:article [:article/by-id 1]})))))
-
-(deftest normalize-rejects-mixed-vector
-  (testing "a vector with a non-query-vector element is rejected"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs [[:article/by-id 1] :viewer])))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs [[:a] [42 :b]]))
-        "a vector whose head is not a keyword is not a query vector")))
-
-(deftest normalize-rejects-reaction-and-derefable
-  (testing "a reaction / derefable return is rejected (not a vector)"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs (atom [[:a]]))))
-    ;; A vector CONTAINING a derefable element is also rejected — an atom
-    ;; is not a query vector (not a vector with a keyword head).
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (rf.subs/normalize-sub-inputs [(atom [:a])])))))
+(deftest normalize-rejects-every-shape-but-a-vector-of-query-vectors
+  (testing "anything but a vector of query vectors is rejected as sub-input-fn-bad-return"
+    (doseq [[label bad]
+            [["a scalar query vector (ambiguous: an arg, or two inputs?)" [:x :y]]
+             ["a bare keyword (no shorthand)"                            :viewer/current]
+             ["a map"                                                    {:article [:article/by-id 1]}]
+             ["a vector with a non-query-vector element"                 [[:article/by-id 1] :viewer]]
+             ["a vector whose head is not a keyword"                     [[:a] [42 :b]]]
+             ["a reaction / derefable (not a vector)"                    (atom [[:a]])]
+             ["a vector containing a derefable (not a query vector)"     [(atom [:a])]]]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
+            (rf.subs/normalize-sub-inputs bad))
+          (str label " is rejected")))))
 
 ;; ---- the input-fn receives the full outer query-v ------------------------
 
