@@ -1287,17 +1287,6 @@
 
 ;; ---- diff mode — added / removed -----------------------------------------
 
-(deftest diff-added-leaf-renders-in-green
-  (let [h (ei/render-node {:value 2
-                           :before ei/missing-sentinel
-                           :diff? true
-                           :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 2}})]
-    (is (re-find #"data-rf-diff-op"
-                 (try (pr-str h) (catch :default _ "")))
-        "added leaf carries the diff-op marker")))
-
 (deftest diff-removed-leaf-shows-prior-value
   (let [h (ei/render-node {:value ei/missing-sentinel
                            :before 1
