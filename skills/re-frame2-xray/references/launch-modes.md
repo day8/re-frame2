@@ -112,7 +112,14 @@ body { margin: 0; }
 ```
 
 The host owns sizing and layout; Xray owns the shell rendered inside
-the host. Override the selector before Xray opens:
+the host. The overflow rules keep the two on separate scrollbars: the
+row is exactly the viewport's height, so the page never scrolls; `#app`
+scrolls on its own; and the host clips, so nothing inside Xray can widen
+the page. The host's width must come from `var(--rf-xray-inline-width, …)`:
+Xray's drag handle writes that variable, so a literal basis such as
+`flex: 0 0 420px` leaves the splitter unable to move.
+
+Override the selector before Xray opens:
 
 ```clojure
 (require '[day8.re-frame2-xray.config :as xray-config])
