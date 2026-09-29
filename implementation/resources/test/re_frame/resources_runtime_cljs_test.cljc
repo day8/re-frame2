@@ -163,10 +163,13 @@
                                         :article/by-slug {:slug "x" :rev 1})
           k2 (rf.resources.state/scoped-resource-key {:user "u-42" :tenant "acme"}
                                         :article/by-slug {:rev 1 :slug "x"})]
-      (is (= k1 k2) "two spellings of the same scope + params collapse to one key")))
+      ;; `=` on maps ignores entry order, so it cannot see this; the cache
+      ;; identity is the byte key-id, where entry order is what could differ.
+      (is (= (rf.resources.state/key-id k1) (rf.resources.state/key-id k2))
+          "two spellings of the same scope + params collapse to one key")))
   (testing "nested maps recurse; sets / vectors keep value semantics"
-    (is (= (rf.resources.state/canonicalize {:a {:c 3 :b 2} :z #{2 1}})
-           (rf.resources.state/canonicalize {:z #{1 2} :a {:b 2 :c 3}})))))
+    (is (= (rf.identity/canonical-bytes (rf.resources.state/canonicalize {:a {:c 3 :b 2} :z #{2 1}}))
+           (rf.identity/canonical-bytes (rf.resources.state/canonicalize {:z #{1 2} :a {:b 2 :c 3}}))))))
 
 (deftest host-values-rejected-at-the-cache-key-boundary
   (testing "a host / opaque param value is rejected loudly (Spec 016
@@ -201,7 +204,8 @@
                                            :article/by-slug {:rev 1 :slug "x"})
           raw-b (rf.resources.state/scoped-resource-key {:tenant "acme" :user "u-42"}
                                            :article/by-slug {:slug "x" :rev 1})]
-      (is (= raw-a raw-b) "key-order spellings collapse via the defensive path")
+      (is (= (rf.resources.state/key-id raw-a) (rf.resources.state/key-id raw-b))
+          "key-order spellings collapse via the defensive path")
       (is (= raw-a (rf.resources.state/scoped-resource-key*
                      (rf.resources.state/canonicalize {:tenant "acme" :user "u-42"})
                      :article/by-slug
@@ -1076,8 +1080,7 @@
              ;; the incrementally maintained subtree (indexes derived from the
              ;; SAME entries via reindex-keys after each step).
              subtree (rf.resources.state/recompute-indexes {:entries {}})]
-        (if (= step 600)
-          (is true "600 randomised mutations stayed in lock-step with the rebuild")
+        (when (< step 600)
           (let [k        (nth key-ids (nextint (count key-ids)))
                 remove?  (and (contains? entries k) (zero? (nextint 4)))
                 new-entries (if remove?

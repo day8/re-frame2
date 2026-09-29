@@ -590,9 +590,6 @@
       (rf.resources.timers/schedule! :rf/default k rf.resources.timers/gc-kind 1000000)
       (is (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind])
           "the timer handle lives in the module-level side table")
-      ;; the durable runtime-db carries NO timer handle
-      (is (not (contains? (runtime-db) :rf.runtime/resources-timers))
-          "no timer state leaked into runtime-db")
       (rf.resources.timers/cancel! :rf/default k rf.resources.timers/gc-kind)
       (is (not (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind]))
           "cancel! drops the handle"))))

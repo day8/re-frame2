@@ -191,9 +191,7 @@
       (reset! cancelled-poll [])
       (rf/reg-event ::destroy-reader
         (fn [_ _] {:fx [[:rf.machine/destroy :reader/proc]]}))
-      (is (nil? (try (rf/dispatch-sync [::destroy-reader]) nil
-                     (catch #?(:clj Throwable :cljs :default) e e)))
-          "destroying the actor does not throw")
+      (rf/dispatch-sync [::destroy-reader])
 
       ;; ASSERT: the owner is released — it does not outlive the actor.
       (is (nil? (machine-snapshot :reader/proc))

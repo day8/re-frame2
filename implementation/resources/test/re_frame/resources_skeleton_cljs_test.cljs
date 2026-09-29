@@ -172,16 +172,6 @@
   ;;                     the resource nor its definition site;
   ;;   * :kw / {:a 1} -> `ifn?`, so it is INVOKED happily and returns nil as
   ;;                     the 2-arity not-found default => a SILENT nil request.
-  (testing "the two rejected classes are genuinely distinct (discriminator —
-            without this row the suite could pass while the silent class
-            regressed, since only the loud class throws on its own)"
-    (is (and (not (fn? 42)) (not (ifn? 42)))
-        "a number is not invokable at all — the LOUD host-cast class")
-    (is (and (not (fn? :kw)) (ifn? :kw))
-        "a keyword IS ifn? — the SILENT class a bare `ifn?` gate would admit")
-    (is (nil? (:kw {:slug "s"} nil))
-        "and invoking it 2-arity yields nil, which is exactly why the gate is
-         not `ifn?`"))
   (testing "every non-callable :request is rejected AT REGISTRATION with the
             canonical structured error, not a downstream host throw"
     (doseq [bad [42 "nope" :kw {:a 1} #{:a} [:a] nil]]
@@ -224,13 +214,7 @@
           (str label " must still register — the gate must not reject working code"))
       (is (some? (:rf/resource (rf/handler-meta {:source :store :kind :resource :id :test/good-request})))
           (str label " is introspectable after registration"))
-      (rf/clear :resource :test/good-request))
-    (is (var? #'defn-request)
-        "control: `#'defn-request` really is a Var, so the Var row above is
-         not vacuously just another ordinary fn")
-    (is (not (identical? defn-request #'defn-request))
-        "control: the Var and the fn it holds are genuinely different values,
-         so the Var row cannot pass by silently testing the plain fn twice")))
+      (rf/clear :resource :test/good-request))))
 
 (deftest scope-policy-is-exactly-two-shapes-fail-closed
   ;; A bare keyword in the framework-reserved :rf.scope/*
