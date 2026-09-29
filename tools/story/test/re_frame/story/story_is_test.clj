@@ -156,7 +156,7 @@
       (is (= :pass (rf.story/result-status result)))
       (is (true? (rf.story/result-passed? result))))))
 
-(deftest story-is-honours-custom-timeout-ms
+(deftest story-is-accepts-a-timeout-ms-opt
   (testing "rf.story/is :timeout-ms opt threads through to the JVM blocking
             deref — a run that resolves inside the window is reported
             normally; an extra opt is stripped before reaching the runner"
@@ -173,7 +173,7 @@
       (is (= 1 (count reports)) "one report per assertion (1 assertion)")
       (is (= :pass (:type (first reports)))))))
 
-(deftest story-is-custom-timeout-ms-bounds-the-deref
+(deftest deref-blocking-throws-at-its-timeout-bound
   (testing "the :timeout-ms value is the literal bound handed to the JVM
             blocking deref — a never-resolving promise + a tight custom
             timeout throws promptly rather than blocking on the 30000ms

@@ -115,7 +115,7 @@
        false
        (catch Exception _ true)))
 
-(deftest recorder-save-dialog-output-pastes-verbatim
+(deftest recorder-gen-play-snippet-output-pastes-verbatim
   (let [snippet (rf.story.recorder/gen-play-snippet
                   [[:paste/inc]]
                   {:variant-id :story.paste/recorded

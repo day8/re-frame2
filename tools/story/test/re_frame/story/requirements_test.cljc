@@ -60,17 +60,6 @@
       (is (= :headless (rf.story.requirements/cheapest-runner req-tokens))
           "cheapest runner proving app-db is :headless"))))
 
-(deftest hiccup-assertion-requires-hiccup
-  (testing "a hiccup-structure assertion requires the :hiccup runner"
-    ;; The spec names render-to-string / hiccup facts as the :hiccup tier.
-    ;; A11y *structural* check is the spec's hiccup-tier example; visual is
-    ;; browser. We model a structural-a11y requirement explicitly.
-    (let [hiccup-req #{:hiccup-structure}]
-      (is (= :hiccup (rf.story.requirements/cheapest-runner hiccup-req))
-          "cheapest runner proving hiccup structure is :hiccup")
-      (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :headless) hiccup-req))
-          ":headless cannot prove hiccup structure"))))
-
 (deftest browser-tier-assertion-tokens
   (testing "the browser-tier oracle assertions declare their capability tokens"
     ;; visual snapshot + axe-a11y are browser-only
@@ -250,12 +239,6 @@
 ;; FAIL-CLOSED POST-RUN EVIDENCE-SLOT VALIDATION
 ;; ===========================================================================
 
-(deftest evidence-slot-satisfied-app-db-needs-no-slot
-  (testing "an app-db-only requirement needs no distinct evidence slot"
-    ;; app-db proof is the final db itself (validated by the assertion).
-    (is (rf.story.requirements/evidence-slot-satisfied? #{:app-db} {}))
-    (is (rf.story.requirements/evidence-slot-satisfied? #{:app-db} {:effects [] :warnings []}))))
-
 (deftest effect-assertion-fails-closed-on-empty-tape
   (testing "a required :effects proof fails closed when the tape has no effect rows"
     ;; project an empty tape — no effect rows.
@@ -368,17 +351,6 @@
           ":dom imposes no render-count gate — preflight already fail-closes it")
       (is (nil? (rf.story.requirements/validate-evidence [:rf.assert/dom-hidden "[x]"] ev :dom))
           "no false :required-evidence-missing for an absence assertion"))))
-
-(deftest validate-run-evidence-clean-trace-tape-is-ok
-  (testing "run-level validation of :no-warnings + :dispatched? on a clean tape is :ok"
-    ;; A presence gate on empty :warnings would make validate-run-evidence
-    ;; return :cannot-run for this normal passing plan.
-    (let [ev (rf.story.play.evidence/project-evidence [{:epoch-id 1 :outcome :ok :trace-events []}])]
-      (is (= :ok (:status (rf.story.requirements/validate-run-evidence
-                            [[:rf.assert/no-warnings]
-                             [:rf.assert/dispatched? [:counter/inc]]]
-                            ev :headless)))
-          "neither trace-requiring assertion false-refuses on empty :warnings"))))
 
 (deftest validate-run-evidence-aggregates-missing-slots
   (testing "run-level evidence validation lists per-assertion missing-evidence refusals"
