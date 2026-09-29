@@ -65,7 +65,7 @@
 
 ;; ---- current-share-report / egress-edn-snippet ---------------------------
 
-(deftest report-nil-when-no-variant
+(deftest report-is-full-when-no-variant-focused
   (testing "with no variant focused the classifier still reports full (no
             per-variant data to omit on the chrome/workspace URL)"
     (let [report (rf.story.ui.share/current-share-report (rf.story.ui.state/get-state))]

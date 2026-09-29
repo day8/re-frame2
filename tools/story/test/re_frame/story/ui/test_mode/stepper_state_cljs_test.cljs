@@ -239,7 +239,7 @@
         (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 1)
         (is (= #{2} (:breakpoints (get @rf.story.ui.test-mode.stepper-state/results-atom vid))))))))
 
-(deftest toggle-breakpoint-noops-when-inactive
+(deftest toggle-breakpoint-noops-without-a-slot
   (testing "toggle-breakpoint! is a no-op when there is no slot"
     (let [vid :story.unit/bp-noslot]
       (rf.story.ui.test-mode.stepper-state/toggle-breakpoint! vid 0)

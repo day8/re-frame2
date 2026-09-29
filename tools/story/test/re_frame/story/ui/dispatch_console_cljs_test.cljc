@@ -304,7 +304,7 @@
 ;; ===========================================================================
 
 #?(:cljs
-   (deftest cljs-input-state-roundtrip
+   (deftest cljs-reset-inputs-clears-the-variant-inputs
      (testing "reset-inputs! clears the per-variant inputs"
        (let [vid :story.x/y]
          (swap! rf.story.ui.dispatch-console/input-state assoc-in [vid :event-id-input] ":hello")
@@ -366,7 +366,7 @@
          (is (= 2 (count (rf.story.ui.dispatch-console/current-history vid))))))))
 
 #?(:cljs
-   (deftest cljs-dispatch-from-inputs-parse-error-keeps-app-db
+   (deftest cljs-dispatch-from-inputs-parse-error-sets-error-and-skips-dispatch
      (testing "a bad payload sets :error and does not dispatch"
        (let [vid :story.parse.err/v]
          (rf/make-frame {:id vid})
