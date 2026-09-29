@@ -16,7 +16,7 @@
   needed except for `scroll-plan` (which reads a plain runtime-db map for
   the `:current` slice + an explicit host-side scroll-cache map for the
   `:saved-pos` lookup)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.routing.plan :as rf.routing.plan]))
 
 ;; ---- empty-string fragment normalisation ---------------------------------
@@ -86,34 +86,21 @@
 
 ;; ---- fail-closed telemetry intents (parity across both entry points) -----
 
-(deftest fallback-telemetry-intents-clean-nav-emits-nothing
-  (testing "a matched route with no fail-closed condition produces no telemetry intents"
-    (is (= [] (rf.routing.plan/fallback-telemetry-intents
-                {:throw-reason nil :malformed? false :no-not-found? false
-                 :url "/cart" :frame nil})))))
-
-(deftest fallback-telemetry-intents-malformed-url
-  (testing "malformed percent-encoding emits :rf.warning/malformed-url {:url}"
-    (is (= [[:emit :warning :rf.warning/malformed-url {:url "/a%2"}]]
-           (rf.routing.plan/fallback-telemetry-intents
-             {:throw-reason nil :malformed? true :no-not-found? false
-              :url "/a%2" :frame nil})))))
-
-(deftest fallback-telemetry-intents-match-error
-  (testing "a match-url throw emits :rf.warning/malformed-url carrying the throw :reason"
-    (is (= [[:emit :warning :rf.warning/malformed-url
-             {:url "/x" :reason :match-error}]]
-           (rf.routing.plan/fallback-telemetry-intents
-             {:throw-reason :match-error :malformed? false :no-not-found? false
-              :url "/x" :frame nil}))
-        "an unexpected match-url throw — surfaced regardless of which nav event it arrived on")))
-
-(deftest fallback-telemetry-intents-missing-not-found-route
-  (testing "a not-found fallback with no registered not-found route emits :rf.warning/no-not-found-route"
-    (is (= [[:emit :warning :rf.warning/no-not-found-route {:url "/gone"}]]
-           (rf.routing.plan/fallback-telemetry-intents
-             {:throw-reason nil :malformed? false :no-not-found? true
-              :url "/gone" :frame nil})))))
+(deftest fallback-telemetry-intents-per-condition
+  (testing "each fail-closed condition emits its own warning intent, and a
+            clean match emits none. A match-url throw surfaces as
+            :rf.warning/malformed-url carrying the throw :reason, whichever
+            nav event it arrived on"
+    (are [condition expected]
+         (= expected
+            (rf.routing.plan/fallback-telemetry-intents
+              (merge {:throw-reason nil :malformed? false :no-not-found? false :frame nil}
+                     condition)))
+      {:url "/cart"}                         []
+      {:url "/a%2" :malformed? true}         [[:emit :warning :rf.warning/malformed-url {:url "/a%2"}]]
+      {:url "/x" :throw-reason :match-error} [[:emit :warning :rf.warning/malformed-url
+                                               {:url "/x" :reason :match-error}]]
+      {:url "/gone" :no-not-found? true}     [[:emit :warning :rf.warning/no-not-found-route {:url "/gone"}]])))
 
 (deftest fallback-telemetry-intents-threads-frame-onto-every-tag
   (testing "when :frame is present it lands on every emitted tag map (epoch/Xray attribution)"

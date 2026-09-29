@@ -354,9 +354,9 @@
       (is (zero? @leave) ":can-leave was NOT evaluated on an exact no-op")
       (is (zero? @enter) ":can-enter was NOT evaluated on an exact no-op"))))
 
-(deftest full-transition-runs-both-guards-in-order
+(deftest full-transition-runs-both-guards
   (testing "a FULL transition — including a changed in-place :query, which is
-            data-bearing — evaluates :can-leave then :can-enter"
+            data-bearing — evaluates both :can-leave and :can-enter"
     (let [leave (atom 0) enter (atom 0)]
       (counting-guards! leave enter)
       (rf/dispatch-sync [:rf.route/handle-url-change "/page"])
