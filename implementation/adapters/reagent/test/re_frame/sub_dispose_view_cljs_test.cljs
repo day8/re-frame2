@@ -13,8 +13,7 @@
     #5 conditional-deref flip → :rf.sub/dispose fires when the
        condition stops the deref (the runtime ref-count drops to 0
        even though the component stays mounted). Pinned by
-       `conditional-deref-re-execution-fires-rf-sub-dispose`, which
-       drives the flip through a live Reagent reaction.
+       `conditional-deref-re-execution-fires-rf-sub-dispose`.
 
   Plus a multi-derefer negative control — two derefers, one drops →
   NO emit; only when the LAST drops does the slot evict.
