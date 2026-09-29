@@ -54,37 +54,30 @@
 
 ;; ---- (1) ->edn / <-edn round-trip ---------------------------------------
 
-(deftest edn-round-trip-preserves-shape
-  (let [widths {:rf.xray.epoch/subscriptions       {:sub 220 :inputs 180 :value 240}
+(deftest edn-codec-round-trips-and-sanitises
+  (let [widths {:rf.xray.epoch/subscriptions          {:sub 220 :inputs 180 :value 240}
                 :rf.xray.epoch/subscriptions-disposed {:disposed 200}}]
-    (is (= widths (rt/<-edn (rt/->edn widths))))))
-
-(deftest edn-round-trip-handles-empty
-  (is (= {} (rt/<-edn (rt/->edn {}))))
-  (is (= {} (rt/<-edn (rt/->edn nil)))
-      "nil widths round-trips as the empty map"))
-
-(deftest from-edn-malformed-falls-back-to-empty
-  (is (= {} (rt/<-edn "this is not edn")))
-  (is (= {} (rt/<-edn "[1 2 3]"))
-      "non-map parsed value collapses to default")
-  (is (= {} (rt/<-edn ""))
-      "empty string collapses to default"))
-
-(deftest from-edn-clamps-degenerate-widths
-  (testing "a corrupted entry below the min-col floor
-            (24px) is clamped on read so a stale persisted value
-            can't sneak past the resolver"
-    (let [parsed (rt/<-edn (pr-str {:t1 {:a 5}}))]
-      (is (= {:t1 {:a 24}} parsed)
-          "5px clamps to the 24px floor"))))
-
-(deftest from-edn-drops-non-numeric-widths
-  (testing "defence-in-depth: a non-number value in the
-            stored map drops out rather than poisoning the slot"
-    (is (= {:t1 {:a 100}}
-           (rt/<-edn (pr-str {:t1 {:a 100 :b "oops"}})))
-        ":b dropped, :a preserved")))
+    (doseq [[label expected encoded]
+            [["round-trip preserves the {table-id {col-id px}} shape"
+              widths (rt/->edn widths)]
+             ["the empty map round-trips"
+              {} (rt/->edn {})]
+             ["nil widths round-trip as the empty map"
+              {} (rt/->edn nil)]
+             ["malformed input falls back to the empty map"
+              {} "this is not edn"]
+             ["a non-map parsed value collapses to the default"
+              {} "[1 2 3]"]
+             ["the empty string collapses to the default"
+              {} ""]
+             [(str "a corrupted entry below the min-col floor (24px) is clamped "
+                   "on read, so a stale persisted value can't sneak past the "
+                   "resolver")
+              {:t1 {:a 24}} (pr-str {:t1 {:a 5}})]
+             [(str "defence-in-depth: a non-number width drops out rather than "
+                   "poisoning the slot")
+              {:t1 {:a 100}} (pr-str {:t1 {:a 100 :b "oops"}})]]]
+      (is (= expected (rt/<-edn encoded)) label))))
 
 ;; ---- (2) save! / load round-trip (depends on localStorage) --------------
 
