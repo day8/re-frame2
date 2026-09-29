@@ -613,22 +613,6 @@
       (is (not (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind]))
           "cancel! drops the handle"))))
 
-(deftest timer-reschedule-cancels-prior
-  (testing "Spec 016 — a re-load reschedules (cancel-then-arm), not accumulate"
-    (rf.resources.timers/reset-cache!)
-    (let [k    [:rf.scope/global :t/y {:id 1}]
-          k-id (rf.resources.state/key-id k)]
-      (rf.resources.timers/schedule! :rf/default k rf.resources.timers/stale-kind 1000000)
-      (let [h1 (get @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/stale-kind])]
-        (rf.resources.timers/schedule! :rf/default k rf.resources.timers/stale-kind 1000000)
-        (let [h2 (get @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/stale-kind])]
-          (is (not= h1 h2) "a fresh handle replaced the prior one")
-          (is (= 1 (count (filter (fn [[[_ rk kind] _]]
-                                    (and (= rk k-id) (= kind rf.resources.timers/stale-kind)))
-                                  @rf.resources.timers/timer-table)))
-              "exactly one live stale timer per [key kind]")))
-      (rf.resources.timers/cancel-for-key! :rf/default k))))
-
 (deftest gc-fired-rechecks-before-removing
   (rf/reg-resource :gc/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}

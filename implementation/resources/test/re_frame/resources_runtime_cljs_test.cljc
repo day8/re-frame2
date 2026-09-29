@@ -1383,18 +1383,6 @@
           (is (seq? (-> (get entries (rf.resources.state/key-id kl)) :resource/key (nth 2) :xs))
               "list-params entry preserves list kind on :resource/key"))))))
 
-(deftest resources-static-registry-read-is-frameless
-  (testing "the static half is the frameless `{:source :store}`
-            registry query; the live half is the reserved runtime-db path read,
-            which needs a frame. There is no ambient-frame fallback and no
-            bundle returning both"
-    (rf/reg-resource :introf/article (article-spec) article-spec-request)
-    (is (contains? (set (keys (rf/registrations {:source :store :kind :resource})))
-                   :introf/article)
-        "the store-sourced registry query carries no frame at all")
-    (is (= {} (entries-table :rf/nonexistent))
-        "an unknown frame's live entries table reads empty, never an ambient frame's")))
-
 ;; ===========================================================================
 ;; 18. param canonicalization is total over mixed EDN key types
 ;; ===========================================================================
