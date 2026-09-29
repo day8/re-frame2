@@ -70,11 +70,13 @@
 
   ## Production elision
 
-  The redact / stamp helpers all gate on `interop/debug-enabled?` at
-  their call sites (the same gate as `trace/emit!`). In production
-  builds the trace surface elides entirely; the privacy machinery is
-  moot, and no walker runs against the denylists without the trace
-  surface."
+  The redact / stamp helpers that prepare a dev-trace row gate on
+  `interop/debug-enabled?` at their call sites (the same gate as
+  `trace/emit!`), so in production builds they elide with the trace
+  surface. Two uses run in production too, because what they prepare
+  reaches the always-on error record: the `:rf.error/http-reply-tail-failed`
+  row, and a sensitive request's interceptor chain error, which is thrown
+  to core's fx boundary or to the reply-tail fence."
   (:require [clojure.string :as str]
             [re-frame.error :as rf.error]
             [re-frame.http.encoding :as rf.http.encoding]
@@ -431,12 +433,17 @@
   reach redaction via `prepare-emit-failure` (which uses the `*-with-flag`
   form to drive its own `:sensitive?` stamping decision).
 
-  ONE production caller invokes this non-flag wrapper:
-  `http-transport/emit-reply-trace!`, redacting the failure map that a
-  failure / cancelled reply seats at `:error`. It wants the redaction
-  without the URL-hit flag — that row's `:sensitive?` is resolved from the
-  request and forwarded to `trace-reply` as the wire-slot force-redact
-  opt, so there is no tags-level stamp here for the flag to feed."
+  Two production callers invoke this non-flag wrapper, and each wants the
+  redaction without the URL-hit flag:
+
+  - `http-transport/emit-reply-trace!`, redacting the failure map that a
+    failure / cancelled reply seats at `:error`. That row's `:sensitive?` is
+    resolved from the request and forwarded to `trace-reply` as the
+    wire-slot force-redact opt, so there is no tags-level stamp here for the
+    flag to feed.
+  - `http-middleware/raise-chain-error!`, projecting a sensitive request's
+    chain error before it is thrown, since the thrown ex-info reaches core's
+    fx boundary and the reply-tail fence. A thrown value carries no stamp."
   ([failure sensitive?] (redact-failure failure sensitive? nil))
   ([failure sensitive? carriers]
    (when failure
