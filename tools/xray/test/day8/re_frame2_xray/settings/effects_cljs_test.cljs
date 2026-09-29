@@ -191,9 +191,10 @@
 ;; hidden overlay to inline on auto-open.
 ;;
 ;; We unit-test that helper's routing directly (mirroring how
-;; mount_cljs_test's `toggle!-*` suite unit-tests the mount layer's own
-;; surface preservation): the auto-open GATE — the empty→non-empty edge +
-;; toggle-on + hidden — is covered by the watcher tests above. The full
+;; mount_cljs_test's `global-toggle-*` and `first-ever-toggle-*` rows
+;; unit-test the mount layer's own surface preservation): the auto-open
+;; GATE — the empty→non-empty edge + toggle-on + hidden — is covered by
+;; the watcher tests above. The full
 ;; `install-auto-open-watcher!` `add-watch` path can't be driven under THIS
 ;; suite's headless plain-atom adapter (its derived subscriptions reify
 ;; `IDeref`/`IDisposable` only, not `IWatchable`), and no browser suite
