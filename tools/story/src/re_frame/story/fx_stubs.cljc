@@ -112,32 +112,6 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; ref-args adapter — expand `[id fx-id response]` into a per-call body
-;; with `{:fx-id fx-id :response response}`
-;;
-;; The decorators module's `resolve-ref` reads the registered body
-;; verbatim; for `force-fx-stub` the *registered* body is just a marker,
-;; so we expand the ref-args into a synthesized body that the rest of
-;; `fx-overrides-map` consumes naturally.
-;; ---------------------------------------------------------------------------
-
-(defn expand-ref-args
-  "Given a `[:rf.story/force-fx-stub fx-id response]` ref, return a
-  per-reference body map `{:kind :fx-override :fx-id <fx-id>
-  :response <response>}`. Returns nil for refs that aren't
-  force-fx-stub.
-
-  Used by `re-frame.story.decorators` to expand the ref before
-  classification. The expansion is pure — no side effects."
-  [ref]
-  (when (and (sequential? ref)
-             (= force-fx-stub-id (first ref)))
-    (let [[_ fx-id response] ref]
-      {:kind     :fx-override
-       :fx-id    fx-id
-       :response response})))
-
-;; ---------------------------------------------------------------------------
 ;; Stub-event log — read by assertion handlers
 ;; ---------------------------------------------------------------------------
 
