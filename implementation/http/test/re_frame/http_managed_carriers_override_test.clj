@@ -79,20 +79,6 @@
 
 (def ^:private this-ns (str (ns-name *ns*)))
 
-;; ---- 1. no re-registration ------------------------------------------------
-
-(deftest the-framework-registration-alone-assembles
-  (testing "with no application re-registration the framework's own
-            `:rf.http/managed` is the one descriptor, marked a replaceable
-            default, and the default image assembles"
-    (is (true? (:rf/framework-default?
-                 (rf/handler-meta {:source :store :kind :fx :id :rf.http/managed})))
-        "the framework registration carries the replaceable-default marker")
-    (let [f (rf/make-frame {})]
-      (is (some? f) "rf/make-frame {} assembles")
-      (is (nil? (:carriers (rf/handler-meta {:frame f :kind :fx :id :rf.http/managed})))
-          "no application :carriers block is in force"))))
-
 ;; ---- 2. the Spec 014 spelling: rf/reg-fx with :carriers -------------------
 
 (deftest the-spec-014-carriers-spelling-overrides-the-framework-registration

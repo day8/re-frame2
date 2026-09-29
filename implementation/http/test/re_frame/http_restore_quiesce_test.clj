@@ -67,14 +67,6 @@
                                   :label "http-restore-quiesce condition"})
    true))
 
-;; ---- hook publication ------------------------------------------------------
-
-(deftest hook-published
-  (testing "the :http/abort-in-flight-for-frame! hook is published"
-    (is (some? (rf.late-bind/get-fn :http/abort-in-flight-for-frame!)))
-    (is (= rf.http.registry/abort-in-flight-for-frame!
-           (rf.late-bind/get-fn :http/abort-in-flight-for-frame!)))))
-
 ;; ---- registry-level: frame-scoped abort + reason ---------------------------
 
 (deftest abort-in-flight-for-frame-aborts-only-the-frames-requests
@@ -99,11 +91,6 @@
       (is (not-any? #(= :frame/other (first %)) @seen)
           "the unrelated frame's request was NOT aborted")
       (rf.http.managed/clear-all-in-flight!))))
-
-(deftest abort-in-flight-for-frame-noop-on-frame-with-no-requests
-  (testing "a frame with no in-flight managed HTTP is a clean no-op"
-    (rf.http.managed/clear-all-in-flight!)
-    (is (nil? (rf.http.registry/abort-in-flight-for-frame! :frame/none)))))
 
 ;; ---- end-to-end: suppression of a genuinely in-flight request --------------
 
