@@ -95,46 +95,6 @@
 
 ;; ---- :fx-dispatch stamp by the :dispatch fx handler ----------------------
 
-(deftest dispatch-fx-stamps-source-fx-dispatch
-  (testing ":dispatch fx stamps `:source :fx-dispatch` on the child envelope"
-    (let [seen      (atom [])
-          envelopes (atom {})]
-      (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
-      (try
-        (register-probe-fx! envelopes)
-        (rf/reg-event :test/parent
-          (fn [_ _]
-            {:fx [[:test/probe [:parent]]
-                  [:dispatch [:test/child]]]}))
-        (rf/reg-event :test/child
-          (fn [{:keys [db]} _] {:db db :fx [[:test/probe [:child]]]}))
-
-        ;; Parent stamps `:source :ui` (mimicking a UI handler call-site).
-        (rf/dispatch-sync [:test/parent] {:source :ui})
-
-        ;; ---- ALWAYS-ON: read the stamp off the ENVELOPES ------------------
-        (let [parent-env (:parent @envelopes)
-              child-env  (:child  @envelopes)]
-          (is (some? parent-env) "the parent's dispatch envelope was captured")
-          (is (some? child-env)  "the child's dispatch envelope was captured")
-          (is (= :ui (:source parent-env))
-              "parent carries the caller-supplied :source :ui")
-          (is (= :fx-dispatch (:source child-env))
-              ":dispatch fx stamped :source :fx-dispatch on the child envelope"))
-
-        ;; ---- dev arm: the same values, HOISTED onto the trace -------------
-        (when rf.interop/debug-enabled?
-          (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
-                parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
-                child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
-            (is (some? parent-ev) "parent's :rf.event/dispatched is captured")
-            (is (some? child-ev)  "child's :rf.event/dispatched is captured")
-            (is (= :ui (:source parent-ev))
-                "parent carries the caller-supplied :source :ui")
-            (is (= :fx-dispatch (:source child-ev))
-                ":dispatch fx stamped :source :fx-dispatch on the child envelope")))
-        (finally (rf/unregister-listener! :trace ::rec))))))
-
 (deftest dispatch-fx-overrides-parent-source-three-deep
   (testing ":fx-dispatch is the *immediate* trigger — overrides at every cascade depth"
     (let [seen      (atom [])

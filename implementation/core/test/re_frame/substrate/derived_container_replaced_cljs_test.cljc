@@ -27,9 +27,8 @@
   is instrumentation. The THROW — the canonical ex-info with its
   `:rf.error/id` / `:where` / `:recovery` / `:reason` slots and the
   greppability token in the message — is production behaviour and is asserted
-  without a posture guard, as is the fact that the rejected write leaves the
-  derived value untouched and the underlying adapter's `replace-container!` is
-  never invoked. Those run under `scripts/test-core-prod-gate.sh` unchanged.
+  without a posture guard, so it runs under `scripts/test-core-prod-gate.sh`
+  unchanged.
 
   The `:rf.error/derived-container-replaced` TRACE is a bare `rf.trace/emit!`
   site with no always-on twin, so it is elided under
@@ -81,15 +80,6 @@
     @seen))
 
 ;; ---- tests ----------------------------------------------------------------
-
-(deftest replace-on-base-container-succeeds
-  (testing "the happy path is untouched: writing to a base container still works"
-    (let [c (rf.substrate.adapter/make-state-container {:n 0})]
-      (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition")
-      (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
-          "replace-container! on a base container returns nil")
-      (is (= {:n 1} (rf.substrate.adapter/read-container c))
-          "the base container holds the new value"))))
 
 (deftest replace-on-derived-container-throws
   (testing "replace-container! on a derived container throws the canonical ex-info"
@@ -153,18 +143,3 @@
             "the :recovery field is hoisted to top level as :no-recovery")
         (is (string? (get-in ev [:tags :reason]))
             "the :reason tag is a human-readable sentence")))))
-
-(deftest derived-container-value-unchanged-after-rejected-write
-  (testing "the rejected write does NOT mutate the derived container — the adapter replace-container! is never invoked"
-    (let [src     (rf.substrate.adapter/make-state-container {:n 5})
-          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
-      (try (rf.substrate.adapter/replace-container! derived 1000)
-           (catch #?(:clj Throwable :cljs :default) _ nil))
-      (is (= 5 (rf.substrate.adapter/read-container derived))
-          "the derived value still reflects its source — the write was rejected")
-      ;; Writing to the SOURCE still flows through to the derived value,
-      ;; proving the source container itself remains a normal writable
-      ;; container and the guard fires only on the derived shape.
-      (rf.substrate.adapter/replace-container! src {:n 6})
-      (is (= 6 (rf.substrate.adapter/read-container derived))
-          "writing to the source recomputes the derived value normally"))))

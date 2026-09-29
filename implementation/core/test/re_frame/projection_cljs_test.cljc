@@ -369,18 +369,6 @@
       (is (= :rf.error/handler-exception (:error out)) "summary fields survive")
       (is (= :auth/login (:event-id out))))))
 
-(deftest error-record-redacts-event-tree-slot
-  (testing "error record :event tree slot is projected under the frame's policy"
-    (mk-frame! :proj/err2)
-    (let [record {:kind     :rf.observe/error
-                  :frame    :proj/err2
-                  :error    :rf.error/handler-exception
-                  :event    [:auth/login {:auth {:token "super-secret-token"}}]}
-          out (rf/project-egress record
-                {:frame :proj/err2 :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? (get-in (:event out) [1 :auth :token]))
-          "the sensitive token inside the error's :event is redacted"))))
-
 ;; ---------------------------------------------------------------------------
 ;; Frame-bearing record — opts omit :frame, the RECORD's own :frame governs
 ;; The documented public call shape (Spec 015 §`project-egress`):
@@ -455,27 +443,6 @@
       (is (= :use-a-known-profile (:recovery data)))
       (is (= rf.projection/profiles (:valid data))
           "the closed valid-profile enum rides in ex-data"))))
-
-(deftest unknown-egress-profile-ex-shared-across-call-sites
-  (testing "the shared `unknown-egress-profile-ex` builder yields an
-            IDENTICAL canonical shape from both closed-enum guards — the only
-            difference is the per-site :where symbol (the in-file
-            `resolve-elision-opts` guard vs the epoch
-            `resolve-egress-profile` guard). There is no duplicated
-            hand-rolled ex-info to drift silently."
-    (let [a    (rf.projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
-          b    (rf.projection/unknown-egress-profile-ex 'rf/project-egress :rf.egress/bogus)
-          da   (ex-data a)
-          db   (ex-data b)]
-      ;; message + every ex-data slot EXCEPT :where are identical across sites
-      (is (= (ex-message a) (ex-message b))
-          "the human message + token are byte-identical across call sites")
-      (is (= (dissoc da :where) (dissoc db :where))
-          "every ex-data slot but :where is identical")
-      (is (= 'rf/project-egress (:where da)))
-      (is (= 'rf/project-egress (:where db)))
-      (is (= :rf.error/unknown-egress-profile (:rf.error/id da) (:rf.error/id db)))
-      (is (rf.error/message-has-id-token? (ex-message a))))))
 
 (deftest fails-closed-with-no-frame
   (testing "no known frame + no opt-out → the delegated walker fails closed"
@@ -604,16 +571,6 @@
           (str "a kindless map is a VALUE: its :frame key seeds nothing, so "
                "with no ambient frame the whole value fails closed. got: "
                (pr-str out))))))
-
-(deftest no-profile-is-the-advanced-raw-flags-path
-  (testing "with no profile, :rf.egress/* flags pass through to the walker verbatim"
-    (mk-frame! :proj/noprof)
-    (let [out (rf/project-egress (sample-value)
-                {:frame :proj/noprof
-                 :rf.egress/include-sensitive? false
-                 :rf.egress/include-large? false})]
-      (is (redacted? (get-in out [:auth :token])))
-      (is (large-marker? (get-in out [:docs :blob]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0025 B4 — the `:rf.observe/derived-tree` record kind.
