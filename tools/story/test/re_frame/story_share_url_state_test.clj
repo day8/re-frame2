@@ -14,8 +14,8 @@
 
 ;; ---- workspace -----------------------------------------------------------
 
-(deftest parse-workspace-param-round-trip
-  (testing "parse-workspace-param round-trips a kw->str token"
+(deftest parse-workspace-param-reads-wire-token
+  (testing "parse-workspace-param reads a `ns/name` wire token back to a keyword"
     (is (= :story.foo/grid
            (rf.story.share/parse-workspace-param "story.foo/grid")))
     (is (nil? (rf.story.share/parse-workspace-param "")))

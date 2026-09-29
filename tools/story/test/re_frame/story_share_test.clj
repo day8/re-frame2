@@ -389,7 +389,7 @@
     (is (= {:overrides nil :dropped []}
            (rf.story.share/parse-overrides-param* "   ")))))
 
-(deftest parse-overrides-param*-silent-drop
+(deftest parse-overrides-param-silent-drop
   (testing "parse-overrides-param is the silent-drop form, returning the
             overrides map alone. The share UI hydrator uses
             parse-overrides-param* so the dropped count surfaces"
