@@ -201,7 +201,7 @@
   assertion in this suite reads what the projection does to a key.
 
   For an entry that DOES ride, this is byte-identical to the wire row's own
-  `:resource/key`, which `the-wire-map-key-is-the-key-id-of-the-projected-key`
+  `:resource/key`, which `every-wire-map-key-is-the-key-id-of-its-entrys-own-key`
   pins directly against the map key."
   [frame-id resource-id]
   (some (fn [m] (when (= resource-id (second (:resource/key m))) (:projected-key m)))
@@ -289,7 +289,7 @@
 ;;    components, and the params arm re-keys index 2.
 ;; ===========================================================================
 
-(deftest the-wire-map-key-is-the-key-id-of-the-projected-key
+(deftest every-wire-map-key-is-the-key-id-of-its-entrys-own-key
   (testing "every wire entry is keyed on the byte key-id of its
             OWN projected :resource/key, so a projected component can never
             leave the map key and the in-entry copy disagreeing"
@@ -308,7 +308,7 @@
           (str "wire map key must equal key-id of the entry's own projected "
                ":resource/key — entry " (pr-str (:resource/key e)))))))
 
-(deftest projecting-the-scope-changes-the-key-id-exactly-as-params-does
+(deftest only-an-undeclared-key-rides-under-its-raw-key-id
   (testing "the honest statement of the interaction: the raw key's key-id is
             NOT a wire map key once a component projects, and that is true of
             the SCOPE arm for exactly the same reason it is true of the PARAMS
@@ -375,7 +375,7 @@
       (is (= k w))
       (is (= (rf.resources.state/key-id k) (rf.resources.state/key-id w))))))
 
-(deftest a-key-declaration-does-not-promote-the-entry-to-a-coarse-claim
+(deftest an-undeclared-owners-body-rides-verbatim
   (testing "a declaration naming only the KEY must not promote the entry to a
             coarse claim. Its
             SIBLINGS are the proof — an owner that declares nothing under

@@ -598,7 +598,7 @@
 ;;           the GATE's law 13.)
 ;; ===========================================================================
 
-(deftest case-13-restore-dangle-rolls-back-the-optimistic-apply
+(deftest case-13-a-pending-optimistic-write-records-the-inverse-a-restore-dangle-replays
   ;; The restore-reconciler-internal rollback is exercised end-to-end in
   ;; re-frame.resources-optimistic-settle-cljs-test/
   ;; restore-dangle-rolls-back-the-optimistic-apply-inside-the-reconciler — a
