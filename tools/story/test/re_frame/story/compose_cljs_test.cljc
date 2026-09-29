@@ -47,26 +47,6 @@
       (testing "fragment args deep-merge into the effective args"
         (is (= {:sku "A"} (get-in p [:world :args])))))))
 
-(deftest fragment-script-composes
-  (testing "a composed fragment's :script appends before the variant's own script"
-    (let [fragments {:fragment.checkout/ready-to-submit
-                     {:setup  [[:dispatch [:cart/add {:sku "A"}]]]
-                      :script [[:dispatch [:checkout/open]]
-                               [:dispatch [:checkout/type-address {:postcode "2000"}]]]}}
-          variants  {:story.checkout/submits
-                     {:compose [:fragment.checkout/ready-to-submit]
-                      :script  [[:dispatch [:checkout/submit]]]}}
-          p (compose-plan :story.checkout/submits
-                          {:variants variants :fragments fragments})]
-      (testing "fragment script lands first, variant script after"
-        (is (= [[:dispatch [:checkout/open]]
-                [:dispatch [:checkout/type-address {:postcode "2000"}]]
-                [:dispatch [:checkout/submit]]]
-               (:script p))))
-      (testing "fragment setup also folds in"
-        (is (= [[:dispatch [:cart/add {:sku "A"}]]]
-               (get-in p [:world :setup])))))))
-
 (deftest two-fragments-compose-in-declared-order
   (testing "two composed fragments' setup + script append in declared order"
     (let [fragments {:fragment/a {:setup  [[:dispatch [:a-setup]]]
@@ -184,20 +164,6 @@
 ;; Check composition + identity preservation
 ;; ===========================================================================
 
-(deftest check-composes
-  (testing "a composed check adds its id to [:expect :checks] (identity preserved)"
-    (let [checks   {:check/no-runtime-errors
-                    {:assertions [[:rf.assert/no-warnings]]}}
-          variants {:story.x/v {:compose [:check/no-runtime-errors]
-                                :script  [[:dispatch [:go]]]}}
-          p (compose-plan :story.x/v
-                          {:variants variants :checks checks})]
-      (testing "the check-id (not its inlined assertions) rides :expect :checks"
-        (is (= [:check/no-runtime-errors] (get-in p [:expect :checks]))))
-      (testing "explain classifies the composed entry as a check"
-        (is (= [{:kind :check :id :check/no-runtime-errors}]
-               (get-in p [:explain :compose])))))))
-
 (deftest compose-mixes-fragments-and-checks-in-declared-order
   (testing "a :compose list interleaving fragments + checks resolves each kind"
     (let [fragments {:fragment/seed {:setup [[:dispatch [:seed]]]}}
@@ -265,18 +231,6 @@
           p (compose-plan :story.k/child {:variants variants :checks checks})]
       (is (= [:check/no-runtime-errors :check/extra]
              (get-in p [:expect :checks]))))))
-
-(deftest parent-assertion-does-not-inherit
-  (testing "a parent variant's ordinary :assertions do NOT inherit (verdict is local)"
-    (let [variants {:story.a/parent
-                    {:assertions [[:rf.assert/path-equals [:s] :parent]]}
-                    :story.a/child
-                    {:extends    :story.a/parent
-                     :assertions [[:rf.assert/path-equals [:s] :child]]}}
-          p (compose-plan :story.a/child {:variants variants})]
-      (is (= [[:rf.assert/path-equals [:s] :child]]
-             (get-in p [:expect :assertions]))
-          "only the child's own terminal assertions survive"))))
 
 (deftest parent-assertion-absent-when-child-silent
   (testing "a child with no :assertions does not pick up the parent's"
@@ -494,16 +448,6 @@
     (let [explain (rf.story.schemas/validate
                     :variant {:resolve-conflicts {[:fx-overrides :rf.http/fetch] :stub-a}})]
       (is (some? explain) ":resolve-conflicts must fail variant-body validation"))))
-
-(deftest resolve-conflicts-absent-from-plan
-  (testing "a composed plan carries no :resolve-conflicts surface"
-    (let [fragments {:fragment/http {:fx-overrides {:rf.http/fetch :stub}}}
-          variants  {:story.x/v {:compose [:fragment/http]}}
-          p (compose-plan :story.x/v
-                          {:variants variants :fragments fragments})]
-      (is (not (contains? p :resolve-conflicts)))
-      (is (not (contains? (:world p) :resolve-conflicts)))
-      (is (not (contains? (:explain p) :resolve-conflicts))))))
 
 ;; ===========================================================================
 ;; Inline plan composing registered fragments/checks

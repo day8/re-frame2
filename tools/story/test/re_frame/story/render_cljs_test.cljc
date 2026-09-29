@@ -264,18 +264,7 @@
           (is (= :story.button/primary (:frame r)))
           (is (= :invalid (get-in r [:validation :status]))))))))
 
-(deftest render-variant-host-throw-is-error
-  (testing "a throw from the host render fn is projected to :error"
-    (rf.story.render/install-render-host!
-      (fn [_] (throw (ex-info "boom" {:rf.error/id :test/boom}))))
-    (let [body {:component :view.button/primary :args {:label "Go"}}
-          r    (rf.story.render/render-variant
-                 :story.button/primary
-                 {:lookup {:story.button/primary body}})]
-      (is (= :error (:status r)))
-      (is (= :test/boom (get-in r [:error :data :rf.error/id]))))))
-
-(deftest render-variant-host-throw-carries-prepared-slots
+(deftest render-variant-host-throw-is-error-with-the-prepared-slots
   ;; On the host-render-throw path, prepare-render has already
   ;; produced :plan / :plan-hash / :effective-args, so the :error result
   ;; MUST thread them onto the documented shape rather than dropping them.
@@ -288,6 +277,7 @@
                  :story.button/primary
                  {:lookup {:story.button/primary body}})]
       (is (= :error (:status r)))
+      (is (= :test/boom (get-in r [:error :data :rf.error/id])))
       (is (= :story.button/primary (:frame r)))
       (is (= {:label "Go"} (:effective-args r)))
       (is (string? (:plan-hash r)))

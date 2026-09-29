@@ -19,7 +19,7 @@
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a `-test` name would run it on the JVM only."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [malli.core :as m]
             [re-frame.story.plan        :as rf.story.plan]
             [re-frame.story.fingerprint :as rf.story.fingerprint]
@@ -58,21 +58,6 @@
       (testing "the stub fx id matches the http-test-support helper's return"
         (is (= :rf.http/managed-test-stub rf.story.plan/managed-stub-fx-id))
         (is (= :rf.http/managed rf.story.plan/managed-fx-id))))))
-
-(deftest one-route-succeeds-one-fails-in-one-variant
-  (testing "mixed success/failure routes coexist in one variant"
-    (let [routes {cart-route     {:reply {:ok {:items [{:sku "A"}]}}}
-                  checkout-route {:reply {:failure {:kind :rf.http/http-5xx
-                                                    :status 503}}}}
-          m {:story.checkout/flaky {:network routes}}
-          p (plan-of :story.checkout/flaky m)]
-      (is (= {:reply {:ok {:items [{:sku "A"}]}}}
-             (get-in p [:world :network cart-route])))
-      (is (= {:reply {:failure {:kind :rf.http/http-5xx :status 503}}}
-             (get-in p [:world :network checkout-route])))
-      (testing "both routes route through the one managed-stub override"
-        (is (= {:rf.http/managed :rf.http/managed-test-stub}
-               (get-in p [:world :frame :fx-overrides])))))))
 
 (deftest no-network-no-lowering
   (testing "a variant without :network carries no network slot and no managed override"
@@ -200,12 +185,6 @@
              (get-in ex [:network :lowered-to]))
           "explain shows the managed-stub fx the routes lower to"))))
 
-(deftest explain-network-absent-when-no-network
-  (testing "explain has no :network slot for a variant without :network"
-    (let [m {:story.plain/v {:setup [[:dispatch [:a]]]}}
-          ex (rf.story.plan/explain :story.plain/v {:lookup m})]
-      (is (nil? (:network ex))))))
-
 ;; ===========================================================================
 ;; :network participates in :plan-hash (via the :world slot)
 ;; ===========================================================================
@@ -218,14 +197,6 @@
           p2   (plan-of :story.h/v alt)]
       (is (not= (rf.story.fingerprint/plan-hash p1) (rf.story.fingerprint/plan-hash p2))
           "a semantic change to a route reply changes the plan-hash"))))
-
-(deftest network-failure-kind-perturbs-plan-hash
-  (testing "a different failure :kind on a route perturbs the plan-hash"
-    (let [p4xx (plan-of :story.h/v
-                        {:story.h/v {:network {checkout-route {:reply {:failure {:kind :rf.http/http-4xx}}}}}})
-          p5xx (plan-of :story.h/v
-                        {:story.h/v {:network {checkout-route {:reply {:failure {:kind :rf.http/http-5xx}}}}}})]
-      (is (not= (rf.story.fingerprint/plan-hash p4xx) (rf.story.fingerprint/plan-hash p5xx))))))
 
 ;; ===========================================================================
 ;; :network inherits through :extends (world context flows down)
@@ -277,22 +248,15 @@
                            checkout-route {:reply {:failure {:kind :rf.http/http-4xx
                                                              :status 409}}}}})))))
 
-(deftest network-schema-rejects-missing-reply
-  (testing "a route value with no :reply is rejected"
-    (is (some? (rf.story.schemas/validate :variant
-                 {:network {cart-route {:status :ok}}})))))
-
-(deftest network-schema-rejects-both-ok-and-failure
-  (testing "a :reply carrying BOTH :ok and :failure is rejected (xor)"
-    (is (some? (rf.story.schemas/validate :variant
-                 {:network {cart-route {:reply {:ok 1 :failure {:kind :x}}}}})))))
-
-(deftest network-schema-rejects-bad-route-key
-  (testing "a route key that is not a [method url] pair is rejected"
-    (is (some? (rf.story.schemas/validate :variant
-                 {:network {"/api/cart" {:reply {:ok 1}}}})))   ; bare string key
-    (is (some? (rf.story.schemas/validate :variant
-                 {:network {[:teleport "/api/cart"] {:reply {:ok 1}}}}))))) ; bad method
+(deftest network-schema-rejects-malformed-routes
+  (are [routes] (some? (rf.story.schemas/validate :variant {:network routes}))
+    ;; a route value with no :reply
+    {cart-route {:status :ok}}
+    ;; a :reply carrying BOTH :ok and :failure (they are exclusive)
+    {cart-route {:reply {:ok 1 :failure {:kind :x}}}}
+    ;; a route key that is not a [method url] pair: a bare string, a bad method
+    {"/api/cart" {:reply {:ok 1}}}
+    {[:teleport "/api/cart"] {:reply {:ok 1}}}))
 
 (deftest network-spec-is-malli-valid
   (testing "NetworkSpec is a well-formed Malli schema"

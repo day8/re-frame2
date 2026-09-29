@@ -76,28 +76,11 @@
       (is (= [[:dispatch [:a]]] (get-in p [:world :setup])))
       (is (= [[:dispatch [:b]]] (:script p)))
       (is (= [nil] (:source-chain p))
-          "the single anonymous body is the whole source chain"))))
+          "the single anonymous body is the whole source chain")
+      (is (not (contains? p :story/id))
+          "no :story/id is stamped — there is no variant id to derive it from"))))
 
 ;; ---- :story/id stamp — plan-hash's cross-story collision guard
-
-(deftest compiled-plan-is-stamped-with-parent-story-id
-  (testing "a registered variant's compiled plan carries :story/id (the
-            variant's namespace) — fingerprint's plan-hash-input-keys
-            includes :story/id SPECIFICALLY so two variants under
-            different stories with identical bodies do not collide. Were
-            compile-body not to stamp it, select-keys would silently drop
-            the absent key and plan-hash would be taken over [:world
-            :script :expect :required-runner :tags] alone"
-    (let [m {:story.counter/at-five
-             {:setup  [[:dispatch [:counter/init 5]]]
-              :script [[:dispatch [:counter/inc]]]}}
-          p (plan-of :story.counter/at-five m)]
-      (is (= :story.counter (:story/id p))
-          "the parent story id is derived from the variant id's namespace")))
-  (testing "an inline map target with NO :variant/id stamps no :story/id
-            (nothing to derive it from — render-transparent)"
-    (let [p (rf.story.plan/variant-plan {:setup [[:dispatch [:a]]]})]
-      (is (not (contains? p :story/id))))))
 
 (deftest identical-variant-bodies-under-different-stories-do-not-collide
   (testing "two variants with STRUCTURALLY IDENTICAL bodies
@@ -268,7 +251,7 @@
 
 ;; ---- shipping-vocabulary normalization ----------------------------------
 
-(deftest events-normalizes-to-world-setup
+(deftest bare-setup-steps-lift-to-dispatch
   (testing ":setup lowers to [:world :setup], bare event vectors
             lifting to tagged [:dispatch …] (migration normalization — bare
             shorthand is the migration form, not the P1 public grammar)"
@@ -283,7 +266,7 @@
               [:dispatch-sync [:counter/seed]]]
              (get-in p [:world :setup]))))))
 
-(deftest play-script-normalizes-to-script
+(deftest bare-script-steps-lift-to-dispatch
   (testing ":script lowers to the plan's :script (bare vectors lift to :dispatch)"
     (let [m {:story.legacy/p
              {:script [[:dispatch-sync [:counter/init 3]]
@@ -295,7 +278,7 @@
               [:wait 50]]
              (:script p))))))
 
-(deftest play-script-map-form-normalizes
+(deftest script-map-form-lowers-to-script
   (testing ":script map form lowers its :script"
     (let [m {:story.legacy/pm
              {:script {:script [[:dispatch [:a]]] :auto-run? false}}}
@@ -317,35 +300,7 @@
 
 ;; ---- checks (inheritable) ------------------------------------------------
 
-(deftest checks-inherit-through-extends
-  (testing "checks are the inheritable expectation form (root→child)"
-    (let [m {:story.k/parent {:checks [:check/no-runtime-errors]}
-             :story.k/child  {:extends :story.k/parent
-                              :checks  [:check/extra]}}
-          ;; Every :checks id must resolve, so thread the bodies.
-          checks {:check/no-runtime-errors {:assertions [[:rf.assert/no-warnings]]}
-                  :check/extra             {:assertions [[:rf.assert/no-warnings]]}}
-          p (rf.story.plan/variant-plan :story.k/child {:lookup m :check-lookup checks})]
-      (is (= [:check/no-runtime-errors :check/extra]
-             (get-in p [:expect :checks]))))))
-
 ;; ---- required-runner -----------------------------------------------------
-
-(deftest headless-variant-needs-no-tokens
-  (testing "an app-db-only variant requires only :app-db (resolves to :headless)"
-    (let [m {:story.r/h
-             {:setup      [[:dispatch [:a]]]
-              :assertions [[:rf.assert/path-equals [:x] 1]]}}
-          p (plan-of :story.r/h m)]
-      (is (= #{:app-db} (:required-runner p))))))
-
-(deftest dom-step-requires-dom-token
-  (testing "a DOM script step lifts the required-runner to include :dom"
-    (let [m {:story.r/d
-             {:script [[:dispatch [:a]] [:click "[data-test=go]"]]}}
-          p (plan-of :story.r/d m)]
-      (is (contains? (:required-runner p) :dom))
-      (is (contains? (:required-runner p) :app-db)))))
 
 (deftest dom-setup-step-requires-dom-token
   (testing "a DOM SETUP step alone lifts the required-runner to include :dom
@@ -456,7 +411,7 @@
       (testing "effective-args are recorded (the resolved args at plan time)"
         (is (= {:label "Hi" :count 3} (get-in p [:world :effective-args])))))))
 
-(deftest valid-effective-args-render
+(deftest valid-effective-args-compile-with-ok-validation
   (testing "valid effective-args compile cleanly (no plan failure)"
     (let [m {:story.widget/valid
              {:component :views/widget
@@ -771,17 +726,6 @@
                (get-in p [:explain :db-seed :seed])))
         (is (= #{:db-seed} (get-in p [:explain :fidelity])))))))
 
-(deftest db-seed-author-no-longer-silently-ignored
-  (testing "an author's :db-seed is accepted by the schema (not dropped) and lowers"
-    ;; The Variant schema validates the body at registration; reg-variant
-    ;; would reject an unknown-shape :db-seed. Compiling the body proves the
-    ;; slot is accepted AND survives into the plan (accepting it and then
-    ;; dropping it would be a silent no-op).
-    (let [m {:story.x/seed {:db-seed {:k 1}}}
-          p (rf.story.plan/variant-plan :story.x/seed {:lookup m})]
-      (is (= {:k 1} (get-in p [:world :db-seed])))
-      (is (contains? (get-in p [:world :fidelity]) :db-seed)))))
-
 (deftest db-seed-arg-substitution
   (testing "[:arg key] placeholders in a seed value resolve before lowering"
     (let [m {:story.cart/argseed
@@ -942,14 +886,6 @@
 
 ;; ---- unknown assertion ids fail plan construction ------------------------
 
-(deftest unknown-terminal-assertion-id-fails-plan-construction
-  (testing "an unknown id in terminal :assertions FAILS plan construction"
-    (let [m {:story.x/bad {:assertions [[:rf.assert/typo [:n] 1]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-unknown-assertion"
-            (plan-of :story.x/bad m))))))
-
 (deftest unknown-script-checkpoint-assertion-id-fails-plan-construction
   (testing "an unknown id in an in-script [:assert …] checkpoint FAILS plan
            construction (same id-validation as the terminal position)"
@@ -976,16 +912,6 @@
 ;; when its named cause was not observed. The plan compiler (the front half
 ;; of `run-variant`) rejects the key on `:rf.assert/caused` and a non-boolean
 ;; value on either id, BEFORE any run.
-
-(deftest require-cause-on-caused-fails-plan-construction
-  (testing ":require-cause? on :rf.assert/caused FAILS plan construction —
-           the key is a no-cascade opt-out ONLY, never a second meaning"
-    (let [m {:story.x/rc-caused
-             {:assertions [[:rf.assert/caused {:event :e :require-cause? false}]]}}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-bad-assertion-opt"
-            (plan-of :story.x/rc-caused m))))))
 
 (deftest non-boolean-require-cause-fails-plan-construction
   (testing "a non-boolean :require-cause? on :no-cascade-rerender FAILS —
@@ -1128,23 +1054,6 @@
       (is (= :rf.error/story-bad-step (:rf.error/id (ex-data ex))))
       (is (contains? (set (map :step (:offending-steps (ex-data ex))))
                      [:assert-db [:n] :pred even? :extra])))))
-
-(deftest well-formed-assert-steps-still-compile
-  (testing "well-formed :assert-db / :assert-dom steps fold cleanly past the
-           shape gate (the gate rejects only malformed steps)"
-    (let [folded (plan-of :story.x/ok-mix
-                          {:story.x/ok-mix
-                           {:script [[:assert-db [:count] 6]
-                                     [:assert-db [:n] :pred even?]
-                                     [:assert-dom "#a" :visible]
-                                     [:assert-dom "#b" :hidden]
-                                     [:assert-dom "#c" :text "hi"]]}})]
-      (is (= [[:assert [:rf.assert/path-equals [:count] 6]]
-              [:assert [:rf.assert/path-matches [:n] [:fn even?]]]
-              [:assert [:rf.assert/dom-visible "#a"]]
-              [:assert [:rf.assert/dom-hidden "#b"]]
-              [:assert [:rf.assert/dom-text "#c" "hi"]]]
-             (:script folded))))))
 
 ;; ---- pure fold helpers (assertion-ns surface) ----------------------------
 

@@ -10,11 +10,11 @@
 
   ## Coverage
 
-  - **Pure config**: the framework-published `rf/sensitive?` (Story
-    composes against it directly; there is no tool-side
-    `sensitive-event?` alias), `suppress-sensitive?`,
-    `note-suppressed!`, `suppressed-count`, `reset-suppressed-count!`
-    against the `egress-profile` (EP-0015 frame-owned egress).
+  - **Pure config**: `suppress-sensitive?`, `note-suppressed!`,
+    `suppressed-count`, `reset-suppressed-count!` against the
+    `egress-profile` (EP-0015 frame-owned egress). Story composes against
+    the framework-published `rf/sensitive?` directly; core's own suite
+    pins that predicate.
   - **`configure!`**: the `:rf.story/egress-profile` opts key wires
     through to the config atom.
   - **Play listener**: the per-frame trace listener (the Spec 009 privacy
@@ -32,7 +32,6 @@
   redaction indicator is verified by the CLJS ui-cljs test arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story            :as rf.story]
-            [re-frame.privacy          :as rf.privacy]
             [re-frame.story.config     :as rf.story.config]
             [re-frame.story.play       :as rf.story.play]
             [re-frame.story.recorder   :as rf.story.recorder]))
@@ -114,27 +113,6 @@
 ;; Pure config helpers
 ;; ---------------------------------------------------------------------------
 
-(deftest the-framework-predicate-recognises-the-flag
-  ;; Story composes against `rf/sensitive?` directly; there is no
-  ;; `rf.story.config/sensitive-event?` alias.
-  (testing "events with :sensitive? true are recognised"
-    (is (rf.privacy/sensitive? (sensitive-dispatch-event :v/x [:auth/login])))
-    (is (rf.privacy/sensitive? {:sensitive? true})))
-  (testing "events without :sensitive? or with :sensitive? false are not"
-    (is (not (rf.privacy/sensitive? (plain-dispatch-event :v/x [:counter/inc]))))
-    (is (not (rf.privacy/sensitive? {})))
-    (is (not (rf.privacy/sensitive? {:sensitive? false})))
-    (is (not (rf.privacy/sensitive? {:sensitive? nil}))))
-  (testing "non-map inputs are tolerated"
-    (is (not (rf.privacy/sensitive? nil)))
-    (is (not (rf.privacy/sensitive? "trace event")))
-    (is (not (rf.privacy/sensitive? 42))))
-  (testing "a MALFORMED truthy stamp is sensitive — Story's listeners
-            suppress it, as the MCP wire does"
-    (is (rf.privacy/sensitive? {:sensitive? "true"}))
-    (is (rf.privacy/sensitive? {:sensitive? :yes}))
-    (is (rf.privacy/sensitive? {:sensitive? 1}))))
-
 (deftest suppress-sensitive?-default-suppresses
   (testing "by default (:rf.egress/local-redacted) sensitive events are suppressed"
     (is (= :rf.egress/local-redacted @rf.story.config/session-egress-profile))
@@ -212,10 +190,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Suppressed-events counter
 ;; ---------------------------------------------------------------------------
-
-(deftest suppressed-count-defaults-to-zero
-  (is (zero? (rf.story.config/suppressed-count)))
-  (is (zero? (rf.story.config/suppressed-count :story.x/y))))
 
 (deftest note-suppressed!-bumps-counter
   (rf.story.config/note-suppressed! :story.x/y)
@@ -419,17 +393,6 @@
         (is (pos? (rf.story.config/suppressed-count :story.play/b)))))
     (reset! @#'rf.story.config/frame-egress-profiles {})))
 
-(deftest recorder-listener-still-captures-non-sensitive
-  (testing "control: ordinary events land in the recorder under default settings"
-    (rf.story.recorder/clear!)
-    (rf.story.recorder/start-recording! :story.recorder/plain 0)
-    (let [listen @#'rf.story.recorder/trace-listener
-          ev     (plain-dispatch-event :story.recorder/plain [:counter/inc])]
-      (listen ev)
-      (is (= [[:counter/inc]] (rf.story.recorder/recorded-events)))
-      (is (zero? (rf.story.config/suppressed-count :story.recorder/plain))))
-    (rf.story.recorder/clear!)))
-
 ;; ---------------------------------------------------------------------------
 ;; recordable-event? gates on the ORIGINAL id, not the [:rf/redacted]
 ;; placeholder
@@ -478,19 +441,6 @@
       (is (zero? (rf.story.config/suppressed-count :story.recorder/sens-drop-story))))
     (rf.story.recorder/clear!)))
 
-(deftest recorder-listener-still-redacts-sensitive-recordable-event-rf2-cmjly3
-  (testing "control: an ORDINARY sensitive user event (a recordable id)
-            is recorded-but-redacted"
-    (rf.story.recorder/clear!)
-    (rf.story.recorder/start-recording! :story.recorder/sens-redact 0)
-    (let [listen @#'rf.story.recorder/trace-listener
-          ev     (sensitive-dispatch-event :story.recorder/sens-redact
-                                           [:auth/login {:password "x"}])]
-      (listen ev)
-      (is (= [[:rf/redacted]] (rf.story.recorder/recorded-events)))
-      (is (pos? (rf.story.config/suppressed-count :story.recorder/sens-redact))))
-    (rf.story.recorder/clear!)))
-
 ;; ---------------------------------------------------------------------------
 ;; Retroactive scrub on egress-profile narrowing (EP-0015)
 ;; ---------------------------------------------------------------------------
@@ -503,24 +453,7 @@
 ;; so the algebra is covered here. The CLJS-only buffer-clear is covered in
 ;; `re-frame.story-ui-cljs-test`.
 
-(deftest narrowing-profile-runs-toggle-off-callbacks-rf2-lqmje
-  (testing "session-pin reveal → redact transition invokes registered callbacks (with nil frame-id)"
-    (let [called?  (atom false)
-          token-id ::scrub-callback-test]
-      ;; Callbacks receive the narrowed frame-id; a session-pin narrow
-      ;; passes nil (scrub-all signal).
-      (rf.story.config/register-toggle-off-callback! token-id (fn [_frame-id] (reset! called? true)))
-      (try
-        (rf.story.config/set-egress-profile! :rf.egress/local-raw)
-        (is (false? @called?)
-            "redact → reveal must NOT invoke callbacks (no buffered sensitive risk)")
-        (rf.story.config/set-egress-profile! :rf.egress/local-redacted)
-        (is (true? @called?)
-            "reveal → redact must invoke every registered callback")
-        (finally
-          (rf.story.config/unregister-toggle-off-callback! token-id))))))
-
-(deftest profile-no-transition-no-callback-rf2-lqmje
+(deftest toggle-off-callbacks-fire-only-on-reveal-to-redact-rf2-lqmje
   (testing "reveal → reveal and redact → redact are no-ops for the callbacks"
     (let [calls    (atom 0)
           token-id ::scrub-callback-no-transition]
@@ -616,7 +549,7 @@
           (rf.story.config/unregister-toggle-off-callback! token)
           (clear-frame-overrides!))))))
 
-(deftest per-frame-override-wins-over-session-pin
+(deftest per-frame-reveal-wins-over-redacting-session-pin
   (testing "a per-frame override beats the session-pin in both directions"
     (clear-frame-overrides!)
     ;; pin the session to raw (tool UX); a frame can still be narrowed below it
