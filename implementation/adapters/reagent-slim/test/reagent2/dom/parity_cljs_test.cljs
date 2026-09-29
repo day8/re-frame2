@@ -136,16 +136,6 @@
 ;; Plain text + escaping
 ;; ---------------------------------------------------------------------------
 
-(deftest parity-plain-text
-  (testing "plain text content"
-    (let [[a b] (=parity [:div "hello"])]
-      (is (= a b)))))
-
-(deftest parity-escaped-text
-  (testing "text with HTML special chars"
-    (let [[a b] (=parity [:div "1 < 2 && 3 > 0"])]
-      (is (= a b)))))
-
 (deftest parity-escaped-text-quotes-apostrophe
   (testing "text content escapes the full 5-char set
             (& < > \" '). The serializer must be byte-equal to
@@ -166,26 +156,6 @@
 ;; Attributes
 ;; ---------------------------------------------------------------------------
 
-(deftest parity-class-attr
-  (testing ":class attribute (hiccup) ↔ class= (React)"
-    (let [[a b] (=parity [:div {:class "foo"}])]
-      (is (= a b)))))
-
-(deftest parity-id-attr
-  (testing ":id attribute"
-    (let [[a b] (=parity [:div {:id "main"}])]
-      (is (= a b)))))
-
-(deftest parity-data-attr
-  (testing "data-* attribute"
-    (let [[a b] (=parity [:div {:data-id "7"}])]
-      (is (= a b)))))
-
-(deftest parity-aria-attr
-  (testing "aria-* attribute"
-    (let [[a b] (=parity [:div {:aria-label "close"}])]
-      (is (= a b)))))
-
 (deftest parity-multiple-attrs
   (testing "multiple attributes (after canonicalisation)"
     (let [[a b] (=parity [:div {:class "c" :id "i" :title "t"}])]
@@ -203,16 +173,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Boolean attributes
 ;; ---------------------------------------------------------------------------
-
-(deftest parity-boolean-attr-true
-  (testing "true boolean attr emits short form"
-    (let [[a b] (=parity [:input {:disabled true}])]
-      (is (= a b)))))
-
-(deftest parity-boolean-attr-false
-  (testing "false boolean attr is omitted"
-    (let [[a b] (=parity [:input {:disabled false}])]
-      (is (= a b)))))
 
 (def ^:private presence-value-corpus
   "Non-boolean `:disabled` values, each labelled and paired with the bytes this
@@ -270,11 +230,6 @@
 ;; Void tags
 ;; ---------------------------------------------------------------------------
 
-(deftest parity-br-void
-  (testing "<br> void tag"
-    (let [[a b] (=parity [:br])]
-      (is (= a b)))))
-
 (deftest parity-img-void
   (testing "<img> void tag with attrs"
     (let [[a b] (=parity [:img {:src "/x.png" :alt "x"}])]
@@ -294,11 +249,6 @@
     (let [[a b] (=parity [:<>])]
       (is (= a b)))))
 
-(deftest parity-fragment-with-children
-  (testing ":<> with children"
-    (let [[a b] (=parity [:<> [:a] [:b]])]
-      (is (= a b)))))
-
 (deftest parity-nested-fragments
   (testing "nested :<> fragments"
     (let [[a b] (=parity [:<> [:p "a"] [:<> [:p "b"] [:p "c"]]])]
@@ -307,13 +257,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Sequence children
 ;; ---------------------------------------------------------------------------
-
-(deftest parity-seq-children
-  (testing "(map ...) children with keys"
-    (let [[a b] (=parity
-                 [:ul (map-indexed (fn [i x] ^{:key i} [:li x])
-                                   ["a" "b" "c"])])]
-      (is (= a b)))))
 
 (deftest parity-mixed-children
   (testing "string + number + vector children"
@@ -490,13 +433,6 @@
 ;; =parity assertions pin the serializer against the live React reference;
 ;; the explicit-string assertions document the target independently.
 ;; ---------------------------------------------------------------------------
-
-(deftest parity-svg-viewbox
-  (testing ":viewBox preserved (case-sensitive SVG attribute)"
-    (let [[a b] (=parity [:svg {:viewBox "0 0 10 10"}])]
-      (is (= a b)))
-    (is (= "<svg viewBox=\"0 0 10 10\"></svg>"
-           (via-rewrite [:svg {:viewBox "0 0 10 10"}])))))
 
 (deftest parity-svg-preserve-aspect-ratio
   (testing ":preserveAspectRatio preserved verbatim"

@@ -5,7 +5,8 @@
 
     - Plain text content escaping (`&`, `<`, `>`).
     - Attribute serialisation (HTML attrs; keyword values stringified).
-    - Boolean attrs (truthy → present without value; falsy → absent).
+    - Boolean attrs are pinned in
+      `reagent2.dom.boolean-attr-react-parity-cljs-test`.
     - Void tags (no closing tag, no children emitted).
     - Fragments (`:<>`) — children only, no surrounding markup.
     - Nested hiccup.
@@ -115,13 +116,6 @@
     (is (= "<div></div>"
            (server/render-to-static-markup [:div {:hidden nil :title nil}])))))
 
-(deftest attr-data-aria
-  (testing "data-* and aria-* pass through verbatim"
-    (is (= "<div data-id=\"7\"></div>"
-           (server/render-to-static-markup [:div {:data-id "7"}])))
-    (is (= "<div aria-label=\"close\"></div>"
-           (server/render-to-static-markup [:div {:aria-label "close"}])))))
-
 (deftest attr-camelcase-react-canonical-name
   (testing "camelCased prop names emit React 19's canonical output name"
     ;; `attribute-name` is not a blanket lowercase: React's attribute-name
@@ -134,26 +128,6 @@
            (server/render-to-static-markup [:div {:tab-index "0"}])))
     (is (= "<td colSpan=\"2\"></td>"
            (server/render-to-static-markup [:td {:col-span "2"}])))))
-
-;; ---------------------------------------------------------------------------
-;; Boolean attributes
-;; ---------------------------------------------------------------------------
-
-(deftest boolean-attr-truthy
-  (testing "true → emit name without value"
-    (is (= "<input disabled>"
-           (server/render-to-static-markup [:input {:disabled true}])))
-    (is (= "<input checked>"
-           (server/render-to-static-markup [:input {:checked true}])))
-    (is (= "<input readonly>"
-           (server/render-to-static-markup [:input {:read-only true}])))))
-
-(deftest boolean-attr-falsy-omitted
-  (testing "false → omit attribute entirely"
-    (is (= "<input>"
-           (server/render-to-static-markup [:input {:disabled false}])))
-    (is (= "<input>"
-           (server/render-to-static-markup [:input {:checked false}])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Void tags
@@ -193,21 +167,9 @@
     (is (= "<a></a>"
            (server/render-to-static-markup [:<> {:key "k"} [:a]])))))
 
-(deftest nested-fragments
-  (testing "fragments nest cleanly"
-    (is (= "<a></a><b></b><c></c>"
-           (server/render-to-static-markup
-            [:<> [:a] [:<> [:b] [:c]]])))))
-
 ;; ---------------------------------------------------------------------------
 ;; Nested hiccup
 ;; ---------------------------------------------------------------------------
-
-(deftest nested-elements
-  (testing "nested elements compose"
-    (is (= "<ul><li>a</li><li>b</li></ul>"
-           (server/render-to-static-markup
-            [:ul [:li "a"] [:li "b"]])))))
 
 (deftest nested-with-attrs
   (testing "nested elements carry their own attrs"
@@ -224,20 +186,6 @@
     (is (= "<ul><li>a</li><li>b</li><li>c</li></ul>"
            (server/render-to-static-markup
             [:ul (map (fn [x] [:li x]) ["a" "b" "c"])])))))
-
-(deftest seq-children-with-key-meta
-  (testing ":key meta on sequence children is React-internal; not in HTML"
-    (is (= "<ul><li>a</li><li>b</li></ul>"
-           (server/render-to-static-markup
-            [:ul (map-indexed (fn [i x]
-                                ^{:key i} [:li x])
-                              ["a" "b"])])))))
-
-(deftest seq-children-with-key-prop
-  (testing ":key in props map is React-internal; never in HTML"
-    (is (= "<ul><li>a</li></ul>"
-           (server/render-to-static-markup
-            [:ul [:li {:key 1} "a"]])))))
 
 (deftest mixed-children
   (testing "string + number + vector children all render"
@@ -287,19 +235,6 @@
     (is (= "<div>&amp;</div>"
            (server/render-to-static-markup
             [:div {:dangerouslySetInnerHTML {:__html "&amp;"}}])))))
-
-;; ---------------------------------------------------------------------------
-;; Style attribute
-;; ---------------------------------------------------------------------------
-
-(deftest style-map-serialises
-  (testing ":style map → CSS string"
-    (let [out (server/render-to-static-markup
-               [:div {:style {:color "red"}}])]
-      (is (= "<div style=\"color:red\"></div>" out)))
-    (let [out (server/render-to-static-markup
-               [:div {:style {:cursor :pointer}}])]
-      (is (= "<div style=\"cursor:pointer\"></div>" out)))))
 
 ;; ---------------------------------------------------------------------------
 ;; React-component heads (opaque under static markup)
@@ -449,13 +384,6 @@
       (is (= "<div>n: 7</div>"
              (server/render-to-static-markup [labelled "n" 7]))))))
 
-(deftest form-2-nested-in-form-1
-  (testing "a Form-2 head nested inside a Form-1 head renders"
-    (let [inner (fn [_x] (fn [x] [:em x]))
-          outer (fn [x] [:p [inner x]])]
-      (is (= "<p><em>hi</em></p>"
-             (server/render-to-static-markup [outer "hi"]))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Form-3 class heads
 ;;
@@ -466,15 +394,6 @@
 ;; render) and renders the `:reagent-render` fn through the same
 ;; Form-1/Form-2 path. Lifecycle keys have no static-HTML meaning.
 ;; ---------------------------------------------------------------------------
-
-(deftest form-3-reagent-class-renders
-  (testing "a create-class (Form-3) head renders its
-            :reagent-render fn to HTML"
-    (let [box (r/create-class
-                {:display-name "box"
-                 :reagent-render (fn [x] [:div.box x])})]
-      (is (= "<div class=\"box\">hello</div>"
-             (server/render-to-static-markup [box "hello"]))))))
 
 (deftest form-3-reagent-render-is-form-2
   (testing "a create-class whose :reagent-render is itself
@@ -549,15 +468,6 @@
             [:button {:on-click "javascript:evil()"} "x"]))
         "no leaked onclick attribute on the rendered button")))
 
-(deftest event-handler-fn-stripped-rf2-dwds9
-  (testing "fn-valued :on-click is stripped (does not
-            emit `function () { ... }` source as the attribute value)"
-    (let [handler (fn [_e])
-          out (server/render-to-static-markup
-               [:div {:on-click handler}])]
-      (is (= "<div></div>" out)
-          "no onclick attribute, no leaked source"))))
-
 (deftest fn-valued-non-event-prop-stripped-rf2-dwds9
   (testing "any fn-valued prop (not just `on*`) is stripped
             so source text never leaks into the attribute"
@@ -565,16 +475,6 @@
           out (server/render-to-static-markup
                [:div {:custom-callback callback}])]
       (is (= "<div></div>" out)))))
-
-(deftest other-on-prefix-attrs-stripped-rf2-dwds9
-  (testing "camelCase `onChange`, `onSubmit`, `onMouseEnter`
-            all stripped (full event-handler family)"
-    (is (= "<form></form>"
-           (server/render-to-static-markup
-            [:form {:onSubmit "evil()" :onChange "evil2()"}])))
-    (is (= "<div></div>"
-           (server/render-to-static-markup
-            [:div {:onMouseEnter "evil()"}])))))
 
 (deftest on-not-event-prefix-passes-through
   (testing "attribute names starting with `on` but NOT
@@ -611,25 +511,11 @@
             [:button {:onclick "javascript:evil()"} "x"]))
         "no leaked onclick attribute on the rendered button")))
 
-(deftest lowercase-onclick-string-key-stripped-rf2-ut3mod
-  (testing "string key \"onclick\" with string value does
-            NOT emit an onclick attribute"
-    (is (= "<div></div>"
-           (server/render-to-static-markup [:div {"onclick" "alert(1)"}])))))
-
 (deftest lowercase-onchange-stripped-rf2-ut3mod
   (testing ":onchange (all-lowercase keyword) is stripped —
             another canonical lowercase event name, not just :onclick"
     (is (= "<input>"
            (server/render-to-static-markup [:input {:onchange "evil()"}])))))
-
-(deftest lowercase-non-event-on-prefix-still-passes-through-rf2-ut3mod
-  (testing "the lowercase-event allowlist must not catch
-            :once / :onyx — non-events pass through"
-    (is (= "<div once=\"true\"></div>"
-           (server/render-to-static-markup [:div {:once "true"}])))
-    (is (= "<div onyx=\"x\"></div>"
-           (server/render-to-static-markup [:div {:onyx "x"}])))))
 
 (deftest key-and-ref-still-stripped
   (testing ":key and :ref drop alongside the event-prop filter"

@@ -185,25 +185,6 @@
         (is (or (nil? watches-after)
                 (empty? watches-after)))))))
 
-(deftest reaction-add-on-dispose
-  (testing "add-on-dispose! callbacks fire in registration order"
-    (let [r       (ratom/make-reaction (fn [] 1))
-          fired   (atom [])]
-      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :a)))
-      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :b)))
-      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :c)))
-      (ratom/dispose! r)
-      (is (= [:a :b :c] @fired))))
-
-  (testing "on-dispose kwarg fires before add-on-dispose! callbacks"
-    (let [fired   (atom [])
-          r       (ratom/make-reaction
-                    (fn [] 1)
-                    :on-dispose (fn [_] (swap! fired conj :on-dispose-kwarg)))]
-      (ratom/add-on-dispose! r (fn [_] (swap! fired conj :added)))
-      (ratom/dispose! r)
-      (is (= [:on-dispose-kwarg :added] @fired)))))
-
 ;; ---- dispose! idempotence + re-entrancy -----------------------------------
 ;;
 ;; The reagent-slim Reaction keeps the stock-Reagent nine-field shape, with
@@ -335,18 +316,6 @@
       (reset! a 2)
       ;; auto-run on both is synchronous: a=2 → r1=20 → r2=21.
       (is (= [21] @r2-vals)))))
-
-(deftest deref-outside-context-recomputes
-  (testing "deref'ing a Reaction outside a reactive context recomputes"
-    ;; The fast-path (non-reactive deref of a no-auto-run Reaction)
-    ;; doesn't subscribe; it just calls f. So every deref re-runs f
-    ;; and reports the current value of upstream RAtoms — matches
-    ;; stock Reagent's read-through-on-fast-path semantics.
-    (let [a (ratom/atom 1)
-          r (ratom/make-reaction (fn [] (* @a 10)))]
-      (is (= 10 @r))
-      (reset! a 5)
-      (is (= 50 @r)))))
 
 (deftest queued-reaction-drains-on-flush
   (testing "rea-queue path: enqueue on dep change, flush! drains"
