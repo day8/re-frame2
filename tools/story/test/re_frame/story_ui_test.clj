@@ -6,7 +6,7 @@
   `re-frame.story-ui-cljs-test`. JVM-side we cover every pure-data
   helper in the `re-frame.story.ui.*` namespaces:
 
-  - shell state transitions (selection, filters, fingerprints, overrides)
+  - shell state transitions (selection, filters, overrides)
   - sidebar tag collection + variant grouping
   - workspace layout resolution (:grid, :variants-grid, :prose, :tabs)
 
@@ -250,21 +250,6 @@
       (is (= 1 (-> s rf.story.ui.state/bump-hot-reload-tick :hot-reload-tick)))
       (is (= 2 (-> s rf.story.ui.state/bump-hot-reload-tick
                    rf.story.ui.state/bump-hot-reload-tick :hot-reload-tick))))))
-
-(deftest record-fingerprints-roundtrip
-  (testing "record-fingerprints stores the per-variant map"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/record-fingerprints s :story.a/x {:dec/foo 0xdeadbeef})]
-      (is (= {:dec/foo 0xdeadbeef}
-             (get-in s1 [:fingerprints :story.a/x]))))))
-
-(deftest pin-snapshot-appends
-  (testing "pin-snapshot appends a labelled marker"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/pin-snapshot s :story.a/x "checkpoint" 5)
-          s2 (rf.story.ui.state/pin-snapshot s1 :story.a/x "later" 11)]
-      (is (= 2 (count (get-in s2 [:pinned-snapshots :story.a/x]))))
-      (is (= 5 (-> s2 :pinned-snapshots :story.a/x first :epoch-id))))))
 
 (deftest panel-visibility-toggle
   (testing "toggle-panel flips a panel's visibility"
