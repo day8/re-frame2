@@ -97,6 +97,7 @@
   ones somebody has looked at."
   (:require [re-frame.classification :as rf.classification]
             [re-frame.frame :as rf.frame]
+            [re-frame.path :as rf.path]
             [re-frame.privacy :as rf.privacy]
             [re-frame.resources.classification :as rf.resources.classification]
             [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
@@ -820,6 +821,42 @@
   [m]
   (boolean (family-reply-kinds (:rf.reply/work-kind m))))
 
+(defn- feed-reply-spec
+  "`spec` with its data declaration read the way an infinite feed's read reply
+  carries the data: as the merged item list `events/infinite-reply-value`
+  builds, not as the page the owner declared against. Any other spec is
+  returned unchanged.
+
+  Through a KEYWORD accessor a declared data path that runs through the
+  accessor key loses that key, and any other path keeps its reading, which is
+  a vector page's — a vector page is its own items. Through a CALLABLE
+  accessor nothing says where a declared field lands in the list, so a
+  sensitive data declaration covers the whole `:value`, which fails closed
+  off-box and costs nothing in process. `:params` / `:scope` paths name the
+  reply's other slots and are untouched."
+  [spec]
+  (let [accessor (:page->items spec)]
+    (if-not (and (rf.resources.registry/infinite-resource? spec)
+                 (or (keyword? accessor) (fn? accessor)))
+      spec
+      (let [data     (fn [p] (let [p (rf.path/normalize-concrete p)]
+                               (case (first p)
+                                 (:params :scope) nil
+                                 :data            (subvec p 1)
+                                 p)))
+            through  (fn [d] (if (= accessor (first d)) (subvec d 1) d))
+            read-as  (fn [paths whole?]
+                       (let [ds    (keep data paths)
+                             other (vec (remove data paths))]
+                         (cond
+                           (empty? ds) paths
+                           whole?      (conj other [:data])
+                           :else       (into other (map #(into [:data] (through %))) ds))))
+            callable (fn? accessor)]
+        (cond-> spec
+          (seq (:sensitive spec)) (update :sensitive read-as callable)
+          (seq (:large spec))     (update :large read-as false))))))
+
 (defn- redact-reply-declarations
   "The READ-CONTINUATION analogue of the mutation's source-side
   `rf.resources.classification/redact-continuation-reply` — literally that
@@ -892,12 +929,18 @@
   key's two components instead of the reply's sibling slots —
   `rf.resources.ssr/project-scoped-key`'s documented `:serialize` deferral kept,
   because the per-slot arm belongs at the boundary that has no registry to read
-  rather than inside the projection the SSR durable path shares."
+  rather than inside the projection the SSR durable path shares.
+
+  ## A feed's `:value` is not the page it declares against
+
+  A feed's reply `:value` is its merged item list, and the owner declares its
+  data against the PAGE, so the declaration is first read through the feed's
+  accessor (`feed-reply-spec`)."
   [reply]
   (let [rid  (second (:resource/key reply))
         spec (when (keyword? rid) (rf.resources.registry/resource-meta rid))]
     (if spec
-      (rf.resources.classification/redact-continuation-reply reply spec)
+      (rf.resources.classification/redact-continuation-reply reply (feed-reply-spec spec))
       reply)))
 
 (defn- carrier-family-value?
