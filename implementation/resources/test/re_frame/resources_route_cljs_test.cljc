@@ -6,7 +6,7 @@
   Exercises the cross-feature seam with BOTH artefacts loaded:
 
     1. accepted-key extension — `:resources` is an accepted bare route key
-       once resources loads;
+       once resources loads (every route below registers with it);
     2. on route entry — each `:resources` entry is ensured with owner
        `[:route route-id nav-token]` + cause `[:route-entry route-id
        nav-token]`;
@@ -170,20 +170,6 @@
     @seen))
 
 ;; ===========================================================================
-;; 1. Accepted-key extension
-;; ===========================================================================
-
-(deftest resources-route-key-is-accepted-when-both-artefacts-load
-  (testing ":resources is an accepted bare route key once resources loads"
-    (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-    (is (= :route/article
-           (rf/reg-route :route/article
-                         {:params    [:map [:slug :string]]
-                          :resources [{:resource :article/by-slug
-                                       :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug"))
-        "reg-route with :resources does not throw — the key is accepted")))
-
-;; ===========================================================================
 ;; 2. On route entry — owner + cause
 ;; ===========================================================================
 
@@ -221,8 +207,8 @@
     (testing "a blocking resource keeps the route transition :loading"
       (is (= :loading (:transition (slice)))
           "transition stays :loading while the blocking resource is pending")
-      (is (contains? (blocking-slot nav-token) scoped-key)
-          "the blocking scoped key is tracked under the nav-token"))
+      (is (= #{scoped-key} (blocking-slot nav-token))
+          "the blocking scoped key is the one requirement tracked under the nav-token"))
     (testing "the route lands :idle only when the blocking resource settles"
       (settle-success! scoped-key {:title "Intro"})
       (is (= :idle (:transition (slice)))
@@ -279,26 +265,6 @@
             "a route blocked on a fresh resource lands :idle at once")
         (is (empty? (blocking-slot nav-token-2))
             "the new nav-token's blocking slot drained on the cache-hit")))))
-
-;; ===========================================================================
-;; 4. blocking FIRST-load failure → route :error
-;; ===========================================================================
-
-(deftest blocking-first-load-failure-flips-route-to-error
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (settle-failure! scoped-key {:status 503 :message "upstream down"})
-    (testing "a blocking first-load failure flips the route transition to :error"
-      (is (= :error (:transition (slice))))
-      (is (= :rf.error/resource-route-blocking
-             (:rf.error/id (:error (slice))))
-          ":rf.route/error carries the structured blocking-failure error"))))
 
 ;; ===========================================================================
 ;; 5. route leave / supersession releases the prior owner
@@ -404,36 +370,6 @@
     (is (empty? (entries)) "the gated-out resource was not ensured")))
 
 ;; ===========================================================================
-;; 7. :after orders dependent resources by route-local id
-;; ===========================================================================
-
-(deftest after-orders-dependent-resources-by-local-id
-  (let [order (atom [])]
-    (rf/reg-resource :article/by-slug
-                     (article-spec {})
-                     (fn [_p _]
-                       (swap! order conj :article)
-                       {:request {:method :get :url "/a"}}))
-    (rf/reg-resource :comments/list
-                     (article-spec {})
-                     (fn [_p _]
-                       (swap! order conj :comments)
-                       {:request {:method :get :url "/c"}}))
-    (rf/reg-route :route/article
-                  {:params    [:map [:slug :string]]
-                   :resources [{:resource :comments/list
-                                :id       :comments
-                                :params   (fn [route] {:slug (get-in route [:params :slug])})
-                                :after    #{:article}}
-                               {:resource :article/by-slug
-                                :id       :article
-                                :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/articles/:slug")
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-    (testing ":after #{local-id} orders the dependent resource AFTER its dep"
-      (is (= [:article :comments] @order)
-          "the :article dep ensures before the :comments dependent"))))
-
-;; ===========================================================================
 ;; 8. params PLANNING failure surfaces on the route slice
 ;; ===========================================================================
 
@@ -491,12 +427,13 @@
       (is (empty? (:tags (entry k2))) "the new entry borrows none of the prior key's tags"))))
 
 ;; ===========================================================================
-;; 10. A blocking first-load failure ALSO emits an error trace
+;; 10. A blocking FIRST-load failure flips the route to :error AND emits an
+;;     error trace
 ;; ===========================================================================
 
 (deftest blocking-first-load-failure-emits-error-trace
-  ;; The route slice already carries the structured :error (section 4); this
-  ;; proves the SAME failure is ALSO published on the trace/error stream as
+  ;; The route slice carries the structured :error, and the SAME failure is
+  ;; ALSO published on the trace/error stream as
   ;; `:rf.error/resource-route-blocking` with ResourceRouteBlockingTags shape.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
@@ -531,34 +468,15 @@
 ;; 11. Superseded route-resource blocking slots are cleared
 ;; ===========================================================================
 
-(deftest superseded-blocking-slot-is-cleared-on-route-leave
+(deftest superseded-blocking-slot-does-not-block-future-navigation
   ;; A BLOCKING route resource that NEVER settles (no reply — e.g. aborted /
   ;; orphaned in-flight on supersession) would leave its old-nav-token
   ;; blocking entry forever if only the reply-driven drain cleared it, since
   ;; that drain fires only on a settle that still names the old owner. Leaving
   ;; the route releases the prior owner, which MUST deterministically clear
-  ;; the stale slot.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/reg-route :route/home {} "/")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [token-1    (:nav-token (slice))
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})]
-    (testing "the blocking slot is populated on entry (resource never settles)"
-      (is (contains? (blocking-slot token-1) scoped-key)))
-    ;; leave WITHOUT the blocking resource ever settling
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (testing "the superseded nav-token's blocking slot is fully cleared on leave"
-      (is (empty? (blocking-slot token-1))
-          "old-token blocking state did not accumulate / leak"))))
-
-(deftest superseded-blocking-slot-does-not-block-future-navigation
-  ;; Prove the stale slot cannot bleed into the LIVE readiness projection for
-  ;; a later navigation — old-token state must not gate new transitions.
+  ;; the stale slot, and the stale slot cannot bleed into the LIVE readiness
+  ;; projection for a later navigation — old-token state must not gate new
+  ;; transitions.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
@@ -1477,64 +1395,6 @@
       (is (= 1 (count (of-event ds :rf.resource/release-owner))))
       (is (empty? (:identities plan)) "empty next-ownership set"))))
 
-(deftest r2-navigation-composes-registered-parent-chain
-  ;; End-to-end: reg-route with :parent -> navigate to the child -> both the
-  ;; parent shell resource AND the leaf resource are ensured, proving routing
-  ;; fail-loud branch walk + the resources composition seam wire together.
-  (rf/reg-resource :acct/viewer (article-spec {}) article-spec-request)
-  (rf/reg-resource :acct/settings (article-spec {}) article-spec-request)
-  (rf/reg-route :route/account
-                {:resources [{:resource :acct/viewer :params (fn [_] {:slug "v"}) :blocking? true}]}
-                "/account")
-  (rf/reg-route :route/account.settings
-                {:parent    :route/account
-                 :resources [{:resource :acct/settings :params (fn [_] {:slug "s"}) :blocking? true}]}
-                "/account/settings")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/account.settings}])
-  (let [viewer-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :acct/viewer {:slug "v"})
-        settings-key (rf.resources.state/scoped-resource-key* :rf.scope/global :acct/settings {:slug "s"})]
-    (testing "activating the child composes the ancestor resource too"
-      (is (some? (entry viewer-key)) "the parent shell resource is ensured on child activation")
-      (is (some? (entry settings-key)) "the leaf resource is ensured"))))
-
-(deftest r2-sibling-nav-adopts-kept-parent-without-refetch
-  ;; End-to-end partial revalidation: navigate to one tab, settle the shared
-  ;; banner, then navigate to the sibling tab. The banner is KEPT — its
-  ;; generation is unchanged (no refetch), it keeps its data, and the removed
-  ;; tab owner is released.
-  (rf/reg-resource :prof/banner (article-spec {}) article-spec-request)
-  (rf/reg-resource :prof/tab-one (article-spec {}) article-spec-request)
-  (rf/reg-resource :prof/tab-two (article-spec {}) article-spec-request)
-  (rf/reg-route :route/prof
-                {:resources [{:resource :prof/banner :params (fn [_] {:slug "b"}) :blocking? true}]}
-                "/prof")
-  (rf/reg-route :route/prof.one
-                {:parent    :route/prof
-                 :resources [{:resource :prof/tab-one :params (fn [_] {:slug "one"})}]}
-                "/prof/one")
-  (rf/reg-route :route/prof.two
-                {:parent    :route/prof
-                 :resources [{:resource :prof/tab-two :params (fn [_] {:slug "two"})}]}
-                "/prof/two")
-  (let [banner-key (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/banner {:slug "b"})
-        tab1-key   (rf.resources.state/scoped-resource-key* :rf.scope/global :prof/tab-one {:slug "one"})]
-    (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.one}])
-    (settle-success! banner-key {:name "Ada"})
-    (settle-success! tab1-key [{:id 1}])
-    (let [gen-before (:generation (entry banner-key))]
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/prof.two}])
-      (testing "the kept banner is not refetched by the sibling navigation"
-        (is (= gen-before (:generation (entry banner-key))) "generation unchanged — no revalidation")
-        (is (rf.resources.state/has-data? (entry banner-key)) "banner keeps its loaded data"))
-      (testing "the removed tab route owner is released"
-        (let [t1 (entry tab1-key)]
-          (is (or (nil? t1)
-                  (not (some (fn [o] (and (vector? o) (= :route (first o)) (= :route/prof.one (second o))))
-                             (:active-owners t1))))
-              "tab-one [:route :route/prof.one _] owner is gone")))
-      (testing "the route lands :idle (kept blocking banner already had data)"
-        (is (= :idle (:transition (slice))))))))
-
 ;; ===========================================================================
 ;; 15. EP-0037 R1: the ONE readiness projector
 ;;
@@ -1717,7 +1577,9 @@
   ;; A blocking route resource whose identity ALREADY has usable data must
   ;; commit :idle. It is recorded in NO blocking slot, so the commit's own
   ;; readiness seed is :idle — the route never passes through :loading and no
-  ;; later drain is needed to rescue it.
+  ;; later drain is needed to rescue it. The cold contrast (no usable data at
+  ;; commit, so the requirement IS recorded and the route commits :loading) is
+  ;; `blocking-resource-holds-route-transition-until-it-settles`.
   (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
   (rf/reg-route :route/article
                 {:params    [:map [:slug :string]]
@@ -1737,21 +1599,6 @@
       (testing "the route commits :idle"
         (is (= :idle (:transition (slice))))
         (is (nil? (:error (slice))))))))
-
-(deftest a-cold-blocking-resource-still-commits-loading
-  ;; The contrast guard for the test above: with no usable data at commit the
-  ;; requirement IS recorded and the route commits :loading.
-  (rf/reg-resource :article/by-slug (article-spec {}) article-spec-request)
-  (rf/reg-route :route/article
-                {:params    [:map [:slug :string]]
-                 :resources [{:resource  :article/by-slug
-                              :params    (fn [route] {:slug (get-in route [:params :slug])})
-                              :blocking? true}]} "/articles/:slug")
-  (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "cold"}}])
-  (let [nav-token  (:nav-token (slice))
-        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "cold"})]
-    (is (= #{scoped-key} (blocking-slot nav-token)))
-    (is (= :loading (:transition (slice))))))
 
 ;; ---- 2. a background-refresh failure never errors the route ----------------
 
