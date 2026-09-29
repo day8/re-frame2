@@ -191,18 +191,14 @@
 ;; `:Workspace.counter/auto-grid` as an empty frame — title + stub, no
 ;; counter UI inside. This test pins it: the
 ;; workspace renderer for a `:grid` layout with one variant must emit
-;; hiccup that references the variant id and, when the variant has a
-;; registered `:component`, includes a `frame-provider` wrap with that
+;; hiccup that references the variant id, and the cell's body must wrap
+;; the registered `:component` in a `frame-provider` scoped to that
 ;; variant id (so the rendered view's subscribe / dispatch scope to the
 ;; per-variant frame, not `:rf/default`).
 
 (deftest workspace-view-emits-variant-cells-with-frame-providers
   (testing "workspace-view renders each variant cell with a
             frame-provider wrap scoped to the variant id"
-    ;; Register a tiny view + variant + workspace. The view returns a
-    ;; sentinel hiccup tag so we can find it in the rendered tree.
-    (rf/reg-event :rf2-zme7/init (fn [{:keys [db]} _] {:db (assoc db :marker 42)}))
-    (rf/reg-sub :rf2-zme7/marker (fn [db _] (:marker db)))
     (rf/reg-view* :rf2-zme7/view
       {}
       (fn [_args]
@@ -211,26 +207,24 @@
       {:component :rf2-zme7/view
        :substrates #{:reagent}})
     (rf.story/reg-variant :story.rf2-zme7/v
-      {:setup [[:rf2-zme7/init]]
+      {:setup []
        :substrates #{:reagent}})
     (rf.story/reg-workspace :Workspace.rf2-zme7/g
       {:layout   :grid
        :variants [:story.rf2-zme7/v]})
-    ;; Render the workspace; walk the tree to confirm:
-    ;;  (a) the variant id appears (cell title)
-    ;;  (b) a `frame-provider` element wraps the view
-    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-zme7/g)
-          flat (tree-seq coll? seq tree)]
-      (is (some #(= :story.rf2-zme7/v %) flat)
-          "the variant id appears somewhere in the rendered tree")
-      ;; The rendered cell uses `r/create-class`, so the inner render
-      ;; isn't directly inlined into the parent's hiccup — but the cell
-      ;; component itself shows up as a vector beginning with the cell
-      ;; component fn. We at least confirm the workspace produced
-      ;; non-empty grid contents and the cell fn appears as a child.
-      ;; The wrap is a `<section>` landmark (a11y).
-      (is (vector? tree))
-      (is (= :section (first tree))))))
+    (let [tree (rf.story.ui.workspace/workspace-view :Workspace.rf2-zme7/g)]
+      (is (= :section (first tree))
+          "the wrap is a `<section>` landmark (a11y)")
+      (is (some #(= :story.rf2-zme7/v %) (tree-seq coll? seq tree))
+          "the variant id appears somewhere in the rendered tree"))
+    ;; The cell is a Reagent component whose body is `variant-cell-inner`,
+    ;; so the frame-provider wrap is read off that body.
+    (rf/make-frame {:id :story.rf2-zme7/v})
+    (let [cell     (@#'rf.story.ui.workspace/variant-cell-inner :story.rf2-zme7/v)
+          provider (some #(when (and (vector? %) (= rf/frame-provider (first %))) %)
+                         (tree-seq coll? seq cell))]
+      (is (= {:frame :story.rf2-zme7/v} (second provider))
+          "the cell wraps the view in a frame-provider scoped to the variant id"))))
 
 (deftest workspace-view-empty-for-missing-workspace
   (testing "workspace-view renders an empty / not-registered notice for
@@ -1093,11 +1087,17 @@
             variant body has no :script slot — the variant is registered
             but declares zero assertions, so no run is fired."
     (rf.story/reg-variant :story.tv/no-play {:setup []})
-    (let [result (rf.story.ui.test-mode.view/test-view :story.tv/no-play)]
-      ;; r/create-class returns a fn — Reagent will invoke it during
-      ;; render. We at least confirm the helper returns a non-nil
-      ;; component descriptor.
-      (is (some? result)))
+    (rf.story/reg-variant :story.tv/with-assertions
+      {:setup      []
+       :assertions [[:rf.assert/path-equals [:x] 1]]})
+    (let [empty-state        @#'rf.story.ui.test-mode.view/empty-state
+          shows-empty-state? (fn [variant-id]
+                               (boolean (some #(= [empty-state variant-id] %)
+                                              (rf.story.ui.test-mode.view/test-view variant-id))))]
+      (is (shows-empty-state? :story.tv/no-play)
+          "the pane carries the empty-state placeholder")
+      (is (not (shows-empty-state? :story.tv/with-assertions))
+          "a variant with assertions gets the result sections instead"))
     (is (nil? (rf.story.ui.test-mode.view/test-view nil))
         "no variant-id = no pane")))
 
