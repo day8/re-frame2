@@ -77,6 +77,7 @@
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.ssr :as rf.ssr]
+            [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
             [re-frame.ssr.response :as rf.ssr.response]
             [re-frame.ssr.test-fixture :as rf.ssr.test-fixture]
             [re-frame.trace :as rf.trace]))
@@ -87,15 +88,6 @@
 (use-fixtures :each rf.ssr.test-fixture/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
-
-(defn- build-payload
-  "Per Spec 011 §The hydration payload: produce a serialisable map
-  carrying the version, frame-id, post-drain app-db, and render-hash."
-  [frame-id db render-hash]
-  {:rf/version     1
-   :rf/frame-id    frame-id
-   :rf/app-db      db
-   :rf/render-hash render-hash})
 
 (defn- extract-render-hash
   "Pull the data-rf-render-hash hex out of an HTML fragment."
@@ -209,7 +201,8 @@
         (is (some? server-hash))
 
         ;; ---- (5) build serialisable payload -----------------------------
-        (let [payload (build-payload server-frame server-db server-hash)]
+        (let [payload (rf.ssr.payload-policy/build-payload
+                        server-frame server-db server-hash {})]
           (is (= #{:rf/version :rf/frame-id :rf/app-db :rf/render-hash}
                  (set (keys payload)))
               "payload carries the canonical four keys")
@@ -731,7 +724,10 @@
 ;; ===========================================================================
 
 (deftest ssr-redirect-short-circuits
-  (testing ":rf.server/redirect populates :redirect and the response payload omits HTML"
+  (testing ":rf.server/redirect populates :redirect and :status. Dropping the
+            body and the hydration payload under a redirect is the host
+            adapter's decision, pinned by ssr-ring's
+            `handler-redirect-short-circuits`."
     (rf/reg-event :auth/check-session
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
@@ -743,23 +739,7 @@
         (is (= {:status 302 :location "/login"} redirect)
             "the :redirect accumulator carries status + location")
         (is (= 302 (:status resp))
-            "redirect's :status flows through to the response :status")
-
-        ;; The "host adapter" decision per Spec 011 §Redirect precedence:
-        ;; if :redirect is set, build a redirect-only response — no body,
-        ;; no hydration payload. We model that here as a small fn that
-        ;; mirrors what the host would do.
-        (let [build-response (fn [r]
-                               (if-let [redir (:redirect r)]
-                                 {:redirect redir}
-                                 {:status (or (:status r) 200)
-                                  :body   "<full-html-here>"}))
-              response       (build-response resp)]
-          (is (= {:redirect {:status 302 :location "/login"}}
-                 response)
-              "redirect short-circuits — response carries :redirect only, no :body, no hydration payload")
-          (is (not (contains? response :body))
-              "no HTML body when redirected")))))
+            "redirect's :status flows through to the response :status"))))
 
   (testing "a redirect with default :status defaults to 302"
     (rf/reg-event :auth/check-no-status
