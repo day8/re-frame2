@@ -101,69 +101,45 @@
               :next-page-param 42}
              (fn [_ _] {:request {:method :get :url "/y"}}))))))
 
-(deftest infinite-flag-must-be-literal-true
-  (testing ":infinite false is a meaningless typo => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/false-flag
-                                 (assoc (base-infinite-spec) :infinite false) base-infinite-request))))
-  (testing ":infinite \"true\" (string) is not the literal selector => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/string-flag
-                                 (assoc (base-infinite-spec) :infinite "true") base-infinite-request)))))
+(deftest infinite-slice-rejects-a-malformed-optional
+  ;; Each row puts ONE malformed value onto an otherwise-valid infinite spec,
+  ;; and registration fails closed with :rf.error/resource-bad-spec.
+  (doseq [[label id override]
+          [[":infinite false is a meaningless typo — only the literal true selects the slice"
+            :feed/false-flag {:infinite false}]
+           [":infinite \"true\" (a string) is not the literal selector"
+            :feed/string-flag {:infinite "true"}]
+           ["a non-fn :prev-page-param"
+            :feed/bad-prev {:prev-page-param :not-a-fn}]
+           ["a :page->items that is neither keyword nor fn"
+            :feed/bad-acc {:page->items 99}]
+           ["a non-map :refetch"
+            :feed/rf-nonmap {:refetch true}]
+           ["a non-boolean :refetch-all-pages?"
+            :feed/rf-badbool {:refetch {:refetch-all-pages? :yes}}]
+           ["a non-integer :refetch-window"
+            :feed/rf-badwin {:refetch {:refetch-window 1.5}}]]]
+    (testing (str label " => resource-bad-spec")
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
+            (rf.resources.registry/reg-resource id (merge (base-infinite-spec) override)
+                                                base-infinite-request))))))
 
-(deftest prev-page-param-shape-validated
-  (testing "a non-fn :prev-page-param => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/bad-prev
-                                 (assoc (base-infinite-spec) :prev-page-param :not-a-fn) base-infinite-request))))
-  (testing "a fn :prev-page-param is accepted"
-    (is (= :feed/good-prev
-           (rf.resources.registry/reg-resource :feed/good-prev
-                                  (assoc (base-infinite-spec)
-                                         :prev-page-param (fn [_first _all] nil)) base-infinite-request)))))
-
-(deftest page-accessor-shape-validated
-  (testing "a keyword :page->items is accepted"
-    (is (= :feed/kw-acc
-           (rf.resources.registry/reg-resource :feed/kw-acc
-                                  (assoc (base-infinite-spec) :page->items :items) base-infinite-request))))
-  (testing "a fn :page->items is accepted"
-    (is (= :feed/fn-acc
-           (rf.resources.registry/reg-resource :feed/fn-acc
-                                  (assoc (base-infinite-spec) :page->items (fn [p] (:items p))) base-infinite-request))))
-  (testing "a :page->items that is neither keyword nor fn => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/bad-acc
-                                 (assoc (base-infinite-spec) :page->items 99) base-infinite-request)))))
-
-(deftest refetch-policy-shape-validated
-  (testing "a well-formed :refetch policy registers"
-    (is (= :feed/rf-ok
-           (rf.resources.registry/reg-resource :feed/rf-ok
-                                  (assoc (base-infinite-spec)
-                                         :refetch {:refetch-all-pages? true :refetch-window 5}) base-infinite-request)))
-    (is (= :feed/rf-empty
-           (rf.resources.registry/reg-resource :feed/rf-empty
-                                  (assoc (base-infinite-spec) :refetch {}) base-infinite-request))))
-  (testing "a non-map :refetch => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/rf-nonmap
-                                 (assoc (base-infinite-spec) :refetch true) base-infinite-request))))
-  (testing "a non-boolean :refetch-all-pages? => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/rf-badbool
-                                 (assoc (base-infinite-spec) :refetch {:refetch-all-pages? :yes}) base-infinite-request))))
-  (testing "a non-integer :refetch-window => resource-bad-spec"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (rf.resources.registry/reg-resource :feed/rf-badwin
-                                 (assoc (base-infinite-spec) :refetch {:refetch-window 1.5}) base-infinite-request)))))
+(deftest infinite-slice-accepts-a-well-formed-optional
+  (doseq [[label id override]
+          [["a fn :prev-page-param"
+            :feed/good-prev {:prev-page-param (fn [_first _all] nil)}]
+           ["a keyword :page->items"
+            :feed/kw-acc {:page->items :items}]
+           ["a fn :page->items"
+            :feed/fn-acc {:page->items (fn [p] (:items p))}]
+           ["a well-formed :refetch policy"
+            :feed/rf-ok {:refetch {:refetch-all-pages? true :refetch-window 5}}]
+           ["an empty :refetch policy"
+            :feed/rf-empty {:refetch {}}]]]
+    (testing (str label " registers")
+      (is (= id (rf.resources.registry/reg-resource id (merge (base-infinite-spec) override)
+                                                    base-infinite-request))))))
 
 ;; ===========================================================================
 ;; `:page-data-schema` is a RETIRED key: HARD-REJECTED, never

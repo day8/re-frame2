@@ -1071,73 +1071,44 @@
 ;; value first, then `validate-target-key!` validates the [resolved-scope
 ;; resource params] identity. These unit tests pass the resolved scope directly.
 
-(deftest validate-target-key-rejects-unregistered-resource
-  ;; A controlled patch / populate targeting an UNREGISTERED
-  ;; resource fails CLOSED (the patched / seeded entry would be unreachable by
-  ;; any subscription).
-  (testing "an unregistered resource id is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key!
-            {:resource :r/never-registered :params {:slug "w"}}
-            :rf.scope/global (fn [_] false) 'test :patches)))))
-
-(deftest validate-target-key-rejects-malformed-target
-  ;; EP-0016 Rider 2 — the public input is the map form {:resource :params
-  ;; :scope}; a non-map (a bare tuple, a keyword) is rejected loudly.
-  (testing "a tuple (the internal storage form) is NOT a public input"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key!
-            [:rf.scope/global :r/article {:slug "w"}] :rf.scope/global
-            (constantly true) 'test :populates))))
-  (testing "a non-map target is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key! :r/article :rf.scope/global (constantly true) 'test :patches))))
-  (testing "a map missing :resource is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key! {:params {}} :rf.scope/global (constantly true) 'test :patches))))
-  (testing "a non-keyword :resource is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key! {:resource "article" :params {}} :rf.scope/global
-                                       (constantly true) 'test :patches)))))
-
-(deftest validate-target-key-rejects-reserved-scope-typo
-  ;; A bare framework-reserved :rf.scope/* keyword outside the
-  ;; closed enum (a typo) would silently write under a wrong scope — rejected.
-  ;; The events layer resolves the map :scope first; a typo'd literal resolves
-  ;; to itself and is caught here.
-  (testing ":rf.scope/glabal (a typo) is rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key!
-            {:resource :r/article :params {:slug "w"}} :rf.scope/glabal
-            (constantly true) 'test :patches))))
+(deftest validate-target-key-rejects-an-invalid-identity
+  ;; Every row fails CLOSED:
+  ;;   - an UNREGISTERED resource, because the patched / seeded entry would be
+  ;;     unreachable by any subscription;
+  ;;   - a non-map target, because the map form {:resource :params :scope} is
+  ;;     the only public input (EP-0016 Rider 2);
+  ;;   - a reserved :rf.scope/* keyword outside the closed enum (a typo), which
+  ;;     would silently write under a wrong scope — a typo'd literal resolves to
+  ;;     itself in the events layer and is caught here;
+  ;;   - a host value in params or scope, which reaches the cache-key boundary
+  ;;     (the EDN discipline resource params follow).
+  (doseq [[label target resolved-scope registered? arm]
+          [["an unregistered resource id"
+            {:resource :r/never-registered :params {:slug "w"}} :rf.scope/global (fn [_] false) :patches]
+           ["a tuple (the internal storage form) is NOT a public input"
+            [:rf.scope/global :r/article {:slug "w"}] :rf.scope/global (constantly true) :populates]
+           ["a non-map target"
+            :r/article :rf.scope/global (constantly true) :patches]
+           ["a map missing :resource"
+            {:params {}} :rf.scope/global (constantly true) :patches]
+           ["a non-keyword :resource"
+            {:resource "article" :params {}} :rf.scope/global (constantly true) :patches]
+           [":rf.scope/glabal (a reserved-scope typo)"
+            {:resource :r/article :params {:slug "w"}} :rf.scope/glabal (constantly true) :patches]
+           ["non-EDN params"
+            {:resource :r/article :params {:slug "w" :cb (fn [])}} :rf.scope/global (constantly true) :patches]
+           ["a non-EDN scope"
+            {:resource :r/article :params {:slug "w"}} (fn []) (constantly true) :patches]]]
+    (testing (str label " is rejected")
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
+            (rf.resources.mutation-runtime/validate-target-key!
+              target resolved-scope registered? 'test arm)))))
   (testing "the closed reserved policy :rf.scope/global is a legitimate literal scope"
     (is (= [:rf.scope/global :r/article {:slug "w"}]
            (rf.resources.mutation-runtime/validate-target-key!
              {:resource :r/article :params {:slug "w"}} :rf.scope/global
              (constantly true) 'test :patches)))))
-
-(deftest validate-target-key-rejects-non-edn-params
-  ;; A host value in the target's params / scope reaches the
-  ;; cache-key boundary and is rejected (the EDN discipline resource params
-  ;; follow).
-  (testing "non-EDN params rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key!
-            {:resource :r/article :params {:slug "w" :cb (fn [])}} :rf.scope/global
-            (constantly true) 'test :patches))))
-  (testing "non-EDN scope rejected"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"mutation-invalid-target"
-          (rf.resources.mutation-runtime/validate-target-key!
-            {:resource :r/article :params {:slug "w"}} (fn [])
-            (constantly true) 'test :patches)))))
 
 (deftest validate-target-map-strict-policy-rejects-whole-map
   ;; EP-0016 Rider 2 — the DEFAULT (:strict) policy (pre-write /

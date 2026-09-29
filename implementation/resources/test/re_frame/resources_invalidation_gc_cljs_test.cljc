@@ -322,41 +322,25 @@
 
 ;; ---- invalidate-tags scope routes through canonicalize-scope ---------------
 
-(deftest invalidate-tags-rejects-reserved-scope-typo
-  (testing "a reserved-namespace scope typo
-            (:rf.scope/glabal) reaching invalidate-tags fails closed through
-            the shared rf.resources.state/canonicalize-scope path (never a silent wrong
-            cache scope), surfaced as :rf.error/resource-invalid-scope"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags
-             {:scope :rf.scope/glabal :tags #{[:article "w"]}}])))))
-
-(deftest invalidate-tags-rejects-host-scope
-  (testing "a host / non-EDN scope value reaching
-            invalidate-tags is rejected through the shared path
-            (:rf.error/resource-non-edn-params)"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags
-             {:scope {:cb (fn [])} :tags #{[:article "w"]}}])))))
-
-(deftest invalidate-tags-rejects-singleton-global-scope
-  ;; The [:rf.scope/global] singleton-vector spelling is NOT a global alias;
-  ;; an invalidate-tags scope carrying it fails closed (the global scope IS
-  ;; the bare keyword).
-  (testing "the wrapped singleton-vector global spelling is rejected
-            fail-closed at the shared scope-validation boundary"
-    (is (thrown-with-msg?
-          #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (rf.resources.events/invalidate-tags-handler
-            (invalidate-cofx {})
-            [:rf.resource/invalidate-tags
-             {:scope [:rf.scope/global] :tags #{[:article "w"]}}])))))
+(deftest invalidate-tags-rejects-an-invalid-scope
+  ;; A scope reaching invalidate-tags routes through the shared
+  ;; rf.resources.state/canonicalize-scope path and fails closed — never a
+  ;; silent wrong cache scope. The [:rf.scope/global] singleton-vector spelling
+  ;; is NOT a global alias: the global scope IS the bare keyword.
+  (doseq [[label scope error-id]
+          [["a reserved-namespace scope typo (:rf.scope/glabal) → :rf.error/resource-invalid-scope"
+            :rf.scope/glabal #"resource-invalid-scope"]
+           ["a host / non-EDN scope value → :rf.error/resource-non-edn-params"
+            {:cb (fn [])} #"resource-non-edn-params"]
+           ["the wrapped singleton-vector global spelling → :rf.error/resource-invalid-scope"
+            [:rf.scope/global] #"resource-invalid-scope"]]]
+    (testing label
+      (is (thrown-with-msg?
+            #?(:clj Throwable :cljs js/Error) error-id
+            (rf.resources.events/invalidate-tags-handler
+              (invalidate-cofx {})
+              [:rf.resource/invalidate-tags
+               {:scope scope :tags #{[:article "w"]}}]))))))
 
 (deftest clear-scope-rejects-reserved-scope-typo
   (testing "clear-scope routes its scope through
