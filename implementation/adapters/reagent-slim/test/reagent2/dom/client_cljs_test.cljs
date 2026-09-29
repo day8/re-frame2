@@ -4,7 +4,8 @@
   Per IMPL-SPEC §4.6 + §12.1 + §12.5 R-005. Covers:
 
     - flush-views! determinism: dispatch-then-flush gives the
-      caller the post-render state synchronously.
+      caller the post-render state synchronously, including work no
+      scheduler microtask will drain.
     - flush-views! React-act composition: pending React work is
       drained inside act.
     - Suspense composition, at the scheduler level: an after-render
@@ -100,6 +101,46 @@
                      (is (= 500 @seen)
                          "the queued recompute ran and notified its watcher")
                      (done))))))))
+
+;; The two determinism tests either side of this one cannot see flush-views!'s
+;; OWN drain: the work they queue also schedules the render scheduler's
+;; microtask, which is FIFO-ahead of the drain flush-views! runs inside act and
+;; so drains it first. Here the scheduler hook is disconnected for the duration,
+;; so the queued recompute has no microtask coming, and flush-views! is the only
+;; thing that can drain it.
+
+(deftest flush-views-drains-a-recompute-no-microtask-will-drain
+  (testing "flush-views! itself drains a queued Reaction recompute when the
+            render scheduler requests no microtask for it"
+    (async done
+      (let [scheduler (deref ratom/rea-schedule)
+            a         (ratom/atom 1)
+            r         (ratom/make-reaction (fn [] (* @a 100)))
+            outer     (ratom/make-reaction (fn [] @r) :auto-run true)
+            seen      (atom nil)
+            finish!   (fn []
+                        ;; Drain anything a broken flush-views! left queued, so
+                        ;; the red stays in this test.
+                        (ratom/flush!)
+                        (reset! ratom/rea-schedule scheduler)
+                        (done))]
+        @outer
+        (add-watch r :w (fn [_ _ _ nu] (reset! seen nu)))
+        (reset! ratom/rea-schedule nil)
+        (reset! a 5)
+        (-> (js/Promise.resolve)
+            (.then (fn [_]
+                     (is (nil? @seen)
+                         "PRECONDITION: with the scheduler disconnected, no
+                          microtask drained the queued recompute")
+                     (dom-client/flush-views!)))
+            (.then (fn [_]
+                     (is (= 500 @seen)
+                         "flush-views! drained the queued recompute itself")
+                     (finish!)))
+            (.catch (fn [e]
+                      (is false (str "flush-views! threw: " e))
+                      (finish!))))))))
 
 (deftest flush-views-determinism-component-render
   (testing "after flush-views!, a queued component has been rendered"
