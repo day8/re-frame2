@@ -27,6 +27,7 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.fx :as rf.fx]
+   [re-frame.interop :as rf.interop]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events (incl. the internal poll-fired / gc-fired events +
    ;; the timer fxs) and the test-support reset hook that clears timer-table.
@@ -171,6 +172,38 @@
       (is (armed? k rf.resources.timers/stale-kind) "stale still armed")
       (is (armed? k rf.resources.timers/gc-kind) "gc still armed"))
     (rf.resources.timers/cancel-for-key! frame-id k)))
+
+(deftest positive-rearm-cancels-the-prior-host-handle
+  ;; A same-kind POSITIVE re-arm must release the host timer it replaces. The
+  ;; fresh token already stops the old callback from dispatching, so the slot
+  ;; alone cannot show whether the old host timer was cancelled or left
+  ;; running as a zombie; only the host's cancel calls can.
+  (rf.resources.timers/reset-cache!)
+  (let [k         [:rf.scope/global :tr/rearm-cancel {:id 1}]
+        sibling-k [:rf.scope/global :tr/rearm-cancel {:id 2}]
+        stale     rf.resources.timers/stale-kind
+        gc        rf.resources.timers/gc-kind
+        cancelled (atom [])
+        cancelled? (fn [h] (boolean (some #(identical? h %) @cancelled)))]
+    (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] #?(:clj (Object.) :cljs #js {}))
+                  rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
+      (rf.resources.timers/schedule! frame-id k stale long-ms)
+      (rf.resources.timers/schedule! frame-id k gc long-ms)
+      (rf.resources.timers/schedule! frame-id sibling-k stale long-ms)
+      (let [original  (:handle (timer-handle k stale))
+            gc-h      (:handle (timer-handle k gc))
+            sibling-h (:handle (timer-handle sibling-k stale))]
+        (is (empty? @cancelled) "precondition: arming a fresh slot cancels nothing")
+        (rf.resources.timers/schedule! frame-id k stale long-ms)
+        (let [replacement (:handle (timer-handle k stale))]
+          (is (not (identical? original replacement)) "the re-arm armed a fresh host timer")
+          (is (cancelled? original) "the replaced host handle was cancelled")
+          (is (not (cancelled? replacement)) "the replacement stays live")
+          (is (not (cancelled? gc-h)) "the same key's other kind is untouched")
+          (is (not (cancelled? sibling-h)) "the other key's same kind is untouched")))
+      ;; release the fake handles while the stub is still installed
+      (rf.resources.timers/cancel-for-key! frame-id k)
+      (rf.resources.timers/cancel-for-key! frame-id sibling-k))))
 
 ;; ===========================================================================
 ;; EVENT LEVEL — a poll tick preserves the GC reaper; a GC skip keeps polling
