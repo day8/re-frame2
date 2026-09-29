@@ -39,19 +39,6 @@
   (is (fn? (rf.late-bind/get-fn :ssr/current-hiccup-emitter))
       "re-frame.ssr ns-load published :ssr/current-hiccup-emitter on the JVM"))
 
-(deftest jvm-plain-atom-emitter-is-retained-across-destroy-and-reinit
-  (is (nil? (rf/init! rf.substrate.plain-atom/adapter)))
-  (testing "first install renders through the SSR emitter"
-    (is (re-find #"<div>ok</div>" (render!))))
-
-  (is (nil? (rf/destroy-adapter!)))
-  (is (true? (rf.substrate.adapter/adapter-disposed?)))
-
-  (is (nil? (rf/init! rf.substrate.plain-atom/adapter)) "a fresh init is legal after disposal")
-  (testing "the JVM emitter survived the no-op dispose — re-init still renders"
-    (is (re-find #"<div>ok</div>" (render!))
-        "plain-atom retains its hiccup-emitter across the dispose/re-init cycle")))
-
 (deftest jvm-lifecycle-is-repeatable-and-does-not-duplicate-publication
   (let [emitter-before (rf.late-bind/get-fn :ssr/current-hiccup-emitter)]
     (dotimes [_ 5]

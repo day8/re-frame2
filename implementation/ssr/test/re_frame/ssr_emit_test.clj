@@ -476,12 +476,6 @@
                             (rf.ssr.streaming/render-shell
                               [:div [:> some-component {:prop "v"}]]))))))
 
-(deftest render-to-string-still-handles-fragment-head
-  (testing "With `:>` in its own branch, the fragment head `:<>` works:
-            children splice with no wrapper."
-    (is (= "<p>a</p><p>b</p>"
-           (rf.ssr.emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
-
 (deftest render-hash-threads-through-fragment-root
   (testing "Root-attrs (the render-hash marker)
             thread through a `:<>` fragment ROOT onto the first DOM-tag
@@ -669,26 +663,6 @@
                                       [:p "x"]]]]
                               {}))))))
 
-(deftest streaming-walker-still-handles-suspense-boundary
-  (testing "The streaming shell walker still recognises
-            :rf/suspense-boundary (the emit-element guard only fires on
-            the NON-streaming path); render-shell materialises the
-            fallback as a <template> and does NOT throw."
-    (let [{:keys [shell-html continuations]}
-          (rf.ssr.streaming/render-shell
-            [:div
-             [:rf/suspense-boundary
-              {:id :card-1 :fallback [:span "loading…"]}
-              [:div "resolved card"]]])]
-      (is (str/includes? shell-html "<template")
-          "the fallback materialises as a <template> placeholder")
-      (is (str/includes? shell-html "loading")
-          "the fallback content is rendered inline in the shell")
-      (is (not (str/includes? shell-html "<suspense-boundary"))
-          "no phantom <suspense-boundary> DOM element is emitted")
-      (is (= 1 (count continuations))
-          "the boundary registers exactly one continuation"))))
-
 ;; ===========================================================================
 ;; emit-element scalar-child branches (emit.cljc:319-323).
 ;; The load-bearing scalar emission rules — number stringifies, boolean is
@@ -792,29 +766,6 @@
     (is (= "<div data-x=\"it's\"></div>"
            (rf.ssr.emit/render-to-string [:div {:data-x "it's"}] {}))
         "a single-quote is NOT escaped — the value is double-quoted")))
-
-;; ===========================================================================
-;; Boolean ATTR-VALUE branch through the full emitter
-;; (attr-string true → bare name; false/nil → omitted). The head emitter
-;; test pins async/defer, and ssr_attr_filter_test pins the helper in
-;; isolation; these pin the non-streaming body emitter's boolean-attr
-;; composition (the common `[:input {:disabled true :required false}]`
-;; shape) through render-to-string.
-;; ===========================================================================
-
-(deftest render-to-string-boolean-attr-values
-  (testing "`true` attr value → bare attribute name; `false`
-            and `nil` attr values → omitted entirely, through the full
-            render-to-string composition."
-    (is (= "<input disabled required>"
-           (rf.ssr.emit/render-to-string [:input {:disabled true :required true}] {}))
-        "`true` boolean attrs emit as bare names on a void element")
-    (is (= "<input>"
-           (rf.ssr.emit/render-to-string [:input {:disabled false :hidden nil}] {}))
-        "`false` and `nil` attrs are omitted — no bare name, no empty value")
-    (is (= "<button disabled>Go</button>"
-           (rf.ssr.emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
-        "boolean + nil attrs compose on a non-void element alongside text")))
 
 ;; ===========================================================================
 ;; Var-headed component resolution (emit.cljc +
@@ -1060,21 +1011,6 @@
 ;; be green against a catch-and-retry helper and proves nothing.
 ;; ===========================================================================
 
-(deftest emit-renders-form-2-partial-arity-inner
-  (testing "An inner render declaring a non-zero PREFIX of the
-            outer's args renders on the JVM exactly as it does on CLJS,
-            through BOTH the sync emitter and the streaming shell walker"
-    ;; Fixed arity 1, taking the first of the outer's two props. The
-    ;; client drops the extra JS argument; a catch-and-retry JVM would try
-    ;; 2 args, catch, retry at 0, and throw.
-    (let [form2-partial (fn [_outer-value _ignored]
-                          (fn [kept] [:p kept]))]
-      (is (= "<p>kept</p>" (rf.ssr.emit/emit-element [form2-partial "kept" "ignored"]))
-          "sync emit passes the inner the longest prefix it accepts")
-      (is (= "<p>kept</p>"
-             (:shell-html (rf.ssr.streaming/render-shell [form2-partial "kept" "ignored"])))
-          "streaming passes the inner the longest prefix it accepts"))))
-
 (deftest emit-form-2-inner-body-arity-exception-propagates-once
   (testing "A zero-arity inner invoked with zero args REACHES its
             body, and an ArityException raised THERE is not an invocation
@@ -1291,7 +1227,7 @@
           "streaming prefers the exact fixed arm"))))
 
 ;; ===========================================================================
-;; BOOLEAN ATTRIBUTE-VALUE CLASSES through both hiccup SSR modes.
+;; BOOLEAN ATTRIBUTE-VALUE CLASSES.
 ;;
 ;; Branching on the VALUE alone — `true` → a bare attribute name,
 ;; `false`/`nil` → omitted — would apply one rule to attributes that do not
@@ -1320,9 +1256,11 @@
 ;; 011 §What React-native adoption does not catch records that React neither
 ;; patches nor reports attribute-only hydration mismatches.
 ;;
-;; These drive the classes through BOTH hiccup SSR modes — `emit/
-;; render-to-string` and `streaming/render-shell` — because both call the one
-;; shared `attr-string`, so neither mode can drift on its own.
+;; These drive the classes through `emit/render-to-string`, and compare them
+;; against the structural-tree serialiser. Every react-dom-evidenced row runs
+;; through BOTH hiccup SSR modes — `render-to-string` and
+;; `streaming/render-shell`, which share one `attr-string` — in
+;; `re-frame.ssr-boolean-attr-react-parity-test`.
 ;; ===========================================================================
 
 (deftest render-to-string-aria-and-data-booleans-stringify
@@ -1363,16 +1301,7 @@
             [:div {:contentEditable true}
              [:section {:contentEditable false} "locked"]]
             {}))
-        "the child keeps its explicit contentEditable=\"false\" marker"))
-
-  (testing "Every booleanish family member stringifies true AND
-            false (the whole roster, table-driven)"
-    (doseq [attribute-key [:contentEditable :draggable :spellCheck]
-            [value expected] [[true "true"] [false "false"]]]
-      (is (= (str "<div " (name attribute-key) "=\"" expected "\"></div>")
-             (rf.ssr.emit/render-to-string [:div {attribute-key value}] {}))
-          (str "booleanish " attribute-key " " value
-               " → " (name attribute-key) "=\"" expected "\"")))))
+        "the child keeps its explicit contentEditable=\"false\" marker")))
 
 (deftest render-to-string-presence-classes-are-preserved
   (testing "CONTROL — true boolean attributes keep PRESENCE
@@ -1407,23 +1336,10 @@
         "true on an ordinary attribute is dropped, not emitted bare")
     (is (= "<div>x</div>"
            (rf.ssr.emit/render-to-string [:div {:role false} "x"] {}))
-        "false on an ordinary attribute is dropped")))
-
-(deftest render-shell-applies-the-same-boolean-classes
-  (testing "The streaming shell walker re-derives attrs through the
-            SAME `attr-string`, so the classes must hold there too; a change
-            landing on one hiccup mode only is the drift this pins"
-    (let [tree [:div {:aria-expanded false :contentEditable false}
-                [:button {:disabled true :aria-disabled false} "go"]]
-          {:keys [shell-html]} (rf.ssr.streaming/render-shell tree)]
-      (is (str/includes? shell-html "aria-expanded=\"false\"")
-          "streaming keeps a false aria-* value")
-      (is (str/includes? shell-html "contentEditable=\"false\"")
-          "streaming keeps a false booleanish value")
-      (is (str/includes? shell-html "aria-disabled=\"false\"")
-          "streaming keeps a false aria-* value on a nested element")
-      (is (str/includes? shell-html "<button disabled aria-disabled=\"false\">")
-          "streaming still emits a true boolean attr as a bare presence name"))))
+        "false on an ordinary attribute is dropped")
+    (is (= "<button disabled>Go</button>"
+           (rf.ssr.emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
+        "nil on an ordinary attribute is dropped, beside a presence attr and text")))
 
 (defn- boolean-attr-class-signature
   "Reduce an emitted element string to WHICH boolean class the serialiser

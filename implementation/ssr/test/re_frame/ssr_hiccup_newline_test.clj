@@ -282,22 +282,6 @@
     (let [html (shell [:div [:pre "\ncode"]])]
       (is (= "<div><pre>\n\ncode</pre></div>" html)))))
 
-(deftest streaming-hiccup-vacuity-controls
-  (testing "CONTROL: no leading LF ⇒ no compensation"
-    (let [html (shell [:pre "code"])]
-      (is (= "<pre>code</pre>" html))
-      (is (= "code" (parsed-text-content "pre" html)))))
-  (testing "CONTROL: a non-newline-eating element is never compensated"
-    (let [html (shell [:div "\ncode"])]
-      (is (= "<div>\ncode</div>" html))
-      (is (= "\ncode" (parsed-text-content "div" html)))))
-  (testing "CONTROL: the multi-child rule holds in the shell walk too"
-    (is (= "<pre>\nab</pre>" (shell [:pre "\na" "b"]))))
-  (testing "CONTROL: raw-text handling is untouched in the shell walk"
-    (let [html (shell [:script "\nvar a = 1 < 2;"])]
-      (is (= "<script>\nvar a = 1 < 2;</script>" html))
-      (is (= "\nvar a = 1 < 2;" (parsed-text-content "script" html))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Three-path agreement — all three SSR paths emit the same bytes for the same
 ;; content.

@@ -395,17 +395,3 @@
           (is (= "<h3>m</h3>" html)
               (str "…including on the macro path, which is where the coords "
                    "would have come from; got: " (pr-str html))))))))
-
-;; ---------------------------------------------------------------------------
-;; The formatter unit itself degrades — belt-and-braces on the shared dialect
-;; ---------------------------------------------------------------------------
-
-(deftest jvm-formatter-produces-the-shared-dialect
-  (testing "The JVM formatter is byte-identical in shape to the
-            CLJS one (pinned cross-host in `source-coord-parity-test`). Here
-            just confirm the two value shapes directly."
-    (is (= "a.b:c:1:2"
-           (rf.views.jvm-source-coord-annotation/format-source-coord :a.b/c {:line 1 :column 2})))
-    (is (= "a.b:c:?:?"
-           (rf.views.jvm-source-coord-annotation/format-source-coord :a.b/c {})))
-    (is (= ":a.b/c" (rf.views.jvm-source-coord-annotation/format-view-id :a.b/c)))))
