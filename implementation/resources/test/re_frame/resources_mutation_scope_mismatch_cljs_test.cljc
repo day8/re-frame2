@@ -14,20 +14,18 @@
   — the WRITE-side complement of the read-side `:rf.warning/resource-sub-scope-
   mismatch`. These JVM+CLJS unit tests pin the diagnostic's behaviour:
 
-    1. a scoped-invalidation HIT (the mutation scope MATCHES the resource scope)
-       does NOT warn — the happy path is quiet;
-    2. the FOOTGUN — a global-default mutation invalidating a tag whose only
+    1. the FOOTGUN — a global-default mutation invalidating a tag whose only
        cache entry lives in a session scope — WARNS, carrying the descriptor
        scope, the mutation scope, the other-scope that DID hold the entry, and
        the tags;
-    3. a tag with NO cache entry in ANY scope (a true nothing-to-invalidate)
+    2. a tag with NO cache entry in ANY scope (a true nothing-to-invalidate)
        does NOT warn (no mismatch — it is not a footgun, just nothing to do);
-    4. a `:cross-scope? true` descriptor (the audited deliberate escape) does
+    3. a `:cross-scope? true` descriptor (the audited deliberate escape) does
        NOT warn even when it spans scopes;
-    5. the diagnostic is one-shot dedupe-keyed (a re-executed mutation warns
+    4. the diagnostic is one-shot dedupe-keyed (a re-executed mutation warns
        once per genuine mismatch, never floods);
-    6. the per-target descriptor form (the safe pattern) does NOT warn — it
-       reaches the session entry in its own scope.
+    5. the per-target descriptor form (the safe pattern) does NOT warn — each
+       descriptor HITS its entry in its own scope, so the happy path is quiet.
 
   The transport is exercised via the same capturing-stub idiom the descriptor
   tests use (synthesise the transport's reply-event-append shape)."
@@ -127,32 +125,7 @@
     @seen))
 
 ;; ===========================================================================
-;; 1. A scoped-invalidation HIT does NOT warn (the happy path is quiet)
-;; ===========================================================================
-
-(deftest scoped-invalidation-hit-does-not-warn
-  (reg-feed-resource!)
-  (rf/dispatch-sync [:t/login "jake"])
-  (seed-ownerless-session-feed!)
-  ;; a mutation that CORRECTLY targets the session scope (the safe pattern):
-  ;; a per-target descriptor naming `{:from-db :t/session}`.
-  (rf/reg-mutation :m/post-to-feed
-    {:params-schema [:map]
-     :invalidates (fn [_p _result]
-                    [{:scope {:from-db :t/session} :tags #{[:feed]}}])}
-    (fn [_p _] {:request {:method :post :url "/feed"}}))
-  (let [warnings (record-warnings!
-                   (fn []
-                     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/post-to-feed
-                                                              :params {} :instance :h1}])
-                     (reply-success! @last-managed-args {:ok true})))]
-    (testing "the session feed entry was invalidated (the descriptor HIT)"
-      (is (some? (:invalidated-at (entry (session-feed-key "jake"))))))
-    (testing "no mutation-scope-mismatch warning fired — the scope matched"
-      (is (empty? warnings)))))
-
-;; ===========================================================================
-;; 2. The FOOTGUN — a global-default mutation misses a session-scoped resource
+;; 1. The FOOTGUN — a global-default mutation misses a session-scoped resource
 ;; ===========================================================================
 
 (deftest global-default-mutation-misses-session-scoped-resource-warns
@@ -195,7 +168,7 @@
         (is (string? (or (:hint pay) (:hint w))))))))
 
 ;; ===========================================================================
-;; 3. A tag with NO entry in ANY scope does NOT warn (nothing to invalidate)
+;; 2. A tag with NO entry in ANY scope does NOT warn (nothing to invalidate)
 ;; ===========================================================================
 
 (deftest tag-with-no-entry-anywhere-does-not-warn
@@ -217,7 +190,7 @@
       (is (empty? warnings)))))
 
 ;; ===========================================================================
-;; 4. A :cross-scope? true descriptor (the audited escape) does NOT warn
+;; 3. A :cross-scope? true descriptor (the audited escape) does NOT warn
 ;; ===========================================================================
 
 (deftest cross-scope-descriptor-does-not-warn
@@ -241,7 +214,7 @@
       (is (empty? warnings)))))
 
 ;; ===========================================================================
-;; 5. The diagnostic is one-shot dedupe-keyed (a re-executed mutation warns once)
+;; 4. The diagnostic is one-shot dedupe-keyed (a re-executed mutation warns once)
 ;; ===========================================================================
 
 (deftest warning-is-one-shot-dedupe-keyed
@@ -265,7 +238,7 @@
       (is (= 1 (count warnings))))))
 
 ;; ===========================================================================
-;; 6. The per-target descriptor SAFE PATTERN does not warn (it reaches both)
+;; 5. The per-target descriptor SAFE PATTERN does not warn (it reaches both)
 ;; ===========================================================================
 
 (deftest per-target-descriptor-safe-pattern-does-not-warn

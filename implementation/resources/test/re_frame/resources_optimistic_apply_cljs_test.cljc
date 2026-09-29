@@ -21,16 +21,16 @@
     5. TAG-ADDRESSED — `:optimistic-tags` patches EVERY tag-matched entry across
        the resolved scope (the cross-view-consistency demand); each records its
        own inverse.
-    6. FAIL-CLOSED — a `{:from-db …}` optimistic target that resolves nil is
-       DROPPED (never written under an implicit global), recorded as
-       `:target-unresolved`.
-    7. OPT-OUT — `{:optimistic? false}` on the execute payload forces the
+    6. OPT-OUT — `{:optimistic? false}` on the execute payload forces the
        pessimistic path (no optimistic apply) for one call.
-    8. BEFORE-REQUEST INCOMPATIBILITY — `:optimistic` + `:invalidate-timing
+    7. BEFORE-REQUEST INCOMPATIBILITY — `:optimistic` + `:invalidate-timing
        :before-request` is a loud registration error
        (`:rf.error/mutation-optimistic-before-request`).
-    9. TRACE — `:rf.mutation/optimistic-applied` carries the snapshot id, the
+    8. TRACE — `:rf.mutation/optimistic-applied` carries the snapshot id, the
        affected keys, and the per-key revision + forward op shape.
+
+  The fail-closed law for a `{:from-db …}` optimistic target that resolves
+  nil is case 9 of `resources-optimistic-validation-cljs-test`.
 
   The transport is a capturing stub: the optimistic apply runs at execute time,
   so most assertions read the cache immediately AFTER dispatching `:execute`,
@@ -59,13 +59,7 @@
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
-  (rf.registrar/clear-kind! :resource-scope)
-  (rf/reg-resource-scope :t/session
-    {:inputs {:username [:db [:auth :user :username]]}}
-    (fn [{:keys [username]} _ctx]
-      (when username [:rf.scope/session {:username username}])))
-  (rf/reg-event :t/login (fn [{:keys [db]} [_ username]]
-                           {:db (assoc-in db [:auth :user :username] username)})))
+  (rf.registrar/clear-kind! :resource-scope))
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
@@ -93,9 +87,6 @@
 
 (def ^:private article-key
   (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
-
-(defn- session-feed-key [u]
-  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -288,35 +279,7 @@
         (is (= 2 (count (:rollback ps))))))))
 
 ;; ===========================================================================
-;; 6. Fail-closed — a {:from-db …} optimistic target that resolves nil is
-;;    DROPPED (never written under an implicit global).
-;; ===========================================================================
-
-(deftest optimistic-from-db-target-resolving-nil-is-fail-closed
-  (rf/reg-resource :r/feed
-    {:scope {:from-db :t/session}
-     :params-schema [:map]
-     :tags (fn [_p _] #{[:feed]})}
-    (fn [_p _] {:request {:method :get :url "/feed"}}))
-  (rf/reg-mutation :m/touch-feed
-    {:scope :rf.scope/global
-     :params-schema [:map]
-     :optimistic (fn [_p]
-                   {{:resource :r/feed :params {} :scope {:from-db :t/session}}
-                    (fn [d] (assoc d :touched true))})}
-    (fn [_p _] {:request {:method :post :url "/feed/touch"}}))
-  ;; NO :t/login — the {:from-db :t/session} resolver returns nil.
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/touch-feed :params {} :instance :tf1}])
-  (testing "no session entry was written (fail-closed drop, never an implicit global)"
-    (is (nil? (entry (session-feed-key "jake"))))
-    (is (nil? (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})))))
-  (testing "the dropped target is recorded as :target-unresolved; no inverse"
-    (let [ps (patch-summary :tf1)]
-      (is (= [:t/session] (:target-unresolved ps)))
-      (is (empty? (:rollback ps))))))
-
-;; ===========================================================================
-;; 7. Per-call opt-out — {:optimistic? false} forces the pessimistic path.
+;; 6. Per-call opt-out — {:optimistic? false} forces the pessimistic path.
 ;; ===========================================================================
 
 (deftest optimistic-false-opts-out-of-the-apply
@@ -341,7 +304,7 @@
       (is (nil? (:snapshot-id (patch-summary :f1)))))))
 
 ;; ===========================================================================
-;; 8. :optimistic + :before-request timing is a loud registration error.
+;; 7. :optimistic + :before-request timing is a loud registration error.
 ;; ===========================================================================
 
 (deftest optimistic-with-before-request-is-a-registration-error
@@ -381,7 +344,7 @@
              (fn [_p _] {:request {:method :post :url "/x"}}))))))
 
 ;; ===========================================================================
-;; 9. Trace — :rf.mutation/optimistic-applied carries the snapshot id + revisions.
+;; 8. Trace — :rf.mutation/optimistic-applied carries the snapshot id + revisions.
 ;; ===========================================================================
 
 (deftest optimistic-applied-trace-carries-snapshot-and-revisions
