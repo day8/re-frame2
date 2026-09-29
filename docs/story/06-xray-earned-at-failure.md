@@ -32,13 +32,16 @@ Take a variant that expects the wrong state:
 4. The narrative has one span for setup and one for each script step. Under
    each span are the beats it produced: the event, its epoch number, and
    counts of what it changed, such as `db Δ 1`, `effects 1`, `trace 22` and
-   `sub-runs 8`. A step that commits no epoch of its own, such as this
-   `[:assert …]` checkpoint, is marked "non-dispatch step — committed no
-   epoch".
+   `sub-runs 8`. A step that is not a dispatch, such as this `[:assert …]`
+   checkpoint, has no beats of its own: any epoch committed while it runs,
+   such as its own verdict, is filed under the span above. That is why the
+   failing assertion's beat sits in the setup span, and why the
+   checkpoint's span reads "non-dispatch step — any epoch committed during
+   it is filed under the span above".
 5. Each beat carries **Xray: Epoch**, **Xray: App-db** and **Xray: Trace**.
    Press **Xray: App-db** on the second `:login/flow` beat, the setup's
    `:login/failure`. The Xray panel at the top of the rail switches to App-db
-   and focuses on that beat's epoch; scroll the rail up to it.
+   and focuses on that beat's epoch, and the rail scrolls up to show it.
 
 ![The failing variant in the Tests tab with the Evidence panel open beside it. Numbered: 1 the verdict, 1 failed of 1; 2 and 3 the failed row with show detail and open in Evidence; 4 the failing beat, selected in the Evidence narrative; 5 the setup's :login/failure beat and its Xray links.](../images/story/story-tutorial-09-failing-run.png)
 
