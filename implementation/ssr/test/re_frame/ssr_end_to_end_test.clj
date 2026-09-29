@@ -1723,7 +1723,7 @@
   axis precisely so a production JVM does not swallow them —
   `emit-safe-redirect-error!` fans axis 1 (`dispatch-safe-redirect-record!`,
   the record an off-box shipper sees) beside axis 2 (`trace/emit-error!`).
-  Reading axis 1 means the seventeen assertions below prove the gate in
+  Reading axis 1 means the assertions below prove the gate in
   the build an attacker actually meets.
 
   ONLY axis 1, deliberately — several of these count (`(= 1 (count hits))`),
@@ -1804,27 +1804,6 @@
 
 ;; --- Step 2: scheme rejection ---------------------------------------------
 
-(deftest safe-redirect-rejects-javascript-scheme
-  (testing "step 2: javascript: scheme → :rf.error/safe-redirect-scheme-rejected
-            (XSS vector — script execution on click of the redirect)"
-    (rf/reg-event :sr/javascript
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "javascript:alert(1)"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/javascript] {:frame f})))
-          hits   (filter #(= :rf.error/safe-redirect-scheme-rejected
-                             (:operation %)) traces)]
-      (is (= 1 (count hits))
-          ":rf.error/safe-redirect-scheme-rejected fires exactly once")
-      (when (seq hits)
-        (is (= :javascript (-> hits first :tags :scheme-class))
-            ":scheme-class names the probe class — a framework keyword from
-             the gate's own vocabulary, not the caller's scheme string"))
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
-
 (deftest safe-redirect-rejects-data-scheme
   (testing "step 2: data: scheme rejected (data-URL phishing)"
     (rf/reg-event :sr/data
@@ -1838,34 +1817,6 @@
                       (= :data (-> % :tags :scheme-class)))
                 traces)
           ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :data"))))
-
-(deftest safe-redirect-rejects-vbscript-scheme
-  (testing "step 2: vbscript: scheme rejected (IE-era VBScript exec)"
-    (rf/reg-event :sr/vbscript
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "vbscript:msgbox(\"x\")"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/vbscript] {:frame f})))]
-      (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                      (= :vbscript (-> % :tags :scheme-class)))
-                traces)
-          ":rf.error/safe-redirect-scheme-rejected fires with :scheme-class :vbscript"))))
-
-(deftest safe-redirect-scheme-rejection-is-case-insensitive
-  (testing "step 2: JavaScript: / DATA: / VBScript: all rejected
-            (case-insensitive scheme match per the lowercase-on-compare pattern)"
-    (doseq [hostile ["JavaScript:alert(1)" "DATA:text/html,evil" "VBScript:evil"]]
-      (rf/reg-event :sr/probe-case
-        (fn [_ _]
-          {:fx [[:rf.server/safe-redirect {:location hostile}]]}))
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-safe-redirect-traces!
-                     (fn [] (rf/dispatch-sync [:sr/probe-case] {:frame f})))]
-        (is (some #(= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                  traces)
-            (str "case-folded scheme " (pr-str hostile) " rejected"))))))
 
 ;; --- Step 3: :relative-only? gate -----------------------------------------
 
@@ -1907,25 +1858,6 @@
                        (fn [] (rf/dispatch-sync [:sr/abs-with-relative-only] {:frame f})))]
           (is (some #(= "evil.example.com" (-> % :tags :host)) traces)
               ":host names the rejected host on the diagnostic axis"))))))
-
-(deftest safe-redirect-relative-only-accepts-relative-path
-  (testing "step 3 happy path: :relative-only? true + relative URL →
-            redirect succeeds (no trace)"
-    (rf/reg-event :sr/relative-ok
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location       "/dashboard"
-                :relative-only? true}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/relative-ok] {:frame f})))
-          resp   (get-response f)]
-      (is (empty? traces)
-          "no :rf.error/safe-redirect-* trace on a passing relative URL")
-      (is (= "/dashboard" (-> resp :redirect :location))
-          ":location lands on the response :redirect slot")
-      (is (= 302 (-> resp :redirect :status))
-          ":status defaults to 302"))))
 
 ;; --- Step 4: :allow allowlist ---------------------------------------------
 
@@ -1986,42 +1918,6 @@
                  (-> ev :tags :allowlist))
               ":allowlist tag carries the allowlist vector for diagnostic clarity"))))))
 
-(deftest safe-redirect-allowlist-accepts-on-allowlist-host
-  (testing "step 4 happy path: host IN allowlist → redirect succeeds"
-    (rf/reg-event :sr/in-allow
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "https://app.example.com/dashboard"
-                :allow    ["app.example.com" "alt.example.com"]}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/in-allow] {:frame f})))
-          resp   (get-response f)]
-      (is (empty? traces)
-          "no :rf.error/safe-redirect-* trace on a passing allowlist match")
-      (is (= "https://app.example.com/dashboard"
-             (-> resp :redirect :location))
-          ":location lands on the response :redirect slot"))))
-
-(deftest safe-redirect-allowlist-host-match-is-case-insensitive
-  (testing "step 4: DNS hostnames are case-insensitive (RFC 1035
-            §2.3.3) — a mixed-case host matches a lowercase :allow entry and
-            the redirect succeeds with no trace"
-    (rf/reg-event :sr/in-allow-mixed-case
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "https://APP.Example.COM/dashboard"
-                :allow    ["app.example.com" "alt.example.com"]}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/in-allow-mixed-case] {:frame f})))
-          resp   (get-response f)]
-      (is (empty? traces)
-          "no :rf.error/safe-redirect-* trace — case-folded host matches allow")
-      (is (= "https://APP.Example.COM/dashboard"
-             (-> resp :redirect :location))
-          ":location passes through unchanged (only the COMPARISON folds case)"))))
-
 ;; --- Validation order: the scheme prefix runs before the parse -----------
 
 (deftest safe-redirect-validation-order-scheme-prefix-precedes-parse
@@ -2045,73 +1941,16 @@
           (str "exactly one :rf.error/safe-redirect-scheme-rejected trace; saw: "
                (pr-str ops))))))
 
-(deftest safe-redirect-empty-location-rejected-as-invalid-url
-  (testing "step 1: an empty / blank :location string is rejected
-            as :rf.error/safe-redirect-invalid-url — an empty redirect has
-            no defensible interpretation"
-    (rf/reg-event :sr/empty
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect {:location ""}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/empty] {:frame f})))]
-      (is (some #(= :rf.error/safe-redirect-invalid-url (:operation %))
-                traces)
-          "empty :location → :rf.error/safe-redirect-invalid-url")
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
-
-;; --- scheme-bearing open-redirect BYPASS -----------------------------------
+;; --- Step 2b and the shape gate's controls ---------------------------------
 ;;
-;; A gate using java.net.URI.getHost as the policy discriminator, rejecting
-;; only when host is truthy, would be bypassed. Java reports a nil host for a
-;; scheme-bearing OPAQUE URI (`http:evil.example.com` — scheme present,
-;; no authority) and for a hierarchical URI with no authority
-;; (`http:/evil`). Those would slip BOTH the :relative-only? and the :allow
-;; host gates and populate :redirect — a browser given
-;; `Location: http:evil.example.com` navigates OFF-ORIGIN. The gate works
-;; on parsed-URL SHAPE: a relative reference is `scheme==nil AND
-;; authority==nil`; anything else is non-relative and subject to the
-;; host gates, and a scheme-bearing-but-host-less URL has no defensible
-;; redirect interpretation.
-
-(deftest safe-redirect-rejects-scheme-bearing-opaque-http-bypass
-  (testing "`http:evil.example.com` (opaque, host=nil)
-            is the open-redirect bypass — it MUST be rejected (no :redirect)
-            under :relative-only?, under :allow, AND with no policy"
-    (doseq [[label policy] [["no-policy"      {}]
-                            ["relative-only?" {:relative-only? true}]
-                            ["allow"          {:allow ["app.example.com"]}]]]
-      (rf/reg-event :sr/opaque-http
-        (fn [_ _]
-          {:fx [[:rf.server/safe-redirect
-                 (merge {:location "http:evil.example.com"} policy)]]}))
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-safe-redirect-traces!
-                     (fn [] (rf/dispatch-sync [:sr/opaque-http] {:frame f})))]
-        (is (seq traces)
-            (str "[" label "] a :rf.error/safe-redirect-* trace fires — "
-                 "the bypass is closed"))
-        (is (nil? (:redirect (get-response f)))
-            (str "[" label "] no :redirect mutation — the off-origin "
-                 "scheme-bearing opaque URI is rejected"))))))
-
-(deftest safe-redirect-rejects-scheme-bearing-opaque-https-bypass
-  (testing "`https:evil.example.com` (opaque, host=nil)
-            rejected as :rf.error/safe-redirect-invalid-url
-            (:reason :scheme-without-host)"
-    (rf/reg-event :sr/opaque-https
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect {:location "https:evil.example.com"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/opaque-https] {:frame f})))]
-      (is (some #(and (= :rf.error/safe-redirect-invalid-url (:operation %))
-                      (= :scheme-without-host (-> % :tags :reason)))
-                traces)
-          ":scheme-without-host reason names the shape failure")
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
+;; The gate works on parsed-URL SHAPE: a relative reference is `scheme==nil
+;; AND authority==nil`, anything else is non-relative and subject to the host
+;; gates, and a scheme-bearing-but-host-less URL (`http:evil.example.com`) has
+;; no defensible redirect interpretation. Each rejection arm, the network-path
+;; bypasses and the case-folded policy matches are pinned on the always-on
+;; axis in `re-frame.ssr-safe-redirect-production-test`; what stays here is
+;; the dev trace's raw scheme spelling and the controls showing the shape gate
+;; does not over-reject.
 
 (deftest safe-redirect-rejects-mailto-scheme
   (testing "`mailto:user@example.com` — a non-http(s)
@@ -2140,43 +1979,6 @@
             "DEV ARM: the dev trace names the scheme itself"))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
-
-(deftest safe-redirect-rejects-ftp-scheme
-  (testing "`ftp:example.com` — non-http(s) scheme
-            rejected outright (opaque form, host=nil)"
-    (rf/reg-event :sr/ftp
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect {:location "ftp:example.com"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-safe-redirect-traces!
-                   (fn [] (rf/dispatch-sync [:sr/ftp] {:frame f})))]
-      (is (some #(= :rf.error/safe-redirect-scheme-rejected (:operation %))
-                traces)
-          "ftp: rejected (non-http(s) scheme)")
-      (is (nil? (:redirect (get-response f)))
-          "rejection is a no-op"))))
-
-(deftest safe-redirect-rejects-protocol-relative-under-policy
-  (testing "`//evil.example.com/path` (protocol-relative,
-            authority=evil.example.com) is NOT a relative reference — it is
-            rejected under :relative-only? and under :allow (host mismatch)"
-    (doseq [[label policy expected-reason]
-            [["relative-only?" {:relative-only? true} :relative-only-violation]
-             ["allow"          {:allow ["app.example.com"]} :not-in-allowlist]]]
-      (rf/reg-event :sr/protocol-relative
-        (fn [_ _]
-          {:fx [[:rf.server/safe-redirect
-                 (merge {:location "//evil.example.com/path"} policy)]]}))
-      (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-            traces (capture-safe-redirect-traces!
-                     (fn [] (rf/dispatch-sync [:sr/protocol-relative] {:frame f})))]
-        (is (some #(and (= :rf.error/safe-redirect-host-disallowed (:operation %))
-                        (= expected-reason (-> % :tags :reason)))
-                  traces)
-            (str "[" label "] protocol-relative rejected with reason "
-                 expected-reason))
-        (is (nil? (:redirect (get-response f)))
-            (str "[" label "] no :redirect mutation"))))))
 
 (deftest safe-redirect-accepts-normal-relative-path-control
   (testing "CONTROL: a normal relative path passes
@@ -2214,24 +2016,6 @@
           "no trace on an allowlisted absolute host")
       (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
           ":location passes through"))))
-
-;; --- CRLF defence-in-depth ----------------------------------------------
-
-(deftest safe-redirect-also-rejects-crlf-injection
-  (testing "the CRLF gate runs on safe-redirect too —
-            an attacker passing a CRLF-bearing location is presumably trying
-            both vectors. Same fx-boundary throw as redirect-fx; the throw
-            propagates as :rf.error/fx-handler-exception"
-    (rf/reg-event :sr/crlf
-      (fn [_ _]
-        {:fx [[:rf.server/safe-redirect
-               {:location "/path\r\nSet-Cookie: stolen=1"}]]}))
-    (let [f      (rf.frame/make-anon-frame-record! {:platform :server})
-          traces (capture-fx-traces!
-                   (fn [] (rf/dispatch-sync [:sr/crlf] {:frame f})))]
-      (expect-fx-error-keyword!
-        traces :rf.error/redirect-invalid-location
-        "safe-redirect with CRLF in :location"))))
 
 ;; ===========================================================================
 ;; Tag-name injection (emit) + header-name / cookie field
