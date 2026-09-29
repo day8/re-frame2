@@ -380,26 +380,29 @@
 
 (deftest mismatch-strict-mode-still-emits-trace-before-throwing
   (testing "strict mode emits the :rf.ssr/hydration-mismatch
-            trace (monitoring integrations rely on it) AND throws — the
-            two are not mutually exclusive."
+            trace (monitoring integrations rely on it) and only THEN throws —
+            the two are not mutually exclusive."
     (register-handlers!)
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr strict-mode frame"
                                        :platform :client
                                        :ssr {:on-mismatch :hard-error}})]
       (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
       ;; Dev-instrumentation arm (see ns docstring). This
-      ;; deftest's subject is the TRACE half of the emit-then-throw pair; the
-      ;; throw half is `mismatch-strict-mode-throws-with-structured-payload`,
-      ;; which runs in both postures.
+      ;; deftest's subject is the ORDER of the emit-then-throw pair, read by
+      ;; counting the trace ring from inside the catch: nil means nothing
+      ;; was thrown, 0 means the throw overtook the trace. The throw's
+      ;; payload is `mismatch-strict-mode-throws-with-structured-payload`'s
+      ;; subject, which runs in both postures.
       (when rf.interop/debug-enabled?
         (with-trace-recorder! [traces]
-          (try (rf.ssr/verify-hydration! client-frame "0badf00d")
-               (catch clojure.lang.ExceptionInfo _ nil))
-          (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                        @traces))]
-            (is (some? mismatch)
-                "the mismatch trace fires even in strict mode")
-            (is (= :hard-error (:recovery mismatch))
+          (let [mismatch?     #(= :rf.ssr/hydration-mismatch (:operation %))
+                seen-at-throw (try (rf.ssr/verify-hydration! client-frame "0badf00d")
+                                   nil
+                                   (catch clojure.lang.ExceptionInfo _
+                                     (count (filter mismatch? @traces))))]
+            (is (= 1 seen-at-throw)
+                "the mismatch trace is already on the bus when the throw reaches the caller")
+            (is (= :hard-error (:recovery (first (filter mismatch? @traces))))
                 "the trace's :recovery reflects strict mode")))))))
 
 (deftest mismatch-detection-disabled-skips-comparison
