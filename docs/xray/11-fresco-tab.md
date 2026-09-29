@@ -29,6 +29,10 @@ Across the top of the tab is a strip of six buttons. Hover any of them and the t
 
 All six are computed from one read of Fresco's evidence, taken at a single moment. That is why they are views inside one tab rather than six tabs: separate reads could disagree, for example if a view mounted between them. Advisor and Causal also read the runtime's retained trace records: Advisor for the subscriptions' measured recompute times, and Causal for the dispatch's events.
 
+The screenshot shows the tab on the standard-epochs testbed. The six views sit across the top (1 in the screenshot). Under them, every view prints a summary line (2) naming the read it comes from and whether that read is complete. The testbed is a Reagent app with no Fresco boundaries, so Mounted shows an empty roster (3), with a sentence saying what that means for this view.
+
+![The Fresco tab on the standard-epochs testbed, numbered: 1 the six views, 2 the summary line, 3 the Mounted view's empty roster](../images/xray/xray-tutorial-fresco.png)
+
 ## Reading an empty tab
 
 A tab with no rows can mean three different things, and Xray says which:
@@ -81,7 +85,7 @@ From the owner, never from how hot the boundary is, the Advisor picks a route:
 | Computation | **Narrow or memoize the subscription**. The cost runs below the view layer, so moving the view would keep it |
 | Read topology | **Tune topology without changing language**, rung 2 of the performance ladder |
 | Unattributed, host-opaque | **Measure the unattributed half elsewhere** |
-| Unattributed, cap | Reproduce the interaction and read the tab again |
+| Unattributed, cap | **Reproduce the interaction and read again**. The window is empty, not small, so a bigger buffer is not the remedy |
 
 The hottest boundary on the page and the coldest one with the same owner get the same route.
 
