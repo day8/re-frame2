@@ -37,8 +37,14 @@ is conveyed by omission, not an empty-state row). The step order:
  handler returned** (there is one public `reg-event`, no `:db`-vs-`:fx`
  registrar flavour): only `:db` → a `:db` diff · `:db` + `:fx` → diff +
  per-fx · a `reg-machine` event → the time-ordered machine cascade.
- Rendered **SKIPPED** (⊘) when an upstream `:before`-chain throw aborted
- the cascade before the handler ran (NOT "ran, returned no :db").
+ Rendered **SKIPPED** (⊘) when the handler never ran (NOT "ran,
+ returned no :db"), and the body names why. An upstream `:before`-chain
+ throw aborted the cascade: "The handler did not run — an upstream step
+ threw before this step could execute." The router refused the event
+ against its handler's `:schema`, and the violation sits on DISPATCH:
+ "The handler did not run — the event failed its handler's :schema, so
+ the router never called the handler." Or the drain hit its depth limit
+ before the event could execute.
 7. **FLOW** — one numbered step per flow that fired (the reshape as the
  flow's own `:db` diff). Only when flows fired.
 8. **EFFECT HANDLERS** — the flat per-effect ledger (below). Only when a
