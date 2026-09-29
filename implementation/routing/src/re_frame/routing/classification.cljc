@@ -326,6 +326,41 @@
   [runtime-db route-id route-meta]
   (apply-route-classification runtime-db (validate+extract route-id route-meta)))
 
+;; ---- re-rooting onto a route read sub's value -----------------------------
+
+(defn- relative-path
+  "Runtime-db-absolute `path` relative to the value stored at `seed`: the
+  suffix below `seed` when `path` lies at or under it, `[]` when `path` is an
+  ancestor of `seed` (it then governs the whole value), else nil."
+  [seed path]
+  (let [n (count seed)
+        m (count path)]
+    (cond
+      (and (>= m n) (= seed (subvec path 0 n))) (subvec path n)
+      (and (< m n) (= path (subvec seed 0 m)))  []
+      :else                                     nil)))
+
+(defn classification-at
+  "Route `route-id`'s declared classification, read from `route-meta` exactly
+  as activation lowers it, re-rooted onto the value stored at runtime-db
+  `seed` — the storage position a route read sub's value projects onto. Returns
+  `{:sensitive [paths] :large [paths]}` relative to that value, or nil when
+  nothing the route declares reaches it. A path declared at or above the
+  projection the value holds (`[]`, or `[:params]` for the params map) governs
+  the whole value.
+
+  The route-sub egress projector classifies a sub's PRIOR value with it: a
+  navigation replaces the registry's route claims with the entering route's,
+  so the leaving route's slice is classified by its own route's declaration."
+  [route-id route-meta seed]
+  (when-some [{:keys [sensitive large]} (validate+extract route-id route-meta)]
+    (let [rebase (fn [paths]
+                   (into [] (keep #(relative-path seed (into current-route-root %))) paths))
+          sens   (rebase sensitive)
+          large  (rebase large)]
+      (when (or (seq sens) (seq large))
+        {:sensitive sens :large large}))))
+
 ;; ---- query-key promotion advisory ----------------------------------------
 ;;
 ;; A reg-route-time WARNING (never a throw) that closes the EP-0025 query-key

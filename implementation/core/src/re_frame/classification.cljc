@@ -643,11 +643,20 @@
   `sub-id` is not a framework route read sub (the projector itself fail-opens on
   a non-route id). `frame-id` seeds the walker's `:frame` opt so the per-frame
   elision registry is reachable (the projector inherits `elide-wire-value`'s
-  fail-closed posture on a nil / unresolvable frame)."
-  [v sub-id frame-id]
-  (if-let [project (rf.late-bind/get-fn :routing/project-route-sub-egress)]
-    (project sub-id v {:frame frame-id})
-    v))
+  fail-closed posture on a nil / unresolvable frame).
+
+  The four-argument arity projects a PRIOR value, handing the projector the
+  inputs it was computed from (`prior-inputs`), because a navigation replaces
+  the registry's route claims and the prior value is classified by the route it
+  was computed under."
+  ([v sub-id frame-id]
+   (if-let [project (rf.late-bind/get-fn :routing/project-route-sub-egress)]
+     (project sub-id v {:frame frame-id})
+     v))
+  ([v sub-id frame-id prior-inputs]
+   (if-let [project (rf.late-bind/get-fn :routing/project-route-sub-egress)]
+     (project sub-id v {:frame frame-id} prior-inputs)
+     v)))
 
 (declare machine-classification snapshot-classification-in)
 
@@ -710,7 +719,10 @@
   This is NOT generic propagation: only the route-owned read surfaces, and only
   at egress (in-process `@(subscribe [:rf/route])` stays raw). The route
   projection composes ON TOP of any registration classification (the route subs
-  declare none, so in practice the registration step is a no-op for them).
+  declare none, so in practice the registration step is a no-op for them). Their
+  prev-value is projected with the `::prev-inputs` it was computed from, because
+  a navigation replaces the registry's route claims: the projector classifies
+  the leaving route's slice by that route's own declaration.
 
   EP-0002 — FAIL CLOSED on a nil `frame-id`: subs are frame-scoped,
   so a sub trace with no carried frame is malformed; `:rf.sub/value` (and
@@ -729,14 +741,15 @@
   The memo path's `::prev-inputs` carrier (the inputs the prior value was
   computed from) is read and stripped here too."
   [tags frame-id]
-  (let [sub-id    (:rf.sub/id tags)
-        captured? (contains? tags :rf.sub/classification)
-        class     (if captured?
-                    (normalise-classification (:rf.sub/classification tags))
-                    (classification-when :sub sub-id))
-        prior     (prior-machine-sub-classification tags)
-        tags      (dissoc tags :rf.sub/classification ::prev-inputs)
-        has-prev? (contains? tags :rf.sub/prev-value)]
+  (let [sub-id      (:rf.sub/id tags)
+        captured?   (contains? tags :rf.sub/classification)
+        class       (if captured?
+                      (normalise-classification (:rf.sub/classification tags))
+                      (classification-when :sub sub-id))
+        prior       (prior-machine-sub-classification tags)
+        prev-inputs (::prev-inputs tags)
+        tags        (dissoc tags :rf.sub/classification ::prev-inputs)
+        has-prev?   (contains? tags :rf.sub/prev-value)]
     (cond
       (nil? frame-id)
       (cond-> (assoc tags :rf.sub/value rf.privacy/redacted-sentinel :sensitive? true)
@@ -746,7 +759,7 @@
       ;; Registration classification (none for the framework read subs) unioned
       ;; with the machine sub's snapshot classification in one walk, then the
       ;; route-sub egress projection — composed so all can apply. Any other sub
-      ;; with no registration classification leaves `project-slot` an identity
+      ;; with no registration classification leaves both slots an identity
       ;; transform (the walk early-exits on no paths; the projector fail-opens
       ;; on a non-route id), so `tags` rides through reference-preserved (the
       ;; common case).
@@ -754,15 +767,17 @@
             [m-sens m-large] (classification-paths (machine-sub-classification tags frame-id))
             [p-sens p-large] (classification-paths prior)
             sens             (into sens m-sens)
-            large            (into large m-large)
-            project-slot     (fn [v sens large]
-                               (project-route-sub-slot (redact-with-paths v sens large)
-                                                       sub-id frame-id))]
+            large            (into large m-large)]
         (cond-> tags
-          true            (assoc :rf.sub/value (project-slot (:rf.sub/value tags) sens large))
+          true            (assoc :rf.sub/value
+                                 (project-route-sub-slot
+                                   (redact-with-paths (:rf.sub/value tags) sens large)
+                                   sub-id frame-id))
           has-prev?       (assoc :rf.sub/prev-value
-                                 (project-slot (:rf.sub/prev-value tags)
-                                               (into sens p-sens) (into large p-large)))
+                                 (project-route-sub-slot
+                                   (redact-with-paths (:rf.sub/prev-value tags)
+                                                      (into sens p-sens) (into large p-large))
+                                   sub-id frame-id prev-inputs))
           (:large? class) (assoc :large? true))))))
 
 (defn- frame-has-declarations?
