@@ -23,6 +23,7 @@
             [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.async      :as rf.story.async]
             [re-frame.story.config     :as rf.story.config]
+            [re-frame.story.frames     :as rf.story.frames]
             [re-frame.story.loaders    :as rf.story.loaders]
             [re-frame.story.play       :as rf.story.play]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]))
@@ -188,7 +189,7 @@
                 [:dispatch-sync [:step/two]]]})
     ;; Run the variant phases 1-3; the play stepper takes over phase 4.
     (let [decorator-stack (rf.story/resolve-decorators :story.stepper/v)]
-      (re-frame.story.frames/allocate! :story.stepper/v decorator-stack)
+      (rf.story.frames/allocate! :story.stepper/v decorator-stack)
       (rf.story.loaders/start-loaders! :story.stepper/v)
       (rf.story.loaders/finish-loaders! :story.stepper/v)
       (rf.story.play/begin-stepper! :story.stepper/v)
