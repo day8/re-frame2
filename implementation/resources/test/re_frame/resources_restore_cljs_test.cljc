@@ -113,38 +113,29 @@
 ;; 1. Settle mid-flight entries to last stable (Spec 016 §Restore part 2)
 ;; ===========================================================================
 
-(deftest settle-loading-entry-with-no-data-to-idle
-  (testing "a restored :loading entry that never loaded (no data, no error) settles to :idle"
-    (let [e   (entry {:resource-id :article/by-slug :status :loading :data nil
-                      :current-work [:rf.work/resource gkey 3]})
-          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
-      (is (= :idle (:status se)) "loading-with-no-data → :idle, never stranded :loading")
-      (is (nil? (:current-work se)) "the vanished current-work pointer is cleared"))))
-
-(deftest settle-fetching-entry-with-data-to-loaded
-  (testing "a restored :fetching entry (background refresh in flight) keeps its
-            last-known-good data and settles to :loaded"
-    (let [e   (entry {:resource-id :article/by-slug :status :fetching
-                      :data {:title "kept"} :loaded-at 1000 :stale-at 9.0e15
-                      :current-work [:rf.work/resource gkey 4]})
-          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
-      (is (= :loaded (:status se)) "fetching-with-data → :loaded (keep last-known-good)")
-      (is (= {:title "kept"} (:data se)) "the last-known-good data is preserved")
-      (is (nil? (:current-work se)) "the vanished current-work pointer is cleared"))))
-
-(deftest settle-loading-entry-with-error-to-error
-  (testing "a restored :loading entry carrying a first-load :error envelope (no
-            data) settles to :error"
-    (let [err {:kind :rf.http/http-5xx}
-          e   (entry {:resource-id :article/by-slug :status :loading :data nil
-                      :error err :current-work [:rf.work/resource gkey 5]})
-          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
-      (is (= :error (:status se)) "loading-with-error-and-no-data → :error")
-      (is (= err (:error se)) "the first-load error envelope is retained")
-      (is (nil? (:current-work se))))))
+(deftest restored-in-flight-entries-settle-to-last-stable
+  ;; A restored in-flight entry settles to its last stable status, keeps what
+  ;; it last knew, and always loses the vanished :current-work pointer.
+  (doseq [[label fields expected-status retained]
+          [["a :loading entry that never loaded (no data, no error) → :idle, never stranded :loading"
+            {:status :loading :data nil :current-work [:rf.work/resource gkey 3]}
+            :idle {}]
+           ["a :fetching entry (background refresh in flight) → :loaded, keeping its last-known-good data"
+            {:status :fetching :data {:title "kept"} :loaded-at 1000 :stale-at 9.0e15
+             :current-work [:rf.work/resource gkey 4]}
+            :loaded {:data {:title "kept"}}]
+           ["a :loading entry carrying a first-load :error envelope (no data) → :error, retaining the envelope"
+            {:status :loading :data nil :error {:kind :rf.http/http-5xx}
+             :current-work [:rf.work/resource gkey 5]}
+            :error {:error {:kind :rf.http/http-5xx}}]]]
+    (testing label
+      (let [e   (entry (assoc fields :resource-id :article/by-slug))
+            out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+            se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
+        (is (= expected-status (:status se)))
+        (doseq [[k v] retained]
+          (is (= v (get se k)) (str k " is retained")))
+        (is (nil? (:current-work se)) "the vanished current-work pointer is cleared")))))
 
 (deftest already-stable-entries-keep-status
   (testing "a :loaded / :error / :idle entry is already stable — its status is

@@ -409,7 +409,7 @@
 ;; The reserved-scope-typo rejection is covered elsewhere via OTHER surfaces
 ;; (the scope-resolver path: scope_registry/resolved-scope-routes-through-
 ;; canonicalization; the :patches/:populates target-map path:
-;; mutation/validate-target-key-rejects-reserved-scope-typo). This pins it
+;; mutation/validate-target-key-rejects-an-invalid-identity). This pins it
 ;; through the :invalidates DESCRIPTOR wiring specifically — a regression that
 ;; bypassed canonicalize-scope HERE would turn a typo into a silent wrong /
 ;; no-op cache-scope invalidation, the exact fail-closed promise the EP makes.

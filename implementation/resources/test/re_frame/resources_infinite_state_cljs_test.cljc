@@ -173,12 +173,6 @@
       (is (nil? (:page-error recovered)) "the next success cleared it")
       (is (= 2 (rf.resources.state/page-count recovered))))))
 
-(deftest append-nil-entry-noop
-  (testing "appending to a nil entry returns nil unchanged (no feed to append to)"
-    (is (nil? (rf.resources.state/entry-append-page nil {:page (page [:a] "c1")
-                                            :next-page-param-fn next-cursor
-                                            :loaded-at 1 :stale-at 2})))))
-
 ;; ---- entry-page-failed (the THIRD error channel) ---------------------------
 
 (deftest page-failure-keeps-feed
@@ -200,10 +194,6 @@
       (is (nil? (:error failed)) "NOT the first-load :error channel")
       (is (nil? (:refresh-error failed)) "NOT the refresh :refresh-error channel")
       (is (nil? (:current-work failed)) ":current-work cleared"))))
-
-(deftest page-failed-nil-entry-noop
-  (testing "page-failed on a nil entry returns nil unchanged"
-    (is (nil? (rf.resources.state/entry-page-failed nil {:error {:kind :rf.http/server}})))))
 
 ;; ---- resolve-page->items (R3 accessor) -------------------------------------
 
@@ -352,8 +342,15 @@
       (is (= 1 (rf.resources.state/page-count e1)) "index 0 == count 0 → append page-0")
       (is (= [(page [:a] "c1")] (:data e1))))))
 
-(deftest replace-page-nil-entry-noop
-  (testing "replace on a nil entry returns nil unchanged (no feed to replace into)"
+(deftest page-ops-on-a-nil-entry-are-noops
+  ;; With no feed to write into, each pure page op returns nil unchanged.
+  (testing "append"
+    (is (nil? (rf.resources.state/entry-append-page nil {:page (page [:a] "c1")
+                                            :next-page-param-fn next-cursor
+                                            :loaded-at 1 :stale-at 2}))))
+  (testing "page-failed"
+    (is (nil? (rf.resources.state/entry-page-failed nil {:error {:kind :rf.http/server}}))))
+  (testing "replace"
     (is (nil? (rf.resources.state/entry-replace-page nil {:page (page [:a] "c1") :page-index 0
                                              :next-page-param-fn next-cursor
                                              :loaded-at 1 :stale-at 2})))))
@@ -366,39 +363,41 @@
 ;; n` the first n. The accumulation length is preserved; its contents are
 ;; re-fetched.
 
-(deftest refetch-window-count-empty-feed
-  (testing "an empty feed (page-count 0) refreshes 0 pages — nothing to refresh"
-    (is (= 0 (rf.resources.state/refetch-window-count nil 0)))
-    (is (= 0 (rf.resources.state/refetch-window-count {:refetch-all-pages? true} 0)))
-    (is (= 0 (rf.resources.state/refetch-window-count {:refetch-window 5} 0))
-        "window over an empty feed is still 0 (zero-page short-circuits first)")))
-
-(deftest refetch-window-count-default-refreshes-page-0-only
-  (testing "the DEFAULT (no policy / empty policy) refreshes PAGE 0 only —
-            the window-preserving default (replace page 0 in place, keep tail)"
-    (is (= 1 (rf.resources.state/refetch-window-count nil 3)))
-    (is (= 1 (rf.resources.state/refetch-window-count {} 3)))
-    (is (= 1 (rf.resources.state/refetch-window-count {} 1)))))
-
-(deftest refetch-window-count-all-pages-opt-in
-  (testing ":refetch-all-pages? true refreshes EVERY accumulated page (TanStack parity)"
-    (is (= 3 (rf.resources.state/refetch-window-count {:refetch-all-pages? true} 3))
-        "all 3 pages refreshed (not collapsed to page 0)")
-    (is (= 1 (rf.resources.state/refetch-window-count {:refetch-all-pages? true} 1)))
-    (testing "all-pages? wins over a co-present :refetch-window (cond order)"
-      (is (= 3 (rf.resources.state/refetch-window-count {:refetch-all-pages? true :refetch-window 2} 3))))))
-
-(deftest refetch-window-count-window-clamps
-  (testing ":refetch-window n refreshes the first n pages"
-    (is (= 2 (rf.resources.state/refetch-window-count {:refetch-window 2} 3)) "in-range window verbatim"))
-  (testing "CLAMP HIGH — a window beyond the page count never invents pages"
-    (is (= 3 (rf.resources.state/refetch-window-count {:refetch-window 5} 3))
-        "window > page-count clamps DOWN to page-count")
-    (is (= 3 (rf.resources.state/refetch-window-count {:refetch-window 3} 3)) "window == page-count is exact"))
-  (testing "CLAMP LOW — a refetch always refreshes at least page 0"
-    (is (= 1 (rf.resources.state/refetch-window-count {:refetch-window 1} 3)) "window 1 refreshes exactly page 0")
-    (is (= 1 (rf.resources.state/refetch-window-count {:refetch-window 0} 3)) "window 0 clamps UP to 1")
-    (is (= 1 (rf.resources.state/refetch-window-count {:refetch-window -4} 3)) "a negative window clamps UP to 1")))
+(deftest refetch-window-count-by-policy
+  (doseq [[label policy page-count expected]
+          [["an empty feed refreshes 0 pages — nothing to refresh"
+            nil 0 0]
+           ["an empty feed refreshes 0 pages under :refetch-all-pages? too"
+            {:refetch-all-pages? true} 0 0]
+           ["a window over an empty feed is still 0 (zero-page short-circuits first)"
+            {:refetch-window 5} 0 0]
+           ["the DEFAULT (no policy) refreshes page 0 only — replace page 0 in place, keep the tail"
+            nil 3 1]
+           ["the DEFAULT (empty policy) refreshes page 0 only"
+            {} 3 1]
+           ["the DEFAULT on a one-page feed refreshes page 0"
+            {} 1 1]
+           [":refetch-all-pages? true refreshes EVERY page, not collapsed to page 0 (TanStack parity)"
+            {:refetch-all-pages? true} 3 3]
+           [":refetch-all-pages? true on a one-page feed refreshes that page"
+            {:refetch-all-pages? true} 1 1]
+           ["all-pages? wins over a co-present :refetch-window (cond order)"
+            {:refetch-all-pages? true :refetch-window 2} 3 3]
+           [":refetch-window n refreshes the first n pages (in-range window verbatim)"
+            {:refetch-window 2} 3 2]
+           ["CLAMP HIGH — a window beyond the page count clamps DOWN to it, never inventing pages"
+            {:refetch-window 5} 3 3]
+           ["a window equal to the page count is exact"
+            {:refetch-window 3} 3 3]
+           ["window 1 refreshes exactly page 0"
+            {:refetch-window 1} 3 1]
+           ["CLAMP LOW — window 0 clamps UP to 1, since a refetch always refreshes page 0"
+            {:refetch-window 0} 3 1]
+           ["CLAMP LOW — a negative window clamps UP to 1"
+            {:refetch-window -4} 3 1]]]
+    (testing label
+      (is (= expected (rf.resources.state/refetch-window-count policy page-count))
+          (str "policy " (pr-str policy) " over " page-count " pages")))))
 
 ;; ---- refetch-sweep-tail (R6 — the ordered pages beyond 0 to re-fetch) ------
 ;;
