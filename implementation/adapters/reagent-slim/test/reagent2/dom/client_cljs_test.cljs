@@ -7,11 +7,12 @@
       caller the post-render state synchronously.
     - flush-views! React-act composition: pending React work is
       drained inside act.
-    - Suspense composition: a child throws a Promise
-      during render; flush-views! waits for the resolution + a
-      tail recompute settles before the test asserts.
+    - Suspense composition, at the scheduler level: an after-render
+      callback stands in for the tail a resolved Suspense boundary
+      runs, and it has fired by the time flush-views! resolves. Nothing
+      here throws a Promise.
 
-  The Suspense test pins the chosen ordering:
+  flush-views! drains in the order
 
       microtask -> act(flush!) -> microtask
 
@@ -77,22 +78,27 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest flush-views-determinism-reaction-recompute
-  (testing "after flush-views!, a dependent Reaction reflects the new value"
+  (testing "by the time flush-views! resolves, a queued Reaction has recomputed"
     (async done
+      ;; `r` has no :auto-run, so a dependency change QUEUES its recompute
+      ;; rather than running it inside the `reset!`. `outer` derefs it in a
+      ;; reactive context so `r` captures `a` and stays watched.
       (let [a       (ratom/atom 1)
-            r       (ratom/make-reaction (fn [] (* @a 100)) :auto-run true)
+            r       (ratom/make-reaction (fn [] (* @a 100)))
+            outer   (ratom/make-reaction (fn [] @r) :auto-run true)
             seen    (atom nil)]
-        @r ;; subscribe
+        @outer ;; subscribe outer → r → a
         (add-watch r :w (fn [_ _ _ nu] (reset! seen nu)))
-        ;; Mutate; flush; assert.
         (reset! a 5)
+        (is (nil? @seen)
+            "PRECONDITION: the recompute is queued, not run inside the reset!")
         (-> (js/Promise.resolve (dom-client/flush-views!))
             (.then (fn [_]
-                     ;; Auto-run reactions are synchronous, so seen is
-                     ;; already 500. Either way, post-flush, derefing
-                     ;; the reaction must show 500.
-                     (is (= 500 @r))
-                     (is (= 500 @seen))
+                     ;; Read the watch, never `@r`: a non-reactive deref of
+                     ;; `r` recomputes it on the spot and would fire the
+                     ;; watch itself.
+                     (is (= 500 @seen)
+                         "the queued recompute ran and notified its watcher")
                      (done))))))))
 
 (deftest flush-views-determinism-component-render
@@ -167,14 +173,14 @@
                      (done))))))))
 
 (deftest flush-views-suspense-composition-cascade
-  (testing "a Reaction that fires DURING flush schedules a fresh turn (not flattened into current)"
-    ;; Per IMPL-SPEC §4.5 + §4.4: the scheduler does NOT collapse
-    ;; cascades into the current drain. A render-time mutation of
-    ;; an upstream RAtom queues a fresh microtask turn.
-    ;;
-    ;; This pins the Suspense semantic: when act resolves a Suspense
-    ;; promise mid-commit and downstream Reactions recompute, those
-    ;; recomputes are visible NEXT turn, not this one.
+  (testing "a render queued between flushes runs, and its ratom write reaches a dependent Reaction"
+    ;; The queued component's render writes an upstream RAtom; by the
+    ;; time the flushes resolve, the auto-run Reaction has seen both
+    ;; transitions. `r` recomputes synchronously inside each `reset!`, so
+    ;; this cannot tell a fresh turn from a flattened drain — the
+    ;; non-flattening turn boundary (IMPL-SPEC §4.5) is pinned by
+    ;; `enqueue-during-drain-schedules-fresh-turn` in
+    ;; `reagent2.impl.batching-cljs-test`.
     (async done
       (let [counter      (ratom/atom 0)
             seen-states  (atom [])

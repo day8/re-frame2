@@ -591,10 +591,10 @@
 
 (deftest favorite-populates-detail-invalidates-both-scopes-and-replies-once
   (testing "examples/real-apps/realworld_resources — :realworld/favorite seeds the
-            detail entry from its reply (authoritative load), invalidates the
-            global article tags AND the session feed in one set of per-target
-            descriptors, and fires no extra wiring; the call-site :reply-to
-            continuation fires exactly once on settle"
+            detail entry from its reply (authoritative load), its per-target
+            descriptors reach the SESSION-scoped feed as well as its own viewer
+            scope (only the session reach is asserted), and the call-site
+            :reply-to continuation fires exactly once on settle"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       ;; log in so the session feed scope resolves
@@ -669,6 +669,7 @@
       (is (false? (rf/compute-sub [:editor/can-leave?] (state-value f)))
           "a dirty draft blocks navigate-away (the :can-leave guard)")
       ;; submit → the save mutation lowers; capture-then-reply
+      (reset! last-managed-args nil)
       (rf/dispatch-sync [:editor/submit] {:frame f})
       (is (some? @last-managed-args) "the save mutation lowered a write")
       ;; the save reply carries the saved Article (the create stub echoes a slug)
@@ -918,6 +919,7 @@
       ;; :realworld/article under the route owner) AND fires :on-match
       ;; [[:editor/load-article]] (the ownerless :reply-to [:editor/article-loaded]
       ;; seed ensure, which dedupes onto the route's own read).
+      (reset! last-managed-args nil)
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "hello-conduit"}}] {:frame f})
       (is (some? @last-managed-args) "edit entry lowered the article read")
       (is (editor-route-owner? (entry f (article-key "hello-conduit")))
@@ -1037,6 +1039,7 @@
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; ENTER edit A. Capture A's in-flight read WITHOUT settling it — A's fetch is
       ;; still outstanding when we navigate away (the leave-before-settle race).
+      (reset! last-managed-args nil)
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "article-a"}}] {:frame f})
       (let [a-read @last-managed-args]
         (is (some? a-read) "edit A lowered the article read")
@@ -1093,6 +1096,7 @@
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; ENTER edit A. Capture A's read WITHOUT settling it — the fetch is still
       ;; outstanding, which is exactly when a user starts typing.
+      (reset! last-managed-args nil)
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "article-a"}}] {:frame f})
       (let [a-read @last-managed-args]
         (is (some? a-read) "edit A lowered the article read")
@@ -1709,6 +1713,7 @@
       ;; which is what lets the success navigate.
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.user/settings}] {:frame f})
       (rf/dispatch-sync [:settings/edit-field :bio "A brand new bio"] {:frame f})
+      (reset! last-managed-args nil)
       (rf/dispatch-sync [:settings/submit] {:frame f})
       (is (some? @last-managed-args) "the settings PUT lowered a write")
       ;; Reply with the saved User → :settings/replied folds it into auth + navigates.

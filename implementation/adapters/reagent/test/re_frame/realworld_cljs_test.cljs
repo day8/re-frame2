@@ -552,42 +552,60 @@
 ;; ============================================================================
 
 (defn- favorite-toggle-test []
-  (reg-canned-failure! :realworld.test/favorite-rollback
-                       :rf.http/http-4xx
-                       {:status 400
-                        :body   {:errors {:body ["rollback"]}}})
+  ;; The canned 4xx replies inside the same dispatch-sync, so by the time the
+  ;; toggle returns the optimistic flip is already rolled back and the row
+  ;; reads exactly as it did before the click. `at-request` snapshots the row
+  ;; when the favourite request goes out — after the toggle's :db committed,
+  ;; before the failure replied — so the test sees the flip it then asserts
+  ;; was undone.
+  (let [at-request (atom nil)]
+    (rf/reg-fx :realworld.test/favorite-rollback
+      {:platforms #{:client :server}}
+      (fn [{:keys [frame] :as frame-ctx} args]
+        (when (= :article/favorite-rollback (first (:on-failure args)))
+          (reset! at-request
+                  (-> (rf/compute-sub [:articles/data] (rf/frame-state-value frame))
+                      first
+                      (select-keys [:favorited :favoritesCount]))))
+        ((rf.registrar/handler :fx :rf.http/managed-canned-failure)
+         frame-ctx
+         (assoc args :kind :rf.http/http-4xx
+                     :tags {:status 400
+                            :body   {:errors {:body ["rollback"]}}}))))
 
-  (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
-                                 :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
-    (rf/dispatch-sync [:articles/initialise] {:frame f})
-    ;; :article/toggle-favorite is auth-gated: a logged-out
-    ;; click navigates to login instead of issuing a tokenless request.
-    ;; Authenticate first so this test exercises the optimistic-rollback
-    ;; path it is here to cover.
-    (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
-    ;; `nil` is the nav-token the reply carries: this frame never navigated,
-    ;; so nil IS the current navigation and the ownership gate admits it.
-    (rf/dispatch-sync [:articles/loaded nil
-                       {:kind :success
-                        :value {:articles [{:slug "hello"
-                                            :title "Hello"
-                                            :description "Short"
-                                            :body "Body"
-                                            :tagList []
-                                            :createdAt "2026-05-01"
-                                            :updatedAt "2026-05-01"
-                                            :favorited false
-                                            :favoritesCount 0
-                                            :author {:username "alice" :bio nil :image nil :following false}}]}}]
-                      {:frame f})
-    (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
-    ;; Optimistic flip + canned 4xx → rollback to original state.
-    (is (false? (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
-                    first
-                    :favorited)))
-    (is (= 0 (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
-                 first
-                 :favoritesCount)))))
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
+                                   :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
+      (rf/dispatch-sync [:articles/initialise] {:frame f})
+      ;; :article/toggle-favorite is auth-gated: a logged-out
+      ;; click navigates to login instead of issuing a tokenless request.
+      ;; Authenticate first so this test exercises the optimistic-rollback
+      ;; path it is here to cover.
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
+      ;; `nil` is the nav-token the reply carries: this frame never navigated,
+      ;; so nil IS the current navigation and the ownership gate admits it.
+      (rf/dispatch-sync [:articles/loaded nil
+                         {:kind :success
+                          :value {:articles [{:slug "hello"
+                                              :title "Hello"
+                                              :description "Short"
+                                              :body "Body"
+                                              :tagList []
+                                              :createdAt "2026-05-01"
+                                              :updatedAt "2026-05-01"
+                                              :favorited false
+                                              :favoritesCount 0
+                                              :author {:username "alice" :bio nil :image nil :following false}}]}}]
+                        {:frame f})
+      (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
+      (is (= {:favorited true :favoritesCount 1} @at-request)
+          "the optimistic flip was committed when the favourite request went out")
+      ;; Optimistic flip + canned 4xx → rollback to original state.
+      (is (false? (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
+                      first
+                      :favorited)))
+      (is (= 0 (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
+                   first
+                   :favoritesCount))))))
 
 ;; ============================================================================
 ;; profile — profile + authored-articles load

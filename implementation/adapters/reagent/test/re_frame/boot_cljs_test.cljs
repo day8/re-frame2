@@ -24,11 +24,9 @@
 
    Coverage:
      - boot-machine-progression   — the boot machine traverses
-       :configuring → :loading-deps → :hydrating → :ready, and all
-       four loaded slices land in app-db.
-     - boot-dependency-resolution — the per-child :data fns thread
-       the spawn-spec identity correctly so each child's payload is
-       folded into the matching :data slot (no cross-talk).
+       :configuring → :loading-deps → :hydrating → :ready, each
+       child's payload is folded into its own :data slot (no
+       cross-talk), and all four loaded slices land in app-db.
      - boot-failure-path          — a failure during the parallel
        phase routes the boot to :failed and records the error in
        :data.
@@ -189,24 +187,24 @@
       ;; drain runs all four canned-success stubs to completion.
       (let [db    (rf/frame-state-value f)
             state (rf/compute-sub [:app.boot/state] db)]
-        (assert (= :ready state)
-                (str "expected boot machine state :ready, got " state))
+        (is (= :ready state)
+            (str "expected boot machine state :ready, got " state))
 
         ;; Every payload folded into the boot machine's own :data. There is
         ;; no `[:boot/staging …]` slot in app-db any more: a child completes
         ;; by reaching a `:final?` state and the parent's `:on-done` fold is
         ;; the only writer.
         (let [boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
-          (assert (= test-config (:config boot-data)))
-          (assert (= test-routes (:routes boot-data)))
-          (assert (= test-flags  (:flags boot-data)))
-          (assert (= test-user   (:user boot-data))))
+          (is (= test-config (:config boot-data)))
+          (is (= test-routes (:routes boot-data)))
+          (is (= test-flags  (:flags boot-data)))
+          (is (= test-user   (:user boot-data))))
 
         ;; Top-level slices hydrated from the machine's :data.
-        (assert (= test-config (rf/compute-sub [:app/config] db)))
-        (assert (= test-flags  (rf/compute-sub [:app/flags]  db)))
-        (assert (= test-user   (rf/compute-sub [:app/user]   db)))
-        (assert (= test-routes (rf/compute-sub [:app/routes] db)))))))
+        (is (= test-config (rf/compute-sub [:app/config] db)))
+        (is (= test-flags  (rf/compute-sub [:app/flags]  db)))
+        (is (= test-user   (rf/compute-sub [:app/user]   db)))
+        (is (= test-routes (rf/compute-sub [:app/routes] db)))))))
 
 (deftest boot-failure-path
   (testing "a failure during the parallel phase routes the boot to :failed and records the error"
@@ -223,11 +221,11 @@
             state (rf/compute-sub [:app.boot/state] db)]
         ;; Every child fails (the canned-failure stub is blanket); the
         ;; first failure routes the boot to :failed via :on-any-failed.
-        (assert (= :failed state)
-                (str "expected boot machine state :failed, got " state))
+        (is (= :failed state)
+            (str "expected boot machine state :failed, got " state))
         (let [err (rf/compute-sub [:app.boot/error] db)]
-          (assert (some? err)
-                  "expected :app.boot/error to be populated on the failure path"))))))
+          (is (some? err)
+              "expected :app.boot/error to be populated on the failure path"))))))
 
 (deftest boot-join-child-failure-path
   (testing "/user.json alone fails inside the :spawn-all: the boot reaches :failed, the failure never lands in :user, and the in-flight siblings are cancelled"
