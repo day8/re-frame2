@@ -188,7 +188,12 @@
       (is (= :loading (:status e)) "first load → :loading"))
     (testing "the resource is owned by the route nav-token owner"
       (is (contains? (:active-owners e) [:route :route/article nav-token])
-          "owner is [:route route-id nav-token]"))))
+          "owner is [:route route-id nav-token]"))
+    (testing "the load's work record carries the route-entry activation cause"
+      (is (= [[:route-entry :route/article nav-token]]
+             (:causes (rf.resources.work-ledger/get-record
+                        (:rf.db/runtime (rf/frame-state-value :rf/default)) (:current-work e))))
+          "cause is [:route-entry route-id nav-token]"))))
 
 ;; ===========================================================================
 ;; 3. blocking? — keeps transition :loading, drains on settle
