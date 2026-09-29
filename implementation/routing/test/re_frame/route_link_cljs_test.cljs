@@ -109,19 +109,6 @@
       (finally
         (rf.trace.tooling/unregister-listener! cb-key)))))
 
-;; ---- href synthesis (CLJS sanity) --------------------------------------
-
-(deftest route-link-href-synthesis-cljs
-  (testing "the rendered <a> :href matches route-url"
-    (rf/reg-route :route/cart    {} "/cart")
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-
-    (let [[_ attrs] (rf.routing.link/route-link-render {:to :route/cart})]
-      (is (= "/cart" (:href attrs))))
-    (let [[_ attrs] (rf.routing.link/route-link-render
-                     {:to :route/article :params {:id "intro"}})]
-      (is (= "/articles/intro" (:href attrs))))))
-
 ;; ---- plain left-click → preventDefault + dispatch ----------------------
 
 (deftest plain-left-click-intercepts

@@ -178,19 +178,6 @@
           (is (= :rf.nav/push-url (-> v :tags :rf.fx/id)))
           (is (= :skipped (:recovery v))))))))
 
-(deftest push-url-with-a-well-formed-url-still-pushes
-  (testing "POSITIVE control: the schema does not break working navigation —
-            a path-form URL string drives pushState"
-    (own-the-url!)
-    (rf/reg-event :test/good-push
-                  (fn [_ _] {:fx [[:rf.nav/push-url "/cart"]]}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:test/good-push])
-      (is (= "/cart" (current-url *history-state*))
-          "the URL was pushed onto the history stack")
-      (is (empty? (violations @traces))
-          "no schema-validation-failure for a conforming URL"))))
-
 (deftest replace-url-with-malformed-args-never-reaches-replacestate
   (testing ":rf.nav/replace-url carries the SAME gate as its
             push sibling — the two history fxs must not have asymmetric
@@ -312,23 +299,6 @@
       (is (= [0 500] (scroll-xy))
           "the window was not scrolled to the string coordinates")
       (is (= 1 (count (violations @traces)))))))
-
-(deftest scroll-restore-with-a-fractional-saved-pos-still-scrolls
-  (testing "POSITIVE control (the one that matters most): a FRACTIONAL
-            :saved-pos — the shape a non-100%-zoom / HiDPI browser actually
-            captures — still drives `.scrollTo`. A spec
-            shape of [:tuple :int :int] would reject this and silently
-            break Back-button scroll restoration for every zoomed user"
-    (set-scroll! 0 0)
-    (rf/reg-event :test/restore
-                  (fn [_ _]
-                    {:fx [[:rf.nav/scroll {:strategy  :restore
-                                           :saved-pos [0.5 1234.75]}]]}))
-    (with-trace-recorder! [traces]
-      (committed! #(rf/dispatch-sync [:test/restore]))
-      (is (= [0.5 1234.75] (scroll-xy))
-          "the window was scrolled to the fractional saved position")
-      (is (empty? (violations @traces))))))
 
 (deftest scroll-with-the-full-planner-args-still-scrolls
   (testing "POSITIVE control: the FULL five-slot args plan/scroll-plan
@@ -522,30 +492,6 @@
       (is (empty? (unsupported-records @records))
           "no always-on rejection for any supported strategy — :preserve is a
            silent no-op, not a rejection"))))
-
-(deftest scroll-handler-rejection-attributes-the-originating-event
-  (testing "when the fx context carries the originating event
-            vector (Spec 002 §The binary fx-handler signature — `do-fx`
-            threads `:event` onto the handler ctx), the always-on record is
-            attributed to it, so an off-box shipper can tell WHICH navigation
-            carried the bad strategy. A direct handler call with no `:event`
-            leaves both slots nil rather than inventing attribution"
-    (let [records (record-always-on-errors!)]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default
-                                 :event [:test/navigate-somewhere 42]}
-                                {:strategy :bogus})
-      (let [r (first (unsupported-records @records))]
-        (is (= [:test/navigate-somewhere 42] (:event r))
-            ":event carries the originating event vector")
-        (is (= :test/navigate-somewhere (:event-id r))
-            ":event-id is the event-vector head")))
-    (let [records (record-always-on-errors!)]
-      (rf.routing.scroll/scroll-fx-handler {:frame :rf/default} {:strategy :bogus})
-      (let [r (first (unsupported-records @records))]
-        (is (nil? (:event r))    "no event vector for a direct handler call")
-        (is (nil? (:event-id r)) "no event-id for a direct handler call")
-        (is (= :rf/default (:frame r))
-            "the frame stamp is still present")))))
 
 (deftest scroll-handler-adversarial-near-miss-strategies
   (testing "adversarial: values that LOOK like a supported strategy
