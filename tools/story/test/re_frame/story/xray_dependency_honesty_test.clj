@@ -41,7 +41,6 @@
   shadow-cljs `:node-test` build."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
-            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.edn :as edn]))
 
