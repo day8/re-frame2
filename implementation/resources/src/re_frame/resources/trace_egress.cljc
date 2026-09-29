@@ -1716,16 +1716,18 @@
 ;; value is redacted exactly as the live one was, and nothing is kept for an
 ;; instance that is gone.
 ;;
-;; A PRIOR value also keeps the claims it was computed under. The spec is read
-;; as it stands now, so an owner re-registered without its declaration would
-;; otherwise ship the prior value raw. The registry in the inputs that value
-;; was computed from still holds what was lowered for it — the entry's or
-;; instance's `:data` claims, and each carried key's `:resource/key` claims —
-;; and those union with the spec's, the way a machine sub's prior snapshot
-;; keeps its claims (`re-frame.classification`). What the registry never
-;; holds is not recovered: a coarse `:sensitive?` / `:large?` root claim,
-;; which is never lowered, and a carried key whose entry is absent from those
-;; inputs.
+;; A value also keeps the claims it was computed under. The spec is read as it
+;; stands now, so an owner re-registered without its declaration would
+;; otherwise ship data loaded under that declaration raw. The registry in the
+;; inputs the value was computed from — the frame's live runtime-db for a
+;; current value, the prior inputs for a prior one — still holds what was
+;; lowered for it: the entry's or instance's `:data` claims, and each carried
+;; key's `:resource/key` claims. Those union with the spec's, the way a machine
+;; sub's prior snapshot keeps its claims (`re-frame.classification`). The
+;; registry holds them until the owner family's next commit in the frame
+;; reconciles it against the current registrations. What it never holds is
+;; not recovered: a coarse `:sensitive?` / `:large?` root claim, which is never
+;; lowered, and a carried key whose entry is absent from those inputs.
 ;;
 ;; A resource sub names its owner in its payload (`:resource`). A mutation sub
 ;; names only its `:instance`, so the owner is read off the instance: in the
@@ -1807,7 +1809,7 @@
 
 (defn- data-paths
   "The owner `spec`'s data-projection declaration, unioned with the
-  data-relative `[sensitive-paths large-paths]` claims `recovered` for a prior
+  data-relative `[sensitive-paths large-paths]` claims `recovered` for the
   value, re-rooted under each of `roots`: `[sensitive-paths large-paths]`."
   [spec [r-sens r-large] roots]
   (let [marks  (:data (rf.resources.classification/spec-declaration-marks spec))
@@ -1817,7 +1819,7 @@
     [(rebase sens) (rebase large)]))
 
 (defn- prior-runtime-db
-  "The runtime-db a prior value's `prior-inputs` carry: a mutation sub reads
+  "The runtime-db a PRIOR value's `prior-inputs` carry: a mutation sub reads
   the runtime-db itself, a resource sub the frame-state around it."
   [prior-inputs]
   (let [in (first prior-inputs)]
@@ -1841,7 +1843,7 @@
     (fn [p] (when (and (>= (count p) n) (= prefix (subvec p 0 n))) (subvec p n)))))
 
 (defn- recovered-data-claims
-  "The data claims the registry in a prior value's `runtime-db` held for the
+  "The data claims the registry in a value's `runtime-db` holds for the
   owner a read sub's `payload` names, data-relative: its mutation instance's
   `:result`, or the `:data` of every entry of its resource — one spec lowered
   them all, and `:rf/resource`'s `:previous-data` is another entry's."
@@ -1864,8 +1866,8 @@
 
 (defn- recover-key
   "`projected`, the carried `scoped-key` as its current owner projects it,
-  with the `:resource/key` claims the registry in a prior value's `runtime-db`
-  held for that key's entry substituted as well — per key component and
+  with the `:resource/key` claims the registry in the value's `runtime-db`
+  holds for that key's entry substituted as well — per key component and
   index-free, the grain `redact-key-declarations` walks."
   [projected scoped-key runtime-db]
   (if-not (and (vector? scoped-key) (= 3 (count scoped-key)) (vector? projected))
@@ -1951,23 +1953,23 @@
 (defn- project-key-slot
   "Project the scoped key(s) under `slot` of `value` — one key, or a vector of
   them when `many?` — keeping `value` identical when nothing changes. A prior
-  value's `prior-db` adds the claims recovered for each key (`recover-key`)."
-  [value slot many? frame-id prior-db]
+  value's `inputs-db` adds the claims recovered for each key (`recover-key`)."
+  [value slot many? frame-id inputs-db]
   (let [ks (get value slot)]
     (if (or (nil? ks) (and many? (empty? ks)))
       value
       (let [project (fn [k] (cond-> (first (project-trace-scoped-key k frame-id))
-                              prior-db (recover-key k prior-db)))
+                              inputs-db (recover-key k inputs-db)))
             ks'     (if many? (into (empty ks) (map project) ks) (project ks))]
         (if (= ks ks') value (assoc value slot ks'))))))
 
 (defn- project-keys
-  [sub-id value frame-id prior-db]
+  [sub-id value frame-id inputs-db]
   (if-not (map? value)
     value
     (case sub-id
-      :rf/resource (project-key-slot value :previous-key false frame-id prior-db)
-      :rf/mutation (project-key-slot value :affected-keys true frame-id prior-db)
+      :rf/resource (project-key-slot value :previous-key false frame-id inputs-db)
+      :rf/mutation (project-key-slot value :affected-keys true frame-id inputs-db)
       value)))
 
 (defn project-read-sub-egress
@@ -1976,7 +1978,8 @@
   four-argument arity projects a PRIOR value, and `prior-inputs` are the
   inputs it was computed from, which for a mutation sub still hold an instance
   the live runtime-db may have cleared, and whose registry holds the claims the
-  prior value was computed under. See the section comment above. A query vector
+  prior value was computed under, as the live runtime-db's does for a current
+  value. See the section comment above. A query vector
   naming no resource or mutation read sub returns `value` unchanged."
   ([query-v value opts]
    (project-read-sub-egress query-v value opts ::live))
@@ -1987,16 +1990,16 @@
        value
        (let [payload     (second query-v)
              live?       (or (= ::live prior-inputs) (nil? prior-inputs))
-             prior-db    (when-not live? (prior-runtime-db prior-inputs))
+             inputs-db   (if live? (live-runtime-db frame) (prior-runtime-db prior-inputs))
              runtime-db  #(if live? (live-runtime-db frame) (first prior-inputs))
              frame-state #(if live? (live-frame-state frame) (first prior-inputs))
              spec        (when (map? payload) (owner-spec sub-id payload runtime-db))
-             recovered   (when (and prior-db (map? payload))
-                           (recovered-data-claims sub-id payload prior-db))
+             recovered   (when (and inputs-db (map? payload))
+                           (recovered-data-claims sub-id payload inputs-db))
              value       (if (or spec (some seq recovered))
                            (let [[sens large] (data-paths spec recovered roots)]
                              (rf.classification/redact-with-paths
                                (project-feed-items sub-id value spec recovered query-v frame-state)
                                sens large {:index-free? true}))
                            value)]
-         (project-keys sub-id value frame prior-db))))))
+         (project-keys sub-id value frame inputs-db))))))

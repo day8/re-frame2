@@ -1,18 +1,20 @@
 (ns re-frame.resources-prior-value-reregistration-cljs-test
-  "A held resource or mutation read sub's PRIOR value keeps the classification
-  it was computed under when its owner is re-registered without its
-  declaration before the transition that retires the value.
+  "A held resource or mutation read sub's value, prior and current, keeps the
+  classification it was computed under when its owner is re-registered
+  without its declaration.
 
   The read-sub egress projector reads the owner spec as it stands now, so on
-  that alone the re-registered owner's empty declaration would ship the prior
-  value raw as `:rf.sub/prev-value`. The prior value also takes the claims the
-  elision registry held in the inputs it was computed from, unioned with the
-  current spec's: the entry's or instance's `:data` claims, and each carried
-  scoped key's `:resource/key` claims.
+  that alone the re-registered owner's empty declaration would ship data
+  loaded under the old one raw. A value also takes the claims the elision
+  registry holds in the inputs it was computed from — the prior inputs for
+  `:rf.sub/prev-value`, the live runtime-db for `:rf.sub/value` — unioned
+  with the current spec's: the entry's or instance's `:data` claims, and each
+  carried scoped key's `:resource/key` claims.
 
-  The registry never holds a coarse `:sensitive?` root claim, so a coarse
-  owner re-registered without it is the documented residue, pinned here so a
-  change to it is visible.
+  Two boundaries are pinned here so a change to either is visible: the
+  registry never holds a coarse `:sensitive?` root claim, and it holds the
+  lowered claims only until the next resource commit reconciles it against
+  the current registrations.
 
   Every scenario runs twice: re-registered, and unchanged as the control.
 
@@ -276,3 +278,66 @@
       (when rf.interop/debug-enabled?
         (is (= {:name "Ann" :ssn ssn-1}
                (:rf.sub/prev-value (last-run-tags [:rf.resource/data profile-q] window))))))))
+
+;; ===========================================================================
+;; 5. The live value, on a recompute the resource did not cause
+;; ===========================================================================
+
+(defn- recompute-profile
+  "Register the profile under `[[:data :ssn]]`, load it, re-register it under
+  `re-registered` (when given), run `between!`, then recompute the held subs
+  through an app-db write. Returns `[live window]` of that recompute."
+  [re-registered between!]
+  (rf/reg-event :lafas/bump (fn [{:keys [db]} _] {:db (update db :lafas/n (fnil inc 0))}))
+  (reg-profile! {:sensitive [[:data :ssn]]})
+  (let [state-q [:rf/resource profile-q]
+        data-q  [:rf.resource/data profile-q]
+        read!   (hold [state-q data-q])]
+    (read!)
+    (rf/dispatch-sync [:rf.resource/ensure (assoc profile-q :owner [:app :profile])])
+    (reply! {:name "Ann" :ssn ssn-1})
+    (read!)
+    (when re-registered (reg-profile! re-registered))
+    (between!)
+    (let [window (capture-traces
+                   (fn []
+                     (rf/dispatch-sync [:lafas/bump])
+                     (read!)))]
+      [(read!) window])))
+
+(defn- assert-live-profile-redacted
+  [re-registered]
+  (let [data-q        [:rf.resource/data profile-q]
+        state-q       [:rf/resource profile-q]
+        [live window] (recompute-profile re-registered (fn []))]
+    (is (= ssn-1 (get-in live [data-q :ssn])) "the in-process read stays raw")
+    (when rf.interop/debug-enabled?
+      (is (= {:name "Ann" :ssn redacted} (:rf.sub/value (last-run-tags data-q window))))
+      (is (= {:name "Ann" :ssn redacted}
+             (get-in (last-run-tags state-q window) [:rf.sub/value :data])))
+      (is (not (carries? ssn-1 (sub-runs window)))))))
+
+(deftest control-an-unchanged-resources-live-data-stays-redacted-on-a-recompute
+  (assert-live-profile-redacted nil))
+
+(deftest a-re-registered-resources-live-data-keeps-its-declaration-on-a-recompute
+  (testing "the owner is re-registered without its declaration, and an unrelated
+            app-db write recomputes the held subs"
+    (assert-live-profile-redacted {})))
+
+(deftest a-resource-commit-under-the-new-registration-releases-the-live-data
+  (testing "PINNED BOUNDARY: any resource commit reconciles the registry against
+            the current registrations, so after one the re-registered owner's
+            empty declaration governs the data it did not reload"
+    (let [[_ window] (recompute-profile
+                       {}
+                       (fn []
+                         (rf/reg-resource :lafas/other
+                           {:scope :rf.scope/global :params-schema [:map]}
+                           (fn [_ _] {:request {:method :get :url "/other"}}))
+                         (rf/dispatch-sync [:rf.resource/ensure
+                                            {:resource :lafas/other :scope :rf.scope/global
+                                             :params {} :owner [:app :other]}])))]
+      (when rf.interop/debug-enabled?
+        (is (= {:name "Ann" :ssn ssn-1}
+               (:rf.sub/value (last-run-tags [:rf.resource/data profile-q] window))))))))
