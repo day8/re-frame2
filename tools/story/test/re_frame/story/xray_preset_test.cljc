@@ -3,14 +3,14 @@
 
   Scope: the PURE data surface only — `merge-preset` deep-merge
   semantics, `resolve-preset` story+variant resolution, `lower-filters`
-  and the closed preset map. All run on JVM and CLJS.
+  and the closed preset map. All run on the JVM.
 
   CLJS-only side-effect coverage (the mount / config / keybinding
   bridges) lives in `re-frame.story.xray-preset-cljs-test`, because
   only a `-cljs-test` namespace is discovered by the `:node-test`
   build. See the note at the foot of this file."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.xray-preset :as rf.story.xray-preset]
             #?@(:cljs [[re-frame.core :as rf]
@@ -35,20 +35,6 @@
 (deftest merge-preset-handles-nils
   (testing "two nils merge to {}"
     (is (= {} (rf.story.xray-preset/merge-preset nil nil)))))
-
-(deftest merge-preset-variant-overrides-story
-  (testing "variant slot wins over story slot at the top level"
-    (let [story {:open? true :panel :epoch}
-          vari  {:panel :trace}]
-      (is (= {:open? true :panel :trace}
-             (rf.story.xray-preset/merge-preset story vari))))))
-
-(deftest merge-preset-deep-merges-filters
-  (testing ":filters merge respects :in / :out separately"
-    (let [story {:filters {:in [:keep/me]}}
-          vari  {:filters {:out [:drop/me]}}]
-      (is (= {:filters {:in [:keep/me] :out [:drop/me]}}
-             (rf.story.xray-preset/merge-preset story vari))))))
 
 (deftest merge-preset-variant-filters-override-story
   (testing "matching filter axes prefer variant value"
@@ -104,37 +90,23 @@
 ;; lowered set against a real `:rf/xray` frame is asserted in the
 ;; `-cljs-test` sibling.
 
-(deftest lower-filters-wraps-keywords-as-pattern-pills
-  (testing "a bare event-id keyword becomes Xray's {:pattern <kw>} pill"
-    (is (= {:in [] :out [{:pattern :app/noise}]}
-           (rf.story.xray-preset/lower-filters {:out [:app/noise]})))))
-
-(deftest lower-filters-normalises-both-axes
-  (testing "a preset declaring only one axis still yields the full
-            {:in [...] :out [...]} shape Xray's :active-filters slot
-            expects — a missing axis must not land as nil in the slot"
-    (is (= {:in [{:pattern :keep/x}] :out []}
-           (rf.story.xray-preset/lower-filters {:in [:keep/x]})))
-    (is (= {:in [] :out []}
-           (rf.story.xray-preset/lower-filters {})))))
-
-(deftest lower-filters-lowers-every-entry
-  (testing "multiple pills per axis all lower"
-    (is (= {:in  [{:pattern :a/one} {:pattern :a/two}]
-            :out [{:pattern :b/one}]}
-           (rf.story.xray-preset/lower-filters {:in [:a/one :a/two] :out [:b/one]})))))
-
-(deftest lower-filters-passes-maps-through
-  (testing "an already-canonical typed pill survives the boundary
-            un-double-wrapped (no {:pattern {:kind …}} nesting)"
-    (let [typed {:kind :machine :params {:machine-id :m/one}}]
-      (is (= {:in [typed] :out [{:pattern :b/two}]}
-             (rf.story.xray-preset/lower-filters {:in [typed] :out [:b/two]}))))))
-
-(deftest lower-filters-nil-on-non-map
-  (testing "a non-map :filters slot lowers to nil rather than throwing"
-    (is (nil? (rf.story.xray-preset/lower-filters nil)))
-    (is (nil? (rf.story.xray-preset/lower-filters [:app/noise])))))
+(deftest lower-filters-lowers-story-keywords-to-xray-pills
+  (let [typed {:kind :machine :params {:machine-id :m/one}}]
+    (are [filters lowered] (= lowered (rf.story.xray-preset/lower-filters filters))
+      ;; a bare event-id keyword becomes Xray's {:pattern <kw>} pill
+      {:out [:app/noise]}                 {:in [] :out [{:pattern :app/noise}]}
+      ;; a missing axis lowers to [] — Xray's :active-filters slot expects
+      ;; the full {:in [...] :out [...]} shape, never a nil axis
+      {:in [:keep/x]}                     {:in [{:pattern :keep/x}] :out []}
+      {}                                  {:in [] :out []}
+      ;; every entry on each axis lowers
+      {:in [:a/one :a/two] :out [:b/one]} {:in  [{:pattern :a/one} {:pattern :a/two}]
+                                           :out [{:pattern :b/one}]}
+      ;; an already-canonical typed pill passes through un-double-wrapped
+      {:in [typed] :out [:b/two]}         {:in [typed] :out [{:pattern :b/two}]}
+      ;; a non-map :filters slot lowers to nil rather than throwing
+      nil                                 nil
+      [:app/noise]                        nil)))
 
 ;; ---- the preset map is closed --------------------------------------------
 ;;

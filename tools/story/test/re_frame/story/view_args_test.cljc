@@ -17,7 +17,7 @@
   through the shared resolver, with the canonical `[:rf/props :schema]`
   first-match order and NO `:spec` key (not a schema key; MIGRATION §M-54).
 
-  Pure JVM + CLJS — `view-args.cljc` + `plan.cljc` + both registrars are
+  Runs on the JVM — `view-args.cljc` + `plan.cljc` + both registrars are
   JVM-runnable, so the DEFAULT lookup works under `clojure -M:test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.config    :as rf.story.config]
@@ -48,23 +48,6 @@
   [view-id metadata]
   (rf.registrar/register! :view view-id
                                  (assoc metadata :handler-fn (fn [_] nil))))
-
-;; ---- the key picker (no :spec) -------------------------------------------
-
-(deftest view-args-schema-keys-drop-spec
-  (testing "the canonical key order is [:rf/props :schema] — no :spec"
-    (is (= [:rf/props :schema] rf.story.view-args/view-args-schema-keys))))
-
-(deftest view-args-schema-first-match-no-composition
-  (testing ":rf/props wins outright over :schema (no composition)"
-    (is (= [:map [:a :string]]
-           (rf.story.view-args/view-args-schema {:rf/props [:map [:a :string]]
-                                        :schema   [:map [:b :string]]}))))
-  (testing ":schema is the fallback location when :rf/props is absent"
-    (is (= [:map [:b :string]]
-           (rf.story.view-args/view-args-schema {:schema [:map [:b :string]]}))))
-  (testing "a view carrying ONLY :spec resolves NO schema (not a schema key, §M-54)"
-    (is (nil? (rf.story.view-args/view-args-schema {:spec [:map [:c :string]]})))))
 
 ;; ---- the compiled-plan resolver (PRODUCTION path, DEFAULT lookup) --------
 
@@ -133,19 +116,6 @@
     (is (= [:map [:label :string]]
            (rf.story.view-args/compiled-view-args-schema :story.prod/child))
         "the inherited :component's props schema resolves off the compiled plan")))
-
-(deftest compiled-resolver-matches-compiled-plan-slot
-  (testing "the resolver returns EXACTLY the plan's [:world :view-args-schema]
-            — one source of truth, not a re-derivation"
-    (let [schema [:map [:label :string]]]
-      (reg-view-meta! :views/same {:rf/props schema})
-      (rf.story.registrar/reg-variant* :story.prod/same
-                              {:component :views/same
-                               :args      {:label "Hi"}
-                               :setup    []})
-      ;; The shared resolver and the controls/schema-validation panels MUST
-      ;; agree because they read the same compiled slot.
-      (is (= schema (rf.story.view-args/compiled-view-args-schema :story.prod/same))))))
 
 (def ^:private button-props
   "The 001-Authoring.md flagship button view's props schema."

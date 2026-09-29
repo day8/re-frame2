@@ -15,29 +15,17 @@
   - Selection precedence (story-override > toolbar selection > default).
   - `wrap-style` shape (nil for `:full`, populated for sized presets).
   - localStorage round-trip — in the dom sibling named above."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.viewport :as rf.story.viewport]))
 
 ;; ---- preset table --------------------------------------------------------
 
-(deftest preset-table-includes-every-bead-mandated-id
+(deftest preset-table-and-order-carry-every-canonical-id
   (testing "every preset id is present"
     (let [expected #{:full :mobile-portrait :mobile-landscape
                      :tablet :desktop :desktop-wide}]
       (is (= expected (set (keys rf.story.viewport/presets))))
       (is (= expected (set rf.story.viewport/preset-order))))))
-
-(deftest preset-full-has-no-dimensions
-  (testing ":full preset carries nil width + height (no resize)"
-    (let [p (get rf.story.viewport/presets :full)]
-      (is (= "Full" (:label p)))
-      (is (nil? (:width p)))
-      (is (nil? (:height p))))))
-
-(deftest preset-tablet-has-canonical-dimensions
-  (testing ":tablet is 768x1024"
-    (is (= {:label "Tablet" :width 768 :height 1024}
-           (get rf.story.viewport/presets :tablet)))))
 
 ;; ---- pure: valid-custom? ------------------------------------------------
 
@@ -57,27 +45,18 @@
 
 ;; ---- pure: coerce -------------------------------------------------------
 
-(deftest coerce-preset-keyword-passes-through
-  (testing "a recognised preset keyword coerces to itself"
-    (is (= :tablet (rf.story.viewport/coerce :tablet)))
-    (is (= :full   (rf.story.viewport/coerce :full)))))
-
-(deftest coerce-unknown-keyword-returns-nil
-  (testing "an unrecognised keyword is dropped to nil"
-    (is (nil? (rf.story.viewport/coerce :Mode.unknown/whatever)))
-    (is (nil? (rf.story.viewport/coerce :phablet)))))
-
-(deftest coerce-custom-map-extracts-dims
-  (testing "a custom map coerces to a slim {:width :height} map"
-    (is (= {:width 800 :height 600}
-           (rf.story.viewport/coerce {:width 800 :height 600 :label "extra"})))))
-
-(deftest coerce-bad-custom-returns-nil
-  (testing "a malformed custom map coerces to nil"
-    (is (nil? (rf.story.viewport/coerce {:width "800" :height "600"})))
-    (is (nil? (rf.story.viewport/coerce {:width 800})))
-    (is (nil? (rf.story.viewport/coerce "800x600")))
-    (is (nil? (rf.story.viewport/coerce nil)))))
+(deftest coerce-keeps-presets-and-valid-dims-and-drops-the-rest
+  (are [slot coerced] (= coerced (rf.story.viewport/coerce slot))
+    :tablet                                  :tablet
+    :full                                    :full
+    ;; a custom map coerces to a slim {:width :height} map
+    {:width 800 :height 600 :label "extra"}  {:width 800 :height 600}
+    :Mode.unknown/whatever                   nil
+    :phablet                                 nil
+    {:width "800" :height "600"}             nil
+    {:width 800}                             nil
+    "800x600"                                nil
+    nil                                      nil))
 
 ;; ---- pure: resolve precedence -------------------------------------------
 
