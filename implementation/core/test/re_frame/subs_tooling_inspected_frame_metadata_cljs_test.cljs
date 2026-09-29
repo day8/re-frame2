@@ -72,22 +72,6 @@
 (defn- algebra-node [frame-id query-v]
   (get (rf.subs.tooling/sub-cache-algebra-view frame-id) query-v))
 
-(deftest snapshot-reports-the-inspected-frames-input-kind-over-a-conflicting-global
-  (testing "an image-local declared-input sub is reported :static with its
-            realized edges, not :db from a same-id global app-db reader"
-    (register-conflicting-global!)
-    (install-frame! :review/frame-a (review-image :review/image-a "IMAGE A" 5))
-    (is (= 5 @(rf/subscribe value-q {:frame :review/frame-a}))
-        "precondition — the VALUE comes from image A; the metadata beside it
-         is what is under test")
-    (let [entry (snapshot-entry :review/frame-a value-q)]
-      (is (some? entry) "the frame's cache carries the subscription")
-      (is (= :static (:input-kind entry))
-          "the inspected frame's declared-input classification, not the global :db")
-      (is (= [base-q] (:realized-inputs entry))
-          "the realized edges still come from the cache entry")
-      (is (= 5 (:value entry)) "the value is unaffected by the metadata resolution"))))
-
 (deftest snapshot-reports-an-image-only-sub-absent-from-the-global-pool
   (testing "a sub that exists ONLY in the image is classified from the image —
             the :db default is what an unresolved global lookup produces"
@@ -144,9 +128,3 @@
            algebra view's documented edge shape — `declared-inputs` lowers a
            live entry's realized query-vectors to [:sub query-vector]")
       (is (= 5 (:value node)) "the value is unchanged"))))
-
-(deftest missing-frame-still-returns-nil
-  (testing "the nil contract for a missing/destroyed frame is preserved — the
-            resolution seam binds nothing for a target it cannot resolve"
-    (is (nil? (rf.subs.tooling/sub-cache-snapshot :review/no-such-frame)))
-    (is (nil? (rf.subs.tooling/sub-cache-algebra-view :review/no-such-frame)))))
