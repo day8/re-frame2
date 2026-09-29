@@ -63,9 +63,12 @@
             walker raises, so the mistake reads identically whichever
             host catches it first"
     (doseq [bad [{} {:id :a} {:fallback [:p]} nil "nope"]]
-      (is (thrown? #?(:clj Exception :cljs :default)
-                   (apply boundary [bad [:p "body"]]))
-          (str "expected a throw for attrs " (pr-str bad))))))
+      (is (= :rf.error/suspense-boundary-invalid-attrs
+             (try (apply boundary [bad [:p "body"]])
+                  nil
+                  (catch #?(:clj Exception :cljs :default) e
+                    (:rf.error/id (ex-data e)))))
+          (str "attrs " (pr-str bad) " raise the documented error id")))))
 
 (deftest one-tree-hashes-identically-for-both-hosts
   (testing "the component canonicalises to the #fn[] token, so the SHARED
