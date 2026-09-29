@@ -88,7 +88,8 @@
             [re-frame.story.late-bind        :as rf.story.late-bind]
             [re-frame.story.recorder         :as rf.story.recorder]
             [re-frame.story.recorder.selector :as rf.story.recorder.selector]
-            [re-frame.story.ui.canvas-listeners :as rf.story.ui.canvas-listeners]))
+            [re-frame.story.ui.canvas-listeners :as rf.story.ui.canvas-listeners]
+            [re-frame.story.ui.element-inspector :as rf.story.ui.element-inspector]))
 
 ;; ---- runtime knobs -----------------------------------------------------
 
@@ -382,13 +383,15 @@
 ;;
 ;; A click / input / change / submit this rail records as a step runs the
 ;; app's handlers synchronously, and their dispatches reach the recorder's
-;; trace listener before this rail's bubble-phase handler records the step.
-;; Replaying the step runs those handlers again, so recording their
-;; dispatches as well would replay them twice (a login submitted twice). A
-;; capture-phase listener therefore opens a window for the rest of the event
-;; and the recorder skips root dispatches inside it. A zero-delay timeout
-;; closes it, after the event and its default action (a submit button's form
-;; submission included).
+;; trace listener while the event is still in flight. Replaying the step runs
+;; those handlers again, so recording their dispatches as well would replay
+;; them twice (a login submitted twice). A capture-phase listener therefore
+;; opens a window for the rest of the event and the recorder skips root
+;; dispatches inside it. A zero-delay timeout closes it, after the event and
+;; its default action (a submit button's form submission included). The step
+;; itself is recorded in the capture phase too, before any handler below the
+;; canvas root runs, so a handler that stops propagation cannot drop the step
+;; whose dispatch the window skipped.
 ;;
 ;; The same listener notes each value typed into a sensitive field. A
 ;; dispatch the recorder does keep (DOM capture off, or one the app fires
@@ -459,12 +462,22 @@
 
 ;; ---- listener handlers --------------------------------------------------
 
-(defn- handle-click!
-  "Click handler — fires on bubble. Flushes any pending type buffer
-  (so the `:dom/type` lands before the `:dom/click` in temporal
-  order) and records the click."
+(defn- inspector-pick?
+  "True iff the element inspector takes `ev` as a pick, stopping it at the
+  canvas root so the variant never sees it. Either inspect mode is still on
+  (the inspector's listener has not run yet) or propagation is already
+  stopped (it has)."
   [ev]
-  (when (should-capture?)
+  (or (.-cancelBubble ev)
+      (rf.story.ui.element-inspector/active?)))
+
+(defn- handle-click!
+  "Click handler — fires in the capture phase. Flushes any pending type buffer
+  (so the `:dom/type` lands before the `:dom/click` in temporal
+  order) and records the click, unless the element inspector takes it as a
+  pick."
+  [ev]
+  (when (and (should-capture?) (not (inspector-pick? ev)))
     (when-let [el (.-target ev)]
       ;; The flush emits the buffered :dom/type entries first so
       ;; the resulting recording is well-ordered: type-then-click.
@@ -535,27 +548,25 @@
 (defonce ^:private installed-root (atom nil))
 
 (defn- attach-listeners! [root]
-  ;; Capture phase = false (bubble); we want the recorder to see what
-  ;; the variant component sees, after the variant's own handlers have
-  ;; had their turn. The click handler intentionally runs even when
-  ;; the variant's handler calls `preventDefault`/`stopPropagation` on
-  ;; bubble — the listener attaches at the canvas-root, so a
-  ;; `stopPropagation` from a deep child still bubbles up to the root
-  ;; (which is the listener's mount point).
-  (.addEventListener root "click"  handle-click!  false)
-  (.addEventListener root "input"  handle-input!  false)
-  (.addEventListener root "change" handle-change! false)
-  (.addEventListener root "submit" handle-submit! false)
-  ;; Capture phase: the DOM-step window opens BEFORE the variant's handlers
-  ;; dispatch (see §DOM-step window).
+  ;; Every listener is capture-phase, so it runs on the canvas root before
+  ;; any handler below it. A variant handler that calls `stopPropagation`
+  ;; keeps an event from bubbling back up to the root, so a bubble-phase
+  ;; listener would miss the step while the window below had already
+  ;; skipped its dispatch, leaving the interaction in neither rail.
+  (.addEventListener root "click"  handle-click!  true)
+  (.addEventListener root "input"  handle-input!  true)
+  (.addEventListener root "change" handle-change! true)
+  (.addEventListener root "submit" handle-submit! true)
+  ;; The DOM-step window opens BEFORE the variant's handlers dispatch (see
+  ;; §DOM-step window).
   (doseq [t ["click" "input" "change" "submit"]]
     (.addEventListener root t open-dom-step-window! true)))
 
 (defn- detach-listeners! [root]
-  (.removeEventListener root "click"  handle-click!  false)
-  (.removeEventListener root "input"  handle-input!  false)
-  (.removeEventListener root "change" handle-change! false)
-  (.removeEventListener root "submit" handle-submit! false)
+  (.removeEventListener root "click"  handle-click!  true)
+  (.removeEventListener root "input"  handle-input!  true)
+  (.removeEventListener root "change" handle-change! true)
+  (.removeEventListener root "submit" handle-submit! true)
   (doseq [t ["click" "input" "change" "submit"]]
     (.removeEventListener root t open-dom-step-window! true)))
 
