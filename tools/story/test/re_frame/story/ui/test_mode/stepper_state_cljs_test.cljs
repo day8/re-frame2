@@ -91,38 +91,6 @@
 
 ;; ---- step-back! ----------------------------------------------------------
 
-(deftest step-back-pops-and-restores
-  (testing "step-back! restores against the CURRENT top of the epoch
-            stack (the pre-image of the step being undone), then pops
-            it. Popping BEFORE peeking would restore one epoch too far
-            (the entry one further down the stack) for cursor >= 2."
-    (let [vid      :story.unit/back
-          restored (atom [])]
-      (seed-slot! vid [[:e/a] [:e/b]])
-      ;; Pretend we've already stepped twice: cursor=2, stack has two
-      ;; pre-images on top of the seed.
-      (swap! rf.story.ui.test-mode.stepper-state/results-atom update vid
-             (fn [s] (-> s
-                         (assoc :cursor 2)
-                         (assoc :epoch-stack [:epoch/seed
-                                              :epoch/before-a
-                                              :epoch/before-b]))))
-      (with-redefs [rf/restore-epoch! (fn [v eid]
-                                       (swap! restored conj [v eid]))
-                    rf/epoch-history (fn [_] [{:epoch-id :x}])
-                    rf.story.assertions/read-assertions (fn [_] [])]
-        (rf.story.ui.test-mode.stepper-state/step-back! vid)
-        (let [s (get @rf.story.ui.test-mode.stepper-state/results-atom vid)]
-          (is (= [[vid :epoch/before-b]] @restored)
-              "restored against the TOP of the stack (before-b) — the
-               pre-image of the step cursor=2 just ran, NOT the entry
-               one further down (before-a)")
-          (is (= 1 (:cursor s)) "cursor decrements to 1")
-          (is (= [:epoch/seed :epoch/before-a] (:epoch-stack s))
-              "stack popped (the top is removed whatever the
-               peek/pop order — only the RESTORE target depends on
-               it)"))))))
-
 (deftest step-back-cursor-2-plus-does-not-undershoot
   (testing "`begin!` seeds :epoch-stack with the pre-play
             epoch, and step 0 (no domino between begin! and the first

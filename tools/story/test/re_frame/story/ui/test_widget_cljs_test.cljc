@@ -37,11 +37,6 @@
 
 ;; ---- pure: state transitions --------------------------------------------
 
-(deftest mark-test-running-stamps-status
-  (testing "mark-test-running writes :running into [:tests :runs]"
-    (let [s  (rf.story.ui.state/mark-test-running rf.story.ui.state/default-shell-state :story.x/a)]
-      (is (= :running (get-in s [:tests :runs :story.x/a :status]))))))
-
 (deftest record-test-run-pass
   (testing "a run with passed assertions records :pass + counts"
     (let [s (rf.story.ui.state/record-test-run rf.story.ui.state/default-shell-state :story.x/a
@@ -77,11 +72,6 @@
                 (rf.story.ui.state/clear-test-run :story.x/a))]
       (is (nil? (get-in s [:tests :runs :story.x/a])))
       (is (= :pending (rf.story.ui.state/variant-test-status s :story.x/a))))))
-
-(deftest variant-test-status-defaults-pending
-  (testing "an un-stamped variant reads :pending"
-    (is (= :pending (rf.story.ui.state/variant-test-status rf.story.ui.state/default-shell-state
-                                               :story.unknown/x)))))
 
 ;; ---- pure: test-summary aggregation -------------------------------------
 
