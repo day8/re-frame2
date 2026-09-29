@@ -147,6 +147,7 @@ On the JVM, `rf.story/is` blocks until the run resolves and reports per
 assertion:
 
 ```clojure
+;; test/my_app/login_stories_test.clj
 (ns my-app.login-stories-test
   (:require [clojure.test :refer [deftest testing use-fixtures]]
             [re-frame.epoch]
@@ -160,6 +161,16 @@ assertion:
 (deftest login-error-story-passes
   (rf.story/is :story.login/error))
 ```
+
+`my-app.stories` is chapter 1's `src/my_app/stories.cljc`. The JVM loads `.clj`
+and `.cljc` files and never `.cljs`, and it skips the `#?(:cljs …)` branch that
+requires the views, so the test registers the variants without a browser. A
+headless run dispatches events and reads state; it never renders the view. The
+test classpath needs `day8/re-frame2-story`, which
+[Install Story](index.md#install-story) adds only to the `:dev` alias. In a
+generated app, `stories.cljs` is also the Story browser entry, so move its
+registrations into a `.cljc` namespace like chapter 1's before a JVM test
+requires them.
 
 To put every test variant into CI, loop over the `:test` tag. Each variant
 becomes its own `testing` context, so a failure names the variant:
