@@ -105,9 +105,10 @@
   (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
 
 (defn- ensure-feed!
-  "Ensure the tenant-scoped feed for tenant `t` under owner `owner`. Uses an
-  explicit `{:from-db}` payload :scope BUT first writes the resolver's app-db
-  input to `t`, so the named resolver yields tenant `t`'s scope at use time —
+  "Ensure the tenant-scoped feed for tenant `t` under owner `owner`. The ensure
+  passes no :scope, so the resource's `{:from-db}` spec policy applies; it
+  first writes the resolver's app-db input to `t`, so the named resolver
+  yields tenant `t`'s scope at use time —
   exactly how an admin impersonation / tenant switch resolves a concrete
   principal. (Two simultaneously-live tenants are produced by ensuring each
   while its tenant id is the current viewer input.)"
