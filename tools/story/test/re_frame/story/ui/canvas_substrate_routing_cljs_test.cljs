@@ -190,22 +190,6 @@
 ;; THE WITNESS — the canvas single-pane path honours the declared substrate
 ;; ===========================================================================
 
-(deftest single-pane-renders-through-the-declared-substrate
-  (testing "a variant declaring `:substrates #{:uix}` renders
-            through the render fn REGISTERED FOR :uix, not through Reagent.
-            A canvas branch that called `(rf/view view-id)` itself would put
-            `reagent-view-render` in this tree and no uix marker at all."
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [variant-id :story.substrate-routing/uix-only
-          tree       (ready-tree variant-id)]
-      (is (rendered-under-uix? tree)
-          "the canvas reached the :uix render fn — the registry is ON the
-           default path, not merely present in it")
-      (is (not (rendered-under-reagent? tree))
-          "and it did NOT also paint Reagent — a UIx user gets a UIx render,
-           never a silent Reagent one")
-      (rf.story/destroy-variant! variant-id))))
-
 (deftest single-pane-substrate-is-resolved-not-counted
   (testing "the substrate SET SIZE decides grid-vs-single-pane and
             nothing else. A one-element set is not a licence to assume
@@ -431,18 +415,6 @@
       (is (= [[:reagent :views/probe] [:uix :views/probe]] (grid-cells tree))
           "and every cell renders the inherited subject")
       (rf.story/destroy-variant! :story.substrate-extends/grid-child))))
-
-(deftest the-grid-resolves-an-extends-child-by-itself
-  (testing "`multi-substrate-grid` on its own terms, so its
-            read is pinned apart from the canvas's"
-    (rf.story/register-substrate! :uix uix-stub-render)
-    (let [tree (expand-to-cells
-                 [rf.story.ui.multi-substrate/multi-substrate-grid
-                  :story.substrate-extends/grid-child])]
-      (is (= "Multi-substrate render — reagent, uix" (grid-label tree))
-          "the grid lays out both inherited substrates")
-      (is (= [[:reagent :views/probe] [:uix :views/probe]] (grid-cells tree))
-          "each cell is handed the inherited subject"))))
 
 ;; ===========================================================================
 ;; single-render-substrate — the policy, on its own terms

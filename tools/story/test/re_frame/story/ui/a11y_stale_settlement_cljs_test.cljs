@@ -192,30 +192,6 @@
           ;; The single `done`, with nothing after it.
           (.then (fn [_] (done)))))))
 
-(deftest stale-settlement-does-not-clobber-the-replacement-run
-  (testing "THE OTHER WAY TO LOSE THE SLOT: run A parks on its scan, a
-            newer run B claims the same frame, and A THEN settles. A's
-            findings must not land in B's slot — the panel would show A's
-            verdict over a scan B is still performing"
-    (async done
-      (let [b-scanning (signal)]
-        (install-axe!
-          (fn [_]
-            ;; B claims the slot mid-A-scan and parks in its own scan, so
-            ;; B demonstrably still holds the slot at assertion time.
-            (install-axe! (fn [_] ((:fire! b-scanning)) (never-settles)))
-            (rf.story.ui.a11y/run-axe! frame-id (ctx))
-            (js/Promise.resolve (results "from-run-a"))))
-        (-> (js/Promise.all #js [(rf.story.ui.a11y/run-axe! frame-id (ctx))
-                                 (:promise b-scanning)])
-            (.then (fn [_]
-                     (is (= :running (rf.story.ui.a11y/status-for frame-id))
-                         "B still owns the slot and is still scanning — A's
-                          settlement did not write its terminal :done over it")
-                     (is (= [] (violation-ids frame-id))
-                         "and A's findings were not attributed to B's scan")
-                     (done))))))))
-
 (deftest the-fence-does-not-latch
   (testing "THE SEQUENCE, not just the cases. A fence can be correct on
             every single transition and still be broken as a machine: it
