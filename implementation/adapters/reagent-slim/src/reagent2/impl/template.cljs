@@ -954,7 +954,11 @@
   "Expand a sequence of hiccup forms (e.g. `(map ...)` children) to a
   JS array of React elements. Per IMPL-SPEC §7.4 — emits a one-shot
   dev warning per surrounding component when a child vector lacks a
-  `:key` meta or `:key` in its prop map.
+  `:key` meta or `:key` in its prop map: the component instance rendering
+  the sequence (`component/current-component`) warns once, however many
+  of its children are unkeyed and however often it re-renders. Outside
+  any component there is no instance to remember, so each such sequence
+  warns once.
 
   Single-pass: the DEBUG key-check runs inline with the as-element
   conversion; production
@@ -970,22 +974,34 @@
     ;; such interior nils and would truncate at the first filtered row.
     ;; Stock Reagent maps `as-element` over the WHOLE seq (nil → React
     ;; null, renders nothing); we match that.
-    (loop [items (seq s)]
-      (when items
+    ;; `unkeyed` holds the first unkeyed child vector, which the warning
+    ;; summarises; once it is set, later children skip the key check.
+    (loop [items   (seq s)
+           unkeyed nil]
+      (if items
         (let [el (first items)]
-          (when ^boolean js/goog.DEBUG
-            (when (and (vector? el)
-                       (not (react-key-from-argv el))
+          (.push arr (as-element el))
+          (recur (next items)
+                 (if (and ^boolean js/goog.DEBUG
+                          (nil? unkeyed)
+                          (vector? el)
+                          (not (react-key-from-argv el)))
+                   el
+                   unkeyed)))
+        (when ^boolean js/goog.DEBUG
+          (let [^js c (component/current-component)]
+            (when (and (some? unkeyed)
+                       (not (and (some? c) (.-cljsMissingKeyWarned c)))
                        (exists? js/console))
+              (when (some? c)
+                (set! (.-cljsMissingKeyWarned c) true))
               ;; Per EP-0015, summarise the offending child, never
               ;; `pr-str` it whole — a hiccup child can carry app-owned
               ;; sensitive/large values and the warning lands verbatim in
               ;; the browser console (an off-box observation surface).
               (.warn js/console
                      (str "[reagent-slim] each child in a list should have a unique"
-                          " :key prop; saw " (pr-str (diag/value-summary el))))))
-          (.push arr (as-element el))
-          (recur (next items)))))
+                          " :key prop; saw " (pr-str (diag/value-summary unkeyed)))))))))
     arr))
 
 (defn- ^boolean hiccup-tag? [x]

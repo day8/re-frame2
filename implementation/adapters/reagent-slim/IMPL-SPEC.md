@@ -861,17 +861,9 @@ Same regex Reagent has used for years (`re-tag = #"[#.]?[^#.]+"` matched repeate
 
 ### §7.4 Sequence-as-children handling + key warnings
 
-```clojure
-(defn- expand-seq [seq-form]
-  (let [arr (into-array seq-form)]
-    (when ^boolean js/goog.DEBUG
-      (doseq [el seq-form]
-        (when (and (vector? el) (not (some-> el meta :key)))
-          (warn-missing-key! el))))
-    arr))
-```
+`expand-seq` converts a sequence of children to a JS array of React elements in one pass. In dev builds (`goog.DEBUG`) a child vector with no `:key`, neither `^{:key …}` meta nor `:key` in its props map, raises a warning, and production builds drop the check.
 
-The warning text mirrors React's "Each child in a list should have a unique 'key' prop" — not as a re-throw of React's, but as a Reagent-side proactive warning. Stage 4 implements warn-once keyed on the surrounding component's id.
+The warning text mirrors React's "Each child in a list should have a unique 'key' prop" — not as a re-throw of React's, but as a Reagent-side proactive warning. It fires once per surrounding component: the component instance rendering the sequence (`current-component`) warns the first time one of its sequences holds an unkeyed child, summarising that child, and stays silent however many children are unkeyed and however often it re-renders. A sequence rendered outside any component has no instance to remember, so it warns once per sequence. This deliberately differs from stock Reagent, which warns once per sequence on every render, so a re-rendering list repeats the same warning.
 
 ### §7.5 Children flattening contract
 
