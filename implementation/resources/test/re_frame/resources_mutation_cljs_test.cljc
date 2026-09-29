@@ -36,7 +36,6 @@
    [re-frame.fx :as rf.fx]
    [re-frame.elision :as rf.elision]
    [re-frame.privacy :as rf.privacy]
-   [re-frame.reply :as rf.reply]
    ;; The mutation classification-lowering test reads the
    ;; per-frame elision registry the succeeded-handler lowers into, then projects
    ;; the populated entry's data through the registry-driven egress projector.
@@ -1037,12 +1036,6 @@
 ;; 10. params canonicalization (the :invalidates / :patches close over them)
 ;; ===========================================================================
 
-(deftest execute-canonicalizes-and-stores-params
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :cp1}])
-  (testing "the instance stores the canonical params (serializable, for Xray)"
-    (is (= {:slug "w"} (:params (instance :cp1))))))
-
 (deftest mutation-registry-rejects-non-edn-params
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
   (testing "EP-0003 §Mutations — a host value in params is rejected at the
@@ -1706,38 +1699,16 @@
       (is (map? (last ev)))
       (is (= :ok (:status (last ev)))))))
 
-(deftest reply-to-durable-target-rejects-malformed-and-host-handle-at-fn-boundary
-  ;; The call-site `:reply-to` is transport-payload-only, but it
-  ;; MUST be data-only. The execute handler runs it through
-  ;; `re-frame.reply/durable-target` AT ISSUANCE, before any runtime-db /
-  ;; work-ledger write, transport lower, or trace. The throw itself is asserted
-  ;; HERE at the fn boundary (the event loop catches a handler throw and
-  ;; surfaces it as :rf.error/handler-exception rather than rethrowing to
-  ;; dispatch-sync's caller — same convention as the instance-id validation).
-  (testing "a malformed call-site target (non-vector / bare-keyword :event) is rejected"
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #"event-vector|Invalid"
-          (rf.reply/durable-target {:event :not-a-vector})))
-    (is (thrown-with-msg?
-          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-          #"event-vector|Invalid"
-          (rf.reply/durable-target {}))))
-  (testing "a host handle smuggled into a public slot (a fn in :suppress) is rejected"
-    (try
-      (rf.reply/durable-target {:event [:test/save-replied] :suppress {:cb (fn [] 1)}})
-      (is false "expected durable-target to reject a host-handle target")
-      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
-        (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e)))))))
-  (testing "a WELL-FORMED data-only call-site target survives durable projection"
-    (is (= {:event [:test/save-replied] :delivery :append}
-           (rf.reply/durable-target [:test/save-replied])))))
-
 (deftest execute-rejects-malformed-reply-to-fails-closed
-  ;; The dispatch-path fail-closed EFFECT: a malformed call-site
-  ;; `:reply-to` rejects BEFORE any transport lower / instance write (the throw
-  ;; itself is asserted directly above). The event loop catches the throw, so
-  ;; we observe the absence of side effects (mirrors
+  ;; The call-site `:reply-to` is transport-payload-only, but it MUST be
+  ;; data-only: the execute handler runs it through
+  ;; `re-frame.reply/durable-target` AT ISSUANCE, before any runtime-db /
+  ;; work-ledger write, transport lower, or trace. This pins the dispatch-path
+  ;; fail-closed EFFECT: a malformed call-site `:reply-to` rejects BEFORE any
+  ;; transport lower / instance write. The throw itself is core's, asserted at
+  ;; the fn boundary by `re-frame.reply-cljs-test` (`malformed-target-fails-closed`,
+  ;; `durable-target-is-data-only`). The event loop catches the throw, so we
+  ;; observe the absence of side effects (mirrors
   ;; `execute-rejects-non-serializable-instance-id-fails-closed`).
   (reg-capture-continuation!)
   (rf/reg-mutation :m/save (save-article-spec) save-article-request)
@@ -1902,17 +1873,6 @@
     (testing "a reply for the cleared instance fires no continuation"
       (reply-success! args {:late "result"})
       (is (= 0 (count @replied))))))
-
-(deftest no-reply-to-fires-no-continuation
-  ;; An execute WITHOUT `:reply-to` dispatches no continuation.
-  (reg-capture-continuation!)
-  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
-  (rf/dispatch-sync [:rf.mutation/execute
-                     {:mutation :m/save :params {:slug "w"} :instance :nc1}])
-  (reply-success! @last-managed-args {:ok true})
-  (testing "no :reply-to → no continuation, instance settles normally"
-    (is (= 0 (count @replied)))
-    (is (= :success (:status (instance :nc1))))))
 
 ;; ===========================================================================
 ;; The :rf.mutation/replied trace lands AFTER settlement

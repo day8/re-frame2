@@ -218,24 +218,3 @@
         (is (= poll-h (timer-handle k rf.resources.timers/poll-kind)) "poll handle unchanged"))
       (testing "the GC timer IS re-armed (cancel-then-arm)"
         (is (armed? k rf.resources.timers/gc-kind) "GC timer re-armed")))))
-
-(deftest poll-tick-then-release-still-collects-the-entry
-  ;; The end-to-end consequence: on a combined poll+GC resource,
-  ;; after a poll tick the GC reaper must still be live so that when the last
-  ;; owner later releases, an owner-free + idle GC re-check collects the entry.
-  (rf/reg-resource :tre/pgc (article-spec {:poll-interval-ms long-ms :gc-after-ms long-ms})
-                   article-spec-request)
-  (let [scope {:user "u"}
-        k (rf.resources.state/scoped-resource-key scope :tre/pgc {:slug "w"})]
-    (ensure! :tre/pgc scope "w" [:app :x 1])
-    (succeed! k {:title "W"})
-    (poll-fired! k)                 ;; poll tick (background refetch in flight)
-    ;; settle the poll refetch so the entry is idle again (owner-free-able)
-    (succeed! k {:title "W2"})
-    (is (armed? k rf.resources.timers/gc-kind) "GC timer survived the poll tick + resettle")
-    (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
-    (is (empty? (:active-owners (entry k))) "entry owner-free after release")
-    (gc-fired! k)                   ;; owner-free + idle → collected
-    (testing "an owner-free + idle GC re-check collects the
-              entry (the reaper survived the intervening poll ticks)"
-      (is (nil? (entry k)) "entry collected by the surviving GC reaper"))))

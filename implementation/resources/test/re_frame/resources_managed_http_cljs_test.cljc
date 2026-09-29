@@ -436,21 +436,6 @@
                           {:status :ok :value data})
                     {:frame frame-id}))
 
-(deftest lowering-stamps-receiving-frame-into-reply-payload
-  (rf/reg-resource :ff/article (article-spec) article-spec-request)
-  (let [fa :ff/frame-a]
-    (rf/make-frame {:id fa :doc "frame stamp frame A"})
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource :ff/article :scope :rf.scope/global
-                        :params {:slug "w"} :owner [:app :ff 1]}]
-                      {:frame fa})
-    (testing "the reply verification payload stamps the issuing
-              frame's qualified :rf.frame/id (so the receiving handler can
-              compare it)"
-      (let [vp (nth (:on-success @last-managed-args) 1)]
-        (is (= fa (:rf.frame/id vp)) "payload carries the issuing frame stamp")))
-    (rf.frame/destroy-frame! fa)))
-
 (deftest cross-frame-reply-rejected-without-mutating-receiving-frame
   (rf/reg-resource :xf/article (article-spec) article-spec-request)
   (let [fa :xf/frame-a

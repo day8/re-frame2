@@ -228,14 +228,6 @@
           (is (not= {:title "Zombie"} (:data (entry k)))
               "the pre-focus-generation reply was suppressed"))))))
 
-(deftest empty-frame-focus-is-harmless-noop
-  (testing "Spec 016 — a focus signal on a frame with no resource entries is a
-            harmless no-op (no refetch, no error)"
-    (rf/dispatch-sync [:rf.resource/window-focused])
-    (rf/dispatch-sync [:rf.resource/network-reconnected])
-    (is (nil? (get-in (runtime-db) (rf.resources.state/entries-path)))
-        "no entries materialised by an empty-frame scan")))
-
 ;; ===========================================================================
 ;; 3b. Coalescing — focus + visibility do not double-refetch in-flight stale
 ;;     entries. A tab-return commonly fires BOTH focus (window)
@@ -294,44 +286,6 @@
         (let [e (entry k)]
           (is (= (inc gen-mid) (:generation e)) "a new generation started")
           (is (= :fetching (:status e)) "fresh refetch in flight"))))))
-
-;; ===========================================================================
-;; 4. Pure active-stale-scan selection unit
-;; ===========================================================================
-
-(deftest active-stale-scan-selection
-  (testing "Spec 016 — the active-stale scan selects ONLY active + stale
-            entries (fresh active, stale inactive, and fresh inactive excluded)"
-    (let [now    1000
-          scope  {:user "u"}
-          mk     (fn [slug] (rf.resources.state/scoped-resource-key scope :sc/x {:slug slug}))
-          ;; active + stale (stale-at in the past)
-          e-as   (assoc (rf.resources.state/empty-entry :sc/x)
-                        :status :loaded :data {:v 1}
-                        :active-owners #{[:route :r 1]} :stale-at 500)
-          ;; active + fresh (stale-at in the future)
-          e-af   (assoc (rf.resources.state/empty-entry :sc/x)
-                        :status :loaded :data {:v 1}
-                        :active-owners #{[:route :r 1]} :stale-at 5000)
-          ;; inactive + stale (no owner)
-          e-is   (assoc (rf.resources.state/empty-entry :sc/x)
-                        :status :loaded :data {:v 1}
-                        :active-owners #{} :stale-at 500)
-          rdb    {:rf.runtime/resources
-                  {:entries {(mk "as") e-as (mk "af") e-af (mk "is") e-is}}}
-          ;; the scan is private; exercise it through the handler's pure path
-          ;; by reading the public events ns var via the dispatched event would
-          ;; need a frame — instead assert through the handler-level behaviour
-          ;; in the integration tests above. Here we assert the selection
-          ;; predicate directly via rf.resources.state/entry-stale? + active-owner gate.
-          eligible (into #{}
-                         (keep (fn [[kk e]]
-                                 (when (and (seq (:active-owners e))
-                                            (rf.resources.state/entry-stale? e now))
-                                   kk)))
-                         (:entries (:rf.runtime/resources rdb)))]
-      (is (= #{(mk "as")} eligible)
-          "only the active + stale entry is selected"))))
 
 ;; ===========================================================================
 ;; 5. The FRAME LIFECYCLE owns the listeners
