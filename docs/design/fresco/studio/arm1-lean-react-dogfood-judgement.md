@@ -177,7 +177,7 @@ renders; **no commit-phase re-read of subscription values**.
 Witnesses: `an-unchanged-read-set-is-detected-without-building-anything`,
 `a-changed-read-set-takes-a-different-subscribe-identity`,
 `a-boundary-holds-exactly-the-edges-its-latest-commit-installed`,
-`the-wired-path-never-takes-the-diffs-dropping-half`,
+`the-wired-path-replaces-wholesale-and-never-takes-a-difference`,
 `the-bucket-scan-does-not-grow-with-the-number-of-boundaries`,
 `reading-one-key-twice-is-one-edge`,
 `a-warm-read-performs-no-new-attach-or-release`.

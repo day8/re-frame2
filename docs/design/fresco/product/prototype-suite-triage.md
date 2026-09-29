@@ -12,10 +12,15 @@ symmetry.**
 **Where that tree is, stated once, because it has moved and the paths below have not.** This page
 was written against `implementation/freehand/test/re_frame/bench/fresco/`; rf2-0yp7w re-homed the
 whole harness to `implementation/fresco/test/re_frame/bench/fresco/` in `e61e175341`
-(2026-08-14), moving the tree without moving a suite or renaming a namespace. Every
-`implementation/freehand/…` bench path below is therefore the path as it stood at its sentence's
-date, in keeping with this document's census convention — but a path is not a census, and the live
-answer is `frozen-sources.edn`'s `:donor-root`, which is what the commands on this page read. The
+(2026-08-14), moving the tree without moving a suite or renaming a namespace; rf2-6c12m.1 then
+moved it out of the package in `8a10915ed8` (2026-08-29), to what is now `bench/fresco/`, its own
+shadow-cljs project, and retired `frozen-sources.edn` and its freeze gate in the same commit. Every
+`implementation/freehand/…` bench path below, and every build or lane named for a bench suite, is
+therefore as it stood at its sentence's date, in keeping with this document's census convention, and
+the commands below that read `frozen-sources.edn` no longer run. The live answer is `bench/fresco/`:
+its suites run under that project's own `:fresco-bench-test` and `:fresco-bench-test-perf` builds
+(`npm test` there, nightly in `expensive-tests.yml`), the `render_measure` couple of
+[3.](#3-the-render_measure-couple--already-in-the-tier-that-runs-measurements) included. The first
 re-home also invalidated a measurement this page rests a verdict on; that is recorded in
 [1. `front/slot_cljs_test.cljc`](#1-frontslot_cljs_testcljc--no-jvm-lane) rather than here.
 
