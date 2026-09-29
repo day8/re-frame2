@@ -331,6 +331,17 @@ Everything above updates the cache *after* the server confirms. An [optimistic u
 An optimistic plan is a registration key, in two forms that mirror `:patches` and `:invalidates`:
 
 ```clojure
+;; The detail stores {:article {…}} and a list stores {:articles […]}, so the
+;; tag-addressed patch flips this article in either shape and leaves other rows alone.
+(defn toggle-favorited [slug data]
+  (cond-> data
+    (contains? data :article)  (update-in [:article :favorited] not)
+    (contains? data :articles) (update :articles
+                                       (fn [articles]
+                                         (mapv (fn [a]
+                                                 (if (= slug (:slug a)) (update a :favorited not) a))
+                                               articles)))))
+
 (rf/reg-mutation :realworld/favorite
   {:params-schema [:map [:slug :string]]
    :scope         :rf.scope/global
@@ -340,12 +351,13 @@ An optimistic plan is a registration key, in two forms that mirror `:patches` an
    :optimistic  (fn [{:keys [slug]}]
                   {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global}
                    (fn [old] (update-in old [:article :favorited] not))})
-   ;; Tag-addressed form: patch every cached entry carrying these tags at once
-   ;; (the detail, every list, the feed), so the toggle is consistent across views.
+   ;; Tag-addressed form: patch every cached entry carrying these tags in the scope
+   ;; (here the detail and every list), so the toggle is consistent across views.
+   ;; A read in another scope, such as a session feed, needs a descriptor of its own.
    :optimistic-tags (fn [{:keys [slug]}]
                       [{:scope :rf.scope/global
                         :tags  #{[:article slug]}
-                        :patch (fn [old] (update-in old [:article :favorited] not))}])
+                        :patch #(toggle-favorited slug %)}])
    :populates   (fn [{:keys [slug]} result]
                   {{:resource :realworld/article :params {:slug slug} :scope :rf.scope/global} result})
    :invalidates (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})}
