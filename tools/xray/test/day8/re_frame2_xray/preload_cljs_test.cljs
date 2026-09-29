@@ -37,8 +37,11 @@
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace :as rf.trace]
+            [re-frame.trace.projection :as rf.trace.projection]
+            [day8.re-frame2-xray.panels.l2-timeline :as l2-timeline]
             [day8.re-frame2-xray.preload :as preload]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
@@ -152,6 +155,29 @@
             "buffer carries the emitted op-type")
         (is (= :test (:source ev))
             ":source hoisted to top level per Spec 009")))))
+
+(deftest a-hydration-mismatch-reaches-xrays-buffer
+  (testing "`verify-hydration!` runs after the first render, outside any
+            dispatch, so its mismatch names its frame but carries no
+            dispatch id. The framework's per-frame ring skips it, so Xray's
+            secondary ring must keep it, and it surfaces as an issue in the
+            `:ungrouped` bundle"
+    (preload/register-trace-collector!)
+    (rf.ssr/verify-hydration! :rf/default [:div "client"] {:server-hash "deadbeef"})
+    (let [mismatch? #(= :rf.ssr/hydration-mismatch (:operation %))
+          retained  (filter mismatch? (trace-collector/buffer-for-test))
+          ev        (first retained)]
+      (is (not-any? mismatch? (rf/trace-buffer :rf/default {:flat true}))
+          "PRECONDITION: the framework's per-frame ring skips it")
+      (is (= 1 (count retained)) "Xray's buffer keeps it")
+      (is (= :rf/default (rf.trace/trace-event-frame ev)) "it names its frame")
+      (is (nil? (get-in ev [:tags :rf.trace/dispatch-id])) "outside any run")
+      (let [bundle (some #(when (= :ungrouped (:dispatch-id %)) %)
+                         (rf.trace.projection/group-by-event
+                           (trace-collector/buffer-for-test)))]
+        (is (some mismatch? (:other bundle)) "grouped under :ungrouped")
+        (is (l2-timeline/event-bundle-has-issue? bundle)
+            "the bundle reads as an issue, so its L2 row takes the issue wash")))))
 
 (deftest xray-buffer-evicts-oldest-on-overflow
   (testing "the Xray frameless secondary ring respects its configured depth"

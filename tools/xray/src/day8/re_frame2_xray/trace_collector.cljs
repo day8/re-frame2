@@ -4,15 +4,18 @@
   app-db.
 
   `collect-trace!` drops Xray self-noise, applies the local egress
-  profile, retains otherwise-unaddressable frameless events, and requests
+  profile, retains the events the framework's rings skip, and requests
   a coalesced mirror refresh. One refresh per scheduled task snapshots
   every registered frame ring plus the bounded frameless ring into
   `[:trace-buffer]` in Xray's app-db.
 
-  Frameless events have no frame or dispatch id, so the framework's
-  per-frame rings cannot retain them. The secondary ring exists only to
-  support the opt-in `:show-ungrouped?` view. All addressed events remain
-  owned by the framework rings; Xray does not maintain a duplicate global
+  The framework's per-frame rings retain an event only when it carries
+  both a dispatch id and a frame — an event emitted inside a run. Every
+  other event reaches Xray through the listener alone, so Xray keeps it
+  in the frameless ring, which feeds the opt-in `:show-ungrouped?` view.
+  That includes an event that names its frame but runs outside any
+  dispatch, such as `:rf.ssr/hydration-mismatch`. Events the framework
+  rings retain stay theirs; Xray does not maintain a duplicate global
   trace store.
 
   Narrowing the egress profile also scrubs the framework rings, frameless
@@ -40,12 +43,12 @@
 
 ;; ---- frameless secondary ring -------------------------------------------
 ;;
-;; Frameless trace events — registry-time emits, REPL evals, frame
-;; lifecycle outside a drain, SSR hydration mismatches that fire before
-;; any `:dispatch-id` is in scope — carry no `:rf.trace/dispatch-id` or
-;; `:frame`. The framework's per-frame rings skip them; listeners still
-;; receive them. Xray keeps a small, capped ring at that boundary so the
-;; opt-in `:show-ungrouped?` view can surface them. The depth is bounded
+;; Trace events emitted outside any run — registry-time emits, REPL evals,
+;; frame lifecycle outside a drain, SSR hydration mismatches — carry no
+;; `:rf.trace/dispatch-id`, though some name their frame. The framework's
+;; per-frame rings skip them; listeners still receive them. Xray keeps a
+;; small, capped ring at that boundary so the opt-in `:show-ungrouped?`
+;; view can surface them. The depth is bounded
 ;; (default 100 events; framework's per-frame default is 50 event-bundles)
 ;; because frameless events are rare in a healthy app — most happen at
 ;; boot or during a REPL session. A bigger buffer would buy little
@@ -121,17 +124,19 @@
                  :else         ring)))))
   nil)
 
-(defn- frameless-event?
-  "True when `event` carries neither a frame nor a `:rf.trace/dispatch-id`
-  under `:tags` — the framework's per-frame rings skip it and Xray's
-  secondary ring is the only place it can be retained. Reads the RAW
-  trace-event frame via the canonical reader
-  `re-frame.trace/trace-event-frame` ([:tags :frame]); there is no
-  top-level `:frame` check (raw events never carry a top-level
-  `:frame`)."
+(defn- outside-frame-rings?
+  "True when the framework's per-frame rings skip `event`, so Xray's
+  secondary ring is the only place it can be retained. That is the
+  complement of `re-frame.trace.tooling/push-to-ring!`'s condition: a
+  ring keeps an event only when it carries both a `:rf.trace/dispatch-id`
+  and a frame under `:tags`. An event that names its frame but was
+  emitted outside any run, such as `:rf.ssr/hydration-mismatch`, fails
+  it. Reads the RAW trace-event frame via the canonical reader
+  `re-frame.trace/trace-event-frame` ([:tags :frame]); raw events never
+  carry a top-level `:frame`."
   [event]
-  (and (nil? (rf.trace/trace-event-frame event))
-       (nil? (get-in event [:tags :rf.trace/dispatch-id]))))
+  (not (and (some? (get-in event [:tags :rf.trace/dispatch-id]))
+            (some? (rf.trace/trace-event-frame event)))))
 
 ;; ---- task-coalesced mirror sync -----------------------------------------
 ;;
@@ -333,11 +338,12 @@
        honour the gate (it retains every emitted event); the matching
        read-side gate in `snapshot-from-rings` scrubs those retained
        events so the two halves are genuinely symmetric.
-    3. Frameless events feed the Xray-side secondary ring.
-    4. Frame-bound events: no Xray-side push needed — the framework's
-       per-frame ring (`re-frame.trace.tooling`) already captured them.
-       We schedule a coalesced mirror sync so the next scheduled task
-       refreshes Xray's app-db's `:trace-buffer` slot.
+    3. Events the framework's per-frame rings skip feed the Xray-side
+       secondary ring.
+    4. Events emitted inside a run: no Xray-side push needed — the
+       framework's per-frame ring (`re-frame.trace.tooling`) already
+       captured them. We schedule a coalesced mirror sync so the next
+       scheduled task refreshes Xray's app-db's `:trace-buffer` slot.
 
   No-op in production (the framework's listener fan-out elides under
   `rf.interop/debug-enabled?` false; the entry point also short-circuits).
@@ -373,15 +379,15 @@
 
       :else
       (do
-        ;; Frameless events: the framework's per-frame rings skipped
-        ;; this one — push to our 100-event secondary ring
-        ;; so the `:show-ungrouped?` UX can surface it.
-        (when (frameless-event? event)
+        ;; The framework's per-frame rings skipped this one — push to
+        ;; our 100-event secondary ring so the `:show-ungrouped?` UX can
+        ;; surface it.
+        (when (outside-frame-rings? event)
           (push-frameless! event))
-        ;; In every non-frameless case the framework already retained
-        ;; the event in its per-frame ring; nothing to do but request a
-        ;; coalesced sync so Xray's app-db slot mirrors the rings on
-        ;; the next scheduled task.
+        ;; Otherwise the framework already retained the event in its
+        ;; per-frame ring; nothing to do but request a coalesced sync so
+        ;; Xray's app-db slot mirrors the rings on the next scheduled
+        ;; task.
         (request-mirror-sync!))))
   nil)
 

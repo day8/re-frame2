@@ -51,7 +51,8 @@ re-frame.trace/emit!              ;; framework
             → trace-collector/     ;; xray-side listener body
                 collect-trace!     ;;   self-noise drop → privacy gate
                                    ;;   → frameless ring push
-                                   ;;     (frameless events only)
+                                   ;;     (events the per-frame
+                                   ;;     rings skipped only)
                                    ;;   → request mirror sync
 ```
 
@@ -315,9 +316,13 @@ counter contract.
 
 ## Frameless secondary ring
 
-Per the B3 ruling (rf2-g1b2m): frameless trace emits (no
-`:rf.trace/dispatch-id` in scope, no `:frame`) SKIP the framework's
-per-frame rings — they stream to listeners only.
+Per the B3 ruling (rf2-g1b2m): trace emits outside any run (no
+`:rf.trace/dispatch-id` in scope) SKIP the framework's per-frame rings —
+they stream to listeners only. A ring keeps an event only when it
+carries both a `:rf.trace/dispatch-id` and a `:frame`, so an emit that
+names its frame but fires outside any dispatch skips the rings too. The
+secondary ring keeps every event the rings skip, whether or not it names
+a frame.
 
 These are real events the user wants to see:
 - Registry-time emits (handler-registered / handler-replaced fired
