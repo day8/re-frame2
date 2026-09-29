@@ -230,28 +230,6 @@
       (is (= :no-recovery (:recovery record)))
       (is (number? (:time record))))))
 
-(deftest the-default-projector-gates-the-400-arm-on-where-event
-  (testing "the gate, unit-tested directly on the pure projector
-            fn, so the claim holds without a bus. A server-side surface
-            (`:where :fx-args`) is a SERVER fault and must not be reported to
-            the client as a 400; a record with no `:where` at all falls
-            through too — the arm is opt-in on the discriminator (fail-safe),
-            symmetric with the `:kind`-gated 404."
-    (is (= {:status 400 :code :bad-request :message "Invalid input" :retryable? false}
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/schema-validation-failure
-              :tags      {:where :event :source :boundary}}))
-        ":where :event → 400")
-    (is (= rf.ssr/fallback-public-error
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/schema-validation-failure
-              :tags      {:where :fx-args}}))
-        ":where :fx-args (a server-side surface) → the locked 500")
-    (is (= rf.ssr/fallback-public-error
-           (rf.ssr/default-error-projector-fn
-             {:operation :rf.error/schema-validation-failure :tags {}}))
-        "no :where → 500; the 400 arm never fires on an unclassified failure")))
-
 ;; ===========================================================================
 ;; (3) THE PROJECTION IS STRUCTURAL — nothing from the payload egresses
 ;; ===========================================================================

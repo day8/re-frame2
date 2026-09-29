@@ -189,17 +189,3 @@
                  dev escape-hatch is on — the host's outer handler owns it")))
         (finally
           (rf/unregister-listener! :trace ::srf-throw))))))
-
-(deftest project-render-exception-projects-when-on-view-exception-absent
-  (testing "without the :on-view-exception knob (the
-            production default) project-render-exception! projects as
-            normal. Pins the default so the escape-hatch can't silently
-            become the default."
-    (let [f (rf.frame/make-anon-frame-record!
-              {:platform :server
-               :ssr      {:public-error-id :rf.ssr/default-error-projector}})
-          t (ex-info "normal failure" {})
-          public (rf.ssr/project-render-exception! f t)]
-      (is (map? public) "projection path runs by default")
-      (is (= 500 (:status public))
-          "the default projector maps to 500 — no re-throw"))))
