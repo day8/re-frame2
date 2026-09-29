@@ -16,7 +16,7 @@
     a snippet preview when the dialog ratom is open.
 
   Runs on the JVM under `clojure -M:test` and on CLJS under shadow's
-  `:node-test` / `:browser-test` targets (ns suffix `-cljs-test`)."
+  `:node-test` target (ns suffix `-cljs-test`)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.story.save-variant :as rf.story.save-variant]
@@ -145,8 +145,8 @@
       (is (= vs (:violations s))
           "violations ride the dialog state under :violations"))))
 
-(deftest open-3-arity-defaults-violations-to-empty-vec
-  (testing "the 3-arity (without
+(deftest open-4-arity-defaults-violations-to-empty-vec
+  (testing "the 4-arity (without
             violations) stamps an empty vec so the dialog hint path
             renders nothing"
     (let [s (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
@@ -308,7 +308,7 @@
       (is (true? (:open? s)))
       (is (= report (:slices s)) "the slice report rides the dialog state"))))
 
-(deftest open-4-arity-defaults-slices-to-empty-vec
+(deftest open-4-and-5-arity-default-slices-to-empty-vec
   (testing "the arities without a slice report default :slices to []"
     (is (= [] (:slices (rf.story.save-variant/open rf.story.save-variant/initial-dialog-state
                                           :story.x/y {:n 1} 0))))

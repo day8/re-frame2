@@ -401,10 +401,10 @@
   contract); a top-level `:args` key is also exposed for callers that
   read the snapshot directly off the state.
 
-  3-arity omits violations and defaults to none. 4-arity stamps the
+  4-arity omits violations and defaults to none. 5-arity stamps the
   violations vector onto the dialog state so the save dialog can render
   the 'Args do not match the variant's Spec 010 schema' hint
-  pre-paste. 5-arity additionally stamps the eight-slice capture
+  pre-paste. 6-arity additionally stamps the eight-slice capture
   report so the dialog can render the per-slice honesty-floor warnings
   (which slices are captured-as-declared / not-yet-projectable)."
   ([state source-variant-id args-snapshot now-ms]
