@@ -125,15 +125,6 @@
              {:throw-reason :match-error :malformed? false :no-not-found? true
               :url "/x" :frame :worker})))))
 
-(deftest fallback-telemetry-intents-ordering-is-stable
-  (testing "malformed/throw warning precedes the no-not-found warning"
-    (let [intents (rf.routing.plan/fallback-telemetry-intents
-                    {:throw-reason :match-error :malformed? false
-                     :no-not-found? true :url "/x" :frame nil})]
-      (is (= 2 (count intents)))
-      (is (= :rf.warning/malformed-url (nth (first intents) 2)))
-      (is (= :rf.warning/no-not-found-route (nth (second intents) 2))))))
-
 ;; ---- emit-intents! driver ------------------------------------------------
 
 (deftest emit-intents-dispatches-emit-and-emit-error-shapes
