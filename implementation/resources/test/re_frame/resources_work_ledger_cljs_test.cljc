@@ -537,34 +537,53 @@
 ;; 8. clear-scope / remove settle in-flight rows + opportunistic abort
 ;; ===========================================================================
 
-(deftest clear-scope-cancels-in-flight-rows
-  (rf/reg-resource :cs/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (let [scope-a {:user "a"}
-        ka (rf.resources.state/scoped-resource-key scope-a :cs/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
+;; A clear-scope or remove cancellation is a COMPLETION, so it carries the
+;; event's causal :completed-at (from the declared-flat :rf/time-ms),
+;; symmetric with the reply-driven aborted / failed rows; without it, epoch /
+;; tooling correlation of logout / tenant-switch cancellations has a gap. The
+;; key's ledger rows are dropped with the entry, so no row carries that
+;; :completed-at — the `:rf.resource/removed` TRACE carries the causal value
+;; (and the aborted work id), and the trace is where epoch / tooling
+;; correlation of a cancellation reads it.
+
+(deftest clear-scope-aborts-in-flight-work-and-traces-its-completion
+  (rf/reg-resource :cst/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
+  (let [scope-a      {:user "a"}
+        ka           (rf.resources.state/scoped-resource-key scope-a :cst/article {:slug "w"})
+        completed-at 1781649764222]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :cst/article :scope scope-a
                                             :params {:slug "w"} :owner [:app :a 1]}])
     (let [wid (:current-work (entry ka))]
-      ;; PRECONDITION — the row must actually be THERE, and live,
-      ;; before the clear; without this the post-conditions below pass
-      ;; vacuously the moment whatever populated the ledger moves or is renamed.
+      ;; PRECONDITION — the row must actually be THERE, and live, before the
+      ;; clear; without this the post-conditions below pass vacuously the
+      ;; moment whatever populated the ledger moves or is renamed.
       (is (some? (record wid)) "precondition: the in-flight row exists")
       (is (rf.resources.work-ledger/live-work? (runtime-db) wid)
           "precondition: it is non-terminal")
       (is (seq (rows-for ka)) "precondition: the ledger holds a row for the key")
-      (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}])
-      (testing "Spec 016 §clear-scope — the in-flight attempt is best-effort
-                aborted, and the cleared entry's whole ledger holding goes with
-                it"
-        (is (contains? (set @aborts) (req wid)))
-        (is (nil? (record wid))
-            "the cleared key's rows are DROPPED, not left as a terminal tail")
-        (is (empty? (rows-for ka))
-            "no row for the key survives a full ledger scan either")))))
+      (let [traces (capture-traces
+                     #(rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
+                                        {:rf.cofx {:rf/time-ms completed-at}}))
+            rows   (trace-rows traces :rf.resource/removed)]
+        (testing "Spec 016 §clear-scope — the in-flight attempt is best-effort aborted"
+          (is (contains? (set @aborts) (req wid))))
+        (testing "the clear-scope cancellation carries the causal :completed-at"
+          (is (= 1 (count rows)) "precondition: exactly one removal trace row")
+          (is (= completed-at (-> rows first :tags :completed-at)))
+          (is (= :clear-scope (-> rows first :tags :reason)))
+          (is (= [wid] (-> rows first :tags :aborted))
+              "and names the cancelled attempt"))
+        (testing "the cleared entry's whole ledger holding goes with it"
+          (is (nil? (record wid))
+              "the cleared key's rows are DROPPED, not left as a terminal tail")
+          (is (empty? (rows-for ka))
+              "no row for the key survives a full ledger scan either"))))))
 
-(deftest remove-cancels-in-flight-row
-  (rf/reg-resource :rm/article (article-spec) article-spec-request)
-  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
+(deftest remove-aborts-in-flight-work-and-traces-its-completion
+  (rf/reg-resource :rmt/article (article-spec) article-spec-request)
+  (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :rmt/article {:slug "w"})
+        completed-at 1781649764333]
+    (rf/dispatch-sync [:rf.resource/ensure {:resource :rmt/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :rm 1]}])
     (let [wid (:current-work (entry scoped-key))]
       ;; PRECONDITION — see the clear-scope sibling above.
@@ -573,77 +592,24 @@
           "precondition: it is non-terminal")
       (is (seq (rows-for scoped-key))
           "precondition: the ledger holds a row for the key")
-      (rf/dispatch-sync [:rf.resource/remove {:resource :rm/article :scope :rf.scope/global
-                                              :params {:slug "w"}}])
-      (testing "Spec 016 §Events — remove best-effort aborts the in-flight
-                attempt, and the removed entry's whole ledger holding goes with
-                it"
-        (is (contains? (set @aborts) (req wid)))
-        (is (nil? (record wid))
-            "the removed key's rows are DROPPED, not left as a terminal tail")
-        (is (empty? (rows-for scoped-key))
-            "no row for the key survives a full ledger scan either")))))
-
-(deftest clear-scope-cancelled-row-carries-causal-completed-at
-  ;; A clear-scope cancellation is a COMPLETION, so it carries
-  ;; the event's causal :completed-at (from the declared-flat :rf/time-ms),
-  ;; symmetric with the reply-driven aborted / failed rows; without it, epoch /
-  ;; tooling correlation of logout / tenant-switch cancellations has a gap.
-  ;;
-  ;; The cleared key's ledger rows are dropped with the entry, so no row
-  ;; carries that :completed-at — the `:rf.resource/removed` TRACE carries the
-  ;; causal value (and the aborted work id), and the trace is where epoch /
-  ;; tooling correlation of a cancellation reads it. This pins that surface.
-  (rf/reg-resource :cst/article (article-spec {:scope {:from-db :t/caller-scope}}) article-spec-request)
-  (let [scope-a      {:user "a"}
-        ka           (rf.resources.state/scoped-resource-key scope-a :cst/article {:slug "w"})
-        completed-at 1781649764222]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :cst/article :scope scope-a
-                                            :params {:slug "w"} :owner [:app :a 1]}])
-    (let [wid (:current-work (entry ka))]
-      ;; PRECONDITION — a live row to cancel, or the claim below is vacuous.
-      (is (some? (record wid)) "precondition: the in-flight row exists")
-      (let [traces (capture-traces
-                     #(rf/dispatch-sync [:rf.resource/clear-scope {:scope scope-a :cause :logout}]
-                                        {:rf.cofx {:rf/time-ms completed-at}}))
-            rows   (trace-rows traces :rf.resource/removed)]
-        (testing "the clear-scope cancellation carries the causal :completed-at"
-          (is (= 1 (count rows)) "precondition: exactly one removal trace row")
-          (is (= completed-at (-> rows first :tags :completed-at)))
-          (is (= :clear-scope (-> rows first :tags :reason)))
-          (is (= [wid] (-> rows first :tags :aborted))
-              "and names the cancelled attempt"))
-        (testing "the cleared key's ledger rows go with the entry"
-          (is (nil? (record wid)))
-          (is (empty? (rows-for ka))))))))
-
-(deftest remove-cancelled-row-carries-causal-completed-at
-  ;; A remove cancellation carries the event's causal :completed-at, as a
-  ;; clear-scope one does (see the sibling above): the removed key's rows are
-  ;; dropped with the entry, and the `:rf.resource/removed` trace carries the
-  ;; causal value.
-  (rf/reg-resource :rmt/article (article-spec) article-spec-request)
-  (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :rmt/article {:slug "w"})
-        completed-at 1781649764333]
-    (rf/dispatch-sync [:rf.resource/ensure {:resource :rmt/article :scope :rf.scope/global
-                                            :params {:slug "w"} :owner [:app :rm 1]}])
-    (let [wid (:current-work (entry scoped-key))]
-      ;; PRECONDITION — a live row to cancel, or the claim below is vacuous.
-      (is (some? (record wid)) "precondition: the in-flight row exists")
       (let [traces (capture-traces
                      #(rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope :rf.scope/global
                                                               :params {:slug "w"}}]
                                         {:rf.cofx {:rf/time-ms completed-at}}))
             rows   (trace-rows traces :rf.resource/removed)]
+        (testing "Spec 016 §Events — remove best-effort aborts the in-flight attempt"
+          (is (contains? (set @aborts) (req wid))))
         (testing "the remove cancellation carries the causal :completed-at"
           (is (= 1 (count rows)) "precondition: exactly one removal trace row")
           (is (= completed-at (-> rows first :tags :completed-at)))
           (is (= :remove (-> rows first :tags :reason)))
           (is (= [wid] (-> rows first :tags :aborted))
               "and names the cancelled attempt"))
-        (testing "the removed key's ledger rows go with the entry"
-          (is (nil? (record wid)))
-          (is (empty? (rows-for scoped-key))))))))
+        (testing "the removed entry's whole ledger holding goes with it"
+          (is (nil? (record wid))
+              "the removed key's rows are DROPPED, not left as a terminal tail")
+          (is (empty? (rows-for scoped-key))
+              "no row for the key survives a full ledger scan either"))))))
 
 ;; ===========================================================================
 ;; 8b. the ledger is bounded on keys that never succeed
