@@ -6,16 +6,16 @@
 # images, so one harness covers both.
 #
 # The harness covers the whole local-durability surface those two blocks
-# belong to — TEN layers. Layers 1-4 are the pre-commit hook itself; 5 is the
-# CI arm that shares its classifier; 6-7 are the installer that puts the hooks
-# on disk and the advisory that notices when they go stale; 8 is the
+# belong to — ELEVEN layers. Layers 1-4 are the pre-commit hook itself; 5 is
+# the CI arm that shares its classifier; 6-7 are the installer that puts the
+# hooks on disk and the advisory that notices when they go stale; 8 is the
 # checkpoint helper on the other side of the same boundary; 9 is the
 # truncation floor the hook repeats because a plain `git add` routes around
 # that helper's guard; 10 is the commit-msg guard, the one block here that
-# grades the message rather than the staged paths. The file stays named for
-# the pre-commit hook because `.github/workflows/test.yml` runs it by name,
-# unconditionally, on every pull request — which is also why layer 10's guard
-# reaches CI without a new job.
+# grades the message rather than the staged paths; 11 is post-merge's
+# MCP-staleness block. The file stays named for the pre-commit hook because
+# `.github/workflows/test.yml` runs it by name, unconditionally, on every pull
+# request — which is also why layers 10 and 11 reach CI without a new job.
 #
 #   1. Library unit tests — invoke
 #      scripts/git-hooks/lib/check-mayor-commit-boundary.sh directly with
@@ -76,6 +76,9 @@
 #      `git commit`s, and the CI arm's RANGE: an offending commit on the BASE
 #      must not red a clean branch, because such commits are on main and trunk
 #      history is not rewritten.
+#
+#  11. The MCP-staleness block in post-merge — its library and the hook end to
+#      end, driven by post-merge-hook-test.cjs beside this file.
 #
 # Usage:
 #   sh scripts/git-hooks/test-pre-commit.sh
@@ -3381,6 +3384,24 @@ fi
 git -C "$AREPO" checkout -q main >/dev/null 2>&1 || true
 rm -rf "$ABOX"
 rm -f "$AERR"
+
+# ----------------------------------------------------------------------------
+# Layer 11: the MCP-staleness block in post-merge.
+#
+# post-merge-hook-test.cjs drives the block's library with synthetic path lists
+# and the hook end to end against a throwaway repo, keeping its own count; any
+# case it fails fails this layer. A missing `node` fails too, rather than
+# skipping, so the layer cannot pass without running.
+# ----------------------------------------------------------------------------
+
+printf '\n[11] post-merge MCP-staleness block\n'
+if ! command -v node >/dev/null 2>&1; then
+  fail "(11) node is not on PATH, so post-merge-hook-test.cjs cannot run"
+elif node "$SCRIPT_DIR/post-merge-hook-test.cjs"; then
+  pass "(11) post-merge-hook-test.cjs passed"
+else
+  fail "(11) post-merge-hook-test.cjs reported a failure"
+fi
 
 # ----------------------------------------------------------------------------
 # Summary

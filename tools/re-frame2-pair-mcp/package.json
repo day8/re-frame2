@@ -16,11 +16,11 @@
     "watch": "shadow-cljs watch server",
     "gen:descriptors": "node scripts/descriptor-manifest-gen.cjs",
     "check:descriptors": "node scripts/descriptor-manifest-gen.cjs --check",
-    "test": "shadow-cljs compile server-test && node out/server-test.js && node test/post-merge-hook-test.cjs",
+    "test": "shadow-cljs compile server-test && node out/server-test.js",
     "start": "node out/server.js",
     "stdio-roundtrip": "node test/stdio-roundtrip.js",
     "test:stdin-eof-shutdown": "node test/stdin-eof-shutdown.cjs",
-    "test:post-merge-hook": "node test/post-merge-hook-test.cjs",
+    "test:post-merge-hook": "node ../../scripts/git-hooks/post-merge-hook-test.cjs",
     "test:roots-discovery-live": "node test/roots-discovery-live.js",
     "test:live-e2e-fixture": "node test/live-e2e-fixture.cjs",
     "test:live-fresco-wire": "node test/live-fresco-wire.cjs"

@@ -478,12 +478,14 @@
       (let [forms (atom [])]
         (-> (with-capture! forms snapshot-canned
               ;; mode "full" expands the :epochs slice — the leak path.
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
-                                                           :include "[:epochs]"
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
+                                                           :include #js ["epochs"]
                                                            :mode "full"}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
                        (is (some? form) "the tool shipped a snapshot eval form")
+                       (is (str/includes? form "snapshot-state {:frames [:rf/default], :include [:epochs]}")
+                           "control: the named frame and slice reached the form, so the scope is explicit")
                        (is (projects-each-record? form)
                            "gate-off MUST route the :epochs slice through project-egress (fn literal threading opts)")
                        (is (str/includes? form ":rf.egress/profile :rf.egress/off-box-tool")
@@ -498,8 +500,8 @@
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
         (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
-                                                           :include "[:epochs]"
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
+                                                           :include #js ["epochs"]
                                                            :mode "full"
                                                            :include-sensitive true}))))
             (.then (fn [_]
@@ -524,8 +526,8 @@
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
         (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
-                                                           :include "[:epochs]"
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
+                                                           :include #js ["epochs"]
                                                            :mode "full"}))))
             (.then (fn [_]
                      (let [form (slice-form forms)]
@@ -550,8 +552,8 @@
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
         (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
-                                                           :include "[:app-db :sub-cache :epochs]"
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
+                                                           :include #js ["app-db" "sub-cache" "epochs"]
                                                            :mode "full"
                                                            :elision false}))))
             (.then (fn [_]
@@ -576,8 +578,8 @@
       (raw-state/set-allow-raw-state! true)
       (let [forms (atom [])]
         (-> (with-capture! forms snapshot-canned
-              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
-                                                           :include "[:app-db :sub-cache]"
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames #js [":rf/default"]
+                                                           :include #js ["app-db" "sub-cache"]
                                                            :mode "full"
                                                            :elision false
                                                            :include-sensitive true}))))

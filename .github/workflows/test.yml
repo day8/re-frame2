@@ -4947,7 +4947,7 @@ jobs:
             ${{ runner.os }}-clj-
 
       # Most of the suite double-runs in the CLJS
-      # lanes — 29 of its 31 suites are `*_cljs_test.*` and ride the
+      # lanes — its `*_cljs_test.*` suites ride the
       # consolidated `:node-test` + `:browser-test` builds. Two do not:
       # `engine_grammar_parity_test.cljc` (the engine<->viz grammar drift
       # ratchet, which is why the `:test` alias carries a TEST-ONLY dep on

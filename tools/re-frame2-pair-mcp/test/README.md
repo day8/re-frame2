@@ -20,8 +20,7 @@ integration scripts.
 If a regression would only be visible after the CLJS compiles to
 JS, write a JS test. If it would be visible in the CLJS source, write a
 CLJS test. The two layers are complementary: `npm test` runs the CLJS
-suite and then the hermetic `post-merge-hook-test.cjs`, while the Node
-integration scripts are explicit package commands.
+suite, while the Node integration scripts are explicit package commands.
 
 ## The two layers
 
@@ -244,9 +243,9 @@ Run with: `npm run test:stdin-eof-shutdown` (after `npm run build`).
 
 #### `post-merge-hook-test.cjs` — stale-binary post-merge hook
 
-Unit + smoke tests for the repo's `post-merge` git hook (source lives
-under `scripts/git-hooks/`). The hook is pure POSIX sh (no CLJS source
-of truth), so its tests sit here as a `.cjs` sibling.
+Unit + smoke tests for the repo's `post-merge` git hook, whose
+stale-binary warning names this server. The hook is pure POSIX sh, so
+its tests are Node rather than CLJS.
 
 Two layers:
 
@@ -262,9 +261,11 @@ Two layers:
   end-to-end. Asserts the warning fires for a real cross-MCP diff and
   is silent for an unrelated diff.
 
-`npm test` runs it after the CLJS suite, so CI's pair-mcp job runs it
-on every change that arms that job. Run it alone with
-`npm run test:post-merge-hook` (or `node test/post-merge-hook-test.cjs`).
+The test lives beside the hook at
+`scripts/git-hooks/post-merge-hook-test.cjs`, and
+`scripts/git-hooks/test-pre-commit.sh` runs it, so the always-on PR
+guards job grades every change to the hook or its library. Run it alone
+with `npm run test:post-merge-hook`.
 
 ## Adding a new test — decision tree
 
