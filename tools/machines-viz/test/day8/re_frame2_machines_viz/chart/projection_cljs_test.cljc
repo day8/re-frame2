@@ -504,6 +504,27 @@
               :when parent]
         (is (< (index-of parent) (index-of (:id n))))))))
 
+(deftest xyflow-graph-nested-containers-parent-first-on-reversed-input
+  (testing "a container nested in another container follows it, even when
+            the input lists the inner container first"
+    (let [parsed   (layout/project-definition nested-compound-machine)
+          reversed (update parsed :nodes (comp vec reverse))
+          outer    (layout/node-id [:outer])
+          mid      (layout/node-id [:outer :mid])
+          in-ids   (mapv :id (:nodes reversed))
+          graph    (projection/xyflow-graph reversed {} {})
+          ids      (mapv :id (:nodes graph))
+          index-of (fn [id] (.indexOf ids id))]
+      (is (< (.indexOf in-ids mid) (.indexOf in-ids outer))
+          "the input lists the inner container first")
+      (is (= outer (:parentId (first (filter #(= mid (:id %)) (:nodes graph)))))
+          "the inner container nests under the outer one")
+      (doseq [n (:nodes graph)
+              :let [parent (:parentId n)]
+              :when parent]
+        (is (< (index-of parent) (index-of (:id n)))
+            (str "parent " parent " must precede child " (:id n)))))))
+
 ;; ---- xyflow-graph :data flag derivation (G1) ---------------------------
 
 (deftest xyflow-graph-active-flag

@@ -1661,10 +1661,13 @@
               ;; the machine-root node (it is the source of a
               ;; machine-level fallback's `__in` edge + event-node, and
               ;; xyflow wants a source-node before any edge that references
-              ;; it), alongside region/compound parents.
-              (sort-by #(cond (:root-container? %) 0
-                              (or (:machine-root? %) (:region? %) (:compound? %)) 1
-                              :else 2)
+              ;; it), alongside region/compound parents. Containers rank by
+              ;; nesting depth, so a nested container follows its parent
+              ;; whatever order the input carries.
+              (sort-by #(cond (:root-container? %) [0 0]
+                              (or (:machine-root? %) (:region? %) (:compound? %))
+                              [1 (count (take-while some? (iterate parent-of (:id %))))]
+                              :else [2 0])
                        nodes))
 
         ;; events-as-nodes paradigm. Each parsed transition emits ONE
