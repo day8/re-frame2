@@ -271,6 +271,12 @@
 #?(:cljs
    (deftest narrowing-clears-trace-buffer
      (testing "reveal → redact clears the trace buffer in lockstep with the profile"
+       ;; A sensitive event dropped under the default seeds the counter, so
+       ;; the zero asserted after the narrowing is the scrub's reset rather
+       ;; than the fixture's starting zero.
+       (trace-collector/collect-trace! (sensitive-event))
+       (is (= 1 (config/suppressed-count))
+           "the event dropped under the default seeds the counter")
        ;; Scenario: raw profile on, sensitive cascade lands, profile narrowed.
        (config/set-egress-profile! :rf.egress/local-raw)
        (trace-collector/collect-trace! (sensitive-event))
