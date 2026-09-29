@@ -345,6 +345,20 @@
     (is (nil? (rf.story.share/parse-overrides-param nil)))
     (is (nil? (rf.story.share/parse-overrides-param "")))))
 
+;; ---- sorted output: one selection, one URL -------------------------------
+
+(deftest overrides-token-sorts-keys
+  (testing "the overrides token prints its keys sorted, so two insertion
+            orders of the same map produce the same URL"
+    (is (= "{:alpha 2, :zeta 1}"
+           (url-decode (rf.story.share/build-overrides-token (array-map :zeta 1 :alpha 2)))))))
+
+(deftest build-params-sorts-active-modes
+  (testing "active modes are emitted sorted, so the order the modes were
+            switched on does not change the URL"
+    (is (= ["modes=Mode.app%2Fdark%2CMode.app%2Fmobile"]
+           (rf.story.share/build-params {:active-modes [:Mode.app/mobile :Mode.app/dark]})))))
+
 ;; ---- parse-overrides-param* surfaces dropped entries ---------------------
 
 (deftest parse-overrides-param*-clean-input
