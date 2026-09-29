@@ -241,7 +241,9 @@
 (deftest with-base-path-decode-leaves-unrelated-urls-unchanged
   (testing "strip-base-path is defensive — a decoded URL that does not start
             with the base is returned unchanged rather than mis-sliced"
-    (is (= "/other/path" (rf.routing.strategy/strip-base-path "/realworld" "/other/path")))))
+    ;; `/elsewhere` is as long as `/realworld` and is followed by `/`, so only
+    ;; the prefix check keeps it from being stripped to `/path`.
+    (is (= "/elsewhere/path" (rf.routing.strategy/strip-base-path "/realworld" "/elsewhere/path")))))
 
 (deftest with-base-path-strips-only-on-segment-boundary
   (testing "ADVERSARIAL: strip-base-path treats a URL as under the

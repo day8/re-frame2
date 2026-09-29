@@ -250,7 +250,9 @@
     (rf/dispatch-sync [:rf.route/navigate {:query-merge {:tab "secret"}}])
     (let [cur (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                       [:rf.runtime/routing :current])]
-      (is (not= "secret" (get-in cur [:query :tab]))
+      ;; `:app/settings` declares no query vocabulary, so a committed `:tab`
+      ;; would land under the string key.
+      (is (not= "secret" (get-in cur [:query "tab"]))
           "signed out, the guard skips the self-nav handler — the query change
            never commits (fail CLOSED); the runtime would otherwise have applied
            it in place on the protected route"))))

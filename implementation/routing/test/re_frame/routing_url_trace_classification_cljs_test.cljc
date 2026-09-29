@@ -243,4 +243,6 @@
     (let [url    (str "/nowhere/" param-secret)
           events (visit! url)]
       (when rf.interop/debug-enabled?
-        (is (every? #(= url %) (url-change-urls events)))))))
+        (let [urls (url-change-urls events)]
+          (is (seq urls) "control: the window carries the URL-change event")
+          (is (every? #(= url %) urls)))))))

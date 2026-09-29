@@ -107,6 +107,9 @@
             on both hosts"
     ;; :a/b, "s", and 3 are unknown keys of DIFFERENT kinds — a plain
     ;; `(sort #{:a/b \"s\" 3})` throws a ClassCastException on the JVM.
+    ;; `:route/gate` is registered so the request would commit a slice if the
+    ;; gate let it through.
+    (rf/reg-route :route/gate {} "/gate")
     (let [request {:to :route/gate :a/b 1 "s" 2 3 4}
           ;; SEMANTIC, posture-independent: the total order is a
           ;; property of the ALWAYS-ON structural gate, not of the diagnostic.

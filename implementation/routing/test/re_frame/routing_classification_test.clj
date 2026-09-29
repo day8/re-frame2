@@ -325,8 +325,9 @@
         (is (= :route (:reason body))
             "the marker's :reason carries the :source :route provenance")
         (is (number? (:bytes body)) "the marker carries a byte count, not the value")
-        ;; The marker must NOT carry the raw bulk value.
-        (is (not= "big-blob-value" payload) "the raw value is off the wire"))
+        ;; The marker must NOT carry the raw bulk value in any slot.
+        (is (not (str/includes? (pr-str payload) "big-blob-value"))
+            "the raw value is off the wire"))
       (is (= :route/upload (:route-id slice))
           "non-classified slice fields (the route id) ride verbatim"))
     (testing "the handler / sub still sees the RAW value in-process"
@@ -516,29 +517,41 @@
 ;; ===========================================================================
 
 (defn- capture-warnings
-  "Run `thunk` with a :trace listener that captures every
+  "Run `thunk` — a `reg-route` — with a :trace listener that captures every
   :rf.warning/route-classification-query-key-unpromoted advisory; return the
-  captured trace tags maps (one per emit)."
+  captured trace tags maps (one per emit). The vector's `:promoted-keys`
+  metadata is the promoted-key set `reg-route` itself handed
+  `advise-query-promotion!`, recorded in both postures."
   [thunk]
-  (let [seen (atom [])]
+  (let [seen     (atom [])
+        promoted (atom nil)
+        advise   rf.routing.classification/advise-query-promotion!]
     (rf/register-listener! :trace ::advisory
                            (fn [ev]
                              (when (= :rf.warning/route-classification-query-key-unpromoted
                                       (:operation ev))
                                (swap! seen conj (:tags ev)))))
-    (try (thunk) (finally (rf/unregister-listener! :trace ::advisory)))
-    @seen))
+    (try
+      (with-redefs [rf.routing.classification/advise-query-promotion!
+                    (fn [route-id route-meta promoted-keys]
+                      (reset! promoted promoted-keys)
+                      (advise route-id route-meta promoted-keys))]
+        (thunk))
+      (finally (rf/unregister-listener! :trace ::advisory)))
+    (with-meta @seen {:promoted-keys @promoted})))
 
 (defn- unpromoted
   "The ALWAYS-ON detection behind the advisory: the query keys `route-meta`'s
-  classification names that `promoted-keys` does not promote to a keyword.
+  classification names that the route does not promote to a keyword, judged
+  against the promoted-key set `reg-route` derived (the `:promoted-keys`
+  metadata of `warnings`, a `capture-warnings` result).
   `rf.routing.classification/advise-query-promotion!` is exactly this predicate plus a
   dev-gated `trace/emit!`, so this is the posture-independent half — it decides
   whether a route HAS the footgun, and survives -Dre-frame.debug=false."
-  [route-id route-meta promoted-keys]
+  [route-id route-meta warnings]
   (rf.routing.classification/unpromoted-query-keys
     (rf.routing.classification/validate+extract route-id route-meta)
-    promoted-keys))
+    (:promoted-keys (meta warnings))))
 
 (deftest advisory-fires-for-unpromoted-sensitive-query-key
   (testing "a :sensitive [[:query :token]] on a route with NO :query
@@ -546,7 +559,7 @@
     (let [warnings (capture-warnings
                      #(rf/reg-route :route/advmiss {:sensitive [[:query :token]]} "/advmiss"))]
       ;; SEMANTIC, posture-independent: the detection.
-      (is (= #{:token} (unpromoted :route/advmiss {:sensitive [[:query :token]]} #{}))
+      (is (= #{:token} (unpromoted :route/advmiss {:sensitive [[:query :token]]} warnings))
           "the always-on predicate names :token as the unpromoted classified key")
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -569,7 +582,7 @@
       ;; vacuously under the gate — an empty trace ring satisfies it trivially.
       (is (empty? (unpromoted :route/advok
                               {:sensitive [[:query :token]] :query [:map [:token :string]]}
-                              #{:token}))
+                              warnings))
           "the always-on predicate finds no unpromoted key for the correct pairing")
       ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
       ;; the trace ring, hence guarded.
@@ -586,7 +599,7 @@
       ;; SEMANTIC, posture-independent: see the twin above.
       (is (empty? (unpromoted :route/advdef
                               {:sensitive [[:query :page]] :query-defaults {:page 1}}
-                              #{:page}))
+                              warnings))
           ":query-defaults promotes :page → the predicate finds nothing")
       ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?
@@ -604,7 +617,7 @@
                                     "/advret"))]
       ;; SEMANTIC, posture-independent: `:query-retain` is not a promotion
       ;; source, so NOTHING promotes :ref and the always-on predicate reports it.
-      (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} #{}))
+      (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} warnings))
           "a key only :query-retain would name is unpromoted")
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -616,11 +629,7 @@
           (is (str/includes? advice ":query / :query-defaults")
               "the advice names exactly the two promotion sources")
           (is (not (str/includes? advice ":query-retain"))
-              ":query-retain is absent from the advice vocabulary")))
-      ;; …and `:query-retain` really is inert rather than merely unmentioned:
-      ;; naming :ref there does NOT promote it. Posture-independent.
-      (is (= #{:ref} (unpromoted :route/advret {:sensitive [[:query :ref]]} #{}))
-          ":query-retain widens nothing — the promoted set is the caller's alone"))
+              ":query-retain is absent from the advice vocabulary"))))
     ;; The remedy: DECLARE the key, and the advisory falls
     ;; silent — the same key is then keyword-promoted for real.
     (let [migrated-meta {:sensitive [[:query :ref]]
@@ -630,7 +639,7 @@
                                          "/advret-migrated"))]
       ;; SEMANTIC, posture-independent — without this the negative
       ;; leg below is vacuous under the gate.
-      (is (empty? (unpromoted :route/advret-migrated migrated-meta #{:ref}))
+      (is (empty? (unpromoted :route/advret-migrated migrated-meta warnings))
           "declaring :ref in the :query schema is the explicit remedy")
       ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?
@@ -641,12 +650,13 @@
   (testing "a STRING [:query \"token\"] segment (can never be a
             keyword-promoted slot) AND a :large [:query k] unpromoted key both
             trigger the advisory"
-    (let [w-str (capture-warnings
-                  #(rf/reg-route :route/advstr {:sensitive [[:query "token"]]} "/advstr"))]
+    (let [str-meta {:sensitive [[:query "token"]] :query [:map [:token :string]]}
+          w-str    (capture-warnings
+                     #(rf/reg-route :route/advstr str-meta "/advstr"))]
       ;; SEMANTIC, posture-independent: a STRING segment can never
-      ;; name a keyword-promoted slot, so the predicate reports it whatever the
-      ;; route promotes.
-      (is (= #{"token"} (unpromoted :route/advstr {:sensitive [[:query "token"]]} #{:token}))
+      ;; name a keyword-promoted slot, so the predicate reports it even though
+      ;; the route promotes the keyword `:token`.
+      (is (= #{"token"} (unpromoted :route/advstr str-meta w-str))
           "a string [:query \"token\"] segment is unpromotable by construction")
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -656,7 +666,7 @@
                     #(rf/reg-route :route/advlarge {:large [[:query :blob]]} "/advlarge"))]
       ;; SEMANTIC, posture-independent: the :large axis is scanned
       ;; too, not just :sensitive.
-      (is (= #{:blob} (unpromoted :route/advlarge {:large [[:query :blob]]} #{}))
+      (is (= #{:blob} (unpromoted :route/advlarge {:large [[:query :blob]]} w-large))
           "the predicate scans the :large axis as well as :sensitive")
       ;; Dev-instrumentation arm (see ns docstring).
       (when rf.interop/debug-enabled?
@@ -672,7 +682,7 @@
       ;; SEMANTIC, posture-independent: the predicate only ever
       ;; looks under a `[:query …]` head, so the :params axis cannot contribute.
       ;; Without this the negative leg below is vacuous under the gate.
-      (is (empty? (unpromoted :route/advparam meta #{}))
+      (is (empty? (unpromoted :route/advparam meta warnings))
           "the :params axis is immune to the query-promotion footgun")
       ;; Dev-instrumentation arm; NEGATIVE over the trace ring.
       (when rf.interop/debug-enabled?

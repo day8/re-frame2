@@ -176,7 +176,7 @@
       (is (= url (rf.routing/route-url {:to (:route-id (rf.routing/match-url url)) :params (:params (rf.routing/match-url url)) :query (:query (rf.routing/match-url url))}))
           "route-url ∘ match-url ∘ route-url is the identity on the canonical URL"))))
 
-(deftest route-url-namespaced-query-defaults-and-retain-round-trip
+(deftest route-url-namespaced-query-defaults-round-trip
   (testing "a namespaced :query-defaults key is recovered with its namespace
             (the declared-vocabulary token map covers :query-defaults, not
             just the :query schema)"

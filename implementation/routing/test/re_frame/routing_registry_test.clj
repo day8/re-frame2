@@ -13,18 +13,19 @@
   `clojure -M:test` suite AND in `scripts/test-routing-prod-gate.sh` (the
   `-Dre-frame.debug=false` lane).
 
-  Three deftests also observe registry facts through the DEV TRACE: the
-  `:rf.route/registered` and `:rf.route/cleared` lifecycle ops and
-  the `:rf.warning/route-shadowed-by-equal-score` advisory. All
+  Four deftests also observe registry facts through the DEV TRACE: the
+  `:rf.route/registered` and `:rf.route/cleared` lifecycle ops and, in two of
+  them, the `:rf.warning/route-shadowed-by-equal-score` advisory. All
   three emit through `trace/emit!`, gated on `rf.interop/debug-enabled?` and read
   once at load time. Their trace assertions sit inside
   `(when rf.interop/debug-enabled? …)` arms.
 
-  Two of the shadow-advisory blocks are NEGATIVE (`(is (= [] warns))` for the
-  every-app static case and the disjoint param-prefix pair) and would pass
-  vacuously under the gate. Outside the arm each of the three asserts the
-  REGISTRY fact the trace reports on — read off `rf/handler-meta` and
-  `match-url`, which are always-on. In particular the shadow advisory's whole
+  Three of the shadow-advisory blocks are NEGATIVE (`(is (= [] warns))` for the
+  every-app static case, the disjoint param-prefix pair and the registration
+  benchmark) and would pass vacuously under the gate. Outside the arm each of
+  the four asserts the REGISTRY fact the trace reports on — read off
+  `rf/handler-meta` and `match-url`, which are always-on. In particular the
+  shadow advisory's whole
   claim is about which route wins at match time, so `match-url` is the natural
   witness: `/a/7` really does resolve to the earlier registration and really
   does carry ITS capture name, and the three disjoint static routes really are
@@ -912,8 +913,22 @@
                       (rf/reg-route (keyword "bench" (str "param-" i)) {}
                                     (str "/p" i "/:id")))))
           elapsed-ms (/ (- (System/nanoTime) start) 1e6)]
-      (is (= [] warns)
-          "distinct-literal same-rank tables emit zero shadow warnings")
+      ;; SEMANTIC, posture-independent: there is nothing to warn ABOUT — every
+      ;; route resolves to itself. Without this the `(= [] warns)` leg is
+      ;; vacuous under the gate.
+      (is (every? #(= (keyword "bench" (str "static-" %))
+                      (:route-id (rf.routing/match-url (str "/bench-" %))))
+                  (range n))
+          "every distinct-literal static route is reachable")
+      (is (every? #(= (keyword "bench" (str "param-" %))
+                      (:route-id (rf.routing/match-url (str "/p" % "/7"))))
+                  (range 50))
+          "…and every param-family route")
+      ;; Dev-instrumentation arm (see ns docstring); NEGATIVE over
+      ;; the trace ring, hence guarded.
+      (when rf.interop/debug-enabled?
+        (is (= [] warns)
+            "distinct-literal same-rank tables emit zero shadow warnings"))
       ;; Generous CI bound — locally this is tens of milliseconds; the
       ;; assertion guards against an accidental exponential blow-up in the
       ;; product-automaton walk, not micro-performance.

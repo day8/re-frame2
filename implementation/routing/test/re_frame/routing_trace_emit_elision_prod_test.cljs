@@ -17,17 +17,12 @@
 
   Surfaces exercised:
 
-  - `:rf.route/fragment-changed`         (emitted by `:rf.route/handle-url-change` on fragment-only nav)
-  - `:rf.route.nav-token/allocated`      (emitted by `navigate` / `handle-url-change`)
+  - `:rf.route.nav-token/allocated`      (emitted by `handle-url-change` on a commit)
   - `:rf.route/registered`               (emitted by `reg-route` on first-time register)
-  - `:rf.route/cleared`                  (emitted by `clear-route`)
-  - `:rf.route/activated` / `:rf.route/deactivated` (emitted on navigation cross-route transition)
+  - `:rf.route/activated`                (emitted when a navigation commits a new route)
   - `:rf.warning/malformed-url`          (emitted on URL parse failure)
-  - `:rf.warning/no-not-found-route`     (emitted when unmatched and no fallback)
   - `:rf.route/navigation-blocked`       (emitted by the `:can-leave` guard)
   - `:rf.warning/route-shadowed-by-equal-score` (emitted at `reg-route`)
-  - `:rf.error/can-leave-non-boolean`    (emitted by the `:can-leave` guard)
-  - `:rf.warning/can-leave-subs-artefact-missing` (emitted by the guard)
 
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build. The default
@@ -95,17 +90,15 @@
         (rf.trace.tooling/unregister-listener! cb-key)
         (reset! seen [])))))
 
-;; ---- :rf.route.nav-token/allocated + lifecycle trio elide under prod -----
+;; ---- :rf.route.nav-token/allocated + route lifecycle elide under prod ----
 
 (deftest handle-url-change-emits-no-trace-under-prod
   (testing "Per Spec 009 §Production-elision: dispatching
             `:rf.route/handle-url-change` under `:advanced` +
             `goog.DEBUG=false` runs the routing slice update but emits
             NO trace events. The `:rf.route/registered`,
-            `:rf.route.nav-token/allocated`, `:rf.route/activated` /
-            `:rf.route/deactivated`, and
-            `:rf.route/fragment-changed` emits are DCE'd
-            by the gate inside `trace/emit!`."
+            `:rf.route.nav-token/allocated` and `:rf.route/activated`
+            emits are DCE'd by the gate inside `trace/emit!`."
     (let [seen (listener-fixture
                  (fn []
                    (rf/reg-route :prod-elision/landing {} "/")
