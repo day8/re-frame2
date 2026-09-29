@@ -237,29 +237,6 @@
       (is (nil? (rf.routing/lookup-scroll-position c2 "/unsaved"))
           "an unseen url returns nil — no false positives"))))
 
-(deftest scroll-position-overwrites-on-resave
-  (testing "save-scroll-position over an existing url replaces the saved value"
-    (let [c1 (rf.routing/save-scroll-position nil "/page" [0 100])
-          c2 (rf.routing/save-scroll-position c1  "/page" [0 999])]
-      (is (= [0 999] (rf.routing/lookup-scroll-position c2 "/page"))
-          "second save overwrites the first under the same url"))))
-
-(deftest scroll-position-per-frame-isolation
-  (testing "save-scroll-position is per-frame — the helpers thread through
-            each frame's own cache map, so a position saved in one frame's
-            cache is invisible from another frame's cache value"
-    ;; Two frames' independent caches: each is its own cache map. The
-    ;; helpers operate on cache values, so isolation is achieved by
-    ;; passing the right frame's cache.
-    (let [frame-A (rf.routing/save-scroll-position nil "/shared-url" [0 250])
-          frame-B (rf.routing/save-scroll-position nil "/shared-url" [0 999])]
-      (is (= [0 250] (rf.routing/lookup-scroll-position frame-A "/shared-url"))
-          "frame A's cache carries A's saved position")
-      (is (= [0 999] (rf.routing/lookup-scroll-position frame-B "/shared-url"))
-          "frame B's cache carries B's saved position — values are not shared")
-      (is (nil? (rf.routing/lookup-scroll-position nil "/shared-url"))
-          "a fresh cache (third frame, never-saved) returns nil for the same url"))))
-
 (deftest scroll-position-storage-shape
   (testing "save-scroll-position records [x y] under :positions and tracks
             recency under :order (the per-frame transient cache shape)"

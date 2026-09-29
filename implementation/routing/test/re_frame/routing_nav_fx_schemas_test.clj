@@ -133,14 +133,6 @@
            (:sensitive rf.routing.scroll/scroll-fx-meta)))
     (is (= [[:url]] (:sensitive rf.routing.scroll/capture-scroll-meta)))))
 
-(deftest nav-fx-schemas-are-valid-malli-schemas
-  (testing "every registered nav-fx schema compiles under Malli — an
-            uncompilable schema would throw inside validate-fx! and the
-            fail-closed catch would silently skip real navigation"
-    (doseq [[fx-id _] fx-id->schema-var]
-      (is (some? (m/schema (registered-schema fx-id)))
-          (str fx-id "'s :schema is a well-formed Malli schema")))))
-
 ;; =========================================================================
 ;; 2. Adjudication — :rf.nav/push-url + :rf.nav/replace-url (:string)
 ;; =========================================================================

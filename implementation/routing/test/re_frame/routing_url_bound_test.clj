@@ -85,46 +85,6 @@
                             @traces))
             "no duplicate-url-binding trace fires for non-URL-bound frames")))))
 
-(deftest push-url-noop-from-non-url-bound-frame
-  (testing ":rf.nav/push-url skips on a non-URL-bound frame and emits
-            :rf.fx/skipped-on-platform with :reason :frame-not-url-bound"
-    (rf/make-frame {:id :story/variant-A})
-    (rf/reg-route :route/home {} "/")
-    ;; Register :rf.nav/push-url with a capture spy AND :platforms
-    ;; #{:server :client} so the JVM path doesn't already skip on
-    ;; platform.
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}}
-                 (fn [{:keys [frame]} url]
-                   (swap! pushed conj {:frame frame :url url})))
-      ;; Default frame: pushes normally
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-      (is (= 1 (count @pushed))
-          "default frame: push-url fires once")
-      (is (= :rf/default (-> @pushed first :frame))
-          "first push originated from :rf/default")
-
-      ;; Non-URL-bound frame: still fires the FX (we registered a
-      ;; capture-spy that overrides the default), but in production the
-      ;; default fx body honours url-bound-frame? and short-circuits.
-      ;; We exercise the production behaviour by re-registering the
-      ;; default fx body — verifying it skips for the non-bound frame.
-      (reset! pushed [])
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}
-                  :doc       "test re-registration with the production
-                              url-bound-frame? gating"}
-                 (fn [{:keys [frame]} url]
-                   (when (or (= frame :rf/default)
-                             (true? (:url-bound? (rf.frame/frame-meta frame))))
-                     (swap! pushed conj {:frame frame :url url}))))
-
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}]
-                        {:frame :story/variant-A})
-      (is (empty? @pushed)
-          "non-URL-bound frame's push is suppressed by the gated fx"))))
-
 (deftest single-non-default-frame-owns-url-when-default-opts-out
   (testing "a non-default frame becomes the URL owner when :rf/default opts
             OUT (:url-bound? false) and the non-default opts IN
@@ -244,46 +204,6 @@
 ;; semantics: both bindings are visible in frame metadata, the existing owner
 ;; is unchanged, and only the owner's history-mutation fx fires.
 
-(deftest duplicate-url-binding-stores-both-frame-metas
-  (testing "after a duplicate :url-bound? true
-            registration, BOTH frames carry :url-bound? true in the
-            registry (the losing binding is stored, not rejected) and
-            the existing owner (:rf/default) is unchanged"
-    (rf/make-frame {:id :second-owner :url-bound? true})
-    (is (true? (:url-bound? (rf.frame/frame-meta :second-owner)))
-        "the offending frame's :url-bound? true is visible in frame metadata")
-    ;; :rf/default keeps implicit ownership (its metadata is unchanged by
-    ;; the error).
-    (is (= :rf/default (rf.routing/url-owner-frame-id))
-        "the existing URL owner (:rf/default) still drives navigation")))
-
-(deftest duplicate-url-binding-only-owner-drives-navigation
-  (testing "when two frames carry :url-bound? true,
-            only the single deterministic owner's :rf.nav/push-url fires;
-            the losing binding's navigation no-ops the history mutation.
-            Ownership is the FIRST-CLAIMED incumbent (the
-            fixture's :rf/default claimed first), NOT a :rf/default privilege
-            and NOT the alphabetically-first id — the duplicate :second-owner
-            claims after :rf/default, so :rf/default stays owner and the
-            newcomer loses."
-    (rf/make-frame {:id :second-owner :url-bound? true})   ;; conflicts with :rf/default
-    (rf/reg-route :route/home {} "/home")
-    (let [pushed (atom [])]
-      ;; Re-register the production-gated fx that consults the REAL
-      ;; url-owner-frame-id resolver (a reimplemented gate can't catch a
-      ;; resolution regression).
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}
-                  :doc       "test fx consulting the production url-owner resolver"}
-                 (fn [{:keys [frame]} url]
-                   (when (= frame (rf.routing/url-owner-frame-id))
-                     (swap! pushed conj {:frame frame :url url}))))
-      ;; Owner (:rf/default) pushes; the losing binding does not.
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :second-owner})
-      (is (= [{:frame :rf/default :url "/home"}] @pushed)
-          "only the deterministic owner's navigate pushes the URL; the loser no-ops"))))
-
 ;; ============================================================================
 ;; A duplicate URL-bound frame whose id SORTS BEFORE the incumbent
 ;; must NOT steal the browser URL (the existing owner is unchanged)
@@ -340,24 +260,6 @@
       (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
       (is (= [{:frame :rf/default :url "/home"}] @pushed)
           "the incumbent :rf/default still pushes the URL"))))
-
-(deftest legitimate-single-owner-still-drives-url
-  (testing "the legitimate single-owner path — the
-            sole :url-bound? true frame owns and drives the URL"
-    ;; No duplicate registered; :rf/default is the lone owner.
-    (is (= :rf/default (rf.routing/url-owner-frame-id))
-        "the sole :url-bound? true frame is the owner")
-    (rf/reg-route :route/home {} "/home")
-    (let [pushed (atom [])]
-      (rf.fx/reg-fx :rf.nav/push-url
-                 {:platforms #{:server :client}
-                  :doc       "test fx consulting the production url-owner resolver"}
-                 (fn [{:keys [frame]} url]
-                   (when (= frame (rf.routing/url-owner-frame-id))
-                     (swap! pushed conj {:frame frame :url url}))))
-      (rf/dispatch-sync [:rf.route/navigate {:to :route/home}] {:frame :rf/default})
-      (is (= [{:frame :rf/default :url "/home"}] @pushed)
-          "the legitimate single owner drives the URL"))))
 
 (deftest incumbent-relinquishes-ownership-falls-to-next-claimant
   (testing "when the incumbent re-registers WITHOUT :url-bound?

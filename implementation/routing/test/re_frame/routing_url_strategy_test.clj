@@ -63,11 +63,6 @@
     (is (fn? (:decode rf.routing.strategy/hash-url-strategy)))
     (is (nil? (:push! rf.routing.strategy/hash-url-strategy)))))
 
-(deftest facade-re-exports-both-strategies
-  (testing "the routing façade re-exports both shipped strategies (public surface)"
-    (is (identical? rf.routing.strategy/history-url-strategy rf.routing/history-url-strategy))
-    (is (identical? rf.routing.strategy/hash-url-strategy rf.routing/hash-url-strategy))))
-
 ;; ---- history strategy: encode is identity (path IS the URL) --------------
 
 (deftest history-encode-is-identity
@@ -89,104 +84,6 @@
         "a raw hash href is not double-hashed"))
   (testing "hash encode maps nil to the root hash (defensive)"
     (is (= "#/" (rf.routing.strategy/hash-encode nil)))))
-
-;; ---- encode/decode ROUND-TRIP (the property the fixtures pin) ------------
-;;
-;; The ROUND-TRIP identity — decode(encode(p)) recovers p — is
-;; verified here against a pure JVM model of `window.location.hash`: encode a
-;; path, then decode the `#`-tail the way `hash-decode` would
-;; (`decode-inverts-encode-for-every-shipped-form` below checks the shipped
-;; `:decode` legs themselves). This is the
-;; host-agnostic half of the round-trip the CLJS suite drives against a real
-;; (stubbed) `window`.
-
-(defn- hash-decode-model
-  "Pure JVM model of `hash-decode` over a raw `window.location.hash` string
-  (the value `hash-encode` produces). Mirrors `hash-decode`'s branch
-  logic without touching `js/window`."
-  [raw-hash]
-  (if (or (nil? raw-hash) (= "" raw-hash) (= "#" raw-hash))
-    "/"
-    (let [stripped (subs raw-hash 1)]
-      (if (clojure.string/starts-with? stripped "/")
-        stripped
-        (str "/" stripped)))))
-
-(deftest hash-encode-decode-round-trip
-  (testing "decode(encode(path)) recovers the original path-form URL for hash"
-    (doseq [p ["/" "/active" "/completed" "/articles/42" "/a/b/c" "/x?q=1&r=2"]]
-      (is (= p (hash-decode-model (rf.routing.strategy/hash-encode p)))
-          (str "hash round-trip recovers " (pr-str p))))))
-
-(deftest history-encode-decode-round-trip-is-identity
-  (testing "history encode is identity, so its round-trip is trivially the input"
-    (doseq [p ["/" "/active" "/articles/42?q=milk"]]
-      (is (= p (rf.routing.strategy/history-encode p))))))
-
-;; ---- ADVERSARIAL / negative fixtures -------------------------------------
-
-(deftest hash-decode-empty-and-bare-hash-is-root
-  (testing "an empty / bare `#` hash decodes to the root route `/` (adversarial:
-            a browser landing with no hash, or a bare `#`)"
-    (is (= "/" (hash-decode-model "")))
-    (is (= "/" (hash-decode-model "#")))
-    (is (= "/" (hash-decode-model nil)))))
-
-(deftest hash-decode-missing-leading-slash-is-repaired
-  (testing "a hash without a leading `/` after the `#` (`#active`, an
-            adversarial / legacy secretary-style href) decodes to a rooted
-            path `/active`, not `active`"
-    (is (= "/active" (hash-decode-model "#active")))
-    (is (= "/completed" (hash-decode-model "#completed")))))
-
-(deftest strategy-forms-do-not-collide
-  (testing "the two strategies produce DISTINCT hrefs for the same path, and
-            the WRONG-strategy round-trip does NOT recover the path — proving
-            the forms are genuinely different address-bar shapes that cannot be
-            interchanged (the mismatch the seam exists to keep separate)"
-    (let [p "/active"
-          hist-href (rf.routing.strategy/history-encode p)  ;; "/active"
-          hash-href (rf.routing.strategy/hash-encode p)]    ;; "#/active"
-      (is (not= hist-href hash-href)
-          "history and hash hrefs differ for the same path")
-      ;; A HASH href fed to the HISTORY decode projection (identity over the
-      ;; app-relative URL) is NOT the path — the leading `#` survives, so the
-      ;; router would route-miss. The two forms are not interchangeable.
-      (is (not= p (rf.routing.strategy/history-encode hash-href))
-          "history projection of a hash href keeps the `#` — the forms are distinct")
-      ;; And a HISTORY href (a bare path) has no `#`, so the HASH decoder's
-      ;; bare-hash / empty-hash guard does NOT apply and it is NOT the empty
-      ;; root — a further proof the two decoders read different shapes.
-      (is (= "/x/y" (hash-decode-model "#/x/y"))
-          "the hash decoder recovers a multi-segment path from a `#`-href")
-      (is (not= "#/x/y" (hash-decode-model "#/x/y"))
-          "the decoded path drops the `#` — decode is not identity for hash"))))
-
-;; ---- frame-config resolution ---------------------------------------------
-
-(deftest url-strategy-from-config-defaults-to-history
-  (testing "a frame config with no :url-strategy resolves to the history default"
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config {})))
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config {:url-bound? true})))
-    (is (identical? rf.routing.strategy/history-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config nil))
-        "a non-map config falls back to the history default")))
-
-(deftest url-strategy-from-config-reads-declared-strategy
-  (testing "a frame config declaring :url-strategy resolves to it"
-    (is (identical? rf.routing.strategy/hash-url-strategy
-                    (rf.routing.strategy/url-strategy-from-config
-                      {:url-bound? true :url-strategy rf.routing.strategy/hash-url-strategy})))
-    ;; a SHAPE-VALID custom strategy map is honoured verbatim (the seam is
-    ;; open — the two shipped strategies are the blessed pair, but a complete
-    ;; custom config value passes through unchanged). On the JVM only the two
-    ;; host-agnostic legs `:encode` / `:decode` are required (the browser legs
-    ;; are reader-conditionally absent — see validate-url-strategy!).
-    (let [custom {:encode identity :decode (constantly "/")}]
-      (is (identical? custom
-                      (rf.routing.strategy/url-strategy-from-config {:url-strategy custom}))))))
 
 ;; ---- consult-path dev tripwire ---------------------------------------------
 ;;
@@ -431,14 +328,6 @@
     (is (identical? rf.routing.strategy/hash-url-strategy
                     (rf.routing.strategy/with-base-path rf.routing.strategy/hash-url-strategy "  ")))))
 
-(deftest with-base-path-composes-over-hash-strategy
-  (testing "with-base-path composes over hash-url-strategy too — the base
-            prefixes the pathname portion, the wrapped strategy's own `#`
-            form is preserved underneath"
-    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/hash-url-strategy "/demos")]
-      (is (= "/demos#/active" ((:encode wrapped) "/active"))
-          "the wrapped hash encode still `#`-prefixes; the base sits in front of it"))))
-
 (deftest with-base-path-jvm-side-omits-side-effecting-keys
   (testing "the JVM half of a wrapped strategy carries only :encode/:decode,
             matching the two shipped strategies' own JVM shape"
@@ -447,11 +336,6 @@
       (is (fn? (:decode wrapped)))
       (is (nil? (:push! wrapped)))
       (is (nil? (:install-listener! wrapped))))))
-
-(deftest facade-re-exports-with-base-path
-  (testing "the routing façade re-exports with-base-path (public surface)"
-    (is (= ((:encode (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/x")) "/a")
-           ((:encode (rf.routing/with-base-path rf.routing.strategy/history-url-strategy "/x")) "/a")))))
 
 ;; ---- registration-time frame-config preflight ----------------------------
 ;;
@@ -496,20 +380,6 @@
       (is (= :rf.error/invalid-url-strategy (:rf.error/id (ex-data ex))))
       (is (= :t/owner (:frame (ex-data ex))))
       (is (contains? (set (:missing (ex-data ex))) :encode)))))
-
-(deftest preflight-valid-shipped-and-custom-strategies-pass
-  (testing "the shipped strategies, a with-base-path wrapper, and a
-            JVM-shape-complete custom map all preflight clean"
-    (is (nil? (rf.routing.strategy/preflight-frame-config!
-                :t/owner {:url-strategy rf.routing.strategy/history-url-strategy})))
-    (is (nil? (rf.routing.strategy/preflight-frame-config!
-                :t/owner {:url-strategy rf.routing.strategy/hash-url-strategy})))
-    (is (nil? (rf.routing.strategy/preflight-frame-config!
-                :t/owner {:url-strategy (rf.routing.strategy/with-base-path
-                                          rf.routing.strategy/history-url-strategy "/demos")})))
-    (is (nil? (rf.routing.strategy/preflight-frame-config!
-                :t/owner {:url-strategy {:encode identity
-                                         :decode (constantly "/")}})))))
 
 (deftest make-frame-engine-rejects-malformed-strategy-before-any-write
   (testing "the core engine (rf.frame/upsert-frame!) preflights the

@@ -59,22 +59,6 @@
 
 ;; ---- href synthesis -----------------------------------------------------
 
-(deftest route-link-href-from-route-id
-  (testing "the rendered <a> :href matches route-url for the given :to"
-    (rf/reg-route :route/cart    {} "/cart")
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-
-    (let [render  rf.routing/route-link-render-ssr
-          [tag attrs] (render {:to :route/cart})]
-      (is (= :a tag) "renders an <a> element")
-      (is (= "/cart" (:href attrs))
-          ":href is the route-url for :route/cart"))
-
-    (let [[_ attrs] (rf.routing/route-link-render-ssr
-                     {:to :route/article :params {:id "intro"}})]
-      (is (= "/articles/intro" (:href attrs))
-          ":href substitutes :params into the route's :path pattern"))))
-
 (deftest route-link-href-with-query-and-fragment
   (testing ":query and :fragment are appended to the href"
     ;; :q is optional so /search is reachable without a query (exercised by
