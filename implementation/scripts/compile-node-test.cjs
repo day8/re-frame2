@@ -44,6 +44,18 @@
 //      determinism: the shared id can never carry residue from a config it
 //      did not itself request.
 //
+//      The focused build's RUNTIME is kept out of that directory. A dev-mode
+//      node bundle loads its `cljs-runtime` files at RUN time from the
+//      build's `:output-dir`, which shadow-cljs defaults to `<mode>/out`
+//      INSIDE the cleared entry, so the clear after compiling would delete
+//      exactly what the bundle is about to load. A config-merged compile
+//      therefore writes its runtime to `<output-to stem>.config-merge/`
+//      beside its own bundle, a directory the shared id's full compile never
+//      reads, and the whole entry is still cleared. Clearing everything BUT
+//      `<mode>/out` would also keep the bundle runnable, but only as a bet on
+//      shadow-cljs's cache layout, which is the bet `lane_cache.cjs` declines
+//      by clearing the whole entry.
+//
 // The cheapest remedy of all: don't `--config-merge` against `:node-test`
 // in the first place. `node out/node-test.js --test=<ns>[,<ns>...]` selects
 // namespaces at RUNTIME, needs no recompile, and cannot poison anything —
@@ -187,6 +199,14 @@ function buildTally(text) {
   };
 }
 
+// Where a config-merged compile writes its runtime: beside its own bundle, out
+// of reach of the cache clear (see Part 2 of the header). Forward slashes, so
+// the path reads as an EDN string on every platform.
+function configMergeOutputDir(outputPath) {
+  const { dir, name } = path.parse(outputPath);
+  return path.join(dir, `${name}.config-merge`).split(path.sep).join('/');
+}
+
 // Run shadow-cljs, streaming its output through UNCHANGED while capturing it.
 // The stream has to stay live — a lane that compiles for three minutes in
 // silence is a worse tool than one that reports nothing — so this is `spawn`
@@ -228,6 +248,11 @@ async function main(argv) {
 
   const usesConfigMerge = extraArgs.some((a) => a === '--config-merge');
   const outputPath = path.resolve(IMPL_DIR, outputTo);
+  // shadow-cljs deep-merges repeated `--config-merge` values in order, so this
+  // one goes FIRST and a caller's own `:output-dir` still wins.
+  const runtimeArgs = usesConfigMerge
+    ? ['--config-merge', `{:output-dir ${JSON.stringify(configMergeOutputDir(outputPath))}}`]
+    : [];
 
   // Part 2: isolate a focused/config-merged compile from the shared id's
   // cache — before AND after, so the shared id is guaranteed clean for the
@@ -261,7 +286,7 @@ async function main(argv) {
   }
   const result = await runCapturing(
     process.execPath,
-    [shadowCljsBin, 'compile', buildId, ...extraArgs],
+    [shadowCljsBin, 'compile', buildId, ...runtimeArgs, ...extraArgs],
     { cwd: IMPL_DIR }
   );
 
