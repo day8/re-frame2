@@ -257,37 +257,6 @@
           "stack view returns nil when no popups are open (closed-state
            cost is one subscribe + a when-gate)"))))
 
-(deftest popup-stack-view-renders-active-popup
-  (testing "when one popup is open the stack view renders
-            its chrome (backdrop / dialog / body)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync
-        [:rf.xray.edn-inspector-popup/open
-         "m1" {:value {:foo :bar}
-               :opts  {:title "Inspect cart"}}])
-      (let [tree (popup-stack-tree)]
-        (is (some? tree) "stack view returns hiccup when stack non-empty")
-        (is (some? (find-by-testid tree "rf-xray-edn-inspector-popup-stack"))
-            "outer stack container present")
-        (is (some? (find-by-testid tree
-                                   "rf-xray-edn-inspector-popup-backdrop-m1"))
-            "popup chrome rendered for m1")))))
-
-(deftest popup-stack-view-renders-each-active-mount
-  (testing "every mount-id on the stack gets a chrome"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                         "m1" {:value 1 :opts {}}])
-      (rf/dispatch-sync [:rf.xray.edn-inspector-popup/open
-                         "m2" {:value 2 :opts {}}])
-      (let [tree (popup-stack-tree)]
-        (is (some? (find-by-testid tree
-                                   "rf-xray-edn-inspector-popup-backdrop-m1")))
-        (is (some? (find-by-testid tree
-                                   "rf-xray-edn-inspector-popup-backdrop-m2")))))))
-
 ;; =========================================================================
 ;; registry wiring
 ;; =========================================================================

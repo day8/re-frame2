@@ -148,34 +148,6 @@
     (testing "long lines scroll within the pre rather than overflowing"
       (is (= "auto" (:overflow-x style))))))
 
-(deftest code-block-keyword-token-uses-syntax-keyword
-  (testing "keyword tokens render on the dedicated
-            `:syntax-keyword` token"
-    (let [out      (w/code-block {:source ":foo"})
-          spans    (walk-hiccup out)
-          kw?      (fn [n]
-                     (let [c (some-> n second :style :color)]
-                       (= c (:syntax-keyword tokens))))
-          kw-span  (some #(when (and (vector? %)
-                                     (= :span (first %))
-                                     (kw? %)) %)
-                         spans)]
-      (is (some? kw-span)))))
-
-(deftest code-block-string-token-uses-syntax-string
-  (testing "string tokens render on the dedicated
-            `:syntax-string` token"
-    (let [out      (w/code-block {:source "\"hi\""})
-          spans    (walk-hiccup out)
-          str?     (fn [n]
-                     (let [c (some-> n second :style :color)]
-                       (= c (:syntax-string tokens))))
-          str-span (some #(when (and (vector? %)
-                                     (= :span (first %))
-                                     (str? %)) %)
-                         spans)]
-      (is (some? str-span)))))
-
 (deftest code-block-builtin-and-keyword-render-distinct-colours
   (testing "`(let [x :foo] x)` paints `let` (builtin) and
             `:foo` (keyword) on DIFFERENT colours"

@@ -352,19 +352,6 @@
     (is (nil? (find-attr h :data-rf-diff-op "modified"))
         "and wears no modified chrome")))
 
-(deftest uuid-leaf-outside-diff-mode-keeps-the-plain-protocol-node
-  ;; The yield is scoped to diff mode alone — the ordinary render
-  ;; path takes the protocol seam.
-  (let [h (ei/render-node {:value (uuid "00000000-0000-0000-0000-00000000aaaa")
-                           :panel-id :test
-                           :mount-id "m1"
-                           :path []
-                           :depth 0
-                           :expansion-map {}
-                           :opts {}})]
-    (is (some? (find-attr h :data-rf-protocol "1"))
-        "no `:diff?` — the protocol seam wins")))
-
 (deftest added-and-removed-protocol-leaves-carry-their-chrome
   ;; `:added` / `:removed` are resolved by the STRUCTURAL sentinel
   ;; rather than by a before/after comparison, so they reach

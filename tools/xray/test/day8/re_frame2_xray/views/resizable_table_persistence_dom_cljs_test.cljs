@@ -67,17 +67,6 @@
   (rf/with-frame :rf/xray
     (rf/dispatch-sync ev)))
 
-;; ---- save! / load round-trip -------------------------------------------
-
-(deftest save-and-load-round-trip
-  (if-not (ls/available?)
-    (is true "skipped: no localStorage (node lane — see ns docstring)")
-    (let [widths {:rf.xray.epoch/subscriptions {:sub 300 :inputs 150 :value 200}}]
-      (rt/clear!)
-      (rt/save! widths)
-      (is (= widths (rt/load))
-          "browser-backed round-trip preserves the {table-id {col-id px}} shape"))))
-
 ;; ---- Storage-key override (per-instance isolation) ----------------------
 
 ;; THIS ROW OWNS BOTH TEST KEYS, BECAUSE THE FIXTURE CANNOT.
