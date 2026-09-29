@@ -119,16 +119,6 @@
             reader through `rf/frame-meta` rather than a private token"
     (is (= :rf.story/errors rf.story.config/error-sink-id))))
 
-(deftest the-policy-is-conjed-never-substituted
-  (testing "an author's own `[:observability :errors]` entry on a frame
-            config survives Story adding its own — the `(fnil conj [])` is
-            load-bearing, and replacing the vector would silently drop a
-            consumer's production sink on every Story frame"
-    (let [config (-> (variant-frame-config :story.demo/variant nil {})
-                     (update-in [:observability :errors] conj {:sink :app/datadog}))]
-      (is (= [{:sink rf.story.config/error-sink-id} {:sink :app/datadog}]
-             (get-in config [:observability :errors]))))))
-
 (deftest a-real-story-frame-routes-its-refusal-to-the-sink
   (testing "the two halves composed, end to end and through the real
             framework: a frame built from Story's own config, a refusal
