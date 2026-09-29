@@ -44,7 +44,9 @@
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.test-helpers :as rf.test-helpers]
+            [day8.re-frame2-xray.install :as install]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
@@ -743,6 +745,58 @@
             "an ordinary selected epoch must not be classified :no-epoch")
         (is (= 1 (:epoch-id feed)))
         (is (= #{1} (set (map :id (:rows feed)))))))))
+
+(deftest ungrouped-pin-lists-a-real-hydration-mismatch-and-its-hashes
+  (testing "`verify-hydration!` runs outside any event, so its mismatch
+            lands in the `:ungrouped` pseudo-bundle, which settles no
+            epoch. Selecting that row must still list the bundle's events
+            in the Trace tab, so the mismatch's hashes can be read there:
+            in the row's reason, and as tags in the expanded raw trace."
+    (setup-xray-frame!)
+    (install/register-trace-collector!)
+    (rf.ssr/verify-hydration! :rf/default "cafef00d" {:server-hash "deadbeef"})
+    (trace-collector/refresh-trace-rings!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/settings-update :general :show-ungrouped? true])
+      ;; The L2 row's own click, for the `:ungrouped` bundle's row.
+      (rf/dispatch-sync [:rf.xray/focus-event :ungrouped nil])
+      (let [focus @(rf/subscribe [:rf.xray/focus])]
+        (is (= :ungrouped (:dispatch-id focus))
+            (str "test setup: the :ungrouped row must be the selection. focus: "
+                 (pr-str focus)))
+        (is (nil? (:epoch-id focus))
+            "test setup: the :ungrouped bundle settles no epoch"))
+      (let [feed      @(rf/subscribe [:rf.xray/trace-feed])
+            mismatch  (some #(when (= :rf.ssr/hydration-mismatch (:operation %)) %)
+                            (:rows feed))
+            id        (:id mismatch)]
+        (is (nil? (:empty-kind feed))
+            (str "the Trace tab must list the bundle's events, not an empty "
+                 "state. feed: "
+                 (pr-str (select-keys feed [:empty-kind :epoch-id :total]))))
+        (is (some? mismatch) "the mismatch is one of the listed rows")
+        (let [tree   (rendered-tree)
+              target (find-by-testid tree (str "rf-xray-trace-row-" id "-target"))
+              text   (apply str (filter string? (hiccup-seq target)))]
+          (is (some? (find-by-testid tree "rf-xray-trace-feed"))
+              "the panel renders the row list")
+          (is (nil? (find-by-testid tree "rf-xray-trace-empty-no-epoch"))
+              "the panel does not say the selection settled no epoch")
+          (is (and (re-find #"deadbeef" text) (re-find #"cafef00d" text))
+              (str "the row's reason names both hashes. target: " (pr-str text))))
+        (rf/dispatch-sync [:rf.xray/toggle-trace-row-expand id])
+        (let [inspector (some #(when (and (vector? %)
+                                          (identical? ei/edn-inspector-view (first %))
+                                          (= (str "rf-xray-trace-row-" id)
+                                             (:mount-id (second %))))
+                                 %)
+                              (hiccup-seq (inspector-heads-tree)))
+              tags      (:tags (:value (second inspector)))]
+          (is (some? inspector) "the expanded row mounts the raw-trace inspector")
+          (is (= "deadbeef" (:server-hash tags))
+              "the expanded row carries the server's hash tag")
+          (is (= "cafef00d" (:client-hash tags))
+              "the expanded row carries the client's hash tag"))))))
 
 ;; ---- (4) focused-epoch scope (refocus) ----------------------------------
 

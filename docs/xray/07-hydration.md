@@ -1,6 +1,6 @@
 # 7. SSR hydration
 
-Your page was rendered on the server and now hydrates in the browser. Xray shows the hydration event itself, and flags a hydration mismatch in its event list. The mismatch's details are reported elsewhere, and this chapter says where. [When the renders disagree](../ssr/concepts.md#when-the-renders-disagree) in the SSR guide explains how a mismatch is detected and what the runtime does about it.
+Your page was rendered on the server and now hydrates in the browser. Xray shows the hydration event itself, and keeps a hydration mismatch in its event list, where the Trace tab reads its details. This chapter says where to find it, and where else it is reported. [When the renders disagree](../ssr/concepts.md#when-the-renders-disagree) in the SSR guide explains how a mismatch is detected and what the runtime does about it.
 
 ## The hydrate epoch
 
@@ -10,13 +10,15 @@ Hydration is an ordinary event. The client dispatches `:rf/hydrate`, which insta
 
 ## Where a mismatch is reported
 
-A hydration mismatch is not an event, and it belongs to no epoch. The client checks for it after its first render, outside any event, so the Epoch and Trace tabs have nothing to show for it.
+A hydration mismatch is not an event, and it belongs to no epoch. The client checks for it after its first render, outside any event.
 
-Xray still keeps it, in the event list's `:ungrouped` row, which collects every trace fired outside an event. That row is hidden by default. Turn on **Show :ungrouped pseudo-event-bundle events in L2** in Settings → General, and a `<no event>` row appears, washed pink because it holds an error. The row tells you that a mismatch happened, not what it was: selecting it selects no epoch, so the Epoch and Trace tabs say "The selected event settled no epoch."
+Xray keeps it in the event list's `:ungrouped` row, which collects every trace fired outside an event. That row is hidden by default. Turn on **Show :ungrouped pseudo-event-bundle events in L2** in Settings → General, and a `<no event>` row appears, washed pink because it holds an error.
 
-The details go to:
+Select that row and open the Trace tab, which lists the row's traces. The `:rf.ssr/hydration-mismatch` row names the server's and the client's render hashes in its reason. Click it to open the whole trace: the hashes are its `:server-hash` and `:client-hash` tags, beside the frame, the `:failing-id` and the recovery the runtime took. The Epoch tab says "The selected event settled no epoch.", because no epoch settled.
 
-- trace listeners, as the trace `:rf.ssr/hydration-mismatch`, carrying the server's and the client's render hashes, the frame, the `:failing-id` and the recovery the runtime took. [Write a listener](../core/observability.md#write-a-listener) in the observability guide shows how to register one.
+Outside Xray, the details go to:
+
+- trace listeners, as that same trace, carrying the same tags. [Write a listener](../core/observability.md#write-a-listener) in the observability guide shows how to register one.
 - the frame's `:observability :errors` sinks, as an error record under the same id. That record is sent in every build. In a development build, a record that no sink handles is printed to the console. [Declare a sink](../core/observability.md#consuming-production-telemetry-declare-a-sink) in the observability guide shows how.
 
 The hashes tell you that the renders diverged, not which node. By default the client's render replaces the server's markup and the page keeps working. Set `:ssr {:on-mismatch :hard-error}` on the frame to make the check throw instead, which suits CI.

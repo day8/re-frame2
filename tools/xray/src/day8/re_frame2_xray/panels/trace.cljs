@@ -62,6 +62,10 @@
   do. No mock data is baked into the live panel; the arc is fed by real
   trace data throughout.
 
+  A focus pinning the `:ungrouped` pseudo-bundle, which settles no
+  epoch, lists that bundle's own events instead, so a hydration
+  mismatch's row can be read here.
+
   ## Empty states
 
     :no-events     -> 'No events.' (focused epoch carries no trace events)
@@ -1248,20 +1252,32 @@
   ;; frame declared. It costs one extra input signal; `observed-frame`
   ;; itself derives from `:rf.xray/focus` + `:rf.xray/target-frame`, so
   ;; nothing the row-expand set writes can invalidate the feed through it.
+  ;;
+  ;; THE `:ungrouped` PIN READS ITS OWN BUNDLE. The pseudo-bundle settles no
+  ;; epoch, yet it holds real traces, a hydration mismatch among them. So
+  ;; when focus pins it and the bundle is present, the feed lists that
+  ;; bundle's events through `h/project-feed-from-ungrouped`: the
+  ;; mismatch's row names both hashes in its reason, and expanding it shows
+  ;; the raw trace's `:server-hash` and `:client-hash` tags. Every other
+  ;; focus takes the epoch path unchanged, and so does an `:ungrouped` pin
+  ;; whose bundle has gone, which reads `:no-epoch`.
   (rf/reg-sub :rf.xray/trace-feed
     {:inputs [[:rf.xray/focus]
               [:rf.xray/epoch-history]
-              [:rf.xray/observed-frame]]}
-    (fn [[focus epoch-history observed-frame] _query]
+              [:rf.xray/observed-frame]
+              [:rf.xray.trace/focused-event-bundle]]}
+    (fn [[focus epoch-history observed-frame focused-event-bundle] _query]
       (let [focus-epoch-id    (:epoch-id focus)
-            focus-dispatch-id (:dispatch-id focus)
-            focus-status      (focus/resolve-focus-status focus-epoch-id
-                                                          focus-dispatch-id
-                                                          epoch-history)
-            record            (focus/find-epoch-record focus-epoch-id
-                                                       focus-dispatch-id
-                                                       epoch-history)]
-        (h/project-feed-from-epoch record focus-status observed-frame))))
+            focus-dispatch-id (:dispatch-id focus)]
+        (if (and (= :ungrouped focus-dispatch-id) focused-event-bundle)
+          (h/project-feed-from-ungrouped focused-event-bundle)
+          (let [focus-status (focus/resolve-focus-status focus-epoch-id
+                                                         focus-dispatch-id
+                                                         epoch-history)
+                record       (focus/find-epoch-record focus-epoch-id
+                                                      focus-dispatch-id
+                                                      epoch-history)]
+            (h/project-feed-from-epoch record focus-status observed-frame))))))
 
   ;; ---- focused event-bundle -----------------------------------------------
   ;;
