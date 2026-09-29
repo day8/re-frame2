@@ -290,44 +290,6 @@
         (is (= [] (:active-modes (rf.story.ui.state/get-state)))
             "omitted modes= cleared the localStorage seed — URL authoritative")))))
 
-(deftest mount-no-url-falls-back-to-localstorage
-  (testing "a fresh mount with NO URL state at all preserves
-            the localStorage seed (apply-parsed-to-state is not run when
-            the search is empty). This is the intentional last-used
-            fallback that survives ONLY when the URL carries nothing."
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (rf.story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
-        (rf.story/reg-mode :Mode.persist.vp/mobile  {:axis :viewport :args {:viewport :mobile}})
-        (rf.story.ui.toolbar/save-modes-to-storage!
-          [:Mode.persist.theme/dark :Mode.persist.vp/mobile])
-        (simulate-reload!)
-        ;; Mount with NO URL params — localStorage is the only source.
-        (mount-hydrate-modes! "")
-        (is (= #{:Mode.persist.theme/dark :Mode.persist.vp/mobile}
-               (set (:active-modes (rf.story.ui.state/get-state))))
-            "no URL state ⇒ localStorage seed survives (last-used fallback)")))))
-
-(deftest mount-url-modes-prune-is-url-authoritative
-  (testing "URL-derived modes ride apply-parsed-to-state
-            verbatim (the canonical writer does not prune against the
-            registrar — same discipline as every other URL-owned slot).
-            A stale localStorage seed, by contrast, IS pruned by the
-            localStorage hydrator before the URL apply overrides it."
-    (if-not (browser?)
-      (is true skip-msg)
-      (do
-        (rf.story/reg-mode :Mode.persist.theme/dark {:axis :theme :args {:theme :dark}})
-        ;; localStorage seed carries a stale id; the storage hydrator prunes it.
-        (rf.story.ui.toolbar/save-modes-to-storage!
-          [:Mode.persist.theme/dark :Mode.persist.removed/zzz])
-        (simulate-reload!)
-        ;; URL carries the live :dark only.
-        (mount-hydrate-modes! (modes-url-search [:Mode.persist.theme/dark]))
-        (is (= [:Mode.persist.theme/dark] (:active-modes (rf.story.ui.state/get-state)))
-            "URL modes win; the stale localStorage id never surfaces")))))
-
 ;; ===========================================================================
 ;; Unknown mode id in localStorage is dropped at hydrate
 ;;

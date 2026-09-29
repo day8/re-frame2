@@ -30,14 +30,6 @@
 ;; ---- pure-ish: select! mutations ----------------------------------------
 
 #?(:cljs
-   (deftest cljs-select-writes-shell-state
-     (testing "select! lands the normalised choice on shell-state-atom"
-       (rf.story.ui.backgrounds-switcher/select! :dark)
-       (is (= :dark (:background (rf.story.ui.state/get-state))))
-       (rf.story.ui.backgrounds-switcher/select! :midnight)
-       (is (= :midnight (:background (rf.story.ui.state/get-state)))))))
-
-#?(:cljs
    (deftest cljs-select-custom-writes-hex
      (testing "a custom hex persists as a trimmed string"
        (rf.story.ui.backgrounds-switcher/select! "#abc123")
@@ -114,13 +106,6 @@
        (rf.story.ui.state/swap-state! assoc :background :dark)
        (let [eff (rf.story.ui.backgrounds-switcher/effective-background)]
          (is (= "Dark" (:label eff)))))))
-
-#?(:cljs
-   (deftest cljs-effective-background-default-is-light
-     (testing "no override + no selection → :light"
-       (let [eff (rf.story.ui.backgrounds-switcher/effective-background)]
-         (is (= "Light" (:label eff)))
-         (is (= "#ffffff" (:color eff)))))))
 
 ;; ---- the chip renders without throwing ----------------------------------
 

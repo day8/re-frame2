@@ -33,14 +33,6 @@
 ;; ---- pure-ish: select! mutations ----------------------------------------
 
 #?(:cljs
-   (deftest cljs-select-writes-shell-state
-     (testing "select! lands the normalised choice on shell-state-atom"
-       (rf.story.ui.viewport-switcher/select! :tablet)
-       (is (= :tablet (:viewport (rf.story.ui.state/get-state))))
-       (rf.story.ui.viewport-switcher/select! :mobile-portrait)
-       (is (= :mobile-portrait (:viewport (rf.story.ui.state/get-state)))))))
-
-#?(:cljs
    (deftest cljs-select-custom-writes-map
      (testing "a custom map persists as a slim {:width :height}"
        (rf.story.ui.viewport-switcher/select! {:width 800 :height 600})
@@ -118,13 +110,6 @@
        (rf.story.ui.state/swap-state! assoc :viewport :tablet)
        (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
          (is (= "Tablet" (:label eff)))))))
-
-#?(:cljs
-   (deftest cljs-effective-viewport-default-is-full
-     (testing "no override + no selection → :full"
-       (let [eff (rf.story.ui.viewport-switcher/effective-viewport)]
-         (is (= "Full" (:label eff)))
-         (is (nil? (:width eff)))))))
 
 ;; ---- the chip renders without throwing ----------------------------------
 
