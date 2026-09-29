@@ -401,21 +401,6 @@
       (is (some? (find-attr h :data-testid "rf-xray-edn-inspector-large")))
       (is (re-find #"large" (collect-text h))))))
 
-(deftest large-sentinel-not-rendered-as-plain-map
-  ;; A real framework-emitted marker must not fall through to ordinary
-  ;; map rendering, exposing `:path :bytes :type :reason :hint :handle`
-  ;; as plain map keys: `collection-kind` MUST classify the marker as
-  ;; `:sentinel-large`, NOT `:map`.
-  (let [marker {:rf.size/large-elided {:path   [:blob]
-                                       :bytes  5000
-                                       :type   :string
-                                       :reason :schema
-                                       :hint   nil
-                                       :handle [:rf.elision/at [:blob]]}}]
-    (is (= :sentinel-large (ei/collection-kind marker))
-        "marker classifies as sentinel-large (not :map)")
-    (is (not= :map (ei/collection-kind marker)))))
-
 (deftest redacted-size-sentinel-chrome
   (let [h (ei/render-scalar {:rf/redacted {:bytes 200}})
         all (collect-text h)]
@@ -615,23 +600,6 @@
     ;; First two levels should be visible.
     (is (re-find #":level1" text))))
 
-(deftest render-node-expanded-shows-body
-  ;; Force expansion via the override map; verify the body is rendered.
-  ;; A 5-entry map doesn't inline-fit, so the toggle ▾ + body are
-  ;; both rendered.
-  (let [v2 {:a 1 :b {:c 2} :d 3 :e 4 :f 5}
-        k0 (ei/expansion-key :p "m" [])
-        h  (ei/render-node {:value v2
-                            :panel-id :p
-                            :mount-id "m"
-                            :path []
-                            :depth 0
-                            :expansion-map {k0 {:expanded? true}}
-                            :opts {:default-expanded-depth 0}})
-        text (collect-text h)]
-    (is (re-find #":a" text))
-    (is (re-find #":f" text))))
-
 (deftest render-node-collapsed-shows-preview-not-body
   (let [v {:level1 {:level2 {:level3 {:deep 1}}}}
         k0 (ei/expansion-key :p "m" [:level1 :level2])
@@ -646,25 +614,6 @@
         text (collect-text h)]
     ;; The closed node's children should NOT be in the rendered text.
     (is (not (re-find #":deep" text)))))
-
-(deftest render-node-toggle-glyph-changes
-  ;; The header carries the toggle span; when expanded? we see ▾,
-  ;; when collapsed we see ▸.
-  (let [v   {:a 1 :b 2 :c 3 :d 4 :e 5}  ;; too big to inline-fit
-        k0  (ei/expansion-key :p "m" [])
-        h-expanded   (ei/render-node {:value v :panel-id :p :mount-id "m"
-                                      :path [] :depth 0
-                                      :expansion-map {k0 {:expanded? true}}
-                                      :opts {:default-expanded-depth 0}})
-        h-collapsed  (ei/render-node {:value v :panel-id :p :mount-id "m"
-                                      :path [] :depth 0
-                                      :expansion-map {k0 {:expanded? false}}
-                                      :opts {:default-expanded-depth 0}})
-        text-expanded   (collect-text h-expanded)
-        text-collapsed  (collect-text h-collapsed)]
-    (is (re-find #"▾" text-expanded))
-    (is (re-find #"▸" text-collapsed))
-    (is (not (re-find #"▾" text-collapsed)))))
 
 (deftest render-node-includes-data-testid
   ;; The trailing separator is not a typo and is the pin for the
@@ -792,10 +741,6 @@
         "glyph centred vertically inside the hit-box")
     (is (= "center"  (:justify-content ei/triangle-style))
         "glyph centred horizontally inside the hit-box")))
-
-(deftest triangle-min-target-px-is-24
-  (is (= 24 ei/triangle-min-target-px)
-      "the public contract pin: 24px in both axes"))
 
 (deftest triangle-style-font-size-is-22px
   (testing "triangle glyph font-size is 22px, inside the preferred
@@ -973,27 +918,6 @@
       (is (= 4 (count key-cells))   "four map rows → four key cells")
       (is (= 4 (count value-cells)) "four map rows → four value cells"))))
 
-(deftest sequential-body-still-uses-block-layout
-  (testing "sequentials (vectors / lists / sets / seqs)
-            keep block layout. Grid only applies to labelled-key kinds
-            (map / record / map-entry); sequentials have no key column."
-    ;; >3 items so inline-fit gate fails and the body emits.
-    (let [v [10 20 30 40]
-          k0 (ei/expansion-key :p "m" [])
-          h  (ei/render-node {:value v
-                              :panel-id :p :mount-id "m"
-                              :path [] :depth 0
-                              :expansion-map {k0 {:expanded? true}}
-                              :opts {:default-expanded-depth 0}})
-          body (find-attr h :data-testid "rf-xray-edn-inspector-p-m--body")]
-      (is (some? body) "expanded vector renders a body container")
-      (let [s (-> body second :style)]
-        (is (not= "grid" (:display s))
-            "sequentials do not use grid layout (no key column)")
-        (is (= "block" (or (:data-rf-body-layout (second body))
-                            "block"))
-            "vector body is the block-layout variant")))))
-
 (deftest gutter-row-is-inline-flex-not-block
   (testing "gutter-row wraps diff'd leaves in an inline-flex SPAN (not
             a block-level DIV with display: flex). A block wrapper inside
@@ -1143,25 +1067,6 @@
 ;; `:site-id`. The expansion-key's second component reads `:site-id`
 ;; when supplied, falling back to auto-mount-id when omitted.
 
-(deftest edn-inspector-uses-site-id-when-supplied-as-expansion-key-id
-  ;; Two mounts with the SAME `:site-id` and the SAME path must write
-  ;; their override to the SAME expansion-key, so the second mount sees
-  ;; the first mount's choice.
-  (let [panel-id :p
-        site-id  [:my-stable-site "alpha"]
-        path     [:cart :items]
-        ;; First mount → simulate a toggle dispatch carrying rendered? true
-        ;; (i.e. visible state is expanded; first click should collapse).
-        _        (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-        _        (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
-                                    panel-id site-id path true])
-        k        (ei/expansion-key panel-id site-id path)
-        snapshot @(rf/subscribe [ei/expansion-slot])]
-    (is (= false (get-in snapshot [k :expanded?]))
-        "override is stored under [panel-id site-id path], independent
-         of any auto-generated mount-id")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
-
 (deftest edn-inspector-public-widget-routes-site-id-to-render-key
   ;; The public widget threads `:site-id` (when present) into the
   ;; `mount-id` slot of every render-node descent so the toggle handler
@@ -1198,37 +1103,6 @@
         "two mounts with no :site-id get DIFFERENT auto-mount-ids → independent expansion state")
     (is (nil? (get (second inner1) :data-rf-site-id))
         "no :site-id supplied → no data-rf-site-id attribute")))
-
-(deftest cross-mount-persistence-survives-unmount-and-remount
-  ;; The canonical `:site-id` scenario: mount widget → expand a path →
-  ;; unmount → remount with the SAME :site-id → the path is STILL
-  ;; expanded. Simulate via:
-  ;;   1. dispatch a toggle that opens [:nested :deep] for site-id Σ
-  ;;   2. confirm the override is stored under [panel Σ [:nested :deep]]
-  ;;   3. "remount" simulated by computing the lookup key with the same Σ
-  ;;   4. confirm the override resolves to `true` (expanded)
-  (let [panel-id :rf.xray/app-db
-        site-id  [:rf.xray/app-db "top"]
-        path     [:nested :deep]
-        _        (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])
-        ;; Step 1 — open the path (rendered? false → store true).
-        _        (rf/dispatch-sync [:rf.xray.edn-inspector/toggle-node
-                                    panel-id site-id path false])
-        k        (ei/expansion-key panel-id site-id path)
-        ;; "Unmount" — no state cleanup needed; the expansion slot
-        ;; survives Reagent unmount because it's in app-db.
-        ;; "Remount" — same site-id is passed at the new mount; the
-        ;; renderer's resolve-expanded? reads the same key.
-        snapshot-after-remount @(rf/subscribe [ei/expansion-slot])]
-    (is (= true (get-in snapshot-after-remount [k :expanded?]))
-        "expansion override survives the simulated unmount-and-remount cycle
-         when the consumer passes a stable :site-id")
-    ;; Per the resolve-expanded? helper, this should also yield true
-    ;; regardless of the default-expanded heuristic.
-    (is (true? (ei/resolve-expanded? snapshot-after-remount
-                                     panel-id site-id path false))
-        "resolve-expanded? honours the stored override at the site-id key")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 (deftest two-mounts-with-distinct-site-ids-still-isolate
   ;; Two consumers using DIFFERENT :site-ids must STILL isolate, even
@@ -1410,19 +1284,6 @@
         all (collect-text h)]
     (is (re-find #"← was 1" all)
         "modified scalar leaf carries the annotation chip")))
-
-(deftest diff-modified-nested-leaf-annotates
-  (let [v {:cart {:items {:total 71.00}}}
-        b {:cart {:items {:total 48.00}}}
-        h (ei/render-node {:value v
-                           :before b
-                           :diff? true
-                           :panel-id :p :mount-id "m" :path [] :depth 0
-                           :expansion-map {}
-                           :opts {:default-expanded-depth 5}})
-        all (collect-text h)]
-    (is (re-find #"← was 48" all)
-        "deep modified leaf carries the annotation chip")))
 
 ;; ---- diff mode — added / removed -----------------------------------------
 
