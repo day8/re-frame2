@@ -96,10 +96,14 @@
   declaration reaches every carrier of the value it names rather than only the
   ones somebody has looked at."
   (:require [re-frame.classification :as rf.classification]
+            [re-frame.frame :as rf.frame]
             [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
+            [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
             [re-frame.resources.registry :as rf.resources.registry]
             [re-frame.resources.reply :as rf.resources.reply]
-            [re-frame.resources.ssr :as rf.resources.ssr]))
+            [re-frame.resources.ssr :as rf.resources.ssr]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -1639,3 +1643,147 @@
                   tags
                   fx-carrier-slot)]
       (cond-> projected-tags @sensitive-found? (assoc :sensitive? true)))))
+
+;; ---------------------------------------------------------------------------
+;; The resource and mutation READ SUBS' values on `:rf.sub/run`.
+;;
+;; A read sub's value is a PROJECTION of its owner's durable entry or instance:
+;; the entry's `:data`, a mutation instance's `:result`, and the scoped keys
+;; they sit under. The owner declares its `:sensitive` / `:large` slots
+;; projection-relative on `reg-resource` / `reg-mutation`, and the runtime
+;; lowers them into the frame's elision registry at the entry's ABSOLUTE
+;; runtime-db position. A sub returns the BARE projection, so no registry path
+;; reaches it, and core's sub-trace chokepoint
+;; (`re-frame.classification/project-sub-tags`) reaches `project-read-sub-egress`
+;; through the late-bound `:resources/project-resource-sub-egress` hook instead
+;; — the resources peer of routing's `re-frame.routing.sub-egress`. Unlike the
+;; family rows above, which keep their raw evidence on-box, a sub run is
+;; projected at emit, where core projects every sub run.
+;;
+;; CLASSIFIED FROM THE OWNER SPEC. The declaration is read from the owner spec
+;; and re-rooted onto the sub's value, the reading
+;; `rf.resources.classification/redact-continuation-reply` gives the reply that
+;; carries the same data. Evicting an entry or clearing a mutation instance
+;; drops its lowered claims from the registry while a held sub still carries
+;; the old value as its `:rf.sub/prev-value`, so a registry-driven walk would
+;; ship that prior value raw. The spec outlives the instance, so the prior
+;; value is redacted exactly as the live one was, and nothing is kept for an
+;; instance that is gone.
+;;
+;; A resource sub names its owner in its payload (`:resource`). A mutation sub
+;; names only its `:instance`, so the owner is read off the instance: in the
+;; frame's live runtime-db for a current value, and in the inputs a PRIOR value
+;; was computed from, which still hold an instance the live runtime-db has
+;; cleared.
+;;
+;; WHAT IS PROJECTED:
+;;
+;;   - DATA: the owner's `:data`-rooted (or bare) paths, re-rooted under every
+;;     place the sub's value carries the data projection — `:data` /
+;;     `:previous-data` on `:rf/resource`, `:items` / `:pages` on
+;;     `:rf.resource/infinite-state`, `:result` on `:rf/mutation`, or the whole
+;;     value for the single-projection subs. A resource's coarse `:sensitive?` /
+;;     `:large?` claim covers the whole data projection. The walk is
+;;     INDEX-FREE, so one declaration reaches every page and item of an
+;;     infinite feed, as it does on the durable side.
+;;   - KEYS: `:rf/resource`'s `:previous-key` and `:rf/mutation`'s
+;;     `:affected-keys` are scoped keys, projected by `project-trace-scoped-key`,
+;;     the owner classification the family's own rows give the same keys.
+;;
+;; Nothing else is touched: statuses, booleans and error envelopes ride
+;; verbatim, a sub the owner declares nothing for rides reference-identical,
+;; and in-process `@(subscribe …)` stays raw — this runs at egress only.
+;; ---------------------------------------------------------------------------
+
+(def ^:private data-roots
+  "Where each read sub's value carries its owner's DATA projection, as paths
+  into the value (`[]` — the value IS the projection). A sub absent here
+  carries no data projection."
+  {:rf/resource                [[:data] [:previous-data]]
+   :rf.resource/data           [[]]
+   :rf.resource/previous-data  [[]]
+   :rf.resource/items          [[]]
+   :rf.resource/pages          [[]]
+   :rf.resource/infinite-state [[:items] [:pages]]
+   :rf/mutation                [[:result]]
+   :rf.mutation/result         [[]]})
+
+(def ^:private mutation-subs
+  "The mutation read subs that carry an owner-classified slot. They name an
+  instance, not a mutation."
+  #{:rf/mutation :rf.mutation/result})
+
+(defn- live-runtime-db
+  "`frame-id`'s runtime-db, read as a SNAPSHOT: the projector runs inside the
+  sub's compute, and a capturing read would make the runtime-db an input of
+  the sub it describes."
+  [frame-id]
+  (when-let [container (rf.frame/runtime-db-container frame-id)]
+    (rf.substrate.adapter/read-container-untracked container)))
+
+(defn- owner-spec
+  "The spec of the owner a read sub's query vector names, or nil. A mutation
+  sub's owner is read off its instance in `runtime-db` (a thunk, so a resource
+  sub never reads it)."
+  [sub-id payload runtime-db]
+  (if (contains? mutation-subs sub-id)
+    (when-let [inst (get-in (runtime-db)
+                            (rf.resources.mutation-runtime/instance-path (:instance payload)))]
+      (rf.resources.mutation-registry/mutation-meta (:mutation/id inst)))
+    (when-some [resource-id (:resource payload)]
+      (rf.resources.registry/resource-meta resource-id))))
+
+(defn- data-paths
+  "The owner `spec`'s data-projection declaration re-rooted under each of
+  `roots`: `[sensitive-paths large-paths]`."
+  [spec roots]
+  (let [marks  (:data (rf.resources.classification/spec-declaration-marks spec))
+        sens   (cond-> (vec (keys (:sensitive marks))) (:sensitive? spec) (conj []))
+        large  (cond-> (vec (keys (:large marks))) (:large? spec) (conj []))
+        rebase (fn [paths] (into [] (for [root roots p paths] (into root p))))]
+    [(rebase sens) (rebase large)]))
+
+(defn- project-key-slot
+  "Project the scoped key(s) under `slot` of `value` — one key, or a vector of
+  them when `many?` — keeping `value` identical when nothing changes."
+  [value slot many? frame-id]
+  (let [ks (get value slot)]
+    (if (or (nil? ks) (and many? (empty? ks)))
+      value
+      (let [project (fn [k] (first (project-trace-scoped-key k frame-id)))
+            ks'     (if many? (into (empty ks) (map project) ks) (project ks))]
+        (if (= ks ks') value (assoc value slot ks'))))))
+
+(defn- project-keys
+  [sub-id value frame-id]
+  (if-not (map? value)
+    value
+    (case sub-id
+      :rf/resource (project-key-slot value :previous-key false frame-id)
+      :rf/mutation (project-key-slot value :affected-keys true frame-id)
+      value)))
+
+(defn project-read-sub-egress
+  "Project a resource or mutation read sub's `value` for egress. `query-v` is
+  the sub's query vector, which names its owner; `opts` carries `:frame`. The
+  four-argument arity projects a PRIOR value, and `prior-inputs` are the
+  inputs it was computed from, which for a mutation sub still hold an instance
+  the live runtime-db may have cleared. See the section comment above. A query vector
+  naming no resource or mutation read sub returns `value` unchanged."
+  ([query-v value opts]
+   (project-read-sub-egress query-v value opts ::live))
+  ([query-v value {:keys [frame]} prior-inputs]
+   (let [sub-id (when (sequential? query-v) (first query-v))
+         roots  (get data-roots sub-id)]
+     (if (nil? roots)
+       value
+       (let [payload    (second query-v)
+             runtime-db #(if (or (= ::live prior-inputs) (nil? prior-inputs))
+                           (live-runtime-db frame)
+                           (first prior-inputs))
+             spec       (when (map? payload) (owner-spec sub-id payload runtime-db))
+             value      (if (and spec roots)
+                          (let [[sens large] (data-paths spec roots)]
+                            (rf.classification/redact-with-paths value sens large {:index-free? true}))
+                          value)]
+         (project-keys sub-id value frame))))))
