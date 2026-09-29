@@ -11,13 +11,14 @@
   copying the machines slice WHOLESALE would ship a snapshot's `:data` RAW even
   where the frame classifies it sensitive/large.
 
-  This pins that end-to-end on the ACTUAL SSR projection path
-  (`re-frame.ssr.payload-policy/project-runtime-db` →
-  `re-frame.ssr.payload-policy/build-payload`), with a real `reg-machine` (whose
+  This pins that on the ACTUAL SSR projection
+  (`re-frame.ssr.payload-policy/project-runtime-db`), with a real `reg-machine` (whose
   `[:schemas :data]` schema VALIDATES `:data`) and a FRAME-declared
   classification of the snapshot `:data` path; the machines artefact is loaded so
   the late-bound `:machines/project-ssr-runtime-db` hook is bound. (A machine
-  schema does not classify; classification is frame-side.)
+  schema does not classify; classification is frame-side.) The redacted
+  snapshot inside a built hydration payload is pinned by
+  `re-frame.ssr-runtime-db-explicit-frame-test`.
 
   The snapshot `:data` path is classified through a B3 COMMIT-PLANE
   `:sensitive` / `:large` effect returned by a `reg-event` handler alongside
@@ -119,24 +120,6 @@
           ":state (durable structural fact) rides verbatim")
       (is (not (.contains (pr-str slice) "secret-jwt-snapshot"))
           "no raw token survives anywhere in the projected runtime-db slice"))))
-
-(deftest full-hydration-payload-redacts-machine-snapshot-data
-  (testing "the full :rf/hydration-payload's :rf/runtime-db carries the
-            redacted machine :data token, not the raw secret; the large field
-            rides whole"
-    (reg-auth-machine!)
-    (declare-frame-marks!)
-    (let [rt-slice (rf.ssr.payload-policy/project-runtime-db
-                     (runtime-db-with-secret-snapshot))
-          payload  (rf.ssr.payload-policy/build-payload
-                     auth-id {:public/page :dashboard} "h1"
-                     {:version 1 :runtime-db rt-slice})
-          snap     (get-in payload [:rf/runtime-db :rf.runtime/machines
-                                    :snapshots auth-id])]
-      (is (= :rf/redacted (get-in snap [:data :token])))
-      (is (= "huge-blob-value" (get-in snap [:data :blob])))
-      (is (not (.contains (pr-str payload) "secret-jwt-snapshot"))
-          "the hydration blob the client receives carries no raw secret"))))
 
 (deftest undeclared-machine-snapshot-rides-verbatim
   (testing "a machine whose frame declares nothing ships its snapshot :data

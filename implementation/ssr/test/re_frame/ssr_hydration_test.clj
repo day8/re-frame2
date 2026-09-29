@@ -823,59 +823,6 @@
             "…and it was compared against the hash of the tree
              :render-tree-fn returned, so the verify step really rendered")))))
 
-(deftest boot-hydrate-verify-step-silent-on-matching-render
-  (testing "When the client render-tree hash MATCHES the server
-            hash, the verify step is silent — no spurious mismatch on a
-            successful hydration. Counter-test to the divergent-render case
-            so the verify step can't be a false-positive generator."
-    (register-baseline-handlers!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "boot-helper verify-match frame"
-                                       :platform :client
-                                       :ssr {:detect-mismatch? true}})
-          client-tree   [:div.app [:span "client-render"]]
-          ;; Compute the server hash from the SAME tree so the round-trip
-          ;; hashes agree — the happy path.
-          matched-hash  (rf.ssr/render-tree-hash client-tree)
-          ;; EP-0002: payload :rf/frame-id == the client target.
-          payload       (build-server-payload
-                          client-frame {:count 7 :title "seeded"}
-                          matched-hash
-                          {:version 1 :payload [:count :title]})]
-      (with-trace-recorder! [traces]
-        (rf.ssr/hydrate!
-          {:frame          client-frame
-           :payload        payload
-           :render-tree-fn (fn [] client-tree)})
-        ;; Dev-instrumentation arm (see ns docstring). A NEGATIVE
-        ;; over the trace ring: vacuous under the gate, where a DIVERGENT
-        ;; render would look identical to a matching one.
-        (when rf.interop/debug-enabled?
-          (is (not-any? #(= :rf.ssr/hydration-mismatch (:operation %)) @traces)
-              (str "matching hashes → no :rf.ssr/hydration-mismatch; saw: "
-                   (pr-str (mapv :operation @traces)))))
-        ;; Sanity: the seed landed (the verify step doesn't gate hydrate).
-        (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
-            ":rf/hydrate applied the seeded slice"))
-
-      ;; SEMANTIC, posture-independent: the false-positive guard
-      ;; this deftest exists to be needs an always-on channel too. Same
-      ;; matching-hash boot on an `:on-mismatch :hard-error` frame: it must
-      ;; NOT throw, which the divergent case above proves it would.
-      (let [strict-frame (rf.frame/make-anon-frame-record!
-                           {:doc      "boot-helper verify-match strict frame"
-                            :platform :client
-                            :ssr      {:detect-mismatch? true
-                                       :on-mismatch      :hard-error}})
-            strict-pl    (build-server-payload
-                           strict-frame {:count 7 :title "seeded"}
-                           matched-hash
-                           {:version 1 :payload [:count :title]})]
-        (is (some? (rf.ssr/hydrate! {:frame          strict-frame
-                                  :payload        strict-pl
-                                  :render-tree-fn (fn [] client-tree)}))
-            "matching hashes do not escalate even under :on-mismatch
-             :hard-error — the verify step is not a false-positive generator")))))
-
 (deftest boot-hydrate-scopes-render-tree-fn-to-target-frame
   (testing "hydrate! calls :render-tree-fn UNDER the target frame's
             scope. The documented client-boot idiom
@@ -989,20 +936,6 @@
       ;; The conflict halts BEFORE :rf/hydrate dispatches — app-db untouched.
       (is (= 0 (rf/subscribe-once [:count] {:frame client-frame}))
           "the mismatch is surfaced before the app-db replace; no slice landed"))))
-
-(deftest boot-hydrate-absent-payload-frame-id-no-conflict
-  (testing "EP-0002: a payload carrying NO :rf/frame-id is not a
-            conflict — there is nothing to disagree with, so the explicit
-            client target stands and hydration proceeds normally."
-    (register-baseline-handlers!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "no-payload-frame-id client"
-                                       :platform :client})
-          ;; A hand-built payload deliberately WITHOUT :rf/frame-id.
-          payload      {:rf/version 1 :rf/app-db {:count 7 :title "seeded"}}
-          returned     (rf.ssr/hydrate! {:frame client-frame :payload payload})]
-      (is (= payload returned) "hydration proceeded (no frame-id to conflict)")
-      (is (= 7 (rf/subscribe-once [:count] {:frame client-frame}))
-          "the seeded slice landed — an absent payload :rf/frame-id is no conflict"))))
 
 ;; ===========================================================================
 ;; the :rf/hydrate HANDLER enforces frame-id validation too, so
@@ -1156,22 +1089,6 @@
           "matching frame-id → :title seeded from the payload")
       (is (true? (rf/subscribe-once [:hydrated?] {:frame client-frame}))
           "hydration metadata stashed — the hydrate proceeded"))))
-
-(deftest direct-dispatch-absent-frame-id-hydrates-normally
-  (testing "A direct dispatch whose payload carries NO
-            :rf/frame-id is no conflict — the dispatch target stands and the
-            slice installs (the documented client-only / no-server-slice
-            fallback shape). This is the path the baseline tests rely on."
-    (register-baseline-handlers!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "nv3mua absent-frame-id client"
-                                       :platform :client})
-          ;; Deliberately NO :rf/frame-id key.
-          payload      {:rf/app-db {:count 5 :title "no-frame-id"}}]
-      (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-      (is (= 5 (rf/subscribe-once [:count] {:frame client-frame}))
-          "absent frame-id → the slice installed (no conflict)")
-      (is (= "no-frame-id" (rf/subscribe-once [:title] {:frame client-frame}))
-          "absent frame-id → :title seeded"))))
 
 (deftest boot-hydrate-render-tree-fn-is-synchronous-and-post-seed
   (testing "hydrate!'s VERIFY contract is

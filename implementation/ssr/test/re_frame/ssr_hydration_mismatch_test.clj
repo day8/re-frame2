@@ -46,14 +46,15 @@
   nothing to prove under the gate, so each such deftest also carries a
   production witness rather than being guarded away:
 
-    - `mismatch-detection-defaults-on-when-knob-absent` and
-      `mismatch-detection-disabled-skips-comparison` are about the
+    - `mismatch-detection-disabled-skips-comparison` is about the
       `:detect-mismatch?` knob, which the trace observes — including
       through a `(is (empty? mismatches))` that is satisfied
-      automatically under the gate. Each also drives the SAME knob through
-      a frame that also sets `:on-mismatch :hard-error`, where detection-on
-      throws and detection-off does not. The knob's effect is then visible
-      on the always-on channel, in either posture.
+      automatically under the gate. It also drives the SAME knob through
+      a frame that sets `:on-mismatch :hard-error`, where detection-off
+      does not throw. The knob's effect is then visible on the always-on
+      channel, in either posture. The knob's DEFAULT is pinned the same
+      way: `mismatch-strict-mode-throws-with-structured-payload`'s frame
+      omits `:detect-mismatch?`, so its throw shows detection defaults on.
     - `mismatch-trace-client-hash-is-8-char-lowercase-hex` pins the shape
       of `render-tree-hash`'s output. The shape claim is about the hash
       function, so it is asserted directly against
@@ -327,6 +328,8 @@
             hash + failing-id payload as the trace, and :recovery is
             :hard-error."
     (register-handlers!)
+    ;; The frame omits `:detect-mismatch?` on purpose: the throw below also
+    ;; pins that detection defaults ON when the knob is absent.
     (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr strict-mode frame"
                                        :platform :client
                                        :ssr {:on-mismatch :hard-error}})]
@@ -420,48 +423,3 @@
                                    @traces)]
             (is (empty? mismatches)
                 "no mismatch trace fires when :detect-mismatch? is false")))))))
-
-(deftest mismatch-detection-defaults-on-when-knob-absent
-  (testing "absence of the :detect-mismatch? knob (the
-            common case) leaves detection ON; a divergent hash still
-            warns. Pins the default so a future refactor can't silently
-            flip detection off."
-    (register-handlers!)
-    (let [client-frame (rf.frame/make-anon-frame-record! {:doc "ssr default frame"
-                                       :platform :client})]
-      (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame client-frame})
-
-      ;; SEMANTIC, posture-independent: the default this deftest
-      ;; exists to pin is `:detect-mismatch?` ABSENT ⇒ detection ON, and the
-      ;; trace cannot show it under the gate. Drive the same absent knob on
-      ;; a frame that asks for `:on-mismatch :hard-error`: if detection
-      ;; silently defaulted off there would be nothing to escalate and no
-      ;; throw. The throw is always-on, so the default is pinned in both
-      ;; postures — which is precisely the refactor this deftest guards
-      ;; against.
-      (let [default-strict (rf.frame/make-anon-frame-record!
-                             {:doc      "ssr default-detection strict frame"
-                              :platform :client
-                              :ssr      {:on-mismatch :hard-error}})]
-        (rf/dispatch-sync [:rf/hydrate mismatch-payload] {:frame default-strict})
-        (let [thrown (try (rf.ssr/verify-hydration! default-strict "0badf00d")
-                          nil
-                          (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? thrown)
-              "with :detect-mismatch? absent the comparison still ran —
-               detection defaults ON")
-          (is (= "0badf00d" (:client-hash (ex-data thrown)))
-              "…and it compared the hashes it was given, rather than
-               short-circuiting")))
-
-      ;; Dev-instrumentation arm (see ns docstring). The default
-      ;; RECOVERY (`:warned-and-replaced` rather than `:hard-error`) is only
-      ;; observable on the trace: the warn path throws nothing by definition.
-      (when rf.interop/debug-enabled?
-        (with-trace-recorder! [traces]
-          (rf.ssr/verify-hydration! client-frame "0badf00d")
-          (let [mismatch (first (filter #(= :rf.ssr/hydration-mismatch (:operation %))
-                                        @traces))]
-            (is (some? mismatch) "detection defaults on")
-            (is (= :warned-and-replaced (:recovery mismatch))
-                "the default recovery is warn-and-replace (not hard-error)")))))))

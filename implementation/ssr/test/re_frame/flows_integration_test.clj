@@ -541,10 +541,11 @@
                child saw [2] — independent evals, not a shared one"))))))
 
 ;; ===========================================================================
-;; 5. flow × routing — a flow over the [:rf.runtime/routing
-;;    :current] slice reads the POST-transition route, and a flow throw on
-;;    a transition aborts the WHOLE event (slice unchanged, :on-match
-;;    :dispatch fxs skipped).
+;; 5. flow × routing — a flow throw on a route transition aborts the WHOLE
+;;    event (slice unchanged, :on-match :dispatch fxs skipped). That a flow
+;;    over the [:rf.runtime/routing :current] slice reads the
+;;    POST-transition route is pinned in section 6, whose flow observes the
+;;    new route id on each transition.
 ;;
 ;; `:rf.route/handle-url-change` is a normal event-fx: its handler returns
 ;; `{:db (assoc-in db' [:rf.runtime/routing :current] {...new-route...})
@@ -563,77 +564,6 @@
 ;; child dispatches in :fx are NEVER walked (they sit in the post-install
 ;; stage that the flow-throw path skips wholesale).
 ;; ===========================================================================
-
-;; EP-0001 §535-551: the route slice lives in the
-;; runtime-db partition, so this flow's `:inputs` opt
-;; into runtime-db via the qualified form
-;; `[:rf.db/runtime :rf.runtime/routing :current :route-id]`. The flow transform
-;; resolves the qualified input against the pending runtime-db (the
-;; post-transition slice rewrite), and the dual-partition TRIGGER fires this
-;; flow on the runtime-only `:rf.route/handle-url-change` event even though app-db
-;; did not change (EP-0001 §542-544).
-(deftest flow-over-route-slice-reads-settled-post-transition-route
-  (testing "a flow whose :inputs overlap [:rf.runtime/routing :current]
-            reads the POST-transition route — the slice rewrite is the
-            handler's pending :db; the flow at the outermost :after
-            transforms that pending value, then a single deferred install
-            commits the slice + flow output together"
-    (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (rf/reg-route :route/home    {} "/")
-    ;; A flow over the route id derives a human label into a plain app-db
-    ;; path. Logging the input it observed proves it ran on the SETTLED
-    ;; post-transition slice, not the pre-transition one.
-    (let [flow-inputs (atom [])]
-      (rf/reg-flow :route/label {:inputs [[:rf.db/runtime :rf.runtime/routing :current :route-id]] :output-path [:derived :route-label]} (fn [route-id]
-                              (swap! flow-inputs conj route-id)
-                              (str "you are at " route-id)))
-
-      ;; Land on /home first so there is a known PRE-transition slice the
-      ;; flow could potentially observe if it ran on the wrong value.
-      (rf/dispatch-sync [:rf.route/handle-url-change "/" {:rf.route/cause :link}])
-      (is (= :route/home (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current :route-id]))
-          "precondition: landed on :route/home")
-      (is (= [:route/home] @flow-inputs)
-          "precondition: flow ran once on the home slice (post-transition)")
-
-      ;; Now transition to /articles/42. The handler writes the new slice
-      ;; into pending :db; the flow's :after transforms that pending :db
-      ;; reading [:rf.runtime/routing :current :route-id]; both land together at install.
-      (reset! *captured* [])
-      (reset! flow-inputs [])
-      (rf/dispatch-sync [:rf.route/handle-url-change "/articles/42" {:rf.route/cause :link}])
-
-      ;; The installed slice carries the new route.
-      (is (= :route/article (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                    [:rf.runtime/routing :current :route-id]))
-          "the slice landed on :route/article")
-      (is (= {:id "42"} (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                [:rf.runtime/routing :current :params]))
-          ":params landed alongside the route id (same install)")
-
-      ;; The flow output is in app-db AND reflects the POST-transition slice.
-      (is (= "you are at :route/article"
-             (get-in (rf/app-db-value :rf/default) [:derived :route-label]))
-          "the flow output derived from the POST-transition route id rode
-           the same install as the slice rewrite")
-      (is (= [:route/article] @flow-inputs)
-          "the single flow eval for this transition saw the SETTLED
-           post-transition route id — not the pre-transition :route/home")
-
-      ;; Trace signature: exactly one :rf.flow/computed for the dispatched
-      ;; transition, with the post-transition route id as input.
-      ;; Dev-instrumentation arm. Both restate
-      ;; `(= [:route/article] @flow-inputs)` above, which is
-      ;; posture-independent.
-      (when rf.interop/debug-enabled?
-        (let [computes (by-op :rf.flow/computed)]
-          (is (= 1 (count computes))
-              "exactly one :rf.flow/computed trace for the transition
-               dispatch — no double / missed eval")
-          (is (= [:route/article]
-                 (-> computes first :tags :input-values))
-              "the :rf.flow/computed trace's :input-values carries the
-               post-transition route id"))))))
 
 ;; EP-0001 §535-551: the throwing flow reads the
 ;; route slice via the qualified runtime-db input
