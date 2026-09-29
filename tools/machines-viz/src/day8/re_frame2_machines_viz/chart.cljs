@@ -1350,9 +1350,10 @@
                     ;; preserves a manual zoom/pan across non-layout
                     ;; re-renders, and re-fits on every layout invalidation
                     ;; (definition / direction / layout-options change). The
-                    ;; relayout pass shares the same gate — it re-fits the
-                    ;; corrected topology (the measured box, not the floor-
-                    ;; sized first pass).
+                    ;; measured relayout pass settles under the SAME key, so it
+                    ;; fits only if no earlier settle has fit that key: it
+                    ;; moves the nodes and leaves the viewport, a manual
+                    ;; zoom/pan included, where it was.
                     (when-let [^js inst (and (seq (:positions result))
                                              (nil? (:layout-error result))
                                              (:instance @fit-state))]
