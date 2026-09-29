@@ -1,9 +1,9 @@
 (ns re-frame.routing-url-non-edn-cljs-test
   "Adversarial fail-closed tests for the `route-url` URL-emission boundary
-  (EP-0012). The companion CLJ-only cases live in
-  `routing_registry_test.clj`; THIS file is `*-cljs-test.cljc` so the
-  shadow-cljs `:node-test` build (`cljs-test$`) ALSO exercises the boundary on
-  the CLJS host — where a RAW JS OBJECT (`#js {…}`) and a `js/Date` are the
+  (EP-0012). The optional-group case lives in `routing_registry_test.clj`;
+  THIS file is `*-cljs-test.cljc`, so the JVM runner and the shadow-cljs
+  `:node-test` build (`cljs-test$`) both exercise the boundary — on
+  the CLJS host, a RAW JS OBJECT (`#js {…}`) and a `js/Date` are the
   native host values a hostile / careless caller would smuggle into a route
   param, and where host `(str v)` (`[object Object]`) would otherwise invent a
   URL identity. The `.cljc` reader conditionals also cover the host-agnostic
@@ -58,12 +58,15 @@
 
 ;; Host-adversarial values. Function + atom are host-agnostic; the raw JS
 ;; object (`#js {}`) and `js/Date` are the CLJS-native host values, and a
-;; `java.util.Date` / arbitrary `Object` are the JVM counterparts, so the SAME
+;; ratio, a `java.time.Instant`, a `java.util.Date` and an arbitrary `Object`
+;; are the JVM counterparts, so the SAME
 ;; deftest exercises the boundary with host-appropriate inputs on each runner.
 (def ^:private adversarial-path-values
   [[:function (fn [_])]
    [:atom     (atom 1)]
    [:float    1.5]
+   #?(:clj  [:ratio 2/3])
+   #?(:clj  [:instant (java.time.Instant/now)])
    #?(:clj  [:host-object (Object.)]
       :cljs [:raw-js-object #js {:a 1}])
    #?(:clj  [:host-date (java.util.Date.)]
@@ -126,15 +129,6 @@
       (is (= "/s/550e8400-e29b-41d4-a716-446655440000"
              (rf.routing/route-url {:to :route/scalar :params {:v uuid}}))
           "a UUID host-stringifies to its canonical, host-stable, round-trippable form"))))
-
-(deftest route-url-host-value-throws-before-url-built
-  (testing "the failure raises a structured error, never a half-built or
-            host-stringified URL string (the path guard fires during the
-            pattern walk, before path-out is assembled)"
-    (rf/reg-route :route/order {:query [:map [:note :string]]} "/orders/:id")
-    (let [ex (thrown-route-url :route/order {:id (atom :x)} {:note "ok"})]
-      (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
-          "a structured :rf.error/id, never a string return value"))))
 
 ;; ===========================================================================
 ;; Namespaced query keys round-trip through the route prism

@@ -156,28 +156,6 @@
       (is (= :rf.error/no-such-route (:rf.error/id (ex-data ex)))
           ":rf.error/no-such-route is the structured error for an unregistered id"))))
 
-;; ---- route-url address-shape boundary is exact + total -------------------
-;;
-;; Every ADDRESS-shape failure routes through :rf.error/route-url-validation
-;; rather than a raw or misleading host error. Unguarded, a NON-MAP address would reach
-;; `(keys address)` and throw a host exception; a MISSING :to would fall through to
-;; the nil-pattern check and raise the misleading :rf.error/no-such-route "id
-;; nil"; a MIXED-KIND bad-key set would reach a plain `sort` and throw a compare
-;; ClassCastException instead of naming the keys. The companion CLJS parity
-;; cases live in routing_url_non_edn_cljs_test.cljc.
-
-(deftest route-url-non-map-address-rejects
-  (testing "a non-map address rejects with :rf.error/route-url-validation
-            (:reason :not-a-map) — not a raw host `(keys …)` throw"
-    (doseq [bad ["/dest" 5 [:to :route/x] :route/x]]
-      (let [ex (try (rf.routing/route-url bad) nil
-                    (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? ex) (str "route-url threw for a non-map address " (pr-str bad)))
-        (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex)))
-            "the structured id is :rf.error/route-url-validation")
-        (is (= :not-a-map (:reason (ex-data ex)))
-            ":reason names the non-map violation")))))
-
 ;; ---- route-url fails closed on host-stringified values -------------------
 ;;
 ;; EP-0012 §Canonical EDN identity (docs/EP/EP-0012 §893-896; Conventions
@@ -202,59 +180,6 @@
     (rf.routing/route-url {:to route-id :params path-params :query query-params})
     nil
     (catch clojure.lang.ExceptionInfo e e)))
-
-(deftest route-url-path-param-host-value-fails-closed-rf2-94o54l
-  (testing "a HOST value (fn / atom / arbitrary host object / non-portable
-            number / instant) in a REQUIRED path param fails closed with
-            :rf.error/route-url-non-edn-value BEFORE any URL string is built"
-    (rf/reg-route :route/item {} "/items/:id")
-    (doseq [[label v] [[:function    (fn [_])]
-                       [:atom        (atom 1)]
-                       [:host-object (Object.)]
-                       [:float       1.5]
-                       [:ratio       2/3]
-                       [:instant     (java.time.Instant/now)]
-                       [:host-date   (java.util.Date.)]]]
-      (let [ex (route-url-throws-non-edn? :route/item {:id v} {})]
-        (is (some? ex)
-            (str "a " (name label) " path-param value must fail closed, never "
-                 "host-stringify into a URL"))
-        ;; Assert the STRUCTURED :rf.error/id (Spec 009 §the
-        ;; stable discriminator) as the primary check; the message is secondary.
-        (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
-            (str "the structured :rf.error/id for a " (name label) " path value"))
-        ;; The message is a human sentence + the trailing
-        ;; [:rf.error/<id>] token; assert the token, not exact equality.
-        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
-            (str "the message token (secondary) for a " (name label) " path value"))
-        (let [data (ex-data ex)]
-          (is (= :route/item (:route-id data)) "ex-data names the route-id")
-          (is (= :params (:slot data)) "ex-data names the offending slot")
-          (is (= :id (:param data)) "ex-data names the offending param"))))))
-
-(deftest route-url-query-value-host-value-fails-closed-rf2-94o54l
-  (testing "a HOST value in a (non-nil) QUERY value fails closed the same way
-            the path side and the query-KEY side do"
-    (rf/reg-route :route/search {} "/search")
-    (doseq [[label v] [[:function    (fn [_])]
-                       [:atom        (atom 1)]
-                       [:host-object (Object.)]
-                       [:float       1.5]
-                       [:instant     (java.time.Instant/now)]
-                       [:host-date   (java.util.Date.)]]]
-      (let [ex (route-url-throws-non-edn? :route/search {} {:q v})]
-        (is (some? ex)
-            (str "a " (name label) " query value must fail closed"))
-        (is (= :rf.error/route-url-non-edn-value (:rf.error/id (ex-data ex)))
-            (str "the structured :rf.error/id for a " (name label) " query value"))
-        ;; The message is a human sentence + the trailing
-        ;; [:rf.error/<id>] token; assert the token, not exact equality.
-        (is (re-find #"\[:rf\.error/route-url-non-edn-value\]" (ex-message ex))
-            (str "the message token (secondary) for a " (name label) " query value"))
-        (let [data (ex-data ex)]
-          (is (= :route/search (:route-id data)) "ex-data names the route-id")
-          (is (= :query (:slot data)) "ex-data names the :query slot")
-          (is (= :q (:param data)) "ex-data names the offending query key"))))))
 
 (deftest route-url-optional-group-host-value-fails-closed-rf2-94o54l
   (testing "a host value in an OPTIONAL-GROUP inner path param also fails
