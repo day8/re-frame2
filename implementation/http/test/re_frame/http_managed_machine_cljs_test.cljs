@@ -79,7 +79,7 @@
 
 ;; ---- (2) parent :spawn spawns wrapper, registry/snapshot wiring -------
 
-(deftest invoke-spawns-wrapper-and-injects-framework-keys
+(deftest spawn-injects-framework-keys-into-the-wrapper
   (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/invoke-id into the wrapper's :data"
     ;; An fx that genuinely NEVER replies — gives us a stable :requesting
     ;; snapshot to inspect without racing against Fetch. (Not the route-map
@@ -125,7 +125,7 @@
 
 ;; ---- (2b) nested :request-content-type survives the wrapper pass-through -
 
-(deftest invoke-preserves-nested-request-content-type
+(deftest spawn-preserves-nested-request-content-type
   (testing "a `:request-content-type` nested under `:request` (the Spec 014 §Args carrier shape) survives the wrapper's :data → fx-args pass-through verbatim"
     ;; The transport reads request content-type only from the nested
     ;; request envelope (transport/prepare-request reads

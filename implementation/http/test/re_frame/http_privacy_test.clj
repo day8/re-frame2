@@ -18,7 +18,7 @@
   Integration with the trace surface (sensitive HTTP requests emitting
   redacted trace events end-to-end) is covered in
   `re-frame.http-privacy-integration-test`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.http.encoding :as rf.http.encoding]
@@ -26,7 +26,6 @@
             [re-frame.http.privacy :as rf.http.privacy]
             [re-frame.http.privacy-headers :as rf.http.privacy-headers]
             [re-frame.http.url :as rf.http.url]
-            [re-frame.late-bind :as rf.late-bind]
             [re-frame.registrar :as rf.registrar]
             [re-frame.test-support :as rf.test-support]))
 
@@ -165,19 +164,16 @@
 
 ;; ---- 3. request-sensitive? -------------------------------------------------
 
-(deftest request-sensitive-per-call-true
-  (testing "per-call :sensitive? on the args map opts in"
-    (is (true? (rf.http.privacy/request-sensitive? {:sensitive? true :request {:url "/x"}})))))
-
-(deftest request-sensitive-per-request-true
-  (testing "per-request :sensitive? on the :request map opts in"
-    (is (true? (rf.http.privacy/request-sensitive? {:request {:url "/x" :sensitive? true}})))))
-
-(deftest request-sensitive-default-false
-  (testing "no per-call flag = not sensitive; sensitivity is a per-call
-            decision and the fn has no other input to read"
-    (is (false? (rf.http.privacy/request-sensitive? {:request {:url "/x"}})))
-    (is (false? (rf.http.privacy/request-sensitive? {})))))
+(deftest request-sensitive-reads-the-per-call-and-per-request-flags
+  (testing "a per-call `:sensitive?` on the args map, or a per-request one
+            on the `:request` map, opts in; with neither the request is not
+            sensitive, because sensitivity is a per-call decision and the fn
+            has no other input to read"
+    (are [args expected] (= expected (rf.http.privacy/request-sensitive? args))
+      {:sensitive? true :request {:url "/x"}} true
+      {:request {:url "/x" :sensitive? true}} true
+      {:request {:url "/x"}}                  false
+      {}                                      false)))
 
 ;; ---- 4. redact-request-tags ----------------------------------------------
 
@@ -715,7 +711,7 @@
           r (rf.http.privacy/prepare-emit-failure f false)]
       (is (not (contains? r :sensitive?))))))
 
-(deftest prepare-emit-failure-handler-sensitive-redacts-all-url-params
+(deftest prepare-emit-failure-sensitive-redacts-all-url-params
   (testing "the sensitive? flag forces ALL URL params redacted even non-denylisted"
     (let [f {:kind :rf.http/http-5xx
              :status 500

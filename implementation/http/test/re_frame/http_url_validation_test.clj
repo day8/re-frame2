@@ -16,7 +16,7 @@
   carry — `:retry :on` → `:rf.error/http-bad-retry-on` (see
   `http_retry_on_validation_test`); `:on-success` / `:on-failure` →
   `:rf.error/http-bad-reply-target`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.http.handlers :as rf.http.handlers]
@@ -54,30 +54,21 @@
               (= offending-url             (:url data))
               (string?                     (:reason data))))))
 
-;; ---- rejection: missing / nil / blank / non-string url --------------------
+;; ---- rejection -------------------------------------------------------------
 
-(deftest missing-url-rejected
-  (testing "a request with NO `:url` key throws
-            :rf.error/http-bad-request at the dispatch site"
-    (is (bad-request-throw? (call-managed! {:method :get}) nil))))
-
-(deftest nil-url-rejected
-  (testing "an explicit nil `:url` throws
-            :rf.error/http-bad-request (rather than falling through to a
-            transport NPE / vendor TypeError)"
-    (is (bad-request-throw? (call-managed! {:method :get :url nil}) nil))))
-
-(deftest blank-url-rejected
-  (testing "a blank / whitespace-only `:url` throws
-            :rf.error/http-bad-request"
-    (is (bad-request-throw? (call-managed! {:url ""}) ""))
-    (is (bad-request-throw? (call-managed! {:url "   "}) "   "))))
-
-(deftest non-string-url-rejected
-  (testing "a non-string `:url` (keyword / number) throws
-            :rf.error/http-bad-request"
-    (is (bad-request-throw? (call-managed! {:url :not-a-string}) :not-a-string))
-    (is (bad-request-throw? (call-managed! {:url 42}) 42))))
+(deftest missing-nil-blank-or-non-string-url-rejected
+  (testing "an absent, nil, blank / whitespace-only or non-string `:url`
+            throws :rf.error/http-bad-request at the dispatch site
+            (rather than falling through to a transport NPE / vendor
+            TypeError), carrying the offending value at `:url`"
+    (are [request offending-url]
+         (bad-request-throw? (call-managed! request) offending-url)
+      {:method :get}           nil
+      {:method :get :url nil}  nil
+      {:url ""}                ""
+      {:url "   "}             "   "
+      {:url :not-a-string}     :not-a-string
+      {:url 42}                42)))
 
 ;; ---- pass-through: a :before that SETS the url ---------------------------
 

@@ -2,7 +2,7 @@
   "Security-relevant JVM transport guards: invalid-header warnings,
   privacy composition, timeout application, and host degradation."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]
+            [clojure.test :refer [are deftest is testing]]
             [re-frame.http.handlers]
             [re-frame.http.transport]
             [re-frame.http.transport-jvm]
@@ -107,101 +107,42 @@
     (when (.isPresent o)
       (.toMillis ^Duration (.get o)))))
 
-(deftest jvm-build-request-honours-timeout-ms
-  (testing "`:timeout-ms` is stamped onto the HttpRequest"
-    (let [req (jvm-build-request
-                {:method     :get
-                 :url        "https://example.invalid/"
-                 :timeout-ms 5000})]
-      (is (= 5000 (request-timeout-ms req))
-          "JDK HttpRequest carries the per-request read timeout"))))
-
-(deftest jvm-build-request-without-timeout-ms-omits-jdk-timeout
-  (testing "when `:timeout-ms` is nil (opt-out), the
-  HttpRequest does NOT carry a per-request timeout. The handler's
-  `:or {timeout-ms 30000}` is the load-bearing default; this test
-  asserts the opt-out semantic at the transport boundary so callers
-  who DO want unbounded requests can pass `:timeout-ms nil`."
-    (let [req (jvm-build-request
-                {:method     :get
-                 :url        "https://example.invalid/"
-                 :timeout-ms nil})]
-      (is (nil? (request-timeout-ms req))
-          "nil timeout-ms produces an HttpRequest with no per-request timeout"))))
-
-(deftest jvm-build-request-zero-timeout-ms-omits-jdk-timeout
-  (testing "`:timeout-ms 0` is the SECOND opt-out per Spec
-  014 §`:timeout-ms` security defaults (semantically identical to nil:
-  no per-attempt timeout). `0` is truthy in
-  Clojure, so a bare `(when timeout-ms …)` would arm `(Duration/ofMillis 0)`, which
-  throws `IllegalArgumentException` on the JDK and would surface the opt-out
-  as a spurious `:rf.http/transport` failure. The `(pos? timeout-ms)`
-  guard collapses `0` to no-timeout. This builds the request to
-  prove it neither throws nor stamps a per-request deadline."
-    (let [req (jvm-build-request
-                {:method     :get
-                 :url        "https://example.invalid/"
-                 :timeout-ms 0})]
-      (is (nil? (request-timeout-ms req))
-          "zero timeout-ms produces an HttpRequest with no per-request timeout (and does not throw)"))))
+(deftest jvm-build-request-stamps-only-a-positive-timeout-ms
+  (testing "a positive `:timeout-ms` is stamped onto the JDK HttpRequest;
+  nil and 0 are the two opt-outs (Spec 014 §`:timeout-ms` security
+  defaults) and build a request with no per-request deadline. `0` is truthy
+  in Clojure, so a bare `(when timeout-ms …)` would arm
+  `(Duration/ofMillis 0)`, which throws `IllegalArgumentException` on the
+  JDK; the `(pos? timeout-ms)` guard collapses it to no-timeout."
+    (are [timeout-ms expected]
+         (= expected (request-timeout-ms (jvm-build-request
+                                           {:method     :get
+                                            :url        "https://example.invalid/"
+                                            :timeout-ms timeout-ms})))
+      5000 5000
+      nil  nil
+      0    nil)))
 
 ;; ---- normalise-args applies the 30000 default ---------------------------
 
 (def ^:private normalise-args @#'re-frame.http.handlers/normalise-args)
 
-(deftest normalise-args-defaults-timeout-ms-to-30000
-  (testing "when the args map omits `:timeout-ms`, the
-  normalised ctx carries the 30000 security default. Defending the
-  contract end-to-end: a partner-API caller who forgets to set a
-  read timeout still has the JDK HttpClient enforce a 30s wall-clock
-  bound."
-    (let [ctx (normalise-args {:request {:url "/x"}}
-                              ;; EP-0002: normalise-args reads
-                              ;; the carried frame stamp off the fx-ctx; this
-                              ;; direct-call unit test supplies it explicitly.
-                              {:event [:some/event] :frame :rf/default})]
-      (is (= 30000 (:timeout-ms ctx))
-          "absent :timeout-ms must default to 30000"))))
-
-(deftest normalise-args-honours-explicit-timeout-ms
-  (testing "an explicit `:timeout-ms 5000` overrides the default"
-    (let [ctx (normalise-args {:request    {:url "/x"}
-                               :timeout-ms 5000}
-                              ;; EP-0002: normalise-args reads
-                              ;; the carried frame stamp off the fx-ctx; this
-                              ;; direct-call unit test supplies it explicitly.
-                              {:event [:some/event] :frame :rf/default})]
-      (is (= 5000 (:timeout-ms ctx))))))
-
-(deftest normalise-args-passes-explicit-nil-timeout-ms-through
-  (testing "`:timeout-ms nil` is an explicit opt-out and
-  threads through normalisation unchanged (the JVM transport then
-  omits the JDK timeout). The opt-out is deliberate and intentional —
-  documented in Spec 014 §`:timeout-ms` security defaults."
-    (let [ctx (normalise-args {:request    {:url "/x"}
-                               :timeout-ms nil}
-                              ;; EP-0002: normalise-args reads
-                              ;; the carried frame stamp off the fx-ctx; this
-                              ;; direct-call unit test supplies it explicitly.
-                              {:event [:some/event] :frame :rf/default})]
-      (is (nil? (:timeout-ms ctx))
-          "nil opt-out threads through unchanged"))))
-
-(deftest normalise-args-passes-explicit-zero-timeout-ms-through
-  (testing "`:timeout-ms 0` is also an explicit opt-out and
-  threads through normalisation unchanged. The transport then collapses
-  it to no-timeout via a `(pos? timeout-ms)` guard — NOT a bare
-  truthiness check, since `0` is truthy in Clojure. (The transport-level
-  opt-out is pinned by `jvm-build-request-zero-timeout-ms-omits-jdk-timeout`
-  below.)"
-    (let [ctx (normalise-args {:request    {:url "/x"}
-                               :timeout-ms 0}
-                              ;; EP-0002: normalise-args reads
-                              ;; the carried frame stamp off the fx-ctx; this
-                              ;; direct-call unit test supplies it explicitly.
-                              {:event [:some/event] :frame :rf/default})]
-      (is (zero? (:timeout-ms ctx))
-          "zero opt-out threads through unchanged"))))
+(deftest normalise-args-defaults-timeout-ms-and-keeps-the-opt-outs
+  (testing "an absent `:timeout-ms` normalises to the 30000 security
+  default, so a caller who forgets a read timeout still gets a 30s bound;
+  an explicit value wins; and the two explicit opt-outs, nil and 0, thread
+  through unchanged for the transport to collapse to no-timeout."
+    (are [args expected]
+         (= expected (:timeout-ms
+                       (normalise-args (merge {:request {:url "/x"}} args)
+                                       ;; EP-0002: normalise-args reads the
+                                       ;; carried frame stamp off the fx-ctx;
+                                       ;; this direct call supplies it.
+                                       {:event [:some/event] :frame :rf/default})))
+      {}                30000
+      {:timeout-ms 5000} 5000
+      {:timeout-ms nil}  nil
+      {:timeout-ms 0}    0)))
 
 ;; ---- header-validation warning redacts its URL ----------------------------
 
