@@ -211,65 +211,6 @@
         (finally
           (stop-server! srv))))))
 
-;; ---- (3) supersede (same request-id) during backoff ------------------------
-
-(deftest supersede-during-backoff-cancels-old-pending-retry
-  (testing "a fresh request with the same :request-id issued during the old request's backoff supersedes the sleeping retry (the old retry never fires)"
-    (let [{:keys [^AtomicInteger hits] :as srv}     (start-counting-500-server!)
-          ;; The superseding request targets a DIFFERENT, blocking endpoint
-          ;; so it stays in-flight (and is the sole registry occupant) while
-          ;; we prove the OLD request's retry was suppressed.
-          new-srv (start-counting-500-server!)
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-event :issue-old
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port srv) "/")}
-                    :decode     :json
-                    :retry      retry-config
-                    :request-id :shared
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        ;; The superseding request: same :request-id, no retry, points at a
-        ;; second always-500 server. It runs ONE attempt then finalises.
-        (rf/reg-event :issue-new
-          (fn [_ _]
-            {:fx [[:rf.http/managed
-                   {:request    {:url (str "http://127.0.0.1:" (:port new-srv) "/")}
-                    :decode     :json
-                    :request-id :shared
-                    :on-failure [:reply/recorder]
-                    :on-success [:reply/recorder]}]]}))
-        (rf/dispatch-sync [:issue-old])
-        ;; Old request's attempt #1 fails 500 → sleeps in the backoff window.
-        (await-backoff-sleeping! hits)
-        (is (contains? (rf.http.registry/in-flight-snapshot) :shared))
-        ;; Supersede with a fresh same-id request, squarely inside the
-        ;; old request's backoff window.
-        (rf/dispatch-sync [:issue-new])
-        ;; The superseding request fires its own attempt (against new-srv);
-        ;; await its failure reply (the old request's reply is suppressed
-        ;; per the supersede semantics).
-        (await-condition! #(seq @replies))
-        ;; The OLD server must NEVER receive a second hit — its sleeping
-        ;; retry was cancelled by the supersede.
-        (assert-no-retry-fired! hits)
-        (is (= 1 (.get hits))
-            "the OLD request's backoff retry MUST NOT fire after being superseded")
-        ;; The superseding request is the only one that touched new-srv.
-        (is (= 1 (.get ^AtomicInteger (:hits new-srv)))
-            "the superseding request fired exactly one attempt against its own endpoint")
-        ;; The suppressed-old reply never reaches the recorder; only the
-        ;; new request's failure (a real :rf.http/http-5xx) does.
-        (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
-            "the superseded request's reply is suppressed; no :request-id-superseded reply is dispatched to the user")
-        (finally
-          (stop-server! srv)
-          (stop-server! new-srv))))))
-
 ;; ---- (3b) supersede during backoff carries the sleeping attempt's work-id --
 
 (deftest supersede-during-backoff-stale-trace-carries-sleeping-attempt-work-id

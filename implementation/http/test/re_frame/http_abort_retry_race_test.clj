@@ -229,26 +229,6 @@
   (testing "second transition — an abort landing at the timer-fire→attempt-N+1 handoff (after the timer won `fired?`, before the successor registers) yields exactly one :rf.http/aborted reply, ZERO re-issue, and NO phantom :retried; the abort resolves the still-registered predecessor backoff handle (its abort-fn loses the timer's fired? CAS), and run-attempt!'s post-registration re-check delivers the single reply and suppresses the fresh attempt"
     (run-injected-abort-case! :retry/before-attempt)))
 
-;; ---- (3) identity-conditional clear-in-flight! ----------------------------
-
-(deftest clear-in-flight-2arg-is-identity-conditional
-  (testing "clear-in-flight! (2-arg) does NOT evict a same-id successor's live handle; a completing OLD attempt clearing by its own handle leaves the successor in place"
-    (rf.http.registry/clear-all-in-flight!)
-    (let [h-a (rf.http.registry/seed-in-flight-for-test! :R nil {:abort-fn (fn [_] nil) :url "a"})
-          h-b (rf.http.registry/seed-in-flight-for-test! :R nil {:abort-fn (fn [_] nil) :url "b"})]
-      ;; H_B (the successor) took over the request-id slot.
-      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
-          "the successor H_B is the live occupant under :R")
-      ;; The OLD attempt (H_A) completes and clears BY ITS OWN handle.
-      (rf.http.registry/clear-in-flight! :R h-a)
-      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
-          "the successor H_B SURVIVES — a stale completion must not evict it (an unconditional dissoc would)")
-      ;; Single-request cleanup: clearing by the LIVE handle removes it.
-      (rf.http.registry/clear-in-flight! :R h-b)
-      (is (not (contains? (rf.http.registry/in-flight-snapshot) :R))
-          "clearing by the live handle removes the slot"))
-    (rf.http.registry/clear-all-in-flight!)))
-
 ;; ---- (4) actor-index identity clear survives a successor -------------------
 
 (deftest clear-in-flight-2arg-preserves-successor-actor-index

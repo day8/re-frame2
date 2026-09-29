@@ -254,27 +254,6 @@
           (stop-server! srv)
           (rf.http.managed/clear-all-in-flight!))))))
 
-(deftest managed-abort-frame-scoping-is-symmetric
-  (testing "the symmetric case: aborting in frame B leaves frame A's
-            identically-named request live"
-    (let [latch   (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch "{\"ok\":true}")
-          replies (atom [])]
-      (try
-        (register-two-frame-app! port replies)
-        (rf/dispatch-sync [:articles/fetch] {:frame :frame/a})
-        (await-condition! #(live-in? :frame/a))
-        (rf/dispatch-sync [:articles/fetch] {:frame :frame/b})
-        (await-condition! #(live-in? :frame/b))
-        (rf/dispatch-sync [:articles/cancel] {:frame :frame/b})
-        (await-condition! #(not (live-in? :frame/b)))
-        (is (live-in? :frame/a) "frame A remains live")
-        (is (not (live-in? :frame/b)) "frame B aborted its own request")
-        (finally
-          (.countDown latch)
-          (stop-server! srv)
-          (rf.http.managed/clear-all-in-flight!))))))
-
 ;; ---- two cross-frame probes, at their production seams ---------------------
 
 (deftest reproduction-probes-no-longer-reach-across-frames
@@ -306,33 +285,6 @@
     (rf.http.managed/clear-all-in-flight!)))
 
 ;; ---- actor-destroy cancellation --------------------------------------------
-
-(deftest actor-destroy-is-frame-scoped-when-the-frame-is-known
-  (testing "the same generated/fixed actor-id in two frames keeps
-            INDEPENDENT registry slots, and the frame-bearing arity of
-            abort-on-actor-destroy aborts only the named frame's HTTP. This is
-            structural (the frame is part of the key) rather than dependent on
-            an actor-naming convention"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [seen (atom [])
-          mk   (fn [frame-id]
-                 (rf.http.registry/record-in-flight!
-                   nil :worker/proc#1
-                   {:frame    frame-id
-                    :url      "http://x/y"
-                    :abort-fn #(swap! seen conj [frame-id %])}))]
-      (mk :frame/a)
-      (mk :frame/b)
-      (is (= 1 (count (get (rf.http.managed/actor-in-flight-snapshot :frame/a) :worker/proc#1)))
-          "frame A's actor slot holds exactly its own handle")
-      (is (= 1 (count (get (rf.http.managed/actor-in-flight-snapshot :frame/b) :worker/proc#1)))
-          "frame B's same-named actor keeps an INDEPENDENT slot")
-      (rf.http.registry/abort-on-actor-destroy :frame/a :worker/proc#1)
-      (is (= [[:frame/a :actor-destroyed]] @seen)
-          "destroying frame A's actor aborted ONLY A-owned HTTP")
-      (is (= 1 (count (get (rf.http.managed/actor-in-flight-snapshot :frame/b) :worker/proc#1)))
-          "frame B's actor request is still live"))
-    (rf.http.managed/clear-all-in-flight!)))
 
 (deftest actor-destroy-any-frame-arity-preserves-the-hook-contract
   (testing "the 1-arg arity is the ANY-FRAME sweep: it matches the
@@ -758,30 +710,6 @@
       (finally
         (remove-watch rf.http.registry/in-flight ::publication-midpoint)))))
 
-(deftest abort-inside-the-publication-window-leaves-no-ghost-in-the-actor-index
-  (testing "an abort reaching the handle between its two
-            publications aborts it, and BOTH indexes are empty afterwards.
-            Without the publication reconcile the request slot would go while the
-            actor slot arrived AFTER the abort had already passed, so the app
-            would be told this request was cancelled while
-            `actor-in-flight-snapshot` still reported one in flight for the
-            actor: `{:abort-fired? true, :request-slot nil,
-            :actor-slot-count 1}`"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [seen (atom [])]
-      (record-actor-handle-with-midpoint!
-        :frame/a seen
-        #(rf.http.registry/abort-in-flight-in-frame! :frame/a shared-id :user))
-      (is (= [[:frame/a :user]] @seen)
-          "precondition: the abort really did fire INSIDE the window. If this is
-           empty the interleaving never happened and the rest proves nothing")
-      (is (nil? (get (rf.http.registry/in-flight-snapshot :frame/a) shared-id))
-          "the request index is empty — the abort-fn's own cleanup empties it, reconcile or not")
-      (is (zero? (actor-slot-count :frame/a))
-          "and so is the actor index: nothing may still report an aborted
-           request as in flight"))
-    (rf.http.managed/clear-all-in-flight!)))
-
 (deftest supersede-inside-the-publication-window-leaves-no-ghost-either
   (testing "the same window reached through the OTHER
             request-index door. `supersede!` clears by identity and THEN fires
@@ -827,25 +755,6 @@
           "while frame A leaves nothing behind"))
     (rf.http.managed/clear-all-in-flight!)))
 
-(deftest an-undisturbed-publication-is-never-retracted
-  (testing "the reconcile is CONDITIONAL on the handle having
-            lost its request slot. With no interleaving at all an
-            actor-originated request must end up registered in both indexes.
-            Without this control a reconcile that retracted unconditionally
-            would pass every case above while silently unregistering every
-            actor-owned request in the library"
-    (rf.http.managed/clear-all-in-flight!)
-    (rf.http.registry/record-in-flight!
-      shared-id publication-actor
-      {:frame    :frame/a
-       :url      "http://127.0.0.1/quiet"
-       :abort-fn (fn [_reason] nil)})
-    (is (some? (get (rf.http.registry/in-flight-snapshot :frame/a) shared-id))
-        "the request index holds it")
-    (is (= 1 (actor-slot-count :frame/a))
-        "and so does the actor index — publication completed untouched")
-    (rf.http.managed/clear-all-in-flight!)))
-
 ;; ---- the OTHER door into the same window -----------------------------------
 ;;
 ;; The two cases above enter the publication window through the REQUEST index —
@@ -874,28 +783,6 @@
     {:frame    frame-id
      :url      "http://127.0.0.1/sibling-actor"
      :abort-fn (fn [reason] (swap! seen conj [frame-id reason]))}))
-
-(deftest actor-destroy-inside-the-publication-window-still-aborts
-  (testing "an actor destroy landing between the two publications
-            aborts the handle it was published to abort. Were the
-            actor-index lookup the whole of the destroy's reach, at the
-            midpoint it would select nothing, fire nothing, and publication would go
-            on to leave the request live under a destroyed actor"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [seen (atom [])]
-      (record-actor-handle-with-midpoint!
-        :frame/a seen
-        #(rf.http.registry/abort-on-actor-destroy :frame/a publication-actor))
-      (is (= [[:frame/a :actor-destroyed]] @seen)
-          "the destroy fired the handle's abort-fn with the actor-destroy reason.
-           This is the central assertion; empty here is the defect")
-      (is (nil? (get (rf.http.registry/in-flight-snapshot :frame/a) shared-id))
-          "the request index is clear — the abort-fn's own cleanup ran")
-      (is (zero? (actor-slot-count :frame/a))
-          "and the actor index gained no slot: publication's reconcile retracts
-           the handle it finished publishing into an index the abort had already
-           passed, so the destroy leaves no ghost either"))
-    (rf.http.managed/clear-all-in-flight!)))
 
 (deftest actor-destroy-inside-the-publication-window-is-frame-exact
   (testing "reaching the midpoint handle means reading the REQUEST

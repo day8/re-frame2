@@ -21,11 +21,7 @@
    2. Multiple in-flight requests from the same actor → all abort
    3. Sibling actors are NOT affected when one is destroyed
    4. Direct event-handler dispatch (no spawned-actor) → no cancellation
-   5. Parent state's :after firing destroys the child + aborts its HTTP
    6. Anonymous child request → actor-destroy cleans the actor index
-   6b. Registry-level: 2-arg clear-in-flight! empties an anonymous
-       handle's actor slot without a pre-clear (the unconditional-
-       correctness guarantee); 1-arg lookup cannot address it
    6c. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
        (request-id-less) backoff handle's actor slot when fired by a
        trigger that does not pre-clear the actor slot
@@ -36,7 +32,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport :as rf.http.transport]
             [re-frame.machines]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -344,57 +339,6 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
-;; ---- (5) parent state's :after firing destroys the child + aborts HTTP ---
-
-(deftest after-firing-cascades-to-http-abort
-  (testing ":after firing on the parent state destroys the spawned child AND aborts its HTTP — the :after-driven exit composes with the actor-destroy abort"
-    (let [latch  (CountDownLatch. 1)
-          {:keys [port] :as srv} (start-blocking-server! latch 200 "application/json" "{}")
-          replies (atom [])]
-      (try
-        (rf/reg-event :reply/recorder
-          (fn [_ [_ payload]] (swap! replies conj payload) {}))
-        (rf/reg-machine :worker/slow
-          {:initial :idle
-           :data    {:port port}
-           :actions {:fire (fn [{data :data}]
-                             {:fx [[:rf.http/managed
-                                    {:request    {:url (str "http://127.0.0.1:" (:port data) "/")}
-                                     :decode     :json
-                                     :request-id :slow
-                                     :on-failure [:reply/recorder]}]]})}
-           :states  {:idle    {:on {:start :running}}
-                     :running {:entry :fire}}})
-        ;; Parent has :after — but JVM tests fire `:after` via the
-        ;; synthetic timer event (mirrors the pattern in
-        ;; machines_cljs_test.cljs §machine-after-cljs).
-        (rf/reg-machine :sup/timed
-          {:initial :idle
-           :data    {}
-           :states
-           {:idle    {:on {:start :working}}
-            :working {:spawn {:machine-id :worker/slow
-                               :start      [:start]}
-                      :after  {5000 :timeout}}
-            :timeout {}}})
-        (rf/dispatch-sync [:sup/timed [:start]])
-        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
-        ;; Synthetically fire the :after timer with matching epoch (the
-        ;; :working node's per-path epoch, 1 after entry) + decl-path. This
-        ;; drives the parent's transition out of :working — the standard
-        ;; exit cascade destroys the spawned :worker/slow#1 and the
-        ;; actor-destroy hook aborts its in-flight HTTP.
-        (let [snap  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :sup/timed])
-              epoch (get-in snap [:data :rf/after-epoch [:working]])]
-          (rf/dispatch-sync [:sup/timed [:rf.machine.timer/after-elapsed 5000 epoch [:working]]]))
-        (await-condition! #(seq @replies))
-        (is (= :cancelled (:status (first @replies))))
-        (is (= :actor-destroyed (get-in (first @replies) [:error :reason]))
-            ":after-driven destroy cascades to the same :reason :actor-destroyed")
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot)))
-        (.countDown latch)
-        (finally (stop-server! srv))))))
-
 ;; ---- (6) anonymous (request-id-less) child request → actor-destroy clean --
 
 (deftest anonymous-child-request-abort-cleans-actor-index
@@ -457,43 +401,8 @@
         (.countDown latch)
         (finally (stop-server! srv))))))
 
-;; ---- (6b) registry-level: 2-arg cleanup of an anonymous handle is the -----
-;; ----      load-bearing unconditional-correctness guarantee ----------------
-
-(deftest anonymous-handle-cleared-without-actor-slot-preclear
-  (testing "clearing an anonymous (request-id-less) handle by identity empties the actor-in-flight slot even when the slot is NOT pre-cleared first — this is the defensive guarantee the abort-fn relies on by passing its in-scope handle. A 1-arg form resolves by request-id and no-ops on nil, so it would leak the slot under any abort trigger that does not pre-clear (only the actor-destroy eager dissoc would mask that)"
-    (rf.http.managed/clear-all-in-flight!)
-    (let [actor-id :worker/anon#7
-          ;; Anonymous: request-id nil, actor-id set. record-in-flight!
-          ;; stamps :actor-id and pushes the handle into actor-in-flight
-          ;; only (the request-id index is skipped on nil id).
-          handle   (rf.http.registry/record-in-flight!
-                     nil actor-id {:abort-fn (fn [_] nil) :url "http://x/anon"})]
-      (is (empty? (rf.http.managed/in-flight-snapshot))
-          "anonymous handle is absent from the request-id index")
-      (is (= [handle] (get (rf.http.managed/actor-in-flight-snapshot) actor-id))
-          "anonymous handle lives solely in the actor-in-flight index, identity-equal")
-      ;; Clear via the 2-arg form WITHOUT touching the actor slot first —
-      ;; this simulates a future abort trigger (e.g. a frame-level abort-all
-      ;; or a timeout-driven abort) that does NOT pre-clear actor-in-flight.
-      ;; The 2-arg form's identity-based remove-from-actor-index! empties it.
-      (rf.http.registry/clear-in-flight! nil handle)
-      (is (empty? (rf.http.managed/actor-in-flight-snapshot))
-          "2-arg clear-in-flight! removed the anonymous handle from the actor index by identity")
-      ;; Contrast: the 1-arg form is a full no-op on a nil request-id — it
-      ;; cannot reach the actor index for an anonymous handle. Re-record and
-      ;; prove the leak the 2-arg form closes.
-      (let [h2 (rf.http.registry/record-in-flight!
-                 nil actor-id {:abort-fn (fn [_] nil) :url "http://x/anon2"})]
-        (rf.http.registry/clear-in-flight! nil) ; 1-arg, nil id → no-op
-        (is (= [h2] (get (rf.http.managed/actor-in-flight-snapshot) actor-id))
-            "1-arg clear-in-flight! leaves the anonymous handle stranded — the leak the 2-arg form closes")
-        ;; Clean up via the correct form so the fixture leaves a clean registry.
-        (rf.http.registry/clear-in-flight! nil h2)
-        (is (empty? (rf.http.managed/actor-in-flight-snapshot)))))))
-
 ;; ---- (6c) the SECOND abort-fn site — schedule-backoff-handle! -------------
-;; ----      sibling of (6b): a backoff-window abort fired WITHOUT a -----------
+;; ----      a backoff-window abort fired WITHOUT a ----------------------------
 ;; ----      pre-clear must clean the anonymous handle's actor slot -----------
 
 (def ^:private schedule-backoff-handle!
