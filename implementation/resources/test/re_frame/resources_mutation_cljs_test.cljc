@@ -1481,7 +1481,7 @@
     (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! all-args conj args) nil))
     (let [iv [:row 7]
           il '(:row 7)]
-      (is (not=(rf.resources.mutation-runtime/instance-key-id iv) (rf.resources.mutation-runtime/instance-key-id il))
+      (is (not= (rf.resources.mutation-runtime/instance-key-id iv) (rf.resources.mutation-runtime/instance-key-id il))
           "their byte key-ids differ (v[…] vs l(…)) — distinct storage rows")
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/save :params {:slug "v"} :instance iv}])
