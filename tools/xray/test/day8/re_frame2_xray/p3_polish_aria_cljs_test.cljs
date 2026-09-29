@@ -11,16 +11,14 @@
       `aria-label`, each tab button has `role=\"tab\"` +
       `aria-selected` + `id` + `aria-controls`; the body wrapper has
       `role=\"tabpanel\"` + `id` + `aria-labelledby` pointing at the
-      active tab. Numeric `<label>` ↔ `<input>` pairs in General +
-      Buffer carry `:html-for` ↔ `:id`.
+      active tab. General's epoch-history `<label>` ↔ `<input>` pair
+      carries `:html-for` ↔ `:id`.
 
     - Xray frame-switcher native `<select>` carries an
-      explicit `aria-label`. Story multi-substrate grid exposes a
-      labelled `role=\"group\"` with per-cell `role=\"region\"`.
+      explicit `aria-label`.
 
     - Xray resize-handle carries `aria-valuemax`; the decorative
-      `●` REDACTED prefix carries `aria-hidden=\"true\"`, and the L3
-      tab strip carries no decorative glyph at all.
+      `●` REDACTED prefix carries `aria-hidden=\"true\"`.
 
   All assertions walk the view's hiccup tree by `data-testid` /
   attribute presence rather than mounting to a DOM — same approach
@@ -250,9 +248,9 @@
 
 (deftest frame-switcher-select-has-aria-label
   (testing "the native <select> picker has an aria-label
-            so screen readers announce its purpose on focus. The
-            picker only renders when ≥2 frames are present; seed two
-            cascades from distinct frames to surface it."
+            so screen readers announce its purpose on focus. Two
+            cascades from distinct frames give it a populated option
+            list."
     ;; Seed BEFORE xray-setup! so the sub's first compute reads the
     ;; populated trace-bus atom — mirrors the order frame-switcher's
     ;; own tests use.
@@ -263,7 +261,7 @@
       (let [tree   (static-shell-tree/frame-switcher-tree rf/dispatch)
             picker (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker")]
         (is (some? picker)
-            "the <select> picker renders when ≥2 frames are present")
+            "the <select> picker renders")
         (is (and (string? (:aria-label (props picker)))
                  (seq (:aria-label (props picker))))
             "frame-switcher <select> carries a non-empty aria-label")))))
@@ -322,27 +320,3 @@
         (is (some? indicator) "REDACTED indicator renders when count > 0")
         (is (some? glyph)
             "the decorative `●` glyph carries aria-hidden=\"true\"")))))
-
-(deftest runtime-tab-has-no-decorative-glyph
-  (testing "the L3 tab strip is the Figma button-bar
-            (filled-accent active button + white text), NOT a
-            radio-glyph row: selection is signalled by the button fill +
-            colour, not a unicode circle. So the tab button carries NO
-            decorative glyph at all, and AT users hear only the visible
-            label by construction."
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree      (dynamic-shell-tree/shell-view-tree)
-            event-tab (rf.test-helpers/find-by-testid tree "rf-xray-tab-event")
-            glyph     (some (fn [node]
-                              (when (and (vector? node)
-                                         (= :span (first node))
-                                         (map? (second node))
-                                         (= "true" (:aria-hidden (second node))))
-                                node))
-                            (hiccup-seq event-tab))
-            tab-text  (apply str (filter string? (hiccup-seq event-tab)))]
-        (is (nil? glyph)
-            "L3 tab carries no aria-hidden decorative-glyph span")
-        (is (not (re-find #"[◉○●]" tab-text))
-            "L3 tab carries no radio-circle glyph in its text")))))

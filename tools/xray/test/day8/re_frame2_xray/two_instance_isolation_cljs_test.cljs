@@ -72,19 +72,6 @@
   (rf/with-frame frame-id
     (rf/dispatch-sync event-v)))
 
-(deftest handlers-register-globally-once
-  (testing "handlers register GLOBALLY once under :rf.xray/*
-            (the registrar is process-global, not per-frame). Both shell
-            frames resolve the SAME registered subs/events; only their
-            app-db differs."
-    (setup-two-shells!)
-    ;; The same sub-id resolves under both frames (would throw / return
-    ;; nil if registration were per-frame and one frame missed it).
-    (is (= :epoch (read-sub cell-a :rf.xray/selected-tab)))
-    (is (= :epoch (read-sub cell-b :rf.xray/selected-tab))
-        "the globally-registered :rf.xray/selected-tab sub resolves under
-         BOTH instance frames — no per-frame handler re-registration")))
-
 (deftest selected-tab-is-per-instance
   (testing "driving cell A's tab does NOT move
             cell B's. Distinct selected-tab per instance."
@@ -108,6 +95,8 @@
             and the mode pill writes via the captured
             dispatcher."
     (setup-two-shells!)
+    ;; Before either cell is driven, the ONE globally-registered sub
+    ;; resolves under both frames — no per-frame re-registration.
     (is (= :dynamic (read-sub cell-a :rf.xray/mode)))
     (is (= :dynamic (read-sub cell-b :rf.xray/mode)))
     (dispatch! cell-a [:rf.xray/set-mode :static])

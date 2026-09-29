@@ -119,7 +119,7 @@
 ;; upstream (the orphan never reaching the cascade), not group-by-event
 ;; itself.
 
-(deftest pre-avvwm-orphan-folds-into-same-cascade-still-visible
+(deftest orphan-sharing-the-dispatch-id-folds-into-the-cascade
   (testing "with the leading orphan :frame/created sharing the epoch's
             dispatch-id, the cascade still resolves one visible L2 row —
             the orphan rides in :other, :event is still populated"
