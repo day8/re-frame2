@@ -4,9 +4,9 @@
 
   WHY THIS EXISTS. The parameterised shared suite
   (`re-frame.adapter.react-shared-suite`) keeps every spine-shared
-  assertion ONCE as an `assert-*` defn. Hand-pairing ~50 `(deftest
-  name (suite/assert-name cfg))` lines in each per-adapter ENTRY file
-  would turn every new shared assertion into hand-copied edits, and
+  assertion ONCE as an `assert-*` defn. Hand-pairing a `(deftest
+  name (suite/assert-name cfg))` line per assertion in each per-adapter
+  ENTRY file would turn every new shared assertion into hand-copied edits, and
   forgetting one entry file would silently drop that adapter's coverage.
   So the test list lives ONCE here and each entry file reduces to a
   single `(define-react-shared-suite-tests! cfg)` call.

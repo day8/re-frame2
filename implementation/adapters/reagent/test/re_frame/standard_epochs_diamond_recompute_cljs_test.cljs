@@ -12,9 +12,9 @@
   subs contract suite — sibling to
   `re-frame.standard-epochs-views-subs-lifecycle-cljs-test`.
 
-  The diamond (byte-for-byte the testbed's `:standard-epochs/diamond-*`
-  subs, registered under the same ids, so a drift between the testbed and
-  this contract surfaces as a failure here):
+  The diamond (a copy of the testbed's `:standard-epochs/diamond-*` subs,
+  registered here under the same ids — this ns never loads the testbed, so
+  it pins the substrate's diamond behaviour, not the testbed's source):
 
          :diamond-root          (L1 — reads :views/diamond-root)
            /        \\

@@ -481,19 +481,21 @@
 
 (deftest headless-explicit-frame-resolution-chain
   "#9 Reactive substrate without React-context —
-   the resolution chain is dynamic-var → :rf/default when the substrate
-   has no context concept (the dynamic var is the always-available tier)."
+   with no context concept the dynamic var is the only scope tier, and
+   there is no :rf/default floor. The :rf/default read below is the
+   reset-runtime fixture's ambient scope, which with-frame shadows and
+   then restores."
   (rf/make-frame {:id :alt :doc "alt frame"})
-  ;; Outside any with-frame: falls back to :rf/default.
+  ;; Outside any with-frame: the fixture's ambient scope.
   (is (= :rf/default (rf/current-frame-id))
-      "no dynamic binding → resolves to :rf/default")
+      "outside any with-frame the fixture's ambient :rf/default scope resolves")
   ;; with-frame binds the dynamic var; resolution lands on the bound id.
   (rf/with-frame :alt
     (is (= :alt (rf/current-frame-id))
-        "dynamic-var tier wins over :rf/default"))
-  ;; After with-frame returns, dynamic var is unbound again.
+        "with-frame's binding wins over the ambient scope"))
+  ;; After with-frame returns, the ambient scope is back.
   (is (= :rf/default (rf/current-frame-id))
-      "with-frame's binding is scoped — dynamic var reverts on exit"))
+      "with-frame's binding is scoped — the ambient scope returns on exit"))
 
 ;; ---------------------------------------------------------------------------
 ;; Interaction 10 — Plain Reagent fn under a non-default frame
@@ -1171,7 +1173,7 @@
                     :actions {:tag (fn [{data :data}]
                                      {:data (assoc data :who :v1)})}}
         machine-v2 (assoc-in machine-v1 [:actions :tag]
-                             (fn [data _] {:data (assoc data :who :v2)}))]
+                             (fn [{data :data}] {:data (assoc data :who :v2)}))]
     (rf/reg-machine :test/m machine-v1)
     (rf/dispatch-sync [:test/m [:go]])
     (is (= :v1 (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))

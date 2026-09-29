@@ -3,11 +3,13 @@
 
   Per IMPL-SPEC §7 + §12.1 + §12.5 R-001. Covers:
 
-    - Tag parsing (:div, :div.cls, :div#id, :div.a.b#id).
+    - Tag parsing (:div, :div.cls, :div#id, :div#id.a.b; the
+      class-before-id :div.a.b#id is pinned as unsupported).
     - Hiccup vector dispatch (:>, :<>, :r>, :f>, DOM tag, user fn).
     - Narrowed convert-prop-value (D2): HTML-attribute names stringify
       keyword values; non-HTML names pass through unchanged.
-    - Sequence-as-children flattening + dev-only key warning.
+    - Sequence-as-children flattening (the dev-only missing-key
+      warning is not tested here).
     - Void-tag handling (children rejected for <br>, <img>, etc.).
     - cached-prop-name kebab→camel conversion.
 
@@ -799,7 +801,7 @@
     (is (= "--my-custom-prop" (template/cached-prop-name :--my-custom-prop)))))
 
 ;; ---------------------------------------------------------------------------
-;; Sequence-as-children + key warnings
+;; Sequence-as-children
 ;; ---------------------------------------------------------------------------
 
 (deftest as-element-seq-children-interior-nil-false
@@ -1144,9 +1146,10 @@
 ;; So every constructor that reads the slot directly is witnessed here, on both
 ;; key spellings, with the precedence between them and the absence case:
 ;; a DOM tag (props at index 1), `:>` interop (index 2 — both are
-;; `converted-props-element`), and `:<>` fragments. The heads that use the
-;; finder (`:f>`, `:r>`, component heads) are witnessed by the sibling suites
-;; above, and `expand-seq`'s missing-key warning is the finder's other caller.
+;; `converted-props-element`), and `:<>` fragments. Of the heads that use the
+;; finder, `:r>` is witnessed by the `as-element-raw-key-…` test above;
+;; `:f>` and component heads have no key witness, and `expand-seq`'s
+;; missing-key warning is the finder's other caller.
 ;; ---------------------------------------------------------------------------
 
 (deftest key-read-covers-both-converted-props-routes-rf2-lhdp0
