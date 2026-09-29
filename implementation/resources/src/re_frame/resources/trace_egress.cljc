@@ -828,8 +828,11 @@
   returned unchanged.
 
   Through a KEYWORD accessor a declared data path that runs through the
-  accessor key loses that key, and any other path keeps its reading, which is
-  a vector page's — a vector page is its own items. Through a CALLABLE
+  accessor key is read both without that key, which is an enveloped page's
+  reading once the accessor has lifted its items, and as written, which is a
+  vector page's — a vector page is its own items and never reaches the
+  accessor, and the merged list does not say which kind of page it came from.
+  Any other path keeps its vector-page reading. Through a CALLABLE
   accessor nothing says where a declared field lands in the list, so a
   sensitive data declaration covers the whole `:value`, which fails closed
   off-box and costs nothing in process. `:params` / `:scope` paths name the
@@ -844,14 +847,16 @@
                                  (:params :scope) nil
                                  :data            (subvec p 1)
                                  p)))
-            through  (fn [d] (if (= accessor (first d)) (subvec d 1) d))
+            through  (fn [d] (if (= accessor (first d)) [(subvec d 1) d] [d]))
             read-as  (fn [paths whole?]
                        (let [ds    (keep data paths)
                              other (vec (remove data paths))]
                          (cond
                            (empty? ds) paths
                            whole?      (conj other [:data])
-                           :else       (into other (map #(into [:data] (through %))) ds))))
+                           :else       (into other
+                                             (comp (mapcat through) (map #(into [:data] %)))
+                                             ds))))
             callable (fn? accessor)]
         (cond-> spec
           (seq (:sensitive spec)) (update :sensitive read-as callable)
