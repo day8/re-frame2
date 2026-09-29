@@ -1051,11 +1051,11 @@
         root-expanded (fn [h]
                         (:data-rf-expanded
                           (second (first (nodes-with-attr h :data-rf-kind "map")))))]
-    (is (= "0" (root-expanded (render)))
-        "precondition: at depth 0 the root renders collapsed")
-    (rf/dispatch-sync [:rf.xray.edn-inspector/set-node :p site-id [] true])
     (is (= "1" (root-expanded (render)))
-        "an override stored under the site-id opens the root of a fresh mount")
+        "precondition: with no override the root renders expanded")
+    (rf/dispatch-sync [:rf.xray.edn-inspector/set-node :p site-id [] false])
+    (is (= "0" (root-expanded (render)))
+        "an override stored under the site-id collapses the root of a fresh mount")
     (rf/dispatch-sync [:rf.xray.edn-inspector/reset-expansion])))
 
 (deftest edn-inspector-without-site-id-keeps-per-call-site-isolation
