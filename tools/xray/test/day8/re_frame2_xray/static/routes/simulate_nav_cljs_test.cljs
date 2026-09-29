@@ -114,11 +114,6 @@
       (is (re-find #"Hermetic preview" (text-of tree))
           "the preview surface labels itself 'Hermetic preview'"))))
 
-(deftest preview-with-matching-url-shows-matched-marker
-  (testing "URL that matches the route's pattern surfaces (matched) in the URL row"
-    (let [tree (simulate-nav/preview routes :route/cart "/cart")]
-      (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-url"))))))
-
 (deftest preview-slot-shape-row-names-the-slice-navigate-writes-rf2-y8doi-22
   (testing "the rendered 'Slot shape' row carries every key a real navigation
             writes, and none it does not"

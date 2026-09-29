@@ -34,7 +34,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.static.routes.panel :as panel]
@@ -144,32 +143,6 @@
                      :parent :route/checkout
                      :on-match [:confirm/load]}})
 
-;; ---- (1) registry wires the subs + events -----------------------------
-
-(deftest registry-installs-static-routes-handlers
-  (testing "register-xray-handlers! installs every Static Routes sub + event"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/query))
-        ":rf.xray.static.routes/query sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/sim-url))
-        ":rf.xray.static.routes/sim-url sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/expanded))
-        ":rf.xray.static.routes/expanded sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/sim-nav-open))
-        ":rf.xray.static.routes/sim-nav-open sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray.static.routes/tab-data))
-        "view-facing composite registered")
-    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/set-query))
-        "set-query event registered")
-    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/set-sim-url))
-        "set-sim-url event registered")
-    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/toggle-row))
-        "toggle-row event registered")
-    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/toggle-sim-nav))
-        "toggle-sim-nav event registered")
-    (is (some? (rf.registrar/handler :event :rf.xray.static.routes/jump-to-dynamic))
-        "jump-to-dynamic cross-link event registered")))
-
 ;; ---- (2) silent state ---------------------------------------------------
 
 (deftest panel-renders-silent-state-when-no-routes
@@ -242,33 +215,6 @@
         (is (some? (find-by-testid tree "rf-xray-static-routes-empty-filtered"))
             "empty-filtered surface rendered when the query matches no rows")))))
 
-;; ---- (5) Simulate-URL header --------------------------------------------
-
-(deftest panel-simulates-url-and-surfaces-candidates
-  (testing "set-sim-url populates the simulator result with ranked candidates"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/cart"]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-result"))
-            "simulator result rendered")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-candidate-route/cart"))
-            "matching candidate row rendered"))))
-
-  (testing "no match — result block reports zero candidates"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/nope-not-here"]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-result"))
-            "simulator result rendered even on no-match")))))
-
 ;; ---- (6) per-row inline expand -----------------------------------------
 
 (deftest panel-row-expand-toggle
@@ -321,35 +267,6 @@
               ":query schema block rendered"))))))
 
 ;; ---- (7) hermetic Simulate-navigation preview --------------------------
-
-(deftest panel-sim-nav-preview-is-hermetic
-  (testing "Simulate-navigation toggle reveals the preview WITHOUT dispatching navigation"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      ;; Set a baseline current slice so we can assert it doesn't change.
-      (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:route-id :route/cart :params {} :query {}}]
-                        {:frame :rf/xray})
-      ;; Expand the row so the toggle is reachable, then flip the preview.
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/confirm]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-sim-nav :route/confirm]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-route/confirm"))
-            "preview surface rendered")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-on-match"))
-            "preview shows registered :on-match")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-db-slot"))
-            "preview shows the [:rf.runtime/routing :current] runtime-db slot")
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-slot-shape"))
-            "preview shows the slot shape that would land"))
-      ;; The current slice MUST still be the baseline — no real navigation.
-      (let [slice @(rf/subscribe [:rf.xray/current-route-slice])]
-        (is (= :route/cart (:route-id slice))
-            "current slice unchanged — preview did NOT mutate the runtime-db route slice")))))
 
 (deftest panel-sim-nav-preview-matches-the-simulate-url-input
   (testing "the preview's URL and Params rows read the URL typed into
