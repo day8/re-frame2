@@ -322,9 +322,29 @@
   unregistered / not-found route) lowers an empty
   classification, which clears the prior route's `:source :route` entries — the
   leaving route's classification drops on a route-miss / not-found transition
-  too. Pure over the runtime-db value."
+  too. Pure over the runtime-db value.
+
+  The same classification is also recorded on the route slice it governs, as
+  metadata (see `slice-classification`), so a value computed from the slice
+  keeps the declaration that governed it after the registry has moved on."
   [runtime-db route-id route-meta]
-  (apply-route-classification runtime-db (validate+extract route-id route-meta)))
+  (let [classification (validate+extract route-id route-meta)
+        lowered        (apply-route-classification runtime-db classification)]
+    (if (map? (get-in lowered current-route-root))
+      (update-in lowered current-route-root vary-meta assoc ::declared classification)
+      lowered)))
+
+(defn slice-classification
+  "The projection-relative classification `lower-for-route` recorded on the
+  route `slice` when its route activated, or nil. It is metadata, so the
+  in-process slice is unchanged and no registry entry outlives the route.
+
+  A navigation replaces the registry's route claims, and a re-registration can
+  replace the route's declaration, while a held route read sub's prior value —
+  the leaving slice, or a projection of it — still needs the classification
+  that governed it. That value carries its slice, and the slice carries this."
+  [slice]
+  (::declared (meta slice)))
 
 ;; ---- re-rooting onto a route read sub's value -----------------------------
 
@@ -341,19 +361,19 @@
       :else                                     nil)))
 
 (defn classification-at
-  "Route `route-id`'s declared classification, read from `route-meta` exactly
-  as activation lowers it, re-rooted onto the value stored at runtime-db
-  `seed` — the storage position a route read sub's value projects onto. Returns
+  "A route's projection-relative `classification` (the `validate+extract`
+  shape), re-rooted onto the value stored at runtime-db `seed` — the storage
+  position a route read sub's value projects onto. Returns
   `{:sensitive [paths] :large [paths]}` relative to that value, or nil when
-  nothing the route declares reaches it. A path declared at or above the
-  projection the value holds (`[]`, or `[:params]` for the params map) governs
-  the whole value.
+  nothing the classification declares reaches it. A path declared at or above
+  the projection the value holds (`[]`, or `[:params]` for the params map)
+  governs the whole value.
 
   The route-sub egress projector classifies a sub's PRIOR value with it: a
   navigation replaces the registry's route claims with the entering route's,
   so the leaving route's slice is classified by its own route's declaration."
-  [route-id route-meta seed]
-  (when-some [{:keys [sensitive large]} (validate+extract route-id route-meta)]
+  [classification seed]
+  (when-some [{:keys [sensitive large]} classification]
     (let [rebase (fn [paths]
                    (into [] (keep #(relative-path seed (into current-route-root %))) paths))
           sens   (rebase sensitive)
