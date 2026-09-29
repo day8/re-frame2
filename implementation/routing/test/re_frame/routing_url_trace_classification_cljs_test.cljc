@@ -181,6 +181,39 @@
           (is (seq urls) "control: the link door synthesised the URL-change event")
           (is (every? #{"/acct/rf%2Fredacted/visible?token=rf/redacted&page=2"} urls)))))))
 
+(deftest an-in-place-request-rides-verbatim-because-it-names-no-route
+  (testing "an in-place request edits its frame's CURRENT route, and the
+            event-vector projection sees the request but never the frame the
+            event targets, so it has no route to read a declaration off: a
+            declared query value rides verbatim (Spec 012 §Lowering and
+            re-rooting). A :to request naming that same route redacts it."
+    (reg-routes!)
+    (visit! (str "/acct/" param-secret "/visible?token=before&page=1"))
+    (let [in-place {:query-merge {:token query-secret :page "2"}}
+          events   (capture-traces #(rf/dispatch-sync [:rf.route/navigate in-place]))]
+      (is (= query-secret (get-in @(rf/subscribe [:rf/route]) [:query :token]))
+          "the in-place edit landed: the slice holds the merged value, raw")
+      (when rf.interop/debug-enabled?
+        (let [requests (event-args :rf.route/navigate events)]
+          (is (seq requests) "control: the window carries the navigate event")
+          (is (every? #(= "2" (get-in % [:query-merge :page])) requests)
+              "control: the undeclared query value rides verbatim")
+          (is (every? #(= query-secret (get-in % [:query-merge :token])) requests)
+              "the declared query value rides verbatim: no route, no declaration")
+          (is (every? #(identical? in-place %) requests)))))
+    (testing "control: the same key, on the same route, named with :to, redacts"
+      (let [named  {:to     :route/acct
+                    :params {:secret param-secret :other "visible"}
+                    :query  {:token query-secret :page "3"}}
+            events (capture-traces #(rf/dispatch-sync [:rf.route/navigate named]))]
+        (when rf.interop/debug-enabled?
+          (let [requests (event-args :rf.route/navigate events)]
+            (is (seq requests))
+            (is (every? #{{:to     :route/acct
+                           :params {:secret :rf/redacted :other "visible"}
+                           :query  {:token :rf/redacted :page "3"}}}
+                        requests))))))))
+
 (deftest a-navigate-request-to-an-undeclared-route-rides-verbatim
   (testing "control: a route declaring nothing leaves the request as it was"
     (reg-routes!)

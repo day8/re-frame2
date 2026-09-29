@@ -471,7 +471,9 @@
 ;; each declared param, query value and fragment of a `:to` request is replaced
 ;; by the `:rf/redacted` sentinel, read off the same declaration. `:to`, the
 ;; policy keys and everything the route does not declare ride as they are. An
-;; in-place request names no route, so it rides unchanged.
+;; in-place request names no route, so it rides unchanged: the route it edits is
+;; its frame's current one, and this projection receives the argument alone,
+;; never the frame the event targets.
 
 (defn- redact-named
   "`m` with the value of every key `named?` names replaced by the sentinel;
