@@ -11,8 +11,9 @@
         injects `Authorization: Token <jwt>` from the auth slice onto an outbound
         request, and is a no-op when logged out;
      3. MUTATION :populates / :invalidates / :reply-to — favorite seeds the detail
-        entry from its own reply (authoritative load), invalidates the global
-        article tags AND the session feed in one per-target descriptor set, and
+        entry from its own reply (authoritative load), invalidates the acting
+        reader's viewer-scoped lists AND the session feed in one per-target
+        descriptor set while another reader's viewer scope stays fresh, and
         fires its `:reply-to` continuation once on settle;
      4. THE EDITOR FLOW + :can-leave — `:editor/can-submit?` materialises
         valid-AND-dirty into app-db; `:editor/submit` reads it as plain data and
@@ -592,11 +593,21 @@
 (deftest favorite-populates-detail-invalidates-both-scopes-and-replies-once
   (testing "examples/real-apps/realworld_resources — :realworld/favorite seeds the
             detail entry from its reply (authoritative load), its per-target
-            descriptors reach the SESSION-scoped feed as well as its own viewer
-            scope (only the session reach is asserted), and the call-site
-            :reply-to continuation fires exactly once on settle"
+            descriptors reach the SESSION-scoped feed and the acting reader's
+            VIEWER-scoped list while leaving another reader's viewer scope
+            alone, and the call-site :reply-to continuation fires exactly once
+            on settle"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      ;; bob owns + loads a list showing the article under HIS viewer scope, so
+      ;; alice's favorite has a tag-matching entry in another scope to leave alone
+      (rf/dispatch-sync [:auth/store-session {:username "bob" :token "jwt-b"}] {:frame f})
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/articles :params {:tag nil :page 1}
+                          :owner [:app :test/bob-list]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:articles [{:slug "hello-conduit"}] :articlesCount 1} f)
+      (reset! last-managed-args nil)
       ;; log in so the session feed scope resolves
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
       ;; own + load the session feed so the invalidation has a live owner to refetch
@@ -606,6 +617,20 @@
                         {:frame f})
       (reply-success! @last-managed-args {:articles [{:slug "hello-conduit"}] :articlesCount 1} f)
       (reset! last-managed-args nil)
+      ;; own + load alice's list showing the article under HER viewer scope
+      (rf/dispatch-sync [:rf.resource/ensure
+                         {:resource :realworld/articles :params {:tag nil :page 1}
+                          :owner [:app :test/alice-list]}]
+                        {:frame f})
+      (reply-success! @last-managed-args {:articles [{:slug "hello-conduit"}] :articlesCount 1} f)
+      (reset! last-managed-args nil)
+      (let [bob-list (entry f (rf.resources.state/scoped-resource-key
+                                (viewer-scope "bob") :realworld/articles {:tag nil :page 1}))]
+        (is (contains? (set (:tags bob-list)) [:article "hello-conduit"])
+            "PRECONDITION: bob's list carries the tag alice's favorite names, so
+             only the scope keeps the descriptor off it")
+        (is (and (= :loaded (:status bob-list)) (nil? (:invalidated-at bob-list)))
+            "PRECONDITION: bob's list is loaded and fresh"))
       ;; capture the :reply-to continuation
       (let [replied (atom [])]
         (rf/reg-event :test/favorited
@@ -634,6 +659,17 @@
             (is (or (contains? #{:loading :fetching} (:status fe))
                     (some? (:invalidated-at fe)))
                 "the global-scope mutation reached the session feed (EP-0016 D2)")))
+        (testing "the acting reader's viewer-scoped list was invalidated; another viewer's was not"
+          (let [list-key   (fn [who] (rf.resources.state/scoped-resource-key
+                                           (viewer-scope who) :realworld/articles {:tag nil :page 1}))
+                alice-list (entry f (list-key "alice"))
+                bob-list   (entry f (list-key "bob"))]
+            (is (or (contains? #{:loading :fetching} (:status alice-list))
+                    (some? (:invalidated-at alice-list)))
+                "the viewer descriptor reached alice's list")
+            (is (not (or (contains? #{:loading :fetching} (:status bob-list))
+                         (some? (:invalidated-at bob-list))))
+                "bob's list, in another viewer scope, was left alone")))
         (testing "the :reply-to continuation fired exactly once with :ok"
           (is (= 1 (count @replied)) "continuation fired once on settle")
           (is (= :ok (:status (last (first @replied))))

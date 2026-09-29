@@ -8,8 +8,8 @@
     - Hiccup vector dispatch (:>, :<>, :r>, :f>, DOM tag, user fn).
     - Narrowed convert-prop-value (D2): HTML-attribute names stringify
       keyword values; non-HTML names pass through unchanged.
-    - Sequence-as-children flattening (the dev-only missing-key
-      warning is not tested here).
+    - Sequence-as-children flattening + the dev-only missing-key
+      warning.
     - Void-tag handling (children rejected for <br>, <img>, etc.).
     - cached-prop-name kebab→camel conversion.
 
@@ -1147,9 +1147,10 @@
 ;; key spellings, with the precedence between them and the absence case:
 ;; a DOM tag (props at index 1), `:>` interop (index 2 — both are
 ;; `converted-props-element`), and `:<>` fragments. Of the heads that use the
-;; finder, `:r>` is witnessed by the `as-element-raw-key-…` test above;
-;; `:f>` and component heads have no key witness, and `expand-seq`'s
-;; missing-key warning is the finder's other caller.
+;; finder, `:r>` is witnessed by the `as-element-raw-key-…` test above and
+;; `:f>` and component heads by `key-read-covers-the-finder-heads` below;
+;; `expand-seq`'s missing-key warning is the finder's other caller, witnessed
+;; by `expand-seq-warns-on-an-unkeyed-child-not-on-keyed-ones`.
 ;; ---------------------------------------------------------------------------
 
 (deftest key-read-covers-both-converted-props-routes-rf2-lhdp0
@@ -1185,3 +1186,33 @@
         "fragment: meta beats props")
     (is (nil? (.-key ^js (template/as-element [:<> "x"])))
         "fragment with no props slot has no key")))
+
+(deftest key-read-covers-the-finder-heads
+  (testing ":f> — the finder reads the props slot at index 2, as for :>"
+    (let [f (fn [_] [:span])]
+      (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [:f> f "x"])))
+          "meta key on an :f> head")
+      (is (= "p" (.-key ^js (template/as-element [:f> f {:key "p"}])))
+          "prop key on an :f> head")))
+
+  (testing "component head — the finder reads the props slot at index 1"
+    (let [c (fn [_] [:span])]
+      (is (= "m" (.-key ^js (template/as-element ^{:key "m"} [c "x"])))
+          "meta key on a component head")
+      (is (= "p" (.-key ^js (template/as-element [c {:key "p"}])))
+          "prop key on a component head"))))
+
+(deftest expand-seq-warns-on-an-unkeyed-child-not-on-keyed-ones
+  (testing "a sequence holding an unkeyed child vector warns once"
+    (let [calls (atom [])]
+      (with-warn-spy calls #(template/as-element [:ul (list [:li "a"])]))
+      (is (= 1 (count @calls)) "one unkeyed child, one warning")
+      (is (re-find #"unique :key" (str (first @calls)))
+          "the warning names the missing :key")))
+
+  (testing "a sequence of keyed children — meta and prop spellings — is silent"
+    (let [calls (atom [])]
+      (with-warn-spy calls
+        #(template/as-element [:ul (list ^{:key "a"} [:li "a"]
+                                         [:li {:key "b"} "b"])]))
+      (is (empty? @calls) "keyed children raise no warning"))))
