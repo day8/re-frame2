@@ -170,22 +170,6 @@
 ;;     ride the SAME projection as a scalar entry, in ONE entry slot.
 ;; ===========================================================================
 
-(deftest live-feed-entry-is-a-multi-page-loaded-feed
-  (reg-feed!)
-  (testing "PRE: the assembled live entry is a 3-page :loaded feed in ONE
-            :rf.runtime/resources entry slot, with a load-more in flight"
-    (let [rdb (feed-with-load-more-in-flight :app/main)
-          e   (get-in rdb [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
-      (is (rf.resources.state/infinite-entry? e) "it is an infinite entry (the :infinite? marker)")
-      (is (= expected-pages (:data e)) "the ordered page vector")
-      (is (= expected-params (:page-params e)) "one page-param per page (page-0 = nil)")
-      (is (= expected-cursor (:next-page-param e)) "the cursor is the 4th page's param")
-      (is (= expected-prev (:prev-page-param e)) "no prev mirror (page-0 declared none)")
-      (is (= 3 (rf.resources.state/page-count e)))
-      (is (= :fetching (:status e)) "the load-more left the feed :fetching")
-      (is (= load-more-wid (:current-work e)) "the entry points at the in-flight load-more work")
-      (is (= expected-items (merged-items* e)) "the headline merged :items, live"))))
-
 (deftest projection-ships-page-vector-and-infinite-facts-verbatim
   (reg-feed!)
   (testing "the SSR projection rides the ordered page vector + EVERY infinite

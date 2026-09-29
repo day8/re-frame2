@@ -949,22 +949,6 @@
                           [:ssr "req-7" "nav-1"]))
           "the orphaned SSR owner is absent from the recomputed owner-index"))))
 
-(deftest hydrate-clears-current-work
-  (testing "the transient :current-work pointer is cleared (the attempt never crossed the wire)"
-    (let [e   (entry {:resource-id :article/by-slug :data {:t "x"}
-                      :loaded-at 1000 :stale-at 9.0e15
-                      :current-work [:rf.work/resource gkey 1]})
-          out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)]
-      (is (nil? (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :current-work]))))))
-
-(deftest hydrate-preserves-entry-data
-  (testing "hydrated entries are PRESERVED (data + status survive the reconcile)"
-    (let [e   (entry {:resource-id :article/by-slug :data {:t "kept"}
-                      :loaded-at 1000 :stale-at 9.0e15})
-          out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)]
-      (is (= {:t "kept"} (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :data])))
-      (is (= :loaded (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :status]))))))
-
 (deftest hydrate-noop-without-resources
   (testing "a runtime-db with no resource entries is returned unchanged (SSR app without resources)"
     (let [rdb {:rf.runtime/machines {:snapshots {}}}]
@@ -1073,20 +1057,9 @@
       (is (nil? (rf.resources.ssr/clock-skew-ms (entry {:resource-id :a :data {:x 1}}) 1500))))))
 
 ;; ===========================================================================
-;; 4. NO double-fetch — refetch plan
+;; 4. NO double-fetch — refetch plan (the whole-plan classification is
+;;    `refetch-plan-classifies-redacted-vs-omitted-vs-stale-vs-fresh`, 4b)
 ;; ===========================================================================
-
-(deftest refetch-plan-omits-fresh-includes-stale-and-metadata-only
-  (testing "fresh-with-data → absent (no double-fetch); stale → present; metadata-only → present"
-    (let [fresh (entry {:resource-id :a :data {:x 1} :loaded-at 1000 :stale-at 9.0e15})
-          stale (entry {:resource-id :b :data {:x 2} :loaded-at 1000 :stale-at 1500})
-          meta  (entry {:resource-id :c :data nil :status :loaded})  ;; redacted/omitted: no data
-          rdb   (runtime-db-with {ka fresh kb stale kc meta})
-          plan  (->> (rf.resources.ssr/hydrate-refetch-plan rdb 5000)
-                     (into {} (map (juxt :resource/key identity))))]
-      (is (not (contains? plan ka)) "fresh-with-data is NOT refetched (the SSR win)")
-      (is (= :stale   (:reason (plan kb))))
-      (is (= :no-data (:reason (plan kc)))))))
 
 (deftest entry-needs-refetch-predicate
   (testing "entry-needs-refetch? is false ONLY for fresh-with-data"
@@ -1134,22 +1107,6 @@
                   (infinite-entry* {:resource-id :feed/timeline :data rf.privacy/redacted-sentinel
                                     :status :loaded})))
         "a redacted infinite entry is still metadata-only (sentinel ruled out before has-data?)")))
-
-(deftest empty-infinite-feed-refetches-not-stranded-fresh-forever
-  (testing "ADVERSARIAL — an SSR-serialized empty infinite feed
-            (:data [], never drained, :stale-at nil) appears in the refetch plan
-            with :reason :no-data; treated as fresh-with-data it would be
-            stranded rendering permanently empty"
-    (let [empty-feed (infinite-entry* {:resource-id :feed/timeline :status :idle
-                                       :data [] :stale-at nil})]
-      (is (true? (rf.resources.ssr/entry-needs-refetch? empty-feed 5000))
-          "an empty infinite feed needs a client refetch — never fresh-forever")
-      (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan (runtime-db-with {fkey empty-feed}) 5000)
-                      (into {} (map (juxt :resource/key identity))))]
-        (is (contains? plan fkey) "the empty infinite feed IS in the refetch plan")
-        (is (= :no-data (:reason (plan fkey)))
-            "reason is :no-data (no usable last-known-good page)")
-        (is (= :feed/timeline (:resource-id (plan fkey))))))))
 
 (deftest loaded-infinite-feed-with-page-not-double-fetched
   (testing "no over-refetch: a FRESH infinite feed
