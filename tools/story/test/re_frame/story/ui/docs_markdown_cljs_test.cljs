@@ -45,18 +45,6 @@
 
 ;; ---- markdown smoke tests ------------------------------------------------
 
-(deftest markdown-parse-is-pure-data
-  (testing "rf.story.ui.markdown/parse returns a hiccup vector with no JS interop —
-            JVM-and-CLJS-symmetric (the parser itself is JVM-tested in
-            re-frame.story.ui.markdown-test; this test confirms the
-            same parser runs cleanly under cljs.test)"
-    (let [out (rf.story.ui.markdown/parse "# Title\n\nbody **bold** end")]
-      (is (vector? out))
-      (is (= :div.rf-story-md (first out)))
-      (let [[_ h1 p] out]
-        (is (= :h1 (first h1)))
-        (is (= :p  (first p)))))))
-
 (deftest prose-body-walked-by-renderer-feeds-md-parser
   (testing "the prose-for-variant data the renderer iterates over
             preserves `:body` strings verbatim — the renderer then

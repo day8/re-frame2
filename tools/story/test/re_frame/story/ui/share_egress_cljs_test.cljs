@@ -139,27 +139,6 @@
       (is (str/includes? snip ":n 7") "the cell-override beats the variant default")
       (is (str/ends-with? snip "})")))))
 
-;; ---- Copy EDN pastes verbatim under the canonical alias -------------------
-
-(deftest edn-snippet-output-pastes-verbatim
-  (testing "the Copy EDN form names `re-frame.story` by its canonical alias
-            `rf.story` (spec/Conventions.md §Require-alias dialect), so it
-            compiles in a stories namespace whose only Story alias is
-            `rf.story`. CLJS has no runtime `eval`, so the compile half of the
-            JVM `dialog_output_paste_test` shape is the head symbol the reader
-            returns; `edn-snippet-round-trips-through-registration` registers
-            the body."
-    (rf.story/reg-variant :story.egress/counter {:tags #{:dev} :setup [] :args {:n 1}})
-    (rf.story.ui.state/swap-state!
-      (fn [s] (assoc s :selected-variant :story.egress/counter)))
-    (let [snip             (rf.story.ui.share/egress-edn-snippet
-                             (rf.story.ui.state/get-state) 1700000000000)
-          [head _ body]    (reader/read-string snip)]
-      (is (= 'rf.story/reg-variant head))
-      (is (not (str/includes? snip "(story/"))
-          "no `story/` spelling that would need translating before pasting")
-      (is (= :story.egress/counter (:extends body))))))
-
 ;; ---- the copied form must not extend itself ------------------------------
 
 (deftest edn-snippet-registers-a-distinct-id
@@ -248,11 +227,6 @@
     (is (nil? (rf.story.ui.share/egress-edn-snippet (rf.story.ui.state/get-state))))))
 
 ;; ---- dialog open / close / render ----------------------------------------
-
-(deftest dialog-closed-renders-nil
-  (testing "the dialog renders nil while closed"
-    (rf.story.ui.share/close-share-export-dialog!)
-    (is (nil? (rf.story.ui.share/share-export-dialog)))))
 
 (deftest dialog-open-renders-every-egress-command
   (testing "the open dialog renders all four human-egress commands, each

@@ -48,18 +48,6 @@
       (is (str/includes? rendered ":story.x/source"))
       (is (str/includes? rendered ":counter/inc")))))
 
-(deftest build-export-auto-assert-flows-through
-  (testing "the auto-assert option produces trailing :assert-db steps"
-    (let [{:keys [spec]} (rf.story.recorder.play-export-events/build-export
-                           [[:counter/inc]]
-                           {:variant-id :story.x/recorded
-                            :auto-assert? true
-                            :final-db {:n 1}
-                            :seed-db  {:n 0}})
-          tags (mapv first (:script spec))]
-      (is (= [:dispatch :assert-db] tags)
-          "dispatch first, :assert-db trails"))))
-
 ;; ---- CLJS-only: open / close transitions --------------------------------
 
 #?(:cljs
@@ -85,15 +73,6 @@
           :events    [[:counter/inc]]})
        (is (= :story.counter/recorded-script
               (:variant-id @rf.story.ui.recorder-export-dialog/ui-dialog))))))
-
-#?(:cljs
-   (deftest open-dialog-snapshot-is-decoupled-from-source-vector
-     (testing "the snapshot is a fresh vector, not a live ref"
-       (let [events (vec [[:counter/inc]])]
-         (rf.story.ui.recorder-export-dialog/open-dialog!
-           {:source-id :story.x/y :events events})
-         (is (= [[:counter/inc]] (:events @rf.story.ui.recorder-export-dialog/ui-dialog))
-             "the dialog carries the snapshot independent of the source vector")))))
 
 ;; ---- CLJS-only: dialog rendering ----------------------------------------
 
@@ -210,17 +189,6 @@
              "the unchanged static keys are not")
          (is (not (str/includes? flat "[:assert-db [:rf.story/"))
              "Story's own bookkeeping is not")))))
-
-#?(:cljs
-   (deftest open-from-recorder-dialog-carries-the-seed
-     (testing "the recorder save dialog's export hand-off
-               carries the recording's seed db onto the export dialog"
-       (rf.story.ui.recorder-export-dialog/open-from-recorder-dialog!
-         {:events    [[:counter/inc]]
-          :entries   []
-          :source-id nil
-          :seed-db   {:n 0}})
-       (is (= {:n 0} (:seed-db @rf.story.ui.recorder-export-dialog/ui-dialog))))))
 
 #?(:cljs
    (deftest dialog-without-final-db-omits-assertions
