@@ -70,11 +70,15 @@
   A navigation REPLACES the registry's route claims with the entering route's,
   so a held route sub's `:rf.sub/prev-value` — the leaving route's slice — can
   no longer be classified from the registry alone. It belongs to the route its
-  slice names, and is additionally classified by that route's own declaration
-  (`re-frame.routing.classification/classification-at`). `:rf/route`'s value
-  IS the slice; the `:rf.route/query` / `:rf.route/params` leaves read theirs
-  from their one input, the prior `[:rf/route]` value the memo path carries as
-  the prior inputs. The registry keeps no entry for the leaving route.
+  slice names, and is additionally classified by the declaration activation
+  recorded on that slice (`re-frame.routing.classification/slice-classification`),
+  unioned with the route's current registration and re-rooted onto the value
+  (`re-frame.routing.classification/classification-at`). So a route
+  re-registered without its declaration before the navigation still redacts the
+  value it governed. `:rf/route`'s value IS the slice; the `:rf.route/query` /
+  `:rf.route/params` leaves read theirs from their one input, the prior
+  `[:rf/route]` value the memo path carries as the prior inputs. The registry
+  keeps no entry for the leaving route.
 
   Internal namespace; the public facade is `re-frame.routing`."
   (:require [re-frame.classification :as rf.classification]
@@ -110,13 +114,20 @@
   "The classification of the route a route read sub's PRIOR `value` was
   computed under, re-rooted onto that value, or nil. The route is the one its
   slice names: `:rf/route`'s value is the slice, and a leaf's is its one input
-  in `prior-inputs`."
+  in `prior-inputs`. The declaration recorded on that slice when the route
+  activated governs it, unioned with the route's current registration, so
+  re-registering the route between the compute and the trace declassifies
+  nothing."
   [sub-id value prior-inputs seed]
   (let [slice    (if (= :rf/route sub-id) value (first prior-inputs))
         route-id (when (map? slice) (:route-id slice))]
     (when (some? route-id)
       (rf.routing.classification/classification-at
-        route-id (rf.registrar/lookup :route route-id) seed))))
+        (merge-with (comp vec distinct concat)
+                    (rf.routing.classification/slice-classification slice)
+                    (rf.routing.classification/validate+extract
+                      route-id (rf.registrar/lookup :route route-id)))
+        seed))))
 
 (defn project-route-sub-egress
   "Project a route read sub's `value` for egress, applying the route's
