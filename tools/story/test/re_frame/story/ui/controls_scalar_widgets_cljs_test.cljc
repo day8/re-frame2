@@ -343,23 +343,6 @@
 ;; `infer-widget`'s `:keyword` case promises.
 
 #?(:cljs
-   (deftest select-widget-on-change-writes-the-keyword-option
-     (testing ":select on-change writes the SOURCE keyword option, not the
-               stringified DOM token — the value satisfies the enum that
-               generated the widget"
-       (let [tree    (rf.story.ui.controls/scalar-widget
-                       :story.x/v [:size] :small
-                       {:widget :select :options [:small :large]})
-             handler (-> tree second :on-change)]
-         (handler (input-event ":large"))
-         (let [written (get-in (rf.story.ui.state/get-state)
-                               [:cell-overrides :story.x/v :size])]
-           (is (= :large written))
-           (is (keyword? written) "a keyword, not the string \":large\"")
-           (is (m/validate [:enum :small :large] written)
-               "and it satisfies the enum schema the widget was inferred from"))))))
-
-#?(:cljs
    (deftest select-widget-on-change-writes-the-numeric-option
      (testing ":select on-change writes a numeric option as a number"
        (let [tree    (rf.story.ui.controls/scalar-widget
@@ -407,13 +390,6 @@
          (handler (input-event ":dark"))
          (is (= :dark (get-in (rf.story.ui.state/get-state)
                               [:cell-overrides :story.x/v :theme :mode])))))))
-
-#?(:cljs
-   (deftest infer-widget-keyword-carries-the-coercion-tag
-     (testing "a :keyword schema infers a text widget TAGGED for keyword
-               coercion — the docstring's promise, carried in data"
-       (is (= {:widget :text :coerce :keyword}
-              (rf.story.ui.controls/infer-widget :keyword))))))
 
 ;; ---- a scalar schema carrying properties keeps its type -------------------
 

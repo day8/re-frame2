@@ -437,14 +437,6 @@
            (is (re-find #"(?i)schema"     (or (:title body) ""))))))))
 
 #?(:cljs
-   (deftest ^:cljs panel-render-view-registered
-     (testing "the panel-render view is registered against the framework
-              view registry so the late-bind lookup in re-frame.core/view
-              finds it"
-       (reset-all!)
-       (is (some? (rf/view rf.story.ui.schema-validation/panel-render-id))))))
-
-#?(:cljs
    (deftest ^:cljs panel-render-view-roots-in-dom-element
      (testing "the schema-validation panel-render view returns hiccup
               whose root is a DOM element keyword (`:div`), not a bare

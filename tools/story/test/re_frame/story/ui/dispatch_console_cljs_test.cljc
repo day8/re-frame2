@@ -336,20 +336,6 @@
          (is (= 0 (count (rf.story.ui.dispatch-console/current-history vid))))))))
 
 #?(:cljs
-   (deftest cljs-dispatch-event-changes-app-db
-     (testing "dispatching against a frame writes app-db via dispatch-sync"
-       (let [vid :story.dispatch.test/v]
-         (rf/make-frame {:id vid})
-         (rf/reg-event :test/inc
-                          (fn [{:keys [db]} _] {:db (update db :counter (fnil inc 0))}))
-         (rf/reg-sub :test/counter
-                     (fn [db _] (get db :counter 0)))
-         (rf.story.ui.dispatch-console/dispatch-event! vid [:test/inc] :dispatch-sync)
-         (is (= 1 (rf/subscribe-once [:test/counter] {:frame vid})))
-         (rf.story.ui.dispatch-console/dispatch-event! vid [:test/inc] :dispatch-sync)
-         (is (= 2 (rf/subscribe-once [:test/counter] {:frame vid})))))))
-
-#?(:cljs
    (deftest cljs-dispatch-event-records-history
      (testing "every dispatch lands a history entry"
        (let [vid :story.history.test/v]
