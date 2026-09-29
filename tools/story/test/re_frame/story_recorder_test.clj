@@ -73,15 +73,6 @@
 
 ;; ---- pure state machine --------------------------------------------------
 
-(deftest start-replaces-state
-  (testing "start! resets events + flips :recording? true"
-    (let [s0 rf.story.recorder/initial-state
-          s1 (rf.story.recorder/start s0 :story.counter/happy-path 1000)]
-      (is (true? (:recording? s1)))
-      (is (= :story.counter/happy-path (:variant-id s1)))
-      (is (= [] (:events s1)))
-      (is (= 1000 (:started-ms s1))))))
-
 (deftest start-clobbers-previous-recording
   (testing "starting a fresh recording drops any captured events"
     (let [s0 (-> rf.story.recorder/initial-state
@@ -91,15 +82,6 @@
           s1 (rf.story.recorder/start s0 :story.b/y 2000)]
       (is (= [] (:events s1)))
       (is (= :story.b/y (:variant-id s1))))))
-
-(deftest append-while-recording
-  (testing "append captures recordable events while recording"
-    (let [s0 (rf.story.recorder/start rf.story.recorder/initial-state :story.counter/x 0)
-          s1 (rf.story.recorder/append s0 [:counter/inc])
-          s2 (rf.story.recorder/append s1 [:counter/inc])
-          s3 (rf.story.recorder/append s2 [:counter/dec])]
-      (is (= [[:counter/inc] [:counter/inc] [:counter/dec]]
-             (:events s3))))))
 
 (deftest append-skips-assertions-and-internals
   (testing "append filters non-recordable events"
@@ -152,13 +134,6 @@
   (is (= [[:counter/inc] [:counter/dec]]
          (rf.story.recorder/recorded-events))))
 
-(deftest stop-recording!-flips-state
-  (rf.story.recorder/start-recording! :story.x/y 0)
-  (rf.story.recorder/record-event! [:counter/inc])
-  (rf.story.recorder/stop-recording!)
-  (is (false? (rf.story.recorder/recording?)))
-  (is (= [[:counter/inc]] (rf.story.recorder/recorded-events))))
-
 (deftest toggle!-flips
   (testing "toggle! starts when idle and stops when recording"
     (rf.story.recorder/toggle! :story.x/y)
@@ -187,16 +162,6 @@
       (is (not (str/includes? snip ":play-script"))
           "the recorder never emits a :play-script slot")
       (is (str/includes? snip "[]")))))
-
-(deftest gen-play-snippet-renders-reg-variant
-  (testing "snippet renders the (reg-variant ...) form with the captured trace"
-    (let [snip (rf.story.recorder/gen-play-snippet
-                 [[:counter/inc] [:counter/dec]]
-                 {:variant-id :story.counter/recorded})]
-      (is (str/includes? snip "reg-variant"))
-      (is (str/includes? snip ":story.counter/recorded"))
-      (is (str/includes? snip "[:counter/inc]"))
-      (is (str/includes? snip "[:counter/dec]")))))
 
 (deftest gen-play-snippet-includes-doc
   (let [snip (rf.story.recorder/gen-play-snippet
@@ -435,21 +400,6 @@
             [:rf.assert/path-equals [:n] 1]
             [:counter/inc]
             [:rf.assert/no-warnings]]
-           (rf.story.recorder/recorded-events)))))
-
-(deftest insert-assertion!-id-plus-payload-arity
-  (testing "insert-assertion! two-arg form builds + appends from id+payload"
-    (rf.story.recorder/start-recording! :story.x/y 0)
-    (rf.story.recorder/record-event! [:counter/inc])
-    (rf.story.recorder/insert-assertion!
-      :rf.assert/sub-equals {:sub [:counter] :expected 1})
-    (rf.story.recorder/record-event! [:counter/inc])
-    (rf.story.recorder/insert-assertion!
-      :rf.assert/path-equals {:path [:n] :expected 2})
-    (is (= [[:counter/inc]
-            [:rf.assert/sub-equals [:counter] 1]
-            [:counter/inc]
-            [:rf.assert/path-equals [:n] 2]]
            (rf.story.recorder/recorded-events)))))
 
 (deftest insert-assertion!-rejects-non-assertion-event

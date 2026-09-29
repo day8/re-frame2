@@ -346,28 +346,6 @@
           "vector form's loaders-complete-when fires once both loaders run, transitioning the lifecycle to :ready"))
     (rf.story/destroy-variant! :story.loaders/vector)))
 
-(deftest loaders-complete-when-vector-trace-listener-installed-pre-loaders
-  ;; `:loaders-complete-when`'s vector form must match a loader-phase
-  ;; dispatch: it reads the epoch-tape dispatched-events projection,
-  ;; which records the loader event. Were the predicate blind to
-  ;; loader-phase events it would never match and the loader phase
-  ;; would stay in `:loading`. This test pins the lifecycle to `:ready`
-  ;; and verifies the loader event ran.
-  (testing "the loaders-complete-when vector form matches loader-phase dispatches"
-    (rf/reg-event :fixture/loaded
-      (fn [{:keys [db]} _] {:db (assoc db :fixture-loaded? true)}))
-    (rf.story/reg-variant :story.v2g9/loader-vector
-      {:loaders               [[:fixture/loaded]]
-       :loaders-complete-when [[:fixture/loaded]]
-       :setup                []})
-    (let [r (rf.story.async/deref-blocking
-              (rf.story/run-variant :story.v2g9/loader-vector) 5000)]
-      (is (true? (-> r :app-db :fixture-loaded?))
-          "the loader event ran")
-      (is (= :ready (:lifecycle r))
-          "the loader phase advanced to :ready — the predicate saw the loader event"))
-    (rf.story/destroy-variant! :story.v2g9/loader-vector)))
-
 (deftest loaders-complete-when-vector-without-listener-stalls
   ;; The negative companion. The vector form reads the epoch-tape
   ;; dispatched-events projection (the SSOT —

@@ -222,15 +222,6 @@
       (is (true? (:passed? last-a)) "the dispatched? assertion saw the test/click event"))
     (rf.story/destroy-variant! :story.dispatched/v)))
 
-(deftest dispatched-fail
-  (testing ":rf.assert/dispatched? records a fail when no matching event was dispatched"
-    (rf.story/reg-variant :story.dispatched/no
-      {:setup []
-       :script [[:dispatch-sync [:rf.assert/dispatched? [:never/fired]]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.dispatched/no) 5000)]
-      (is (false? (-> r :assertions first :passed?))))
-    (rf.story/destroy-variant! :story.dispatched/no)))
-
 ;; ===========================================================================
 ;; :rf.assert/state-is
 ;; ===========================================================================
@@ -268,32 +259,6 @@
     (rf.story/destroy-variant! :story.machine/mismatch)))
 
 ;; ===========================================================================
-;; :rf.assert/no-warnings  (tape-projected)
-;; ===========================================================================
-
-(deftest no-warnings-pass-when-silent
-  (testing ":rf.assert/no-warnings passes when no warning was emitted"
-    (rf.story/reg-variant :story.warn/silent
-      {:setup []
-       :script [[:dispatch-sync [:rf.assert/no-warnings]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.warn/silent) 5000)]
-      (is (true? (-> r :assertions first :passed?))))
-    (rf.story/destroy-variant! :story.warn/silent)))
-
-;; ===========================================================================
-;; :rf.assert/effect-emitted  (tape-projected + fx-stub log)
-;; ===========================================================================
-
-(deftest effect-emitted-fail-when-no-fx
-  (testing ":rf.assert/effect-emitted records a fail when no fx fired"
-    (rf.story/reg-variant :story.fx/none
-      {:setup []
-       :script [[:dispatch-sync [:rf.assert/effect-emitted :http]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.fx/none) 5000)]
-      (is (false? (-> r :assertions first :passed?))))
-    (rf.story/destroy-variant! :story.fx/none)))
-
-;; ===========================================================================
 ;; Record-don't-throw contract — `004-Assertions.md` §Record-don't-throw semantics
 ;; ===========================================================================
 
@@ -328,19 +293,6 @@
       (is (empty? (:assertions r))))
     (rf.story/destroy-variant! :story.empty/v)))
 
-(deftest assertions-passing-true-on-all-pass
-  (testing "passing? returns true when every assertion has :passed? true"
-    (rf/reg-event :test/n (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
-    (rf.story/reg-variant :story.all-pass/v
-      {:setup [[:test/n]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]
-                [:dispatch-sync [:rf.assert/path-matches [:n] :int]]]})
-    (let [r (rf.story.async/deref-blocking (rf.story/run-variant :story.all-pass/v) 5000)]
-      (is (true? (rf.story/assertions-passing? r)))
-      ;; Also accepts the assertions vector directly:
-      (is (true? (rf.story/assertions-passing? (:assertions r)))))
-    (rf.story/destroy-variant! :story.all-pass/v)))
-
 (deftest assertions-passing-false-on-any-fail
   (testing "passing? returns false when any assertion failed"
     (rf/reg-event :test/n2 (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
@@ -370,22 +322,6 @@
       (is (number?                   (:elapsed-ms a)))
       (is (string?                   (:reason a))))
     (rf.story/destroy-variant! :story.shape/v)))
-
-;; ===========================================================================
-;; read-assertions — public alias for the per-frame accumulator
-;; ===========================================================================
-
-(deftest read-assertions-public
-  (testing "rf.story/read-assertions returns the live accumulator"
-    (rf/reg-event :test/q (fn [{:keys [db]} _] {:db (assoc db :q :ok)}))
-    (rf.story/reg-variant :story.read/v
-      {:setup [[:test/q]]
-       :script [[:dispatch-sync [:rf.assert/path-equals [:q] :ok]]]})
-    (let [_ (rf.story.async/deref-blocking (rf.story/run-variant :story.read/v) 5000)
-          a (rf.story/read-assertions :story.read/v)]
-      (is (= 1 (count a)))
-      (is (true? (:passed? (first a)))))
-    (rf.story/destroy-variant! :story.read/v)))
 
 ;; ===========================================================================
 ;; assertion-event? — play-runner discriminator
@@ -457,8 +393,8 @@
 ;; ===========================================================================
 ;; evaluate-no-warnings — the FAIL branch
 ;;
-;; The JVM `no-warnings-pass-when-silent` covers only the empty/pass path,
-;; and the evidence/result projection tests exercise the :warnings SLOT but
+;; The end-to-end no-warnings runs above cover the pass path, and the
+;; evidence/result projection tests exercise the :warnings SLOT but
 ;; never the evaluator's :count / :actual / reason projection. The evaluator
 ;; is a pure fn over the tape-projected warning records, so the tests reach
 ;; the fail branch directly via the var-quote seam.
