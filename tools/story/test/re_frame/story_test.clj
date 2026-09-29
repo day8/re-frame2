@@ -109,16 +109,27 @@
     (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-tags)
         "canonical tags ride along with the first reg-tag too")))
 
+(defn- counting-installs
+  "Run `f` with `rf.story.canonical/install!` wrapped to count its calls,
+  and return that count. Every installer is idempotent, so a re-run of the
+  chain leaves the registry unchanged: counting the calls is the only way
+  to see one."
+  [f]
+  (let [calls    (atom 0)
+        install! rf.story.canonical/install!]
+    (with-redefs [rf.story.canonical/install! (fn [] (swap! calls inc) (install!))]
+      (f))
+    @calls))
+
 (deftest auto-install-is-idempotent
   (testing "subsequent reg-* calls do NOT re-trigger the installer chain"
     (rf.story/clear-all!)
     (rf.story/reg-story :story.idem.a {:tags #{:dev}})
-    ;; A subsequent registration must not break, must not re-install
-    ;; (we observe idempotency indirectly: the side-table stays
-    ;; consistent and no exception fires).
     (let [tags-after-first (rf.story/list-tags)]
-      (rf.story/reg-story :story.idem.b {:tags #{:docs}})
-      (rf.story/reg-variant :story.idem.a/v {:tags #{:dev} :setup []})
+      (is (zero? (counting-installs
+                   #(do (rf.story/reg-story :story.idem.b {:tags #{:docs}})
+                        (rf.story/reg-variant :story.idem.a/v {:tags #{:dev} :setup []}))))
+          "the installer chain does not run again after the first reg-*")
       (is (= tags-after-first (rf.story/list-tags))
           "canonical tag set is stable across subsequent reg-* calls"))))
 
@@ -144,10 +155,9 @@
     (rf.story/clear-all!)
     (rf.story/install-canonical-vocabulary!)
     (is (true? @rf.story.canonical/installed?))
-    ;; The first reg-* must NOT throw and must NOT recompute the
-    ;; installer chain (no easy direct probe — but no exception +
-    ;; correct registry shape is the contract).
-    (rf.story/reg-story :story.explicit-boot.probe {:tags #{:dev}})
+    (is (zero? (counting-installs
+                 #(rf.story/reg-story :story.explicit-boot.probe {:tags #{:dev}})))
+        "the first reg-* does not run the installer chain again")
     (is (rf.story/registered? :story :story.explicit-boot.probe))))
 
 (deftest clear-all-resets-auto-install-gate
