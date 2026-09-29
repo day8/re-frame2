@@ -12,6 +12,9 @@
     vector of event vectors)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core             :as rf]
+            ;; The tape-projected assertions and the vector
+            ;; `:loaders-complete-when` read the epoch tape.
+            [re-frame.epoch]
             [re-frame.frame            :as rf.frame]
             [re-frame.machines         :as rf.machines]
             [re-frame.registrar        :as rf.registrar]
