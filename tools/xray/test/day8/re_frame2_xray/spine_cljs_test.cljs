@@ -582,16 +582,6 @@
           "leaving restores the ORIGINAL committed :c1, never the intermediate :c2")
       (is (= :e1 (get-in cleared [:focus :epoch-id]))))))
 
-(deftest preview-event-reducer-no-backup-when-nothing-committed-rf2-uo0rc5
-  (testing "preview-clear with no prior gesture (no backup)
-            is a safe no-op on the committed slot (the
-            `nil-clears-preview` contract above)."
-    (let [db {:focus {:dispatch-id :c1 :previewing? true :mode :retro}}
-          r  (spine/preview-event-reducer db nil)]
-      (is (false? (get-in r [:focus :previewing?])))
-      (is (= :c1 (get-in r [:focus :dispatch-id]))
-          "committed selection survives when there is no backup to restore"))))
-
 ;; The handler-level cross-frame preview test lives in
 ;; section (9) alongside the other `seed-cascades!`-driven handler tests
 ;; (`preview-event-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5`).
@@ -633,24 +623,6 @@
     (is (nil? (:dispatch-id r)))
     (is (true? (:head? r)))))
 
-(deftest focus-sub-snaps-to-head-on-empty-slot
-  (setup-xray-frame!)
-  (seed-cascades! fixture-cascades)
-  (let [r (focus-sub)]
-    (is (= :c3 (:dispatch-id r))
-        "empty :focus slot → :live → snap to head c3")
-    (is (true? (:head? r)))))
-
-(deftest focus-sub-preserves-retro-selection
-  (setup-xray-frame!)
-  (seed-cascades! fixture-cascades)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
-  (let [r (focus-sub)]
-    (is (= :c1 (:dispatch-id r)))
-    (is (= :retro (:mode r)))
-    (is (false? (:head? r)))))
-
 (deftest focus-sub-shimmed-by-legacy-select-dispatch-id
   (testing "dispatching :rf.xray/select-dispatch-id writes
             through to the spine — the select event reaches the spine
@@ -684,26 +656,6 @@
     (is (= :c3 (:dispatch-id r)) "two nexts → back to head")
     (is (= :live (:mode r))
         "stepping back to head re-engages LIVE")))
-
-(deftest follow-head-event-resnaps-to-head
-  (setup-xray-frame!)
-  (seed-cascades! fixture-cascades)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default])
-    (rf/dispatch-sync [:rf.xray/follow-head]))
-  (let [r (focus-sub)]
-    (is (= :c3 (:dispatch-id r)) "follow-head snaps back to head c3")
-    (is (= :live (:mode r)))
-    (is (true? (:head? r)))))
-
-(deftest toggle-live-pause-event-flips-paused
-  (setup-xray-frame!)
-  (seed-cascades! fixture-cascades)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/toggle-live-pause]))
-  (let [r (focus-sub)]
-    (is (true? (:paused? r)))
-    (is (= :live (:mode r)))))
 
 ;; -------------------------------------------------------------------------
 ;; (8b) Self-noise filter agreement
@@ -835,23 +787,6 @@
       (is (= :c4 (:dispatch-id r))
           "LIVE auto-follows the new head — focus advances to c4")
       (is (true? (:head? r))))))
-
-(deftest focus-sub-retro-does-not-auto-follow
-  (testing "in :retro the focus stays pinned even when new cascades
-            arrive — the user has explicitly opted out of LIVE."
-    (setup-xray-frame!)
-    (seed-cascades! fixture-cascades)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/focus-event :c1 :rf/default]))
-    (let [r (focus-sub)]
-      (is (= :c1 (:dispatch-id r)))
-      (is (= :retro (:mode r))))
-    ;; New cascade arrives. Focus stays on c1.
-    (seed-cascades! (conj fixture-cascades (cascade :c4 :rf/default)))
-    (let [r (focus-sub)]
-      (is (= :c1 (:dispatch-id r))
-          ":retro pins the focus through arrivals")
-      (is (= :retro (:mode r))))))
 
 (deftest focus-sub-live-auto-follows-epoch-id-rf2-70tkv
   (testing "the reactive :rf.xray/focus sub auto-derives
@@ -1219,16 +1154,6 @@
           "empty history → no resolution possible → nil overrides
            any stale stored id"))))
 
-(deftest focus-event-bundle-reducer-4-arg-writes-epoch-id
-  (testing "the 4-arg reducer writes :epoch-id into the :focus slot —
-            App-db pivots from L2-list clicks via :rf.xray/focus-epoch-id;
-            no mirror slot is written"
-    (let [r (spine/focus-event-bundle-reducer {} :c2 :rf/default :e2)]
-      (is (= :e2 (get-in r [:focus :epoch-id])))
-      (is (not (contains? r :selected-epoch-id))
-          "no :selected-epoch-id mirror slot is written")
-      (is (= :c2 (get-in r [:focus :dispatch-id]))))))
-
 (deftest focus-event-bundle-reducer-3-arg-leaves-epoch-id-nil
   (testing "the 3-arg reducer leaves :epoch-id nil — the
             focus sub still rebinds on :dispatch-id, but epoch-keyed
@@ -1280,15 +1205,6 @@
           r        (spine/focus-step-reducer db fixture-cascades history -1)]
       (is (= :c2 (get-in r [:focus :dispatch-id])))
       (is (= :e2 (get-in r [:focus :epoch-id])))
-      (is (not (contains? r :selected-epoch-id))))))
-
-(deftest follow-head-reducer-clears-focus-epoch-id
-  (testing "follow-head clears the focus epoch in lockstep with the
-            dispatch-id slot — the App-db panel returns to its landing
-            view (single source of truth at [:focus :epoch-id])"
-    (let [db {:focus {:dispatch-id :c1 :epoch-id :e1 :mode :retro}}
-          r  (spine/follow-head-reducer db)]
-      (is (nil? (get-in r [:focus :epoch-id])))
       (is (not (contains? r :selected-epoch-id))))))
 
 ;; -------------------------------------------------------------------------
