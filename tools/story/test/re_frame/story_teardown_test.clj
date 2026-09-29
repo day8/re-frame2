@@ -442,9 +442,10 @@
              survives the frame lifecycle")))))
 
 (deftest reset-run-variant-does-not-accumulate-listeners
-  (testing "running the SAME variant twice (the fresh-run boundary destroys
-            the prior frame between runs) does not leak a second play trace
-            listener; each run installs one and the prior is gone"
+  (testing "running the SAME variant twice (the fresh-run boundary resets
+            the frame in place, and that reset unregisters the prior run's
+            listener) does not leak a second play trace listener; each run
+            installs one, under the frame's own listener id"
     (let [live (atom #{})]
       (with-redefs [rf.trace.tooling/register-listener!
                     (fn [id f]
@@ -461,9 +462,9 @@
         (rf.story.async/deref-blocking (rf.story/run-variant :story.listener2/v) 5000)
         (rf.story.async/deref-blocking (rf.story/run-variant :story.listener2/v) 5000)
         (is (= 1 (count (filter play-listener-id? @live)))
-            "exactly one play trace listener is live after two runs — the
-             fresh-run boundary destroyed the first run's frame (and its
-             listener) before the second run installed its own")
+            "exactly one play trace listener is live after two runs — a
+             listener id the teardown path cannot find would leave the
+             first run's listener live beside the second's")
         (rf.story/destroy-variant! :story.listener2/v)
         (is (not-any? play-listener-id? @live)
             "and the final destroy clears it")))))
