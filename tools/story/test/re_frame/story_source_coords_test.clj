@@ -166,7 +166,7 @@
           ":file is omitted when no source is available")
       (is (= 7 (:line coords))))))
 
-(deftest reg-variant-macro-end-to-end
+(deftest gen-reg-call-carries-absolutised-file-into-pending-coords
   (testing "end-to-end: the gen-reg-call expansion (which
             reg-variant feeds) carries the form-meta :file through to
             the *pending-coords* binding form — covers the actual macro

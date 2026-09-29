@@ -332,7 +332,7 @@
 
 ;; ---- workspace ---------------------------------------------------------
 
-(deftest reg-workspace-bad-layout
+(deftest reg-workspace-grid-without-variants-rejected
   (testing "a :grid workspace without :variants fails validation"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #":rf\.error/workspace-shape"

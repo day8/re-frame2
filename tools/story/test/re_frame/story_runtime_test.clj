@@ -2493,7 +2493,7 @@
 ;; ASYNC ABSTRACTION
 ;; ===========================================================================
 
-(deftest async-resolved-and-then
+(deftest async-resolved-completes
   (testing "rf.story.async/resolved produces a complete future"
     (is (= 42 (rf.story.async/deref-blocking (rf.story.async/resolved 42) 1000)))))
 

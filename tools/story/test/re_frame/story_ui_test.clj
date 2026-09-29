@@ -400,8 +400,8 @@
       (is (= vs (rf.story.ui.state/drop-default-excluded vs #{} #{}))
           "no default-excluded tags leaves the map unchanged"))))
 
-(deftest group-variants-by-story-keeps-untagged
-  (testing "variants with no story namespace appear under their derived parent"
+(deftest group-variants-by-story-derives-unregistered-parent
+  (testing "variants whose parent story was never registered group under the derived parent id"
     (rf.story/reg-variant :story.g/a {:setup []})
     (rf.story/reg-variant :story.g/b {:setup []})
     (let [vs       (rf.story.registrar/registrations :variant)
