@@ -10,8 +10,6 @@
 
     - DOM-keyword root with no attrs map: the wrapper splices an attrs
       map carrying data-rf2-source-coord.
-    - DOM-keyword root WITH an existing attrs map: data-rf2-source-coord
-      is merged in alongside the user's attrs.
     - User-supplied data-rf2-source-coord wins (don't overwrite).
     - Form-2 (render-fn returns a fn): inner-fn output gets annotated.
     - React Fragment root (`:<>`): root is exempt; no attribute injected;
@@ -20,11 +18,14 @@
       gracefully — emits `<ns>:<sym>:?:?`.
     - Format: the attribute value matches `<ns>:<sym>:<line>:<col>`.
 
+  A root WITH an existing attrs map gets both attributes merged in by the
+  same splice; `re-frame.view-id-attr-cljs-test` pins that case for both
+  of them.
+
   Production elision (interop/debug-enabled? = false at build time) is
   verified separately by the elision-probe build (Spec 009 §Production
   builds, scripts/check-elision.cjs, sentinel `data-rf2-source-coord`)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
@@ -63,24 +64,6 @@
       (is (re-find #"^rf\.src-coord-test:no-attrs:\d+:\d+$" attr)
           (str ":data-rf2-source-coord matches <ns>:<sym>:<line>:<col>; got "
                (pr-str attr))))))
-
-;; ---- DOM-keyword root with attrs map --------------------------------------
-
-(deftest annotates-dom-root-with-existing-attrs
-  (testing "a reg-view'd component with [:tag {:class …} children…] has
-            :data-rf2-source-coord merged into the existing attrs map"
-    (rf/reg-view ^{:rf/id :rf.src-coord-test/with-attrs} with-attrs-view []
-      [:div {:class "card" :id "x"} "body"])
-    (let [render (rf/view :rf.src-coord-test/with-attrs)
-          out    (render)
-          attrs  (second out)]
-      (is (vector? out))
-      (is (= :div (first out)))
-      (is (map? attrs))
-      (is (= "card" (:class attrs)) "user :class preserved")
-      (is (= "x"    (:id    attrs)) "user :id preserved")
-      (is (string? (:data-rf2-source-coord attrs))
-          ":data-rf2-source-coord merged in"))))
 
 ;; ---- user-supplied coord wins ---------------------------------------------
 
@@ -161,31 +144,6 @@
       (is (string? attr))
       (is (= "rf.src-coord-test:programmatic:?:?" attr)
           "format degrades to <ns>:<sym>:?:? when coords are absent"))))
-
-;; ---- attribute format -----------------------------------------------------
-
-(deftest attribute-format-shape
-  (testing "the attribute value is exactly <ns>:<sym>:<line>:<col>"
-    (rf/reg-view ^{:rf/id :rf.src-coord-test/format-shape} format-shape-view []
-      [:i "x"])
-    (let [out  (->>  (rf/view :rf.src-coord-test/format-shape) (#(% nil)))
-          attr (root-attr out)]
-      (is (string? attr))
-      (let [parts (str/split attr #":")]
-        (is (= 4 (count parts))
-            "exactly four colon-separated segments")
-        ;; <ns>:<sym> are derived from the registry id keyword. Here the
-        ;; explicit :rf/id override is :rf.src-coord-test/format-shape
-        ;; so <ns>=rf.src-coord-test and <sym>=format-shape, NOT the
-        ;; call-site (re-frame.source-coord-dom-cljs-test, format-shape-view).
-        (is (= "rf.src-coord-test" (first parts))
-            "first segment is the id keyword's namespace")
-        (is (= "format-shape" (second parts))
-            "second segment is the id keyword's name")
-        (is (re-matches #"\d+" (nth parts 2))
-            "third segment is the line integer")
-        (is (re-matches #"\d+" (nth parts 3))
-            "fourth segment is the column integer")))))
 
 ;; ---- id derived from call-site symbol (no override) ----------------------
 
