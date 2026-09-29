@@ -4,8 +4,8 @@
   TanStack `initialPageParam` analogue).
 
   The pure boundary (`rf.resources.state/page-param-for-spec`) is pinned in
-  `resources_infinite_state_cljs_test` (`page-0-param-default`). These tests
-  pin the RUNTIME half: that a non-nil `:initial-page-param` actually RIDES
+  `resources_infinite_state_cljs_test` (`page-0-param-default`). This suite
+  pins the RUNTIME half: that a non-nil `:initial-page-param` actually RIDES
   into the page-0 request and is recorded as page-0's `:page-params` entry.
   Ignoring the override on the page-0 fetch (e.g. hardcoding nil) would pass
   every default-param test — every other event/example test uses the
@@ -98,23 +98,19 @@
 ;; :initial-page-param override RIDES into the page-0 request + page-params
 ;; ===========================================================================
 
-(deftest initial-page-param-rides-into-page-0-request
+(deftest initial-page-param-rides-into-page-0-and-is-recorded
+  (rf/reg-resource :ipp/feed (feed-spec {:initial-page-param "p0"}) feed-spec-request)
+  (ensure! :ipp/feed)
   (testing "a non-nil :initial-page-param is threaded into the page-0 FETCH —
             the request carries it as the derived page-0 cursor (R8)"
-    (rf/reg-resource :ipp/feed (feed-spec {:initial-page-param "p0"}) feed-spec-request)
-    (ensure! :ipp/feed)
     (let [req-params (get-in @last-managed-args [:request :params])]
       (is (= 0 (:page-index req-params)) "still the page-0 fetch (index 0)")
       (is (= "p0" (:cursor req-params))
-          "the :initial-page-param override rode into the page-0 request's cursor"))))
-
-(deftest initial-page-param-recorded-as-page-0-param
+          "the :initial-page-param override rode into the page-0 request's cursor")))
+  (reply-success! (page [:a :b] "c1"))
   (testing "after the page-0 reply settles, :page-params records the OVERRIDE
             (not nil) for page 0 — the durable cursor fact (R8)"
-    (rf/reg-resource :ipp2/feed (feed-spec {:initial-page-param "p0"}) feed-spec-request)
-    (ensure! :ipp2/feed)
-    (reply-success! (page [:a :b] "c1"))
-    (let [e (entry (feed-key :ipp2/feed))]
+    (let [e (entry (feed-key :ipp/feed))]
       (is (= :loaded (:status e)))
       (is (= [(page [:a :b] "c1")] (:data e)) "page-0 accumulated")
       (is (= ["p0"] (:page-params e))

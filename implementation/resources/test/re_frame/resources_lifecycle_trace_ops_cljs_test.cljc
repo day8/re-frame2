@@ -239,36 +239,10 @@
 ;; 4. One suppression op; cache-hit on a fresh-skip ensure only
 ;; ===========================================================================
 
-(deftest only-stale-suppressed-no-work-suppressed
-  (rf/reg-resource :sp/article (article-spec) article-spec-request)
-  (testing "a stale/superseded reply emits :rf.resource/stale-suppressed and
-            NEVER :rf.resource/work-suppressed (there is exactly one
-            suppression op)"
-    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
-      (rf/dispatch-sync
-        [:rf.resource/ensure {:resource :sp/article :scope :rf.scope/global
-                              :params {:slug "w"} :owner [:app :sp 1]}])
-      (let [wid1 (:current-work (entry scoped-key))
-            traces
-            (record-resource-traces!
-              (fn []
-                ;; supersede with a refetch (gen 2), then land the OLD reply
-                (rf/dispatch-sync
-                  [:rf.resource/refetch {:resource :sp/article :scope :rf.scope/global
-                                         :params {:slug "w"}}])
-                (rf/dispatch-sync
-                  [:rf.resource.internal/succeeded
-                   {:resource/key scoped-key :work/id wid1 :generation 1
-                    :data {:stale "data"}}])))]
-        (is (seq (by-op traces :rf.resource/stale-suppressed))
-            "the stale reply emitted :rf.resource/stale-suppressed")
-        (is (not (contains? (ops traces) :rf.resource/work-suppressed))
-            ":rf.resource/work-suppressed is never emitted")))))
-
 ;; ---------------------------------------------------------------------------
-;; The canonical :status :stale reply
-;; envelope rides the PRODUCTION resource stale-suppression trace. The
-;; behaviour-only test above (and the work-ledger / invalidation-GC stale
+;; There is exactly ONE suppression op, and the canonical :status :stale reply
+;; envelope rides it — the PRODUCTION resource stale-suppression trace. A
+;; behaviour-only check (like the work-ledger / invalidation-GC stale
 ;; tests) would pass even if the production stale branch discarded the
 ;; canonical reply — emitting a bespoke trace with carried-generation ONLY
 ;; and never lowering through the shared `re-frame.reply` substrate. These
@@ -302,6 +276,8 @@
                     :data {:stale "data"}}])))
             sup  (first (by-op traces :rf.resource/stale-suppressed))]
         (is (some? sup) ":rf.resource/stale-suppressed fired for the stale reply")
+        (is (not (contains? (ops traces) :rf.resource/work-suppressed))
+            ":rf.resource/work-suppressed is never emitted — stale-suppressed is the one suppression op")
         (let [tags (:tags sup)]
           ;; the bespoke facts ride alongside the envelope. There is no
           ;; bare :work/id duplicate; the work identity rides
