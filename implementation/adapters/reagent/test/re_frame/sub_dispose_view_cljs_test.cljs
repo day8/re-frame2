@@ -12,7 +12,9 @@
        :no-more-derefers when the last derefer drops.
     #5 conditional-deref flip → :rf.sub/dispose fires when the
        condition stops the deref (the runtime ref-count drops to 0
-       even though the component stays mounted).
+       even though the component stays mounted). Pinned by
+       `conditional-deref-re-execution-fires-rf-sub-dispose`, which
+       drives the flip through a live Reagent reaction.
 
   Plus a multi-derefer negative control — two derefers, one drops →
   NO emit; only when the LAST drops does the slot evict.
@@ -133,69 +135,6 @@
                 ":rf.sub/query-v is a vector")))))))
 
 ;; ===========================================================================
-;; Acceptance #5 — conditional-deref path
-;; ===========================================================================
-;;
-;; A view conditionally derefs a sub: `(when @cond? @sub)`. While
-;; `cond?` is true the sub is held; flipping `cond?` to false stops
-;; the deref — the runtime derefer drops even though the surrounding
-;; component stays mounted. The substrate seam under test is the
-;; same `unsubscribe!` ref-count machinery the view-unmount path
-;; uses — what changes is the call site (conditional unsub from
-;; within a re-render rather than unmount cleanup).
-
-(deftest conditional-deref-flip-emits-rf-sub-dispose
-  (testing "#5: when a view conditionally derefs a sub and
-   the condition flips false, the runtime derefer drops and the slot
-   evicts with :reason :no-more-derefers. The component-stays-mounted
-   shape is one the JVM-only cache tests cannot reach"
-    (rf/reg-event :rf2-e9g4g/init (fn [{:keys [db]} _] {:db {:n 7 :a 1 :b 2}}))
-    (rf/reg-sub :rf2-e9g4g.cond/n (fn [db _] (:n db)))
-    (rf/reg-sub :rf2-e9g4g.cond/a (fn [db _] (:a db)))
-    (rf/reg-sub :rf2-e9g4g.cond/b (fn [db _] (:b db)))
-    (rf/reg-sub :rf2-e9g4g.cond/sum
-      {:inputs [[:rf2-e9g4g.cond/a] [:rf2-e9g4g.cond/b]]}
-      (fn [[a b] _] (+ a b)))
-    (rf/dispatch-sync [:rf2-e9g4g/init])
-
-    (with-trace-recorder! [traces {:pred sub-dispose-pred}]
-      ;; Initial mount: condition is true. The "view" derefs both
-      ;; `:rf2-e9g4g.cond/n` and `:rf2-e9g4g.cond/sum` (a layer-2 with
-      ;; two inputs).
-      (let [n-rea   (rf/subscribe [:rf2-e9g4g.cond/n])
-            sum-rea (rf/subscribe [:rf2-e9g4g.cond/sum])]
-        (is (= 7 @n-rea))
-        (is (= 3 @sum-rea))
-        (is (empty? @traces)
-            "precondition: nothing evicted while both derefers are held"))
-
-      ;; Condition flips false. The "view" re-renders WITHOUT
-      ;; dereffing `:rf2-e9g4g.cond/sum` any more — the surrounding
-      ;; component stays mounted, but the conditional sub is now
-      ;; an orphan from the view's perspective. The substrate's
-      ;; unsub call captures the conditional-deref-drop signal.
-      (rf/unsubscribe [:rf2-e9g4g.cond/sum])
-
-      ;; The orphaned layer-2 sub's input refs are released by the
-      ;; cascade. The unconditional `:rf2-e9g4g.cond/n` deref is
-      ;; still held; its sub MUST NOT evict.
-      (let [a-evs (dispose-by-id @traces :rf2-e9g4g.cond/a)
-            b-evs (dispose-by-id @traces :rf2-e9g4g.cond/b)
-            n-evs (dispose-by-id @traces :rf2-e9g4g.cond/n)]
-        (is (= 1 (count a-evs))
-            "input :a evicted via the cascade — the conditional sub's
-             input refs were released")
-        (is (= 1 (count b-evs))
-            "input :b evicted via the cascade")
-        (is (empty? n-evs)
-            "the unconditionally-held :n sub stays cached — the conditional
-             flip did NOT touch unrelated derefers")
-        (doseq [ev (concat a-evs b-evs)]
-          (let [t (:tags ev)]
-            (is (= :no-more-derefers (:rf.sub/reason t)))
-            (is (= :rf/default (:frame t)))))))))
-
-;; ===========================================================================
 ;; Multi-derefer negative control
 ;; ===========================================================================
 ;;
@@ -258,7 +197,7 @@
 ;; Reagent reaction-dispose + conditional-deref re-execution
 ;; ===========================================================================
 ;;
-;; The three deftests above subscribe + unsubscribe directly. That pins the
+;; The two deftests above subscribe + unsubscribe directly. That pins the
 ;; cache module's seam (subscribe/unsubscribe ref-count machinery) but
 ;; misses the Reagent-side reactive-graph leg of the production path: a
 ;; surrounding reaction derefs the sub's reaction, then *the surrounding

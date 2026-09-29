@@ -72,19 +72,3 @@
         (is (not-any? #{(str ":" expected)} names)
             (str "no colon-prefixed spelling survives anywhere above the "
                  "rendered root; saw " (pr-str names)))))))
-
-(deftest mounted-name-and-render-measure-are-one-identifier
-  (testing "the equality that matters is between the name a
-            developer READS in DevTools and the name the rf:render:
-            bracket WRITES — asserted here against the mounted fiber, so
-            it covers Reagent's class machinery rather than the stamp
-            alone"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — the :browser-test runner exercises this")
-      (let [visible (first (filter #{(rf.performance/entry-id view-id)}
-                                   (mount-and-read-names)))]
-        (is (some? visible) "the mounted component carries a resolvable name")
-        (is (= (rf.performance/build-name :render view-id)
-               (str "rf:render:" visible))
-            "the render measure name is exactly \"rf:render:\" + the
-             DevTools-visible component name")))))

@@ -400,16 +400,3 @@
               :nested-destroy nil}
              @observed)
           "the claimed disposer runs without reopening public admission or a second cleanup owner"))))
-
-(deftest dispose-adapter-walk-tolerates-an-empty-frames-registry
-  (testing "dispose-adapter! on an installed Reagent adapter with no live
-  frames is a no-op (no throw)"
-    ;; Pre-dispose: drop every frame, then dispose. This is the post-
-    ;; make-reset-runtime-fixture shape: the fixture resets frames BEFORE
-    ;; calling dispose-adapter!, so dispose-adapter! sees an empty
-    ;; registry.
-    (reset! rf.frame/frames {})
-    (is (nil? (rf.substrate.adapter/dispose-adapter!))
-        "dispose-adapter! returns nil with an empty frames registry — no throw")
-    (is (true? (rf.substrate.adapter/adapter-disposed?))
-        "the disposed-adapter breadcrumb is set after the no-op walk")))

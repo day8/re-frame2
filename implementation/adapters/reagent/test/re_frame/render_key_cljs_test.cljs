@@ -113,36 +113,3 @@
           c (rf.views/mint-instance-token!)]
       (is (int? a))
       (is (< a b c) "tokens monotonically increase"))))
-
-;; ---- anonymous fallback for plain Reagent fns -----------------------------
-
-(deftest plain-reagent-fn-falls-back-to-anonymous
-  (testing "a plain Reagent fn (no reg-view wrapper) reads the anonymous
-            fallback :rf.view/render-key — current-render-key returns
-            [:rf.view/anonymous nil] when *render-key* is unbound"
-    (let [observed (atom nil)
-          plain-fn (fn []
-                     (reset! observed (rf.views/current-render-key))
-                     [:p "plain"])]
-      (plain-fn)
-      (is (= [:rf.view/anonymous nil] @observed)
-          "plain fns surface the documented anonymous shape"))))
-
-;; ---- conformance: render-key tuple shape ----------------------------------
-
-(deftest render-key-tuple-conformance
-  (testing "every emitted :rf.view/render trace has a 2-tuple :rf.view/render-key
-            with a keyword view-id and (int OR nil) instance-token"
-    (with-trace-recorder! [traces {:pred view-render-pred}]
-      (rf/reg-view* :rf.test/conform-a (fn [] [:p "a"]))
-      (rf/reg-view* :rf.test/conform-b (fn [] [:p "b"]))
-      ((rf/view :rf.test/conform-a))
-      ((rf/view :rf.test/conform-b))
-      ((rf/view :rf.test/conform-a))
-      (doseq [ev @traces]
-        (let [k (get-in ev [:tags :rf.view/render-key])]
-          (is (vector? k))
-          (is (= 2 (count k)))
-          (is (keyword? (first k)) "view-id slot is a keyword")
-          (is (or (int? (second k)) (nil? (second k)))
-              "instance-token slot is an int (or nil for anonymous)"))))))

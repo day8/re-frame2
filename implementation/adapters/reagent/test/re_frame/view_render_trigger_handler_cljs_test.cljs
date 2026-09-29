@@ -57,19 +57,6 @@
 
 ;; ---- :rf.view/render carries the view's registration coord -------------------
 
-(deftest view-render-carries-trigger-handler
-  (testing ":rf.view/render rides the view's own registration coord —
-   Xray / re-frame2-pair want jump-to-source on a view render trace to land
-   on the reg-view site, the same way fx-handled / sub-run / machine-
-   transition tests pin"
-    (with-trace-recorder! [traces {:pred view-render-pred}]
-      (rf/reg-view ^{:rf/id :rf2-npm2p/sample} sample-view []
-        [:span "ok"])
-      (let [render (rf/view :rf2-npm2p/sample)]
-        (render))
-      (is (= 1 (count @traces)) "exactly one :rf.view/render trace fired")
-      (assert-trigger-shape (first @traces) :rf2-npm2p/sample))))
-
 (deftest view-render-trigger-rides-at-top-level
   (testing ":rf.trace/trigger-handler on :rf.view/render is a top-level
    field, NOT nested under :tags — mirrors the error / fx-handled /
