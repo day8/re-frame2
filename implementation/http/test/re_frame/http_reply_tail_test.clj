@@ -23,7 +23,8 @@
   `re-frame.http-interceptors-test`) so the number of times the request
   actually reaches the wire is observable — the load-bearing signal that a
   reply-tail throw does NOT re-send an already-completed request."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.handlers :as rf.http.handlers]
             ;; Requiring the managed artefact publishes the `:rf.http/managed`
@@ -247,4 +248,54 @@
                                      (get-in ev [:tags :kind])))
                                 @captured))
                 "the reply-tail throw was NOT reclassified as a :rf.http/transport failure")))
+        (finally (stop-server! srv))))))
+
+;; ===========================================================================
+;; the reply-tail row's :cause redacts under effective sensitivity
+;; ===========================================================================
+
+(deftest sensitive-after-bad-return-leaves-no-secret-in-reply-tail-cause
+  (testing "(JVM) on a request an earlier :before marked sensitive, an :after
+            that returns a slice of its ctx instead of the response leaves the
+            secret in neither the bad-return row nor the
+            :rf.error/http-reply-tail-failed row, whose :cause is the caught
+            throw's message and so echoes the returned value"
+    (let [secret "REPLY_TAIL_SECRET"
+          hits   (AtomicInteger. 0)
+          {:keys [port] :as srv} (start-counting-200-server! hits)]
+      (try
+        (with-trace-capture
+          (fn [captured]
+            (rf/reg-http-interceptor :mark-sensitive
+              {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
+            (rf/reg-http-interceptor :echo-auth
+              {:after (fn [ctx _resp] [(get-in ctx [:request :headers "Authorization"])])})
+            (rf/reg-event :rtsecret/reply
+              (fn [{:keys [db]} [_ payload]] {:db (assoc db :reply payload)}))
+            (rf/reg-event :rtsecret/load
+              (fn [_ _]
+                {:fx [[:rf.http/managed
+                       {:request    {:url     (str "http://127.0.0.1:" port "/x")
+                                     :headers {"Authorization" secret}}
+                        :decode     :json
+                        :on-success [:rtsecret/reply]
+                        :on-failure [:rtsecret/reply]}]]}))
+            (rf/dispatch-sync [:rtsecret/load])
+            (rf.test-support/poll-until
+              #(seq (ops captured :rf.error/http-reply-tail-failed))
+              {:timeout-ms 5000 :label ":rf.error/http-reply-tail-failed surfaced (sensitive)"})
+            (let [rtf (first (ops captured :rf.error/http-reply-tail-failed))
+                  br  (first (ops captured :rf.error/http-interceptor-bad-return))]
+              (is (= :rf.error/http-interceptor-bad-return (get-in rtf [:tags :reply-error-id]))
+                  "the reply-tail row names the caught bad-return")
+              (is (true? (:sensitive? rtf)) "the reply-tail row is stamped sensitive")
+              (is (= :rf/redacted (get-in rtf [:tags :cause]))
+                  "the throw's message is redacted in :cause")
+              (is (not (str/includes? (pr-str (:tags rtf)) secret))
+                  "no reply-tail tag carries the secret")
+              (is (= :echo-auth (get-in br [:tags :id]))
+                  "the bad-return row names the :after interceptor")
+              (is (true? (:sensitive? br)) "the bad-return row is stamped sensitive")
+              (is (not (str/includes? (pr-str (:tags br)) secret))
+                  "no bad-return tag carries the secret"))))
         (finally (stop-server! srv))))))

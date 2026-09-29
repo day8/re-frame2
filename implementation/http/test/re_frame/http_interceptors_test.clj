@@ -21,7 +21,8 @@
   observable via the server-side handler — the test asserts on the
   headers / body the server sees, which is the load-bearing
   transformation the interceptor produced."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -481,6 +482,115 @@
       (is (= :rf.error/http-interceptor-failed (:rf.error/id data)))
       (is (some #{:rf.error/http-interceptor-failed} ops))
       (is (not (some #{:rf.error/http-interceptor-bad-return} ops))))))
+
+;; ---- 4c. chain-error rows echo author data only as the composer allows ----
+;;
+;; A bad return is usually a slice of the ctx the interceptor was handed, and a
+;; throw's message can quote it, so both rows publish author-controlled data
+;; twice: in a slot (`:returned` / `:cause`) and in the `:reason` sentence that
+;; echoes that slot. On a sensitive request neither copy may carry the secret.
+
+(def ^:private secret "BAD_RETURN_SECRET")
+
+(defn- secret-ctx
+  [sensitive?]
+  {:sensitive? sensitive?
+   :request    {:url     "https://api.example.invalid/v1"
+                :headers {"Authorization" secret}}})
+
+(defn- trace-chain!
+  "Run the chain walk `walk` (expected to throw) with a trace listener armed.
+  Returns `[ex-data-of-the-throw first-trace-event-whose-operation-is-op]`."
+  [op walk]
+  (let [traces      (atom [])
+        listener-id (gensym "chain-error-privacy-")]
+    (rf.trace.tooling/register-listener! listener-id
+                                         (fn [ev] (swap! traces conj ev)))
+    (try
+      (let [ex (try (walk) nil (catch clojure.lang.ExceptionInfo e e))]
+        [(ex-data ex) (first (filter #(= op (:operation %)) @traces))])
+      (finally
+        (rf.trace.tooling/unregister-listener! listener-id)))))
+
+(defn- carries-secret? [v] (str/includes? (pr-str v) secret))
+
+(defn- echo-auth-before [ctx] [(get-in ctx [:request :headers "Authorization"])])
+(defn- echo-auth-after [ctx _response] [(get-in ctx [:request :headers "Authorization"])])
+
+(deftest sensitive-bad-return-redacts-returned-and-reason
+  (doseq [[label walk]
+          [[":before on a request sensitive at the top level"
+            #(rf.http.middleware/run-interceptor-chain!
+               :rf/default [{:id :probe :before echo-auth-before}] (secret-ctx true))]
+           [":after on a sensitive request"
+            #(rf.http.middleware/run-after-chain!
+               :rf/default [{:id :probe :after echo-auth-after}] (secret-ctx true)
+               {:status :ok :value {}})]
+           [":before on a request an EARLIER :before marked sensitive"
+            #(rf.http.middleware/run-interceptor-chain!
+               :rf/default
+               [{:id :mark :before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))}
+                {:id :probe :before echo-auth-before}]
+               (secret-ctx false))]]]
+    (testing label
+      (let [[data ev] (trace-chain! :rf.error/http-interceptor-bad-return walk)
+            tags      (:tags ev)]
+        (is (= :rf.error/http-interceptor-bad-return (:rf.error/id data))
+            "the raised error is still the bad-return id")
+        (is (some? ev) "the bad-return row reaches the trace")
+        (is (true? (:sensitive? ev)) "the row is stamped sensitive")
+        (is (= :probe (:id tags)) "the row names the offending interceptor")
+        (is (str/includes? (str (:reason tags)) "`:probe`")
+            ":reason still names the offending interceptor")
+        (is (= :rf/redacted (:returned tags)) ":returned projects to the sentinel")
+        (is (not (carries-secret? tags))
+            "no tag carries the secret — :returned and the :reason echo included"))))
+  (testing "a nil return on a sensitive request stays visible: nil carries no data"
+    (let [[_ ev] (trace-chain! :rf.error/http-interceptor-bad-return
+                               #(rf.http.middleware/run-interceptor-chain!
+                                  :rf/default [{:id :probe :before (fn [_ctx] nil)}]
+                                  (secret-ctx true)))]
+      (is (true? (:sensitive? ev)))
+      (is (nil? (get-in ev [:tags :returned])))
+      (is (str/includes? (str (get-in ev [:tags :reason])) "not nil.")))))
+
+(deftest non-sensitive-bad-return-keeps-returned-and-reason
+  (testing "on a request that is not sensitive the row shows what the
+  interceptor returned, in :returned and in the :reason sentence"
+    (let [echo-url  (fn [ctx] [(get-in ctx [:request :url])])
+          [_ ev]    (trace-chain! :rf.error/http-interceptor-bad-return
+                                  #(rf.http.middleware/run-interceptor-chain!
+                                     :rf/default [{:id :probe :before echo-url}]
+                                     (secret-ctx false)))
+          tags      (:tags ev)]
+      (is (not (true? (:sensitive? ev))) "not stamped sensitive")
+      (is (= ["https://api.example.invalid/v1"] (:returned tags)))
+      (is (str/includes? (str (:reason tags)) (pr-str ["https://api.example.invalid/v1"]))))))
+
+(deftest sensitive-interceptor-throw-redacts-the-cause-echo-in-reason
+  (let [throw-secret (fn [ctx]
+                       (throw (ex-info (str "token rejected: "
+                                            (get-in ctx [:request :headers "Authorization"]))
+                                       {})))
+        walk         (fn [sensitive?]
+                       #(rf.http.middleware/run-interceptor-chain!
+                          :rf/default [{:id :probe :before throw-secret}]
+                          (secret-ctx sensitive?)))]
+    (testing "sensitive: neither :cause nor the :reason sentence echoing it
+    carries the throw's secret"
+      (let [[data ev] (trace-chain! :rf.error/http-interceptor-failed (walk true))
+            tags      (:tags ev)]
+        (is (= :rf.error/http-interceptor-failed (:rf.error/id data)))
+        (is (true? (:sensitive? ev)))
+        (is (= :probe (:interceptor-id tags)))
+        (is (= :rf/redacted (:cause tags)))
+        (is (str/includes? (str (:reason tags)) "Cause: :rf/redacted"))
+        (is (not (carries-secret? tags)))))
+    (testing "not sensitive: the :reason sentence keeps the throw's message"
+      (let [[_ ev] (trace-chain! :rf.error/http-interceptor-failed (walk false))]
+        (is (not (true? (:sensitive? ev))))
+        (is (str/includes? (str (get-in ev [:tags :reason]))
+                           (str "Cause: token rejected: " secret)))))))
 
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 

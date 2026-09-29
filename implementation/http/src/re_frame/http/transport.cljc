@@ -148,8 +148,11 @@
   here — only the observable emit. The reply itself is not delivered (delivery
   is what threw); the emit names the situation and the failing interceptor /
   target so the broken `:after` / reply target is fixable. Privacy-composed
-  (the URL redacts under the per-call `:sensitive?` flag / query-param
-  denylist) matching the sibling `:rf.http/*` error rows.
+  by the failure composer, matching the sibling `:rf.http/*` error rows: the
+  URL redacts under the effective `:sensitive?` flag / query-param denylist,
+  and so does the string `:cause`, because it is the caught throw's message —
+  an `:after`'s own text, or a bad-return sentence echoing what the `:after`
+  returned — and either can carry the request's secrets.
 
   ALWAYS-ON, in production too. Behind an outer `interop/debug-enabled?` gate
   the emit would reach the dev trace ONLY, so in a production CLJS bundle —
@@ -174,7 +177,7 @@
   (let [reply-error-id (:rf.error/id (ex-data e))
         origin-event   (:origin-event ctx)
         trace-tags
-        (rf.http.privacy/prepare-emit-tags
+        (rf.http.privacy/prepare-emit-failure
           {:url            (:url ctx)
            :kind           (:kind ctx)
            :reply-error-id reply-error-id

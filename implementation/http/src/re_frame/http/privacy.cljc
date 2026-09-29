@@ -407,7 +407,17 @@
                       ;; `:cause :too-many-keys`) — those are security-relevant
                       ;; signals, not secret payload (http-decode §too-many-keys).
                       (and sensitive? (string? (:cause failure)))
-                      (assoc :cause redacted-sentinel))]
+                      (assoc :cause redacted-sentinel)
+
+                      ;; A bad-return diagnostic's `:returned` is whatever an
+                      ;; interceptor handed back instead of a map — author-
+                      ;; controlled, and typically a slice of the request or
+                      ;; response it was given, so it rides the same sensitive
+                      ;; redaction. `some?` keeps a nil return visible: nil
+                      ;; carries no data, and it is the commonest bad return
+                      ;; (a `:before` written as `(when token …)`).
+                      (and sensitive? (some? (:returned failure)))
+                      (assoc :returned redacted-sentinel))]
        [failure' url-hit?]))))
 
 (defn redact-failure
