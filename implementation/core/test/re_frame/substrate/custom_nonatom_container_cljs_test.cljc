@@ -146,10 +146,11 @@
     ;; via the heuristic. This pins the fallback arm so the choke point's
     ;; three-way branch is fully covered.
     (rf.substrate.adapter/dispose-adapter!)
-    (let [atom-adapter {:kind                 :custom
+    (let [writes       (atom 0)
+          atom-adapter {:kind                 :custom
                         :make-state-container (fn [v] (atom v))
                         :read-container       deref
-                        :replace-container!   (fn [c v] (reset! c v) nil)
+                        :replace-container!   (fn [c v] (swap! writes inc) (reset! c v) nil)
                         :make-derived-value   (fn [sources compute-fn]
                                                 (reify #?(:clj clojure.lang.IDeref :cljs IDeref)
                                                   (#?(:clj deref :cljs -deref) [_]
@@ -166,9 +167,17 @@
         (is (nil? (rf.substrate.adapter/replace-container! base {:n 1}))
             "an IAtom base container is delegated under the sentinel/heuristic path")
         (is (= {:n 1} (rf.substrate.adapter/read-container base)) "the base write took effect")
-        (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                     (rf.substrate.adapter/replace-container! derived 99))
-            "a non-IAtom derived value is rejected by the atom-marker heuristic")))))
+        (let [thrown (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+                                  (rf.substrate.adapter/replace-container! derived 99))
+                         "a non-IAtom derived value is rejected by the atom-marker heuristic")]
+          ;; On CLJS a delegated write to the IDeref-only derived value throws
+          ;; a missing-protocol js/Error, which the thrown? above accepts, so
+          ;; only the guard's own id says the guard rejected it.
+          (is (= :rf.error/derived-container-replaced
+                 (:rf.error/id (ex-data thrown)))
+              "the rejection is the derived-container guard, not a delegated write failing")
+          (is (= 1 @writes)
+              "the adapter's replace-container! ran for the base write only"))))))
 
 (deftest sentinel-distinct-from-false
   (testing "the container-class-unknown sentinel is NOT false (the no-opinion vs base distinction)"
