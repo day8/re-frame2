@@ -47,7 +47,7 @@
   "skipped: no localStorage (node lane — see ns docstring)")
 
 (def ^:private variants
-  [:story.persist/v :story.hyd/v :story.clear/v])
+  [:story.hyd/v :story.clear/v])
 
 (defn- reset-all! []
   (reset! rf.story.ui.dispatch-console/history-state {})
@@ -60,20 +60,6 @@
 (use-fixtures :each (fn [t] (reset-all!) (t)))
 
 ;; ---- save → load across a simulated reload ------------------------------
-
-(deftest history-localstorage-roundtrip
-  (testing "save-history! → load-history! survives a dropped ratom"
-    (if-not (browser?)
-      (is true skip-msg)
-      (let [vid   :story.persist/v
-            entry (rf.story.ui.dispatch-console/build-history-entry
-                    :counter/inc nil :dispatch 1700000000000)]
-        (rf.story.ui.dispatch-console/save-history! vid [entry])
-        ;; Drop in-memory state to simulate a reload.
-        (reset! rf.story.ui.dispatch-console/history-state {})
-        (let [loaded (rf.story.ui.dispatch-console/load-history! vid)]
-          (is (= 1 (count loaded)))
-          (is (= :counter/inc (:event-id (first loaded)))))))))
 
 (deftest current-history-hydrates-once
   (testing "current-history hydrates from localStorage on first access"

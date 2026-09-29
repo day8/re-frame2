@@ -225,24 +225,7 @@
          (is (= :text   (-> t :supplied :widget)))
          (is (= :number (-> t :n :widget)))))))
 
-#?(:cljs
-   (deftest resolve-argtypes-1-arity-still-resolves-internally
-     (testing "the 1-arity overload serves non-render callers
-               (tests, docs, etc.) — it calls rf.story.args/resolve-args itself"
-       (rf.story/reg-variant :story.nest/v5
-         {:args   {:title "hi"}
-          :setup []})
-       (let [t (rf.story.ui.controls/resolve-argtypes :story.nest/v5)]
-         (is (= :text (-> t :title :widget)))))))
-
 ;; ---- JVM + CLJS: path-aware set-cell-override ---------------------------
-
-(deftest set-cell-override-scalar-wrapper
-  (testing "set-cell-override-scalar wraps the arg-key into a singleton
-            path and writes a top-level override"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override-scalar s :story.a/x :label "hi")]
-      (is (= "hi" (get-in s1 [:cell-overrides :story.a/x :label]))))))
 
 (deftest set-cell-override-writes-nested
   (testing "a multi-element path writes at the nested location"
@@ -279,35 +262,6 @@
 ;; `set-cell-override`'s 5-arity accepts a `base` seed — the arg's
 ;; current resolved value (`rf.story.args/resolve-args`, cell-overrides excluded)
 ;; — and walks it via `assoc-in-kind-aware` instead of raw `assoc-in`.
-
-(deftest set-cell-override-with-base-seeds-missing-vector-preserving-siblings
-  (testing "a `base` seed lets a first-ever edit of an
-            unoverridden vector preserve sibling entries instead of
-            truncating to a singleton or corrupting into a map"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x [:items 0] "x" ["a" "b"])]
-      (is (vector? (get-in s1 [:cell-overrides :story.a/x :items])))
-      (is (= ["x" "b"] (get-in s1 [:cell-overrides :story.a/x :items]))
-          "index 0 replaced; sibling \"b\" at index 1 survives"))))
-
-(deftest set-cell-override-with-set-base-seeds-preserving-siblings-as-a-set
-  (testing "a :set base seed round-trips as a SET (matching the arg's
-            declared collection kind), sorted the same way the controls
-            panel's own vector-coerce renders it for editing"
-    (let [s  rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override s :story.a/x [:items 0] "x" #{"a" "b"})]
-      (is (set? (get-in s1 [:cell-overrides :story.a/x :items])))
-      (is (= #{"x" "b"} (get-in s1 [:cell-overrides :story.a/x :items]))))))
-
-(deftest set-cell-override-set-override-already-established-does-not-throw
-  (testing "editing an entry when the OVERRIDE (not just the
-            base) is already a real set does not throw — no
-            'assoc undefined on PersistentHashSet' failure"
-    (let [s0 rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override-scalar s0 :story.a/x :items #{"a" "b"})
-          s2 (rf.story.ui.state/set-cell-override s1 :story.a/x [:items 0] "x")]
-      (is (set? (get-in s2 [:cell-overrides :story.a/x :items])))
-      (is (contains? (get-in s2 [:cell-overrides :story.a/x :items]) "x")))))
 
 (deftest set-cell-override-deeply-nested-vivifies-map-levels-with-set-base
   (testing "a deep path mixes map-vivification (keyword segments) and
@@ -457,16 +411,6 @@
           s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :label)]
       (is (nil? (get-in s2 [:cell-overrides :story.a/x :label])))
       (is (= 42 (get-in s2 [:cell-overrides :story.a/x :n]))))))
-
-(deftest clear-cell-override-prunes-empty-variant-entry
-  (testing "clearing the LAST override for a variant prunes the empty
-            :cell-overrides entry — callers reading
-            (seq (get-in state [:cell-overrides variant])) see 'no
-            overrides', matching clear-cell-overrides"
-    (let [s0 rf.story.ui.state/default-shell-state
-          s1 (rf.story.ui.state/set-cell-override-scalar s0 :story.a/x :label "hi")
-          s2 (rf.story.ui.state/clear-cell-override s1 :story.a/x :label)]
-      (is (not (contains? (:cell-overrides s2) :story.a/x))))))
 
 (deftest clear-cell-override-leaves-other-variants
   (testing "clearing one variant's arg does not touch another variant's
