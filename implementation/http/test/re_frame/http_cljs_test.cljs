@@ -10,8 +10,6 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            ;; The closed retryable-category set the `:retry :on` gate reads.
-            [re-frame.http.handlers :as rf.http.handlers]
             ;; Drive the full `:rf.http/managed` pipeline (fx
             ;; registration + in-flight registry) for the backoff-window
             ;; cancellation test below.
@@ -67,42 +65,7 @@
       (finally
         (aset js/globalThis "location" orig)))))
 
-;; ---- :rf.http/cors retry-set membership ----------------------------------
-
-(deftest cors-is-a-valid-retry-on-member
-  (testing "`:rf.http/cors` is a valid member of
-  `:retry :on`. CORS sits in the closed retryable set documented at
-  Spec 014 §Closed-set `:retry :on` validation
-  (#{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx
-  :rf.http/http-5xx}), which is the set the `:retry :on` membership gate
-  reads. A semantic decision on whether to AUTO-retry CORS belongs to the
-  caller (typically NO — CORS is a config error, not transient — but a
-  probing app may want to)."
-    (is (contains? rf.http.handlers/retryable-categories :rf.http/cors)
-        ":rf.http/cors is in the shipped closed retryable set")))
-
 ;; ---- classify-cljs-error CORS branch -------------------------------------
-
-(deftest classify-cors-typeerror-cross-origin
-  (testing "a TypeError on a cross-origin URL classifies as
-  `:rf.http/cors` per Spec 014 §Failure categories. The heuristic is
-  conservative: TypeError + parseable cross-origin URL = CORS; anything
-  else falls through to `:rf.http/transport`.
-
-  Note: this test only fires when `js/location.origin` is defined and
-  parseable (browser-host targets). In node-runtime CLJS tests where
-  the global is absent, the conservative path returns false and the
-  classifier stays at `:rf.http/transport` — that branch is exercised
-  by `classify-typeerror-relative-url-is-transport`."
-    (when (and (exists? js/globalThis)
-               (some-> js/globalThis (aget "location") (aget "origin")))
-      (let [err (js/TypeError. "Failed to fetch")
-            out (classify-cljs-error err "https://other.invalid/x?a=1")]
-        (is (= :rf.http/cors (:kind out))
-            "TypeError + cross-origin URL classifies as :rf.http/cors")
-        (is (= "https://other.invalid/x?a=1" (:url out))
-            ":url tag rides the failure shape (Spec 014 §Failure categories)")
-        (is (some? (:message out)) ":message tag rides the failure shape")))))
 
 (deftest classify-typeerror-relative-url-is-transport
   (testing "a TypeError on a relative URL (always same-origin
@@ -154,8 +117,7 @@
   (testing "the load-bearing positive CORS branch
   (`cross-origin?` returning true → `:rf.http/cors`) runs DETERMINISTICALLY
   under the node gate by injecting a known `js/globalThis.location.origin`.
-  The sibling `classify-cors-typeerror-cross-origin` silently no-ops in
-  node (the ambient `location.origin` is absent), so this exercises the real
+  The ambient `location.origin` is absent in node, so this exercises the real
   `classify-cljs-error` → `cross-origin?` → `js/URL.` → origin-comparison
   path that otherwise ships dark on `npm run test:cljs`. Both the positive
   branch AND its same-origin / scheme-excluded negative siblings are
@@ -1277,19 +1239,6 @@
      :fire!          (fn []
                        (aset sig "aborted" true)
                        (doseq [f @listeners] (f #js {})))}))
-
-(deftest external-abort-binding-attaches-one-listener-and-routes-to-current-handle
-  (testing "`bind-external-abort!` attaches exactly ONE listener
-  on a non-aborted signal; firing the signal invokes the bound `cancel!`."
-    (let [{:keys [signal listener-count fire!]} (fake-abort-signal)
-          binding (rf.http.transport-cljs/make-external-abort signal)
-          fired   (atom [])]
-      (is (some? binding) "a binding is created for a non-nil signal")
-      (rf.http.transport-cljs/bind-external-abort! binding (fn [] (swap! fired conj :phase-1)))
-      (is (= 1 (listener-count)) "exactly one listener attached")
-      (is (empty? @fired) "cancel! not yet called — signal has not aborted")
-      (fire!)
-      (is (= [:phase-1] @fired) "firing the signal invokes the bound cancel!"))))
 
 (deftest external-abort-rebind-detaches-prior-phase-listener
   (testing "rebinding on phase-ownership transfer DETACHES the

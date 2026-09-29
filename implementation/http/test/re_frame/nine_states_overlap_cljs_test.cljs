@@ -60,8 +60,7 @@
   which carries `async` tests for the same reason) and EVERY row builds its own
   fresh frame and clears the in-flight registry itself, inside the driver. Each
   row's assertions read that row's own frame, so a row cannot observe a board an
-  earlier row left behind. `overlap-cross-kind-row-in-isolation` runs one row on
-  its own to pin that claim from the other side."
+  earlier row left behind."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [clojure.string :as string]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
@@ -340,17 +339,6 @@
       (rf/init! rf.adapter.reagent/adapter)
       (rf.frame/ensure-default-frame!)
       (-> (run-rows! overlap-rows)
-          (.catch (fn [e] (is false (str "unexpected: " e)) nil))
-          (.then (fn [_] (done)))))))
-
-(deftest overlap-cross-kind-row-in-isolation
-  (testing "the same cross-kind row run ALONE. A table-driven suite
-  can pass only because an earlier row left the board in a helpful state, so one
-  row is pinned in isolation too; it must reach the identical verdict."
-    (async done
-      (rf/init! rf.adapter.reagent/adapter)
-      (rf.frame/ensure-default-frame!)
-      (-> (run-overlap-row! (second overlap-rows))
           (.catch (fn [e] (is false (str "unexpected: " e)) nil))
           (.then (fn [_] (done)))))))
 

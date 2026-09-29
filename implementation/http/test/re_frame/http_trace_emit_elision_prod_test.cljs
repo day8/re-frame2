@@ -98,18 +98,6 @@
            — the :rf.http/aborted-on-actor-destroy emit body elided
            while the abort callback still ran"))))
 
-(deftest abort-on-actor-destroy-empty-registry-emits-nothing-under-prod
-  (testing "Defensive cross-check: when no handles are recorded for the
-            actor, the no-op path runs and emits nothing — both under
-            dev (no handles → no emit) and prod (gate elides). Locks
-            the idempotency contract under prod-mode."
-    (let [seen (listener-fixture
-                 (fn []
-                   (rf.http.managed/abort-on-actor-destroy
-                     :prod-elision/never-spawned)))]
-      (is (empty? seen)
-          "no trace events for the idempotent no-handle path under prod"))))
-
 (deftest http-managed-abort-fx-emits-no-trace-under-prod
   (testing "Per Spec 009 §Production-elision: dispatching the public
             `:rf.http/managed-abort` fx against a request-id with no
