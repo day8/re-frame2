@@ -526,8 +526,8 @@ const SCENES = [
   },
   {
     // The hydration-mismatch testbed's `:rf/hydrate` epoch. The mismatch
-    // report itself goes to trace listeners and the console, not to Xray;
-    // the testbed's own banner renders it from a trace listener.
+    // itself lands in Xray's hidden `:ungrouped` row, whose Trace tab reads
+    // its hashes; the testbed's own banner renders it from a trace listener.
     id: 'xray-tutorial-hydration',
     app: '/ssr-hydration-mismatch',
     clip: 'xray',
@@ -537,6 +537,18 @@ const SCENES = [
         .waitFor({ state: 'visible', timeout: WAIT_TIMEOUT_MS });
       await focusRow(page, ':rf/hydrate');
       await selectTab(page, 'epoch');
+    },
+  },
+  {
+    // The Fresco tab on the running example. It is a Reagent app with no
+    // Fresco boundaries, so each view reports an empty roster.
+    id: 'xray-tutorial-fresco',
+    app: '/standard-epochs',
+    clip: 'xray',
+    clipHeight: 560,
+    before: async (page) => {
+      await runSteps(page, SE, [SE_STEPS.increment]);
+      await selectTab(page, 'fresco');
     },
   },
   {

@@ -43,7 +43,7 @@
     { "selector": "[data-testid^=\"rf-xray-event-row-\"][aria-pressed=\"true\"]",
       "colour": "#e53935", "label": "1  Focused event", "labelAt": { "x": 900, "y": 145 } },
     { "selector": "[data-testid=\"rf-xray-newer-events\"]",
-      "colour": "#43a047", "label": "2  Newer events", "labelAt": { "x": 1000, "y": 218 } },
+      "colour": "#43a047", "label": "2  Newer events", "labelAt": { "x": 1000, "y": 222 } },
     { "selector": "[data-testid=\"rf-xray-ribbon-nav\"]", "padding": 3,
       "colour": "#1976d2", "label": "3  Step and follow", "labelAt": { "x": 790, "y": 6 } },
     { "selector": "[data-testid=\"rf-xray-epoch-circle-1\"]", "groupExtendTo": "[data-testid=\"rf-xray-epoch-circle-4\"]",
@@ -56,9 +56,9 @@
     { "selector": "[data-testid=\"rf-xray-reactive-appdb-node\"]", "padding": 3,
       "colour": "#1976d2", "label": "1  app-db", "labelAt": { "x": 592, "y": 404 } },
     { "selector": "[data-testid^=\"rf-xray-reactive-node-l2-\"]", "padding": 2,
-      "colour": "#7e57c2", "label": "2  Subscription", "labelAt": { "x": 886, "y": 404 } },
+      "colour": "#7e57c2", "label": "2  Subscription", "labelAt": { "x": 931, "y": 404 } },
     { "selector": "[data-testid^=\"rf-xray-reactive-view-node-\"]", "padding": 2,
-      "colour": "#43a047", "label": "3  Re-rendered view", "labelAt": { "x": 1104, "y": 404 } }
+      "colour": "#43a047", "label": "3  Re-rendered view", "labelAt": { "x": 1121, "y": 404 } }
   ],
 
   "xray-tutorial-trace": [
@@ -104,6 +104,15 @@
       "colour": "#43a047", "label": "2  State into app-db", "labelAt": { "x": 1200, "y": 494 } },
     { "selector": "[data-testid=\"rf-xray-epoch-step-subscriptions\"]", "inset": { "h": 146 }, "padding": 4,
       "colour": "#7e57c2", "label": "3  Subscriptions", "labelAt": { "x": 1000, "y": 745 } }
+  ],
+
+  "xray-tutorial-fresco": [
+    { "selector": "[data-testid=\"rf-xray-fresco-sub-strip\"]", "inset": { "x": 10, "y": 5, "w": 353, "h": 28 }, "padding": 3,
+      "colour": "#1976d2", "label": "1  Six views", "labelAt": { "x": 920, "y": 296 } },
+    { "selector": "[data-testid=\"rf-xray-fresco-summary\"]", "inset": { "x": 10, "y": 3, "w": 218, "h": 20 }, "padding": 3,
+      "colour": "#43a047", "label": "2  Summary", "labelAt": { "x": 790, "y": 330 } },
+    { "selector": "[data-testid=\"rf-xray-fresco-empty-mounted\"]", "padding": 3,
+      "colour": "#7e57c2", "label": "3  Empty roster", "labelAt": { "x": 1250, "y": 366 } }
   ],
 
   "xray-tutorial-routes": [
