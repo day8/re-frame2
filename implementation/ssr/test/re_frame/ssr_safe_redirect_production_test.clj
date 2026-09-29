@@ -67,8 +67,10 @@
        be a denial of service.
 
   Companion suites:
-    - `re-frame.ssr-end-to-end-test` — the dev-posture safe-redirect
-      cluster (the trace-bus half; held off this lane).
+    - `re-frame.ssr-end-to-end-test` — the safe-redirect cases this suite
+      does not carry: a `java.net.URI` parse failure, the scheme-prefix
+      ordering, the dev trace's raw `:host` / `:allowlist` / `:scheme`
+      diagnostics, and the pass-through controls.
     - `re-frame.ssr-route-miss-404-production-test` — the
       always-on witness this one is modelled on."
   (:require [clojure.edn :as edn]
