@@ -83,29 +83,17 @@
 ;; (a) localStorage PROPERTY access throws (SecurityError / cross-origin)
 ;; -------------------------------------------------------------------------
 
-(deftest available?-fails-soft-when-property-access-throws
-  (testing "a throwing `window.localStorage` getter degrades `available?`
-            to false rather than propagating the SecurityError"
+(deftest every-primitive-fails-soft-when-property-access-throws
+  (testing "a throwing `window.localStorage` getter degrades every primitive
+            rather than propagating the SecurityError into the caller — or
+            into the dispatch chain that drove a write"
     (install-window-with-throwing-localStorage-getter!)
     (is (false? (ls/available?))
-        "available? swallows the property-access throw and returns false")))
-
-(deftest get-item-fails-soft-when-property-access-throws
-  (testing "get-item never propagates a property-access SecurityError"
-    (install-window-with-throwing-localStorage-getter!)
+        "available? swallows the property-access throw and returns false")
     (is (nil? (ls/get-item "k"))
-        "get-item returns nil instead of throwing into the caller")))
-
-(deftest set-item!-fails-soft-when-property-access-throws
-  (testing "set-item! never propagates a property-access SecurityError
-            into the dispatch chain that drove the write"
-    (install-window-with-throwing-localStorage-getter!)
+        "get-item returns nil instead of throwing into the caller")
     (is (nil? (ls/set-item! "k" "v"))
-        "set-item! no-ops and returns nil")))
-
-(deftest remove-item!-fails-soft-when-property-access-throws
-  (testing "remove-item! never propagates a property-access SecurityError"
-    (install-window-with-throwing-localStorage-getter!)
+        "set-item! no-ops and returns nil")
     (is (nil? (ls/remove-item! "k"))
         "remove-item! no-ops and returns nil")))
 
@@ -113,27 +101,17 @@
 ;; (b) localStorage methods throw (quota / hostile method)
 ;; -------------------------------------------------------------------------
 
-(deftest available?-is-true-when-only-methods-throw
-  (testing "available? sees a non-nil localStorage object even though its
-            methods will throw — the (a)/(b) distinction"
+(deftest every-primitive-fails-soft-when-methods-throw
+  (testing "the property read succeeds, so available? is true — the (a)/(b)
+            distinction — while each primitive swallows its own method's
+            throw: a quota-exceeded setItem must not poison the dispatch
+            chain"
     (install-window-with-throwing-methods!)
     (is (true? (ls/available?))
-        "the property read succeeds; method throws are a separate concern")))
-
-(deftest get-item-fails-soft-when-getItem-throws
-  (testing "a throwing getItem degrades the read to nil"
-    (install-window-with-throwing-methods!)
+        "the property read succeeds; method throws are a separate concern")
     (is (nil? (ls/get-item "k"))
-        "get-item swallows the method throw and returns nil")))
-
-(deftest set-item!-fails-soft-when-setItem-throws
-  (testing "a quota-exceeded setItem must not poison the dispatch chain"
-    (install-window-with-throwing-methods!)
+        "get-item swallows the method throw and returns nil")
     (is (nil? (ls/set-item! "k" "v"))
-        "set-item! swallows the QuotaExceededError and returns nil")))
-
-(deftest remove-item!-fails-soft-when-removeItem-throws
-  (testing "a throwing removeItem no-ops cleanly"
-    (install-window-with-throwing-methods!)
+        "set-item! swallows the QuotaExceededError and returns nil")
     (is (nil? (ls/remove-item! "k"))
         "remove-item! swallows the method throw and returns nil")))

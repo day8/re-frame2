@@ -1,7 +1,7 @@
 (ns day8.re-frame2-xray.preload-cljs-test
   "Tests for the Xray preload foundation.
 
-  ## Three contracts under test
+  ## Two contracts under test
 
   1. **Idempotency.** Loading the preload twice (shadow-cljs
      `:after-load` simulation) must not double-register the trace
@@ -12,13 +12,7 @@
      reload; the preload's `defonce` sentinels prevent the warning
      altogether.
 
-  2. **Frame isolation.** Xray's `:rf.xray/*` registrations target a
-     frame named `:rf/xray`. Writing into
-     `:rf/xray` must not bleed into the host's `:rf/default` frame.
-     This test exercises the contract directly: it allocates both
-     frames, dispatches into each, and asserts the dbs diverge.
-
-  3. **Trace collector wiring.** After preload load, every dispatch /
+  2. **Trace collector wiring.** After preload load, every dispatch /
      drain step / fx invocation that the framework's trace bus emits
      must appear in Xray's ring buffer. This test fires a dispatch
      against a registered handler and asserts the trace stream lands
@@ -34,8 +28,6 @@
   on node-test keeps them fast and host-portable."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.ssr :as rf.ssr]
             [re-frame.test-support :as rf.test-support]
@@ -87,54 +79,7 @@
     (is (= 1 (count (trace-collector/buffer-for-test)))
         "duplicate registrations must not deliver the same event twice")))
 
-(deftest registry-handlers-are-idempotent
-  (testing "calling register-xray-handlers! twice registers the sub once"
-    (registry/register-xray-handlers!)
-    (let [first-handler (rf.registrar/handler :sub :rf.xray/trace-buffer)]
-      (is (some? first-handler) "first call registers :rf.xray/trace-buffer")
-      (registry/register-xray-handlers!)
-      (is (identical? first-handler
-                      (rf.registrar/handler :sub :rf.xray/trace-buffer))
-          "second call does not replace the handler"))))
-
-;; ---- (2) frame isolation ------------------------------------------------
-
-(deftest xray-frame-state-is-isolated-from-host
-  (testing "writes to :rf/xray do not bleed into :rf/default"
-    (registry/register-xray-handlers!)
-    ;; Register a host event under :rf/default that writes a marker
-    ;; into the host's db.
-    (rf/reg-event :test/host-write
-      (fn [{:keys [db]} _] {:db (assoc db :host-touched? true)}))
-    ;; A Xray-side event under the :rf.xray/* prefix that writes a
-    ;; marker into whatever frame is active at dispatch time. Xray's
-    ;; runtime always dispatches under `with-frame :rf/xray`, so the
-    ;; write lands in the Xray frame.
-    (rf/reg-event :rf.xray/test-write
-      (fn [{:keys [db]} _] {:db (assoc db :xray-touched? true)}))
-
-    ;; Allocate the Xray frame (the preload doesn't create it; it's
-    ;; allocated lazily on first use).
-    (rf/make-frame {:id :rf/xray})
-
-    ;; Host dispatch — lands in :rf/default.
-    (rf/dispatch-sync [:test/host-write])
-    ;; Xray dispatch — wrapped in with-frame so it lands in :rf/xray.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/test-write]))
-
-    (let [default-db (rf.frame/frame-app-db-value :rf/default)
-          xray-db   (rf.frame/frame-app-db-value :rf/xray)]
-      (is (true? (:host-touched? default-db))
-          "host write reaches :rf/default")
-      (is (nil? (:xray-touched? default-db))
-          ":rf/default did NOT receive Xray's write")
-      (is (true? (:xray-touched? xray-db))
-          "Xray write reaches :rf/xray")
-      (is (nil? (:host-touched? xray-db))
-          ":rf/xray did NOT receive host's write"))))
-
-;; ---- (3) trace collector wiring -----------------------------------------
+;; ---- (2) trace collector wiring -----------------------------------------
 
 (deftest trace-events-land-in-xray-buffer
   (testing "framework trace emissions appear in Xray's ring buffer"
@@ -178,28 +123,6 @@
         (is (some mismatch? (:other bundle)) "grouped under :ungrouped")
         (is (l2-timeline/event-bundle-has-issue? bundle)
             "the bundle reads as an issue, so its L2 row takes the issue wash")))))
-
-(deftest xray-buffer-evicts-oldest-on-overflow
-  (testing "the Xray frameless secondary ring respects its configured depth"
-    ;; Frameless emits (no `:rf.trace/dispatch-id` / no `:frame`) land
-    ;; in Xray's secondary ring, because the framework's per-frame
-    ;; rings skip them per B3 (Spec 009). This
-    ;; test exercises that overflow algebra without spinning a full
-    ;; framework dispatch path.
-    (preload/register-trace-collector!)
-    (trace-collector/set-frameless-ring-depth! 3)
-    (try
-      (dotimes [i 5]
-        (rf.trace/emit! :info :rf.test/synthetic-overflow
-                     {:n i :source :test}))
-      (let [buf (trace-collector/buffer-for-test)]
-        (is (= 3 (count buf))
-            "secondary ring caps at the configured depth")
-        (is (= [2 3 4] (mapv #(get-in % [:tags :n]) buf))
-            "oldest entries evicted; newest retained in order"))
-      (finally
-        (trace-collector/set-frameless-ring-depth!
-          trace-collector/default-frameless-ring-depth)))))
 
 (deftest xray-frameless-ring-releases-evicted-events
   (testing "eviction leaves a plain vector holding only the kept

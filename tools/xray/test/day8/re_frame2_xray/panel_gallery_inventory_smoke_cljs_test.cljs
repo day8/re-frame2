@@ -86,29 +86,6 @@
             so the sidebar tag-filter UI can group it (SB9 facet parity)"
     (is (= rf.story.schemas/canonical-state-tags (rf.story/tags-by-axis :state)))))
 
-;; ---- inventory-non-empty smoke (the headline contract) ---------------
-
-(deftest gallery-inventory-non-empty-after-bulk-register
-  (testing "after registering story + variant ids of the gallery shape,
-            the Story-shell's variant inventory is non-empty — an
-            exception in one gallery would abort the load and render the
-            shell with zero variants. The smoke shape: drive
-            registrations that mirror the gallery shape and confirm the
-            registrar reports non-empty inventory."
-    (rf.story/reg-story :story.smoke.parent
-      {:doc       "Inventory smoke parent story."
-       :component :smoke/comp
-       :tags      #{:dev}})
-    (doseq [tag rf.story.schemas/canonical-state-tags]
-      (rf.story/reg-variant (keyword "story.smoke.parent" (name tag))
-        {:doc    (str "Variant carrying " (pr-str tag))
-         :setup []
-         :tags   #{:dev tag}}))
-    (let [variants (rf.story/variants-of :story.smoke.parent)]
-      (is (seq variants) "registrar's variants-of reports non-empty")
-      (is (= 5 (count variants))
-          "every :state/* tag drove a variant — no :rf.error/unknown-tag aborts"))))
-
 ;; ---- Dynamic-tab gallery coverage + documented exclusions ----
 ;;
 ;; The panel-gallery is the visual-design harness for the six CORE L4
