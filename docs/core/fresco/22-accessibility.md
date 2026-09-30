@@ -94,7 +94,8 @@ into app-db.
         error-id (str "todo-title-error-" id)]
     [:div
      [:input
-      {:value            (:title (h/sub [:todo/by-id id]))
+      {:aria-label       "Todo title"
+       :value            (:title (h/sub [:todo/by-id id]))
        :on-input         [:todo/rename id ::h/value]
        :aria-invalid     (some? error)
        :aria-describedby (when error error-id)}]

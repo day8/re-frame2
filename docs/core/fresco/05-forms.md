@@ -22,6 +22,7 @@ Require the module where its views are used:
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.resources]      ;; mutations, for the submit section
+            [re-frame.http.managed]   ;; HTTP transport for those mutations
             [re-frame.fresco :as h]
             [re-frame.fresco.forms :as forms]))
 ```
@@ -50,6 +51,7 @@ candidate commit:
     :value       (h/sub [:todo/title id])
     ::h/revision (h/sub [:todo/title-revision id])
     :on-commit   [:todo/title-committed id]
+    :aria-label  "Todo title"
     :placeholder "What needs doing?"}])
 ```
 
@@ -102,12 +104,12 @@ When the handler rejects or rewrites, advance the revision as well:
 
 The revision makes same-value rejection observable. If the committed value is
 `"Buy milk"` and the user submits a blank draft, retaining `"Buy milk"` does
-not change the value. Advancing the revision explicitly ends the old edit and
-re-baselines the field to the committed value.
+not change the value. Advancing the revision replaces the displayed draft
+with the committed value on the next render.
 
-The same fence applies to async acceptance. A later settle event writes the
-accepted value and advances the revision. Any commit still associated with the
-old revision becomes a no-op instead of restoring stale text.
+For async acceptance, the settle event writes the accepted value and advances
+the revision. On the next render the field shows that value, and its new
+Enter/blur callbacks carry the new revision. They cannot commit the old draft.
 
 A field that will never be externally reset, rejected, or rewritten may use a
 constant revision such as `0`. That choice means an active draft is never
@@ -175,6 +177,7 @@ as something a screen reader can find:
 (h/defview editor-title-field [_]
   (let [error (h/sub [:todo.editor/field-error :title])]
     [:fieldset.form-group
+     [:label {:for "todo-title"} "Title"]
      [:input.form-control
       {:id               "todo-title"
        :type             :text
@@ -341,6 +344,14 @@ are the patterns on this page. Each buffered field adds an address and commit
 protocol to app-db.
 
 ## Advanced
+
+### Delayed protocol events
+
+The revision fence is established by rendering the field again. It is not a
+check against your domain's current revision at dispatch time: a saved protocol
+event carrying the old revision can still match a retained old draft. Do not
+queue the field's internal commit events for later. For delayed server replies,
+use mutation supersession and the [settle-merge recipe](08-async-resources.md#merge-a-settled-reply-into-the-current-draft).
 
 ### Draft lifetime
 

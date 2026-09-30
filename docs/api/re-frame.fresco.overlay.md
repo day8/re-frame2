@@ -29,7 +29,8 @@ and modal patterns and the focus rules.
 ## The heads
 
 Both are legal hiccup heads but not Fresco views: they read no subscriptions. They
-take these props:
+take these props. A closed overlay does not mount its child views. Reads made
+in the enclosing view while constructing those children still run in that view.
 
 | Prop | Head | Meaning |
 | --- | --- | --- |

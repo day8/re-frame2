@@ -254,9 +254,16 @@ plus `:identifier-prefix` and `:frame-opts` as above. It runs no
 that recorded an error raises as `render` does.
 
 The other two help a host that post-processes `server/render`'s result.
-`server/payload-script` rebuilds the payload `<script>` tag from a modified
-payload, with correct escaping. `server/document` rebuilds the page around
-modified `:html`.
+`server/payload-script` takes an **EDN string**, such as `(pr-str payload)`,
+and returns the `<script id="__rf_payload" type="application/edn">` tag with
+EDN-aware script escaping. Pass the serialized string, not the payload map.
+
+`server/document` returns a complete HTML string around `:html` and the
+already-built `:payload-script`. It emits `lang="en"`, a UTF-8 meta tag and a
+root `<div>` whose id is `:app-element-id` (default `"app"`, also when nil).
+`:title` adds an escaped title; `:script-src` adds the bootstrap script after
+the payload. Both are omitted when absent. Use your own shell when the page
+needs a different language or additional head content.
 
 The determinism check lives in the test kit as
 [`re-frame.fresco.test.server/render-twice`](#re-framefrescotestforms-and-re-framefrescotestserver).
@@ -324,14 +331,19 @@ evidence/unknown evidence/loss-reasons
 (evidence/envelope read complete? loss body)
 ```
 
-| Name | What it is |
+| Name (`evidence/…`) | What it is |
 | --- | --- |
-| `evidence/schema` | the schema version every envelope carries. A consumer checks it first and rejects a version it does not recognise; older shapes are not accepted |
-| `evidence/producer` | which substrate produced the envelope. The schema is adapter-neutral, so this is carried rather than inferred |
-| `evidence/reads` | the four read operations, stamped on every envelope as `:read` |
-| `evidence/unknown` | the explicit value for a fact a read does not hold, and the `:dropped` count for a loss it cannot size. Unknown is never encoded as an empty collection |
-| `evidence/loss-reasons` | why a read could not carry something: `:cap`, `:opaque`, `:host-opaque`, `:uncorrelated`. Each names a different remedy |
-| `evidence/envelope` | returns `body` stamped with the five envelope fields for `read`, or throws naming every problem: a read outside the vocabulary, a loss with a foreign reason or no sizeable `:dropped`, or `:complete? true` beside a loss. There is no lenient variant |
+| `schema` | `:re-frame.fresco.evidence/v3`, the schema version every envelope carries. A consumer checks it first and rejects a version it does not recognise; older shapes are not accepted |
+| `producer` | `:re-frame/fresco`, which substrate produced the envelope. The schema is adapter-neutral, so this is carried rather than inferred |
+| `reads` | `:mounted-boundaries`, `:read-attribution`, `:intents`, `:explain-render`: the allowed `:read` values |
+| `unknown` | `:unknown`, the explicit value for a fact a read does not hold, and the `:dropped` count for a loss it cannot size. Unknown is never encoded as an empty collection |
+| `loss-reasons` | why a read could not carry something: `:cap`, `:opaque`, `:host-opaque`, `:uncorrelated`. Each names a different remedy |
+| `envelope` | returns `body` with the five envelope fields overwritten by the validated stamp. `complete?` must be a boolean; `loss` is nil or `{:reason reason :dropped n}`, where `n` is a non-negative integer or `:unknown`. A loss cannot accompany `true` |
+
+Invalid envelope arguments throw `ex-info` with
+`{:re-frame.fresco.evidence/defect :incoherent-envelope :problems [...]}`.
+`:problems` lists every validation failure; this exception does not use an
+`:rf.error/id`.
 
 ## `re-frame.fresco.test` — the L1 and L2 test kit
 
@@ -381,7 +393,7 @@ ht/tree-version
 | `ht/controlled?` | does the codec install the controlled shadow for this form? The runtime's own decision, not a re-derivation |
 | `ht/revision` | the `::h/revision` value a native form carries, as the runtime reads it |
 | `ht/materialize` | what an event vector becomes at dispatch, given the target's value and checked flag, as a pure function |
-| `ht/canonical-dom` | a DOM subtree serialised with every element's attribute names sorted, so two renderings compare equal when only attribute order differs |
+| `ht/canonical-dom` | a DOM subtree serialised with attribute names sorted and the development annotations `data-rf2-source-coord` and `data-rf-view` removed |
 | `ht/capture-intents` | runs `f` and returns `{:value <f's value> :intents [event-v …]}` — the events dispatched into `frame-kw` meanwhile. Other frames' events are ignored |
 | `ht/fire!` | converts one handler position to its React callback and invokes it with an event described as data; returns `{:intents […] :prevented? bool}` |
 | `ht/tree` | runs one hook-free body under injected read fixtures and returns its versioned semantic tree. `opts` takes only `:subs`; any other key throws |
@@ -393,6 +405,21 @@ ht/tree-version
 | `ht/role` | the ARIA role of a node — written, else implicit — as a keyword, or `nil` |
 | `ht/accessible-name` | the accessible name a node carries **within** a tree. A node not in the tree throws rather than returning nil |
 | `ht/unnamed-controls` | every operable node with no accessible name, in document order. It does not exempt a control inside an `aria-hidden` subtree |
+
+`ht/fire!` takes a native Hiccup form, a handler prop such as `:on-input`, and
+an event map with `:value`, `:checked`, `:key`, `:composing?` and `:key-code`.
+The last two default to false and `0`. With `h` aliased to `re-frame.fresco`,
+the following uses real dispatch into an existing
+frame, so registered handlers can change app-db:
+
+```clojure
+(ht/fire! :app [:input {:on-input [:todo/draft-edited ::h/value]}]
+          :on-input {:value "Buy milk"})
+;; => {:intents [[:todo/draft-edited "Buy milk"]] :prevented? false}
+```
+
+This checks handler semantics, not browser defaults, bubbling, focus or IME
+interaction. Use mounted/browser tests for those claims.
 
 `ht/tree` is not a renderer: no React element is created, no hook runs, and
 nothing is mounted or painted. It throws on a `h/defhost` component, a raw React
@@ -445,9 +472,12 @@ hm/this-frame
 | `hm/assert-clean!` | waits for quiescence, compares against this mount's baseline, reports through `cljs.test/do-report`, and only then resets. It never throws, so the promise never rejects |
 | `hm/census` | everything the facade counts as one map: the five residue counters plus `:frames`, a **set** of live frame ids, so a delta names the frame that outlived the mount |
 | `hm/bodies-run` | how many boundary bodies ran while `f` did — what a change **cost**, where the census says what the page **retains** |
-| `hm/counted` | the five residue counters, in report order, as data |
+| `hm/counted` | `[:cells :cell-refs :boundaries :edges :entries]`, the five residue counters in report order |
 | `hm/this-frame` | the stand-in each mount's own frame keyword normalises to in a shadow report, so a difference is never merely the two mounts being two mounts |
 | `hm/shadow!` | mounts a reference and a candidate against isolated copies of one seeded frame, drives both with one script, and compares canonical DOM and the intent stream at every checkpoint. `opts` carries `:reference`, `:candidate`, `:initial-events` and `:script` (any other key throws), and a script step is `{:click selector}` or `{:type [selector text]}`, in order. Returns `{:status :green :checkpoints n}`, or a red naming the checkpoint |
+
+The residue counters cover Fresco's runtime. They do not count arbitrary DOM
+listeners, browser timers or handles retained by foreign libraries.
 
 Green from `hm/shadow!` means the two implementations were indistinguishable
 **for the flows in the script**, and proves nothing about a path the script did

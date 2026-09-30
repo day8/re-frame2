@@ -29,7 +29,10 @@ selected, or the active tab.
   (let [{:keys [title notes]} (h/sub [:todo/by-id id])
         expanded?             (h/sub [:todo.ui/expanded? id])]
     [:li
-     [:span {:on-click [:todo.ui/expanded? id (not expanded?)]} title]
+     [:button {:type "button"
+               :aria-expanded expanded?
+               :on-click [:todo.ui/expanded? id (not expanded?)]}
+      title]
      (when expanded?
        [:p.notes notes])]))
 ```
@@ -172,7 +175,8 @@ rendering concern, and app-db does not record it.
 
 Use `motion/presence` from the optional
 [`re-frame.fresco.motion`](12-motion-and-presence.md) module, which keeps an
-exiting node painted until its animation finishes.
+exiting node painted for the declared `:timeout-ms`. Match that bound to the
+CSS exit duration; the module does not observe animation completion.
 
 ## Common state and its owner
 

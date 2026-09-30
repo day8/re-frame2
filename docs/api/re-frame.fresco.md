@@ -493,7 +493,7 @@ the root whose handle you pass, so a page can hold as many roots as it needs. Se
     - See [Portals](../core/fresco/09-interop.md#portals).
 - **Example**:
   ```clojure
-  [h/portal {:target js/document.body}
+  [h/portal {:target (when (exists? js/document) (.-body js/document))}
    [:div.toast {:on-click [:toast/dismiss]} "Saved"]]
   ```
 

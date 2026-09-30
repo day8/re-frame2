@@ -208,10 +208,18 @@ callback, timer, promise, delayed computation, or lazy sequence forced later.
   #(export! (h/sub [:todo/all]))
   1000)
 
-;; Do — read now and retain the value
-(let [todos (h/sub [:todo/all])]
-  (js/setTimeout #(export! todos) 1000))
+;; Read during render; start the timer only when the user clicks.
+(h/defview export-button [_]
+  (let [todos (h/sub [:todo/all])]
+    [:button {:type "button"
+              :on-click (fn [_]
+                          (js/setTimeout #(export! todos) 1000))}
+     "Export this list"]))
 ```
+
+The callback retains the rendered snapshot of `todos`. Starting the timer in
+the view body would itself be an effect during render, even with the read in
+the right place.
 
 For work that needs current state later, move the work into the event layer and
 declare the state as a coeffect with `:rf.cofx/requires`. The handler then has

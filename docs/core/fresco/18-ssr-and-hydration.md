@@ -5,8 +5,8 @@ and the browser then adopts that HTML instead of mounting a fresh page. The
 server runs the same views as the client, so there is no second template
 layer to keep in sync.
 
-Your views need no SSR-specific code. What you do declare is a server policy
-for each foreign React component (a `defhost`):
+Pure view bodies run on both sides. Declare a server policy for each foreign
+React component (a `defhost`):
 
 - **Render**: run it on the server and produce deterministic HTML.
 - **Client-only**: skip it on the server and emit a declared fallback, or
@@ -236,6 +236,13 @@ host is declared. A `defview` or `defhost` inside it raises
 
 Give the fallback the same size as the live component to avoid layout shift.
 
+Client-only skips component execution, not namespace or npm-module loading.
+A dependency that accesses `window` or `document` at import time still needs a
+[client-loaded module](21-code-splitting.md#lazy-islands-with-suspense). Props
+expressions in an enclosing view also run before the host can skip its body;
+guard browser-only values there, as the [portal example](09-interop.md#portals)
+does.
+
 ### One browser-only leaf inside a server-rendered region
 
 When a region is server-safe except for one leaf, declare the region Render
@@ -380,7 +387,7 @@ way, the fix is to put values both sides need in the snapshot or payload.
 | `server/render` raises `:rf.error/ssr-missing-payload-policy` | No fail-closed payload policy was supplied | Allowlist every top-level app-db key the page reads, or explicitly select whole app-db |
 | Pure views still mismatch | A rendered app-db key was omitted from the payload | Add the key to the allowlist |
 | Boot raises `:rf.error/hydration-frame-id-mismatch` | Server `:client-frame-id` and client `:frame` differ | Use one stable wire frame id on both sides |
-| Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty (an `:rf.error/frame-destroyed` record names `:rf/hydrate`) | `rf/make-frame` ran after `ssr/hydrate!`, so the `:rf/hydrate` dispatch had no frame to land in | Call `rf/make-frame` before `ssr/hydrate!` |
+| Nothing throws, `ssr/hydrate!` returns `nil`, and the page still renders empty (an `:rf.error/frame-destroyed` record names `:rf/hydrate`) | `rf/make-frame` ran after `ssr/hydrate!`, so the `:rf/hydrate` dispatch had no frame to land in | Call `rf/make-frame` before `ssr/hydrate!` |
 | `server/render` raises `:rf.error/ssr-render-failed` | The runtime recorded an error during the render, such as a subscription that threw, even though rendering continued | Fix the failure the attached record names; the renderer refuses to return a page built over it |
 
 ## When not to use SSR

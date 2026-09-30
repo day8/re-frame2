@@ -311,10 +311,12 @@ blocked attempt is readable through the `:rf/pending-navigation` subscription,
 which a view can render:
 
 ```clojure
+;; Also require [re-frame.fresco.overlay :as overlay].
 (h/defview leave-guard-dialog [_]
   (when-let [pending (h/sub [:rf/pending-navigation])]
-    [:div.modal {:role "alertdialog"
-                 :aria-modal true}
+    [overlay/modal {:open? true
+                    :label "Discard changes?"
+                    :on-dismiss [:rf.route/cancel (:id pending)]}
      [:p "You have unsaved changes. Leave anyway?"]
      [:button
       {:on-click [:rf.route/cancel (:id pending)]}
@@ -329,8 +331,9 @@ destination, replace flag, and scroll policy. `:rf.route/cancel` drops the
 attempt. Both include the pending id, so a stale click after resolution is a
 no-op.
 
-A real application should render this state through the modal overlay so focus
-is trapped and restored.
+The [modal overlay](13-overlays-and-focus.md#modals) traps focus while the
+confirmation is open and restores it when the attempt is resolved. Escape
+cancels the pending navigation.
 
 After a successful save, navigate with a one-shot leave bypass:
 

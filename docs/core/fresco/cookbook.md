@@ -258,7 +258,9 @@ of the committed value.
       (if (str/blank? title)
         ;; Reject: keep the old title and move the revision so the field shows it.
         {:db (update-in db [:revisions id] (fnil inc 0))}
-        {:db (assoc-in db [:todos id :title] title)}))))
+        {:db (-> db
+                 (assoc-in [:todos id :title] title)
+                 (update-in [:revisions id] (fnil inc 0)))}))))
 
 (h/defview title-field [{:keys [id]}]
   [forms/buffered-field
@@ -266,6 +268,7 @@ of the committed value.
     :value       (:title (h/sub [:todo/by-id id]))
     ::h/revision (h/sub [:todo/title-revision id])
     :on-commit   [:todo/rename id]
+    :aria-label  "Todo title"
     :placeholder "What needs doing?"}])
 ```
 
@@ -371,6 +374,7 @@ ensure to keep the previous data while the new request is out.
 (ns my.app.search
   (:require [re-frame.core :as rf]
             [re-frame.resources]
+            [re-frame.http.managed]
             [re-frame.fresco :as h]))
 
 (rf/reg-resource :todo/search

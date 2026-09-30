@@ -55,8 +55,9 @@ own todo:
 ```
 
 Editing one title is still one write and one row body. The other rows'
-subscriptions return equal values, so those rows are never notified. Typing
-cost stays constant as the list grows.
+subscriptions return equal values, so those rows are never notified. View-body
+and DOM work stay local to the edited row. Total typing cost may still grow:
+subscriptions that read app-db recompute before comparing their results.
 
 A read placed higher up costs more:
 
@@ -113,8 +114,11 @@ short.
 Teardown matters in long-lived applications, which must not accumulate
 subscriptions, timers, listeners, or SDK handles as users leave and revisit
 screens. Fresco releases its own reads; hosts and islands must release what
-they acquire ([Interop](09-interop.md)). Check it with `hm/assert-clean!` from
-`re-frame.fresco.test.mounted` ([Testing](15-testing.md)).
+they acquire ([Interop](09-interop.md)). `hm/assert-clean!` from
+`re-frame.fresco.test.mounted` checks Fresco's retained reads and boundaries
+([Testing](15-testing.md)); it does not count arbitrary browser listeners,
+timers or SDK handles. Check those with the library's teardown assertions and
+browser memory tools.
 
 ## The measurement loop
 
@@ -173,7 +177,7 @@ or an SDK that owns its own DOM node, has nothing to be compared against
 | Fast typing drops characters | A timeout, debounce, queue, or effect sits between the input and the app-db write | Keep the controlled write synchronous and debounce downstream consumers |
 | A React island shipped but the interaction did not improve | The cost was misattributed | Re-run attribution, and remove the island if it fails the rule above |
 | Fast locally but misses budgets in the field | Measured on a development build, fast hardware, or best runs | Test the production build on mid-tier hardware and report p95 |
-| Heap or listeners grow after leaving and revisiting a screen | A host or island acquires something it never releases | Pair each attach with a cleanup, then check with `hm/assert-clean!` |
+| Heap or listeners grow after leaving and revisiting a screen | A host or island acquires something it never releases | Pair each attach with a cleanup; verify SDK disposal and browser listener/heap counts across repeated visits |
 
 ## When not to optimise
 

@@ -201,7 +201,7 @@ remaining part of the same React tree and frame:
 
 ```clojure
 (h/defview save-toast [_]
-  [h/portal {:target js/document.body}
+  [h/portal {:target (when (exists? js/document) (.-body js/document))}
    [:div.toast
     {:on-click [:toast/dismiss]}
     (str (h/sub [:toast/message]))]])
@@ -215,6 +215,9 @@ Portal behaviour:
   identity or local browser state matters.
 - Portals are Client-only because the server has no DOM target. An explicit
   fallback may emit placeholder markup at the portal's source-tree position.
+  The props expression still runs on the server, which is why the example
+  guards access to `document`. A Client-only subtree does not defer evaluation
+  of the code that constructs it.
 
 A portal is the low-level container mechanism. For modals and popovers, use
 the [overlays module](13-overlays-and-focus.md), which adds anchoring,
