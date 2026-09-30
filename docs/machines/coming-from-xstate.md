@@ -31,7 +31,8 @@ second event system.
 Require `[re-frame.machines]` once at boot. The first `reg-machine` without it is
 `:rf.error/machines-artefact-missing`.
 
-The behavioural baseline is XState v6 — plain guard and action functions, optional
+The comparison uses [XState v6 alpha](https://stately.ai/docs/xstate/v6/setup-and-provide)
+(as documented in September 2026) — plain guard and action functions, optional
 schemas, explicit timeouts, choice states, private events, event-shaped
 completion. v5 helper creators such as `assign`, `sendTo`, `raise`, and
 `enqueueActions` map onto the data-first forms below; v6's `setup()` /
@@ -143,8 +144,9 @@ handler's.
 ## Actions return effects
 
 An XState v5 action performs work or uses `assign` to update context; in v6 an
-entry/exit function returns a `{ context }` patch and queues effects through
-`enq`. A re-frame2 action returns a value:
+entry/exit function returns the complete next `context` and queues effects
+through `enq` ([XState data and effects](https://stately.ai/docs/xstate/v6/data-and-effects)).
+A re-frame2 action instead returns a top-level data patch and effect descriptions:
 
 ```clojure
 (fn [{data :data}]
@@ -333,4 +335,3 @@ commits. Production builds can elide the checks.
 | An event the current state does not handle | Quiet no-op, matching modern XState. Trace: `:rf.machine.event/unhandled-no-op`. |
 | Broken definition — unresolved target, missing guard or action, invalid `:choice`, `"5s"` duration, … | Fail at registration. |
 | An XState spelling — `invoke`, `cond`, `entry: [a, b]` | Fail at registration (`:rf.error/machine-unknown-node-key`, `:rf.error/machine-bad-action-form`); the message says what to write instead. |
-

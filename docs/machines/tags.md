@@ -110,6 +110,31 @@ Need the whole set? Read the snapshot:
 
 Use that form for selectors and render-priority tables.
 
+## Tags as a cross-region signal
+
+In a [parallel machine](parallel-states.md) a region's guards and actions
+receive the machine-wide tag union as `:tags`, so one region can read another's
+state by tag without knowing its state names. A tag appearing fires nothing; a
+guard reads it when it runs.
+[Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
+has the example.
+
+## What tags are not
+
+- **Not transition labels.** `:tags` is a state-node slot. Transitions carry
+  none.
+- **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
+  tooling-visible metadata. `:tags` is the live projection of the active
+  configuration. Both can sit on the same state.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Registration throws `:rf.error/machine-bad-tags` | `:tags` is a vector or a lone keyword, or a tag is in `:rf/*` / `:rf.*/*` | Write a set of your own tags: `#{:data/in-flight}` |
+| Snapshot has no `:tags` key | No active state declares tags; the empty union is elided | Omit the key; `(contains? (:tags snap) x)` is still false |
+| Guard ctx has no `:tags` / `:all-state` | The machine is flat or compound | Those keys exist only inside a parallel region |
+
 <a id="collapsing-many-states-into-one-render-decision"></a>
 
 ## Advanced: collapsing many states into one render decision
@@ -179,28 +204,3 @@ the data bucket — living in one table. Adding a render case is one row plus on
 
 The form does not ask whether `:mode` is `:done`. It asks whether the screen is
 read-only.
-
-## Tags as a cross-region signal
-
-In a [parallel machine](parallel-states.md) a region's guards and actions
-receive the machine-wide tag union as `:tags`, so one region can read another's
-state by tag without knowing its state names. A tag appearing fires nothing; a
-guard reads it when it runs.
-[Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein)
-has the example.
-
-## What tags are not
-
-- **Not transition labels.** `:tags` is a state-node slot. Transitions carry
-  none.
-- **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
-  tooling-visible metadata. `:tags` is the live projection of the active
-  configuration. Both can sit on the same state.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| Registration throws `:rf.error/machine-bad-tags` | `:tags` is a vector or a lone keyword, or a tag is in `:rf/*` / `:rf.*/*` | Write a set of your own tags: `#{:data/in-flight}` |
-| Snapshot has no `:tags` key | No active state declares tags; the empty union is elided | Omit the key; `(contains? (:tags snap) x)` is still false |
-| Guard ctx has no `:tags` / `:all-state` | The machine is flat or compound | Those keys exist only inside a parallel region |

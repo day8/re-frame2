@@ -2,20 +2,9 @@
 
 <a id="theyre-everywhere"></a>
 
-A single-page app is full of finite state machines. Most of them are never
-written down.
-
-The session is anonymous, submitting, authed, or locked out. An HTTP request
-is idle, in flight, succeeded, or failed. A dropdown is closed, open, or
-disabled. Same shape at every scale: a handful of named stages, and a smaller
-set of events that may leave each one.
-
-What you usually write instead is a pile of booleans and a `cond` in every
-handler — `:loading?`, `:error?`, `:open?`, `:disabled?`. The machine is still
-there. It is just poorly specified. Each handler re-decides what is legal. A
-new stage means another `if`. Two flags combine into a state nobody named
-(`:loading?` true and `:error?` true). An event that should be impossible
-gets through.
+Login moves through idle, submitting, authenticated and locked-out states.
+Each state accepts different events. A state machine puts those rules in one
+place, so every handler does not have to repeat them.
 
 A **machine** is that process written as one table: the stages, and which
 triggers may leave them.
@@ -39,29 +28,13 @@ and effects. They do not replace them.
 
 ## Why nest states
 
-A flat list is enough for one process. Some stages are really a *cluster*.
-`:connecting`, `:authenticating`, and `:connected` all share one live socket.
-Every authenticated screen should honour `:auth/logout` the same way. Checkout is
-a sub-flow with its own start and end, inside a larger shopping flow.
+Use [hierarchical states](hierarchical-states.md) when several stages share
+behavior: every authenticated screen handles logout, or one socket stays open
+while a connection moves from connecting to authenticating to connected. Put
+the shared transitions and lifecycle work on their parent state.
 
-A **hierarchical** machine lets a state contain child states. The parent holds
-what the children share. The children hold what differs. Common transitions
-live once, on the parent; a child can override or block them.
-
-```clojure
-:authenticated
-{:initial :dashboard
- :on      {:auth/logout :unauthenticated}   ;; every child inherits this
- :states  {:dashboard {}
-           :settings  {}
-           :cart      {:initial :browsing
-                       :states  {:browsing {}
-                                 :paying   {}}}}}
-```
-
-Entering `:authenticated` lands on `:dashboard`. `:auth/logout` works from any
-child. Moving from `:browsing` to `:paying` does not leave `:authenticated`.
-[Hierarchical states](hierarchical-states.md) is the grammar.
+Use [parallel regions](parallel-states.md) when one feature has independent
+axes, such as form validity and request progress, that are active together.
 
 ## Native to re-frame2
 

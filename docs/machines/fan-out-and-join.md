@@ -58,11 +58,35 @@ the decisive child and its result:
 one value, the child's `:output-key` slot (its error payload on
 `:on-any-failed`).
 
+## Wait for the first success
+
+Use `:any` when several children offer alternatives and one successful result
+is enough:
+
+```clojure
+:finding-session
+{:spawn-all
+ {:children [{:id :local :machine-id :auth/local-session}
+             {:id :remote :machine-id :auth/remote-session}]
+  :join :any
+  :on-some-complete [:auth/session-found]}
+ :after {5000 :anonymous}
+ :on {:auth/session-found {:target :authed
+                           :action (fn [{[_ _ token] :event}]
+                                     {:data {:token token}})}}}
+```
+
+The two registered child types report their token through `:output-key`.
+Here a failed child leaves the other running. The first success cancels any
+survivor. If both fail, the deadline provides a way out. Add `:on-any-failed`
+only when **any failure should end the whole attempt immediately**, even if
+another child could still succeed.
+
 ## Rules
 
 - **Each child needs a unique `:id`** (the join key) on top of the usual
   spawn keys. Duplicates are `:rf.error/machine-spawn-all-duplicate-id`.
-- **The `:children` vector is part of the definition**, so the number of
+- **The non-empty `:children` vector is part of the definition**, so the number of
   children is fixed there; a fn in its place is refused
   (`:rf.error/machine-spawn-all-bad-shape`).
 - **There are no child-vocabulary keys.** The block declares only how results
@@ -76,7 +100,7 @@ one value, the child's `:output-key` slot (its error payload on
   `:on-error` (`:rf.error/machine-unknown-spawn-key`): failure control flow
   under a join is the block's `:on-any-failed`, which decides for the whole
   fan-out.
-- **`:join` is only `:all` or `:any`.** There is no `{:n n}` and no
+- **`:join` is `:all` (the default) or `:any`.** There is no `{:n n}` and no
   predicate. Quorum ("N of M") is the idiom below, not a `:join` mode.
 - **`:on-all-complete` is required for `:all`.** **`:on-some-complete` is
   required for `:any`.** Missing either is
@@ -132,8 +156,8 @@ resets it. Leaving the state destroys any child still running.
   Those children have no parent, so pass each an address to report to in its
   `:data`.
 - **The children are independently valuable** — fire-and-forget, with no
-  cancel-the-rest. Use N separate `:spawn`s, one per state, rather than a
-  join.
+  cancel-the-rest. Use separate `:spawn`s on active states in parallel
+  regions, or hand-emit spawns and destroy them explicitly when finished.
 
 ## Troubleshooting
 
@@ -145,4 +169,4 @@ resets it. Leaving the state destroys any child still running.
 | `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
 | `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
 | The parent never leaves the state; `:rf.warning/spawn-all-join-unsatisfiable` | a child failed and the block has no `:on-any-failed` | Declare `:on-any-failed`, or give the state an `:after` deadline |
-| Children torn down (or respawned) on a progress event | the parent's `:on` had a `:target` | Omit `:target` so the transition is targetless |
+| Children torn down or respawned on a progress event | The transition exited their state, targeted a compound that reset its descendants, or set `:reenter? true` | Use a targetless action for progress. A leaf self-target without re-entry also preserves its children |

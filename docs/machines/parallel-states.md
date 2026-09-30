@@ -79,7 +79,10 @@ Each region body is the root of a small machine: it has `:initial` and
 region reaches a `:final?` child. That `:on-done` targets a state inside the
 region. A region body may not declare `:after`
 (`:rf.error/machine-non-parallel-root-after-not-supported`); put the timer on a
-state inside the region.
+state inside the region. Likewise, a region body cannot carry `:spawn`,
+`:spawn-all` or `:always` (`:rf.error/machine-root-slot-not-supported`). Put
+them on its initial state, wrapping the region's states in a compound if the
+work should last across several child states.
 
 At the top level, a parallel machine does not also declare root `:initial` and
 root `:states`. Registration throws `:rf.error/machine-parallel-bad-shape` if

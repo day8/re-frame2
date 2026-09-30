@@ -8,7 +8,8 @@ Later pages grow that same flow.
 
 ## Step 0 — turn machines on
 
-Machines are an optional artefact. Require the namespace once from a boot or feature namespace:
+Add `day8/re-frame2-machines` alongside the core dependency, using the same
+version. Require its namespace once from a boot or feature namespace:
 
 ```clojure
 (ns app.login
@@ -141,7 +142,18 @@ A guard decides whether a transition may fire. An action describes what else sho
  :fx   [[id args]]} ;; ordinary effects vector
 ```
 
-Add actions for clearing an old error, recording a failed attempt, and storing a session token. On failure, write a **candidate vector** — first guard that passes wins.
+The session belongs to the application, so give it an ordinary event handler:
+
+```clojure
+(rf/reg-event :auth.session/store
+  (fn [{:keys [db]} [_ {:keys [token]}]]
+    {:db (assoc-in db [:auth :session :token] token)}))
+```
+
+The machine describes a dispatch to that handler. Its own `:data` keeps only
+the attempt count and the error. Add the following guards, actions and states
+to `login-flow`, then run `(rf/reg-machine :auth.login/flow login-flow)` again.
+On failure, the **candidate vector** takes the first guard that passes.
 
 ```clojure
 :guards
@@ -167,7 +179,7 @@ Add actions for clearing an old error, recording a failed attempt, and storing a
  :store-session
  ;; Live HTTP appends {:status :ok :value …}; pull the decoded body from :value.
  (fn [{[_ {:keys [value]}] :event}]
-   {:fx [[:auth.session/store {:token (:token value)}]]})}
+   {:fx [[:dispatch [:auth.session/store {:token (:token value)}]]]})}
 
 ;; under :states
 :idle
@@ -222,6 +234,7 @@ Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it 
                        :url    "/api/login"
                        :body   creds
                        :request-content-type :json}
+          :request-id :auth.login/request
           :decode     :json
           :on-success [:auth.login/flow [:auth.login/success]]
           :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
@@ -251,6 +264,14 @@ Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it 
 
 `:entry :issue-request` runs when the machine enters `:submitting`. `:after` arms an 8-second timer and cancels it automatically when the state exits. If the server replies first, the machine leaves `:submitting` and the timeout becomes stale.
 
+The stable `:request-id` makes each new attempt supersede the previous HTTP
+request. A late reply from an older attempt is then suppressed. The machine's
+`:after` changes state; it does not itself abort a singleton's request. While
+the machine sits in `:error-shown`, an old reply is unhandled. If the user
+retries, supersession prevents that reply from completing the new attempt.
+For work that must stop immediately on state exit, use a
+[state-bound request actor](actors.md#state-bound-spawn).
+
 The timeout uses the **same guarded candidate vector** as failure (an `:after` value takes the same shape as an `:on` clause), so the third stall — or the third failure — records its error and locks out.
 
 `:on-success [:auth.login/flow [:auth.login/success]]` is written one element short on purpose. The outer vector is the event that addresses the singleton. The inner vector is the trigger the table handles. Managed HTTP **appends** the reply envelope to the event, and the machine moves anything after the trigger onto it, so the table sees:
@@ -264,7 +285,9 @@ So `:store-session` reads `:value` and `:record-error` reads `:error`. Deeper ti
 
 ## Step 5 — render the states
 
-Project the snapshot. Ask **tags** for shared intent. The credential draft is ordinary app-db form state — read it through a plain sub, not out of the machine.
+Project the snapshot. Ask **tags** for shared intent. The credential draft is ordinary app-db form state. This view assumes the
+form has written `{:email … :password …}` at `[:auth :login-form :draft]`;
+[Build a form](../core/how-to/build-a-form.md) shows the input handlers.
 
 ```clojure
 (rf/reg-sub :auth.login/state {:inputs [[:rf/machine :auth.login/flow]]}
@@ -298,7 +321,7 @@ Project the snapshot. Ask **tags** for shared intent. The credential draft is or
        (if busy? "Signing in…" "Sign in")])))
 ```
 
-The button asks for the `:auth/busy` tag rather than checking for `:submitting`. Add another in-flight state later with the same tag and the view keeps working. Pattern: [Tags](tags.md). The inputs that write the draft are a form-slice concern — [Build a form](../core/how-to/build-a-form.md).
+The button asks for the `:auth/busy` tag rather than checking for `:submitting`. Add another in-flight state later with the same tag and the view keeps working. Pattern: [Tags](tags.md). The session handler above makes the token available to the rest of the app.
 
 ## Step 6 — test the transition table
 
@@ -339,19 +362,10 @@ A transition is a pure function of *(definition, snapshot, trigger)*. No browser
 
 The result is a plain map: `:status` is `:ok` or `:error`, `:snapshot` is the next snapshot, `:fx` the effects vector. Nothing beyond `re-frame.machines` is required. More on the result, failures and Xray: [Inspecting and testing](inspecting-machines.md).
 
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
-| `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
-| Submit stays on `:idle` | `:form-valid?` saw empty credentials | Put email and password on the event |
-| Snapshot is `nil` | No event has addressed the machine yet | Dispatch first, or fall back to `:initial` in the view |
-| Third failure does not lock out | Guard compared the post-action count, or lockout skipped `:record-error` | Guard sees pre-action `:attempts`; use `(< n 2)` and record on the default candidate |
-
 ## The complete machine
 
-Everything above in one registration — the form you copy into a real app:
+The table and the event handlers it needs. The view above supplies credentials;
+`/api/login` returns a JSON object with a `token` on success:
 
 ```clojure
 (ns app.login
@@ -359,7 +373,11 @@ Everything above in one registration — the form you copy into a real app:
             [re-frame.machines]
             [re-frame.http.managed]))   ;; registers :rf.http/managed — the :issue-request fx
 
-;; cf. examples/capabilities/machines/state_machine_walkthrough
+;; cf. examples/core/login/model.cljc
+
+(rf/reg-event :auth.session/store
+  (fn [{:keys [db]} [_ {:keys [token]}]]
+    {:db (assoc-in db [:auth :session :token] token)}))
 
 (rf/defmachine login-flow
   {:initial :idle
@@ -385,13 +403,14 @@ Everything above in one registration — the form you copy into a real app:
     :store-session
     ;; Managed HTTP appends {:status :ok :value <decoded> …}; :value is the body.
     (fn [{[_ {:keys [value]}] :event}]
-      {:fx [[:auth.session/store {:token (:token value)}]]})
+      {:fx [[:dispatch [:auth.session/store {:token (:token value)}]]]})
 
     :issue-request
     (fn [{[_ creds] :event}]
       {:fx [[:rf.http/managed
              {:request    {:method :post :url "/api/login" :body creds
                            :request-content-type :json}
+              :request-id :auth.login/request
               :decode     :json
               :on-success [:auth.login/flow [:auth.login/success]]
               :on-failure [:auth.login/flow [:auth.login/failure]]}]]})
@@ -439,3 +458,14 @@ Everything above in one registration — the form you copy into a real app:
   (fn [_ [_ credentials]]
     {:fx [[:dispatch [:auth.login/flow [:auth.login/submit credentials]]]]}))
 ```
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
+| `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
+| Success reports `:rf.error/no-such-handler` for `:auth.session/store` | The application session handler was not registered | Register the handler from Step 3 or the complete example |
+| Submit stays on `:idle` | `:form-valid?` saw empty credentials | Put email and password on the event |
+| Snapshot is `nil` | No event has addressed the machine yet | Dispatch first, or fall back to `:initial` in the view |
+| Third failure does not lock out | Guard compared the post-action count, or lockout skipped `:record-error` | Guard sees pre-action `:attempts`; use `(< n 2)` and record on the default candidate |
