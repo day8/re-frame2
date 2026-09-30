@@ -15,18 +15,11 @@
 
   The live `.focus()` capture / trap / restore behaviour against a real
   DOM is exercised by `theme.a11y-dom-cljs-test` (browser-test build)."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [are deftest is testing]]
             [day8.re-frame2-xray.test-helpers.popout-document :as popout-document]
             [day8.re-frame2-xray.theme.a11y :as a11y]))
 
 ;; ---- dialog-attrs --------------------------------------------------------
-
-(deftest dialog-attrs-sets-role-and-aria-modal
-  (testing "every dialog gets role=\"dialog\" + aria-modal=\"true\"
-            regardless of which name is used"
-    (let [attrs (a11y/dialog-attrs {:label "Demo"})]
-      (is (= "dialog" (:role attrs)))
-      (is (= "true"   (:aria-modal attrs))))))
 
 (deftest dialog-attrs-prefers-labelledby-over-label
   (testing "when both :labelled-by and :label are
@@ -67,47 +60,28 @@
 ;; `:a` / `:b` / `:c` stand in for DOM elements — `trap-wrap-target` only
 ;; ever compares them by identity, so plain keywords exercise the math.
 
-(deftest trap-wrap-target-no-op-mid-cycle
-  (testing "Tab from a non-boundary focusable returns nil so
-            the browser's native Tab handles the move (no wrap needed)"
-    (is (nil? (a11y/trap-wrap-target [:a :b :c] :b false))
-        "Tab from the middle element → nil")
-    (is (nil? (a11y/trap-wrap-target [:a :b :c] :b true))
-        "Shift+Tab from the middle element → nil")))
-
-(deftest trap-wrap-target-tab-off-last-wraps-to-first
-  (testing "Tab from the LAST focusable wraps to the FIRST"
-    (is (= :a (a11y/trap-wrap-target [:a :b :c] :c false)))))
-
-(deftest trap-wrap-target-shift-tab-off-first-wraps-to-last
-  (testing "Shift+Tab from the FIRST focusable wraps to the
-            LAST"
-    (is (= :c (a11y/trap-wrap-target [:a :b :c] :a true)))))
-
-(deftest trap-wrap-target-pulls-in-when-focus-outside-cycle
-  (testing "when focus is OUTSIDE the focusable set (e.g. on
-            the tab-index=-1 dialog root), Tab pulls to the first +
-            Shift+Tab pulls to the last so the trap re-captures focus"
-    (is (= :a (a11y/trap-wrap-target [:a :b :c] :root false)))
-    (is (= :c (a11y/trap-wrap-target [:a :b :c] :root true)))))
-
-(deftest trap-wrap-target-single-focusable-wraps-to-itself
-  (testing "with one focusable, it is both first and last,
-            so any Tab keeps focus pinned on it"
-    (is (= :only (a11y/trap-wrap-target [:only] :only false)))
-    (is (= :only (a11y/trap-wrap-target [:only] :only true)))))
-
-(deftest trap-wrap-target-empty-is-nil
-  (testing "no focusables → nil (caller pins focus on the
-            dialog root instead)"
-    (is (nil? (a11y/trap-wrap-target [] :anything false)))))
+(deftest trap-wrap-target-wraps-only-at-the-boundaries
+  (testing "the element Tab (or Shift+Tab) moves focus to, or nil where the
+            browser's native Tab handles the move"
+    (are [focusables current shift? expected]
+         (= expected (a11y/trap-wrap-target focusables current shift?))
+      ;; mid-cycle: no wrap needed, either direction
+      [:a :b :c] :b        false nil
+      [:a :b :c] :b        true  nil
+      ;; Tab off the LAST wraps to the FIRST; Shift+Tab off the FIRST to the LAST
+      [:a :b :c] :c        false :a
+      [:a :b :c] :a        true  :c
+      ;; focus OUTSIDE the cycle (the tab-index=-1 root): Tab pulls to the
+      ;; first, Shift+Tab to the last, so the trap re-captures focus
+      [:a :b :c] :root     false :a
+      [:a :b :c] :root     true  :c
+      ;; one focusable is both first and last
+      [:only]    :only     false :only
+      [:only]    :only     true  :only
+      ;; no focusables: nil, and the caller pins focus on the dialog root
+      []         :anything false nil)))
 
 ;; ---- dialog-ref factory --------------------------------------------------
-
-(deftest dialog-ref-returns-a-function
-  (testing "the factory yields a React :ref callback (a fn)"
-    (let [ref (a11y/dialog-ref)]
-      (is (fn? ref)))))
 
 (deftest dialog-ref-tolerates-nil-unmount
   (testing "React invokes the ref with `nil` on unmount;

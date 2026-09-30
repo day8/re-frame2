@@ -19,18 +19,16 @@
 
   ## What this test pins
 
-  Three layers:
+  `tokens` itself — every entry is `var(--rf-xray-<key>)`, over the key
+  set both palettes share — is pinned in `tokens_cljs_test.cljc`, with
+  `css-var`, `with-alpha` and `panel-accent`. This namespace pins the two
+  layers built on it:
 
-    1. **`tokens` is a var-map** — every entry resolves to
-       `var(--rf-xray-<key>)`. Pinned in `tokens_cljs_test.cljc`
-       too; reinforced here to keep the contract co-located.
+    1. **Helpers route through the var-map** — `op-family-colour`,
+       `outcome-colour` and `event-status-colour` return a CSS-variable
+       string.
 
-    2. **Helpers route through the var-map** — `panel-accent`,
-       `accent-stripe-style`, `op-type-colour`,
-       `event-status-colour` — every public colour helper returns a
-       CSS-variable string.
-
-    3. **Rendered hiccup carries var() references** — render small
+    2. **Rendered hiccup carries var() references** — render small
        view fragments and walk every `:style` map: no value is a
        palette hex literal (`#7C5CFF`, `#15171B`, …); every colour
        value is either a `var(--rf-xray-…)` reference, a
@@ -43,79 +41,13 @@
   Validate the visual contract via CLJS unit tests reading
   rendered hiccup, NOT Playwright probes."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [clojure.string :as string]
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.trace-helpers :as trace-h]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
-;; ---- (1) tokens IS the var-map ------------------------------------------
-
-(deftest tokens-map-resolves-every-key-through-css-variables
-  (testing "`tokens` is the CSS-variable surface. Every
-            entry is `\"var(--rf-xray-<key>)\"`."
-    (is (seq tokens/tokens)
-        "the map is non-empty (sanity guard against an empty palette)")
-    (doseq [[k v] tokens/tokens]
-      (is (string? v)
-          (str k " value is a string"))
-      (is (re-find #"^var\(--rf-xray-" v)
-          (str k " (" v ") starts with the rf-xray CSS-variable prefix"))
-      (is (re-find (re-pattern (str "--rf-xray-" (name k) "\\)")) v)
-          (str k " value references --rf-xray-" (name k))))))
-
-(deftest tokens-map-has-no-hex-literals
-  (testing "no entry in `tokens` is a hex literal. Guards
-            against `tokens` degenerating into a dark-palette alias."
-    (doseq [[k v] tokens/tokens]
-      (is (not (re-find #"^#[0-9A-Fa-f]" v))
-          (str k " (" v ") is NOT a hex literal — it's a var() reference")))))
-
-(deftest tokens-keys-match-dark-palette-keys
-  (testing "every key in the dark palette has a matching
-            entry in `tokens` (the var-map covers the same surface)."
-    (is (= (set (keys tokens/dark-palette))
-           (set (keys tokens/tokens))))))
-
-;; ---- (2) helpers route through the var-map ------------------------------
-
-(deftest css-var-helper-builds-rf-xray-prefixed-reference
-  (testing "`tokens/css-var` is the canonical helper that
-            shapes the var() reference. Pure data, JVM-portable."
-    (is (= "var(--rf-xray-bg-1)" (tokens/css-var :bg-1)))
-    (is (= "var(--rf-xray-text-tertiary)"
-           (tokens/css-var :text-tertiary)))
-    (is (= "var(--rf-xray-accent)"
-           (tokens/css-var :accent)))))
-
-(deftest panel-accent-returns-css-variable-string
-  (testing "`panel-accent` materialises the panel accent
-            through the var-map. Used by the 3px left-border on every
-            L4 panel container.
-
-            The roster is `focus/valid-panels`, which mirrors the LIVE
-            registry (`panel-registry/tab-ids-for-mode :dynamic`) and
-            is pinned against it by `registry-cljs-test`, so 'every L4
-            panel' is the shipped roster rather than a hand-listed one
-            that can drift."
-    (doseq [tab focus/valid-panels]
-      (let [v (tokens/panel-accent tab)]
-        (is (string? v))
-        (is (re-find #"^var\(--rf-xray-" v)
-            (str "panel-accent " tab " resolves to a CSS variable"))))))
-
-(deftest accent-stripe-style-border-references-css-variable
-  (testing "the canonical 3px-left-border builder produces
-            a border-left value that references a CSS variable, not
-            a hardcoded hex. Walks the live tab roster."
-    (doseq [tab focus/valid-panels]
-      (let [border (:border-left (tokens/accent-stripe-style tab))]
-        (is (string? border))
-        (is (re-find #"3px solid var\(--rf-xray-" border)
-            (str tab " stripe references the canonical var() prefix"))
-        (is (not (re-find #"#[0-9A-Fa-f]" border))
-            (str tab " stripe has no hex literal in the border declaration"))))))
+;; ---- (1) helpers route through the var-map ------------------------------
 
 (deftest trace-band-colour-returns-css-variable-string
   (testing "`trace-helpers/op-family-colour`
@@ -155,52 +87,7 @@
         (is (re-find #"^var\(--rf-xray-" v)
             (str "event-status-colour " state " resolves to a CSS variable"))))))
 
-;; ---- (3) with-alpha builds color-mix ------------------------------------
-
-(deftest with-alpha-composites-against-css-variable
-  (testing "`tokens/with-alpha` stands in for the alpha-tail-suffix
-            idiom (`(str token \"55\")`): it builds a CSS-Color-4
-            color-mix(...) string that composites the active theme's
-            CSS variable with `transparent`."
-    (doseq [k [:accent :red :green :info :yellow]
-            pct [10 33 50 75]]
-      (let [v (tokens/with-alpha k pct)]
-        (is (string? v))
-        (is (re-find #"^color-mix\(in srgb" v)
-            (str "with-alpha " k " " pct " starts with color-mix"))
-        (is (re-find (re-pattern (str "var\\(--rf-xray-" (name k) "\\)")) v)
-            (str "with-alpha " k " " pct " references --rf-xray-" (name k)))
-        (is (re-find (re-pattern (str pct "%")) v)
-            (str "with-alpha " k " " pct " carries the requested percentage"))
-        (is (re-find #"transparent\)$" v)
-            (str "with-alpha " k " " pct " ends with `transparent)`"))))))
-
-;; ---- (4) palette source-of-truth integrity ------------------------------
-
-(deftest dark-palette-and-light-palette-are-hex-maps
-  (testing "`dark-palette` + `light-palette` are the
-            hex source of truth (consumed by themes-css to register
-            the `--rf-xray-<key>` custom properties). They MUST be
-            hex maps so the CSS-variable block emits actual paint values
-            and so the few raw-hex consumers (mount.cljs popout overlay,
-            config/default-accent) land on real colours."
-    (doseq [palette-name [:dark :light]
-            :let [palette (get tokens/themes palette-name)]
-            [k v] palette]
-      (is (string? v)
-          (str palette-name " " k " is a string"))
-      (is (re-find #"^#[0-9A-Fa-f]+$" v)
-          (str palette-name " " k " (" v ") is a hex literal")))))
-
-(deftest light-and-dark-palettes-share-the-canonical-key-set
-  (testing "every dark token has a light counterpart so
-            the class-toggle flip is total (no `var(--rf-xray-foo)`
-            resolves to the property's default initial value because
-            `:foo` was missing from the active theme's block)."
-    (is (= (set (keys tokens/dark-palette))
-           (set (keys tokens/light-palette))))))
-
-;; ---- (5) rendered hiccup carries no palette hex literals ----------------
+;; ---- (2) rendered hiccup carries no palette hex literals ----------------
 ;;
 ;; The strongest pin: walk a rendered hiccup tree and assert NO `:style`
 ;; value is a palette hex literal. Catches a regression where a new

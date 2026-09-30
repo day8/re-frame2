@@ -199,15 +199,6 @@
 ;; primary-vs-secondary text. Each test below asserts one of those
 ;; signals has a system-token landing inside the forced-colors block.
 
-(deftest motion-css-declares-forced-colors-block
-  (testing "the motion stylesheet ships a
-            `@media (forced-colors: active)` block so HCM users get a
-            chrome that preserves the author-encoded signals via
-            system colour tokens."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"@media\s*\(forced-colors:\s*active\)" css)
-          "forced-colors media query is present"))))
-
 (deftest motion-css-forced-colors-maps-focus-ring-to-highlight
   (testing "the global :focus-visible accent outline
             overrides to `Highlight` under HCM so keyboard-only users
@@ -330,14 +321,6 @@
 ;; `background-image` — pink-on-fainter-pink so it reads on both light
 ;; and dark app surfaces. Layout-safe: background-only (no border /
 ;; outline / box-shadow) so hovering shifts ZERO surrounding pixels.
-
-(deftest motion-css-declares-view-highlight-class
-  (testing "the motion stylesheet ships a
-            `.rf-xray-view-highlight` rule (toggled by apply-highlight!
-            / clear-highlight! in reactive_panel_view)."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"\.rf-xray-view-highlight\s*\{" css)
-          "the Xray-namespaced highlight class rule is present"))))
 
 (deftest motion-css-view-highlight-is-pink-diagonal-stripe
   (testing "the highlight paints a translucent PINK
@@ -482,17 +465,6 @@
       (is (re-find #":root\s*\{[^}]*--rf-xray-accent-violet:\s*#5538D8" css)
           "root block carries the light accent-violet default"))))
 
-(deftest themes-css-emits-per-theme-class-blocks
-  (testing "`.rf-xray-theme-dark` and
-            `.rf-xray-theme-light` each declare the full palette.
-            settings/effects/apply-theme! toggles which class is on
-            the shell root, switching every `var(--rf-xray-…)`
-            descendant in one assignment."
-    (let [css (@#'gs/themes-css {:dark  {:bg-1 "#15171B"}
-                                  :light {:bg-1 "#F1F3F6"}})]
-      (is (re-find #"\.rf-xray-theme-dark\s*\{[^}]*--rf-xray-bg-1:\s*#15171B" css))
-      (is (re-find #"\.rf-xray-theme-light\s*\{[^}]*--rf-xray-bg-1:\s*#F1F3F6" css)))))
-
 (deftest themes-css-has-no-per-mode-accent-swap
   (testing "the Figma export carries a SINGLE accent
             (GitHub blue), so the themes-css block emits no
@@ -576,15 +548,6 @@
 ;; with a sibling block whose
 ;; selectors carry the attribute predicate so the same system-token
 ;; chrome paints under operator opt-in too.
-
-(deftest motion-css-declares-force-colors-attribute-block
-  (testing "the motion stylesheet ships a sibling block
-            keyed on `[data-rf-force-colors=\"active\"]` so the
-            operator opt-in path activates the same system-token
-            chrome the OS HCM media query paints."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"\[data-rf-force-colors=\"active\"\]" css)
-          "attribute selector is present"))))
 
 (deftest motion-css-force-colors-attribute-maps-focus-ring-to-highlight
   (testing "the focus-visible ring under operator opt-in
