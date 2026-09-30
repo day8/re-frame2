@@ -32,7 +32,7 @@ under `:authenticated`:
 
     :store-session
     (fn [{[_ {:keys [value]}] :event}]
-      {:fx [[:auth.session/store {:token (:token value)}]]})}
+      {:fx [[:dispatch [:auth.session/store {:token (:token value)}]]]})}
 
    :states
    {:unauthenticated
@@ -154,7 +154,8 @@ That gives two useful patterns:
 
 ```clojure
 :authenticated
-{:on {:auth/logout [:unauthenticated]}  ;; factored to parent
+{:initial :dashboard
+ :on {:auth/logout [:unauthenticated]}  ;; factored to parent
  :states
  {:dashboard {}
   :settings  {}
@@ -219,7 +220,8 @@ Put lifecycle work on the parent when it should span several child states.
 ```clojure
 ;; cf. examples/patterns/websocket
 :active
-{:spawn {:machine-id :websocket/socket}
+{:initial :connecting
+ :spawn {:machine-id :websocket/socket}
  :on    {:ws/disconnect :disconnected}
 
  :states
@@ -252,7 +254,7 @@ what should not survive in the `:action`:
    …})
 ```
 
-The root reads nothing else. `:always`, `:choice`, `:final?` and `:spawn-all`
+These root behaviors do not make every state-node key valid there. `:always`, `:choice`, `:final?` and `:spawn-all`
 there are refused with `:rf.error/machine-root-slot-not-supported`, whose
 message names the substitute. A root `:after` works only on a
 `:type :parallel` machine; on any other root it is refused with

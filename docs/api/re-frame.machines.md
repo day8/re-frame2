@@ -2,7 +2,7 @@
 
 Use a state machine when a feature moves through named states (idle, submitting, locked out) and the events it accepts depend on the state it is in. You write the transition table as data and register it with `rf/reg-machine`. The machine is then an ordinary event handler: dispatching `[machine-id event]` runs the table, which picks a transition, updates the machine's snapshot and returns effects through the normal event pipeline. Tracing, time-travel and overrides work for machines as they do for any other handler.
 
-Machines ship in the optional `day8/re-frame2-machines` artefact. Require `re-frame.machines` once, from a boot or feature namespace, to load it; without it, `rf/reg-machine` throws `:rf.error/machines-artefact-missing`.
+Machines ship in the optional `day8/re-frame2-machines` artefact. Add it alongside core at the same version. Require `re-frame.machines` once, from a boot or feature namespace, to load it; without it, `rf/reg-machine` throws `:rf.error/machines-artefact-missing`.
 
 ```clojure
 (:require [re-frame.core     :as rf]            ;; rf/reg-machine, rf/defmachine
@@ -47,6 +47,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
   ```
 - **Description**: Registers `machine-spec` as the event handler for `machine-id`. Dispatching `[machine-id event]` runs the transition table. Called as `rf/reg-machine`.
     - `opts`, the optional middle slot, is a registration-metadata map. Its `:schema` validates the dispatched outer event vector at the `:where :event` boundary; any other keys are stored on the registration metadata.
+    - Returns `machine-id`. Registering it again replaces the definition, while a live snapshot is retained and reconciled on the next event.
     - The macro walks the literal spec at expansion time. It attaches source (`{:fn .. :source-coords .. :source-code ..}`) to each `:guards` and `:actions` entry, and a reference-site `:source-coords` to each state node and transition map under `:states`. Xray uses these to go from a snapshot to the guard, action or state definition. The call site's own coordinates are on `handler-meta`.
     - Pass either a literal spec or a value defined with [`defmachine`](#defmachine). A value bound with plain `def` carries no source.
     - The snapshot lives in the frame's `runtime-db` (not `app-db`) at `[:rf.runtime/machines :snapshots machine-id]`. Its shape is `{:state … :data …}` plus framework-managed slots for `:after` timer epochs and tags. Read it with the [`[:rf/machine machine-id]`](#rfmachine-machine-id) subscription, or once with `subscribe-once`.
@@ -69,6 +70,7 @@ The machines guide teaches the model, starting from [The table](../machines/conc
         {:fx [[:rf.http/managed
                {:request    {:method :post :url "/api/login" :body creds
                              :request-content-type :json :sensitive? true}
+                :request-id :session/login
                 :decode     :json
                 :on-success [:session [:auth-ok]]
                 :on-failure [:session [:auth-fail]]}]]})}
@@ -155,7 +157,13 @@ The machines guide teaches the model, starting from [The table](../machines/conc
 | `:rf.error/cofx-name-collision` | Two `:rf.cofx/requires` entries on one callback use the same `:as` name. |
 | `:rf.error/invalid-machine-classification` | `:sensitive` or `:large` is not a vector of paths into the snapshot. |
 
-Two development-only warnings are also raised at registration: `:rf.warning/machine-source-unstamped`, when the spec carries no source (see [`defmachine`](#defmachine)), and `:rf.warning/machine-cofx-consume-undeclared`, when a named callback reads a `:rf.cofx` key it does not declare.
+Development-only registration warnings do not prevent registration:
+
+| Warning | Meaning and remedy |
+|---|---|
+| `:rf.warning/machine-source-unstamped` | The definition has no captured source. Use `defmachine` or a literal `reg-machine` map for source navigation. |
+| `:rf.warning/machine-cofx-consume-undeclared` | A named callback reads a `:rf.cofx` key absent from its requirements. Declare the fact it needs. |
+| `:rf.warning/machine-cofx-ambient-durable` | A named action requests an ambient coeffect. Prefer a recorded fact for decisions or data that must replay; see [coeffect grades](../core/coeffects.md). |
 
 ### `defmachine`
 
@@ -192,12 +200,14 @@ Beside `:initial` and `:states`, a machine spec's root takes the keys below. The
 
 | Root key | What it takes and does |
 |---|---|
+| `:doc` | Optional description retained with the definition for tools. Registration metadata can also carry `:doc` in the middle `opts` map. |
+| `:schema` | Accepted on the root, but does not install event validation there. Put the outer-event schema in the middle `opts` map of `reg-machine`; put private-data validation under `:schemas :data`. |
 | `:data` | The machine's initial private data, a map. It must survive `pr-str` and `read-string`, so it holds no functions, atoms or host objects. |
 | `:guards`, `:actions` | Maps from an id to a callback: a fn, or an entry map `{:fn f :rf.cofx/requires […]}` that declares coeffects. A parallel machine's regions use the root's maps. See [Callbacks](#callbacks). |
 | `:regions` | With `:type :parallel`, a map from region name to region body. It makes a parallel machine, whose root takes no `:initial` or `:states`. See [Parallel regions](../machines/parallel-states.md). |
 | `:schemas` | A map whose keys are among `:data`, `:output`, `:events`, `:tags` and `:meta`, each a schema. `:data` validates the snapshot's `:data`; see [`validate-machine-data!`](#re-framemachinesvalidate-machine-data). `:output` is the next row. `:events`, `:tags` and `:meta` are accepted and not checked. Any other key, `:input` included, throws `:rf.error/machine-bad-schemas-key`, and a non-map throws `:rf.error/machine-bad-schemas`. |
 | `[:schemas :output]` | A schema for the value a root-level `:final?` leaf reports through `:output-key`, which is `nil` when the leaf has none. It is checked once, as the machine finishes, in development builds only. A failing value emits `:rf.error/schema-validation-failure` with `:where :machine-output`, `:phase :completion` and `:rollback? false`, and nothing is rolled back: the machine has already finished, so it is still destroyed and a parent's `:on-done` still receives the value. A schema the validator throws on emits `:rf.error/malformed-schema` with `:where :machine-output`, and completion proceeds the same way. See [Schemas](../machines/concepts.md#schemas) in the machines guide. |
-| `:sensitive`, `:large` | A vector of paths into the snapshot, such as `[[:data :payment :token]]`. They classify those slots of every instance: each actor's paths are registered when it is spawned, first boots or is restored, and removed when it is destroyed. Traces and the SSR hydration payload then show `:rf/redacted` for a sensitive slot and the `:rf.size/large-elided` marker for a large one; the snapshot itself is unchanged. A malformed declaration throws `:rf.error/invalid-machine-classification` at registration. A `:sensitive?` prop inside `[:schemas :data]` does not classify the snapshot; it only redacts a failed validation's trace. See [Classify subsystem data on the subsystem](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem). |
+| `:sensitive`, `:large` | A vector of paths into the snapshot, such as `[[:data :payment :token]]`. They classify those slots of every instance: each actor's paths are registered when it is spawned, first boots or is restored, and removed when it is destroyed. Trace and tool projections redact sensitive slots and size-mark large values. The SSR hydration payload redacts sensitive `:data` slots but preserves large values in full, because the client needs them to resume. In-process snapshots remain unchanged. A malformed declaration throws `:rf.error/invalid-machine-classification` at registration. A `:sensitive?` prop inside `[:schemas :data]` does not classify the snapshot; it only redacts a failed validation's trace. See [Classify subsystem data on the subsystem](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem). |
 | `:internal-events` | A set of keywords, such as `#{:tick}`, naming events the machine raises for itself. [`[:raise event-vec]`](#raise-event-vec) says what an external dispatch of one does. A vector, a non-keyword member or a wildcard member such as `:tick/*` throws `:rf.error/machine-bad-internal-events`, and a reserved `:rf/*` id throws `:rf.error/machine-internal-event-reserved`. See [Raise and internal events](../machines/concepts.md#raise-and-internal-events) in the machines guide. |
 | `:region-order` | A vector naming a `:type :parallel` machine's regions in the order their actions run. It is required when `:regions` has more than eight entries, which a map does not keep in written order; without it registration throws `:rf.error/machine-parallel-region-order-required`, and an order that does not name every region exactly once throws `:rf.error/machine-parallel-region-order-mismatch`. See [Parallel regions](../machines/parallel-states.md#limitations) in the machines guide. |
 | `:always-depth-limit` | An integer, 16 by default. It bounds the `:always` transitions the machine takes while it settles after an event. Exceeding it aborts the whole macrostep with `:rf.error/machine-always-depth-exceeded`, and no snapshot or effects commit. |
@@ -226,12 +236,28 @@ These are the bare keys a state takes:
 
 A history pseudo-state takes only `:type`, `:deep?` and `:default-target`. A choice state only routes, so it refuses the keys of a state that waits (`:on`, `:entry`, `:after` and the rest). [Registration errors](#registration-errors) lists both refusals.
 
+#### Key placement
+
+The root and parallel region bodies have narrower lifecycle rules than ordinary states:
+
+| Location | Accepted lifecycle and transition keys | Put these on a contained state instead |
+|---|---|---|
+| Flat or compound machine root | `:entry`, `:exit`, `:tags`, `:on`, `:spawn` | `:always`, `:choice`, `:after`, `:timeout`, `:on-timeout`, `:on-done`, `:spawn-all`, final/history keys |
+| Parallel machine root | The same keys, plus `:after`, `:timeout` / `:on-timeout`, and targetless `:on-done` | `:always`, `:choice`, `:spawn-all`, final/history keys |
+| Parallel region body | `:entry`, `:exit`, `:tags`, `:on`, `:on-done`, alongside its `:initial` and `:states` | `:always`, timers, `:spawn`, `:spawn-all`, final/history keys |
+
+Unsupported timer placement raises
+`:rf.error/machine-non-parallel-root-after-not-supported`. Other unread root
+or region slots raise `:rf.error/machine-root-slot-not-supported`. Wrap a
+region's states in one compound when a child must live across those states.
+
 #### Transitions
 
 Wherever the grammar takes a transition (an `:on` value, an `:after` value, `:always`, `:choice`, `:on-timeout`, an `:on-done`, a spawn's `:on-error`), it takes one of these forms:
 
 | Form | Meaning |
 |---|---|
+| `:same-state` | The declaring state itself. A leaf stays active; a compound resets its descendants to `:initial`. At a flat or compound root it resets the active configuration. |
 | `:settings` | A target keyword, sugar for `{:target :settings}`. It names a sibling of the declaring state. |
 | `[:authenticated :settings]` | A path target, absolute from the root. At a parallel root it is region-qualified, and a vector of such paths targets several regions. |
 | `{:target … :guard … :action …}` | A transition map, with the keys below. |
@@ -243,8 +269,46 @@ Wherever the grammar takes a transition (an `:on` value, an `:after` value, `:al
 | `:target` | Where to go: a keyword or a path. Without it the transition is targetless and runs only its action, with no exit or entry. |
 | `:guard` | A guard id from `:guards`, or an inline fn. The transition is taken only when it returns truthy. |
 | `:action` | One action id from `:actions`, or one inline fn. |
-| `:reenter?` | `true` makes a transition to the same state exit and re-enter it. |
+| `:reenter?` | Defaults to false. `true` exits and re-enters the declaring state on a self-target or a target inside that state, restarting its timers and children. A targetless transition does not exit or enter. |
 | `:meta` | Your own static metadata. |
+
+A path target inside a parallel region is relative to that region's root;
+it cannot target a sibling region. Only the parallel root can use
+region-qualified targets. `:always` accepts the transition forms above
+(a candidate vector is usual), but cannot be an unguarded targetless step or
+target its own declaring state. `:choice` specifically requires a non-empty
+candidate vector with an unguarded default.
+
+#### Declarative `:spawn` and `:spawn-all`
+
+A state's `:spawn` map accepts these application keys:
+
+| Key | Value and default |
+|---|---|
+| `:machine-id` / `:definition` | Exactly one: a registered machine id, or an inline machine map. |
+| `:data` | A replacement initial-data map, or `(fn [{:keys [snapshot event]}] data-map)` evaluated on state entry after the transition action. Omit it to use the definition's `:data`. |
+| `:id-prefix` | Keyword prefix for generated actor ids. Defaults to `:machine-id`; inline definitions need this or `:fixed-actor-id`. |
+| `:fixed-actor-id` | Explicit keyword address. Replaces an existing actor at that address, running its exits first. |
+| `:start` | Optional first trigger vector; defaults to `[:rf.machine.spawn/spawned]`. Initial entry runs before this trigger. |
+| `:on-done` | Optional transition, or `(fn [{:keys [data result]}] new-data)` that returns the parent's whole next data map. See [completion](#final-states-and-on-done). |
+| `:on-error` | Optional transition for child failure. Its event payload is the failure value, rather than the success `{:result …}` wrapper. |
+| `:timeout`, `:on-timeout` | Optional positive integer milliseconds or ISO-8601 duration and its transition; both required together. These arm a deadline on the spawning state. |
+
+The `:spawn-all` block has a separate closed grammar:
+
+| Key | Value and default |
+|---|---|
+| `:children` | Required non-empty vector of child spawn maps. Every child adds a unique keyword `:id`. Its `:on-done`, if supplied, must be a data-fold fn. Child `:on-error` is rejected. Put a join deadline on the parent state. |
+| `:join` | `:all` (default) or `:any`. There is no quorum or predicate form. |
+| `:on-all-complete` | Event vector required for `:all`, dispatched when every child succeeds. |
+| `:on-some-complete` | Event vector required for `:any`, dispatched on the first success. |
+| `:on-any-failed` | Optional event vector that resolves either join immediately on the first failure. Omit it to keep waiting for successes; add a parent deadline if the join could become unsatisfiable. |
+
+Each resolution event appends the logical child `:id` and its result to the
+configured trigger vector. Resolution always cancels remaining children.
+Without `:on-any-failed`, an impossible success condition reports
+`:rf.warning/spawn-all-join-unsatisfiable` and the parent keeps waiting.
+[Fan-out and join](../machines/fan-out-and-join.md) teaches both join policies.
 
 #### Callbacks
 
@@ -303,7 +367,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Payload**: a `spawn-spec` map with exactly one of `:machine-id` (a registered machine to instantiate) or `:definition` (an inline spec map), plus the optional keys below.
 - **Description**: Starts a new instance of a machine, called an actor. Emit it from any event handler's `:fx`, including a machine action's. A declarative `:spawn` state node emits it for you.
     - Choose by lifetime. When a child should live exactly as long as one state of a parent machine, put `:spawn` on that state: leaving the state, or destroying the parent, destroys the child. Emit this effect yourself when the actor's lifetime is not one state, such as a logger started with the session. Nothing tracks an actor you spawn this way; it lives until a [`:rf.machine/destroy`](#rfmachinedestroy-actor-id) names it.
-    - `:data` replaces the machine's initial `:data`. The runtime adds the actor's own id to it as `:rf/self-id`.
+    - A supplied `:data` map replaces the machine's initial `:data`; omitting it uses the definition's data. The runtime adds the actor's own id to it as `:rf/self-id`.
     - `:id-prefix` sets the prefix of the actor's id, which is the deterministic `<prefix>#<n>` from a per-type counter. The prefix defaults to `:machine-id`.
     - `:fixed-actor-id` gives the actor an explicit id instead. Use it when the spawner needs to hold the child's address: choose a fresh keyword, store it in ordinary `:data`, and pass it here. Spawning at a `:fixed-actor-id` that a live actor already holds destroys that actor first (its `:exit` actions run) and then installs the new one.
     - `:start` is an event vector dispatched to the new actor as `[<spawned-id> <start>]`. Without it, the runtime dispatches `[<spawned-id> [:rf.machine.spawn/spawned]]`. Either way the actor's initial `:entry` actions run first.
@@ -350,6 +414,7 @@ These are the subscriptions and effects the machines artefact registers. They ar
 - **Payload**: `{:rf/machine-id <id> :rf/patch {:state … :meta … :data {…}}}`, each `:rf/patch` key optional.
 - **Description**: Writes a machine's snapshot directly, without taking a transition. A machine action can return only `:data` and `:fx`; emit this from the action's `:fx`, or from any event handler, when you must also set `:state` or `:meta` in the same atomic write. Prefer a transition where one will do: this effect does not check that a patched `:state` exists in the machine's definition.
     - `:state` and `:meta` replace the snapshot's values. `:data` is merged into the existing `:data`, as an action's `:data` return is, so the runtime's own `:rf/*` keys in it survive.
+    - This is a direct write: it does not run exits, entries, `:always`, spawn reconciliation or tag recomputation. Use transitions for normal lifecycle changes and frame-state installation for restore.
     - Other `:rf/patch` keys are ignored. A `:db` key emits `:rf.error/machine-action-wrote-db` and is dropped; the rest of the patch is still written.
     - Does nothing when the machine has no snapshot (not started, or destroyed).
     - The `:data` patch is validated against the machine's `[:schemas :data]` schema before it is written, by [`validate-update-snapshot-data!`](#re-framemachinesvalidate-update-snapshot-data). A patch that fails is not written, so this effect is subject to the `:where :machine-data` boundary like a transition.
@@ -380,7 +445,7 @@ A machine finishes by entering a `:final?` leaf that is a direct child of its ro
 
 A child started by a `:spawn` or `:spawn-all` state reports to its parent by finishing; it dispatches nothing itself. (An actor started with a hand-emitted `:rf.machine/spawn` has no parent to report to.) The runtime sends the parent a `:rf.machine.spawn/done` event, handled in the parent's ordinary macrostep: the parent receives the result through `:on-done`, and can also transition on it with a transition-shaped `:on-done`, an `:always`, or `:on {:rf.machine.spawn/done …}`. A child that fails arrives as `:rf.machine.spawn/error` instead.
 
-A `:final?` leaf nested inside a compound state finishes only that compound. The machine keeps running, and the compound's own `:on-done` names the state to move to; see [nested final states](../machines/hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states). A `:type :parallel` machine finishes when every region's active state is `:final?`.
+A `:final?` leaf nested inside a compound state finishes only that compound. The machine keeps running, and the compound's own `:on-done` names the state to move to; see [nested final states](../machines/hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states). A `:type :parallel` machine finishes when every region's active state is `:final?`, unless the root declares `:on-done`: that action runs and the all-final snapshot is retained.
 
 | State-node key | What it does |
 |---|---|
@@ -475,6 +540,7 @@ There is no `machines` or `machine-meta` function. A machine is an `:event` regi
 - **Description**: Runs one transition as a pure function: given a machine definition, a current snapshot and an event, it returns a plain map. Use it to unit-test a transition table. It runs on the JVM and needs no frame; `re-frame.machines` is the only namespace to require.
     - `:status :ok` carries the new `:snapshot` and the ordered effects vector `:fx`. The effects are described, never run. `:fx` also holds the runtime's own effects, such as one `[:rf.machine/after-schedule …]` for each `:after` timer the new state arms, so assert on the entries you care about rather than on the whole vector. An event that no transition matches returns `:ok` with the snapshot unchanged and `:fx []`. `:handled?` is `true` when the event selected a transition, even a targetless one that changed nothing, and `false` when nothing took it, so a test can tell a declined event from an accepted no-op.
     - `:status :error` reports a failed macrostep. Either a guard, action or `:data` function threw (`:kind :rf.error/machine-action-exception`, with `:exception` and the throwing ref), or a depth limit tripped (`:kind :rf.error/machine-always-depth-exceeded` or `:rf.error/machine-raise-depth-exceeded`). A failure carries no snapshot, because the macrostep is atomic.
+    - The supplied snapshot is the starting point. This function does not create a singleton, run host effects, or apply registered schema validation; use a test frame for those boundaries.
     - Mistakes in the input, such as a malformed `:state` or a guard or action ref with no entry, throw the same `:rf.error/*` `ex-info` the registration checks throw rather than returning a result.
 - **Example**: `login-flow` is the definition built in the guide's [first machine](../machines/tutorial.md#the-complete-machine).
   ```clojure
@@ -489,6 +555,30 @@ There is no `machines` or `machine-meta` function. A machine is an `:event` regi
     (is (= :submitting (:state snapshot)))
     (is (= :rf.http/managed (ffirst fx))))   ;; the :submitting :entry fired the request
   ```
+
+## Runtime diagnostics
+
+Registration failures are listed [above](#registration-errors). During a run,
+distinguish a rejected definition from a failed callback or an ignored event:
+
+| Diagnostic | Behavior and remedy |
+|---|---|
+| `:rf.error/machine-action-exception` | A guard, action or spawn-data fn threw. The macrostep rolls back; fix that callback. A child's failure can drive its parent's `:on-error`. |
+| `:rf.error/machine-always-depth-exceeded`, `:rf.error/machine-raise-depth-exceeded` | The whole macrostep rolls back. Make the cycle terminate, or raise the corresponding limit for intentionally longer work. |
+| `:rf.error/machine-action-wrote-db` | The illegal `:db` write is dropped; other action or patch values proceed. Return machine `:data`, or dispatch an application event. |
+| `:rf.error/machine-state-not-in-definition`, `:rf.error/machine-snapshot-version-mismatch` | The next event restarts an incompatible snapshot from `:initial`. Migrate persisted state when continuity matters. |
+| `:rf.error/machine-bad-state-form` | A supplied snapshot has a malformed state. Supply a keyword, path vector or region map matching the definition. |
+| `:rf.error/machine-after-sub-threw`, `:rf.error/machine-after-fn-threw` | Dynamic delay evaluation failed; no timer is armed. Fix the subscription or delay fn. |
+| `:rf.error/machine-bad-after-delay` | A dynamic delay is invalid and the timer is skipped. Return positive milliseconds. |
+| `:rf.error/machine-after-watch-failed` | A delay subscription could not be watched. Its current timer is armed, but delay changes will not reschedule it; inspect the subscription adapter. |
+| `:rf.error/machine-spawn-all-bad-child-id` | A completion names a child outside the join; it is ignored. Let a child's final state report completion instead of constructing runtime completion events. |
+| `:rf.error/machine-parallel-output-key-conflict` | Final regions name different output keys; the first region's key wins. Use one output key across the machine. |
+
+Spawn/destroy failures are documented with their [effects](#keyword-surfaces),
+and schema failure behavior with [machine-root keys](#machine-root-keys).
+Shared missing or invalid coeffects use the ordinary
+[coeffect diagnostics](../core/coeffects.md). An unhandled event is a benign
+`:rf.machine.event/unhandled-no-op` trace, not an error.
 
 ## Framework integration
 

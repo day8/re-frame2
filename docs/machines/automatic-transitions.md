@@ -2,22 +2,15 @@
 
 <a id="automatic-transitions"></a>
 
-Most transitions wait for a trigger from `dispatch`. Four triggers come from
-the machine itself:
+Use an automatic transition when the machine already has enough information
+to continue, or when a wait needs a deadline.
 
-- an eventless step whose guard passes;
-- a decision node resolving on entry;
-- a delay expiring;
-- a deadline being missed.
-
-re-frame2 has four authoring forms for this, built on two engines.
-
-| Intent | Form | Engine |
-|---|---|---|
-| "Whenever this condition holds, move." | `:always` | guard-driven microstep loop |
-| "Enter a decision node and immediately route." | `:type :choice` + `:choice` | desugars to `:always` |
-| "After N ms in this state, move." | `:after` | wall-clock timer |
-| "This state or child must finish in time." | `:timeout` + `:on-timeout` | desugars to `:after` |
+| Intent | Form |
+|---|---|
+| Move when a condition in the snapshot holds | `:always` |
+| Route through a named decision | `:type :choice` + `:choice` |
+| Move after a delay | `:after` |
+| Bound a state or child's lifetime | `:timeout` + `:on-timeout` |
 
 ## Eventless `:always`
 
@@ -39,9 +32,10 @@ Login can skip the form when a session token is already in `:data`:
                               :action :clear-error}}}
 ```
 
-Birth lands on `:idle`. If `:data` already has a token (hydration, a restore
-event), `:always` moves to `:authed` in the same macrostep. External
-observers see the settled result, not the hop through `:idle`.
+At birth, if the initial `:data` already has a token, `:always` moves from
+`:idle` to `:authed` before the snapshot commits. Observers see the settled
+result. Installing a persisted snapshot does not run `:always`; send a normal
+event afterward if the restored machine needs to make a new decision.
 
 The same form works as a counter that trips a threshold. A targetless
 `:on` updates `:data`; then `:always` is checked:
@@ -60,13 +54,51 @@ A machine processes one event to a stable configuration before the next event is
 Inside that one macrostep, the runtime:
 
 1. takes the event-driven transition;
-2. applies exit/action/entry effects;
+2. calls exit, transition and entry actions, accumulating their data updates
+   and effect descriptions;
 3. checks `:always`;
-4. drains any `:raise`d internal events;
+4. handles the next raised internal event, then settles `:always` again;
 5. repeats until no `:always` is enabled and no raised event remains;
-6. commits the final snapshot once.
+6. commits the final snapshot once, then executes the accumulated ordinary
+   effects in order.
+
+Raised events form a FIFO queue. An HTTP request or dispatched event described
+by an action does not run in the middle of this calculation.
 
 The loop is bounded. The default depth limit is 16. A runaway cycle raises `:rf.error/machine-always-depth-exceeded` (eventless) or `:rf.error/machine-raise-depth-exceeded` (`:raise`) and aborts the macrostep atomically; the previous snapshot remains visible.
+
+## Raise and internal events
+
+Raise an event when an action has produced information that another part of
+the table should handle before the snapshot becomes visible:
+
+```clojure
+(rf/reg-machine :auth/check
+  {:initial :idle
+   :data {:token nil}
+   :internal-events #{:auth/check-session}
+   :guards {:has-token? (fn [{:keys [data]}] (some? (:token data)))}
+   :actions
+   {:remember-token
+    (fn [{[_ token] :event}]
+      {:data {:token token}
+       :fx [[:raise [:auth/check-session]]]})}
+   :states
+   {:idle {:on {:auth/restore {:action :remember-token}
+                :auth/check-session [{:guard :has-token? :target :authed}]}}
+    :authed {}}})
+```
+
+Dispatching `[:auth/check [:auth/restore "session-token"]]` first stores the
+token, then handles `:auth/check-session` against the updated data. The view
+sees `:authed`. With `:dispatch` instead, those would be separate events and
+separate commits. In a parallel machine, a raised event reaches every region.
+
+`:internal-events` is optional: it restricts which triggers outsiders may
+send, not which ones an action may raise. An external dispatch of a listed id
+reports `:rf.error/machine-internal-event-external-dispatch` and changes
+nothing. A raise is exactly `[:raise event-vec]`; a third options element
+throws `:rf.error/machine-bad-raise`. Use `:after` for a delayed trigger.
 
 ## `:always` rules
 

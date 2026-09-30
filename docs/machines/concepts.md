@@ -240,6 +240,7 @@ Return **descriptions**, the same idea as `reg-event`:
    {:fx [[:rf.http/managed
           {:request    {:method :post :url "/api/login" :body creds
                         :request-content-type :json}
+           :request-id :auth.login/request
            :decode     :json
            :on-success [:auth.login/flow [:auth.login/success]]
            :on-failure [:auth.login/flow [:auth.login/failure]]}]]})}
@@ -426,9 +427,9 @@ through to a wildcard.
   (login's `:authed`). Do **not** set `:final?`. Optional
   `{:meta {:terminal? true}}` is documentation for you and for tools; it
   does not destroy anything.
-- **`:final? true`** — the machine **terminates** and is destroyed. Use for
-  spawned protocols that finish, not for "last screen of a long-lived
-  machine."
+- **Root-level `:final? true` leaf** — the machine finishes and is destroyed.
+  Use it for spawned protocols that finish. A final leaf inside a compound
+  finishes only that sub-flow; the surrounding machine keeps running.
 
 A `:final?` state is a leaf with no way out: it may run `:entry` and `:exit`,
 but `:on`, `:always`, `:after`, `:spawn` and `:spawn-all` there are refused
@@ -490,28 +491,14 @@ the rest.
 <a id="when-the-machine-grows"></a>
 <a id="tags-and-timers"></a>
 
-**`:raise`** in an action's `:fx` re-enters *this* machine atomically before
-commit. **`:internal-events`** is the set of event ids that external
-`dispatch` must not send
-(`:rf.error/machine-internal-event-external-dispatch`). Eventless loops and
-raise storms are depth-bounded — 16 by default, or the root's
-`:always-depth-limit` / `:raise-depth-limit`;
-`:rf.error/machine-always-depth-exceeded` /
-`:rf.error/machine-raise-depth-exceeded` abort the whole step — not a silent
-no-op.
-
-A raise is exactly `[:raise event-vec]`. It takes no options, so a delayed
-raise is an `:after` on a state; `[:raise event-vec opts]` throws
-`:rf.error/machine-bad-raise`.
-
-## When to reach for a machine
+An action can return `:fx [[:raise [:auth/check-session]]]` to handle another
+trigger inside the same macrostep. The final snapshot commits once. Declare
+`:internal-events #{:auth/check-session}` when external dispatches should not
+send that trigger. [Automatic transitions](automatic-transitions.md#raise-and-internal-events)
+shows a complete example and explains ordering and depth limits.
 
 <a id="when-to-reach-for-a-machine--and-when-not"></a>
-
-Reach for a machine when named, mutually exclusive stages are what you are
-modelling — legal and illegal triggers, timers, cancellation, retries or
-cleanup. The [landing page](index.md#when-not-to-use-a-machine) lists when
-not to.
+<a id="when-to-reach-for-a-machine"></a>
 
 ## Troubleshooting
 

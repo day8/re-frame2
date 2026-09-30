@@ -99,7 +99,26 @@ A transition is a pure function of the definition, a snapshot and a trigger. The
 - `:error` carries the diagnostics when a guard, action or `:data` fn throws (`:kind :rf.error/machine-action-exception`, with the `:exception` and the throwing ref) or a runaway `:always` / `:raise` cycle hits its depth limit (`:kind :rf.error/machine-always-depth-exceeded` or `:rf.error/machine-raise-depth-exceeded`). A failure carries no snapshot — nothing was committed.
 - Mistakes in the call itself — a malformed `:state`, a guard or action keyword with no entry in the definition — throw an `:rf.error/*` `ex-info` rather than returning `:status :error`, exactly as `reg-machine` would.
 
-Effects are asserted as data: the HTTP request is not performed, and the test inspects the returned `:fx` description.
+Effects are asserted as data: the HTTP request is not performed, and the test
+inspects the returned `:fx` description. This call starts from the snapshot you
+provide; it does not boot a singleton, execute timers or actors, or run the
+registered schema-validation boundary. Test those behaviors through a frame.
+
+Cover a refused trigger as well as a successful one:
+
+```clojure
+(let [before {:state :idle :data {:attempts 0 :error nil}}
+      result (rf.machines/machine-transition
+               login-flow before [:auth.login/submit {:email "" :password ""}])]
+  (is (= :ok (:status result)))
+  (is (false? (:handled? result)))
+  (is (= before (:snapshot result)))
+  (is (empty? (:fx result))))
+```
+
+Use the `login-flow` and `is` imports from the tutorial test. Add cases for
+unknown triggers, the last permitted retry, and a thrown callback when the
+table has one.
 
 ## Testing registered definitions
 

@@ -115,8 +115,12 @@ children:
 The socket is spawned on the `:active` *parent*, so one actor spans
 `:connecting` → `:authenticating` → `:connected`.
 
-A state carries at most one `:spawn`. For several children, use a compound
-state with one actor per substate, or [`:spawn-all`](fan-out-and-join.md).
+<a id="fan-out-and-join-with-spawn-all"></a>
+
+A state carries at most one `:spawn`. For concurrent children, use
+[`:spawn-all`](fan-out-and-join.md), or put one `:spawn` on an active state
+in each parallel region when the children have independent lifetimes.
+Sibling states in a compound run one at a time.
 One state cannot declare both (`:rf.error/machine-spawn-all-with-spawn`).
 Events are not forwarded to children; dispatch to the child id yourself. To
 read a child's snapshot:
@@ -141,7 +145,10 @@ Supply `:machine-id` or `:definition`, not both.
 | `:timeout` / `:on-timeout` | wall-clock deadline on this child's lifetime; lowers onto the state's `:after` |
 | `:fixed-actor-id` | explicit actor id for a per-state singleton |
 
-The [API reference](../api/re-frame.machines.md) lists the exact shapes.
+A supplied `:data` map replaces the child definition's initial data; it does
+not merge with the defaults. If needed, merge those defaults in the `:data`
+function. The [API reference](../api/re-frame.machines.md#declarative-spawn-and-spawn-all)
+records the exact forms and defaults.
 
 ## Child runtime stamps
 
@@ -166,9 +173,9 @@ structural parent, so pass a correspondent address through `:data` yourself.
 
 ## Recording the spawned id
 
-On every declarative `:spawn` / `:spawn-all`, the runtime writes the
-new id into the **parent's** `:data` under `:rf/spawned`, keyed by the
-`:spawn`-bearing state's path:
+A declarative `:spawn` writes the new id into the **parent's** `:data` under
+`:rf/spawned`, keyed by the spawning state's path. A `:spawn-all` stores a
+map of child `:id` to actor id at that path:
 
 ```clojure
 ;; cf. examples/patterns/websocket
@@ -227,8 +234,9 @@ else:
 ```
 
 Re-entering the spawning state creates a new incarnation of the child at the
-same address. A dispatch to that address reaches whichever incarnation currently
-holds it; the runtime tells incarnations apart itself.
+same address. Spawning at an occupied fixed id destroys the previous actor
+first, running its exits. A dispatch to that address reaches the current
+incarnation; use distinct addresses when both instances must stay alive.
 
 ## When a child finishes
 
@@ -393,11 +401,6 @@ One timer mechanism. When it fires, the state exits and the child is
 destroyed. [Timeout durations](automatic-transitions.md#timeout-durations)
 lists the accepted forms. A `:timeout-ms` key on `:spawn` or `:spawn-all`
 makes `reg-machine` throw `:rf.error/spawn-timeout-ms-removed`.
-
-## Fan-out and join with `:spawn-all`
-
-When one state starts several children at once and moves on when they
-finish, use `:spawn-all`. [Fan-out and join](fan-out-and-join.md) teaches it.
 
 ## Troubleshooting
 
