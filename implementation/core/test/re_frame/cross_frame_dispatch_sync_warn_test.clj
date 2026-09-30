@@ -144,6 +144,60 @@
             (is (empty? (dsih-errors recorded))
                 "cross-frame dispatch-sync! is a warning, not an error")))))))
 
+(deftest fires-on-cross-frame-dispatch-sync-during-async-drain
+  (testing "frame A mid an ASYNC drain calling dispatch-sync! on frame B still warns"
+    ;; `rf/dispatch` posts A's drain through `rf.interop/next-tick`. Running
+    ;; the captured thunk here makes the outer drain a genuine async one: A's
+    ;; router carries `:in-drain?` and never `:in-sync-drain?`, so only the
+    ;; `:in-drain?` arm of `find-other-draining-frame-id` sees A mid-drain.
+    ;; The sibling test above drives the outer drain through `dispatch-sync`,
+    ;; which sets both flags, so it cannot tell the two arms apart.
+    (rf/make-frame {:id :cfx.test/a :doc "caller frame"})
+    (rf/make-frame {:id :cfx.test/b :doc "target frame"})
+
+    (let [b-ran   (atom false)
+          a-flags (atom nil)
+          ticks   (atom [])]
+      (rf/reg-event :b/leaf
+        {:frame :cfx.test/b}
+        (fn [{:keys [db]} _]
+          (reset! b-ran true)
+          {:db (assoc db :b-ran? true)}))
+
+      (rf/reg-event :a/async-cross
+        {:frame :cfx.test/a}
+        (fn [_ _]
+          (reset! a-flags (select-keys @(:router (rf.frame/frame :cfx.test/a))
+                                       [:in-drain? :in-sync-drain?]))
+          (rf/dispatch-sync [:b/leaf] {:frame :cfx.test/b})
+          {}))
+
+      (let [recorded (record-traces! ::async-drain)]
+        (with-redefs [rf.interop/next-tick (fn [f] (swap! ticks conj f) nil)]
+          (rf/dispatch [:a/async-cross] {:frame :cfx.test/a})
+          (is (= 1 (count @ticks)) "the async dispatch scheduled one drain thunk")
+          (doseq [f @ticks] (f)))
+
+        ;; ALWAYS-ON: the scenario is the one the test names. Router state is
+        ;; production state, so this precondition holds in both postures.
+        (testing "A's drain was async — `:in-drain?` set, `:in-sync-drain?` not"
+          (is (some? (:in-drain? @a-flags)))
+          (is (not (:in-sync-drain? @a-flags))))
+
+        ;; ALWAYS-ON: PROCEEDS, as in the sync-drain case.
+        (testing "the dispatch proceeded — frame B's handler ran"
+          (is (true? @b-ran))
+          (is (true? (:b-ran? (rf/app-db-value :cfx.test/b)))))
+
+        ;; Dev-instrumentation arm (see ns docstring §Posture split).
+        (when rf.interop/debug-enabled?
+          (testing "exactly one cross-frame warning fires, naming A as the draining frame"
+            (let [warns (cross-frame-warnings recorded)
+                  t     (:tags (first warns))]
+              (is (= 1 (count warns)))
+              (is (= :cfx.test/a (:other-frame t)))
+              (is (= :cfx.test/b (:target-frame t))))))))))
+
 (deftest same-frame-dispatch-sync-still-errors
   (testing "the same-frame reentry contract holds — error fires, no cross-frame warning"
     ;; The negative test: the same-frame case raises
