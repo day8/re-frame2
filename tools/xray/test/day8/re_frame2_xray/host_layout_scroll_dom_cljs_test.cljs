@@ -68,7 +68,8 @@
   (let [{:keys [markup css]} (snippet-parts)
         style   (.createElement js/document "style")
         wrapper (.createElement js/document "div")]
-    (set! (.-textContent style) (if (= :recommended layout) css "body { margin: 0; }"))
+    ;; Anchoring off, or Chrome's scroll anchoring restores Back on its own and the Back row cannot see whether routing did.
+    (set! (.-textContent style) (str (if (= :recommended layout) css "body { margin: 0; }") " * { overflow-anchor: none; }"))
     (when (= :recommended layout) (set! (.-innerHTML wrapper) markup))
     (.appendChild js/document.head style)
     (.appendChild js/document.body wrapper)
