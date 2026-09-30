@@ -58,7 +58,9 @@ Every form lives in its own app-db slice with one standard shape. This event see
                     :errors            {}       ;; {field ["msg" ...]}; :_form for form-level
                     :touched           #{}      ;; fields the user has touched
                     :submit-attempted? false    ;; latches on the first submit click
-                    :submit-error      nil})}))  ;; transport failure (network down)
+                    :submit-error      nil})   ;; transport failure (network down)
+     :sensitive [[:auth :login-form :draft :password]
+                 [:auth :login-form :submitted :password]]}))
 ```
 
 `:draft` is what's being typed. `:status` is the lifecycle. `:errors` holds renderable validation results, client- or server-produced — the [view](../../core/glossary.md#view) doesn't care which — with `:_form` reserved for errors no single field owns. `:submit-error` is separate because a transport failure has nothing field-shaped to render. `:submitted` holds the last server-accepted draft, which a `dirty?` check compares against to detect unsaved changes ([Build a form](../../core/how-to/build-a-form.md) has the full convention).
@@ -111,6 +113,18 @@ Editing a field updates the draft and marks the field touched, in one step:
              (update-in [:auth :login-form :touched] (fnil conj #{}) field))}))
 ```
 
+Use a separate map-shaped event for the password, so its value has a path to
+classify in event traces. Positional secret arguments cannot be path-redacted:
+
+```clojure
+(rf/reg-event :auth.login-form/edit-password
+  {:sensitive [[:value]]}
+  (fn [{:keys [db]} [_ {:keys [value]}]]
+    {:db (-> db
+             (assoc-in [:auth :login-form :draft :password] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) :password))}))
+```
+
 That's all login needs to capture input. The full convention adds `blur-field` and `reset` events ([Build a form](../../core/how-to/build-a-form.md)); login doesn't need them.
 
 ## The visibility rule
@@ -123,6 +137,7 @@ The rule lives in one place, a subscription:
 
 ```clojure
 (rf/reg-sub :auth.login-form/slice
+  {:sensitive [[:draft :password] [:submitted :password]]}
   (fn [db _] (get-in db [:auth :login-form])))
 
 (rf/reg-sub :auth.login-form/field-error {:inputs [[:auth.login-form/slice]]}
@@ -166,24 +181,33 @@ Part 2's reads are cached server state, so they're [resources](../glossary.md#re
 
 (rf/reg-event :auth.login-form/submit
   (fn [{:keys [db]} _]
-    (let [draft  (get-in db [:auth :login-form :draft])
+    (let [draft (get-in db [:auth :login-form :draft])
           errors (validate-login draft)
-          db'    (assoc-in db [:auth :login-form :submit-attempted?] true)]
+          generation (inc (or (:auth-generation db) 0))
+          db' (assoc-in db [:auth :login-form :submit-attempted?] true)]
       (if (empty? errors)
         {:db (-> db'
+                 (assoc :auth-generation generation)
                  (assoc-in [:auth :login-form :status] :submitting)
                  (assoc-in [:auth :login-form :errors] {})
                  (assoc-in [:auth :login-form :submit-error] nil))
          :fx [[:rf.http/managed
-               {:request    {:method :post
-                             :url    (str api/api-base "/users/login")
-                             :body   {:user draft}
-                             :request-content-type :json}
-                :decode     :json
+               {:request {:method :post :url (str api/api-base "/users/login")
+                          :body {:user draft} :request-content-type :json}
+                :sensitive? true
+                :request-id [:auth/login generation]
+                :decode :json
                 :on-success [:auth.login-form/submit-success]
                 :on-failure [:auth.login-form/submit-failed]}]]}
         {:db (assoc-in db' [:auth :login-form :errors] errors)}))))
 ```
+
+`:auth-generation` is a non-secret attempt counter outside the `:auth` slice.
+Starting a login advances it; accepting a session or ending one advances it again.
+Clearing `:auth` never resets the counter. Replies carry the issued generation in
+`:correlation :request-id`, so a delayed reply cannot replace a newer session.
+Keep the reply target as `[event-id]`: this leaves its classified reply map in
+the event's second position.
 
 The `:submit-attempted?` latch flips on every submit click, valid or not — that's what arms the visibility rule. There's no `:retry`: retries are opt-in, and re-posting credentials automatically isn't a safe recovery.
 
@@ -207,23 +231,23 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The handler stores th
 
 ```clojure
 (rf/reg-event :auth.login-form/submit-success
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    (let [user      (:user value)
-          return-to (get-in db [:auth :return-to])]
-      {:db (-> db
-               ;; Keep the JWT only at [:auth :token], the path marked sensitive
-               ;; below; a copy left under [:auth :user] would not be redacted.
-               (assoc-in [:auth :user]  (dissoc user :token))
-               (assoc-in [:auth :token] (:token user))
-               (update :auth dissoc :return-to)
-               (update-in [:auth :login-form]
-                          #(assoc % :status :submitted :submitted (:draft %))))
-       :fx [[:auth.session/persist {:token (:token user)}]
-            ;; return-to is a complete navigate request (Part 4).
-            ;; :replace? keeps /login off the back stack.
-            [:dispatch (if return-to
-                         [:rf.route/navigate (assoc return-to :replace? true)]
-                         [:rf.route/navigate {:to :conduit/home :replace? true}])]]})))
+  {:sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [value correlation]}]]
+    (if (not= (:auth-generation db) (second (:request-id correlation)))
+      {}
+      (let [user (:user value)
+            return-to (get-in db [:auth :return-to])]
+        {:db (-> db
+                 (update :auth-generation inc)
+                 (assoc-in [:auth :user] (dissoc user :token))
+                 (assoc-in [:auth :token] (:token user))
+                 (update :auth dissoc :return-to)
+                 (update-in [:auth :login-form]
+                            #(assoc % :status :submitted :submitted (:draft %))))
+         :fx [[:auth.session/persist {:token (:token user)}]
+              [:dispatch (if return-to
+                           [:rf.route/navigate (assoc return-to :replace? true)]
+                           [:rf.route/navigate {:to :conduit/home :replace? true}])]]}))))
 ```
 
 ### Failure: structured errors back into the same view
@@ -247,12 +271,15 @@ On success Conduit replies `{:user {... :token "<jwt>"}}`. The handler stores th
                    {} errs)))))
 
 (rf/reg-event :auth.login-form/submit-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]        ;; the failure map rides under :error
-    (let [structured (failure->form-errors error)]
-      {:db (cond-> (assoc-in db [:auth :login-form :status] :error)
-             structured       (assoc-in [:auth :login-form :errors] structured)
-             (not structured) (assoc-in [:auth :login-form :submit-error]
-                                        "Couldn't reach the server — please try again."))})))
+  {:sensitive [[:error :body]]}
+  (fn [{:keys [db]} [_ {:keys [error correlation]}]]
+    (if (not= (:auth-generation db) (second (:request-id correlation)))
+      {}
+      (let [structured (failure->form-errors error)]
+        {:db (cond-> (assoc-in db [:auth :login-form :status] :error)
+               structured (assoc-in [:auth :login-form :errors] structured)
+               (not structured) (assoc-in [:auth :login-form :submit-error]
+                                          "Couldn't reach the server — please try again."))}))))
 ```
 
 The JSON parse is the first form in the file that needs a host: `JSON.parse` in the browser, Cheshire (which the HTTP artefact already puts on the JVM classpath) on the JVM. On a 4xx the body arrives **raw** at `:body`, because decode runs only on 2xx, so `failure->form-errors` sees exactly what the server sent. A `:rf.http/transport` failure — the server never answered — has no `:body`, so it falls through to the generic `:submit-error` string. The view never needs a "server or client error?" branch: both validation kinds arrive as `:errors` and render through the same `field-error` sub.
@@ -285,7 +312,7 @@ The rules already live in subs and handlers, so the view is thin — read, rende
       (when email-err [:p.error email-err])
       [:input {:type "password" :placeholder "Password"
                :value (:password draft) :disabled busy?
-               :on-change #(dispatch [:auth.login-form/edit-field :password (.. % -target -value)])}]
+               :on-change #(dispatch [:auth.login-form/edit-password {:value (.. % -target -value)}])}]
       (when pw-err [:p.error pw-err])
       [:button {:type "submit" :disabled busy?}
        (if busy? "Signing in…" "Sign in")]]
@@ -313,7 +340,8 @@ localStorage is the outside world, so writing it is an [effect](../../core/gloss
 ```clojure
 (rf/reg-fx :auth.session/persist
   {:doc "Write the JWT to localStorage (truthy token) or remove it (nil)."
-   :platforms #{:client}}
+   :platforms #{:client}
+   :sensitive [[:token]]}
   (fn [_frame-ctx {:keys [token]}]
     #?(:cljs (when-let [ls (.-localStorage js/globalThis)]
                (if token
@@ -323,52 +351,82 @@ localStorage is the outside world, so writing it is an [effect](../../core/gloss
 
 The body sits behind `#?(:cljs …)` because `js/globalThis` doesn't exist on the JVM; without it, this `.cljc` file wouldn't compile there.
 
-### The read — a coeffect
+<a id="the-read--a-coeffect"></a>
 
-Reading the world is a [coeffect](../../core/glossary.md#coeffect): a declared fact from outside, delivered *into* a handler. The token is a **recordable** coeffect: its supplier reads `localStorage` once at the start of the boot dispatch, and the value is recorded so replay sees exactly the token the boot saw:
+### Read storage, then verify the session
+
+A credential must not be a recordable coeffect. Read storage in an effect and
+send its result through a classified event. The storage read is synchronous;
+the `/user` verification is asynchronous.
 
 ```clojure
-(rf/reg-cofx :auth.session/token
-  {:recordable? true
-   :doc "The saved JWT (or nil), read from localStorage."}
-  (fn []
-    #?(:cljs (some-> (.-localStorage js/globalThis) (.getItem "jwtToken")))))
+(defn read-saved-token []
+  #?(:cljs (try
+             (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))
+             (catch :default _ nil))
+     :clj nil))
+
+(rf/reg-fx :auth.session/load
+  {:platforms #{:client}}
+  (fn [{:keys [frame]} {:keys [generation]}]
+    (rf/dispatch [:auth/session-read {:generation generation :token (read-saved-token)}]
+                 {:frame frame})))
 
 (rf/reg-event :auth/initialise
-  {:rf.cofx/requires [:auth.session/token]}
-  (fn [{:keys [db auth.session/token]} _]
-    (cond-> {:db        (assoc db :auth {:user nil :token token})
-             ;; Mark the token path sensitive. It takes effect with this :db
-             ;; write, so the JWT is redacted from the start.
-             :sensitive [[:auth :token]]}
-      token (assoc :fx [[:rf.http/managed
-                         {:request    {:method :get :url (str api/api-base "/user")}
-                          :decode     :json
-                          :on-success [:auth/session-restored]
-                          :on-failure [:auth/session-expired]}]]))))
+  (fn [{:keys [db]} _]
+    (let [generation (inc (or (:auth-generation db) 0))]
+      {:db (assoc db :auth-generation generation :auth {:user nil :token nil})
+       :sensitive [[:auth :token]]
+       :fx [[:auth.session/load {:generation generation}]]})))
+
+(rf/reg-event :auth/session-read
+  {:sensitive [[:token]]}
+  (fn [{:keys [db]} [_ {:keys [generation token]}]]
+    (if (not= generation (:auth-generation db))
+      {}
+      (let [token (when-not (str/blank? token) token)]
+        (cond-> {:db (assoc-in db [:auth :token] token)}
+          token (assoc :fx [[:rf.http/managed
+                             {:request {:method :get :url (str api/api-base "/user")}
+                              :sensitive? true
+                              :request-id [:auth/restore generation]
+                              :decode :json
+                              :on-success [:auth/session-restored]
+                              :on-failure [:auth/session-expired]}]]))))))
 
 (rf/reg-event :auth/session-restored
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    ;; The token already lives at [:auth :token]; don't copy it under :user.
-    {:db (assoc-in db [:auth :user] (dissoc (:user value) :token))}))
+  {:sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [value correlation]}]]
+    (if (= (:auth-generation db) (second (:request-id correlation)))
+      {:db (-> db
+               (update :auth-generation inc)
+               (assoc-in [:auth :user] (dissoc (:user value) :token)))}
+      {})))
 
 (rf/reg-event :auth/session-expired
-  (fn [{:keys [db]} _]
-    {:db (update db :auth assoc :user nil :token nil)  ;; targeted: form slices survive
-     :fx [[:auth.session/persist {:token nil}]]}))
+  {:sensitive [[:error :body]]}
+  (fn [{:keys [db]} [_ {:keys [correlation]}]]
+    (if (= (:auth-generation db) (second (:request-id correlation)))
+      {:db (-> db
+               (update :auth-generation inc)
+               (update :auth assoc :user nil :token nil))
+       :fx [[:auth.session/persist {:token nil}]]}
+      {})))
 ```
 
-A handler receives exactly the facts listed in `:rf.cofx/requires` and nothing else — even the clock, `:rf/time-ms`, must be declared to be read. `[:auth/initialise]` runs from the frame's `:initial-events`, and *when* it runs matters; [Wiring it at boot](#wiring-it-at-boot) explains why.
+Unreadable or empty storage starts logged out. The load effect queues its reply
+into the boot drain, so `:auth/session-read` commits the token before the first
+URL is resolved. `/user` may answer later; [Part 4](04-scopes-and-guards.md)
+handles the interval before the user identity is known.
 
-??? note "Going deeper — why the token is recordable, and why it keeps its supplier"
+The generation check runs inside each reply handler, where the current session
+is known. A reply already queued before logout still becomes a no-op afterwards.
+The request id also allows explicit transport cancellation, but cancellation
+alone would not reject a reply already in the event queue.
 
-    [Coeffects come in two grades](../../core/glossary.md#recordable-vs-ambient-coeffects), recordable and ambient ([Coeffects](../../core/coeffects.md) is the full treatment). The token folds into durable state, so it registers `:recordable? true` — a [time-travel](../../core/glossary.md#time-travel) replay re-presents the *recorded* value rather than re-reading the world. An *ambient* coeffect — the default — would be wrong here: re-read live, never recorded, fine for a display preference but never for anything that feeds a durable write.
-
-    A recordable can also be registered **provided** (`:provided? true`, no supplier), with its value put on the event by an owner — a subsystem, or the dispatch call itself; that is what `:rf/time-ms` is. That shape doesn't fit here: this restore runs from the frame's `:initial-events`, which is configuration declared before the frame exists, and a supplier needs nothing threaded through it. The handler declares the fact, and the framework runs the supplier at the right moment. Either way, a test supplies an exact value as data on the dispatch (`{:rf.cofx {:auth.session/token "jwt-fixture"}}`, [Part 6](06-test-and-ship.md)), never by re-registering anything.
-
-!!! note "Two failure paths at boot, not one"
-
-    `:auth/initialise` fires the `/user` request only when a token was found, so a fresh visitor never makes the call. When the server rejects a saved token, `:auth/session-expired` clears `:user`/`:token` and wipes the saved JWT. A network blip during restore lands on the same handler; to keep the token through a transient failure, branch on the failure's `:kind` as the login handler does.
+This tutorial clears a saved token after any verification failure. To retain it
+through a transient network failure, add a restore-error state with retry and
+branch on the failure's `:kind`; do not leave the shell waiting indefinitely.
 
 ### The header — one interceptor for every request
 
@@ -378,22 +436,38 @@ The interceptor is a plain function. It reads the current token with `rf/app-db-
 
 ```clojure
 (defn bearer-auth [ctx]
-  (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
-    (cond-> ctx
-      token (assoc-in [:request :headers "Authorization"]
-                      (str "Token " token)))))
+  (let [db (rf/app-db-value (:frame ctx))
+        token (get-in db [:auth :token])
+        login? (= (get-in ctx [:request :url]) (str api/api-base "/users/login"))]
+    (if (and token (not login?))
+      (-> ctx
+          (assoc :auth/generation (:auth-generation db)
+                 :auth/restore? (= (get-in ctx [:args :request-id])
+                                   [:auth/restore (:auth-generation db)]))
+          (assoc-in [:request :headers "Authorization"] (str "Token " token)))
+      ctx)))
 ```
 
 Wire it at boot with `reg-http-interceptor` (below). Because it reads app-db on every request, it always sees the current token, and logout disarms it with nothing to detach.
 
-### Keeping the JWT redacted on both surfaces
+<a id="keeping-the-jwt-redacted-on-both-surfaces"></a>
 
-The token appears in two places, and each has its own redaction ([data classification](../../core/glossary.md#data-classification)):
+### Classify each credential copy
 
-1. **The app-db path `[:auth :token]`** is redacted by the `:sensitive` classification `:auth/initialise` returns beside `:db`. That covers Xray's App-db tab, epoch records, and any off-box export of app-db.
-2. **The `Authorization` request header** is redacted in request traces by a built-in header denylist in `:rf.http/managed` (`Authorization`, `Cookie`, `X-API-Key`, …), with no app code.
+Credentials pass through several independently classified values:
 
-Neither covers the other, and here you get both. A non-standard header such as `X-Conduit-Token` needs adding to the denylist — see [Keep secrets out of traces](../../core/how-to/keep-secrets-out-of-traces.md). To confirm, sign in and check Xray: the App-db tab shows the token redacted, and so does the request row's `Authorization` header.
+- The init events classify app-db's token and password paths; the login slice
+  subscription classifies its returned draft and submitted password.
+- The password-edit event uses a map payload marked `:sensitive`. Session-read
+  and HTTP reply handlers classify their token fields; the persistence effect
+  classifies its own token argument.
+- Login and restore requests set `:sensitive? true` for HTTP request/reply traces.
+  The built-in header denylist separately redacts `Authorization`.
+
+Handlers and views still receive the real values. Raw local epoch snapshots also
+retain app-db for restoration; classification does not erase them. Project records
+before forwarding them off-box, as [Keep secrets out of traces](../../core/how-to/keep-secrets-out-of-traces.md)
+explains. Inspect both the App-db and request views in Xray when checking this wiring.
 
 ### Wiring it at boot
 
@@ -469,10 +543,15 @@ Teardown is setup reversed, in one event. The navbar's *Sign out* button dispatc
 
 ```clojure
 (rf/reg-event :auth/logout
-  (fn [{:keys [db]} _]
-    {:db (assoc db :auth {:user nil :token nil})
-     :fx [[:auth.session/persist {:token nil}]
-          [:dispatch [:rf.route/navigate {:to :conduit/home}]]]}))
+  (fn [{:keys [db]} [_ {:keys [generation]}]]
+    ;; Manual logout has no generation; an HTTP-triggered logout must still match.
+    (if (and generation (not= generation (:auth-generation db)))
+      {}
+      {:db (-> db
+               (update :auth-generation (fnil inc 0))
+               (assoc :auth {:user nil :token nil}))
+       :fx [[:auth.session/persist {:token nil}]
+            [:dispatch [:rf.route/navigate {:to :conduit/home}]]]})))
 ```
 
 Nothing else needs unhooking. The bearer interceptor reads app-db per request, so the header stops once the token is `nil`. [Part 4](04-scopes-and-guards.md#sign-out-clears-the-readers-cache) adds one more step, clearing the departing reader's cache, and [Add authentication](../../core/how-to/add-auth.md#6-logout-is-a-teardown) covers the teardown in full.
@@ -485,17 +564,22 @@ A JWT that was valid at boot can expire while the reader is still using the app.
 ;; core.cljs, in run — inside the same with-frame as :conduit/bearer-auth
 (rf/reg-http-interceptor :conduit/expired-session
   {:after (fn [ctx response]
-            (when (and (= :error (:status response))
+            (when (and (some? (:auth/generation ctx))
+                       (not (:auth/restore? ctx))
+                       (= :error (:status response))
                        (= :rf.http/http-4xx (get-in response [:error :kind]))
                        (= 401 (get-in response [:error :status])))
-              (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
+              (rf/dispatch [:auth/logout {:generation (:auth/generation ctx)}]
+                           {:frame (:frame ctx)}))
             response)})                     ;; :after MUST return the response
 ```
 
 Mind the **two `:status` levels**: the reply's `:status` is `:error`, and the HTTP code sits inside the failure map at `[:error :status]`, beside its `:kind`. And pass the frame from `ctx`: the reply arrives in a transport callback, where a bare `rf/dispatch` can raise `:rf.error/no-frame-context`.
 
-Logout gained a second trigger, not a second code path. The expired token is discarded, not refreshed; refreshing it and replaying the original request is a bigger job, better suited to [a machine](#when-a-machine-is-the-better-tool). [Add authentication](../../core/how-to/add-auth.md) covers response hooks in full.
+The restore request handles its own failure, including the deferred deep-link bounce in Part 4. The global hook skips `:auth/restore?` so it cannot clear that pending destination first.
+
+The request's `:before` context survives through `:after`. Only a request sent with a token carries `:auth/generation`, so an anonymous login failure stays a form error. The logout handler compares that generation again when the queued event runs; an old session's 401 cannot log out a newer one. The expired token is discarded, not refreshed; refreshing it and replaying the original request is a bigger job, better suited to [a machine](#when-a-machine-is-the-better-tool). [Add authentication](../../core/how-to/add-auth.md) covers response hooks in full.
 
 ## When a machine is the better tool
 
-This part hand-rolled the `:status` transitions, which is right at this size. Once "submitting" can be entered from three places and "error" needs retry rules, scattered status flips become hard to keep legal. The shipped example runs this same flow as an explicit [state machine](../../machines/glossary.md#machine): the slice is identical, and the machine names every legal transition. Transport retry stays in `:rf.http/managed`'s `:retry`; *semantic* retry — refresh the token on a 401, then replay the request — is a machine transition. [State machines](../../machines/concepts.md) is the next step, and the example's [`auth.cljs`](../../../examples/real-apps/realworld_http) shows the finished machine.
+This part hand-rolled the `:status` transitions, which is right at this size. Once "submitting" can be entered from three places and "error" needs retry rules, scattered status flips become hard to keep legal. An explicit [state machine](../../machines/glossary.md#machine) gives each transition a name. Transport retry stays in `:rf.http/managed`'s `:retry`; semantic retry — refresh a token, then replay a request — is a workflow transition. [State machines](../../machines/concepts.md) develops that model, and [Add authentication](../../core/how-to/add-auth.md) keeps the credential-handling recipe together.
