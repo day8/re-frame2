@@ -15,12 +15,11 @@ require `re-frame.http.managed` once, in the namespace that holds your handlers:
             [re-frame.http.managed]))   ;; registers :rf.http/managed and family
 ```
 
-Every snippet below goes in this namespace. The file is `.cljc`, so the test in
-[Step 6](#step-6--test-it-without-a-network) can load it on the JVM, which never
-loads a `.cljs` file.
+The handlers, subscriptions and schemas go in `app.article`. Keeping that file
+`.cljc` lets [the JVM tests below](#step-6--test-it-without-a-network) load it.
+The browser view goes in `src/app/article_view.cljs`.
 
-Forget the require and the first `[:rf.http/managed …]` fails loud with
-`:rf.error/no-such-fx` (the fx was never registered).
+Without the require, using the effect reports `:rf.error/no-such-fx` and sends no request.
 
 ## Step 1 — the smallest request that works
 
@@ -59,17 +58,9 @@ When the response lands — milliseconds or seconds later — the runtime dispat
 [:article/load-error {:status :error :error <failure-map> …}]    ;; failure
 ```
 
-That map is the **reply map**, and every async surface in re-frame2 delivers the same `:status`-keyed shape ([the uniform reply](../core/glossary.md#the-uniform-reply)). That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
+That map is the **reply map**, using the framework's [uniform reply](../core/glossary.md#the-uniform-reply) shape. That's why the receive handlers destructure `[_ {:keys [value]}]` (success) / `[_ {:keys [error]}]` (failure) — skip the event id, pull the reply apart. The body has already been decoded for you according to its Content-Type (JSON, for this API), and JSON object keys arrive as keywords.
 
 **What you see:** dispatch `[:article/load "intro"]` and `[:article :status]` goes `:loading`, then `:loaded` with the data — or `:error` with a failure map.
-
-??? info "Coming from `js/fetch`?"
-
-    The version you'd write by hand — `(-> (js/fetch url) (.then #(.json %)) (.then #(rf/dispatch [:article/loaded %])))` — is three lines and missing almost everything: no error path, no timeout, no retry, no way to test without a network. In re-frame2 it also fails outright: a bare `dispatch` inside a `.then` runs on a fresh stack with no [frame](../core/frames.md) in scope and raises `:rf.error/no-frame-context`. Describe the request as data instead; the runtime carries the frame through and does the rest.
-
-!!! note "Why an event, not an `await`?"
-
-    Your app's state is the running total of every event ever dispatched. An awaited value slips in through the call stack and leaves no record; a reply *event* lands in [the ledger](../core/coeffects.md#the-ledger) — traceable, replayable, safe under races. The full argument is [Why no await](continuations-are-data.md). You don't need it to keep going.
 
 ## Step 2 — turn the failure into something a user can read
 
@@ -79,7 +70,8 @@ The failure map (under the reply's `:error`) always carries a `:kind` — a keyw
 (defn failure->message [failure]
   (case (:kind failure)
     :rf.http/timeout    "The server took too long. Try again."
-    :rf.http/transport  "You appear to be offline."
+    :rf.http/transport  "Could not connect. Check your connection."
+    :rf.http/cors       "Could not reach this service. Try again later."
     :rf.http/http-5xx   "Something went wrong on our end."
     (:rf.http/http-4xx
      :rf.http/decode-failure
@@ -95,93 +87,134 @@ The failure map (under the reply's `:error`) always carries a `:kind` — a keyw
              (assoc-in [:article :message] (failure->message error)))}))
 ```
 
-And a view reads the status like any other state:
+Register a subscription alongside the handlers:
 
 ```clojure
 (rf/reg-sub :article/view-state
   (fn [db _] (:article db)))
+```
+
+The browser view displays the result and provides a way to load it:
+
+```clojure
+;; src/app/article_view.cljs
+(ns app.article-view
+  (:require [re-frame.core :as rf]
+            [app.article]))
 
 (rf/reg-view article-view []
   (let [{:keys [status data message]} @(subscribe [:article/view-state])]
-    (case status
-      :loading [:p "Loading…"]
-      :loaded  [:article [:h1 (:title data)] [:p (:body data)]]
-      :error   [:p.error message]
-      [:p "…"])))
+    [:section
+     [:button {:on-click #(dispatch [:article/load "intro"])} "Load article"]
+     (case status
+       :loading [:p "Loading…"]
+       :loaded  [:article [:h1 (:title data)] [:p (:body data)]]
+       :error   [:p.error message]
+       [:p "Choose an article."])]))
+
+;; Mount this tree with your app's adapter. The frame supplies dispatch context.
+[rf/frame-root {:id :app/articles}
+ [article-view]]
 ```
 
-**What you see:** kill the network in devtools and you get "You appear to be offline." Ask for an article the server 500s on and you get "Something went wrong on our end." The spinner clears either way, because the failure handler writes `:status` exactly the way the success handler does.
-
-**Notice:** write `failure->message` once and every screen renders the same vocabulary. (The [RealWorld example](../../examples/real-apps/realworld_http) does exactly this.)
+Disconnect the network or return a 503 from the server and the error replaces the
+loading message. A cross-origin connection failure can be classified as
+`:rf.http/cors` even when CORS configuration is correct: the browser does not
+distinguish it from other cross-origin network failures.
 
 ## Step 3 — validate the body with a schema
 
 By default the body is parsed by sniffing the Content-Type (`:decode :auto`). But the 2xx body is exactly where a [schema](../core/glossary.md#schema) earns its keep. Hand `:decode` a Malli schema and a malformed body becomes a clean `:rf.http/decode-failure` — routed to the failure handler you already wrote — instead of a surprise `nil` three handlers later:
 
 ```clojure
+;; Add [re-frame.schemas] to app.article's :require and
+;; day8/re-frame2-schemas to the project's dependencies.
 (def ArticleResponse
-  "Validates the JSON body of GET /api/articles/:slug."
   [:map
    [:slug  :string]
    [:title :string]
    [:body  :string]])
 
-{:fx [[:rf.http/managed
-       {:request    {:url (str "/api/articles/" slug)}
-        :decode     ArticleResponse
-        :on-success [:article/loaded]
-        :on-failure [:article/load-error]}]]}
+;; Replace the :article/load registration from Step 1.
+(rf/reg-event :article/load
+  (fn [{:keys [db]} [_ slug]]
+    {:db (assoc-in db [:article :status] :loading)
+     :fx [[:rf.http/managed
+           {:request    {:url (str "/api/articles/" slug)}
+            :decode     ArticleResponse
+            :on-success [:article/loaded]
+            :on-failure [:article/load-error]}]]}))
 ```
 
-Schema decode runs through Malli, which `day8/re-frame2-http` does not bring. Add `day8/re-frame2-schemas` and require `re-frame.schemas`. With it, the body is both validated and coerced into the schema's types (a string into a keyword or a UUID). Without Malli in the build, validation is skipped, and a one-time dev trace, `:rf.warning/http-malli-absent`, says so.
+Schema decoding uses Malli. Loading `re-frame.schemas` supplies it and enables
+validation and JSON coercion, such as converting a string to a keyword or UUID
+when the schema requires one. Without Malli, validation is skipped and a dev
+trace, `:rf.warning/http-malli-absent`, reports it once.
 
-**Notice:** decode runs **only on 2xx responses**. A 404 that answers with an HTML error page arrives as `:rf.http/http-4xx` with the raw HTML at `:body`, never as a decode failure ([how failures are classified](http.md#failures-are-a-closed-set)).
+Decoding runs **only on 2xx responses**. A 404 that answers with an HTML error page arrives as `:rf.http/http-4xx` with the raw HTML at `:body`, never as a decode failure ([how failures are classified](http.md#failures-are-a-closed-set)).
 
 `:decode` also takes a keyword (`:json` / `:text` / `:blob` / …) or a plain function when you need full control — see [the reference](http.md#validating-the-body-with-decode).
 
 ## Step 4 — retry reads, not writes
 
-A read-only GET that hits a transient network blip should just try again. `:retry` is a policy — itself plain data:
+For a read-only GET, a short retry policy can recover from a temporary failure:
 
 ```clojure
 (def data-fetch-retry
-  "Retry read-only fetches on transport blips, 5xx, and timeouts."
   {:on           #{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}
    :max-attempts 3
    :backoff      {:base-ms 200 :factor 2 :max-ms 2000 :jitter true}})
-
-{:fx [[:rf.http/managed
-       {:request    {:url (str "/api/articles/" slug)}
-        :decode     ArticleResponse
-        :retry      data-fetch-retry
-        :on-success [:article/loaded]
-        :on-failure [:article/load-error]}]]}
 ```
 
-`:on` names the failure categories that re-issue the request. `:max-attempts` counts the first try. Backoff is exponential, with optional jitter so a thousand clients don't retry in lockstep. Your failure handler only ever sees the final, exhausted failure — intermediate attempts are trace rows, not events.
+Add `:retry data-fetch-retry` beside `:decode` in the request args map.
+`:max-attempts 3` allows the initial attempt and two retries. Only the final
+failure reaches `:article/load-error`; a successful retry reaches
+`:article/loaded`. The timeout is per attempt, so `:timeout-ms 5000` can bound
+each try without promising that the whole retry sequence finishes in five seconds.
 
-**Notice:** the policy is on a *read*. Don't put `:retry` on a submit or a payment — retrying a write risks doing it twice. The production shape is one shared policy for fetches and conspicuously none on writes. ([Full policy rules](http.md#retry-transport-retry-as-data).)
+Leave automatic retry off writes unless your server provides an idempotency
+contract: a lost reply does not tell you whether the write happened.
+[Retry policies](http.md#retry-transport-retry-as-data) explain the available
+categories and when a state machine should coordinate another attempt.
 
-## Step 5 — cure the search-box race
+<a id="step-5--cure-the-search-box-race"></a>
 
-The user types five letters into a search box. Five requests race. Whichever lands *last* wins — often not the one for the last letter. The fix is one key.
+## Step 5 — keep the latest article
 
-Give the request a stable `:request-id`. Issuing a new request with the same id **supersedes** the old one: the old reply is suppressed, and your handler never sees it.
+The user selects a second article while the first is still loading. Give both
+requests the same `:request-id`: the new request supersedes the old one, whose
+reply is suppressed. A typeahead search uses the same pattern.
+
+Here is the final replacement for `:article/load`, including the schema, retry
+policy and timeout from the previous steps:
 
 ```clojure
-(rf/reg-event :search/query-changed
-  (fn [{:keys [db]} [_ q]]
-    {:db (assoc db :search/q q)
+(rf/reg-event :article/load
+  (fn [{:keys [db]} [_ slug]]
+    {:db (assoc-in db [:article :status] :loading)
      :fx [[:rf.http/managed
-           {:request    {:url "/api/search" :params {:q q}}
-            :request-id :search/in-flight       ;; stable across keystrokes
-            :on-success [:search/results]
-            :on-failure [:search/error]}]]}))
+           {:request    {:url (str "/api/articles/" slug)}
+            :decode     ArticleResponse
+            :retry      data-fetch-retry
+            :timeout-ms 5000
+            :request-id :article/load
+            :on-success [:article/loaded]
+            :on-failure [:article/load-error]}]]}))
+
+(rf/reg-event :article/cancel
+  (fn [_ _]
+    {:fx [[:rf.http/managed-abort :article/load]]}))
 ```
 
-**What you see:** type fast against a slow API and the results always match the last keystroke.
+Keep the id stable across article selections. `[:article/load slug]` would name
+separate requests, so different slugs would not supersede one another. Ids are
+scoped to the issuing frame.
 
-**Notice:** the runtime classifies the superseded reply as stale *before delivery*, so it cannot clobber fresh data even if it arrives late. The same id is also your cancel handle — `[:rf.http/managed-abort :search/in-flight]` aborts the in-flight request explicitly. ([Cancellation in full](http.md#cancellation-supersession-and-abort).) A manual abort does reply: with split handlers it lands on `:on-failure` as a `:status :cancelled` reply whose `:error` has `:kind :rf.http/aborted`, which is why `failure->message` in Step 2 has a case for it.
+A manual cancel delivers `:status :cancelled` to `:article/load-error`, with
+`:kind :rf.http/aborted` in its `:error` map. The message function already handles
+that outcome. Supersession delivers no reply for the old request; the new request
+now controls the loading state. [Cancellation](http.md#cancellation-supersession-and-abort)
+also covers frame teardown and requests owned by machine actors.
 
 ## Step 6 — test it without a network
 
@@ -207,7 +240,8 @@ The request goes out as data and the reply comes back as data, so a test needs n
        {:reply {:ok {:slug "intro" :title "Welcome" :body "…"}}}}
       (fn []
         (rf/dispatch-sync [:article/load "intro"])
-        (is (= :loaded (get-in (rf/app-db-value f) [:article :status])))))))
+        (is (= :loaded (get-in (rf/app-db-value f) [:article :status])))
+        (is (= "Welcome" (get-in (rf/app-db-value f) [:article :data :title])))))))
 
 (deftest article-load-fails
   (rf/with-new-frame [f (rf/make-frame {})]
@@ -219,7 +253,12 @@ The request goes out as data and the reply comes back as data, so a test needs n
         (is (= :error (get-in (rf/app-db-value f) [:article :status])))))))
 ```
 
-The stubbed reply has the same `:status` / `:value` / `:error` shape a live request delivers, so both tests cover the full chain — request out, reply in, handler folds the result — and run on the JVM in about a millisecond. [Test a pipeline run](../core/testing/pipeline-runs.md) is the full recipe.
+These tests exercise the issuing and receiving handlers with success and failure
+replies. Stubs supply an already-decoded value: they do not test `ArticleResponse`,
+`:accept`, retry timing, timeout or supersession. Verify those transport behaviors
+against a controlled server; [the stub reference](../api/re-frame.http.md#testing-without-a-network)
+explains the boundary. [Test a pipeline run](../core/testing/pipeline-runs.md)
+covers the shared fixture and effect overrides.
 
 !!! note "Do, observe"
 
