@@ -43,13 +43,16 @@ Both functions are pure, with no frame, registry or router, and run the same cod
         - `:renders` — a vector of the `:rf.view/render` trace events.
         - `:other` — a vector of everything else: errors, warnings, machine transitions, frame lifecycle, flows. New kinds of trace event also land here, so existing consumers keep working.
     - A slot with no matching trace event in the input stays `nil`, or `[]` for the vector slots. `:event` is `nil` on the `:ungrouped` bundle, and on a run whose `:rf.event/dispatched` event a ring buffer has already dropped.
+    - An empty input returns `[]`. Projection does not reconstruct dropped records: a partial buffer can omit the event vector or causal-parent link, and absence of an error trace is not proof that a run succeeded.
 - **Example**:
   ```clojure
   ;; In a test: collect the raw stream while one event runs, then read its bundle.
   (let [collected (atom [])]
     (rf/register-listener! :trace ::collect #(swap! collected conj %))
-    (rf/dispatch-sync [:todo/add "Buy milk"] {:frame :app/main})
-    (rf/unregister-listener! :trace ::collect)
+    (try
+      (rf/dispatch-sync [:todo/add "Buy milk"] {:frame :app/main})
+      (finally
+        (rf/unregister-listener! :trace ::collect)))
     (let [bundle (->> (projection/group-by-event @collected)
                       (filter #(= [:todo/add "Buy milk"] (:event %)))
                       first)]

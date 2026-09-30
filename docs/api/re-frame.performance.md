@@ -16,12 +16,16 @@ Application code never calls this namespace. Timing is controlled by two compile
 To send the `rf:` measures to an APM, forward them from a `PerformanceObserver`:
 
 ```clojure
-(.observe (js/PerformanceObserver.
-            (fn [entries _]
-              (doseq [e (.getEntries entries)
-                      :when (.startsWith (.-name e) "rf:")]
-                (js/console.log (.-name e) (.-duration e)))))   ;; or send to your APM
-          #js {:type "measure"})
+(def timing-observer
+  (js/PerformanceObserver.
+    (fn [entries _]
+      (doseq [e (.getEntries entries)
+              :when (.startsWith (.-name e) "rf:")]
+        (js/console.log (.-name e) (.-duration e))))))  ;; or send to your APM
+
+(.observe timing-observer #js {:type "measure"})
+;; At teardown, after collecting the measurements you need:
+;; (.disconnect timing-observer)
 ```
 
 [Find and fix a slow view § Only slow in production](../core/how-to/fix-a-slow-view.md#4-only-slow-in-production-the-rf-timing-channel) shows the measures in the DevTools Performance panel and in an APM.
@@ -35,7 +39,8 @@ To send the `rf:` measures to an APM, forward them from a `PerformanceObserver`:
 - **Description**: Turns on the timing measures for event handling, subscription recomputes, fx handlers and view renders. Default `false`.
     - Each measure is emitted as `performance.measure(name, {start, end})`, with numeric `performance.now()` timestamps.
     - The measure is emitted in a `try/finally`, so it is recorded even when the measured code throws; the exception still propagates.
-    - Unless `retain-entries?` is on, the entry is cleared by name (`performance.clearMeasures`) straight after it is emitted. A live `PerformanceObserver` still receives it, because observer callbacks fire when `measure()` is called, before the clear.
+    - Unless `retain-entries?` is on, the entry is cleared by name (`performance.clearMeasures`) straight after it is emitted. An attached `PerformanceObserver` has its own queue and receives the entry asynchronously; clearing the timeline buffer does not clear that queue.
+    - Attach the observer before the work you want to measure. With the default retention setting, attaching later with `buffered: true` cannot recover entries already cleared from the timeline.
     - It is read at compile time only: it is not a `rf/configure!` option, and changing it at runtime has no effect. With the default, every measure site is removed under `:advanced`.
 
 ### `retain-entries?`

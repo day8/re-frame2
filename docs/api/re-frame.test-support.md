@@ -105,8 +105,10 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
 - **Example**:
   ```clojure
   (let [snap (ts/snapshot-registrar)]
-    ;; ... test body registers extra handlers / subs ...
-    (ts/restore-registrar! snap))
+    (try
+      ;; ... test body registers extra handlers / subs ...
+      (finally
+        (ts/restore-registrar! snap))))
   ```
 
 ### `restore-registrar!`
@@ -162,6 +164,7 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
     - JVM: synchronous. Returns the truthy value, or throws `ex-info` on timeout.
     - CLJS: returns a `js/Promise` that resolves with the truthy value or rejects on timeout. A `pred` that returns a `js/Promise` is awaited, and its resolved value is tested. Call it from an `(async done …)` test, whose suite fixture needs `:async? true`.
     - A `pred` that throws counts as falsy, and polling continues, so it can read state that is still mid-change.
+    - A rejected Promise also counts as falsy. The deadline is checked after a falsy probe settles: it does not interrupt a blocking predicate or a Promise that never settles, and a truthy result wins even if it arrives after the deadline. Prefer a quick state read; give any async operation inside the predicate its own timeout.
     - The timeout error carries `:rf.error/id` `:rf.error/poll-until-timeout`, plus `:elapsed-ms` and `:label` in its data.
     - `opts`: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (a string or keyword, shown in the timeout message).
     - On CLJS, handle the rejection before the step that calls `done`, and call `done` once, last. A `.catch` placed after `done` reports a failure from a later namespace against this test and calls `done` a second time.
@@ -188,6 +191,8 @@ Each test's registrations are rolled back afterwards, whether it passes or fails
 ## Recording traces and errors
 
 Both macros bracket a body with a fresh listener: it is registered before the body runs and unregistered in a `finally`, even if the body throws. The records land in an atom bound to the symbol you name, and the macro returns the value of the body's last form.
+
+The listener lasts only for the synchronous body. Returning a Promise does not keep it registered until that Promise settles. Use `dispatch-sync` for a synchronous recording; on the JVM a blocking `poll-until` can keep the body open. For queued CLJS work, collect traces with a [trace listener](re-frame.core.md#register-listener) and unregister it after the async assertion finishes.
 
 On the JVM the macros resolve through the ordinary `(:require [re-frame.test-support :as ts])`. On CLJS the namespace does not self-require its macros (unlike `re-frame.core`), so a CLJS test file also needs `(:require-macros [re-frame.test-support :refer [with-trace-recorder! with-emit-recorder!]])`, or `:as ts` in `:require-macros` for alias-qualified use.
 
