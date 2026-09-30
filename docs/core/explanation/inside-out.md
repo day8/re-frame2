@@ -1,135 +1,139 @@
 # Inside out: why views come last
 
-re-frame2 asks something of you up front. It costs more ceremony than `useState`, and it forbids things React allows, such as keeping state in a component. This page argues that the trade is worth it. The working model is taught in the [Introduction](../introduction.md) and the pages from [Events](../events.md) to [Views](../views.md); you can build apps without reading this.
+re-frame2 puts application state and the code that changes it outside the component
+tree. A view reads the resulting values and dispatches events. This costs more setup
+than a local `useState`, but lets you understand and test a feature without mounting
+its UI. Transient UI mechanics such as focus or animation progress can still stay
+local to a view.
 
-The argument in one sentence: your programming language should be Turing complete, but your architecture shouldn't be. The language you compute in should be able to express anything. The structure your app's behaviour moves through should be deliberately limited, because the limits are what make the app easy to reason about.
+This page explains the tradeoff. The [Introduction](../introduction.md) teaches the
+working model; you can build an app without reading this explanation.
 
 ## The gravity well: ten years of React state management
 
-For about a decade, the React world has organised itself around one centre of mass: the component. State lives in the component, in a `useState`. Data fetching lives in the component, in a `useEffect`. Store subscriptions are a `useSelector` — another hook, in the component. Everything orbits the component.
+A component can own state, fetch data, derive a result and render it. That is
+convenient for a small widget. As several screens need the same state, its ownership
+and update rules become harder to locate: changing a component's lifetime may also
+change when its requests run or when its data disappears.
 
-Many React developers already sense this is a problem, and the history of React state management is a series of attempts to get state out of the component tree. Redux put it in one store, off to the side, updated by pure reducers. The ecosystem then moved much of that back into hooks (`useReducer`, `useContext`, "co-location"), and the libraries that keep state outside components, such as MobX, Zustand, Jotai and signals, are read through hooks inside them, so the component is still where state and rendering meet.
-
-That isn't a failure of taste. The component tree is what the framework can see, so that is where things end up living.
-
-In a mature app you feel the consequence. "Where does this piece of state live?" gets the answer "somewhere in a tree of three hundred components, possibly in four of them, possibly out of sync between two." "What changed it?" means a debugger session.
-
-re-frame, the original library this framework succeeds, kept state out of the component tree from the start.
+re-frame2 gives those concerns separate, named homes. Rendering a view does not
+start a request. An event starts the work, state records its progress, and a view
+shows the result. The same feature can then run in a test, a different view, or an
+SSR request.
 
 ## The inversion: state in one place, views last
 
-State does not live in your views. It lives in one place, and views are the last step of each update rather than the first.
+Each [frame](../frames.md) has one immutable [app-db](../app-db.md) for application
+state. Framework features keep their state beside it in runtime-db. An event
+handler receives state and declared facts, then returns the changes it wants as an
+effect map. Subscriptions derive values from committed state; views consume them.
 
-There is exactly one container of application state: [**app-db**](../glossary.md#app-db), your app's single immutable state map. Something happens — a click, a server reply, a timer fires — and it becomes an [**event**](../glossary.md#event), a small inert vector of data recording that *something happened*. A pure [**event handler**](../glossary.md#event-handler) — a function from the current state plus that event to the next state — computes the new value. [**Subscriptions**](../glossary.md#subscription), pure derivations over app-db, recompute the slices views care about. Then, last of all, [**views**](../glossary.md#view) re-render to match.
+Here is the counter's data path:
 
-There is no "lifting state up", because state was never in the components. A view is a render function from subscription values to [**hiccup**](../glossary.md#hiccup). It doesn't start anything, fetch anything or own anything; it is derived from state.
+```clojure
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _]
+    {:db (update db :count (fnil inc 0))}))
 
-??? info "For JavaScript developers"
+(rf/reg-sub :counter/value
+  (fn [db _] (:count db 0)))
 
-    The **event** is your action object. The **event handler** is your reducer, with effects pulled out of it. The **subscription** is your selector. The **view** is your component with everything except the `return` removed. What is new is that the pieces that normally live inside the component — dispatch wiring, selectors, the data-fetching effect — all move out of it, leaving the component nothing to do but render.
+(rf/reg-view counter []
+  [:button {:on-click #(dispatch [:counter/inc])}
+   @(subscribe [:counter/value])])
+```
 
-??? info "Coming from Redux?"
-
-    Redux moved state into one store and made reducers pure; re-frame2 keeps both. The difference is around the store. In Redux, `useSelector`, `useDispatch` and data-fetching hooks are still called inside the component, so the component is still where state, effects and rendering meet. In re-frame2 subscriptions, effects and the [dispatch](../glossary.md#dispatch) path all live outside the view.
+The button knows which event to send and which value to display. The handler owns
+the increment. The subscription owns the read. Another view can use either without
+sharing the button's component lifetime.
 
 ## Views that decide nothing
 
-Your views hold no state, so they can't get into an odd state of their own. In a typical frontend the most bug-prone code is where state, effects and rendering meet inside components, and re-frame2 moves the state and effects out.
-
-A view that decides nothing can't be the source of a state bug. When the screen is wrong, the cause is in an event handler or a subscription, and those are pure functions you can test with plain data and no DOM.
-
-Here is everything behind the counter from the [Introduction](../introduction.md). A handler receives a [**coeffects**](../glossary.md#coeffect) map — the facts it may see, with the current app-db under `:db` — and returns an [**effect map**](../glossary.md#effect-map) describing what should change, with the next app-db under `:db`. The runtime applies the change.
+Keep business decisions in handlers and subscriptions. A view still makes display
+decisions and wires controls, so it can have bugs, but testing the increment does
+not require testing React:
 
 ```clojure
-;; The event handler: (coeffects, event) → effect map. Pure.
-(rf/reg-event :inc
-  (fn [{:keys [db]} _event]
-    {:db (update db :value inc)}))
+(let [handler (:handler-fn
+                (rf/handler-meta {:source :store :kind :event :id :counter/inc}))]
+  (= {:db {:count 6}} (handler {:db {:count 5}} [:counter/inc])))
+;; => true
 
-;; The subscription: a derivation over app-db. Pure.
-(rf/reg-sub :value
-  (fn [db _query]
-    (:value db 0)))
+(rf/compute-sub [:counter/value] {:count 6})
+;; => 6
 ```
 
-Neither touches the DOM, a clock, the network or a component, so the tests don't need them either:
+When a count is wrong, test the subscription or handler first. When the button sends
+the wrong event, test the view's wiring. [Testing](../testing/index.md) shows both,
+including browser tests for components that need a real DOM.
 
-```clojure
-;; Pull the registered function back out by id, then call it with plain data.
-(deftest inc-adds-one
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :inc}))]
-    (is (= {:db {:value 6}}
-           (handler {:db {:value 5}} [:inc])))))
+<a id="why-your-architecture-shouldnt-be-turing-complete"></a>
+## A fixed pipeline makes effects easier to follow
 
-;; Test the derivation the same way: it's a function of app-db.
-(deftest value-reads-the-count
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :sub :id :value}))]
-    (is (= 6 (handler {:value 6} [:value])))))
-```
+For each event, the runtime assembles inputs, runs the handler, commits state, then
+performs effects. After queued events settle, subscriptions and views update. This
+fixed sequence gives each kind of work a place:
 
-The two functions that decide anything are tested with maps and vectors, and the view, which decides nothing, often needs no test. `rf/handler-meta` reads a registration back by kind and id; its `:handler-fn` is your function as you wrote it. [Test an event handler](../testing/event-handlers.md) covers the pattern in full.
+- Handlers and derivations are pure functions of their inputs.
+- Coeffect suppliers read outside facts, such as the clock or saved storage.
+- Effect handlers perform outside work, such as an HTTP request.
+- Machines express a process's transitions when ordinary event handlers become
+  difficult to coordinate.
 
-??? info "For JavaScript developers"
-
-    In the React version, the increment, the state it changes and the render are one component, so testing the increment means mounting the component and simulating a click. Here the logic is a plain function registered under a name, so the test is a function call with two literals.
-
-## Why your architecture shouldn't be Turing complete
-
-ClojureScript is Turing complete, and inside a handler you can compute anything. The architecture is not a free-for-all: every event goes through one small, fixed pipeline, the same way every time. That fixed sequence is the [**event pipeline**](../glossary.md#event-pipeline): for each event, [assemble](../glossary.md#assemble) → [transform](../glossary.md#transform) → [commit](../glossary.md#commit) → [perform](../glossary.md#perform), then, once the queue settles, [derive](../glossary.md#derive) → [render](../glossary.md#render). One pass through it is a [**pipeline run**](../glossary.md#run).
-
-A constrained execution model is easier to reason about, because each constraint removes something a reader, human or AI, would otherwise have to simulate. re-frame2 has five:
-
-- **Discrete events.** The app advances one event at a time. Events don't suspend or interleave, and a state update lands in one [commit](../glossary.md#commit) — so *between* events the app is in exactly one well-defined state, schema-checkable as a whole. (This is why there's no "torn read": no observer ever catches app-db half-written.)
-- **A fixed pipeline.** Every event goes through the stages above, in that order. Stages can't be skipped, reordered or added at runtime, so there is no hidden control flow to chase.
-- **Purity within each stage.** Inside a stage the host language is Turing-complete but harnessed: handlers are pure `(coeffects, event) → effect map`, derivations are pure `state → value`, data is immutable, and neither time nor place reaches in — the world arrives only as declared [coeffects](../glossary.md#coeffect) and leaves only as described [effects](../glossary.md#effect). A pure function's behaviour is fixed by its arguments alone, which is exactly why the counter above tested in two lines.
-- **State machines as a sub-pattern.** When a handler's own logic has the shape of a finite-state machine — modal flows, multi-step lifecycles — a [**machine**](../../machines/glossary.md#machine) expresses it as a transition table, driven by events through the same pipeline and drain as the rest of the app. (See [State machines](../../machines/concepts.md).)
-- **Declarative data DSLs.** What gets done is described as data — events, effect maps, hiccup, transition tables, schemas — and the runtime carries it out. A tool can read your app's behaviour without executing it.
-
-??? note "Going deeper"
-
-    Each constraint depends on the one before it. Discrete events are what let a state be well-defined enough to schema-check; the fixed pipeline is the sequence those discrete states move through; purity makes each step a function rather than something that happens in time; and data DSLs make the whole thing inspectable from outside. Data DSLs, as opposed to string DSLs, can be composed, diffed, linted and round-tripped with no parse step, which is what lets a tool read behaviour without running it. Dijkstra described the underlying bet: *"Our intellectual powers are rather geared to master static relations and our powers to visualise processes evolving in time are relatively poorly developed."* The constraints turn processes in time into static relations you can read.
+The runtime can inspect declared inputs, registrations and transition tables
+without executing their functions. It cannot statically predict arbitrary handler
+code, every possible write, or every event sequence. The benefit is an explicit
+structure to inspect, not a proof that the whole application is decidable.
 
 ## The ceremony is real
 
-A counter in plain React is a `useState` and an `onClick`, a few lines. The re-frame2 counter in the [Introduction](../introduction.md) is about twice that: two event registrations, a subscription, a view, and a seed event that puts the initial value into app-db at startup.
+The counter needs a handler, subscription, view and initial state. A standalone
+counter may need only local component state. The extra names become useful when
+multiple views share data, a server reply updates it, or a test must reproduce a
+reported bug.
 
-!!! note "If your whole app is a counter, use `useState`"
+Choose storage per value. Shared application facts belong in app-db; a derived
+value usually belongs in a subscription. A flow stores a derivation that handlers
+need, a resource manages cached server data, and a machine coordinates a process.
+[Where should this value live?](../where-state-lives.md) makes the choice concrete.
 
-    At counter scale the ceremony is overhead, and the simpler tool is the right one.
+<a id="the-bounded-cost-claim"></a>
+## Follow the feature's inputs and writers
 
-    Inside a re-frame2 app the choice is per value. A value goes in app-db by default, and must if a handler, subscription, schema or tool reads it. Only transient UI mechanics that nothing else reads, such as uncommitted IME composition, focus or hover, and animation interpolation, may stay local to the view. ([Where should this value live?](../where-state-lives.md) covers the choice between app-db and the other homes.)
+To change a feature, start with its events, the paths they write, and the
+subscriptions its views read. Namespaced ids and declared dependencies make those
+relationships searchable. Shared invariants and dynamically constructed paths can
+still require reading neighbouring features; the architecture does not remove
+those dependencies.
 
-The ceremony is a fixed cost per feature. It pays for itself as the app grows.
-
-## The bounded-cost claim
-
-The cost of adding a feature is bounded by the size of the feature, not the size of the app.
-
-Most codebases age the other way. In a typical app, adding a feature means first reading a large fraction of the existing code: which components own the relevant state, which effects might fire, what will break. In a re-frame2 app you read the events, the subscriptions and the view that touch the area you're changing, and that is enough, because the relevant logic has nowhere else to be.
-
-State lives only in [app-db](../app-db.md) and changes only through registered event handlers, so the set of things that can change your feature's state is exactly the handlers that write that path, and a grep finds all of them. No component three screens away can reach into the same `useState` through a context provider, because there is no such mechanism. "What can change this?" has a finite, searchable answer.
-
-For that to hold, a mistake must be visible. re-frame2 [fails loud](../glossary.md#fail-loud-not-silent): when it can't act on something, it raises a structured [error record](../glossary.md#error-record) with an `:rf.error/*` id instead of returning `nil` or doing nothing. Dispatch an id nobody registered and you get `:rf.error/no-such-handler`, naming the id. Return an effect map with a stray top-level key and you get `:rf.error/effect-map-shape`, and the whole event is refused, so no half-applied write is left behind. A typo surfaces as a named error rather than a hidden place where state lives. [Errors](../errors.md) shows how to read these records.
-
-??? note "Going deeper"
-
-    The enumerability comes from the constraints; you don't maintain it. In an architecture where any code holding a reference can write through it, the set of writers to a piece of state is in general undecidable, because aliasing makes "who can reach this?" unanswerable by search. Restricting writes to one mechanism (registered handlers) on one container (app-db) turns that into a finite, searchable list. The five constraints above make the same trade throughout: give up expressive power you weren't using in exchange for a decidable answer to a question you ask often.
+Structured errors help find broken wiring. A missing event registration emits
+`:rf.error/no-such-handler` and skips that event. An unknown top-level effect-map
+key rejects the event before committing. The [Errors](../errors.md) guide explains
+which failures abort a run and which allow later work to continue.
 
 ## One impure spot, one wire
 
-Handlers don't perform effects — the work that touches the outside world, such as an HTTP call or a write to storage. They return descriptions of effects as data in the [effect map](../glossary.md#effect-map)'s `:fx` vector, and the runtime performs them at one known point in the pipeline.
+An event handler describes outgoing work in `:fx`; effect handlers perform it after
+the state commit. Incoming facts come from coeffect suppliers before the handler.
+These boundaries make tests straightforward: supply the facts, run the handler,
+and inspect or stub the requested effects.
 
-Because effects happen in one place and are data first, one stream can record the whole application: every event, every effect, every state change, on the [trace stream](../glossary.md#trace-stream). That stream is what makes [time-travel](../glossary.md#time-travel) debugging possible: step the app backwards, replay the run that broke, or attach an AI pair-programmer to the running application. The [Xray](../glossary.md#xray) inspector, scenario replay and the pair server all read the same stream, so they agree.
+In development, the trace stream and optional epoch history connect an event with
+its changes, effects and later renders. [Xray](../../xray/index.md) and other tools
+read those records. [Observability](../observability.md) covers the model and its
+limits:
 
-This answers the question from the start of the page, "what changed this piece of state?" Every state change came from one event, and that event is recorded with its id, its arguments, the effects it produced, and the db before and after. Finding the cause means finding the last event that wrote the path. Each run also leaves one [**epoch**](../glossary.md#epoch), the before/after record Xray steps through. [Observability](../observability.md) covers the tools.
-
-The stream has two limits:
-
-1. The detailed trace is [elided](../glossary.md#elide) from production. It sits behind a `goog.DEBUG` gate (on the JVM, the `re-frame.debug` system property), which the Closure compiler removes in `:advanced` builds. Production keeps a smaller channel, the always-on `:observability` sink routes for handled events and errors, so you learn that an event ran and whether it failed, without db snapshots, render arguments or derivation values. Build production monitoring on the sink routes.
-2. Rewinding stops at the effect boundary. The framework can rewind its own state, but it can't un-send an HTTP request; the outside world can only be compensated.
+- Production builds omit detailed traces and history. Use observability sinks for
+  handled-event metrics and errors.
+- Restoring an epoch installs saved state without running handlers. Replaying an
+  event runs current code and may perform its effects again.
+- Rewinding state cannot undo an HTTP request or a storage write. External work
+  needs its own cancellation or compensation.
 
 ## When not to use it
 
-re-frame2 is pre-alpha, and its contracts are still settling.
-
-The architecture also has a floor. A static content site, a single embedded widget or a throwaway prototype won't outgrow ad-hoc callbacks, so the event pipeline won't pay for itself. And if your team prefers component-local state, re-frame2 will work against that preference throughout.
+re-frame2 is pre-alpha and its contracts are still settling. A static page, a small
+isolated widget or a throwaway prototype may gain little from its event pipeline.
+For an application with shared state and coordinated async work, the useful question
+is whether explicit events and dependencies make your next change easier to reason
+about.

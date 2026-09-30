@@ -2,7 +2,7 @@
 
 A [view](../glossary.md#view) returns [hiccup](../glossary.md#hiccup), which is plain data, so a view test is a function call and a tree walk. It checks what the view is responsible for: the structure it returns, the text it shows for a given state, and which event each control dispatches.
 
-Most wrong screens are data bugs: a view holds no state and decides nothing, so the cause is usually upstream. If the assertion is really "the filter is right" or "the count is correct", write a [subscription test](subscriptions.md); if it is "the state changed correctly", write a [handler test](event-handlers.md). Write a view test for the view's own structure, text and wiring. Many views need none.
+Many wrong screens are data bugs whose cause is upstream of the view. If the assertion is really "the filter is right" or "the count is correct", write a [subscription test](subscriptions.md); if it is "the state changed correctly", write a [handler test](event-handlers.md). Write a view test for the view's own structure, text and wiring. Many views need none.
 
 Sections 1–3 test the todo views from [Views](../views.md), which are `reg-view`s you can call as functions. A UIx `defui` that calls `use-sub` or `use-frame` is a React hook component and has to be mounted in a browser; [section 4](#4-uix-hook-components-mount-it-for-real) has that recipe.
 

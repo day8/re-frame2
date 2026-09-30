@@ -24,7 +24,8 @@ A page reload throws away app-db, so the session also lives in `localStorage`. G
 (rf/reg-fx :auth.session/persist
   {:doc       "Persist the session — a truthy :token and the identity it stands for
                — or clear it (nil :token)."
-   :platforms #{:client}}
+   :platforms #{:client}
+   :sensitive [[:token]]}
   (fn [_frame-ctx {:keys [token user]}]
     (when-let [ls (.-localStorage js/globalThis)]
       (if token
@@ -43,27 +44,31 @@ A page reload throws away app-db, so the session also lives in `localStorage`. G
 
 !!! note "A `localStorage` token is readable by any script on your page"
 
-    If XSS is in your threat model, use an http-only cookie and drop this effect. The rest of the recipe is unchanged, because the slice, the guard, and the teardown only read the credential back from app-db.
+    With an http-only cookie, the browser sends the credential and JavaScript cannot read it. Omit token storage and the bearer-header decorator, load the user from a session endpoint at boot, and call a server logout endpoint to clear the cookie. The route guard can still read `[:auth :user]`; while that boot request is pending, use the restoring-session branch described below.
 
 ### Read the saved session back at boot
 
 Without a boot read, every refresh logs the user out. An [event handler](../glossary.md#event-handler) is pure, so it can't read `localStorage` itself. It declares the saved session as a [coeffect](../glossary.md#coeffect) under `:rf.cofx/requires`, and the framework supplies the value before the handler runs ([Coeffects](../coeffects.md)).
 
-Make it a [recordable](../glossary.md#recordable-vs-ambient-coeffects) coeffect: the saved session feeds durable `[:auth …]` state, so its value must be captured once and replayed verbatim, rather than re-read from whatever `localStorage` holds when an epoch is restored. The supplier is a plain function that does the storage read; it runs once, at the start of the boot dispatch, and its value is recorded:
+Make it a [recordable](../glossary.md#recordable-vs-ambient-coeffects) coeffect because it feeds durable state, and classify its token at the supplier. The live handler receives the real session; trace capture redacts the token. This boot event cannot then be replayed from an epoch: strict replay refuses the incomplete input. A test supplies a fake session explicitly instead of reading storage.
 
 ```clojure
 (rf/reg-cofx :auth.session/saved
   {:recordable? true
-   :doc "The saved session {:token … :user …}, or nil when nobody is signed in
-         or the host has no localStorage."}
+   :sensitive [[:token]]
+   :doc "The saved session {:token … :user …}, or nil when unavailable."}
   (fn []
-    (some-> (.-localStorage js/globalThis)
-            (.getItem "auth-session")
-            js/JSON.parse
-            (js->clj :keywordize-keys true))))
+    (try
+      (let [saved (some-> (.-localStorage js/globalThis)
+                          (.getItem "auth-session")
+                          js/JSON.parse
+                          (js->clj :keywordize-keys true))]
+        (when (and (map? saved) (string? (:token saved)) (map? (:user saved)))
+          {:token (:token saved) :user (dissoc (:user saved) :token)}))
+      (catch :default _ nil))))
 ```
 
-The init event in step 4 declares this coeffect and folds the saved session into the slice. In a test, a dispatch-site `{:rf.cofx {:auth.session/saved {…}}}` overrides the supplier, so you can pin an exact session without touching storage.
+Unreadable storage, malformed JSON and an old session shape return `nil`, so boot starts logged out rather than aborting frame creation. The init event in step 4 declares this coeffect and folds the saved session into the slice. In a test, a dispatch-site `{:rf.cofx {:auth.session/saved {…}}}` overrides the supplier, so you can pin an exact session without touching storage.
 
 ??? note "Why a supplier rather than a provided value"
 
@@ -71,7 +76,7 @@ The init event in step 4 declares this coeffect and folds the saved session into
 
 ### Keep the secret out of traces
 
-The token is a credential, so the init event in step 4 also returns a `:sensitive` [classification](../glossary.md#data-classification) effect for `[:auth :token]`. The raw token then never appears in traces, [Xray](../glossary.md#xray) captures, or SSR payloads, while your handlers still see the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
+The token is a credential, so the init event in step 4 also returns a `:sensitive` [classification](../glossary.md#data-classification) effect for `[:auth :token]`. That classification covers app-db projections; the coeffect and persistence effect above classify their own copies, and the reply event below classifies its payload. Handlers still receive the real value. Raw local epoch snapshots retain app-db for restoration, so project them before forwarding ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
 !!! note "If your API hands out a token and nothing else"
 

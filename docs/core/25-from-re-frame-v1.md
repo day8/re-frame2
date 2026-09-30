@@ -82,7 +82,7 @@ Some v1 code requires `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-fra
 
 ### Effect-map shape
 
-The top-level `:dispatch`, `:dispatch-later` and `:dispatch-n` keys move into the `:fx` vector of `[fx-id args]` [effects](glossary.md#effect); `:db` is unchanged. [Effects](effects.md) describes the shape.
+Move top-level `:dispatch` and `:dispatch-later` into the `:fx` vector of `[fx-id args]` [effects](glossary.md#effect). Replace `:dispatch-n` with one `[:dispatch event]` entry per event; there is no `:dispatch-n` effect. `:db` is unchanged. [Effects](effects.md) describes the shape.
 
 !!! warning "Gotcha — `:dispatch` is the one place *timing* changes"
 
@@ -178,6 +178,8 @@ Fix it at the root: create a frame and scope the view tree to it. The usual form
 ;; (:require [re-frame.core :as rf]
 ;;           [re-frame.adapter.reagent :as reagent-adapter])
 
+(rf/init! reagent-adapter/adapter)
+
 ;; Preferred: named seed event(s) on frame-root.
 ;; `app-root` is the client-root handle; `todo-app` is your root view.
 (defonce app-root (reagent-adapter/client-root))
@@ -247,7 +249,7 @@ Two fixes that look plausible still raise the same error. Wrapping the returned 
 
 v2 treats a **path**, a vector addressing a value for `get-in` / `assoc-in`, as a framework-wide concept ([app-db](app-db.md)). Existing vector paths work unchanged. Three points:
 
-- **Stored paths are vectors.** Where v2 stores a path for you (a flow's `:output-path`, a named declaration), a list or seq you passed comes back as the equivalent vector.
+- **Pass paths as vectors.** Flow inputs and outputs, schema paths and the `path` interceptor validate that shape. Convert a list or lazy sequence with `vec` before passing it; do not rely on coercion.
 - **Replace hand-built cache keys.** Code that built cache-key strings — `(str "user-" id "-" tab)`, `pr-str` of a params map, a hash of a query — should use the **scoped resource key**, `[cache-scope resource-id canonical-params]`, which [resources](../resources/concepts.md) use. Two reads share a cache entry only when the whole key matches: the same [resource](../resources/glossary.md#resource) id, the same [scope](../resources/glossary.md#scope) and the same params (key order doesn't matter). Don't migrate a params-only key as if params alone were the identity; including the scope is what keeps per-user and per-tenant caches apart.
 - **Choose between `nil` and missing.** v2 treats an absent key and a key whose value is `nil` as different identities. Code that treated them the same should pick one deliberately, with a `:params-schema` or a sentinel value.
 
@@ -259,7 +261,7 @@ There is no automated rewrite for cache keys; the skill flags hand-built keys fo
 
 ## Ambient world reads in durable handlers
 
-[Time-travel](glossary.md#time-travel) ([Observability](observability.md)) depends on replaying the recorded events to rebuild the same app-db. That works only if each handler's result depends on its recorded inputs and nothing else.
+[Restoring an epoch](glossary.md#time-travel) installs its saved state without running handlers. Replaying a recorded event runs its handler again, and reproduces the result only when that handler depends on its recorded inputs and nothing else ([Observability](observability.md)).
 
 v1 let a handler read the outside world and write the result into state: `(js/Date.)` for `:created-at`, `(random-uuid)` for an id, a `:now` cofx injected by interceptor, a boot handler reading `localStorage` to seed a session. None of those gives the same answer on replay, and v1 code does this often.
 
@@ -342,7 +344,7 @@ The rewrite is Type B. The mapping is `(rf/on-changes f out-path & in-paths)` �
 
 A v1 app registers everything at namespace load with `reg-*` into one process-global [registrar](glossary.md#registrar). v2 keeps that: `reg-*` still registers, and a frame made without further options uses those global registrations. The migration doesn't change how you register, except that an id registered from two namespaces is an error rather than last-write-wins (see the table above).
 
-Images are for structure v1 didn't have. An [**image**](glossary.md#image) (`rf/image`) is a value naming a set of registrations, selected from loaded namespaces (`:select-ns`) or listed inline (`:registrations`). A [**frame**](glossary.md#frame) (`rf/make-frame`) built from images runs the resolved set of registrations those images produce, called a **generation**, with its own app state, subscription cache and adapter. Use them to package a feature as a unit, or for per-tenant or multi-frame setups. They are not a migration step.
+Images are for structure v1 didn't have. An [**image**](glossary.md#image) (`rf/image`) is a value naming a set of registrations, selected from loaded namespaces (`:select-ns`) or listed inline (`:registrations`). A [**frame**](glossary.md#frame) (`rf/make-frame`) built from images runs the resolved set of registrations those images produce, called a **generation**, with its own app state, queue and subscription cache. Rendering uses the process-wide adapter installed by `init!`. Use them to package a feature as a unit, or for per-tenant or multi-frame setups. They are not a migration step.
 
 ??? note "Going deeper — build isolated contexts from images"
 

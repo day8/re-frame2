@@ -1,136 +1,119 @@
 # Report errors in production
 
-This recipe sends production failures to an error monitor such as Sentry, with the context needed to act on them. A production build [elides](../glossary.md#elide) the dev-time [trace stream](../glossary.md#trace-stream) and [epoch](../glossary.md#epoch) history, but the error stream stays on in every build. For each failure it covers, it builds one [error record](../glossary.md#error-record) carrying:
+Send runtime failures to an error monitor through an observability sink. The error
+stream stays on in production even though detailed traces and epoch history are
+[elided](../glossary.md#elide). Each record names the error category, the event and
+frame when known, and the host exception when there is one.
 
-- the [event](../glossary.md#event) that was being handled;
-- the [frame](../glossary.md#frame) it ran in;
-- the host exception, with its stack, when there is one.
+This recipe registers a Sentry bridge, declares its delivery policy, then adds
+handled-event metrics. The same sink shape works with another monitor.
 
-The record reaches your monitor through a frame `:observability` sink. The frame declares which sink handles its errors and under which egress profile, and the runtime passes the sink an already-projected record: paths your app classified as sensitive arrive redacted and large values elided, so your integration scrubs nothing. The steps below register the sink, keep it out of dev builds, handle every record shape, and add event metrics.
-
-The error stream covers the event pipeline, subscriptions and flows, not client-side rendering. A view that throws while rendering surfaces as an uncaught React error, which the global handler that `Sentry.init` installs picks up with no event or frame attached. In Fresco, an error boundary's `:on-error` can turn the failure into an event of your own ([Errors](../fresco/17-errors.md)).
-
-??? info "Coming from plain JavaScript?"
-
-    `Sentry.init` plus `window.onerror` gives you the exception and its stack, but not what the app was doing. The error record carries the event being handled alongside the throwable, so the issue shows the cause as well as the crash site.
+The stream covers the event pipeline, subscriptions and flows. Client rendering
+errors need the view layer's error boundary or your monitor's browser integration;
+Fresco can dispatch from a boundary's `:on-error`
+([Errors](../fresco/17-errors.md)).
 
 ## 1. Declare the policy, register the sink
 
-The frame names the sink that takes its error records, and you register the function behind that name:
-
-```clojure
-(ns app.monitoring
-  (:require ["@sentry/browser" :as Sentry]
-            [re-frame.core :as rf]))
-
-(defn init! []
-  (Sentry/init #js {:dsn "https://...@sentry.io/..."})
-
-  ;; (a) the frame's policy: which sink id takes its errors, under which profile
-  (rf/make-frame
-    {:id :app
-     :observability {:errors [{:sink :app.sinks/sentry
-                               :rf.egress/profile :rf.egress/off-box-observability}]}})
-
-  ;; (b) the concrete sink fn, bound to that id
-  (rf/register-observability-sink! :app.sinks/sentry
-    (fn [record]                                ;; already projected — nothing to scrub
-      (Sentry/captureException (:exception record)))))
-```
-
-Call `init!` once at boot, after `rf/init!`. If your app creates its frame with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put the `:observability` key in the `frame-root` options instead of calling `make-frame`, or declare it once for every frame as shown below.
-
-`:observability` is a policy, not a callback: `:errors` lists the sink ids that receive this frame's error records, and each entry's `:rf.egress/profile` decides how much of the record survives projection ([step 4](#4-choose-the-profile-and-know-what-survives-elision)). `register-observability-sink!` binds a function to the id and returns the id. Registering the same id again replaces it, and a sink that throws doesn't affect other sinks.
-
-Routing fails closed: with no policy in reach, nothing is sent anywhere, and no default frame is invented for you. An entry naming a sink id you never registered sends nothing either.
-
-This bridge works but has three problems, fixed in the steps below: it also runs in dev, it assumes every record has an `:exception`, and it sends nothing about what the app was doing.
-
-Don't build a monitor on `register-listener! :trace` instead. The trace stream is elided from production builds, so such a monitor works on your laptop and sends nothing in production.
-
-### Declare it once for the whole process
-
-Sentry belongs to the deployment rather than to one frame, and most apps have more than one frame, so declare the policy once at boot and let every frame inherit it:
-
-```clojure
-  ;; instead of repeating it on every make-frame
-  (rf/configure! {:observability {:errors [{:sink :app.sinks/sentry
-                                            :rf.egress/profile :rf.egress/off-box-observability}]}})
-```
-
-A frame then needs its own `:observability` only when it differs. Inheritance is per stream: a frame that declares `:errors` uses its own error entries and still inherits the default's `:handled-events`, and `{:errors []}` opts one frame out. Only one source is consulted per record, so a sink listed in both fires once. A frame inherits the sink list only; its records are still projected under its own classification, so an admin frame that classifies more paths redacts more while sharing the same Sentry entry.
-
-The process default also receives the records no frame owns, such as an error raised with no frame in scope ([Records no frame owns](#records-no-frame-owns)).
-
-`(rf/configure! {:observability nil})` clears the default. The policy is checked when you call `configure!`: a malformed one throws `:rf.error/bad-frame-classification` immediately.
-
-??? info "From re-frame v1"
-
-    v1 had no production error stream; monitoring meant wrapping `dispatch` or relying on `window.onerror`. In re-frame2 the frame `:observability` sink and the process default both stay in production builds. `register-listener!` is a separate, dev-only function that accepts only `:trace` and `:epoch`; any other stream [fails loud](../glossary.md#fail-loud-not-silent) with `:rf.error/unknown-listener-stream`.
-
-??? info "Coming from Redux?"
-
-    The nearest equivalent is crash-reporting middleware added once with `applyMiddleware`, except that this sink sits outside the data path. It observes failures and cannot swallow, retry, or rewrite anything ([step 4](#4-choose-the-profile-and-know-what-survives-elision)).
-
-## 2. Gate it so it can't fire in dev
-
-The error stream is on in dev too, so the sink from step 1 would send to your real Sentry project every time something throws while you develop. Register the sink function only in a production build, behind your own build flag:
+A sink has two parts: a function registered under an id, and a policy naming that
+id as a destination. Install both before creating the app's frame, so boot errors
+are observed too:
 
 ```clojure
 (ns app.monitoring
   (:require ["@sentry/browser" :as Sentry]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
             [app.config :as config]))
 
+(defn report-error! [record]
+  (let [context (clj->js {:tags {:category (str (:error record))
+                                :event-id (str (:event-id record))
+                                :frame (str (:frame record))}
+                         :extra {:elapsed-ms (:elapsed-ms record)}})]
+    (if-let [exception (:exception record)]
+      (Sentry/captureException exception context)
+      (Sentry/captureMessage (str (:error record)) context))))
+
 (defn init! []
-  (when (and config/production?                        ;; your own build flag
-             (not ^boolean interop/debug-enabled?)     ;; belt-and-braces
-             config/sentry-dsn)                        ;; no DSN, no bridge
+  (rf/configure!
+    {:observability
+     {:errors [{:sink :app.sinks/sentry
+                :rf.egress/profile :rf.egress/off-box-observability}]}})
+  (when (and config/production? config/sentry-dsn)
     (Sentry/init #js {:dsn config/sentry-dsn})
-    (rf/register-observability-sink! :app.sinks/sentry
-      (fn [record]
-        (Sentry/captureException (:exception record))))))
+    (rf/register-observability-sink! :app.sinks/sentry report-error!)))
 ```
 
-The three conditions:
+`config/production?` and `config/sentry-dsn` are application settings. Call this
+`init!` during boot before mounting `frame-root` or calling `make-frame`
+([Boot and mount an app](boot-and-mount-an-app.md)). The sink receives a projected
+record, so declared sensitive paths are already redacted. The exception itself is
+passed through under this profile; [step 4](#4-choose-the-profile-and-know-what-survives-elision)
+explains that boundary.
 
-- `config/production?` is your own build flag. It is what keeps the bridge out of dev, because the error stream doesn't turn itself off.
-- `(not ^boolean interop/debug-enabled?)` catches a dev bundle deployed with production config: the sink doesn't register, and the silence on your dashboard tells you something is wrong. (`^boolean` is a type hint that lets the compiler fold the check away.)
-- `config/sentry-dsn`: without a DSN there is nothing to send to.
+Both branches matter: a thrown handler supplies an exception; an unknown event id
+produces a structured refusal without one. This bridge reports either.
 
-Keep the `:observability` policy from step 1 declared unconditionally; gate only the sink function. In a dev build the policy then names no registered sink, and the framework prints the record to the console instead, which is what you want while developing.
+### Declare it once for the whole process
 
-Registering the same id again replaces the sink, so hot reload doesn't stack duplicates. Each sink call is wrapped in its own try/catch, so a bug in your bridge can't block the [pipeline run](../glossary.md#run) or other sinks. To remove the bridge, for example when a feature flag turns off, call `(rf/unregister-observability-sink! :app.sinks/sentry)`.
+The `configure!` policy above is inherited by every frame. A frame needs its own
+`:observability` only when it differs:
+
+```clojure
+;; This frame opts out of error forwarding but still inherits handled-event sinks.
+[rf/frame-root {:id :preview :observability {:errors []}}
+ [preview-view]]
+```
+
+Inheritance is per stream. A frame's `:errors` replaces the process error list;
+when absent, the process list applies. A sink listed at both levels receives the
+record once. Each frame's classification still governs its records.
+
+The process default also receives [records no frame owns](#records-no-frame-owns).
+`(rf/configure! {:observability nil})` clears it. A malformed policy throws
+`:rf.error/bad-frame-classification` when configured.
+
+## 2. Gate it so it can't fire in dev
+
+The error stream works in development too. The `when` in `init!` registers the
+remote sink only when your application selects a production deployment and supplies
+a DSN. Keep the policy declared in development; with no matching registered sink,
+the framework reports errors to the console.
+
+Registering the same sink id again replaces its function, so hot reload does not
+stack callbacks. A throwing sink cannot block the event or another sink. Remove it
+with `(rf/unregister-observability-sink! :app.sinks/sentry)`, for example when a
+feature flag turns forwarding off.
+
+Use `register-observability-sink!` for production monitoring. A
+`register-listener! :trace` callback stops receiving records in production because
+that stream is compiled out.
 
 ## 3. Branch on the category, never the prose
 
-Records don't all have the same shape, and not all of them carry an `:exception`. Tell them apart by `(:error record)`, a category keyword such as `:rf.error/handler-exception`, never by the message text, which may change between releases. Projection passes `:error` through untouched, along with the other summary slots: `:frame`, `:event-id`, `:elapsed-ms`, `:time`, and `:correlation`.
+Group and filter on `(:error record)`, such as `:rf.error/handler-exception`.
+Human-readable messages may change. The bridge keeps the category, event id and
+frame as tags even when there is no exception.
 
-Check whether `:exception` is present rather than assuming it. With an exception, send it as one; without, send a message:
-
-```clojure
-(rf/register-observability-sink! :app.sinks/sentry
-  (fn [record]
-    (let [ctx (clj->js {:tags  {:category (str (:error record))
-                                :event-id (str (:event-id record))
-                                :frame    (str (:frame record))}
-                        :extra {:event      (pr-str (:event record))
-                                :elapsed-ms (:elapsed-ms record)}})]
-      (if-let [ex (:exception record)]
-        (Sentry/captureException ex ctx)
-        (Sentry/captureMessage (str (:error record)) ctx)))))
-```
-
-The records without a throwable are the invalid-operation categories, raised when the runtime refuses an operation rather than something throwing: `:rf.error/no-such-handler` for an unregistered event, `:rf.error/frame-destroyed` for a callback that fires after teardown, and `:rf.error/no-frame-context` for a dispatch with no frame in scope (only the process default receives that one; see [Records no frame owns](#records-no-frame-owns)). They are kept in release builds and arrive with `:exception nil`, so the `if-let` sends them through `captureMessage`. The [error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue) lists them all.
+Invalid operations such as `:rf.error/no-such-handler`, `:rf.error/frame-destroyed`
+and `:rf.error/no-frame-context` are reported in release builds too. The last has
+no owning frame, so only the process default receives it. See
+[Errors](../errors.md) for recovery behaviour and the
+[API reference](../../api/README.md#errors) for per-operation contracts.
 
 !!! note "Records that name the failing component"
 
-    For `:rf.error/interceptor-exception` (an [interceptor](../glossary.md#interceptor) threw) and `:rf.error/coeffect-exception` (a [coeffect](../glossary.md#coeffect) supplier threw), `:event-id` names the dispatched event, but the broken component is something else. The record names it in `:failing-id`, with its `:source-coord` definition site, at the top level; the human-readable `:reason` is under `:tags`. Group on `:failing-id` to see one interceptor failing across many events.
+    For `:rf.error/interceptor-exception` and `:rf.error/coeffect-exception`,
+    `:event-id` names the dispatched event. `:failing-id` names the interceptor or
+    supplier that broke; use it to group one component failing across many events.
+    Source coordinates are available in development.
 
 ### Don't scrub the `:event` yourself
 
-The record arrives already projected under the frame's classification and the entry's egress profile: sensitive paths arrive as `:rf/redacted`, and large payloads as a `:rf.size/large-elided` marker ([Keep secrets out of traces](keep-secrets-out-of-traces.md)). The `:exception` doesn't get that treatment under the default profile; [step 4](#4-choose-the-profile-and-know-what-survives-elision) covers when to change that.
+The default off-box profile omits the event vector. Use the retained event id for
+attribution; do not re-read raw state or event arguments to fill the gap. When
+forwarding a record yourself outside the sink mechanism, apply
+[`project-egress`](../../api/re-frame.core.md#project-egress) first.
 
 ## 4. Choose the profile, and know what survives elision
 
@@ -139,7 +122,7 @@ The `:rf.egress/profile` on each `:observability` entry decides whether your sin
 - **`:rf.egress/off-box-observability`** is the default when you omit the key. It redacts sensitive paths and elides large ones, and passes the `:exception` through, since the stack is the point of hosted monitoring.
 - **`:rf.egress/public-error`** drops the record's top-level `:exception`. Use it when the destination is less trusted than your APM.
 
-An unknown profile throws `:rf.error/unknown-egress-profile`.
+An unknown profile in a sink policy throws `:rf.error/bad-frame-classification` when the policy is configured. An unknown profile passed directly to `project-egress` throws `:rf.error/unknown-egress-profile`.
 
 Under the default profile, a secret in an exception's message or `ex-data` is not redacted, because the projector can't see inside a throwable. `:rf.egress/public-error` removes the record's own top-level `:exception` only.
 
@@ -172,7 +155,7 @@ Then trigger a few failures; each record prints synchronously:
 
 - **A handler that throws.** You get `:rf.error/handler-exception` with `:has-exception? true`.
 - **An unregistered event.** Dispatch an event id nothing is registered under. You get `:rf.error/no-such-handler` with `:has-exception? false`.
-- **A secret in the event.** Register the throwing handler with `{:sensitive [[:password]]}` and dispatch it with a `:password` in its arg-map. In the printed `:event`, the password reads `:rf/redacted`, because the record was projected before your sink saw it.
+- **A secret in the event.** Register the throwing handler with `{:sensitive [[:password]]}` and dispatch it with a `:password` in its arg-map. Under the off-box profile the entire `:event` is omitted, so the printed value is `nil`; the event id remains available. Check a projected trace in Xray to see the individual password marker.
 
 The same failure also appears in Xray with the full dev trace, so you can compare what dev shows with what production keeps.
 
@@ -181,14 +164,13 @@ The same failure also appears in Xray with the full dev trace, so you can compar
 The `:handled-events` stream answers the other production question: how many events you process, how fast, and how many fail. It delivers one record per processed event after its run settles, declared in the same frame policy:
 
 ```clojure
-(rf/make-frame
-  {:id :app
-   :observability {:errors         [{:sink :app.sinks/sentry
+(rf/configure!
+  {:observability {:errors         [{:sink :app.sinks/sentry
                                      :rf.egress/profile :rf.egress/off-box-observability}]
                    :handled-events [{:sink :app.sinks/metrics
                                      :rf.egress/profile :rf.egress/off-box-observability}]}})
 
-(when (and config/production? (not ^boolean interop/debug-enabled?))
+(when config/production?
   (rf/register-observability-sink! :app.sinks/metrics
     (fn [{:keys [event-id frame status elapsed-ms]}]
       ;; ship one timing/throughput point per processed event
@@ -200,13 +182,15 @@ The `:handled-events` stream answers the other production question: how many eve
 
     The handled-event record carries the dispatch result under `:status`, on every profile; destructure that key, since `(name nil)` on a missing one throws. It has no `:time` key, so stamp your own clock; error records do have `:time`.
 
-`:status` takes one of five values, so a run that failed is never reported as `:ok`:
+`:status` describes whether the event pipeline reached its commit and effect walk. It takes one of five values:
 
 - `:ok` — clean settle: `:db` [committed](../glossary.md#commit), flows ran, `:fx` walked.
 - `:error` — the interceptor chain (handler or interceptor) threw; the run halted before any `:db` commit.
 - `:rejected` — a `:boundary? true` handler's `:schema` refused the event's payload, so the handler never ran.
-- `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; flows and `:fx` were skipped.
+- `:rolled-back` — `:db` schema validation rejected the candidate state before it installed, so the container kept its pre-handler value; computed flow outputs were discarded and `:fx` was skipped.
 - `:flow-error` — a flow's derive function threw; the run halted before `:fx`.
+
+An `:ok` record does not prove every effect succeeded. Effects run after the commit and are best-effort; a thrown or missing effect can emit an error while the event keeps `:status :ok`. Pair the handled-event record with the error stream.
 
 !!! warning "In production, `:rolled-back` never appears; `:rejected` does"
 
@@ -235,7 +219,7 @@ The runtime builds the record with flat, category-specific keys:
 
 On the way to a sink, every key other than the summary keys (`:frame`, `:error`, `:event-id`, `:elapsed-ms`, `:time`, `:correlation`) is moved into a `:tags` map. The frame is already gone when this record is emitted, so no frame policy is consulted: only the process default ([Records no frame owns](#records-no-frame-owns)) receives it, projected with no governing frame. Under the off-box profiles `:tags` therefore arrives as `:rf/redacted`, so send the summary keys; `(get-in record [:tags :hook-failures])` is readable only on a `:rf.egress/local-raw` entry. The SSR categories below also move their keys under `:tags`.
 
-Step 3's sink already sends this record as a message tagged with its category and frame. For a clearer title, add a `case` arm in front of the step 3 logic:
+`report-error!` already sends this record as a message tagged with its category and frame. For a clearer title, handle it before falling back to that function:
 
 ```clojure
 (rf/register-observability-sink! :app.sinks/sentry
@@ -249,15 +233,8 @@ Step 3's sink already sends this record as a message tagged with its category an
         (clj->js {:level "error"
                   :tags  {:frame (str (:frame record))}}))
 
-      ;; Every other category: the step 3 branch.
-      (let [ctx (clj->js {:tags  {:category (str (:error record))
-                                  :event-id (str (:event-id record))
-                                  :frame    (str (:frame record))}
-                          :extra {:event      (pr-str (:event record))
-                                  :elapsed-ms (:elapsed-ms record)}})]
-        (if-let [ex (:exception record)]
-          (Sentry/captureException ex ctx)
-          (Sentry/captureMessage (str (:error record)) ctx))))))
+      ;; Every other category uses the complete bridge from step 1.
+      (report-error! record))))
 ```
 
 Where `:tags` is readable, each `:hook-failures` entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Teardown is best-effort, so nothing in the record calls for action; it is there for diagnosis.

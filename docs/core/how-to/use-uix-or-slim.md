@@ -128,7 +128,7 @@ The frame api holds every frame-bound operation:
 Usually you take only `:dispatch` from it, as the view above does. The other entries:
 
 - `:dispatch-sync` processes the event before returning, for when it must settle before the next line runs (initialisation, a confirm-then-read flow).
-- `:subscribe` returns the frame-bound reaction for a query; deref it for the current value. Use it to read state inside a callback without making the component re-render on it. For a one-off value with no reaction at all, use `rf/subscribe-once`; for reads that should re-render the component, use `use-sub`.
+- `:subscribe` returns a frame-bound reaction for a query. Outside a view, balance a retained reaction with `rf/unsubscribe`. For a callback that only needs the current value, prefer `(rf/subscribe-once query-v {:frame frame})`, using the captured map's `:frame`. For reads that should re-render the component, use `use-sub`.
 
 The captured frame can't be overridden: a `:frame` in the dispatch opts is ignored in favour of the frame the map was captured for.
 
@@ -237,7 +237,7 @@ Only the view code changes between substrates:
 |---|---|---|
 | Events, subs, fx, app-db | identical | identical |
 | Read a sub in a view | `@(subscribe [:q])` | `(uix-adapter/use-sub [:q])` |
-| Read a sub from an explicit frame | `@(subscribe [:q] {:frame f})` | `(uix-adapter/use-sub [:q] {:frame f})` |
+| Read a sub from an explicit frame | `@(rf/subscribe [:q] {:frame f})` | `(uix-adapter/use-sub [:q] {:frame f})` |
 | Dispatch from a callback | `dispatch` injected by `reg-view` | `(:dispatch (use-frame))` |
 | View form | `reg-view` + hiccup | `defui` + `$` |
 | Registry-keyed view (when needed) | `reg-view` | `(rf/reg-view* id render-fn)` |

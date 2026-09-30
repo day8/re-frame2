@@ -304,7 +304,7 @@ The tests above assert the settled state, so they never see `:sync-status :loadi
       (is (= :loaded (:sync-status (rf/app-db-value f)))))))
 ```
 
-`ts/poll-until` polls a predicate until it returns truthy or a deadline passes (defaults `:timeout-ms 2000`, `:interval-ms 5`), so a stuck drain shows up as a timeout rather than a hang. On the JVM it returns the truthy value or throws an `ex-info` carrying `:rf.error/poll-until-timeout`. On CLJS it returns a `js/Promise` to compose under `cljs.test/async`. The optional `:label` goes into the timeout message. Use it whenever work settles after `dispatch-sync` returns: a delayed reply, a machine `:after` transition, a `:dispatch-later`.
+`ts/poll-until` retries a predicate after a falsy result until it succeeds or its timeout is exceeded (defaults `:timeout-ms 2000`, `:interval-ms 5`). Keep the predicate quick: the timeout is checked between failed probes and does not interrupt a blocked predicate or a CLJS Promise that never settles. On the JVM it returns the truthy value or throws an `ex-info` carrying `:rf.error/poll-until-timeout`. On CLJS it returns a `js/Promise` to compose under `cljs.test/async`. The optional `:label` goes into the timeout message. Use it whenever work settles after `dispatch-sync` returns: a delayed reply, a machine `:after` transition, a `:dispatch-later`.
 
 Don't use `poll-until` to wait out a timer window such as a debounce. There the duration is what you are testing, so use a `Thread/sleep` and say so in a comment.
 

@@ -87,7 +87,7 @@ prefix tells you what kind of record you are holding:
 Existing categories are never renamed or repurposed, so a test pinned to
 `:rf.error/no-such-fx` keeps meaning the same thing. Every record also gives a
 one-sentence `:reason`. Treat categories like HTTP status codes: look one up in the
-[error catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) when you
+[API reference](../api/README.md#errors) when you
 meet it.
 
 ## What the runtime does after an error
@@ -98,7 +98,7 @@ Each category has a fixed default. Four of them decide how your app degrades:
   `:rf.error/handler-exception` means no [`:db` commit](glossary.md#commit) and no
   `:fx`. [app-db](glossary.md#app-db) is exactly as it was before the dispatch.
 - **A dispatch to an unregistered event id does nothing, and says so.**
-  `:rf.error/no-such-handler` runs a do-nothing handler in its place, so a feature
+  `:rf.error/no-such-handler` reports the missing registration and skips the event, so a feature
   module with a broken load order boots degraded instead of crashing, and the record
   names the missing id.
 - **A missing fx drops only itself.** `:rf.error/no-such-fx` does not halt the run:

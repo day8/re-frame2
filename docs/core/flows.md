@@ -263,11 +263,14 @@ Notes:
 
 1. `:rf.fx/clear-flow` removes the registration **and the value at `:output-path`**,
    so no stale value is left behind. Copy it elsewhere first if you need it.
-2. Both effects take effect within the event that returns them. When
-   `:todo/show-progress` finishes, `[:progress]` and anything computed from it are
-   written; when `:todo/hide-progress` finishes, the path is gone.
-3. Unlike a direct `reg-flow` call, the `:rf.fx/reg-flow` effect computes the flow
-   at once, so its inputs must already be in app-db or be written by the same event.
+2. After the effect vector finishes, the runtime queues one `[:rf/settle-flows]`
+   event ahead of ordinary follow-up events. It writes the new outputs or removes
+   cleared ones before the drain finishes, so `dispatch-sync` returns with them
+   settled. `dispatch` itself returns before the queued work runs.
+3. Unlike a direct `reg-flow` call, the effect schedules that first evaluation.
+   Inputs must already be in app-db or be written by the registering event.
+   The settle is a separate commit: if its derive throws, it cannot undo the
+   registering event's already-committed state.
 
 Outside a handler, in boot code, a test, or per-tenant setup, use the functions
 directly:
@@ -367,14 +370,13 @@ classify it, as with other [data classification](glossary.md#data-classification
 `:sensitive` and `:large` are each a vector of subpaths into the output. `[[]]`
 classifies the whole output, and `:large? true` is shorthand for that. `:sensitive
 true` and `:sensitive? true` are wrong on a flow; a malformed declaration is rejected
-at registration with `:rf.error/flow-bad-marks`. (The boolean `:sensitive?` on an
-event *handler* is a separate mechanism; see
-[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).)
+at registration with `:rf.error/flow-bad-marks`.
 
-Classification does not pass from inputs to output. A flow that reads a sensitive
-slice must classify its own output. Separately, when a flow recomputes during an
-event whose handler has `:sensitive? true`, the flow's whole trace event is marked
-sensitive.
+Classification does not pass from inputs or from the triggering event to a flow's
+output. A flow that reads a sensitive slice must classify its own output, as above.
+Event registrations use their own `:sensitive` paths; the old boolean
+`:sensitive?` does not classify an event's payload. See
+[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
 
 ### What happens when a derive throws
 
@@ -436,8 +438,10 @@ nothing to wait for: the flow computes in the dispatched event's commit.
 
 ### When the framework refuses: the registration-time errors
 
-Flows [fail loud](glossary.md#fail-loud-not-silent) at registration, when you call
-`reg-flow` or return `:rf.fx/reg-flow`, before any state changes:
+A direct `reg-flow` call throws before installing an invalid registration.
+Through `:rf.fx/reg-flow`, the same failure is reported as an effect failure and
+that entry is skipped; the event's prior commit stands and later effects still run.
+Common registration errors are:
 
 - **`:rf.error/flow-cycle`**: flow A reads B's output and B reads A's, directly or
   through a chain. The `ex-data` carries `:cycle`, the loop as a vector of ids:

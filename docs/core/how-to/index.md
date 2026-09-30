@@ -6,7 +6,7 @@ Testing has [its own section](../testing/index.md).
 
 !!! note "If your views are Fresco"
 
-    The view code in these recipes is written for a React substrate adapter with `reg-view` views: the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Fresco](../fresco/index.md) accepts none of those spellings, so a recipe's view code will not run as written there. Everything below the view carries over unchanged: events, effects, subscriptions and frames. For the view and the mount, read [Installation](../fresco/00-installation.md) and [Views and reads](../fresco/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../fresco/16-diagnostics.md) and [Performance](../fresco/19-performance.md).
+    The view code in these recipes is written for a React substrate adapter with `reg-view` views: the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Fresco](../fresco/index.md) has its own `h/client-root` / `h/render!` mount calls, `h/defview` views and `h/sub` reads; translate the view code using its conventions. Everything below the view carries over unchanged: events, effects, subscriptions and frames. For the view and the mount, read [Installation](../fresco/00-installation.md) and [Views and reads](../fresco/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../fresco/16-diagnostics.md) and [Performance](../fresco/19-performance.md).
 
 ## Build it
 

@@ -8,8 +8,8 @@ A value in the wrong home goes stale, hides from your handlers, or spreads acros
 
 Ask them top to bottom and stop at the first *yes*.
 
-1. **Can you recompute it, every time, from state you already have?** It's a **subscription**. ([Subscriptions](subscriptions.md))
-2. **Must it live *in* [`app-db`](glossary.md#app-db), because an [event handler](glossary.md#event-handler) reads it, your schema covers it, or time-travel must carry it?** It's a **flow**. ([Flows](flows.md))
+1. **Is it derived from existing state and needed only by views?** It's a **subscription**. ([Subscriptions](subscriptions.md))
+2. **Is it a derived value that must live *in* [`app-db`](glossary.md#app-db), because [event handlers](glossary.md#event-handler) or other flows need to read it as state?** It's a **flow**. ([Flows](flows.md))
 3. **Does it come from a server, where it can go stale and needs caching, refetch and invalidation?** It's a **resource**. ([Server state: resources](../resources/concepts.md))
 4. **Does it have a lifecycle of its own: named states, timers, retries, cancellation?** It's a **machine**. ([State machines](../machines/concepts.md))
 
@@ -17,7 +17,7 @@ If every answer is no, the value is a fact rather than a derivation: an event ha
 
 Transient UI mechanics that nothing but the view reads, such as hover, focus or an animation's progress, may stay local to the view ([Views](views.md)). Everything else goes in app-db or one of the four homes.
 
-The questions are ordered by cost. A subscription stores nothing. A flow adds an `app-db` write. A resource adds a cache. A machine adds a transition table. Use a heavier home only when the value needs what it provides.
+The questions are ordered by cost. A subscription adds no durable state; its cached result exists only while it is in use. A flow adds an `app-db` write. A resource adds a cache. A machine adds a transition table. Use a heavier home only when the value needs what it provides.
 
 ??? info "For JavaScript developers"
 
@@ -31,7 +31,8 @@ The questions are ordered by cost. A subscription stores nothing. A flow adds an
 
 The sections below follow the todo app as it grows: a value that starts as a pure recompute, then one a handler needs, then data from a server, then a process.
 
-### Question 1: can you recompute it? Then it's a subscription
+<a id="question-1-can-you-recompute-it-then-its-a-subscription"></a>
+### Question 1: is it derived for views? Then use a subscription
 
 The number of open todos is a count over todos already in `app-db`, so it can be computed with nothing stored. That is a [subscription](glossary.md#subscription):
 
