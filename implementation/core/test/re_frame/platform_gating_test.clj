@@ -9,17 +9,20 @@
   CLJS-on-Node). Nothing is process-wide: `rf.interop/active-platform`
   is a constant, and there is no setter.
 
-  These tests pin two contract points:
+  These tests pin three contract points:
 
     1. An UNTAGGED frame gets the host default — `:server` on the JVM,
        so a `:platforms #{:client}` fx skips.
     2. A frame TAGGED `{:platform :client}` runs that same fx, unchanged
        body and unchanged dispatch. The gate is the load-bearing
        observable: tagging the frame flips the trace shape.
+    3. Two such frames live in ONE process each gate by their OWN
+       platform: a tagged frame's `:client` never reaches an untagged
+       sibling, and the untagged `:server` never reaches the tagged one.
 
   ## Posture split
 
-  Both contract points are production-real and are asserted WITHOUT a
+  All three contract points are production-real and are asserted WITHOUT a
   posture guard: the untagged default, the per-frame override, and the
   `:platforms` GATE ITSELF (whether the handler body ran). They run in
   the ordinary `clojure -M:test` suite AND in
@@ -136,3 +139,25 @@
         (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
           (is (empty? skips)
               "no :rf.fx/skipped-on-platform trace — the gate passed"))))))
+
+;; ---- 3. Two frames in ONE process gate by their own platform ---------------
+
+(deftest two-frames-in-one-process-gate-by-their-own-platform
+  (testing "an untagged frame and a {:platform :client} frame, live side by
+            side, gate the same :platforms #{:client} fx each by its OWN
+            platform — there is no process-wide platform marker"
+    (let [fired?    (register-browser-only-fx!)
+          fires-on? (fn [frame-id]
+                      (reset! fired? false)
+                      (rf/with-frame frame-id
+                        (rf/dispatch-sync [:platform-gating-test/save]))
+                      @fired?)]
+      (rf/make-frame {:id :platform-gating-test/iso-client :platform :client})
+      (rf/make-frame {:id :platform-gating-test/iso-untagged})
+
+      (is (true? (fires-on? :platform-gating-test/iso-client))
+          "the :client-tagged frame runs the :client-only fx")
+      (is (false? (fires-on? :platform-gating-test/iso-untagged))
+          "the untagged sibling still skips it — the :client tag did not leak")
+      (is (true? (fires-on? :platform-gating-test/iso-client))
+          "the :client-tagged frame still runs it — the untagged :server did not leak back"))))
