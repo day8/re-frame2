@@ -194,13 +194,16 @@ before the handler runs. If the world can only answer asynchronously, as with a
 fetch, use an effect whose result comes back as a reply event
 ([HTTP](effects.md#http)).
 
-**Classify sensitive inputs at their supplier.** A recordable coeffect that reads
-a saved credential needs `:sensitive` paths on its `reg-cofx` metadata; an app-db
-classification does not cover that separate copy. Capture then redacts those paths,
-so strict epoch replay refuses the incomplete input instead of replaying a marker.
-Use fake credentials in tests. [Add authentication](how-to/add-auth.md#read-the-saved-session-back-at-boot)
-shows the tradeoff; [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md)
-explains the classification boundaries.
+**Keep credentials out of recordable coeffects.** Tokens, nonces and key material
+must not be recorded as replayable facts. Read a saved credential in an effect and
+return it through a classified event, as [Add authentication](how-to/add-auth.md#read-the-saved-session-back-at-boot)
+shows. Use fake credentials in tests.
+
+For private facts that are appropriate to record, `:sensitive` paths on the
+`reg-cofx` metadata redact their trace capture. Strict epoch replay then refuses
+an input whose captured value was replaced by a marker; classification is not a
+way to preserve secret replay inputs. [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md)
+explains those boundaries.
 
 ## Fresh ids: the minting ladder
 
