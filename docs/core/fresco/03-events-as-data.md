@@ -44,7 +44,7 @@ values. A file input has no usable value, so `::h/value` there raises
 `:rf.error/fresco-file-input-value-marker`; read `.files` with `h/event`
 instead, as [shown below](#one-callback-form-hevent).
 
-The full reserved vocabulary is `::h/value`, `::h/checked`,
+The event and controlled-field markers are `::h/value`, `::h/checked`,
 [`::h/prevent`](glossary.md#hprevent), and
 [`::h/revision`](glossary.md#hrevision). The controlled-input chapter owns the
 round trip from subscription value to browser event and back.

@@ -35,9 +35,10 @@ One namespace holds the loadable, the effect, the status, and the events:
   {:doc       "Load a compiled module and dispatch the result into the calling frame."
    :platforms #{:client}}
   (fn [{:keys [frame]} {:keys [loadable on-loaded on-failed]}]
-    (-> (lazy/load loadable)
-        (.then  (fn [_] (rf/dispatch on-loaded {:frame frame})))
-        (.catch (fn [_] (rf/dispatch on-failed {:frame frame}))))))
+    (let [{:keys [dispatch]} (rf/capture-frame frame)]
+      (-> (lazy/load loadable)
+          (.then  (fn [_] (dispatch on-loaded)))
+          (.catch (fn [_] (dispatch on-failed)))))))
 
 (rf/reg-sub :todo.stats/module
   (fn [db _]
@@ -60,6 +61,10 @@ One namespace holds the loadable, the effect, the status, and the events:
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:modules :stats] :failed)}))
 ```
+
+The captured dispatch belongs to this frame incarnation. If the frame is
+destroyed while loading, a late callback is dropped instead of reaching a new
+frame created under the same id.
 
 Load the module when the route activates, and render all three states:
 

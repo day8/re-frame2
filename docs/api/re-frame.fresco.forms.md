@@ -45,9 +45,11 @@ rule and the recipes the module leaves to the application.
     - The `:on-commit` handler accepts by writing the text as the new value. To
       normalise or reject it, write another value or none, and advance the revision
       as well: the field shows the draft while the revision matches, and `:value`
-      once it moves. Once a draft has been committed, cancelled or overtaken by a
-      revision change, later commits for it do nothing, so Enter followed by blur
-      commits once and a blur after Escape commits nothing.
+      once it moves. A committed or cancelled draft is removed, so Enter followed
+      by blur commits once and a blur after Escape commits nothing. After a
+      revision change, the next render's callbacks cannot commit the old draft.
+      A saved protocol event with the old revision can still match that draft:
+      the fence is the rendered revision, not a lookup of the domain value.
     - Every keystroke writes the draft to `app-db`, which keeps the edit visible to
       tests and Xray. For a dense grid where that is too much, use an uncontrolled
       input or a React component mounted through `h/defhost`.
@@ -61,7 +63,9 @@ rule and the recipes the module leaves to the application.
       names; a test that drives the field by hand spells them through
       `re-frame.fresco.test.forms`.
 - **Options**:
-    - `:control` (required): an opaque address for the draft, not an `app-db` path.
+    - `:control` (required): a keyword, string, number or vector, following
+      [`reg-state`](re-frame.fresco.md#reg-state)'s address rules. It is an opaque
+      identity for the draft, not an `app-db` path.
       Make it identify the form instance and the field; two fields with one address
       share one draft.
     - `:value`: the committed value.
@@ -89,6 +93,7 @@ rule and the recipes the module leaves to the application.
     :value       (h/sub [:todo/title id])
     ::h/revision (h/sub [:todo/title-revision id])
     :on-commit   [:todo/title-committed id]
+    :aria-label  "Todo title"
     :placeholder "What needs doing?"}]
 
   ;; Accept a non-empty title and reject an empty one; advance the revision

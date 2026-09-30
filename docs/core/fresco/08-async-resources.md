@@ -1,7 +1,8 @@
 # Async resources
 
-The core resources model handles registered reads, cache identity, mutation
-status, invalidation, and managed HTTP. A Fresco view reads those facts with
+The resources module handles registered reads, cache identity, mutation
+status and invalidation. The HTTP module supplies its managed transport. A
+Fresco view reads those facts with
 `h/sub` like any other subscription. This page shows the view side: loading
 todos from `/api/todos`, per-todo write status, optimistic updates, merging a
 late save reply into a newer draft, and loading data only while a view needs
@@ -9,6 +10,8 @@ it.
 
 ## Load todos into a view
 
+Add the resources and HTTP artefacts alongside Fresco (see the
+[resource setup](../../resources/index.md)), then require both namespaces below.
 Register the read once, cause it from an event, and read its state in a view:
 
 ```clojure
@@ -36,20 +39,41 @@ Register the read once, cause it from an event, and read its state in a view:
                        :cause    [:todo/initialise]}]]]}))
 
 (h/defview todo-page [_]
-  (let [{:keys [status data loading?]}
+  (let [{:keys [status data loading? fetching?
+                error refresh-error has-data?]}
         (h/sub [:rf/resource {:resource :todo/list :params {}}])]
-    (cond
-      loading?          [:p "Loading…"]
-      (= :error status) [:p.error "Could not load todos."]
-      :else
-      [:ul.todo-list
-       (for [{:keys [id title]} data]
-         [:li {:key id} title])])))
+    [:section.todos {:aria-busy (boolean (or loading? fetching?))}
+     (when (or error refresh-error)
+       [:div {:role "alert"}
+        [:p (if has-data?
+              "Could not refresh. Showing the last saved list."
+              "Could not load todos.")]
+        [:button {:type "button"
+                  :disabled (boolean (or loading? fetching?))
+                  :on-click [:rf.resource/refetch
+                             {:resource :todo/list
+                              :params {}
+                              :cause [:todo/retry]}]}
+         "Try again"]])
+     (cond
+       loading?        [:p "Loading…"]
+       (= :idle status) [:p "Waiting to load todos."]
+       (not has-data?)  nil
+       (empty? data)    [:p "No todos yet."]
+       :else
+       [:ul.todo-list
+        (for [{:keys [id title]} data]
+          [:li {:key id} title])])]))
 ```
 
 `[:rf/resource …]` returns the entry's `:status`, `:data` and `:error`, plus
 derived flags: `:loading?` for a first load with no data, `:fetching?` for a
-refresh, `:stale?` and `:has-data?`.
+refresh, `:stale?` and `:has-data?`. Status is one of `:idle`, `:loading`,
+`:loaded`, `:fetching` or `:error`.
+
+A failed refresh keeps the cached `:data` and reports `:refresh-error` instead
+of replacing the list with a first-load error. Keep that data visible and offer
+retry. The refresh error remains during the retry and clears on success.
 
 A subscription never fetches. It projects the cache, so a view that only
 subscribes reads `:idle` for ever. An event causes the fetch, here the frame's
@@ -98,7 +122,9 @@ Different instances settle independently. Re-executing the same instance
 supersedes its pending attempt, so the older reply cannot update the cache or
 run its continuation. A settled error stays until another execute replaces it
 or `[:rf.mutation/clear {:instance …}]` dismisses it; clear also aborts work
-still in flight, best-effort.
+still in flight, best-effort. Supersession does not order writes at the server.
+The checkbox above is disabled while pending to avoid overlapping writes from
+that control.
 
 So the instance id is a policy choice. `[:todo/set-done id]` lets each todo
 save concurrently; `[:todo/set-done]` would make every checkbox share one
@@ -131,7 +157,10 @@ cancellation:
 ```
 
 On error or cancellation, the runtime restores the snapshot; you never write
-an inverse patch. On success, the server's reply replaces the guess.
+an inverse patch. On success, this mutation invalidates `[:todos]`, causing
+owned list entries to refetch. The optimistic value stays visible until that
+read returns. To put the mutation reply directly into the cache, declare
+[`:populates`](../../api/re-frame.resources.md#the-mutation-spec) on the mutation.
 
 If another write changes the entry between the patch and settlement, the
 default `:on-conflict :invalidate` does not restore the old snapshot over newer
@@ -208,8 +237,9 @@ edited after the request keeps the new draft value. `:reply-to` runs only after
 the runtime has accepted the reply as current, applied its cache effects, and
 settled the instance.
 
-The forms module handles touched-field display and submit gating;
-settle-merge only protects the draft from the server reply.
+The [Forms](05-forms.md) recipes implement touched-field display and submit
+gating with ordinary events and subscriptions. Settle-merge protects the draft
+from the server reply; `forms/buffered-field` is a separate single-field tool.
 
 ## Cancellation and supersession
 
@@ -235,13 +265,15 @@ registered in the next section):
 ```clojure
 (rf/reg-event :todo.search/wanted
   (fn [_ [_ q]]
-    {:fx [[:dispatch [:rf.resource/release-owner {:owner [:todo.search]}]]
-          [:dispatch [:rf.resource/ensure
-                      {:resource       :todo/search
-                       :params         {:q q}
-                       :owner          [:todo.search]
-                       :cause          [:todo.search/wanted q]
-                       :keep-previous? true}]]]}))
+    {:fx (cond-> [[:dispatch [:rf.resource/release-owner
+                             {:owner [:todo.search]}]]]
+           (seq q)
+           (conj [:dispatch [:rf.resource/ensure
+                             {:resource       :todo/search
+                              :params         {:q q}
+                              :owner          [:todo.search]
+                              :cause          [:todo.search/wanted q]
+                              :keep-previous? true}]]))}))
 
 (rf/reg-event :todo.search/dismissed
   (fn [_ _]
@@ -328,16 +360,29 @@ fills:
 
 ```clojure
 (h/defview search-results [{:keys [q]}]
-  (let [{:keys [data previous-data loading? fetching?]}
-        (h/sub [:rf/resource {:resource :todo/search
-                              :params   {:q q}}])
+  (let [{:keys [data previous-data loading? fetching? error refresh-error]}
+        (h/sub [:rf/resource {:resource :todo/search :params {:q q}}])
         shown (or data previous-data)]
-    [:ul.search-results
+    [:section.search-results
      {:aria-busy (boolean (or loading? fetching?))}
-     (if (and loading? (not shown))
-       [:li.hint "Searching…"]
-       (for [{:keys [id title]} (:todos shown)]
-         [:li {:key id} title]))]))
+     (when (or error refresh-error)
+       [:p {:role "alert"}
+        "Search failed. "
+        [:button {:type "button"
+                  :disabled (boolean (or loading? fetching?))
+                  :on-click [:rf.resource/refetch
+                             {:resource :todo/search
+                              :params {:q q}
+                              :cause [:todo.search/retry q]}]}
+         "Try again"]])
+     (cond
+       (and loading? (not shown)) [:p.hint "Searching…"]
+       (nil? shown) nil
+       (empty? (:todos shown)) [:p "No matches."]
+       :else
+       [:ul
+        (for [{:keys [id title]} (:todos shown)]
+          [:li {:key id} title])])]))
 
 (h/defview todo-search [_]
   (let [text (h/sub [:todo.search/text])
@@ -345,6 +390,7 @@ fills:
     [:div.search
      [:input {:type        :search
               :value       text
+              :aria-label  "Search todos"
               :placeholder "Search todos"
               :on-input    [:todo.search/input ::h/value]
               :on-key-down {"Escape" [:todo.search/clear]}}]
@@ -358,7 +404,7 @@ What happens as the user types:
    generation. No fetch starts yet.
 2. After 250 ms of quiet, only the current generation commits `q` and
    dispatches `:todo.search/wanted`, whose ensure (not the list mounting)
-   starts the fetch.
+   starts the fetch. An empty query only releases the previous owner.
 3. A new committed query releases the old identity and ensures the new one.
    The old request is aborted best-effort once no owner needs it, and a late
    reply is suppressed. `:keep-previous? true` projects the previous query's

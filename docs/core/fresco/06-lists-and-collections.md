@@ -118,8 +118,9 @@ The list above reads only the ordered ids. Each row reads its own todo:
 ```
 
 Renaming one todo leaves the id list equal, so only that row's subscription
-changes and only that row's body runs. Work scales with changed rows rather
-than mounted rows.
+changes and only that row's body runs. View rendering scales with changed rows
+rather than mounted rows. Subscription functions may still recompute for every
+mounted row when app-db changes; measure that separately from body runs.
 
 The cost is one retained read per mounted row, which is normally fine for
 hundreds of rows.

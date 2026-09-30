@@ -110,8 +110,8 @@ probably be a `defview`.
 frame the island is mounted in. The map is the same object on every render, so
 it is safe to close over and to use in effect dependencies. If the frame is
 destroyed and recreated under the same id, a callback still holding the old
-operations raises `:rf.error/frame-destroyed` instead of writing to the new
-frame. Take the operations from the live island, never from a global.
+operations drops the call and emits `:rf.error/frame-destroyed` without
+throwing or writing to the new frame. Take the operations from the live island, never from a global.
 
 Both hooks resolve the frame from the island's position in the tree. No
 argument reaches a sibling frame. Rendering outside every frame raises

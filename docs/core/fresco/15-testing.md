@@ -605,7 +605,9 @@ passes without a document reports coverage it never had.
 `ht/canonical-dom` serialises a live DOM subtree with element attribute names
 sorted. `innerHTML` preserves insertion order, so two equivalent pages can
 produce different strings solely because props were applied in a different
-order.
+order. It also removes the development annotations `data-rf2-source-coord` and
+`data-rf-view`, so declaration locations do not make otherwise equivalent
+pages differ.
 
 Use canonical DOM when comparing:
 

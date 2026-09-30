@@ -34,7 +34,11 @@ the marker keywords and the phase table.
   while it is in that phase: into an element's attributes, or into a view's props,
   the same map either way.
     - Every child must be a hiccup vector with a `:key` in its props map: the key is
-      how `presence` recognises a child across renders.
+      how `presence` recognises a child across renders. Order follows first
+      appearance, including present children; reordering the input does not
+      reorder retained keys.
+    - It retains the last child form and props. A child view still reads current
+      app-db, so pass display data as props if it must survive domain deletion.
     - Write the phase maps on the child you hand to `presence`, not inside a child
       view's body, where `presence` cannot see them. A view child receives the map
       merged into its props, under names you choose:

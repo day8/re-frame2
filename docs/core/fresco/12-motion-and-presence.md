@@ -14,26 +14,10 @@ application that never requires it includes none of its code.
             [re-frame.fresco.motion :as motion]))
 ```
 
-## The problem
-
-A todo should leave app-db the moment the user deletes it, so tests, Xray and
-other views see it as gone. The painted row may still need 300 ms of CSS exit
-transition. If the view simply maps over the subscription, the DOM node
-disappears on the same turn as the event:
-
-```clojure
-;; Don't: the node vanishes with the data, so CSS has nothing left to animate.
-(h/defview todo-list [_]
-  [:ul.todo-list
-   (for [{:keys [id title]} (h/sub [:todo/visible])]
-     [:li.todo {:key id}
-      title
-      [:button {:on-click [:todo/delete id]} "×"]])])
-```
-
 ## Retain the exiting node
 
-Wrap the keyed children in `motion/presence`:
+A deleted todo should leave app-db immediately while its row finishes a
+300 ms fade. Wrap the keyed children in `motion/presence`:
 
 ```clojure
 (h/defview todo-list [_]
@@ -46,8 +30,23 @@ Wrap the keyed children in `motion/presence`:
                              :inert       true
                              :aria-hidden true}}
        title
-       [:button {:on-click [:todo/delete id]} "×"]])]])
+       [:button {:type "button" :aria-label "Delete todo"
+                 :on-click [:todo/delete id]} "×"]])]])
 ```
+
+Add the transition to the stylesheet:
+
+```css
+.todo { opacity: 1; transition: opacity 300ms; }
+.todo--exit { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .todo { transition: none; }
+}
+```
+
+The reduced-motion rule removes the fade; the same 300 ms retention bound
+still removes the hidden node.
 
 What happens:
 
@@ -94,7 +93,10 @@ A missing or non-positive `:timeout-ms` raises
 
 Children must be keyed Hiccup vectors; a child without a `:key` raises
 `:rf.error/fresco-presence-child-unkeyed`. Presence freezes order at first
-appearance so an exiting sibling does not jump while it leaves.
+appearance so an exiting sibling does not jump while it leaves. That order
+also applies to present children: rearranging the input does not rearrange
+already-retained keys. Use this for stable-order collections, not a sortable
+list that must follow every new input order.
 
 Presence retains a single conditional element too. A `nil` child is skipped,
 so `[motion/presence {:timeout-ms 200} (when open? [:div.banner {:key :banner} …])]`
@@ -135,28 +137,34 @@ child is in that phase, Presence merges the map into the view's props, and the
 view branches on whatever prop it declared:
 
 ```clojure
-(h/defview todo-item [{:keys [id exiting?]}]
-  (let [{:keys [title]} (h/sub [:todo/by-id id])]
+(h/defview todo-item [{:keys [todo exiting?]}]
+  (let [{:keys [id title]} todo]
     [:li
      {:class       (cond-> "todo" exiting? (str " todo--exit"))
       :inert       exiting?
       :aria-hidden exiting?}
      title
      (when-not exiting?
-       [:button {:on-click [:todo/delete id]} "×"])]))
+       [:button {:type "button" :aria-label "Delete todo"
+                 :on-click [:todo/delete id]} "×"])]))
 
 (h/defview todo-list [_]
   [:ul.todo-list
    [motion/presence {:timeout-ms 300}
-    (for [{:keys [id]} (h/sub [:todo/visible])]
+    (for [{:keys [id] :as todo} (h/sub [:todo/visible])]
       [todo-item {:key                id
-                  :id                 id
+                  :todo               todo
                   ::motion/unmounting {:exiting? true}}])]])
 ```
 
 The view sees the props its author chose for that phase, never a phase value.
 A test renders the exiting shape by passing `{:exiting? true}` directly, with
 no timer involved.
+
+Presence retains the last child form and its props, not a historical app-db.
+Passing the todo as a prop keeps its title available during exit. If the child
+instead reads `[:todo/by-id id]`, it sees the deletion immediately and may render
+an empty row for the rest of the transition.
 
 ## Rules that matter in production
 
@@ -184,6 +192,7 @@ no timer involved.
 | Dismissed item vanishes immediately | The children are not under Presence | Wrap the keyed sequence in `motion/presence` |
 | `:rf.error/fresco-presence-child-unkeyed` | A child has no `:key` | Give every child a stable domain `:key` |
 | `:rf.error/fresco-presence-timeout-required` | `:timeout-ms` is missing or not a positive number | Set it to at least the CSS exit duration |
+| Exiting row loses its text | The child reads data already deleted from app-db | Pass the display data in the retained child props |
 | Exiting node lingers after its animation ends | `:timeout-ms` is much longer than the CSS transition | Match `:timeout-ms` to the CSS duration |
 | Fading row still takes focus or clicks | Exit class changes appearance only | Add `:inert true` and `:aria-hidden true` under `::motion/unmounting` — on the element, or from the prop the view's override declares |
 | Override has no effect on an element | The marker is on a nested element, not the keyed child Presence receives, and Fresco drops it there | Put the marker map on Presence's direct child |

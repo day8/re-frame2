@@ -30,7 +30,7 @@ Store the open flag in app-db. `h/reg-state` from
         trigger-id (str "filter-" id "-trigger")]
     [:div.filter
      [:button {:id            trigger-id
-               :aria-haspopup "menu"
+               :type          "button"
                :aria-expanded open?
                :on-click      [:todo.ui/filter-open? id (not open?)]}
       "Show"]
@@ -40,18 +40,22 @@ Store the open flag in app-db. `h/reg-state` from
        :on-dismiss [:todo.ui/filter-open? id false]
        :anchor     trigger-id
        :placement  :bottom-start}
-      [:ul {:role "menu"}
+      [:ul
        (for [showing [:all :active :done]]
          [:li {:key showing}
-          [:button {:role     "menuitem"
+          [:button {:type     "button"
                     :on-click [:todo/set-showing showing]}
            (name showing)]])]]]))
 ```
 
+These are ordinary buttons reached with Tab. A menu or listbox role would
+also require the corresponding keyboard interaction; the
+[advanced dropdown](#build-a-dropdown-from-a-popover) shows that extra work.
+
 The options:
 
 - **`:open?`** controls whether the panel exists. While false, there is no DOM
-  node, listener, or body subscription.
+  node, listener, or subscriptions from child views.
 - **`:on-dismiss`** is dispatched for native light-dismiss, including outside
   click and Escape. Its handler must set the open flag to false; app-db remains
   the source of truth.
@@ -125,7 +129,7 @@ not close on a stray backdrop click. Style the native backdrop with
 Focus belongs to the browser. Do not mirror the currently focused element in
 app-db.
 
-**Initial focus.** When the overlay opens, the browser's dialog-focusing steps
+**Initial focus.** When the modal opens, the browser's dialog-focusing steps
 move focus to the first focusable control in tree order. Order the controls so
 the right one comes first. In the confirmation dialog above that is *Keep it*,
 the safe default for a destructive action.
@@ -159,141 +163,14 @@ When an overlay is closed, it has:
 
 - no DOM node;
 - no light-dismiss listener;
-- no subscriptions from its body;
+- no subscriptions from child views in its body;
 - no server output.
 
 Unmounting a view while its overlay is open closes the layer, restores focus
 when possible, and cleans up its listeners. Five hundred closed row menus do
-not create five hundred active overlay bodies.
-
-## Build a dropdown from a popover
-
-A single-select dropdown is a popover plus application events and state; it
-needs no other overlay primitive. Its open flag and active option are read by
-the keyboard events, so this widget stores them with ordinary subscriptions and
-events rather than `h/reg-state`.
-
-```clojure
-(rf/reg-sub :combo/open?
-  (fn [db [_ id]]
-    (get-in db [:ui :combo id :open?] false)))
-
-(rf/reg-sub :combo/active
-  (fn [db [_ id]]
-    (get-in db [:ui :combo id :active])))
-
-(rf/reg-event :combo/toggled
-  (fn [{:keys [db]} [_ id]]
-    {:db (update-in db [:ui :combo id :open?] not)}))
-
-(rf/reg-event :combo/dismissed
-  (fn [{:keys [db]} [_ id]]
-    {:db (assoc-in db [:ui :combo id :open?] false)}))
-
-(rf/reg-event :combo/moved
-  (fn [{:keys [db]} [_ id step values]]
-    (let [at   (get-in db [:ui :combo id :active])
-          i    (get (zipmap values (range)) at -1)
-          next (nth values
-                    (-> (+ i step)
-                        (max 0)
-                        (min (dec (count values)))))]
-      {:db (-> db
-               (assoc-in [:ui :combo id :open?] true)
-               (assoc-in [:ui :combo id :active] next))})))
-
-(rf/reg-event :combo/committed
-  (fn [{:keys [db]} [_ id on-commit]]
-    (let [{:keys [open? active]} (get-in db [:ui :combo id])]
-      (cond-> {:db (assoc-in db [:ui :combo id :open?] false)}
-        (and open? active)
-        (assoc :fx [[:dispatch (conj on-commit active)]])))))
-
-(rf/reg-event :combo/selected
-  (fn [{:keys [db]} [_ id on-commit value]]
-    {:db (assoc-in db [:ui :combo id :open?] false)
-     :fx [[:dispatch (conj on-commit value)]]}))
-
-(h/defview select-dropdown
-  [{:keys [id items value on-commit placeholder]}]
-  (let [open?      (h/sub [:combo/open? id])
-        active     (h/sub [:combo/active id])
-        values     (mapv :value items)
-        trigger-id (str "combo-" id "-trigger")
-        listbox-id (str "combo-" id "-listbox")
-        option-id  (fn [v] (str "combo-" id "-opt-" v))
-        label      (or (some #(when (= value (:value %))
-                               (:label %))
-                             items)
-                       placeholder)]
-    [:div.combo
-     [:button
-      {:id trigger-id
-       :role "combobox"
-       :aria-haspopup "listbox"
-       :aria-expanded open?
-       :aria-controls (when open? listbox-id)
-       :aria-activedescendant
-       (when (and open? active)
-         (option-id active))
-       :on-click [:combo/toggled id]
-       :on-key-down
-       {"ArrowDown" [::h/prevent [:combo/moved id 1 values]]
-        "ArrowUp"   [::h/prevent [:combo/moved id -1 values]]
-        "Enter"     [:combo/committed id on-commit]}}
-      label]
-
-     [overlay/popover
-      {:open?      open?
-       :on-dismiss [:combo/dismissed id]
-       :anchor     trigger-id
-       :placement  :bottom-start}
-      [:ul {:id listbox-id
-            :role "listbox"}
-       (for [{v :value l :label} items]
-         [:li
-          {:key v
-           :id (option-id v)
-           :role "option"
-           :aria-selected (= v value)
-           :on-click [:combo/selected id on-commit v]}
-          l])]]]))
-```
-
-Used for the todo filter:
-
-```clojure
-[select-dropdown {:id          :showing
-                  :items       [{:value :all    :label "All"}
-                                {:value :active :label "Active"}
-                                {:value :done   :label "Done"}]
-                  :value       (h/sub [:todo/showing])
-                  :on-commit   [:todo/set-showing]
-                  :placeholder "Show"}]
-```
-
-Escape is not in the key map because the native popover handles Escape and
-dispatches `:on-dismiss`. Focus stays on the trigger, and there is no document
-listener or portal.
-
-Four details make the active-descendant model work for screen readers:
-
-- `:role "combobox"` on the trigger. `:aria-activedescendant` is only defined
-  for certain roles, and a plain button is not one of them.
-- `:aria-controls` naming the listbox, so the active-descendant id refers to an
-  element the trigger is related to.
-- Both are emitted only while the list is open, because a closed overlay has no
-  DOM node to point at.
-- `:aria-selected` follows the committed `value`, while
-  `:aria-activedescendant` follows the transient `active`. While the user is
-  arrowing through options these differ, and merging them would announce a
-  choice nobody has made.
-
-None of the four is visible on screen or caught by a click-driven test, so
-check them with an accessibility-tree assertion or a screen reader.
-
-The same event-and-address model works for a toggletip, command menu, or other
-popover-shaped control.
+not create five hundred active overlay bodies. An `h/sub` used in the enclosing
+view to construct the children still belongs to that enclosing view and runs
+even when `:open?` is false. Put reads that should stop inside a child view.
 
 ## When not to use the module
 
@@ -357,6 +234,148 @@ to the next library. The top-layer primitives remove those failure classes.
     flag and the meaning of a selection.
 
 ## Advanced
+
+### Build a dropdown from a popover
+
+Use a native `:select` for ordinary single selection. When a custom option
+layout needs a popover, add application events and state for the keyboard
+interaction. This example uses no other overlay primitive. Its open flag and
+active option are read by the keyboard events, so this widget stores them with ordinary subscriptions and
+events rather than `h/reg-state`.
+
+```clojure
+(rf/reg-sub :combo/open?
+  (fn [db [_ id]]
+    (get-in db [:ui :combo id :open?] false)))
+
+(rf/reg-sub :combo/active
+  (fn [db [_ id]]
+    (get-in db [:ui :combo id :active])))
+
+(rf/reg-event :combo/toggled
+  (fn [{:keys [db]} [_ id]]
+    {:db (update-in db [:ui :combo id :open?] not)}))
+
+(rf/reg-event :combo/dismissed
+  (fn [{:keys [db]} [_ id]]
+    {:db (assoc-in db [:ui :combo id :open?] false)}))
+
+(rf/reg-event :combo/moved
+  (fn [{:keys [db]} [_ id step values]]
+    (when (seq values)
+      (let [at   (get-in db [:ui :combo id :active])
+            i    (get (zipmap values (range)) at -1)
+            next (nth values
+                      (-> (+ i step)
+                          (max 0)
+                          (min (dec (count values)))))]
+        {:db (-> db
+                 (assoc-in [:ui :combo id :open?] true)
+                 (assoc-in [:ui :combo id :active] next))}))))
+
+(rf/reg-event :combo/committed
+  (fn [{:keys [db]} [_ id on-commit]]
+    (let [{:keys [open? active]} (get-in db [:ui :combo id])]
+      (cond-> {:db (assoc-in db [:ui :combo id :open?] false)}
+        (and open? active)
+        (assoc :fx [[:dispatch (conj on-commit active)]])))))
+
+(rf/reg-event :combo/selected
+  (fn [{:keys [db]} [_ id on-commit value]]
+    {:db (assoc-in db [:ui :combo id :open?] false)
+     :fx [[:dispatch (conj on-commit value)]]}))
+
+(h/defview select-dropdown
+  [{:keys [id items value on-commit placeholder accessible-label]}]
+  (let [open?      (h/sub [:combo/open? id])
+        active     (h/sub [:combo/active id])
+        values     (mapv :value items)
+        trigger-id (str "combo-" id "-trigger")
+        listbox-id (str "combo-" id "-listbox")
+        option-id  (fn [v] (str "combo-" id "-opt-" v))
+        label      (or (some #(when (= value (:value %))
+                               (:label %))
+                             items)
+                       placeholder)]
+    [:div.combo
+     [:button
+      {:id trigger-id
+       :type "button"
+       :disabled (empty? items)
+       :role "combobox"
+       :aria-label accessible-label
+       :aria-haspopup "listbox"
+       :aria-expanded open?
+       :aria-controls (when open? listbox-id)
+       :aria-activedescendant
+       (when (and open? (some #{active} values))
+         (option-id active))
+       :on-click [:combo/toggled id]
+       :on-key-down
+       (cond-> {"ArrowDown" [::h/prevent [:combo/moved id 1 values]]
+                "ArrowUp"   [::h/prevent [:combo/moved id -1 values]]}
+         open? (assoc "Enter" [::h/prevent [:combo/committed id on-commit]]
+                      " "     [::h/prevent [:combo/committed id on-commit]]))}
+      label]
+
+     [overlay/popover
+      {:open?      open?
+       :on-dismiss [:combo/dismissed id]
+       :anchor     trigger-id
+       :placement  :bottom-start}
+      [:ul {:id listbox-id
+            :role "listbox"}
+       (for [{v :value l :label} items]
+         [:li
+          {:key v
+           :id (option-id v)
+           :role "option"
+           :aria-selected (= v value)
+           :on-click [:combo/selected id on-commit v]}
+          l])]]]))
+```
+
+Used for the todo filter:
+
+```clojure
+[select-dropdown {:id          :showing
+                  :items       [{:value :all    :label "All"}
+                                {:value :active :label "Active"}
+                                {:value :done   :label "Done"}]
+                  :value       (h/sub [:todo/showing])
+                  :on-commit   [:todo/set-showing]
+                  :placeholder "Show"
+                  :accessible-label "Show todos"}]
+```
+
+When closed, Enter or Space uses the native button click to open the list.
+When open, the key map commits and prevents the default click, so one key press
+cannot close the list and immediately toggle it open again. Test this with real
+browser keyboard input: invoking a synthetic handler alone does not exercise
+native button activation.
+
+Escape is not in the key map because the native popover handles Escape and
+dispatches `:on-dismiss`. Focus stays on the trigger, and there is no document
+listener or portal.
+
+Four details make the active-descendant model work for screen readers:
+
+- `:role "combobox"` on the trigger. `:aria-activedescendant` is only defined
+  for certain roles, and a plain button is not one of them.
+- `:aria-controls` naming the listbox, so the active-descendant id refers to an
+  element the trigger is related to.
+- Both are emitted only while the list is open, because a closed overlay has no
+  DOM node to point at.
+- `:aria-selected` follows the committed `value`, while
+  `:aria-activedescendant` follows the transient `active`. While the user is
+  arrowing through options these differ, and merging them would announce a
+  choice nobody has made.
+
+None of the four is visible on screen or caught by a click-driven test, so
+check them with an accessibility-tree assertion or a screen reader.
+
+The same event-and-address model works for a toggletip, command menu, or other
+popover-shaped control.
 
 ### Entry animation
 
