@@ -225,14 +225,13 @@ Two edge cases:
 - **An unchanged part stays a no-op.** If the handler returns no `:db`, `path` adds
   none.
 
-!!! warning "Gotcha — a hand-written `path` causes needless re-renders"
+!!! note "Keep an unchanged slice unchanged"
 
-    re-frame2 skips the [app-db commit](glossary.md#commit), and the re-renders after
-    it, when a handler returns an app-db `identical?` to the one it received. A naive
-    `path` that does `(assoc-in original-db [:todos] returned)` builds a new top-level
-    map even when nothing changed, which defeats that check. The standard `path`
-    returns the original app-db object when the returned part is `identical?` to the
-    one it passed in.
+    The standard `path` returns the original app-db object when the returned slice
+    is `identical?` to the one it passed in. This preserves the commit's no-change
+    check. A hand-written wrapper that rebuilds the map can miss that fast path;
+    subscription equality checks still stop unchanged derived values from causing
+    downstream recomputation or re-renders.
 
 ??? info "From re-frame v1: the helper interceptors are gone"
 

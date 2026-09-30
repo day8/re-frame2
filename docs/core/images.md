@@ -352,10 +352,11 @@ fakes as a later image:
              :registrations
              {:reg-fx [[:todo.storage/save (fn [_ctx _todos] nil)]]}}))  ;; no localStorage
 
-(let [frame (rf/make-frame {:images [todos-image test-doubles]
+(rf/with-new-frame [frame (rf/make-frame
+                           {:images [todos-image test-doubles]
                             :initial-events [[:rf/set-db {:todos {}}]]})]
-  (rf/dispatch-sync [:todo/add "Buy milk"] {:frame frame})
-  @(rf/subscribe [:todo/todos] {:frame frame}))
+  (rf/dispatch-sync [:todo/add "Buy milk"])
+  (rf/subscribe-once [:todo/todos]))
 ```
 
 The fake goes in a separate, later image because defining it in the same image as the
@@ -366,9 +367,9 @@ State setup is a frame concern: `:initial-events` (such as a leading
 an image concern: select or override registrations before the frame runs. Because the
 two are separate, a test can vary one without touching the other.
 
-The frame goes in the `{:frame …}` opts map, the last argument `dispatch-sync` and
-`subscribe` accept. It takes a frame value (what `make-frame` returns) or a frame id.
-[Frames](frames.md) covers both.
+`with-new-frame` makes the frame current for both calls and destroys it on exit.
+`subscribe-once` reads without keeping a cache reference. Outside that scope, pass
+`{:frame frame}` to either call; [Frames](frames.md) covers explicit targets.
 
 ??? info "Coming from Jest mocks or MSW?"
 

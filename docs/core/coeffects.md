@@ -130,13 +130,14 @@ storage, and the coeffect `:todo.storage/todos` is the only code that reads it.
 ## The world map
 
 The `{:keys [db]}` you destructure in every handler is the
-[world](glossary.md#world) map, and everything in it is a coeffect. `:db` and `:event` are always there. Anything else arrives only
-if the handler declares it, and then sits beside `:db` under its own id. That map is the handler's whole input: it
-should read nothing else.
+[world](glossary.md#world) map, and everything in it is a coeffect. `:db` and `:event` are always there, alongside framework context such as
+`:rf.frame/id`, `:rf.db/runtime` and the recorded `:rf.cofx` map. An application fact
+arrives under its own id only if the handler declares it. That map and the event
+vector are the handler's inputs; it should not reach out to read the world.
 
 | | Inputs (coeffects) | Outputs (effects) |
 |---|---|---|
-| **Provided without asking** | `:db`, `:event` | `:db` |
+| **Framework keys** | `:db`, `:event`, `:rf.frame/id`, runtime context | `:db` and commit-plane keys |
 | **Register more with** | `reg-cofx` | `reg-fx` |
 | **Use in a handler via** | `:rf.cofx/requires` | the `:fx` vector |
 | **The impure work happens in** | the cofx supplier | the [effect handler](glossary.md#effect-handler) |
@@ -193,10 +194,13 @@ before the handler runs. If the world can only answer asynchronously, as with a
 fetch, use an effect whose result comes back as a reply event
 ([HTTP](effects.md#http)).
 
-**Never record a secret.** Recorded values are copied into every recording, test
-fixture, and exported trace, so tokens, nonces, key material, and crypto-grade
-randomness must not be recordable coeffects. See
-[Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md).
+**Classify sensitive inputs at their supplier.** A recordable coeffect that reads
+a saved credential needs `:sensitive` paths on its `reg-cofx` metadata; an app-db
+classification does not cover that separate copy. Capture then redacts those paths,
+so strict epoch replay refuses the incomplete input instead of replaying a marker.
+Use fake credentials in tests. [Add authentication](how-to/add-auth.md#read-the-saved-session-back-at-boot)
+shows the tradeoff; [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md)
+explains the classification boundaries.
 
 ## Fresh ids: the minting ladder
 
@@ -283,8 +287,7 @@ Choose per dispatch with the `:rf.cofx/mint-policy` option, or per frame.
 Because every fact is declared, the runtime can tell a typo from a missing value.
 Branch on the [`:rf.error/*` id](glossary.md#error-record), never on the message.
 
-- **A required id that was never registered**: `:rf.error/unregistered-cofx`, at
-  registration where it can be checked, otherwise before the handler first runs.
+- **A required id that was never registered**: `:rf.error/unregistered-cofx`, before the declaring event is handled, not when its handler registers.
 - **A declared `:provided?` fact absent from the event**:
   `:rf.error/missing-required-cofx`, under every mint policy. `:rf/time-ms` is always
   stamped, so it never fails this way.

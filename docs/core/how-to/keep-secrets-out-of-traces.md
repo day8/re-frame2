@@ -1,16 +1,14 @@
 # Keep secrets and large things out of traces
 
-When your login form dispatches `[:auth/sign-in {:password "hunter2"}]`, the password is data in the [event](../glossary.md#event), and events, [app-db](../glossary.md#app-db) snapshots, and HTTP records all go onto the [trace stream](../glossary.md#trace-stream) ([Observability](../observability.md)). [Xray](../glossary.md#xray) shows it, the [epoch](../glossary.md#epoch) history keeps it, and a sink forwarding records to Datadog or Sentry can send it off the machine. This recipe keeps passwords, tokens, and large blobs out of all of those, while your handlers still see the real values.
+A password can appear in several places: an event payload, a coeffect read from
+storage, an app-db path, an HTTP body and a subscription result. Classify each owner
+so its trace or exported record redacts the value while the application still uses
+the real data.
 
-You declare a *path* as sensitive (or large) once, where the data's shape is defined, and the framework redacts whatever is at that path wherever it leaves the runtime to be observed: a dev panel, the epoch history, an off-box monitor. This page calls that point *egress*. The mechanism is [data classification](../glossary.md#data-classification); the sections below apply it to each kind of data owner.
-
-!!! note "This is hygiene, not a security boundary, and it fails open"
-
-    The framework keeps secrets off its own observability output; your app still owns auth, encryption, and transport. A path you never classify is sent as is. The framework doesn't track a secret value as it moves, so a copy at a new path (a re-keyed value, a rendered field) is sent as is until you classify that path too.
-
-??? info "Coming from Sentry?"
-
-    Instead of a `beforeSend` scrub function in each consumer, you classify data once where its shape is defined, and the framework applies it at every boundary it owns, so no consumer can forget.
+This recipe applies [data classification](../glossary.md#data-classification) to
+those boundaries. Raw local epoch snapshots retain state for restoration; they and
+other direct reads need `project-egress` before forwarding. Classification does not
+erase secrets from memory or make a raw snapshot safe to export.
 
 ## Classify a durable secret in app-db
 
@@ -34,7 +32,7 @@ Run `:auth/init` from the frame's `:initial-events`, so the classification is in
    :initial-events [[:auth/init]]})
 ```
 
-If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: a `frame-root` that mounts over an existing frame replaces that frame's config with its own options.
+If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: `frame-root` uses them only when it creates the frame. An already-live frame keeps its config. To change it, call `make-frame` with the same `:id` and the complete updated config; omitted keys are dropped.
 
 The token stays in app-db and is redacted at egress. App-db paths are classified only by events.
 

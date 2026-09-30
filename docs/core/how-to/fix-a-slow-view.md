@@ -155,7 +155,7 @@ A build without the flag carries no User Timing code at all, because dead-code e
 
 To read it, open the Chrome DevTools **Performance** panel, where the `rf:` measures appear as named bars beside React renders, paint, and layout.
 
-Each measure is delivered to any live `PerformanceObserver` and then cleared from the browser's buffer, so a long-running page doesn't accumulate entries. `performance.getEntriesByType('measure')` therefore returns `[]` in a normal build. For continuous telemetry, attach a `PerformanceObserver` and forward `rf:` measures to your APM:
+Each measure queues an entry for any observing `PerformanceObserver` and is then cleared from the browser's performance timeline. Observer callbacks run asynchronously; clearing the timeline does not remove their queued entries, and a long-running page does not accumulate timeline entries. `performance.getEntriesByType('measure')` therefore returns `[]` in a normal build. For continuous telemetry, attach a `PerformanceObserver` and forward `rf:` measures to your APM:
 
 ```javascript
 new PerformanceObserver((list) => {

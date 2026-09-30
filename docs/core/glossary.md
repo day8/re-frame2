@@ -754,9 +754,9 @@ Related: [Observability](observability.md#the-trace-stream).
 ### **listener**
 
 A callback registered with `register-listener!` on the `:trace` or `:epoch` stream.
-Both streams are dev-only; use a [sink](#sink) in production. Listeners see classified
-paths redacted and nothing more, so [project](#project-egress) anything you send
-off-box.
+Both streams are dev-only; use a [sink](#sink) in production. Trace payloads are
+classified at capture, but epoch listeners receive raw state snapshots. Always
+[project](#project-egress) a record before sending it off-box.
 
 Related: [Observability](observability.md#write-a-listener).
 

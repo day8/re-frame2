@@ -217,7 +217,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
   (reg-cofx id ?metadata supplier) → id
   ```
 - **Description**: Registers a coeffect: a named fact about the world (the time, a stored preference, a browser setting) that an event handler can ask for instead of reading it itself, so the handler stays pure. The supplier is a plain function that returns the value synchronously, `(fn [] value)`, or `(fn [arg] value)` for an id parameterised at the call site. The runtime calls it and puts the result in the coeffects map under the cofx id.
-    - A handler asks for coeffects with `:rf.cofx/requires` in its registration metadata: `[:my/fact]`, or `[[:my/fact arg]]` for a parameterised id. The values arrive flat in the coeffects map, beside `:db`. There is no `inject-cofx` interceptor; calling it throws `:rf.error/inject-cofx-removed`.
+    - A handler asks for coeffects with `:rf.cofx/requires` in its registration metadata: `[:my/fact]`, or `[[:my/fact arg]]` for a parameterised id. The values arrive flat in the coeffects map, beside `:db`. There is no `rf/inject-cofx` var, so a leftover facade call fails to compile. The old implementation-namespace `re-frame.cofx/inject-cofx` stub throws `:rf.error/inject-cofx-removed`.
     - For the current time, declare the built-in `:rf/time-ms` (epoch milliseconds, stamped when the event is queued). It needs no registration.
     - The metadata map sets the fact's grade, which decides what happens on replay:
 
@@ -228,7 +228,7 @@ On CLJS, the `reg-*` names are macros in call position and plain functions in va
         | Provided | `{:recordable? true :provided? true}`, no supplier | The event: stamped by the framework or a feature artefact, or passed in `:rf.cofx`. `:rf/time-ms` is one. | The recorded value is presented. |
 
         Use ambient only for values no `app-db` write depends on, such as a display preference, and recordable for a world fact that ends up in `app-db`. A handler that declares a provided fact the event does not carry fails with `:rf.error/missing-required-cofx`.
-    - A `{:recordable? true}` coeffect's value must be EDN (not a `js/Date` or a DOM node), and must match the registration's `:schema` when the schemas artefact is loaded. Both are checked in every build as the value is recorded, and a failure throws `:rf.error/cofx-value-invalid`. See [What is validated](re-frame.schemas.md#what-is-validated).
+    - A `{:recordable? true}` coeffect's value must be EDN (not a function, Promise or DOM node; a `js/Date` is a valid `#inst`), and must match the registration's `:schema` when the schemas artefact is loaded. Both are checked in every build as the value is recorded, and a failure throws `:rf.error/cofx-value-invalid`. See [What is validated](re-frame.schemas.md#what-is-validated).
     - A handler that declares an unregistered id throws `:rf.error/unregistered-cofx` when its event runs; registration does not check it. A supplier that throws emits `:rf.error/coeffect-exception`, and the handler does not run.
     - Under the `:strict` mint policy, a `{:recordable? true}` fact the dispatch did not supply is not generated, and the handler fails with `:rf.error/missing-required-cofx`. Frames made with `:preset :test` default to `:strict`, so tests pass the value in the `:rf.cofx` dispatch opt, or opt back into generation with `{:rf.cofx/mint-policy :explicit-live}`.
     - `:platforms` (a set of `:client` / `:server`) limits where the supplier runs. Elsewhere an ambient fact is absent from the coeffects map, and a recordable one fails with `:rf.error/missing-required-cofx`.
@@ -309,7 +309,7 @@ A `:frame` that names no live frame (a typo, or a destroyed frame) does not thro
 | `:frame` | The frame to target: a frame-id keyword or a live frame value, as in `(rf/dispatch [::save x] {:frame :todo})`. |
 | `:fx-overrides` | `{fx-id override}` for this dispatch; see [`with-fx-overrides`](#with-fx-overrides) for override values and precedence. |
 | `:interceptor-overrides` | `{interceptor-ref replacement}` for this dispatch: replaces or removes interceptors in the chain. See [Interceptor overrides](#interceptor-overrides). |
-| `:rf.cofx` | Recordable coeffect values to supply, such as `{:rf/time-ms 0}`, for tests, replay and SSR hydration. The runtime adds `:rf/time-ms` when it is absent. A value that is not a map, or a non-integer `:rf/time-ms`, makes the call throw `:rf.error/invalid-cofx`; a value that is not plain EDN (a `js/Date`, a fn, a DOM node) throws `:rf.error/cofx-value-invalid`. Both are checked in every build. |
+| `:rf.cofx` | Recordable coeffect values to supply, such as `{:rf/time-ms 0}`, for tests, replay and SSR hydration. The runtime adds `:rf/time-ms` when it is absent. A value that is not a map, or a non-integer `:rf/time-ms`, makes the call throw `:rf.error/invalid-cofx`; a value that is not plain EDN (a fn, Promise or DOM node) throws `:rf.error/cofx-value-invalid`. Both are checked in every build. |
 | `:rf.cofx/mint-policy` | Whether a declared recordable coeffect the dispatch did not supply may be generated. `:live` and `:explicit-live` run its supplier; `:strict` fails the handler with `:rf.error/missing-required-cofx`, and any other value behaves as `:strict`. Unset, the frame's `:rf.cofx/mint-policy` applies (`:strict` under `:preset :test`), then `:live`. A test on a `:strict` frame opts back into generation with `:explicit-live`. See [Coeffects](../core/coeffects.md). |
 | `:source` | What triggered the dispatch, recorded on traces. Application code passes `:ui`, `:repl`, `:tool`, `:test`, `:websocket` or `:other`; unset, it is `:unknown`. The framework stamps the other values itself: `:frame-init`, `:fx-dispatch`, `:fx-dispatch-later`, `:machine-spawn`, `:machine-action`, `:always`, `:after-timer`, `:http`, `:router`, `:ssr-hydration`. |
 | `:origin` | Who dispatched: an open keyword, `:app` by default. |
@@ -1466,7 +1466,7 @@ See [Observability](../core/observability.md).
     (fn [trace-event]
       (js/console.log (:op-type trace-event) (:operation trace-event))))
 
-  ;; Dev-only: one assembled :rf/epoch-record per dequeued event. Returns nil
+  ;; Dev-only: epoch publications, including later fills of the same record. Returns nil
   ;; (and registers nothing) when day8/re-frame2-epoch is absent.
   (rf/register-listener! :epoch :my-app/epoch-tap
     (fn [record]

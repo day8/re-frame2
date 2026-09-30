@@ -230,7 +230,8 @@ an error, just as `(rf/app-db-value <unknown>)` returns `nil`.
 Next to the trace buffer (what the app did) is the **epoch history** (what the app
 was): one record per run with `:db-before` and `:db-after` snapshots, plus
 `:sub-runs`, `:renders` and `:effects` summaries. Read it with
-`(rf/epoch-history :app)`.
+`(rf/epoch-history :app)`. Load the optional `day8/re-frame2-epoch` artefact
+and require `[re-frame.epoch]` first; without it the history call returns `[]`.
 
 Because each record holds real before-and-after state,
 [time travel](glossary.md#time-travel) needs no replay:
@@ -269,8 +270,8 @@ after projection: `(-> record rf/project-egress my-scrub)`.
 
 ### The `:epoch` stream: assembled runs
 
-The only other listener stream is `:epoch`. It delivers one epoch record per run,
-after the run settles. Use it when you think in runs rather than in individual trace
+The only other listener stream is `:epoch`. It publishes a record after a run
+settles, then republishes the same record when later render details arrive. Use it when you think in runs rather than in individual trace
 events. It needs the `day8/re-frame2-epoch` artefact. Production errors reach you
 through a sink ([below](#consuming-production-telemetry-declare-a-sink)).
 
@@ -283,11 +284,13 @@ through a sink ([below](#consuming-production-telemetry-declare-a-sink)).
              "/" (count (:sub-runs epoch-record)) "sub-runs")))
 ```
 
-The callback fires once per dequeued event. If a handler's `:fx` dispatched a child
-event, the parent and the child are two epochs and the callback fires twice. The
-exception is a [state machine](../machines/concepts.md) working on itself: when a
-transition raises an internal event or takes an immediate automatic transition, those
-steps belong to the triggering event's epoch.
+A parent and its `:dispatch` child are separate epochs. A later render can publish
+either record again, so callback count is not event count. Store records under
+`[(:frame record) (:epoch-id record)]` and replace an existing entry on a repeated
+publication. A [machine](../machines/concepts.md)'s internal raises and immediate
+transitions stay within the triggering event's epoch. The
+[epoch reference](../api/re-frame.epoch.md#epoch-listeners) covers halted runs and
+synthetic records.
 
 ## In production builds
 
@@ -451,12 +454,9 @@ work on bundles and flat reads; `:operation`, `:op-type`, `:severity`, `:since`,
 
 ### Epoch records: re-delivery and outcome
 
-The same epoch can be delivered more than once. A late render, sub-run or unmount
-that arrives after the run settled re-publishes the record with the same
-`:epoch-id`, and a `replace-frame-state!` write or a halt publishes a record that no
-dequeued event produced. An `:epoch-id` is unique only within its frame, so key any
-cache by `[(:frame record) (:epoch-id record)]` and let a re-publication replace the
-entry.
+The [listener example above](#the-epoch-stream-assembled-runs) explains ordinary
+publications and later fills. Synthetic state replacements and halted runs publish
+records too; a missing-handler event rejected before its run publishes none.
 
 Each record's `:outcome` says how the run ended: `:ok` for a normal settle,
 `:halted-depth` if the run hit the re-entrancy depth guard, `:halted-destroy` if the

@@ -1,6 +1,6 @@
 # Testing
 
-Most of a re-frame2 app is pure functions, so most of its tests are function calls. A handler is a function you call with maps, a subscription is a function of a db value, and a view returns hiccup you walk as data. A whole pipeline run replays deterministically once its inputs are pinned. None of these needs a browser, a DOM or a mocking library, and they run on the JVM in milliseconds.
+Most of a re-frame2 app is pure functions, so most of its tests are function calls. A handler is a function you call with maps, a subscription is a function of a db value, and a view returns hiccup you walk as data. A whole pipeline run replays deterministically once its inputs are pinned. Handler, subscription and stubbed pipeline tests run on the JVM without a browser. Reagent-style views that return hiccup can also be tested as data. UIx hook components and DOM behaviour need mounted browser tests, covered on the Views page.
 
 The pages test the todo app: `:todo/add` and `:todo/toggle` as handlers, `:todo/visible` as a subscription, a todo list as a view.
 

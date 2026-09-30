@@ -130,7 +130,7 @@ These keys live in the frame config: `:drain-depth`, `:fx-overrides`, `:intercep
    :observability  {:errors [{:sink :app.sinks/sentry}]}})
 ```
 
-If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: a `frame-root` that mounts over an existing frame replaces that frame's config with its own options.
+If your app mounts with `frame-root` ([Boot and mount an app](boot-and-mount-an-app.md)), put these keys on its options instead of calling `make-frame`: `frame-root` uses them only when it creates the frame. An already-live frame keeps its config. To change it, call `make-frame` with the same `:id` and the complete updated config; omitted keys are dropped.
 
 An `:observability` entry names a `:sink` keyword that you register, with an optional `:rf.egress/profile`. The entry takes those two keys only; anything else throws at `make-frame`. Vendor configuration belongs in the sink function you register, which closes over it. The frame key accepts `:handled-events` and `:errors` ([Report errors in production](report-errors-in-production.md)).
 

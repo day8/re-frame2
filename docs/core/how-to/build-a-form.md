@@ -29,12 +29,12 @@ The form's state is one map. The examples assume `(:require [re-frame.core :as r
                     :errors            {}        ;; {<field> ["msg" ...]}; :_form for form-level
                     :touched           #{}       ;; fields the user has interacted with
                     :submit-error      nil})     ;; transport failure (network down, timeout)
-     ;; keep the typed password out of traces, epochs and off-box records
+     ;; classify password paths in state projections and off-box records
      :sensitive [[:auth :login :draft :password]
                  [:auth :login :submitted :password]]}))
 ```
 
-The `:sensitive` entry beside `:db` classifies the password paths in the draft and in the `:submitted` snapshot, so observers see `:rf/redacted` while your handlers read the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
+The `:sensitive` entry beside `:db` classifies the password paths in the draft and in the `:submitted` snapshot, so projected state shows `:rf/redacted` while your handlers and raw local epoch snapshots retain the real value ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
 `:submitted` makes "is this form dirty?" a value comparison: the draft differs from the last snapshot the server accepted. `:errors` holds renderable validation messages, whichever validator produced them. `:submit-error` is separate because a transport failure (the network is down) renders as a banner, while field errors render under their input.
 
@@ -231,7 +231,9 @@ The visibility rule lives in one [subscription](../glossary.md#subscription):
 - **Form-level errors** (`:errors :_form`, such as "invalid credentials" or "passwords don't match") show whenever they exist.
 
 ```clojure
-(rf/reg-sub :form.login (fn [db _] (get-in db [:auth :login])))
+(rf/reg-sub :form.login
+  {:sensitive [[:draft :password] [:submitted :password]]}
+  (fn [db _] (get-in db [:auth :login])))
 
 (rf/reg-sub :form.login/field-error {:inputs [[:form.login]]}
   (fn [[{:keys [errors touched submit-attempted?]}] [_ field]]
@@ -246,6 +248,8 @@ The visibility rule lives in one [subscription](../glossary.md#subscription):
     (and (empty? errors) (not= status :submitting))))
 ```
 
+The whole-slice and draft subscriptions classify their password outputs separately: classification does not propagate from app-db or an input sub.
+
 `(or submit-attempted? (contains? touched field))` is the whole rule, written once. Every input reads through `:field-error`, so no two fields can disagree about when to show an error.
 
 `:submit-attempted?` only goes from `false` to `true`, and `:touched` only grows, so once an error is allowed to show it stays allowed for the rest of the session. Don't un-touch a field or reset the latch mid-session; to start over, run `:initialise`, which replaces the whole slice.
@@ -253,7 +257,9 @@ The visibility rule lives in one [subscription](../glossary.md#subscription):
 Add the one-line subs the view reads. `:dirty?` compares the draft with `:submitted` when that is non-nil, and with the defaults otherwise:
 
 ```clojure
-(rf/reg-sub :form.login/draft        {:inputs [[:form.login]]} (fn [[s] _] (:draft s)))
+(rf/reg-sub :form.login/draft
+  {:inputs [[:form.login]] :sensitive [[:password]]}
+  (fn [[s] _] (:draft s)))
 (rf/reg-sub :form.login/status       {:inputs [[:form.login]]} (fn [[s] _] (:status s)))
 (rf/reg-sub :form.login/submit-error {:inputs [[:form.login]]} (fn [[s] _] (:submit-error s)))
 (rf/reg-sub :form.login/dirty? {:inputs [[:form.login]]}
@@ -280,11 +286,13 @@ Add the one-line subs the view reads. `:dirty?` compares the draft with `:submit
        [:ul.form-errors (for [m form-errs] ^{:key m} [:li m])])
      [:label "Email"
       [:input {:type "email" :value (:email draft)
+               :disabled (= status :submitting)
                :on-change #(dispatch [:form.login/edit-field :email (.. % -target -value)])
                :on-blur   #(dispatch [:form.login/blur-field :email])}]]
      (when email-err [:p.error email-err])
      [:label "Password"
       [:input {:type "password" :value (:password draft)
+               :disabled (= status :submitting)
                :on-change #(dispatch [:form.login/edit-password {:value (.. % -target -value)}])
                :on-blur   #(dispatch [:form.login/blur-field :password])}]]
      (when pw-err [:p.error pw-err])
@@ -293,7 +301,7 @@ Add the one-line subs the view reads. `:dirty?` compares the draft with `:submit
      (when transport [:p.error "Couldn't reach the server. Try again."])]))
 ```
 
-The view has no visibility logic, no can-submit logic, no validator, and no error routing; it reads subs and dispatches events. Every input has the same shape: `:value` from the draft, `edit-field` on change, `blur-field` on blur. Add a field by copying one and changing the keyword.
+The view has no visibility logic, no can-submit logic, no validator, and no error routing; it reads subs and dispatches events. The fields are disabled while submitting, so the success handler snapshots the draft that was sent. Every input has the same shape: `:value` from the draft, `edit-field` on change, `blur-field` on blur. Add a field by copying one and changing the keyword.
 
 Seed the slice before the form renders, for example from the frame's `:initial-events` (or from the `:on-match` of the route that shows the form):
 
@@ -387,6 +395,7 @@ Remove the key when the field is clean rather than storing `nil`: `:can-submit?`
        :fx [[:rf.http/managed
              {:request    {:method :get
                            :url    (str "/api/users/check?u=" (js/encodeURIComponent username))}
+              :decode :json
               ;; carry the value we asked about, so a stale reply can be discarded
               :on-success [:form.signup/username-checked field username]
               :on-failure [:form.signup/username-checked field username]}]]})))
@@ -395,12 +404,19 @@ Remove the key when the field is clean rather than storing `nil`: `:can-submit?`
   (fn [{:keys [db]} [_ field checked-value reply]]
     (if (not= checked-value (get-in db [:auth :signup :draft field]))
       {:db db}                                       ;; stale answer: drop it
-      (if (get-in reply [:value :taken?])
-        {:db (assoc-in db [:auth :signup :errors field] ["already taken"])}
+      (cond
+        (not= :ok (:status reply))
+        {:db (assoc-in db [:auth :signup :errors field]
+                       ["Could not check this username. Try again."])}
+
+        (get-in reply [:value :taken?])
+        {:db (assoc-in db [:auth :signup :errors field] ["Already taken."])}
+
+        :else
         {:db (update-in db [:auth :signup :errors] dissoc field)}))))
 ```
 
-The check is an ordinary managed request, so `:retry`, `:timeout-ms`, and the reply envelope all work as they do for submit. Because the answer lands in the same `:errors` map, `:field-error` shows sync and async results the same way.
+A failed check leaves an error instead of declaring the name available; blurring again retries it. The server must still validate uniqueness when the form is submitted. The check is an ordinary managed request, so `:retry`, `:timeout-ms`, and the reply envelope all work as they do for submit. Because the answer lands in the same `:errors` map, `:field-error` shows sync and async results the same way.
 
 ### Validate the *server's* reply in production
 
