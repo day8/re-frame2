@@ -237,9 +237,9 @@ On the way to a sink, every key other than the summary keys (`:frame`, `:error`,
       (report-error! record))))
 ```
 
-Where `:tags` is readable, each `:hook-failures` entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Teardown is best-effort, so nothing in the record calls for action; it is there for diagnosis.
+Where `:tags` is readable, each `:hook-failures` entry names the teardown step that threw (`:hook`, either a cleanup-hook key or a direct step such as `:frame/notify-machine-destruction!`), carries that step's exception, and records in `:where` the boundary that caught it (`:safe-call-hook!` or `:safe-teardown-step!`). Inspect the failed hooks and correct their cleanup; best-effort teardown lets later steps run but does not make a failed release harmless.
 
-The runtime reports one record per destroy rather than one per failed step, so an SSR host that destroys a frame per request can't flood your monitor, and the steps that failed together stay together. If teardown aborts partway, the failures collected so far are still reported.
+The runtime groups failures from one teardown into one record. Repeated failures across SSR requests still produce repeated records. If teardown aborts partway, the failures collected so far are still reported.
 
 ### SSR categories
 
