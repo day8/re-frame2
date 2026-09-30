@@ -94,7 +94,7 @@ another child could still succeed.
   `:on-any-failed`. Any other bare key is
   `:rf.error/machine-spawn-all-bad-shape`.
 - **A child spec may declare `:on-done`** — a `:data` fold on the parent at
-  that child's finality, run before the join fold. It must be a fn:
+  that child's successful finality, run before the join fold. It must be a fn:
   registration refuses any other value (`:rf.error/machine-bad-on-done-clause`),
   because the join's events own control flow. It may **not** declare
   `:on-error` (`:rf.error/machine-unknown-spawn-key`): failure control flow
@@ -111,9 +111,10 @@ another child could still succeed.
   parent stays in the state, and the runtime warns
   `:rf.warning/spawn-all-join-unsatisfiable`. Declare `:on-any-failed`, or
   give the state an `:after` deadline.
-- **An unregistered child type fails the whole invoke**, atomically —
-  nothing is spawned, so an `:all` join cannot hang on a child that never
-  runs (`:rf.error/machine-spawn-unregistered-type`).
+- **An unregistered child type rejects the whole invoke**
+  (`:rf.error/machine-spawn-unregistered-type`). No children start and
+  `:on-any-failed` is not fired; the parent stays in its state. Register every
+  child type before entering the state.
 - **A state takes `:spawn` or `:spawn-all`, never both**
   (`:rf.error/machine-spawn-all-with-spawn`).
 - A wall-clock bound on the join is the same as single `:spawn`: `:after`
