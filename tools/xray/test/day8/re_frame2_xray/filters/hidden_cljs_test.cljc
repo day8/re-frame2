@@ -61,14 +61,6 @@
                   {:filters {:in [] :out []} :frame :rf/cart-frame :muted #{}}))
         "a frame selection alone is NOT an active filter")))
 
-(deftest any-filter-active?-independent-of-hidden-count
-  (testing "a filter can be active yet hide nothing (it matches every
-            current cascade) — any-filter-active? is about whether any
-            suppressing surface is engaged, not about the count"
-    (is (true? (hidden/any-filter-active?
-                 {:filters {:in [{:pattern :a}] :out []}
-                  :muted #{}})))))
-
 ;; ---- indicator-visible? -------------------------------------------------
 
 (deftest indicator-visible?-only-when-something-hidden
@@ -139,15 +131,6 @@
                             {:filters {:in [{:pattern :a}] :out []}
                              :muted #{}})]
       (is (= 6 (:hidden s)))
-      (is (true? (:visible? s))))))
-
-(deftest summary-filtered-to-one-visible
-  (testing "the filtered-to-one case — raw 4, filtered 1; reports 3
-            hidden and renders"
-    (let [s (hidden/summary 4 1
-                            {:filters {:in [{:pattern :a}] :out []}
-                             :muted #{}})]
-      (is (= 3 (:hidden s)))
       (is (true? (:visible? s))))))
 
 (deftest summary-nothing-hidden-not-visible

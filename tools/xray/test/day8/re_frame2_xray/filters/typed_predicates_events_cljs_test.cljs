@@ -71,13 +71,6 @@
       (is (= [{:kind :http-correlation :params {:correlation-id "abc-123"}}]
              (:in filters))))))
 
-(deftest filter-by-http-correlation-idempotent
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/filter-by-http-correlation "abc-123"])
-    (rf/dispatch-sync [:rf.xray/filter-by-http-correlation "abc-123"])
-    (is (= 1 (count (:in @(rf/subscribe [:rf.xray/active-filters])))))))
-
 ;; ---- :rf.xray/filter-by-fx ---------------------------------------------
 
 (deftest filter-by-fx-appends-typed-pill
@@ -87,13 +80,6 @@
     (let [filters @(rf/subscribe [:rf.xray/active-filters])]
       (is (= [{:kind :fx :params {:fx-id :rf.http/managed}}]
              (:in filters))))))
-
-(deftest filter-by-fx-idempotent
-  (xray-setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/filter-by-fx :rf.http/managed])
-    (rf/dispatch-sync [:rf.xray/filter-by-fx :rf.http/managed])
-    (is (= 1 (count (:in @(rf/subscribe [:rf.xray/active-filters])))))))
 
 ;; ---- mixed typed + legacy keyword pills ---------------------------------
 

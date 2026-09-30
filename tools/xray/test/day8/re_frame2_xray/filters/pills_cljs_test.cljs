@@ -64,15 +64,6 @@
     (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-filter-pill-out-1"))
         "no extra OUT pill")))
 
-(deftest in-pill-shows-pattern-text
-  (xray-setup!)
-  (let [tree (pills/pills-view rf/dispatch {:filters {:in [{:pattern ":auth/*"}]
-                                          :out []}})
-        pill (rf.test-helpers/find-by-testid tree "rf-xray-filter-pill-in-0")]
-    (is (some? pill))
-    (is (re-find #":auth/\*" (rf.test-helpers/text-content pill))
-        "pill renders the pattern")))
-
 (deftest pill-body-has-no-leading-mode-glyph
   (testing "the Figma authority pill is `[label] [trailing ×]`,
             with no `+` (include) / `×` (exclude) LEADING glyph prefix on

@@ -3,8 +3,8 @@
 
   Covers:
    - open-edit-popup hydrates the draft from the trigger payload
-   - set-mode / set-pattern mutate the draft
-   - save-edit-popup mutates :active-filters and closes the popup
+   - save-edit-popup lands the set-mode / set-pattern draft in
+     :active-filters and closes the popup
    - delete-edit-popup drops the pill and closes
    - close-edit-popup discards the draft
    - hide-event-type (right-click row path) pre-populates OUT mode
@@ -114,23 +114,7 @@
         "trigger remembers the pill index for in-place edit")))
 
 ;; -------------------------------------------------------------------------
-;; (3) Draft mutation events
-;; -------------------------------------------------------------------------
-
-(deftest set-mode-mutates-draft
-  (xray-setup!)
-  (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-  (frame-dispatch [:rf.xray/edit-popup-set-mode :out])
-  (is (= :out (:mode (frame-sub [:rf.xray/edit-popup-draft])))))
-
-(deftest set-pattern-mutates-draft
-  (xray-setup!)
-  (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-  (frame-dispatch [:rf.xray/edit-popup-set-pattern ":auth/*"])
-  (is (= ":auth/*" (:pattern (frame-sub [:rf.xray/edit-popup-draft])))))
-
-;; -------------------------------------------------------------------------
-;; (4) Save round-trip
+;; (3) Save round-trip
 ;; -------------------------------------------------------------------------
 
 (deftest save-add-appends-to-bucket-and-closes
@@ -190,7 +174,7 @@
         "popup stays open so the user can fix the input")))
 
 ;; -------------------------------------------------------------------------
-;; (5) Cancel — close discards draft, no filter mutation
+;; (4) Cancel — close discards draft, no filter mutation
 ;; -------------------------------------------------------------------------
 
 (deftest cancel-discards-draft-and-leaves-filters-alone
@@ -209,7 +193,7 @@
       "the original pill survives a cancel"))
 
 ;; -------------------------------------------------------------------------
-;; (6) Delete from popup
+;; (5) Delete from popup
 ;; -------------------------------------------------------------------------
 
 (deftest delete-drops-pill-at-trigger-idx
@@ -238,7 +222,7 @@
         "delete from :add source did not touch the IN bucket")))
 
 ;; -------------------------------------------------------------------------
-;; (7) Right-click row → hide-event-type opens popup with OUT pre-fill
+;; (6) Right-click row → hide-event-type opens popup with OUT pre-fill
 ;; -------------------------------------------------------------------------
 
 (deftest hide-event-type-opens-popup-with-out-default
@@ -262,7 +246,7 @@
     (is (= [] (:in filters)))))
 
 ;; -------------------------------------------------------------------------
-;; (8) Modal positioning
+;; (7) Modal positioning
 ;; -------------------------------------------------------------------------
 
 ;; ---- hiccup helpers -----------------------------------------------------
@@ -311,7 +295,7 @@
                (:data-rf-xray-modal-positioning (second backdrop))))))))
 
 ;; -------------------------------------------------------------------------
-;; (9) Dialog is event-id-only
+;; (8) Dialog is event-id-only
 ;; -------------------------------------------------------------------------
 ;;
 ;; The Add-filter dialog is exactly the Action radios (Show

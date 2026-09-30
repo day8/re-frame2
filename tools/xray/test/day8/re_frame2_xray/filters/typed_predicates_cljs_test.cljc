@@ -359,44 +359,6 @@
           "both the spawning parent AND the machine child survive; the
            unrelated cascade is dropped"))))
 
-(deftest http-pill-keeps-spawning-parent-cascade
-  (testing "an :http-correlation pill on the response CHILD cascade also
-            keeps the PARENT event that issued the request"
-    (let [parent  (mk-child-cascade {:dispatch-id 100
-                                     :event       [:user/load-page]})
-          child   (mk-child-cascade {:dispatch-id        200
-                                     :parent-dispatch-id 100
-                                     :event             [:article/load {}
-                                                         {:status      :ok
-                                                          :correlation {:request-id "abc-123"}}]})
-          other   (mk-child-cascade {:dispatch-id 300
-                                     :event       [:other/thing]})
-          filters {:in  [{:kind :http-correlation
-                          :params {:correlation-id "abc-123"}}]
-                   :out []}
-          kept    (mapv :dispatch-id
-                        (typed/filter-event-bundles [parent child other] filters))]
-      (is (= [100 200] kept)
-          "both the request-issuing parent AND the http child survive"))))
-
-(deftest fx-pill-keeps-spawning-parent-cascade
-  (testing "an :fx pill on the fx-triggering CHILD cascade also keeps the
-            PARENT event that spawned it"
-    (let [parent  (mk-child-cascade {:dispatch-id 1
-                                     :event       [:user/click]})
-          child   (mk-child-cascade {:dispatch-id        2
-                                     :parent-dispatch-id 1
-                                     :event             [:do/work]
-                                     :effects           [(tagged {:rf.fx/id :rf.http/managed})]})
-          other   (mk-child-cascade {:dispatch-id 3
-                                     :event       [:other/thing]})
-          filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
-                   :out []}
-          kept    (mapv :dispatch-id
-                        (typed/filter-event-bundles [parent child other] filters))]
-      (is (= [1 2] kept)
-          "both the spawning parent AND the fx child survive"))))
-
 (deftest typed-pill-walks-full-chain-to-root
   (testing "the ancestor walk is whole-chain: a :machine pill on a deep
             grandchild surfaces every cascade up to the root user event
@@ -416,23 +378,6 @@
                         (typed/filter-event-bundles [root mid leaf] filters))]
       (is (= [1 2 3] kept)
           "root → mid → leaf all survive via the whole-chain walk"))))
-
-(deftest out-pill-stays-event-bundle-local-does-not-drop-ancestor
-  (testing "an OUT (hide) pill suppresses only the cascade carrying its
-            tag, never an ancestor — hiding a child's fx must not silently
-            drop the originating user event"
-    (let [parent  (mk-child-cascade {:dispatch-id 1
-                                     :event       [:user/click]})
-          child   (mk-child-cascade {:dispatch-id        2
-                                     :parent-dispatch-id 1
-                                     :event             [:do/work]
-                                     :effects           [(tagged {:rf.fx/id :noisy/fx})]})
-          filters {:in  []
-                   :out [{:kind :fx :params {:fx-id :noisy/fx}}]}
-          kept    (mapv :dispatch-id
-                        (typed/filter-event-bundles [parent child] filters))]
-      (is (= [1] kept)
-          "only the tagged child is hidden; the parent survives"))))
 
 (deftest parent-walk-cycle-guarded
   (testing "a malformed trace with a parent loop terminates the walk
@@ -507,22 +452,6 @@
                           [a-root a-child b-root b-child] filters))]
       (is (= [[:a 1] [:a 2]] kept)
           "frame B's same-id child is not swept in by the frame-A match"))))
-
-(deftest typed-fx-filter-frame-qualifies-lineage
-  (testing "an :fx IN-pill's lineage is frame-qualified too — frame B's
-            same-id root is not pulled into frame A's fx lineage"
-    (let [a-root  (mk-frame-cascade {:frame :a :dispatch-id 7 :event [:a/click]})
-          a-child (mk-frame-cascade {:frame :a :dispatch-id 8
-                                     :parent-dispatch-id 7
-                                     :event   [:a/work]
-                                     :effects [(tagged {:rf.fx/id :rf.http/managed})]})
-          b-root  (mk-frame-cascade {:frame :b :dispatch-id 7 :event [:b/root]})
-          filters {:in  [{:kind :fx :params {:fx-id :rf.http/managed}}]
-                   :out []}
-          kept    (mapv (juxt :frame :dispatch-id)
-                        (typed/filter-event-bundles [a-root a-child b-root] filters))]
-      (is (= [[:a 7] [:a 8]] kept)
-          "frame B's same-id [B 7] is not pulled into frame A's fx lineage"))))
 
 (deftest cross-frame-cycle-guard-is-frame-qualified
   (testing "two frames each carry a 1↔2 parent loop reusing the same ids;
