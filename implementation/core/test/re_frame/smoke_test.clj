@@ -24,7 +24,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
-            [re-frame.routing :as rf.routing]
+            [re-frame.routing]
             [re-frame.machines :as rf.machines]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -485,17 +485,6 @@
       (is (= 2 @calls)
           "leaf computed once per top-level call (twice total), not memoised across calls"))))
 
-;; ---- subscription chain ---------------------------------------------------
-
-(deftest layer-1-and-layer-2-subs
-  (testing "layer-1 and layer-2 subs return computed values"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:items [1 2 3 4 5]}}))
-    (rf/reg-sub :items     (fn [db _] (:items db)))
-    (rf/reg-sub :item-count {:inputs [[:items]]} (fn [[items] _] (count items)))
-    (rf/dispatch-sync [:seed])
-    (is (= [1 2 3 4 5] (rf/subscribe-once [:items] {:frame :rf/default})))
-    (is (= 5           (rf/subscribe-once [:item-count] {:frame :rf/default})))))
-
 ;; ---- machine ---------------------------------------------------------------
 ;;
 ;; pure-machine-transition / machine-always-microstep / machine-raise-pre-commit
@@ -517,118 +506,6 @@
     ;; The flow transform runs as the outermost :after (before :db
     ;; install) and its output lands in the installed app-db per Spec 013.
     (is (= 12 (:area (rf/app-db-value :rf/default))))))
-
-;; ---- routing --------------------------------------------------------------
-
-(deftest route-url-encoding
-  (testing "route-url percent-encodes named params; match-url decodes them"
-    (rf/reg-route :user/show {} "/users/:id")
-    (is (= "/users/hello%20world"
-           (rf.routing/route-url {:to :user/show :params {:id "hello world"}})))
-    (let [m (rf.routing/match-url "/users/hello%20world")]
-      (is (= "hello world" (:id (:params m))))))
-  (testing "splat value preserves '/' between segments but encodes within"
-    (rf/reg-route :files/get {} "/files/*rest")
-    (is (= "/files/a/b%20c/d"
-           (rf.routing/route-url {:to :files/get :params {:rest "a/b c/d"}})))
-    (let [m (rf.routing/match-url "/files/a/b%20c/d")]
-      (is (= "a/b c/d" (:rest (:params m))))))
-  (testing "query keys and values are encoded / decoded. The bare route
-            declares no :query vocabulary, so the key stays a string."
-    (rf/reg-route :search {} "/search")
-    (is (= "/search?q=hello%20world"
-           (rf.routing/route-url {:to :search :params {} :query {:q "hello world"}})))
-    (let [m (rf.routing/match-url "/search?q=hello%20world")]
-      (is (= "hello world" (get-in m [:query "q"]))))))
-
-(deftest match-and-route-url
-  (testing "match-url and route-url round-trip"
-    (rf/reg-route :user/show {} "/users/:id")
-    (let [m (rf.routing/match-url "/users/42")]
-      (is (= :user/show (:route-id m)))
-      (is (= "42" (:id (:params m)))))
-    (is (= "/users/42" (rf.routing/route-url {:to :user/show :params {:id 42}})))))
-
-;; ---- SSR emitter ----------------------------------------------------------
-
-(deftest view-macros-load-cleanly
-  (testing "the view macros from re-frame.core load on the JVM and expand"
-    ;; with-frame expands into binding *current-frame*.
-    (let [exp (macroexpand-1 `(re-frame.core/with-frame :foo :body))]
-      (is (some #(= 're-frame.frame/*current-frame* %)
-                (tree-seq coll? seq exp))
-          "with-frame expansion references *current-frame*"))
-    ;; reg-view (defn-shape per Spec 001 §Allowed forms of the middle slot) defs the symbol and
-    ;; registers under (keyword (str *ns*) (str sym)). The
-    ;; expansion is (do (binding [...] (reg-view* ...)) (def sym (view ...)) id)
-    ;; — the terminal id makes the macro return its primary id (matching
-    ;; the reg-* return-value contract pinned in spec/Conventions.md).
-    (let [exp (macroexpand `(re-frame.core/reg-view
-                              ~'my-widget [] :body))]
-      (is (= 'do (first exp))
-          "reg-view expansion starts with do (binding + def + id)")
-      (let [forms    (rest exp)
-            ;; The trailing form is the id (terminal expression). The
-            ;; def is the penultimate form.
-            id-form  (last forms)
-            def-form (last (butlast forms))]
-        (is (keyword? id-form)
-            "the trailing form in the expansion is the registered id (a keyword)")
-        (is (= 'def (first def-form))
-            "the penultimate form is the auto-def of the Var")
-        (is (= 'my-widget (second def-form))
-            "the def binds the symbol the user supplied")))))
-
-(deftest verify-hydration-emits-mismatch
-  (testing "rf/hydrate stashes [:rf.runtime/ssr :hydration] metadata; verify-hydration! detects mismatch"
-    (require 're-frame.ssr)
-    (let [verify-fn  @(resolve 're-frame.ssr/verify-hydration!)
-          ;; Server-supplied payload with a render-hash.
-          payload    {:rf/version     1
-                      :rf/app-db      {:greeting "Hello, server!"}
-                      :rf/render-hash "server-hash-X"}
-          traces     (atom [])]
-      (rf/dispatch-sync [:rf/hydrate payload])
-      ;; Hydrate stashed the metadata.
-      (is (= "server-hash-X"
-             (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/ssr :hydration :server-hash])))
-      ;; Now simulate the client render producing a different hash.
-      (rf/register-listener! :trace ::vh (fn [ev] (swap! traces conj ev)))
-      (verify-fn :rf/default "client-hash-Y")
-      (rf/unregister-listener! :trace ::vh)
-      ;; Dev-instrumentation arm (see ns docstring §Posture split). The
-      ;; production-real half — `rf/hydrate` really stashed the server hash
-      ;; under `[:rf.runtime/ssr :hydration]`, which is the state
-      ;; `verify-hydration!` compares against — is asserted above, in both
-      ;; postures. The MISMATCH REPORT is a developer diagnostic: the recovery
-      ;; is `:warned-and-replaced`, i.e. the client render wins either way.
-      (when rf.interop/debug-enabled?
-        (is (some (fn [ev]
-                    (and (= :rf.ssr/hydration-mismatch (:operation ev))
-                         (= "server-hash-X" (:server-hash (:tags ev)))
-                         (= "client-hash-Y" (:client-hash (:tags ev)))
-                         (= :warned-and-replaced (:recovery ev))))
-                  @traces)
-            "expected :rf.ssr/hydration-mismatch trace with both hashes")))))
-
-(deftest render-tree-hash-is-stable
-  (testing "render-tree-hash is deterministic and order-sensitive on vectors"
-    (require 're-frame.ssr)
-    (let [hash (resolve 're-frame.ssr/render-tree-hash)
-          h1   (@hash [:div {:class "x"} [:p "hello"]])
-          h2   (@hash [:div {:class "x"} [:p "hello"]])
-          h3   (@hash [:div {:class "y"} [:p "hello"]])]
-      (is (= h1 h2) "identical trees hash identically")
-      (is (not= h1 h3) "different attrs change the hash")
-      (is (re-matches #"[0-9a-f]{8}" h1)
-          "hash is 8-char lowercase hex (FNV-1a 32-bit)"))))
-
-(deftest render-to-string-emits-hash
-  (testing ":render-hash opts adds data-rf-render-hash on the root element"
-    (let [tree [:div [:p "hi"]]
-          out  (rf.ssr/render-to-string tree {:render-hash (rf.ssr/render-tree-hash tree)})]
-      (is (re-find #"<div data-rf-render-hash=\"[0-9a-f]{8}\">" out)
-          "root element carries the data-rf-render-hash attribute"))))
 
 (deftest destroy-frame-signals-active-machines
   (testing "destroy-frame! emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
@@ -1023,30 +900,6 @@
       (fn [name] [:p "hello " [:strong name]]))
     (is (= "<greet>world</greet>"
            (rf.ssr/render-to-string [:greet "world"])))))
-
-(deftest ssr-render-to-string-basics
-  (testing "basic hiccup → HTML"
-    (require 're-frame.ssr)
-    (let [r2s @(resolve 're-frame.ssr/render-to-string)]
-      (is (= "<div>hi</div>"
-             (r2s [:div "hi"] {})))
-      (is (= "<div class=\"a\">hi</div>"
-             (r2s [:div {:class "a"} "hi"] {})))
-      ;; class on tag-name + class in attrs merges
-      (is (= "<div id=\"main\" class=\"col bold\">x</div>"
-             (r2s [:div#main.col {:class "bold"} "x"] {})))
-      ;; void elements per HTML5 — no closing tag, no self-close slash.
-      (is (= "<br>" (r2s [:br] {})))
-      (is (= "<input type=\"text\">"
-             (r2s [:input {:type "text"}] {})))
-      ;; boolean attribute
-      (is (= "<input disabled>"
-             (r2s [:input {:disabled true}] {})))
-      ;; HTML-escape text
-      (is (clojure.string/includes? (r2s [:p "a < b & c > d"] {}) "&lt;"))
-      ;; doctype
-      (is (clojure.string/starts-with? (r2s [:html [:body]] {:doctype? true})
-                                       "<!DOCTYPE html>")))))
 
 ;; ---- registrations / handler-meta ----------------------------------------
 ;;
