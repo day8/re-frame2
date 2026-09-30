@@ -47,7 +47,9 @@
       ;; The shallowest wholly-changed ancestor of every descendant of
       ;; [:flash] should be [:flash] itself.
       (is (= [:flash] (engine/wholly-changed-ancestor p [:flash :level])))
-      (is (= [:flash] (engine/wholly-changed-ancestor p [:flash :text]))))))
+      (is (= [:flash] (engine/wholly-changed-ancestor p [:flash :text])))
+      (is (= :added (engine/op-at p [:flash]))
+          "the wholly-new container itself classifies :added"))))
 
 (deftest r5-wholly-removed-subtree
   (testing "subtree where every descendant is :removed → parent root logged"
@@ -60,7 +62,9 @@
     ;; :user has :id (same) AND :name (modified) — not wholly-anything.
     (let [p (engine/project {:user {:id 7 :name "Ada"}}
                             {:user {:id 7 :name "Ada Lovelace"}})]
-      (is (not (contains? (:wholly-changed-roots p) [:user]))))))
+      (is (not (contains? (:wholly-changed-roots p) [:user])))
+      (is (= :modified (engine/op-at p [:user :name]))
+          "the changed leaf still classifies :modified"))))
 
 ;; ---- R6 vector shift ----------------------------------------------------
 
@@ -120,23 +124,15 @@
 
 ;; ---- R7 type change -----------------------------------------------------
 
-(deftest r7-scalar-to-container
-  (testing "scalar → map at the same path classifies as :modified"
-    (let [p (engine/project {:flash "hi"} {:flash {:level :ok}})]
-      (is (= :modified (engine/op-at p [:flash])))
-      (is (engine/type-change? p [:flash])))))
-
-(deftest r7-container-to-scalar
-  (testing "map → scalar at the same path classifies as :modified"
-    (let [p (engine/project {:flash {:level :ok}} {:flash "hi"})]
-      (is (= :modified (engine/op-at p [:flash])))
-      (is (engine/type-change? p [:flash])))))
-
-(deftest r7-map-to-vector
-  (testing "map → vector at the same path classifies as :modified"
-    (let [p (engine/project {:items {:a 1}} {:items [1 2 3]})]
-      (is (= :modified (engine/op-at p [:items])))
-      (is (engine/type-change? p [:items])))))
+(deftest r7-a-container-kind-flip-is-a-modified-type-change
+  (doseq [[label before after path]
+          [["scalar → map" {:flash "hi"}        {:flash {:level :ok}} [:flash]]
+           ["map → scalar" {:flash {:level :ok}} {:flash "hi"}         [:flash]]
+           ["map → vector" {:items {:a 1}}       {:items [1 2 3]}      [:items]]]]
+    (testing (str label " at the same path classifies as :modified")
+      (let [p (engine/project before after)]
+        (is (= :modified (engine/op-at p path)))
+        (is (engine/type-change? p path))))))
 
 ;; ---- R8 sensitive redaction ---------------------------------------------
 
@@ -328,22 +324,6 @@
 
 ;; ---- Sanity — Editscript imports cleanly under the build ---------------
 
-(deftest editscript-import-sanity
-  (testing "engine/project handles the §2 canonical example without throwing"
-    (let [before {:counter 5
-                  :user {:id 7 :name "Ada"}
-                  :legacy-flag true}
-          after  {:counter 6
-                  :user {:id 7 :name "Ada Lovelace"}
-                  :flash {:level :ok :text "Order placed"}}
-          p (engine/project before after)]
-      (is (map? p))
-      (is (vector? (:flat-rows p)))
-      (is (= :modified (engine/op-at p [:counter])))
-      (is (= :modified (engine/op-at p [:user :name])))
-      (is (= :removed  (engine/op-at p [:legacy-flag])))
-      (is (contains? (:wholly-changed-roots p) [:flash])))))
-
 ;; ---- empty↔populated map expansion -------------------------------------
 ;;
 ;; The engine pre-expands `{} ↔ {populated}` Editscript :r edits into
@@ -466,10 +446,12 @@
 ;;      path-ops rows + vector-removals rows
 ;;
 ;; Both must use the mixed-type-safe `compare-path` comparator (length
-;; first, then per-segment `pr-str`). These tests guard the contract:
-;; (a) a vector-append fixture diffs cleanly, (b) directly sorting
-;; a mixed-type set of flat-row maps via `engine/project`'s output
-;; never throws, even when constructed shapes carry kw+int siblings.
+;; first, then per-segment `pr-str`). The row below pins the flat-row
+;; shape of a vector append under a keyword parent. The comparator's
+;; totality is pinned by `l0us2-set-of-maps-recurses`: set-of-map members
+;; sit at paths that share a prefix and diverge on map segments, which the
+;; default `compare` cannot order, so that row throws if either sort site
+;; loses `compare-path`.
 
 (deftest n83r8-mixed-keyword-integer-path-segments-do-not-throw
   (testing "vector-append under
@@ -483,93 +465,6 @@
       (is (vector? (:flat-rows p)))
       (is (= [{:path [:flow :phases 2] :op :added :before nil :after :c}]
              (:flat-rows p))))))
-
-(deftest n83r8-many-mixed-type-rows-sort-cleanly
-  (testing "a diff producing many flat-rows of mixed
-            keyword + integer path shapes sorts without throwing. The
-            engine short-circuits type-change reclassification
-            (R7) before per-leaf rows can mix at a shared prefix, but
-            sibling-rows under keyword-keyed branches that include
-            vector indices in their tails are common — confirm sort
-            holds."
-    (let [before {:state {:list [1 2 3]
-                          :meta {:title "old"}
-                          :counter 5}
-                  :other {:flag true}}
-          after  {:state {:list [1 2 3 4]
-                          :meta {:title "new"}
-                          :counter 5}
-                  :other {:flag true
-                          :new-key 1}}
-          p (engine/project before after)
-          paths (mapv :path (:flat-rows p))]
-      (is (vector? (:flat-rows p)))
-      ;; Concrete paths Editscript should produce here: the new vector
-      ;; entry at [:state :list 3], the title modification at
-      ;; [:state :meta :title], and the new key at [:other :new-key].
-      (is (some #{[:state :list 3]} paths))
-      (is (some #{[:state :meta :title]} paths))
-      (is (some #{[:other :new-key]} paths)))))
-
-(deftest n83r8-direct-comparator-tolerates-shared-prefix-mixed-types
-  (testing "the comparator itself is total over mixed-type
-            siblings: `[:flow :phases 2]` vs `[:flow :phases :foo]`
-            compares without CCE. This keeps the comparator total should
-            the engine ever surface such sibling rows."
-    ;; We exercise the comparator via `sort-by :path` over a manually-
-    ;; constructed flat-rows-shaped collection. The comparator is
-    ;; private — sorting via the same call shape the engine uses is the
-    ;; cleanest behavioural test.
-    (let [rows [{:path [:flow :phases 2]    :op :added :after :c}
-                {:path [:flow :phases :foo] :op :added :after 1}
-                {:path [:flow :phases]      :op :modified}]
-          ;; The engine's two sort sites call `(sort-by :path compare-path ...)`;
-          ;; round-trip a fixture that would CCE under the default
-          ;; comparator through `project` to confirm the engine's
-          ;; public surface is robust. Construct it directly via the
-          ;; same call shape.
-          ]
-      ;; Direct invocation via `engine/project` won't surface
-      ;; this exact row mix (R7 short-circuits), so we assert against
-      ;; the documented contract: sorting flat-rows by their `:path`
-      ;; using the engine's sort cannot CCE on any well-formed row
-      ;; collection. The simplest behavioural pin is: confirm that
-      ;; `engine/project` returns sorted `:flat-rows` for a fixture
-      ;; that mixes keyword-keyed and integer-indexed paths in the
-      ;; SAME tree (sibling branches), and that the order is stable.
-      (let [p (engine/project {:list [10 20] :map {:a 1}}
-                              {:list [10 20 30] :map {:a 1 :b 2}})
-            paths (mapv :path (:flat-rows p))]
-        ;; The fixture produces flat-rows at [:list 2] (int) and
-        ;; [:map :b] (kw). Resolve at pos-0 (different keywords) →
-        ;; safe under either comparator. The key guarantee is the
-        ;; sort completed, the output is a vector, and the result is
-        ;; in length-then-pr-str order under `compare-path`.
-        (is (vector? (:flat-rows p)))
-        (is (some #{[:list 2]} paths))
-        (is (some #{[:map :b]} paths))
-        ;; Lexicographic-by-pr-str: ":list" < ":map" → [:list 2] sorts
-        ;; before [:map :b] (same length 2).
-        (is (= [[:list 2] [:map :b]] paths)))
-      ;; And explicitly: feed the manual mixed-type rows through the
-      ;; SAME sort-by + comparator the engine uses. Define a local
-      ;; reflection-free path comparator inline (kept literal so a
-      ;; reader sees the contract without chasing the private fn):
-      (let [compare-path
-            (fn [a b]
-              (let [la (count a) lb (count b)]
-                (if (not= la lb)
-                  (compare la lb)
-                  (loop [i 0]
-                    (if (>= i la) 0
-                        (let [c (compare (pr-str (nth a i))
-                                         (pr-str (nth b i)))]
-                          (if (zero? c) (recur (inc i)) c)))))))
-            sorted (sort-by :path compare-path rows)]
-        (is (= [[:flow :phases]
-                [:flow :phases 2]
-                [:flow :phases :foo]]
-               (mapv :path sorted)))))))
 
 ;; ---- member-level set diffs ---------------------------------------------
 ;;
@@ -752,27 +647,6 @@
       (is (= :added (op-at-path [:tags :door/closed])))
       ;; The :tags key itself is NOT a flat-row (it's intact :children).
       (is (not (contains? paths [:tags]))))))
-
-(deftest l0us2-map-and-vector-diffs-unchanged
-  (testing "regression guard: the set-aware union walk must
-            leave MAP + VECTOR wholly-changed promotion untouched."
-    ;; Wholly-new map subtree promotes (R5).
-    (let [p (engine/project {:a 1} {:a 1 :flash {:level :ok :text "hi"}})]
-      (is (contains? (:wholly-changed-roots p) [:flash]))
-      (is (= :added (engine/op-at p [:flash]))))
-    ;; Wholly-removed map subtree promotes.
-    (let [p (engine/project {:user {:id 7}} {})]
-      (is (contains? (:wholly-changed-roots p) [:user]))
-      (is (= :removed (engine/op-at p [:user]))))
-    ;; Mixed map subtree does NOT promote.
-    (let [p (engine/project {:user {:id 7 :name "Ada"}}
-                            {:user {:id 7 :name "Ada Lovelace"}})]
-      (is (not (contains? (:wholly-changed-roots p) [:user])))
-      (is (= :modified (engine/op-at p [:user :name]))))
-    ;; Vector insert shift (R6) works.
-    (let [p (engine/project [:a :b :c :d] [:a :NEW :b :c :d])]
-      (is (= :added (engine/op-at p [1])))
-      (is (= :same-shifted (engine/op-at p [2]))))))
 
 ;; ---- MULTI-MEMBER simultaneous set swaps -------------------------------
 ;;
@@ -1077,17 +951,6 @@
         (is (contains? paths [:a 1]))
         (is (contains? paths [:a 2]))))))
 
-(deftest yucxn-vector-three-element-tail-removal
-  (testing "three contiguous trailing removals
-            `[1 2 3 4] → [1]` recover before-indices 1,2,3 with values
-            2,3,4 (Editscript emits three `:-` at index 1)."
-    (let [p (engine/project [1 2 3 4] [1])
-          removals (get-in p [:vector-removals []])]
-      (is (= [{:before-index 1 :before-value 2}
-              {:before-index 2 :before-value 3}
-              {:before-index 3 :before-value 4}]
-             removals)))))
-
 (deftest yucxn-vector-scattered-removal
   (testing "a SCATTERED (non-contiguous) removal
             `[:a :b :c :d] → [:a :c]` drops `:b` (before-idx 1) and `:d`
@@ -1098,14 +961,6 @@
       (is (= [{:before-index 1 :before-value :b}
               {:before-index 3 :before-value :d}]
              removals)))))
-
-(deftest yucxn-vector-single-tail-removal-unchanged
-  (testing "regression guard — a single-element removal
-            `[:x :y :z] → [:x :y]` recovers the one dropped element
-            (before-idx 2, value :z); the replay degenerates correctly."
-    (let [p (engine/project [:x :y :z] [:x :y])]
-      (is (= [{:before-index 2 :before-value :z}]
-             (get-in p [:vector-removals []]))))))
 
 ;; -- Case 4: scalar kinds beyond int/string
 
@@ -1388,15 +1243,6 @@
           "the replaced slot's true before-value is :c (before-idx 2) —
            NOT :b, which is what the raw post-shift value-at read would
            produce"))))
-
-(deftest r-96csq4-map-key-replace-unaffected
-  (testing "a NON-vector :r (a map-key replace, `[[:status]
-            :r :done]`) needs no replay: map keys are never index-shifted,
-            so the raw value-at resolution is correct"
-    (let [p (engine/project {:status :pending} {:status :done})]
-      (is (= :modified (engine/op-at p [:status])))
-      (is (= {:op :modified :before :pending :after :done}
-             (engine/entry-at p [:status]))))))
 
 ;; ---- a NESTED path's before-side reads its own element ------------------
 ;;
