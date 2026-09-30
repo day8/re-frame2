@@ -77,8 +77,8 @@ See [First machine](tutorial.md#step-1--your-first-machine).
 
 ### **transition**
 
-A move from one state to another, usually in response to a trigger under a
-state's `:on` map.
+A response selected by the table, usually under a state's `:on` map. It may
+move to another state, or only update data and describe effects.
 
 ### **guard**
 
@@ -193,8 +193,10 @@ A first-match-wins vector of transitions.
 
 A transition that stays in the same state.
 
-Targetless self-transitions run an action without exit/entry. `:reenter? true`
-forces exit and re-entry.
+A leaf self-target runs its action without exit/entry by default. A compound
+self-target resets its descendants to `:initial`. `:reenter? true` also exits
+and re-enters the declaring state. A targetless transition preserves the
+whole active configuration.
 
 See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 

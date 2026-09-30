@@ -61,14 +61,14 @@ Drive it with `dispatch-sync` so each line has settled before the next:
 ```clojure
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit]])
 (rf/dispatch-sync [:auth.login/flow [:auth.login/success]])
-;; => [:authenticated :dashboard]
+;; :state => [:authenticated :dashboard]
 (rf/dispatch-sync [:auth.login/flow [:open-settings]])
-;; => [:authenticated :settings]
+;; :state => [:authenticated :settings]
 (rf/dispatch-sync [:auth.login/flow [:auth/logout]])
-;; => [:unauthenticated :idle], recording :authenticated
+;; :state => [:unauthenticated :idle], recording :authenticated
 (rf/dispatch-sync [:auth.login/flow [:auth.login/submit]])
 (rf/dispatch-sync [:auth.login/flow [:auth.login/success]])
-;; => restores [:authenticated :settings]
+;; :state => restores [:authenticated :settings]
 
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state      [:authenticated :settings]
