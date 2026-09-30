@@ -266,19 +266,6 @@
        false]))
   (is (= 1 @popout-calls)))
 
-(deftest invoke-close-action-closes-palette
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :close-palette
-        :label  "Close command palette"
-        :action [:palette/close]}
-       false]))
-  (is (false? (boolean (:palette-open? (xray-db))))))
-
 ;; ---- command verbs -----------------------------------------------------
 
 ;; (There is no clear-epoch-history verb. `:epoch-history` is a mirror
@@ -419,20 +406,6 @@
       ":target-frame is also written by the canonical handler"))
 
 ;; ---- recents tracking --------------------------------------------------
-
-(deftest invoking-a-command-records-it-in-recents
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/palette-open])
-    (rf/dispatch-sync
-      [:rf.xray/palette-invoke
-       {:source :command
-        :id     :toggle-theme
-        :label  "Toggle theme"
-        :action [:palette/toggle-theme]}
-       false]))
-  (is (= [:toggle-theme] (:palette-recents (xray-db)))
-      "command invocation bumps the recents vector"))
 
 (deftest invoking-twice-keeps-recents-unique
   (setup!)

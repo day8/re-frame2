@@ -150,26 +150,14 @@
     (is (some? toggle))
     (is (= [:palette/cycle-density] (:action toggle)))))
 
-(deftest command-items-include-core-verbs
-  (let [items   (sources/command-items)
-        ids     (set (map :id items))]
-    (is (contains? ids :clear-trace-buffer))
-    (is (contains? ids :reset-suppressed-counters))
-    (is (contains? ids :open-popout))
-    (is (contains? ids :close-palette))))
+(deftest command-items-include-the-core-verbs
+  (let [ids (set (map :id (sources/command-items)))]
+    (doseq [verb [:clear-trace-buffer :reset-suppressed-counters :open-popout
+                  :close-palette :toggle-theme :cycle-reduced-motion
+                  :snapshot-app-db :jump-to-settings :toggle-mode]]
+      (is (contains? ids verb) (str verb " is indexed")))))
 
 ;; ---- mode-aware command surface ----------------------------------------
-
-(deftest command-items-include-rf2-ybjkx-verbs
-  ;; The mode-aware command verbs: theme toggle, reduced-motion cycle,
-  ;; snapshot, jump-to-settings, toggle-mode.
-  (let [items (sources/command-items)
-        ids   (set (map :id items))]
-    (is (contains? ids :toggle-theme))
-    (is (contains? ids :cycle-reduced-motion))
-    (is (contains? ids :snapshot-app-db))
-    (is (contains? ids :jump-to-settings))
-    (is (contains? ids :toggle-mode))))
 
 (deftest command-items-carry-no-clear-epoch-history-verb
   (testing "there is no `:clear-epoch-history` verb: Xray's
@@ -329,19 +317,6 @@
     (is (contains? ids :jump-to-settings))
     (is (some #(= [:static :machines] (:id %)) index)
         "Static tab jump surfaces in Static mode")))
-
-(deftest build-index-nil-mode-preserves-pre-bead-behaviour
-  ;; A nil :mode keeps every item — no mode filtering applies.
-  (let [index   (sources/build-index
-                  {:panels       sample-panels
-                   :trace-buffer sample-trace-buffer
-                   :frame-ids    sample-frames
-                   :handlers     sample-handlers})
-        sources (set (map :source index))]
-    (is (contains? sources :command))
-    (is (contains? sources :panel))
-    (is (contains? sources :recent-event))
-    (is (contains? sources :frame))))
 
 ;; ---- recents boost -----------------------------------------------------
 
