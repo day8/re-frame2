@@ -396,6 +396,7 @@ Remove the key when the field is clean rather than storing `nil`: `:can-submit?`
              {:request    {:method :get
                            :url    (str "/api/users/check?u=" (js/encodeURIComponent username))}
               :decode :json
+              :request-id [:form.signup/check-username field]
               ;; carry the value we asked about, so a stale reply can be discarded
               :on-success [:form.signup/username-checked field username]
               :on-failure [:form.signup/username-checked field username]}]]})))
@@ -416,7 +417,7 @@ Remove the key when the field is clean rather than storing `nil`: `:can-submit?`
         {:db (update-in db [:auth :signup :errors] dissoc field)}))))
 ```
 
-A failed check leaves an error instead of declaring the name available; blurring again retries it. The server must still validate uniqueness when the form is submitted. The check is an ordinary managed request, so `:retry`, `:timeout-ms`, and the reply envelope all work as they do for submit. Because the answer lands in the same `:errors` map, `:field-error` shows sync and async results the same way.
+The stable per-field `:request-id` supersedes any previous check, including an A → B → A edit sequence; the value guard also drops a reply when the user edits without blurring again. A failed check leaves an error instead of declaring the name available; blurring again retries it. The server must still validate uniqueness when the form is submitted. The check is an ordinary managed request, so `:retry`, `:timeout-ms`, and the reply envelope all work as they do for submit. Because the answer lands in the same `:errors` map, `:field-error` shows sync and async results the same way.
 
 ### Validate the *server's* reply in production
 

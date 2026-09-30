@@ -1,6 +1,6 @@
 # Add authentication
 
-This recipe adds login to an app: a session that survives a reload, requests that carry the user's token, routes only signed-in users can reach, a return to the page the user was headed for, and a logout that doesn't leak one user's data into the next session. re-frame2 has no auth subsystem; each piece is an ordinary event, effect, coeffect, or route declaration.
+This recipe adds login to an app: a session that survives a reload, requests that carry the user's token, routes only signed-in users can reach, a return to the page the user was headed for, and a logout that doesn't leak one user's data into the next session. re-frame2 has no auth subsystem; each piece is an ordinary event, effect or route declaration.
 
 It uses two add-on artefacts, [routing](../../routing/concepts.md) (`day8/re-frame2-routing`) and [managed HTTP](../../async/http.md) (`day8/re-frame2-http`), and optionally [resources](../../resources/concepts.md) for the logout step. The login form itself is [Build a form](build-a-form.md).
 
@@ -48,35 +48,46 @@ A page reload throws away app-db, so the session also lives in `localStorage`. G
 
 ### Read the saved session back at boot
 
-Without a boot read, every refresh logs the user out. An [event handler](../glossary.md#event-handler) is pure, so it can't read `localStorage` itself. It declares the saved session as a [coeffect](../glossary.md#coeffect) under `:rf.cofx/requires`, and the framework supplies the value before the handler runs ([Coeffects](../coeffects.md)).
-
-Make it a [recordable](../glossary.md#recordable-vs-ambient-coeffects) coeffect because it feeds durable state, and classify its token at the supplier. The live handler receives the real session; trace capture redacts the token. This boot event cannot then be replayed from an epoch: strict replay refuses the incomplete input. A test supplies a fake session explicitly instead of reading storage.
+Without a boot read, every refresh logs the user out. Read storage in an effect and
+dispatch its result as an event. The event handler remains pure, and the credential
+never becomes a recordable coeffect. Classify the reply event's token separately
+from the app-db path it will populate.
 
 ```clojure
-(rf/reg-cofx :auth.session/saved
-  {:recordable? true
-   :sensitive [[:token]]
-   :doc "The saved session {:token … :user …}, or nil when unavailable."}
-  (fn []
-    (try
-      (let [saved (some-> (.-localStorage js/globalThis)
-                          (.getItem "auth-session")
-                          js/JSON.parse
-                          (js->clj :keywordize-keys true))]
-        (when (and (map? saved) (string? (:token saved)) (map? (:user saved)))
-          {:token (:token saved) :user (dissoc (:user saved) :token)}))
-      (catch :default _ nil))))
+(defn read-saved-session []
+  (try
+    (let [saved (some-> (.-localStorage js/globalThis)
+                        (.getItem "auth-session")
+                        js/JSON.parse
+                        (js->clj :keywordize-keys true))]
+      (when (and (map? saved) (string? (:token saved)) (map? (:user saved)))
+        {:token (:token saved) :user (dissoc (:user saved) :token)}))
+    (catch :default _ nil)))
+
+(rf/reg-fx :auth.session/load
+  {:platforms #{:client}}
+  (fn [{:keys [frame]} _]
+    (rf/dispatch [:auth/session-restored (read-saved-session)] {:frame frame})))
+
+(rf/reg-event :auth/session-restored
+  {:sensitive [[:token]]}
+  (fn [{:keys [db]} [_ saved]]
+    {:db (update db :auth assoc :user (:user saved) :token (:token saved))}))
 ```
 
-Unreadable storage, malformed JSON and an old session shape return `nil`, so boot starts logged out rather than aborting frame creation. The init event in step 4 declares this coeffect and folds the saved session into the slice. In a test, a dispatch-site `{:rf.cofx {:auth.session/saved {…}}}` overrides the supplier, so you can pin an exact session without touching storage.
+Unreadable storage, malformed JSON and an old session shape return `nil`, so boot
+starts logged out rather than aborting frame creation. The read is synchronous and
+its reply is queued into the same frame's current drain. Step 4 starts it from
+`:initial-events`, so the restored session is committed before the first URL is
+resolved. A network session lookup needs a separate restoring state, described below.
 
-??? note "Why a supplier rather than a provided value"
-
-    A recordable coeffect can instead be registered `{:recordable? true :provided? true}` with no supplier, its value stamped onto the dispatch by an owner (the built-in `:rf/time-ms` clock works this way). That doesn't fit here. The restore has to run from the frame's `:initial-events` so it finishes before the first URL is resolved (step 4 explains why), and a provided value would have to be read by your boot code and stamped onto the `:initial-events` step's `:opts {:rf.cofx …}`. A supplier needs nothing threaded through: the handler declares the fact and the framework runs the supplier. Use *provided* when the fact's owner is someone else, such as a subsystem or a server request. [Coeffects](../coeffects.md#two-grades-ambient-and-recordable) covers the two grades in full.
+In a handler test, call `:auth/session-restored` with a fake session. In a pipeline
+test, override `:auth.session/load` to dispatch that fake reply; see
+[Test a pipeline run](../testing/pipeline-runs.md#redirect-any-effect-fx-overrides).
 
 ### Keep the secret out of traces
 
-The token is a credential, so the init event in step 4 also returns a `:sensitive` [classification](../glossary.md#data-classification) effect for `[:auth :token]`. That classification covers app-db projections; the coeffect and persistence effect above classify their own copies, and the reply event below classifies its payload. Handlers still receive the real value. Raw local epoch snapshots retain app-db for restoration, so project them before forwarding ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
+The token is a credential, so the init event in step 4 also returns a `:sensitive` [classification](../glossary.md#data-classification) effect for `[:auth :token]`. That classification covers app-db projections; the persistence effect and restore event above classify their own copies, and the login reply below classifies its payload. Handlers still receive the real value. Raw local epoch snapshots retain app-db for restoration, so project them before forwarding ([Keep secrets and large things out of traces](keep-secrets-out-of-traces.md)).
 
 !!! note "If your API hands out a token and nothing else"
 
@@ -224,15 +235,12 @@ The guard needs no wiring: it is route metadata, and requiring the routing artef
 Restore the session from the frame's `:initial-events`. A `:url-bound? true` frame runs every `:initial-events` step first and only then resolves the current URL, so the session is in app-db before any guard runs. A restore dispatched after `make-frame` returns is too late: the first URL has already been checked against an empty auth slice.
 
 ```clojure
-;; Frames start with app-db = {}; this event builds the auth slice from the
-;; saved session and classifies the token path (step 1).
+;; Seed and classify the slice before the load effect queues its reply.
 (rf/reg-event :auth/init
-  {:rf.cofx/requires [:auth.session/saved]}        ;; ask for the saved session by name
-  (fn [{:keys [db auth.session/saved]} _]
-    {:db        (update db :auth assoc
-                        :user  (:user saved)       ;; the IDENTITY the guard reads
-                        :token (:token saved))     ;; the credential requests carry
-     :sensitive [[:auth :token]]}))                ;; step 1's egress protection
+  (fn [{:keys [db]} _]
+    {:db        (update db :auth assoc :user nil :token nil)
+     :sensitive [[:auth :token]]
+     :fx        [[:auth.session/load]]}))
 
 (rf/make-frame
   {:id             :app
