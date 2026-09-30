@@ -41,7 +41,9 @@ guard and a plain redirect to login; this version adds the return trip.
 
 `:can-enter` names a subscription. The runtime checks it on every way into the route —
 a link, `:rf.route/navigate`, a typed URL, a refresh, Back/Forward, the first load,
-and server rendering — so there is nothing to wire per entry point.
+and server rendering — so there is nothing to wire per entry point. An identical
+navigation is a no-op and does not check guards again. Changing the session alone
+also does not navigate: dispatch a navigation to a public page when signing out.
 
 The sub must return `true` (enter) or `false` (refuse). Any other value refuses and
 raises `:rf.error/can-enter-non-boolean`, which is why `:auth/signed-in?` wraps the
@@ -75,8 +77,8 @@ that effect ([the entry-denial `403`](../../ssr/response.md#a-status-the-framewo
 - **`:replace? true` on the way to login** keeps the refused URL out of the history,
   so Back from `/login` does not hit the guard again.
 - **The return is a new navigation.** The guard runs again and, with a user present,
-  allows it. If sign-in did not actually store a user, the guard refuses again. No
-  navigation is left waiting, so nothing can loop.
+  allows it. If sign-in did not actually store a user, the guard refuses again and
+  the denial handler returns to login. Keep login itself unguarded.
 - **Read and clear `:auth/return-to` in the same event**, so a later sign-in cannot
   send the reader somewhere stale.
 - **The payload is already redacted in traces.** The framework marks

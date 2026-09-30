@@ -1,9 +1,8 @@
 # Tutorial: build a routed app
 
 This tutorial builds a small articles app: a home page, an articles list and an
-article page, then a 404, the Back button, a shared layout, navigation from an event,
-a query-string filter, a settings page for signed-in readers, and an editor that warns
-about unsaved changes. Each step adds one idea and ends with code you can run.
+article page. Then it adds shared layouts, URL filters, sign-in and an editor that
+warns before discarding changes. Each step adds one idea to the same app.
 
 Throughout, the URL is application state: you read the active route with a
 subscription and change it by dispatching an event.
@@ -168,18 +167,24 @@ partition beside app-db. Handlers receive it under `:rf.db/runtime`:
 (rf/reg-sub :article/current (fn [db _] (:article/current db)))
 
 (rf/reg-view article-page []
-  (let [article @(subscribe [:article/current])]
-    [:h1 (or (:title article) "Loading…")]))
+  (if-let [article @(subscribe [:article/current])]
+    [:h1 (:title article)]
+    [:div
+     [:h1 "Article not found"]
+     [rf/route-link {:to :app/articles} "All articles"]]))
 ```
 
 The handler writes to [app-db](../core/app-db.md) like any other event, and the page
-reads the result with a subscription. `:on-match` fires again when `:slug` changes, but
-not when you navigate to the same route with the same params.
+reads the result with a subscription. `:on-match` fires again when `:slug` or the
+query changes, but not for an identical or fragment-only navigation. A path such
+as `/articles/missing` matches the route even though the sample map has no such
+article; the page handles that missing data separately from an unmatched URL.
 
 The runtime dispatches `:on-match` events and moves on: it does not wait for work they
-start, and an exception in the handler is reported like any other event error. A real
-app would start an [HTTP request](../async/http.md) here. For data the page cannot
-render without, see [Loading real data](#loading-real-data).
+start, and an exception in the handler is reported like any other event error. The
+sample map returns immediately, so there is no loading state to wait for. For
+server data, [Loading real data](#loading-real-data) explains route resources and
+when to keep an `:on-match` handler.
 
 **What you see:** open `/articles/intro` and the title appears. Open another article
 and `:on-match` fires again; open the same one again and it doesn't.
@@ -206,10 +211,12 @@ route:
     :app/home           [home-page]
     :app/articles       [articles-page]
     :app/article        [article-page]
-    :rf.route/not-found [not-found-page]))
+    :rf.route/not-found [not-found-page]
+    nil                nil))
 ```
 
-Every URL now lands on a registered route, so the `case` no longer needs a default.
+The not-found arm handles unmatched URLs. The `nil` arm renders no page before
+the first navigation commits, including an initial URL refused by an entry guard.
 
 If you skip this registration, an unmatched URL still activates `:rf.route/not-found`,
 but the runtime emits `:rf.warning/no-not-found-route`. The not-found params can also
@@ -232,6 +239,11 @@ A frame without `:url-bound?` routes in memory only, which is what a test frame 
 `frame-root` creates the frame if it doesn't exist. In a larger app you can create it
 with `rf/make-frame` and scope views to it with `rf/frame-provider`; the routing
 behaviour is the same.
+
+Your web server must serve the app's HTML for `/articles/intro` and other app paths,
+as well as `/`. If it only serves `/`, links work until you refresh. On a static
+host without rewrite support, use hash routing; [Configure browser URLs](how-to/configure-browser-urls.md)
+shows both setups and deployment under a subpath.
 
 **What you see:** paste `/articles/intro` into the address bar and the app opens on that
 article. Go Home → Articles → an article, then press Back twice: each press returns to
@@ -264,16 +276,19 @@ wrap the page in a shell:
     :app/home           [home-page]
     :app/articles       [articles-page]
     :app/article        [article-page]
-    :rf.route/not-found [not-found-page]))
+    :rf.route/not-found [not-found-page]
+    nil                nil))
 
 (defn ancestor-shell [route-id inner]
   (case route-id
-    :app/articles [:div.articles-section [:nav "← All articles"] inner]
+    :app/articles [:div.articles-section
+                   [:nav [rf/route-link {:to :app/articles} "← All articles"]]
+                   inner]
     inner))                                  ;; no shell: return the page unchanged
 
 (rf/reg-view root-view []
   [:div.site
-   [:header "My Site"]                       ;; site-wide chrome needs no routing
+   [:header "My Site " [rf/route-link {:to :app/home} "Home"]]
    (let [chain @(subscribe [:rf.route/chain])]
      (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
              (page-for (last chain))         ;; the page itself
@@ -284,7 +299,7 @@ On `/articles/intro` the `reduce` computes:
 
 ```clojure
 (ancestor-shell :app/articles (page-for :app/article))
-;; ⇒ [:div.articles-section [:nav "← All articles"] [article-page]]
+;; ⇒ the articles navigation wrapping [article-page]
 ```
 
 A deeper chain wraps the page once per ancestor. This does the job of React Router's
@@ -400,7 +415,8 @@ subscription that returns `true` to allow entry and `false` to refuse it.
 Add `:app/settings [settings-page]` to `page-for`, and a link to it in the header.
 
 The runtime checks the guard on every way into the route: a link, a navigate, a typed
-URL, a refresh, Back or Forward. A refused entry changes nothing — the current page and
+URL, a refresh, Back or Forward. An identical navigation is a no-op and checks no
+guards. A refused entry changes nothing — the current page and
 URL stay, and `:on-match` does not run. The guard must return `true` or `false`;
 anything else refuses and raises `:rf.error/can-enter-non-boolean`, which is why the
 sub wraps the user in `some?`.
@@ -491,191 +507,198 @@ those, and for a "save and leave" button, see
 
 ## The complete app
 
-All the steps in one namespace:
+??? example "All the steps in one namespace"
 
-```clojure
-;; src/app/core.cljc
-(ns app.core
-  (:require [re-frame.core :as rf]
-            [re-frame.routing]
-            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
+    ```clojure
+    ;; src/app/core.cljc
+    (ns app.core
+      (:require [re-frame.core :as rf]
+                [re-frame.routing]
+                #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
-;; ---- data ------------------------------------------------------------------
+    ;; ---- data ------------------------------------------------------------------
 
-(def sample-articles
-  {"intro" {:title "Intro to re-frame2" :tags #{"basics"}}
-   "ssr"   {:title "Server rendering"   :tags #{"ssr"}}})
+    (def sample-articles
+      {"intro" {:title "Intro to re-frame2" :tags #{"basics"}}
+       "ssr"   {:title "Server rendering"   :tags #{"ssr"}}})
 
-;; ---- routes ----------------------------------------------------------------
+    ;; ---- routes ----------------------------------------------------------------
 
-(rf/reg-route :app/home {} "/")
+    (rf/reg-route :app/home {} "/")
 
-(rf/reg-route :app/articles
-  {:query [:map [:tag {:optional true} :string]]}
-  "/articles")
+    (rf/reg-route :app/articles
+      {:query [:map [:tag {:optional true} :string]]}
+      "/articles")
 
-(rf/reg-route :app/article
-  {:parent   :app/articles
-   :params   [:map [:slug :string]]
-   :on-match [[:app/load-article]]}
-  "/articles/:slug")
+    (rf/reg-route :app/article
+      {:parent   :app/articles
+       :params   [:map [:slug :string]]
+       :on-match [[:app/load-article]]}
+      "/articles/:slug")
 
-(rf/reg-route :app/article-editor
-  {:params    [:map [:slug :string]]
-   :on-match  [[:editor/open]]
-   :can-leave [:editor/can-leave?]}
-  "/articles/:slug/edit")
+    (rf/reg-route :app/article-editor
+      {:params    [:map [:slug :string]]
+       :on-match  [[:editor/open]]
+       :can-leave [:editor/can-leave?]}
+      "/articles/:slug/edit")
 
-(rf/reg-route :app/settings
-  {:can-enter [:auth/signed-in?]}
-  "/settings")
+    (rf/reg-route :app/settings
+      {:can-enter [:auth/signed-in?]}
+      "/settings")
 
-(rf/reg-route :app/login {} "/login")
+    (rf/reg-route :app/login {} "/login")
 
-(rf/reg-route :rf.route/not-found {} "/_404")
+    (rf/reg-route :rf.route/not-found {} "/_404")
 
-;; ---- events and subs -------------------------------------------------------
+    ;; ---- events and subs -------------------------------------------------------
 
-(rf/reg-event :app/load-article
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
-      {:db (assoc db :article/current (get sample-articles slug))})))
+    (rf/reg-event :app/load-article
+      (fn [{:keys [db] rt :rf.db/runtime} _]
+        (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])]
+          {:db (assoc db :article/current (get sample-articles slug))})))
 
-(rf/reg-sub :article/current (fn [db _] (:article/current db)))
+    (rf/reg-sub :article/current (fn [db _] (:article/current db)))
 
-(rf/reg-sub :auth/user (fn [db _] (:auth/user db)))
+    (rf/reg-sub :auth/user (fn [db _] (:auth/user db)))
 
-(rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
-  (fn [[user] _] (some? user)))
+    (rf/reg-sub :auth/signed-in? {:inputs [[:auth/user]]}
+      (fn [[user] _] (some? user)))
 
-(rf/reg-event :auth/sign-in
-  (fn [{:keys [db]} [_ user]]
-    {:db (assoc db :auth/user user)
-     :fx [[:dispatch [:rf.route/navigate {:to :app/articles :replace? true}]]]}))
+    (rf/reg-event :auth/sign-in
+      (fn [{:keys [db]} [_ user]]
+        {:db (assoc db :auth/user user)
+         :fx [[:dispatch [:rf.route/navigate {:to :app/articles :replace? true}]]]}))
 
-(rf/reg-event :rf.route/entry-denied
-  (fn [_ _]
-    {:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
+    (rf/reg-event :rf.route/entry-denied
+      (fn [_ _]
+        {:fx [[:dispatch [:rf.route/navigate {:to :app/login :replace? true}]]]}))
 
-(rf/reg-event :editor/open
-  (fn [{:keys [db] rt :rf.db/runtime} _]
-    (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
-          title          (get-in sample-articles [slug :title])]
-      {:db (assoc db :editor {:slug slug :draft title :saved title})})))
+    (rf/reg-event :editor/open
+      (fn [{:keys [db] rt :rf.db/runtime} _]
+        (let [{:keys [slug]} (get-in rt [:rf.runtime/routing :current :params])
+              title          (get-in sample-articles [slug :title])]
+          {:db (assoc db :editor {:slug slug :draft title :saved title})})))
 
-(rf/reg-event :editor/edit
-  (fn [{:keys [db]} [_ text]]
-    {:db (assoc-in db [:editor :draft] text)}))
+    (rf/reg-event :editor/edit
+      (fn [{:keys [db]} [_ text]]
+        {:db (assoc-in db [:editor :draft] text)}))
 
-(rf/reg-event :editor/save
-  (fn [{:keys [db]} _]
-    {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))}))
+    (rf/reg-event :editor/save
+      (fn [{:keys [db]} _]
+        {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))}))
 
-(rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
+    (rf/reg-sub :editor/draft (fn [db _] (get-in db [:editor :draft])))
 
-(rf/reg-sub :editor/can-leave?
-  (fn [db _]
-    (= (get-in db [:editor :draft]) (get-in db [:editor :saved]))))
+    (rf/reg-sub :editor/can-leave?
+      (fn [db _]
+        (= (get-in db [:editor :draft]) (get-in db [:editor :saved]))))
 
-;; ---- pages -----------------------------------------------------------------
+    ;; ---- pages -----------------------------------------------------------------
 
-(rf/reg-view home-page []
-  [:div
-   [:h1 "Home"]
-   [rf/route-link {:to :app/articles} "See the articles →"]])
+    (rf/reg-view home-page []
+      [:div
+       [:h1 "Home"]
+       [rf/route-link {:to :app/articles} "See the articles →"]])
 
-(rf/reg-view articles-page []
-  (let [{:keys [tag]} @(subscribe [:rf.route/query])
-        shown (if tag
-                (filter (fn [[_ a]] (contains? (:tags a) tag)) sample-articles)
-                sample-articles)]
-    [:div
-     [:h1 "Articles"]
-     [:p [rf/route-link {:to :app/articles} "All"] " · "
-         [rf/route-link {:to :app/articles :query {:tag "basics"}} "#basics"] " · "
-         [rf/route-link {:to :app/articles :query {:tag "ssr"}} "#ssr"]]
-     [:ul
-      (for [[slug {:keys [title]}] shown]
-        ^{:key slug}
-        [:li [rf/route-link {:to :app/article :params {:slug slug}} title]])]]))
+    (rf/reg-view articles-page []
+      (let [{:keys [tag]} @(subscribe [:rf.route/query])
+            shown (if tag
+                    (filter (fn [[_ a]] (contains? (:tags a) tag)) sample-articles)
+                    sample-articles)]
+        [:div
+         [:h1 "Articles"]
+         [:p [rf/route-link {:to :app/articles} "All"] " · "
+             [rf/route-link {:to :app/articles :query {:tag "basics"}} "#basics"] " · "
+             [rf/route-link {:to :app/articles :query {:tag "ssr"}} "#ssr"]]
+         [:ul
+          (for [[slug {:keys [title]}] shown]
+            ^{:key slug}
+            [:li [rf/route-link {:to :app/article :params {:slug slug}} title]])]]))
 
-(rf/reg-view article-page []
-  (let [{:keys [slug]} @(subscribe [:rf.route/params])
-        article        @(subscribe [:article/current])]
-    [:div
-     [:h1 (or (:title article) "Loading…")]
-     [rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]]))
+    (rf/reg-view article-page []
+      (let [{:keys [slug]} @(subscribe [:rf.route/params])]
+        (if-let [article @(subscribe [:article/current])]
+          [:div
+           [:h1 (:title article)]
+           [rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]]
+          [:div
+           [:h1 "Article not found"]
+           [rf/route-link {:to :app/articles} "All articles"]])))
 
-(rf/reg-view editor-page []
-  [:div
-   [:h1 "Edit title"]
-   [:input {:value     (or @(subscribe [:editor/draft]) "")
-            :on-change #(dispatch [:editor/edit (.. % -target -value)])}]
-   [:button {:on-click #(dispatch [:editor/save])} "Save"]])
+    (rf/reg-view editor-page []
+      [:div
+       [:h1 "Edit title"]
+       [:input {:value     (or @(subscribe [:editor/draft]) "")
+                :on-change #(dispatch [:editor/edit (.. % -target -value)])}]
+       [:button {:on-click #(dispatch [:editor/save])} "Save"]])
 
-(rf/reg-view settings-page []
-  [:h1 (str "Settings for " (:name @(subscribe [:auth/user])))])
+    (rf/reg-view settings-page []
+      [:h1 (str "Settings for " (:name @(subscribe [:auth/user])))])
 
-(rf/reg-view login-page []
-  [:div
-   [:h1 "Sign in"]
-   [:button {:on-click #(dispatch [:auth/sign-in {:name "Ada"}])}
-    "Sign in as Ada"]])
+    (rf/reg-view login-page []
+      [:div
+       [:h1 "Sign in"]
+       [:button {:on-click #(dispatch [:auth/sign-in {:name "Ada"}])}
+        "Sign in as Ada"]])
 
-(rf/reg-view not-found-page []
-  (let [url (:url @(subscribe [:rf.route/params]))]
-    [:div
-     [:h1 "Not found"]
-     [:p (str "No page at " url)]
-     [rf/route-link {:to :app/home} "Home"]]))
+    (rf/reg-view not-found-page []
+      (let [url (:url @(subscribe [:rf.route/params]))]
+        [:div
+         [:h1 "Not found"]
+         [:p (str "No page at " url)]
+         [rf/route-link {:to :app/home} "Home"]]))
 
-(rf/reg-view leave-prompt []
-  (when-let [pending @(subscribe [:rf/pending-navigation])]
-    [:div.modal
-     [:p "You have unsaved changes. Leave anyway?"]
-     [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]
-     [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
+    (rf/reg-view leave-prompt []
+      (when-let [pending @(subscribe [:rf/pending-navigation])]
+        [:div.modal
+         [:p "You have unsaved changes. Leave anyway?"]
+         [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]
+         [:button {:on-click #(dispatch [:rf.route/continue (:id pending)])} "Leave"]]))
 
-;; ---- layout ----------------------------------------------------------------
+    ;; ---- layout ----------------------------------------------------------------
 
-(defn page-for [route-id]
-  (case route-id
-    :app/home           [home-page]
-    :app/articles       [articles-page]
-    :app/article        [article-page]
-    :app/article-editor [editor-page]
-    :app/settings       [settings-page]
-    :app/login          [login-page]
-    :rf.route/not-found [not-found-page]))
+    (defn page-for [route-id]
+      (case route-id
+        :app/home           [home-page]
+        :app/articles       [articles-page]
+        :app/article        [article-page]
+        :app/article-editor [editor-page]
+        :app/settings       [settings-page]
+        :app/login          [login-page]
+        :rf.route/not-found [not-found-page]
+        nil                nil))
 
-(defn ancestor-shell [route-id inner]
-  (case route-id
-    :app/articles [:div.articles-section [:nav "← All articles"] inner]
-    inner))
+    (defn ancestor-shell [route-id inner]
+      (case route-id
+        :app/articles [:div.articles-section
+                       [:nav [rf/route-link {:to :app/articles} "← All articles"]]
+                       inner]
+        inner))
 
-(rf/reg-view root-view []
-  [:div.site
-   [:header "My Site "
-    [rf/route-link {:to :app/settings} "Settings"] " "
-    [rf/route-link {:to :app/login} "Sign in"]]
-   [leave-prompt]
-   (let [chain @(subscribe [:rf.route/chain])]
-     (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
-             (page-for (last chain))
-             (reverse (butlast chain))))])
+    (rf/reg-view root-view []
+      [:div.site
+       [:header "My Site "
+        [rf/route-link {:to :app/home} "Home"] " "
+        [rf/route-link {:to :app/settings} "Settings"] " "
+        [rf/route-link {:to :app/login} "Sign in"]]
+       [leave-prompt]
+       (let [chain @(subscribe [:rf.route/chain])]
+         (reduce (fn [inner ancestor] (ancestor-shell ancestor inner))
+                 (page-for (last chain))
+                 (reverse (butlast chain))))])
 
-;; ---- mount (browser only) --------------------------------------------------
+    ;; ---- mount (browser only) --------------------------------------------------
 
-#?(:cljs (defonce app-root (reagent-adapter/client-root)))
+    #?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
-#?(:cljs
-   (defn run []
-     (rf/init! reagent-adapter/adapter)
-     (reagent-adapter/render! app-root
-       [rf/frame-root {:id :app :url-bound? true}
-        [root-view]]
-       (js/document.getElementById "app"))))
-```
+    #?(:cljs
+       (defn run []
+         (rf/init! reagent-adapter/adapter)
+         (reagent-adapter/render! app-root
+           [rf/frame-root {:id :app :url-bound? true}
+            [root-view]]
+           (js/document.getElementById "app"))))
+    ```
 
 ## Troubleshooting
 
@@ -683,6 +706,7 @@ All the steps in one namespace:
 |---|---|---|
 | First `reg-route` throws `:rf.error/routing-artefact-missing` | `re-frame.routing` is not required | Add `[re-frame.routing]` to the `ns` requires |
 | Clicking a link reloads the whole page | The link is a hand-written `[:a {:href …}]` | Use `rf/route-link` |
+| Clicking works, but refreshing a deep link returns the host's 404 | The server does not serve the app at that path | Configure a history fallback, or use [hash routing](how-to/configure-browser-urls.md#use-hash-routing-on-a-static-host) |
 | The address bar never changes, and Back does nothing | The frame has no `:url-bound? true` | Add it to `frame-root` (Step 1) |
 | Root view throws `No matching clause` | A registered route has no arm in the `case` | Add the route's arm |
 | `:rf.warning/no-not-found-route` on an unmatched URL | `:rf.route/not-found` is not registered | Register it (Step 5) |

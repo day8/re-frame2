@@ -4,7 +4,8 @@ The [tutorial](tutorial.md) builds an articles app one step at a time. This page
 explains the rules that app relies on, and what else they let you do. Exact
 signatures are in the [re-frame.routing API](../api/re-frame.routing.md).
 
-The examples use the tutorial's routes, registered in the `:app` frame:
+The examples use the tutorial's route registrations and its `:app` frame. Routes
+are registered process-wide; each frame has its own active route:
 
 ```clojure
 (rf/reg-route :app/home {} "/")
@@ -89,10 +90,10 @@ string value, whichever way you navigate. Only declared keys become keywords, so
 URL full of made-up keys creates no keywords. In a query string `%20` decodes to a
 space, `+` stays a literal `+`, and a key given twice keeps its last value.
 
-A URL string is converted for these slot types: `:int` (a whole integer only, so
-`?page=12abc` stays the string `"12abc"`), `:uuid`, `:boolean` (`true` or `false`) and
-an `[:enum …]` of keywords, each also inside `[:maybe …]`. A slot of any other type
-receives the string.
+A URL string is coerced according to the declared slot type. For example,
+`?page=12abc` cannot become an integer: it stays a string and fails validation when
+`re-frame.schemas` is loaded. The reference lists the
+[supported conversions and query parsing rules](../api/re-frame.routing.md#match-url).
 
 A slot type must survive the trip URL → value → URL. `reg-route` throws
 `:rf.error/route-decimal-unsupported` for a `:double` slot and
@@ -166,8 +167,11 @@ and navigate from that event.
 
 <a id="what-happens-in-order"></a>
 
-A navigation runs in a fixed order: write the route slice in runtime-db, push the
-URL, then dispatch the route's `:on-match` events. State changes before the URL.
+A `:rf.route/navigate` commit writes the route slice in runtime-db, pushes the URL,
+then dispatches the route's `:on-match` events. A link click or Back/Forward reaches
+the URL-change handler after the address bar has moved; that handler commits the
+same route state. A resource planning failure skips `:on-match` and reports a route
+error.
 
 ### Staying on the page
 
@@ -193,6 +197,9 @@ its params stay; `:query-merge` folds into the query, `:query` replaces it, and
 
 `@(subscribe [:rf.route/query])` reads the result, already coerced, so `:page` is `2`
 rather than `"2"`.
+
+Removing a query key restores its `:query-defaults` value, if it has one. In the
+paginated route above, `{:query-merge {:page nil}}` therefore returns to page 1.
 
 An in-place request needs a current route to edit, and it can't change path params:
 `:params` names a new address, so it needs `:to`.
@@ -258,6 +265,11 @@ subscriptions and never write it directly:
 [:rf.route/chain]        ;; :parent ancestry, root-most first
 [:rf/pending-navigation] ;; a blocked leave waiting for an answer, or nil
 ```
+
+Before the first navigation commits, `:rf/route` and all its projections are
+`nil`, including `:rf.route/transition` and `:rf.route/chain`. This can last while
+an initial entry guard refuses the URL; let the root view render a shell or a
+session-loading state until there is an active route.
 
 `:rf.route/transition` drives a global progress bar without per-page loading flags.
 It reports on the route's blocking `:resources` ([details](#when-a-loader-fails)):
@@ -347,9 +359,9 @@ reads have data, are still on their first load, or failed:
 
 | Plan state | `:transition` | `:error` |
 |---|---|---|
-| A blocking first load is still pending | `:loading` | `nil` |
 | A blocking first load failed | `:error` | the first failure (`:rf.error/resource-route-blocking`) |
 | The plan could not be built | `:error` | `:rf.error/resource-route-plan` |
+| A blocking first load is still pending, with no failures | `:loading` | `nil` |
 | Every blocking read has data, or there are none | `:idle` | `nil` |
 
 A background refresh of data already on screen is not `:loading`, and a failed
@@ -418,6 +430,10 @@ skips the current route's `:can-leave` for that one navigation. Recipe: [Guard a
 `:can-enter` names a subscription checked before entering a route, which makes it the
 usual sign-in gate. It runs on every way in: navigate, link, typed URL, Back/Forward,
 first load and SSR.
+
+An identical navigation is a no-op: neither guard runs. Changing app-db does not
+itself check guards or remove the current page. For example, signing out should
+also navigate to a public route.
 
 A refusal is final. Nothing commits, no pending value is created, and the runtime
 dispatches `:rf.route/entry-denied` once. The built-in handler does nothing, so an
@@ -593,13 +609,14 @@ sits `:idle`, and navigating to the same address is a no-op. Dispatch:
 ```
 
 This reruns the active route's plan, parents included, against the current app-db,
-under the same nav-token and route owner. Requirements the new plan still needs are
-kept without a request; new ones are fetched with your `:cause`; ones it drops are
+under the same nav-token and route owner. Requirements with reusable data or an
+in-flight request are kept; new requirements and retained entries with neither data
+nor a live request are ensured with your `:cause`. Dropped requirements are
 released. Readiness is recomputed, so a route whose plan failed while the identity was
 unknown is repaired in place. If the replan itself fails to plan, the route releases
 everything it held, so data from the old identity can't keep arriving. `:cause` is
 required. For an identity switch: clear the old scope, commit the new identity, then
-replan. Unchanged data is never refetched, and no guards, `:on-match`, URL or scroll
+replan. Reusable data is not refetched, and no guards, `:on-match`, URL or scroll
 work runs. See the [Resources model](../resources/concepts.md).
 
 ### Several frames, one address bar
@@ -694,8 +711,9 @@ instead.
 ```
 
 `route-url` and `match-url` always work in path form; the strategy adds the `#` at the
-browser edge. Wrap a strategy in `rf.routing/with-base-path` to serve the app under a
-subpath. SSR runs no history or listener, but it does build `route-link` hrefs through
+browser edge. [Configure browser URLs](how-to/configure-browser-urls.md) explains
+when to choose hash routing and how to serve the app under a subpath with
+`rf.routing/with-base-path`. SSR runs no history or listener, but it does build `route-link` hrefs through
 the frame's strategy, so the server HTML carries the same `href` the client renders.
 
 <a id="converting-routes--urls-by-hand"></a>

@@ -26,9 +26,9 @@ any navigation to it on to the new address:
               :rf.route/url-requested     (:url a)   ;; a link click
               :rf.route/navigate          (:url a)   ;; a {:url …} navigate
               nil)]
-    (when-let [{:keys [route-id params]} (some-> url rf.routing/match-url)]
+    (when-let [{:keys [route-id params query fragment]} (some-> url rf.routing/match-url)]
       (when-let [new-address (moved route-id)]
-        (assoc (new-address params)
+        (assoc (merge {:query query :fragment fragment} (new-address params))
                :replace? (or (= :rf.route/handle-url-change ev-id)
                              (true? (:replace? a))))))))
 
@@ -58,7 +58,10 @@ An old URL can arrive three ways, and the interceptor reads the URL from each:
 `:rf.route/handle-url-change` for a typed or pasted address, a reload and Back or
 Forward; `:rf.route/url-requested` for a `route-link` click; and a `{:url …}`
 `:rf.route/navigate`. `match-url` resolves the URL to `:legacy/post`, and `moved`
-turns its params into the new address.
+turns its params into the new address. The original query and fragment are kept,
+unless the new address overrides them, so `/posts/intro?tag=ssr#comments` reaches
+`/articles/intro?tag=ssr#comments`. Declare any query keys whose typed values the
+destination reads in that route's `:query` schema.
 
 Setting `:rf/skip-handler?` stops the original navigation before anything commits: no
 route change, no guards, no `:on-match`. The `:fx` then starts a navigation to the

@@ -54,7 +54,13 @@ The frame created with `:url-bound? true` owns the browser's address bar. Its na
     | Named param | `/:id` | One segment, captured into `:params` as a string unless the `:params` schema coerces it. |
     | Optional group | `/articles/:id{/:slug}?`, `{/:lang}?/about` | The group or nothing. The slash goes inside the braces. |
     | Splat | `/files/*rest` | One or more segments, captured as one string such as `"a/b.txt"`. At most one, and it must come last. |
-    | Bare `/*` | `/*` | Every URL. |
+    | Bare `/*` | `/*` | Every URL, including `/`. A match-only fallback; use a concrete route for URL generation. |
+
+    Param names are bare identifiers (`:id`, not `::app/id`). Optional groups
+    contain slash-prefixed literals or params; they cannot nest or contain a
+    splat. Their inner segments do not count toward the literal or segment counts
+    below. Percent-encode reserved pattern characters (`:`, `*`, `{`, `}`, `?`)
+    when they are literal text.
 
     When several routes match a URL, the most specific wins, compared in this order:
 
@@ -212,7 +218,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
     - `:replace? true` replaces the current history entry instead of pushing one. `:scroll` overrides the target route's [`:scroll`](#reg-route) for this navigation. `:bypass-leave? true` skips the current route's `:can-leave` guard once; the target's `:can-enter` still runs.
     - A request identical to the current location does nothing and runs no guards. Any other request runs the current route's `:can-leave` guard, then the target's `:can-enter`, and a `false` from either ends it (see [`:rf.route/navigation-blocked`](#rfroutenavigation-blocked-pending) and [`:rf.route/entry-denied`](#rfrouteentry-denied-denial)).
     - A request that changes only the fragment then updates `:fragment`, pushes the URL and scrolls. It keeps the navigation token and does not re-run `:on-match` or the resource plan.
-    - Any other allowed request commits: the route slice is written, the URL pushed or replaced, `:on-match` dispatched, the resource plan run and the scroll applied.
+    - Any other allowed request commits: the route slice is written, the URL pushed or replaced, `:on-match` dispatched, the resource plan run and the scroll applied. If resource planning fails, the route commits with `:transition :error`, no partial resource ensures run, and `:on-match` is skipped.
 - **Errors**: both leave the route slice unchanged and push nothing.
     - `:rf.error/schema-validation-failure` (`:where :event`): `route-url` cannot build the target, because `:to` is not registered, a path param is missing, or the route's schemas reject the params or query. `route-url`'s error is under `:error`, elided when the route's schema marks a slot `:sensitive?`.
     - `:rf.error/navigate-bad-request`: the request breaks one of the rules below, checked before any guard runs. `:reason` names the rule, and `:keys` the offending keys.
@@ -256,7 +262,7 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
 - **Description**: Commits the route for a URL the address bar already shows. The runtime dispatches it after a link click, on Back and Forward, and for the current URL when a `:url-bound? true` frame takes ownership. On the server, dispatch it with the request URL, as in [SSR → Reading the request](../ssr/concepts.md#reading-the-request).
     - The opts map's `:rf.route/cause` says why the URL changed: `:link`, `:popstate`, `:initial` or `:ssr`. The runtime sets it on its own dispatches. Without it the cause is `:ssr` on a `:platform :server` frame and `:initial` otherwise. Scroll defaults to `:top` for `:link` and `:restore` for every other cause. A test passes the cause to stand in for a link click or Back; see [Testing routes → Simulating a link click or Back/Forward](../routing/testing.md#simulating-a-link-click-or-backforward).
     - `:bypass-leave? true` on the opts map skips the current route's `:can-leave` guard once.
-    - This event never rejects a URL. One that no route matches, whose values fail the route's schemas, or with malformed percent-encoding commits the [not-found route](#not-found-route).
+    - A URL that no route matches, whose values fail the route's schemas, or with malformed percent-encoding resolves to the [not-found route](#not-found-route). Guards still decide whether that route may commit.
     - A URL identical to the current location does nothing. Otherwise the guards run as for `:rf.route/navigate`. The address bar has already moved, so a blocked or denied change puts the current route's URL back by replacing it.
     - A change to the fragment alone updates `:fragment` without a new navigation token or a re-run of `:on-match`.
 - **Example**:
@@ -326,7 +332,24 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
 - **Kind**: event
 - **Payload**: a named address, `{:to :params :query}`. `:fragment` is accepted and plays no part, because it is never a resource input; `:url` is refused.
 - **Description**: Warms a destination's resource plan without navigating. It runs the parent-to-leaf plan a navigation would, in warm mode: every ensure is ownerless and `:blocking?` has no effect. No route state, guards or `:on-match` run, and the warm-up stays in the frame that dispatched it. Without the resources artefact, or with an empty plan, it only emits its `:rf.route/prefetched` summary trace. `route-link`'s `:prefetch :intent` dispatches it. See [Routing → Warming a destination before the click](../routing/concepts.md#warming-a-destination-before-the-click).
-- **Errors**: `:rf.error/prefetch-bad-address`, before planning, when the address is malformed or does not resolve (an unregistered `:to`, a missing path param, or values the route's schemas reject). `:reason` names the failure, such as `:no-such-route` or `:missing-route-param`.
+- **Errors**: `:rf.error/prefetch-bad-address` rejects before planning, dispatches no resource ensures and leaves the active route unchanged. Its `:reason` names the failure:
+
+    | `:reason` | Cause |
+    |---|---|
+    | `:request-not-a-map` | The payload is not a map. |
+    | `:unknown-keys` | A key is outside `:to`, `:params`, `:query`, `:fragment`; policy keys and `:url` are not accepted. |
+    | `:missing-to` | `:to` is absent or is not a keyword. |
+    | `:bad-address` | A present `:params` or `:query` is not a map, or `:fragment` is neither a string nor `nil`. |
+    | `:no-such-route` | The route id is not registered. |
+    | `:missing-route-param` | URL construction needs a path param that is absent, `nil` or empty. |
+    | `:route-url-validation` | The address fails [`route-url`](#route-url)'s pattern or schema checks. |
+    | `:route-url-non-edn-value` | A supplied value has no supported URL representation. |
+    | `:unresolved-destination` | Destination resolution threw without a routing error id. |
+
+    A valid destination whose resource plan cannot be built instead emits
+    `:rf.error/resource-route-plan` with `:plan-cause :prefetch`. No partial ensures
+    run, and the active route's readiness stays unchanged. A failed warm fetch is
+    reported on the resource itself, not on `:rf.route/error`.
 - **Example**:
   ```clojure
   [:rf.route/prefetch {:to :app/article :params {:id "intro"}}]
@@ -337,10 +360,22 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
 - **Kind**: event
 - **Payload**: `{:cause cause}`. `:cause` is required and must not be `nil`.
 - **Description**: Reruns the active route's resource plan against the current `app-db` without navigating. Use it when an identity input (principal, tenant, locale) changed with no route change: a `{:from-db …}` subscription re-keys on its own but stays `:idle` until something ensures the new key. See [Routing → Replanning the active route's resources](../routing/concepts.md#replanning-the-active-routes-resources).
-    - It keeps the same navigation token, owner and planner. Kept identities are adopted with no fetch, added ones are ensured under the route owner with your `:cause`, and dropped ones lose the owner. The plan, the blocking facts and readiness are replaced, so a successful replan clears an earlier `:rf.error/resource-route-plan`.
+    - It keeps the same navigation token, owner and planner. Kept identities with reusable data or in-flight work are adopted with no fetch. Added identities, and retained ones with neither data nor live work, are ensured under the route owner with your `:cause`; dropped ones lose the owner. The plan, the blocking facts and readiness are replaced, so a successful replan clears an earlier `:rf.error/resource-route-plan`.
     - A planning failure commits as a failed replan: nothing is partly ensured, and the owner is released from every earlier identity.
-    - It is not a reload: unchanged data is never refetched, and no guards, `:on-match`, URL, history or scroll work runs. Without the resources artefact it does nothing.
-- **Errors**: `:rf.error/replan-bad-request`, before planning, for a malformed payload or a dispatch with no active route.
+    - Reusable data is not reloaded, and no guards, `:on-match`, URL, history or scroll work runs. Without the resources artefact a valid request does nothing.
+- **Errors**: `:rf.error/replan-bad-request` rejects before planning and leaves the active route unchanged. Its `:reason` is one of:
+
+    | `:reason` | Cause |
+    |---|---|
+    | `:bad-event-arity` | The event is not exactly `[:rf.route/replan-resources {:cause …}]`. |
+    | `:not-a-map` | The payload is not a map. |
+    | `:unknown-key` | The payload has a key other than `:cause`. |
+    | `:missing-cause` | `:cause` is absent or `nil`. |
+    | `:no-active-route` | No route is active yet. |
+
+    A resource planning failure instead commits `:transition :error` with
+    `:rf.error/resource-route-plan`, emits the diagnostic with `:plan-cause :replan`
+    and `:replan-cause` set to your cause, and releases the previous plan's owner.
 - **Example**:
   ```clojure
   [:rf.route/replan-resources {:cause [:session-restore]}]
@@ -349,6 +384,10 @@ Applications dispatch `:rf.route/navigate`, `:rf.route/continue`, `:rf.route/can
 ## Subscriptions
 
 Read the route and the pending-navigation slot with ordinary `subscribe` calls. Each frame has its own route, and a subscription reads the frame it runs in, so the query vectors carry no frame argument. To read another frame, pass `subscribe`'s `{:frame <target>}` opts.
+
+Before the first navigation commits, `:rf/route` and each `:rf.route/*` projection
+are `nil`, including `:rf.route/transition` and `:rf.route/chain`. A denied initial
+entry leaves them `nil`. The table describes an active route.
 
 ```clojure
 (:route-id @(rf/subscribe [:rf/route]))   ;; the active route id, or nil before the first navigation
@@ -406,6 +445,24 @@ Declare these on a handler with `:rf.cofx/requires`. Each value is delivered und
     - Returns `nil` when no route matches, and when any part of the URL has malformed percent-encoding.
     - Path params and declared query keys come back coerced by the route's schemas. When the coerced values fail those schemas, `:validation-failed?` is `true` and the explanation is under `:validation-error`; this check runs only when the schemas artefact is loaded.
     - Query keys the route declares (in `:query` or `:query-defaults`) come back as keywords, in a deterministic canonical order. Undeclared keys stay strings.
+    - Missing query keys receive their `:query-defaults` values. A present empty value stays `""`, so it does not use the default.
+
+    | Declared slot type | URL string becomes |
+    |---|---|
+    | `:int` | A whole, exactly representable integer; a string such as `"12abc"` stays a string. |
+    | `:uuid` | A UUID when parsing succeeds; otherwise the original string. |
+    | `:boolean` | `true` for `"true"`, `false` for `"false"`; other strings remain strings. |
+    | `[:enum :new :top]` | The declared keyword for its token (`"new"` becomes `:new`); an unknown token stays a string. |
+    | `[:maybe type]` | The same conversion as the wrapped type. |
+    | Other supported schema types | The original string. `:double` and bare `:keyword` are rejected at registration. |
+
+    Coercion runs without the schemas artefact; validation requires it. Invalid
+    strings therefore remain values unless `re-frame.schemas` is loaded.
+
+    Query parsing percent-decodes keys and values. `%20` is a space and `+` is a
+    literal plus, as in path params. Duplicate keys keep the last value; `?flag`
+    and `?flag=` both mean `{"flag" ""}`. Empty pairs from `?`, `&&` or a trailing
+    `&` are ignored, and only the first `=` in a pair separates key from value.
 - **Example**:
   ```clojure
   ;; with (rf/reg-route :user/show {} "/users/:id") registered:
@@ -428,6 +485,8 @@ Declare these on a handler with `:rf.cofx/requires`. Each value is delivered und
     - `:to` is the only required key. Requests name the route with `:to`; results such as `match-url` and the route slice name it `:route-id`.
     - `:fragment` appends `#fragment` when it is a non-empty string; `nil` and `""` append nothing.
     - Query keys with `nil` values are left out. A `nil` required path param is an error.
+    - Optional groups are emitted only when every param inside them is non-`nil`; otherwise the whole group is omitted. Declare those params optional in the schema too. A literal-only optional group is always emitted. Sequential optional groups must be filled from left to right.
+    - `false`, `0` and `""` are retained as query values; an empty path segment is rejected. Values are percent-encoded, with `/` preserved as a separator inside a named splat. A declared keyword enum emits its token (`:new` as `new`).
     - A query key already at the route's `:query-defaults` value is left out, because `match-url` fills it back and spelling it would give one destination two URLs. Validation still runs against the full query you passed.
     - Query keys are percent-encoded, in a deterministic canonical order.
     - It takes an address only, and there is no in-place form, because a pure function cannot read the current route.

@@ -85,8 +85,9 @@ Rerunning the active route's [effective route plan](#effective-route-plan) again
 the current `app-db` without navigating, via
 `[:rf.route/replan-resources {:cause …}]`. Use it when the identity behind the reads changes while the route does not, such as a
 session restored after the page opened. Reads the new plan still needs are kept, new
-ones are loaded, and dropped ones are released; unchanged data is not fetched again,
-and no guards or `:on-match` run. See
+ones are loaded, and dropped ones are released. Reusable data and in-flight reads
+are kept; a retained entry with no data or live request is ensured again. No guards
+or `:on-match` run. See
 [Replanning the active route's resources](concepts.md#replanning-the-active-routes-resources).
 
 ### **route chain**

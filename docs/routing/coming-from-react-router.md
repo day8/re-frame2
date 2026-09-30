@@ -21,7 +21,7 @@ page starts from what you know.
 | `:slug` path param, `useParams()` | `:slug` in the path + `@(subscribe [:rf.route/params])` | [Route params](glossary.md#route-params) are coerced by the route's schema, and validated by it when `re-frame.schemas` is loaded. |
 | `useSearchParams()` | `@(subscribe [:rf.route/query])` | A separate map from path params. A key declared as `:int` arrives as a number. |
 | `useLocation()` | `@(subscribe [:rf/route])` | The whole route slice — route id, params, query, fragment, and readiness — as one map. |
-| `generatePath()` / `matchPath()` | `rf.routing/route-url` / `rf.routing/match-url` | Pure functions and exact inverses, runnable on the JVM — [converting by hand](concepts.md#converting-routes--urls-by-hand). |
+| `generatePath()` / `matchPath()` | `rf.routing/route-url` / `rf.routing/match-url` | Pure URL construction and matching, runnable on the JVM. Schemas, defaults and canonical encoding determine the round trip — [converting by hand](concepts.md#converting-routes--urls-by-hand). |
 | `loader` function | [`:resources`](concepts.md#declaring-resources-instead) for data the page needs; [`:on-match`](concepts.md#loaders-declaring-a-pages-data) for work to start on entry | Both are data, not functions. React Router's one `loader` does both jobs; here they are separate keys — see [below](#one-loader-becomes-two-keys). |
 | `useLoaderData()` | An ordinary subscription | The data lands in the resource cache or [app-db](../core/glossary.md#app-db), and the [view](../core/glossary.md#view) reads it like any other state. |
 | `useNavigate()` → `navigate("/x")` | `(dispatch [:rf.route/navigate {:to :app/article :params {:slug "intro"}}])` | [Navigation is an event](concepts.md#move-2-navigation-is-an-event), so it is traced and can be intercepted. |
@@ -106,8 +106,8 @@ navigation is parked in `:rf/pending-navigation`. Your own view renders the prom
 from it and dispatches `:rf.route/continue` or `:rf.route/cancel`, so tests need no
 DOM and no native dialog.
 
-`:can-enter` works differently. Whether the reader is signed in does not change while
-you wait, so a refusal parks nothing: it commits nothing and dispatches
+`:can-enter` checks the app's current state. A refusal parks nothing: it commits
+nothing and dispatches
 `:rf.route/entry-denied` once. The return after sign-in is an ordinary new
 navigation, which the guard checks again. There is no flag that skips `:can-enter`.
 

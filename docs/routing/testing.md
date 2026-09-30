@@ -166,7 +166,8 @@ The frame below starts on the editor with unsaved changes, set up through
 ```
 
 Dispatching `[:rf.route/cancel <id>]` instead clears the pending navigation and leaves
-the route unchanged. Navigating with `:bypass-leave? true` is never blocked.
+the route unchanged. Navigating with `:bypass-leave? true` skips the leave guard;
+the destination's entry guard can still deny it.
 
 A `:can-enter` refusal parks nothing, so there is no pending value to check. Assert on
 what the `:rf.route/entry-denied` handler did instead: it stored the denied

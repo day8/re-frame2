@@ -8,17 +8,24 @@ store, so routing shows up in traces and tests like any other event.
 ```clojure
 (ns app.core
   (:require [re-frame.core :as rf]
-            [re-frame.routing]))  ;; day8/re-frame2-routing — forget this → :rf.error/routing-artefact-missing
+            [re-frame.routing]))  ;; day8/re-frame2-routing
 
 (rf/reg-route :app/article
   {:params [:map [:slug :string]]}
-  "/articles/:slug")                  ;; id, metadata map, path
+  "/articles/:slug")
 
-;; Outside a view, name the frame (here the app's :app frame).
-(rf/dispatch-sync [:rf.route/navigate {:to :app/article :params {:slug "hello"}}]
-                  {:frame :app})
-@(rf/subscribe [:rf.route/params] {:frame :app})   ;; => {:slug "hello"}
+(rf/reg-view article-page []
+  (let [{:keys [slug]} @(subscribe [:rf.route/params])]
+    [:h1 (str "Article " slug)]))
+
+;; Render a link inside a view scoped to the app's frame.
+[rf/route-link {:to :app/article :params {:slug "intro"}} "Read intro"]
 ```
+
+The [tutorial](tutorial.md#step-1--your-first-route-on-screen) mounts the app in a
+frame with `:url-bound? true`, so links, deep links and Back update the same route
+state. The route id picks the page to render; the path params tell that page which
+article to show.
 
 A route's `:on-match` events also run during [server rendering](../ssr/index.md),
 so the server needs no second router.
