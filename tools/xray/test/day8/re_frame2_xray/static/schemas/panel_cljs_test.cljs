@@ -328,12 +328,16 @@
     (rf/dispatch-sync
       [:rf.xray.static.schemas/set-registry-override-for-test
        sample-registry])
-    (let [tree (panel-tree)
-          chips (find-by-testid-prefix tree "xray-open-in-editor")]
+    (let [tree          (panel-tree)
+          rows          (find-by-testid-prefix tree "rf-xray-static-schemas-row-")
+          chips-per-row (mapv #(count (find-by-testid-prefix % "xray-open-in-editor"))
+                              rows)]
+      (is (= 3 (count rows))
+          "PRECONDITION: the fixture's three rows rendered")
       ;; Every fixture row carries a :file slot, so every row should
       ;; have an open chip resolved through the editor config.
-      (is (pos? (count chips))
-          "at least one jump-to-source chip rendered"))))
+      (is (= [1 1 1] chips-per-row)
+          "every row renders exactly one jump-to-source chip"))))
 
 ;; -------------------------------------------------------------------------
 ;; (4) a11y list semantics

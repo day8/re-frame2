@@ -258,13 +258,20 @@
 
 (defn- set-routes!
   "Drive the panel's route table through the test-override seam. A real
-  app-db write into `:rf/xray`, so it invalidates
+  app-db write into `frame` (default `:rf/xray`), so it invalidates
   `:rf.xray/registered-routes-override` and the composite above it —
   which is what makes W2's phase 3 a REAL dependency change rather than
-  a poke at the view."
-  [routes]
-  (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test routes]
-                    {:frame :rf/xray}))
+  a poke at the view.
+
+  The override lives in the frame's OWN app-db, so it seeds only the
+  frame it is written to. A panel mounted in any other frame reads that
+  frame's table, and an unseeded frame falls back to the process-global
+  route registry — whose contents are whatever the loaded namespaces
+  registered, not anything this file chose."
+  ([routes] (set-routes! :rf/xray routes))
+  ([frame routes]
+   (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test routes]
+                     {:frame frame})))
 
 (defn- mount-panel!
   "Mount the Static Routes tab the way `static/shell.cljs`'s
@@ -519,7 +526,12 @@
     (if-not (browser?)
       (is true ":node — the :browser-test runner drives the real React mount")
       (let [_        (setup!)
-            _        (set-routes! base-routes)
+            ;; Seeded into the APPLICATION frame, because that is where the
+            ;; subject mounts and so the table its reads resolve against.
+            ;; Left unseeded, the panel paints the process-global route
+            ;; registry instead — silent when no loaded namespace registered
+            ;; a route, which leaves the island's search box unrendered.
+            _        (set-routes! app-frame base-routes)
             traces   (atom [])
             view-op? #(and (keyword? (:operation %))
                            (= "rf.view" (namespace (:operation %))))]

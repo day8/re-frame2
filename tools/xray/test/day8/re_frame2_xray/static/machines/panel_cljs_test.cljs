@@ -101,8 +101,7 @@
             than present in the tree — asserting it here would be
             asserting the walker's reach, not the mount. What the shell
             actually owes is that the `:machines` slot renders and
-            mounts THE REGISTRY'S `:panel`, and that no placeholder card
-            mounts; that the boundary behind it paints
+            mounts THE REGISTRY'S `:panel`; that the boundary behind it paints
             `rf-xray-static-machines-panel` is W1's subject in
             `panel_fresco_boundary_dom_cljs_test`, off a real React
             commit."
@@ -128,10 +127,7 @@
         (is (= (last slot) mount)
             "NON-VACUITY: the node the shell actually mounted in the
              :machines slot IS that bridge's return, so this row is
-             about the live wiring and not about the registry alone")
-        ;; No placeholder card mounts in the :machines slot.
-        (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-placeholder-machines"))
-            "placeholder does not mount")))))
+             about the live wiring and not about the registry alone")))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) Browse-list renders one row per registered machine
@@ -205,12 +201,14 @@
 
 (deftest selection-defaults-to-first-row
   (xray-setup!)
-  (seed-machines! [:m/a :m/b :m/c])
+  ;; Registered OUT of name order, so the first-registered machine (:m/c)
+  ;; and the first sorted row (:m/a) are different answers.
+  (seed-machines! [:m/c :m/a :m/b])
   (rf/with-frame :rf/xray
     (let [{:keys [selected-id]} @(rf/subscribe [:rf.xray.static.machines/data])]
       ;; Sort default is :name; the first sorted row is :m/a.
       (is (= :m/a selected-id)
-          "default selection is the first sorted row"))))
+          "default selection is the first SORTED row, not the first registered"))))
 
 (deftest select-event-flips-the-slot
   (xray-setup!)
@@ -309,17 +307,12 @@
 
 (deftest sim-mode-renders-real-sim-body-with-no-definition-hint
   (testing "When the selected machine has no introspectable definition,
-            the Sim body renders the no-definition hint rather than a
-            placeholder."
+            the Sim body renders its no-definition hint."
     (xray-setup!)
     (seed-machines! [:m/a])
     (frame-dispatch [:rf.xray.static.machines/set-sub-mode :m/a :sim])
     (rf/with-frame :rf/xray
       (let [tree (machines-tree/panel-tree)]
-        ;; No placeholder card mounts.
-        (is (nil? (rf.test-helpers/find-by-testid
-                    tree "rf-xray-static-machines-sim-placeholder"))
-            "no placeholder card mounts")
         ;; The real Sim body is mounted; no-definition variant since
         ;; the test fixture seeds no :states map.
         (is (some? (rf.test-helpers/find-by-testid

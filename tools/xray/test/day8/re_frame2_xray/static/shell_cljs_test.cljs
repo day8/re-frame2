@@ -88,14 +88,17 @@
     (is (= :dynamic (frame-sub [:rf.xray/mode])))))
 
 (deftest set-mode-normalises-unknown-values
-  (testing "unknown / string mode values normalise back to :dynamic"
+  (testing "string mode values normalise to their keyword; unknown values
+            normalise to :dynamic"
     (xray-setup!)
-    (frame-dispatch [:rf.xray/set-mode :nonsense])
-    (is (= :dynamic (frame-sub [:rf.xray/mode]))
-        "unknown keyword → :dynamic")
     (frame-dispatch [:rf.xray/set-mode "static"])
     (is (= :static (frame-sub [:rf.xray/mode]))
-        "string 'static' normalises to :static")))
+        "string 'static' normalises to :static")
+    ;; From :static rather than the :dynamic default, so an unknown value
+    ;; that was IGNORED would leave :static here instead of :dynamic.
+    (frame-dispatch [:rf.xray/set-mode :nonsense])
+    (is (= :dynamic (frame-sub [:rf.xray/mode]))
+        "unknown keyword → :dynamic")))
 
 (deftest toggle-mode-flips-dynamic-and-static
   (testing ":rf.xray/toggle-mode flips between modes idempotently"

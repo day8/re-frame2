@@ -109,10 +109,11 @@
   `panel/panel-tree`, so every row below asserts on the hiccup the
   boundary renders.
 
-  The DISPATCHER is `(:dispatch (rf/capture-frame))`, the SAME door the
-  boundary uses, so a handler a row pulls off the tree and fires later
-  (`routes-row-enter-key-activates-toggle` does exactly that) carries the
-  frame the shipped one does.
+  The DISPATCHER defaults to `(:dispatch (rf/capture-frame))`, the SAME
+  door the boundary uses, so a handler a row pulls off the tree and fires
+  later carries the frame the shipped one does. A row that needs to see
+  WHICH event a handler sends passes a recording fn instead
+  (`routes-row-enter-key-activates-toggle` does exactly that).
 
   `identity` is the `as-child` spelling for the node lane, so the browse
   list and the Simulate-URL header stay fn-headed hiccup the walker above
@@ -121,17 +122,18 @@
   browser lane's, not this one's.
 
   Call it inside `(rf/with-frame :rf/xray …)` — it subscribes ambiently."
-  []
-  (let [data       @(rf/subscribe [:rf.xray.static.routes/tab-data])
-        expanded   @(rf/subscribe [:rf.xray.static.routes/expanded])
-        sim-open   @(rf/subscribe [:rf.xray.static.routes/sim-nav-open])
-        routes-map @(rf/subscribe [:rf.xray/registered-routes])]
-    (panel/panel-tree data
-                      {:expanded   expanded
-                       :sim-open   sim-open
-                       :routes-map routes-map}
-                      (:dispatch (rf/capture-frame))
-                      identity)))
+  ([] (panel-tree (:dispatch (rf/capture-frame))))
+  ([dispatch]
+   (let [data       @(rf/subscribe [:rf.xray.static.routes/tab-data])
+         expanded   @(rf/subscribe [:rf.xray.static.routes/expanded])
+         sim-open   @(rf/subscribe [:rf.xray.static.routes/sim-nav-open])
+         routes-map @(rf/subscribe [:rf.xray/registered-routes])]
+     (panel/panel-tree data
+                       {:expanded   expanded
+                        :sim-open   sim-open
+                        :routes-map routes-map}
+                       dispatch
+                       identity))))
 
 ;; ---- fixture data -------------------------------------------------------
 
@@ -325,9 +327,9 @@
             the tree. Asserting that testid here would be asserting the
             WALKER'S REACH rather than the mount, which is the hollow-gate
             shape. What the shell owes
-            is that the `:routes` slot mounts the REGISTRY's `:panel` and
-            that no placeholder renders; the boundary's own first paint is
-            the browser lane's subject, and its body is every row above."
+            is that the `:routes` slot mounts the REGISTRY's `:panel`; the
+            boundary's own first paint is the browser lane's subject, and
+            its body is every row above."
     (is (contains? (set (map :id (static-shell/tabs))) :routes)
         ":routes is in the Static tab inventory")
     (setup-xray-frame!)
@@ -341,9 +343,7 @@
         (is (some? slot) "the :routes L4 slot renders")
         (is (= (last slot) mount)
             (str "the slot mounts exactly the registry's :panel value. "
-                 "Got: " (pr-str (last slot))))
-        (is (nil? (find-by-testid tree "rf-xray-static-placeholder-routes"))
-            "the :routes placeholder card is not rendered")))))
+                 "Got: " (pr-str (last slot))))))))
 
 ;; ---- (10) a11y list semantics + keyboard operability -------------------
 
@@ -394,7 +394,8 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      (let [tree     (panel-tree)
+      (let [seen     (atom [])
+            tree     (panel-tree #(swap! seen conj %))
             ;; the cart row's clickable body is the role=button whose
             ;; aria-label mentions the cart route.
             row-body (some (fn [node]
@@ -408,20 +409,27 @@
             on-key   (:on-key-down (second row-body))
             mk-ev    (fn [k prevented?]
                        #js {:key k
-                            :preventDefault (fn [] (reset! prevented? true))})]
+                            :preventDefault (fn [] (reset! prevented? true))})
+            toggle   [[:rf.xray.static.routes/toggle-row :route/cart]]]
         (is (some? on-key) "row body has a keydown handler")
-        (testing "Enter is consumed (preventDefault called)"
+        (testing "Enter is consumed (preventDefault called) and toggles the row"
           (let [prevented (atom false)]
+            (reset! seen [])
             (on-key (mk-ev "Enter" prevented))
-            (is (true? @prevented))))
-        (testing "Space is consumed (preventDefault called)"
+            (is (true? @prevented))
+            (is (= toggle @seen) "Enter dispatches this row's toggle")))
+        (testing "Space is consumed (preventDefault called) and toggles the row"
           (let [prevented (atom false)]
+            (reset! seen [])
             (on-key (mk-ev " " prevented))
-            (is (true? @prevented))))
+            (is (true? @prevented))
+            (is (= toggle @seen) "Space dispatches this row's toggle")))
         (testing "an unrelated key is NOT consumed (bubbles for global keys)"
           (let [prevented (atom false)]
+            (reset! seen [])
             (on-key (mk-ev "a" prevented))
-            (is (false? @prevented))))))))
+            (is (false? @prevented))
+            (is (= [] @seen) "and toggles nothing")))))))
 
 ;; ---- (11) expand-surface EDN renders via the shared widget --------------
 

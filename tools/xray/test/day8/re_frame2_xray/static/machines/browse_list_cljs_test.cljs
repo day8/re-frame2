@@ -8,7 +8,10 @@
     2. Sort button label reflects the active axis.
     3. Listbox ARIA, the selected row's aria-selected, the visible /
        total count line and the no-results state.
-    4. Row and pip React keys ride the attribute map."
+    4. The search input's keystroke and Escape handlers dispatch the
+       Machines search events.
+    5. A row's `→ Dynamic` chip click dispatches the JUMP for that row.
+    6. Row and pip React keys ride the attribute map."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
@@ -144,6 +147,64 @@
   (rf/with-frame :rf/xray
     (let [tree (machines-tree/panel-tree)]
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-no-results"))))))
+
+;; -------------------------------------------------------------------------
+;; Handlers pulled off the tree and fired with a RECORDING dispatcher
+;; -------------------------------------------------------------------------
+;;
+;; `browse-list-tree` takes the dispatcher the boundary would bind, so a
+;; recording fn in its place shows exactly which events a handler sends.
+
+(defn- recording-tree
+  "The browse list rendered with a dispatcher that records every event
+  into the returned `seen` atom. Call inside a frame scope."
+  []
+  (let [seen (atom [])]
+    {:seen seen
+     :tree (machines-tree/browse-list-tree #(swap! seen conj %))}))
+
+(deftest search-input-keystroke-and-escape-dispatch-the-search-events
+  (xray-setup!)
+  (seed-machines! [:foo/a :bar/b])
+  (rf/with-frame :rf/xray
+    (let [{:keys [seen tree]} (recording-tree)
+          input (rf.test-helpers/find-by-testid
+                  tree "rf-xray-static-machines-search-input")
+          {:keys [on-change on-key-down]} (second input)]
+      (is (fn? on-change) "PRECONDITION: the search input handles keystrokes")
+      (when on-change (on-change #js {:target #js {:value "foo"}}))
+      (is (= [[:rf.xray.static.machines/set-search "foo"]] @seen)
+          "a keystroke dispatches set-search carrying the input's value")
+      (reset! seen [])
+      (is (fn? on-key-down) "the search input handles keydown")
+      (when on-key-down (on-key-down #js {:key "Escape"}))
+      (is (= [[:rf.xray.static.machines/clear-search]] @seen)
+          "Escape dispatches clear-search")
+      (reset! seen [])
+      (when on-key-down (on-key-down #js {:key "a"}))
+      (is (= [] @seen) "any other key dispatches nothing"))))
+
+(deftest row-jump-chip-click-dispatches-the-jump-for-its-row
+  (xray-setup!)
+  (seed-machines! [:m/a :m/b])
+  (rf/with-frame :rf/xray
+    (let [{:keys [seen tree]} (recording-tree)
+          chip    (rf.test-helpers/find-by-testid
+                    tree "rf-xray-static-machines-row-jump-b")
+          stopped (atom false)]
+      (is (some? chip)
+          "PRECONDITION: the :m/b row — not the default-selected first row —
+           carries its `→ Dynamic` chip")
+      ((:on-click (second chip)) #js {:stopPropagation #(reset! stopped true)})
+      (is (= [[:rf.xray/set-mode :dynamic]
+              [:rf.xray/select-tab :machines]
+              [:rf.xray/select-machine-id :m/b]]
+             @seen)
+          "the click flips to Dynamic, opens the Machines tab and selects
+           THIS row's machine")
+      (is (true? @stopped)
+          "and stops propagation, so the enclosing row button's select does
+           not also fire"))))
 
 ;; -------------------------------------------------------------------------
 ;; React keys ride the ATTRIBUTE MAP, never Clojure metadata
