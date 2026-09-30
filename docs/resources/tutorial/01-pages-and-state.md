@@ -4,12 +4,6 @@ You left [the setup page](index.md) with an empty Conduit shell. By the end of t
 
 That trio — events write, subs read, views render — is the pipeline everything else in re-frame2 builds on. This part is offline: nothing fetches, so you can watch the pipeline run with nothing else moving. Real server data arrives in [Part 2](02-server-data.md).
 
-**The takeaway: the URL is a sub, and a page is a view of it.**
-
-??? info "Coming from React Router?"
-
-    There is no `<Routes>` tree, no router context, no `useParams` hook. A route is a registry entry, navigating is dispatching an event, and the current route is an ordinary [subscription](../../core/glossary.md#subscription) your root view reads like any other state.
-
 You'll touch two files:
 
 ```text
@@ -19,7 +13,7 @@ src/conduit/core.cljs       ; routes, the root view, boot
 
 ## Step 1 — canned articles into app-db
 
-All of your app's state lives in [**app-db**](../../core/glossary.md#app-db), a single immutable map. A feature claims one top-level key and keeps everything it owns underneath; we call that corner a **slice**. Articles get the `:articles` key.
+The state your application handlers own lives in [**app-db**](../../core/glossary.md#app-db), a single immutable map. A feature claims one top-level key and keeps everything it owns underneath; we call that corner a **slice**. Articles get the `:articles` key.
 
 State changes one way only. An [**event**](../../core/glossary.md#event) is data announcing that something happened — at its simplest a vector like `[:app/initialise]`: a keyword id plus any payload. You [**dispatch**](../../core/glossary.md#dispatch) it, and the registered [**event handler**](../../core/glossary.md#event-handler) computes the next value of app-db. So even seeding canned data is an event:
 
@@ -74,10 +68,6 @@ This handler returns only `:db`, because seeding canned data touches nothing out
 
 This replaces the placeholder `:app/initialise` that setup dropped into `core.cljs`. Delete that old registration now, so the two don't fight over the same id — Step 4 rewrites the rest of that file anyway.
 
-??? info "From re-frame v1"
-
-    If you've used re-frame v1 you'll reach for `reg-event-db` or `reg-event-fx` out of muscle memory. There's just `reg-event` now: the same shape — coeffects in, an effect map out — under the bare name. A pure state change returns `{:db …}`; one that reaches the outside world adds `:fx`. The old names aren't quiet aliases that'll lull you into thinking nothing changed — calling `reg-event-db` raises a loud `:rf.error/reg-event-db-removed` that names `reg-event` as the replacement. The migration is a rename, not a guessing game.
-
 !!! warning "Gotcha — re-registering an id replaces it"
 
     [Registries](../../core/glossary.md#registrar) are last-write-wins. If both `core.cljs` and `articles.cljs` register `:app/initialise`, whichever namespace loads last silently wins, and the other body never runs. That's why you *delete* the placeholder rather than leaving it: a duplicate id doesn't error, it just quietly shadows. (The dev build does emit a `:rf.registry/handler-replaced` trace, so a tool like [Xray](../../core/glossary.md#xray) can show you the swap — but your eyes won't catch it in the source.)
@@ -91,10 +81,6 @@ Now look at the slice's shape. It isn't a bare vector of articles; it's a map th
 ```
 
 With canned data the slice is born `:loaded` and never moves, so the shape looks like overkill today. Every real page eventually has to answer "what state is my data in?" — loading, loaded, or failed — and Part 2 makes those states real.
-
-??? info "Coming from TanStack Query?"
-
-    A `useQuery` result hands you `isLoading`, `isError`, `data`, and `error`. The `{:status :data :error}` slice is the same idea as plain data in app-db, where any sub can read it and Xray can show it. Part 2 replaces this hand-built slice with a resource, which gives you the same lifecycle without writing it.
 
 ??? note "The deeper story of the one-map design"
 
@@ -199,7 +185,7 @@ Three things to notice:
 Two hiccup details the listing leans on:
 
 - **A child view takes its props as one map.** `article-preview`'s parameter list is `[{:keys [article]}]`, so the call site passes `{:article article}`, not positional args.
-- **Every element in a `for`-generated list needs a `^{:key …}`.** It's how React tells list items apart across re-renders. Use a stable field from the data (a slug, an id), never the loop index; without one React warns and falls back to index-based reconciliation, which misbehaves when the list reorders.
+- **Give each element in a `for`-generated list a stable key**, using `^{:key …}` here. It's how React tells list items apart across re-renders. Use a stable field from the data (a slug, an id), never the loop index; without one React warns and falls back to index-based reconciliation, which misbehaves when the list reorders.
 
 ??? note "Why views stay pure"
 

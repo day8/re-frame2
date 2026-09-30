@@ -4,10 +4,6 @@ Conduit works in the browser. This part proves it with tests that run on the JVM
 
 The rule for every test here: **supply data, don't swap mechanisms.** You never patch `js/Date`, intercept `fetch`, or replace a module. You hand the runtime the facts a [handler](../../core/glossary.md#event-handler) declared it needs, then read the data it produced.
 
-??? info "Coming from React Testing Library + MSW?"
-
-    In a typical React app, testing a decision means rendering a component in JSDOM, testing a fetch means a mock service worker, and seeing the result means flushing with `act()`. Here an event handler is pure: what it needs arrives as values ([coeffects](../../core/glossary.md#coeffect)), and what it does leaves as data ([effects](../../core/glossary.md#effect)). A test supplies values and asserts on values, so there's nothing to mock.
-
 ## 1. Set up the JVM test runner
 
 The JVM loads `.clj` and `.cljc` files, and a `.cljc` file is one source for both targets. That's why Parts 2–5 had you write `api.cljc`, `resources.cljc`, `scope.cljc`, `auth.cljc`, `mutations.cljc` and `views.cljc`: none of them names a browser API outside a `#?(:cljs …)` branch, so the JVM loads them as they are. (Renaming a file isn't enough — an unguarded `js/globalThis` stops the JVM compiler with `No such namespace: js`.) `core.cljs`, `articles.cljs` and `editor.cljs` stay ClojureScript; no test here loads them.
@@ -213,6 +209,7 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
             [re-frame.test-support :as ts]
+            [conduit.resources]                          ;; registers the populate target
             [conduit.views :refer [favorite-button]]))
 
 (use-fixtures :each
@@ -235,10 +232,6 @@ A second test namespace loads `conduit.views` on the JVM (it's `.cljc`) and walk
 
 Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` finds the node carrying that `:data-testid` (expanding nested views on the way down), `text-content` collects the string leaves under it (the heart glyph contributes nothing, hence `" 7"`), and `invoke-handler` calls a wired handler such as `:on-click`. The click's `dispatch` is queued, so `ts/poll-until` waits (two seconds by default) for the write to settle; it settles `:success` because `:preset :test` answers `:rf.http/managed` with a canned success. Had the click gone to another frame, this frame's instance would stay `:idle` and the poll would time out. The frame also sets `:rf.cofx/mint-policy :explicit-live`, which opts back into generated values: a mutation mints a fresh cache generation, and the preset's strict policy won't invent one.
 
-??? info "Coming from React Testing Library?"
-
-    `:data-testid` is the same convention RTL leans on, and the helpers mirror its query/fire shape: `find-by-testid` ≈ `getByTestId`, `text-content` ≈ `textContent`, `invoke-handler` ≈ `fireEvent`. What's underneath differs entirely — RTL queries a rendered DOM that JSDOM had to build; these helpers walk the hiccup *data* the view returned. No DOM, no `render()`, no `act()` to flush.
-
 !!! warning "Gotcha — a wrong testid fails loud, not soft"
 
     `find-by-testid` returns `nil` when nothing carries that id, so `invoke-handler` on the result throws `:rf.error/invoke-handler-bad-node`; invoking a node without that handler throws `:rf.error/invoke-handler-missing`. (`text-content` of `nil` is `""`, so a bad testid there shows up as a string mismatch.)
@@ -255,7 +248,7 @@ clojure -M:test
 # 0 failures, 0 errors.
 ```
 
-The run takes well under a second. **Try it:** break `:auth/initialise` — store the token under the wrong key — and run again. The pure test fails pointing at the exact map entry.
+After dependency resolution and JVM startup, the tests run without a network service. **Try it:** break `:auth/initialise` — store the token under the wrong key — and run again. The pure test fails pointing at the exact map entry.
 
 ## 7. Ship it: the release build
 
@@ -267,7 +260,7 @@ npx shadow-cljs release app
 
 `release` compiles with `:advanced` optimizations and sets `goog.DEBUG` to `false` — a compile-time constant from the Closure compiler. re-frame2's diagnostics sit behind `goog.DEBUG` checks, so in a release build the compiler removes them as dead code; that's what the guide means by [elide](../../core/glossary.md#elide). **What's gone from the file you just built:**
 
-- **The schema checks that are advice about your own code** — the `reg-app-schema` paths from Part 3, a plain event `:schema`. They compile out completely, which is why they cost nothing to write. (Not every schema check goes — see below.)
+- **The schema checks that are advice about your own code** — the `reg-app-schemas` paths from Part 3, a plain event `:schema`. They compile out completely, which is why they cost nothing to write. (Not every schema check goes — see below.)
 - **The entire trace channel** — the epoch ledger you scrolled in [Xray](../../core/glossary.md#xray), the trace ring, every emit site. Open Xray against the release build and there's nothing to attach to.
 
 **What survives — because it isn't diagnostics:**

@@ -129,17 +129,30 @@ With `:keep-previous?`, while page 2 is first-loading its state carries `:previo
   (let [page  @(subscribe [:home/page])
         state @(subscribe [:rf/resource {:resource :realworld/articles :params {:page page}}])]
     (cond
-      (and (:loading? state) (not (:previous? state)))
+      (or (= :idle (:status state))
+          (and (:loading? state) (not (:previous? state))))
       [list-skeleton]
 
       (and (:error state) (not (:has-data? state)) (not (:previous? state)))
-      [list-error (:error state)]
+      [:div [list-error (:error state)]
+       [:button {:on-click #(dispatch [:rf.resource/refetch
+                                        {:resource :realworld/articles :params {:page page}
+                                         :cause [:user :page/retry]}])} "Retry"]]
 
       :else
       (let [{:keys [articles total]} (or (:data state) (:previous-data state))
             pages (js/Math.ceil (/ (or total 0) page-size))]
         [:div
-         (when (:previous? state) [:p "Loading page " page "…"])
+         (when (and (:previous? state) (not (:error state)))
+           [:p "Loading page " page "…"])
+         (when (or (:error state) (:refresh-error state))
+           [:p "Could not load page " page ". Showing the last available rows. "
+            [:button {:disabled (:fetching? state)
+                      :on-click #(dispatch [:rf.resource/refetch
+                                             {:resource :realworld/articles :params {:page page}
+                                              :cause [:user :page/retry]}])} "Retry"]])
+         (when (:fetching? state) [:p "Refreshing…"])
+         (when (empty? articles) [:p "No articles."])
          (into [:div] (for [a articles] [article-row a]))
          (when (> pages 1)
            (into [:nav]
@@ -217,7 +230,7 @@ Beyond `:next-page-param` (required) and `:page->items`, an infinite resource ac
 
 ??? info "Coming from TanStack Query?"
 
-    `:next-page-param` is `getNextPageParam`, `:initial-page-param` is `initialPageParam`, and `:page->items` is the accessor you'd write inline when flattening `data.pages`. The first page's `nil` param is TanStack's defaulted `initialPageParam`. re-frame2 adds a derived `:has-next-page?`, so a view never works out the end of the feed itself.
+    `:next-page-param` is `getNextPageParam`, `:initial-page-param` is `initialPageParam`, and `:page->items` is the accessor you'd write inline when flattening `data.pages`. re-frame2 defaults the first page param to `nil`; declare `:initial-page-param` when your API needs another value. Both libraries expose whether another page exists.
 
 !!! warning "Gotcha — two ways to register a feed wrong"
 
@@ -248,12 +261,15 @@ The view reads the `[:rf.resource/infinite-state …]` subscription and dispatch
                           {:resource :feed/timeline :params {}}])]
     (cond
       ;; First load (page 0), no data yet.
-      (:loading? feed) [feed-skeleton]
+      (or (= :idle (:status feed)) (:loading? feed)) [feed-skeleton]
 
       ;; First load failed with no data. The full error screen reads :error;
       ;; :page-error is the separate load-more channel used below.
       (and (:error feed) (not (:has-data? feed)))
-      [feed-error (:error feed)]
+      [:div [feed-error (:error feed)]
+       [:button {:on-click #(dispatch [:rf.resource/refetch
+                                        {:resource :feed/timeline :params {}
+                                         :cause [:user :feed/retry]}])} "Retry"]]
 
       :else
       [:<>
@@ -261,6 +277,14 @@ The view reads the `[:rf.resource/infinite-state …]` subscription and dispatch
        ;; (via :page->items) and memoises the merge.
        (into [:div] (for [item (:items feed)]
                       ^{:key (:id item)} [feed-row item]))
+
+       (when (:fetching? feed) [:p "Refreshing…"])
+       (when (:refresh-error feed)
+         [:p "Could not refresh. Showing the loaded pages. "
+          [:button {:disabled (:fetching? feed)
+                    :on-click #(dispatch [:rf.resource/refetch
+                                           {:resource :feed/timeline :params {}
+                                            :cause [:user :feed/retry]}])} "Retry refresh"]])
 
        ;; A load-more failure keeps every page visible — show an inline retry.
        (when (and (:page-error feed) (:has-data? feed))
@@ -273,7 +297,7 @@ The view reads the `[:rf.resource/infinite-state …]` subscription and dispatch
          [:button {:on-click #(dispatch [:rf.resource/load-more
                                          {:resource :feed/timeline :params {}
                                           :cause    [:user :feed/load-more]}])}
-          "Load more"]
+          (if (:page-error feed) "Retry load more" "Load more")]
 
          :else [end-of-feed])])))      ;; nil next-page-param: no more pages
 ```
@@ -305,10 +329,10 @@ The full view-model has a few more keys for the cases that need them:
  :has-data?      true
  :error          nil                   ;; page-0 first-load failure
  :refresh-error  nil                   ;; whole-feed refresh failure
- :page-error     nil}                  ;; last load-more (page N>0) failure
+ :page-error     nil}                  ;; last later-page failure (load-more or refetch)
 ```
 
-Reach for `:pages` when you need page boundaries — a divider, per-page headers — rather than the flat `:items`. Note the *three* error channels, each a different situation with its own UI: `:error` is a page-0 failure with nothing on screen yet; `:page-error` is a load-more failure that keeps every loaded page visible; `:refresh-error` is a failed whole-feed background refresh that kept the data. They never overlap.
+Reach for `:pages` when you need page boundaries — a divider, per-page headers — rather than the flat `:items`. Note the *three* error channels, each a different situation with its own UI: `:error` is a page-0 failure with nothing on screen yet; `:page-error` is a failed later page, either during load-more or a multi-page refetch; `:refresh-error` is a failed page-0 refresh. Both keep the loaded data. `:page-error` and `:refresh-error` can coexist after separate failures; render them independently. A successful page append or replacement clears both fields.
 
 The single-key subs from the numbered case apply to a feed too, but `:rf.resource/data` returns the *raw page vector*, so the infinite family adds `:rf.resource/items`, `:rf.resource/pages`, `:rf.resource/has-next-page?`, `:rf.resource/has-prev-page?`, `:rf.resource/fetching-next?`, `:rf.resource/page-count` and `:rf.resource/page-error`.
 
@@ -328,10 +352,15 @@ You can wire the button straight to `dispatch`, with no "has next?" check and no
 
 ### Refetch and reset
 
-`:rf.resource/refetch` on a feed **keeps the window by default**: the loaded pages stay on screen until their replacement succeeds, so a focus-, reconnect- or invalidation-driven refetch never collapses the feed back to page 0. Two options on the resource's `:refetch` policy change that:
+`:rf.resource/refetch` preserves the loaded window and, by default, **refreshes only page 0**. Later pages stay cached as they were. Two registration policies broaden that refresh:
 
-- `:refetch {:refetch-all-pages? true}` — refetch every loaded page (TanStack parity).
-- `:refetch {:refetch-window n}` — bound how much of the feed is refreshed.
+- `:refetch {:refetch-all-pages? true}` — refresh every loaded page.
+- `:refetch {:refetch-window n}` — refresh the first `n` loaded pages, clamped to at least one and at most the loaded page count.
+
+If both are supplied, `:refetch-all-pages? true` wins. Refresh uses each page's
+saved page param; it does not derive a new cursor chain or discard later pages.
+For a feed where an insertion changes every later page, choose the all-pages
+policy and a server cursor contract that supports rereading those saved cursors.
 
 Tag invalidation reaches a feed like any resource: `:rf.resource/invalidate-tags`, or a [`reg-mutation`](../glossary.md#mutation) with `:invalidates`, marks the feed stale by its **feed [tag](../glossary.md#cache-tag)**. An owned feed (the route's, say) refetches at once and an unowned one on its next ensure, both under the window rule above. So give a feed a `:tags` fn — `(fn [_params _data] #{[:feed :timeline]})` — and a "new post" mutation can invalidate the whole timeline. A mutation that touches *one item inside* the feed invalidates the **whole feed**; patching one item in place inside a feed's pages is not supported.
 

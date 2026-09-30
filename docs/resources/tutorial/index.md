@@ -3,22 +3,9 @@
 The [Core introduction](../../core/introduction.md) taught the pure pipeline in a
 browser cell. This tutorial grows it into **Conduit** — a Medium-style app with
 feeds, auth, favoriting, and a production build — on the real toolchain. This page
-scaffolds the project; budget five minutes from `npm install` to pixels.
+scaffolds the project; you will run the shell before adding features.
 
 Conduit follows the [RealWorld spec](https://github.com/gothinkster/realworld), so the same app already exists in React, Vue, Svelte, Solid, and Elm, and every pattern here has a counterpart in a stack you know. Each part follows the same rhythm: *do* a thing, *observe* what the app did in [Xray](../../core/glossary.md#xray) (the inspector you set up below), then *explain* why.
-
-## One app, six parts
-
-Each part adds one slice of the app and the machinery that slice needs:
-
-| Part | You add | You learn |
-|---|---|---|
-| [Part 1](01-pages-and-state.md) | Pages, navigation, and the first feed | app-db, events, subs, views, routing |
-| [Part 2](02-server-data.md) | Real data from a Conduit API | resources, and handling every state a page's data can be in |
-| [Part 3](03-auth-and-forms.md) | Login, register, and a session that survives reload | forms, the session |
-| [Part 4](04-scopes-and-guards.md) | A cache per reader, and pages that need a signed-in user | scopes, guarding navigation |
-| [Part 5](05-mutations-and-invalidation.md) | Favoriting, publishing, and an unsaved-draft guard | mutations, and invalidating the reads they make stale |
-| [Part 6](06-test-and-ship.md) | Tests and a production build | testing the pieces, shipping the app |
 
 From Part 2 onward the app talks to a Conduit API — the hosted RealWorld API, or the upstream reference backend running on your own machine. Part 2 sets that up. The finished reference lives at [`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources) — the same app on resources and mutations — so you can peek when you're stuck. (A sibling, [`realworld_http/`](../../../examples/real-apps/realworld_http), builds the same app on the raw HTTP transport with no resource layer — useful later, as the before-picture.)
 
@@ -58,11 +45,11 @@ conduit/
  {:dev {:extra-deps {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
 ```
 
-`thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray, the inspector you'll keep open for the whole tutorial, sits under `:aliases {:dev …}`. An **alias** in `deps.edn` is a named bundle of extra dependencies you opt into, much like an npm `devDependency`; a release build never activates `:dev`, so Xray stays out of your shipped bundle.
+`thheller/shadow-cljs` here is the compiler itself; the npm package below is only its launcher, and the two versions must match or the build won't start. Xray, the inspector you'll keep open for the whole tutorial, sits under `:aliases {:dev …}`. An **alias** in `deps.edn` is a named bundle of extra dependencies you opt into, much like an npm `devDependency`; the configuration below includes it on the compiler's classpath. Xray's preload runs only in development; `:devtools` is ignored by release builds, so Xray stays out of the app's compiled dependency graph.
 
 ??? info "For JavaScript developers"
 
-    Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. (That record is the [trace stream](../../core/glossary.md#trace-stream); Xray is just the prettiest reader of it.) You'll lean on it constantly. Like DevTools, it ships only in dev builds; the `:dev` alias is what makes that automatic.
+    Xray is your React DevTools — except instead of a component tree, it shows you the framework's own record of every event, every state change, and every subscription read. (That record is the [trace stream](../../core/glossary.md#trace-stream); Xray is just the prettiest reader of it.) You'll lean on it constantly. Like DevTools, it ships only in dev builds; the development-only preload is what makes that automatic.
 
 **`package.json`**:
 
@@ -119,7 +106,7 @@ Two lines matter beyond the boilerplate. `:init-fn` names your boot function, wh
 </html>
 ```
 
-Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host]`. In a release build that rail stays empty, so the same HTML works for both.
+Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host]`. For deployment, remove the empty `<aside>` and the Xray layout CSS so the production app uses the full width.
 
 ## The app's first file
 
@@ -198,10 +185,6 @@ What's new beyond syntax is the **boot** in `run` — the part the browser cells
 ??? info "For JavaScript developers"
 
     Step 4 is a context provider — the same pattern as wrapping your React tree in a `<Provider>` so hooks deep in the tree can reach shared state. The frame is what's carried down the context; `subscribe` and `dispatch` are the hooks that read it.
-
-??? info "Coming from Redux?"
-
-    Step 1 (`init!`) is roughly `applyMiddleware` — it wires the runtime to a substrate. Step 2 (`make-frame`) is `createStore`. Step 3 is your initial-state argument to `createStore`, expressed as an event. Step 4 is `<Provider store={...}>`. The difference: re-frame2 makes you name the store (the frame), because an app can run several isolated frames side by side.
 
 `frame-provider` has a sibling, `frame-root {:id …}`, which *creates* its frame on first mount — for a view that brings its own frame, such as an embedded widget. This tutorial never needs it; [Frames: isolated worlds](../../core/frames.md) covers both.
 

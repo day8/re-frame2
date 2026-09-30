@@ -67,7 +67,7 @@ and wrap the root view's `case` in it:
        [not-found-page]))])
 ```
 
-**A restore replans the page it's on.** The first URL's reads failed closed while the viewer was unknown. When the reply lands, the subscription re-keys to the new scope, but re-keying never fetches, and navigating to the current page is a no-op. `:rf.route/replan-resources` reruns the current route's reads under the current identity without navigating. Replace the two restore handlers so both outcomes dispatch it:
+**A restore replans the page it's on.** The first URL's reads failed closed while the viewer was unknown. When the reply lands, the subscription re-keys to the new scope, but re-keying never fetches, and navigating to the current page is a no-op. `:rf.route/replan-resources` reruns the current route's reads under the current identity without navigating. It reuses retained identities with usable data or live work; an unusable retained entry is ensured again. Replace the two restore handlers so both outcomes dispatch it:
 
 ```clojure
 (rf/reg-event :auth/session-restored
@@ -111,8 +111,7 @@ Settings and the editor should refuse to open while signed out. Each protected r
 ;; add to src/conduit/auth.cljc
 (rf/reg-route :conduit.user/settings
   {:tags      #{:requires-auth}
-   :can-enter [:conduit/signed-in?]
-   :on-match  [[:settings/load]]}
+   :can-enter [:conduit/signed-in?]}
   "/settings")
 
 (rf/reg-sub :conduit/signed-in?
@@ -123,13 +122,35 @@ Settings and the editor should refuse to open while signed out. Each protected r
 
 That's the whole gate. Sign-out needs nothing extra for it: once `:auth/user` is `nil`, the guard refuses again.
 
+Give the route a small page so you can exercise the guard. This part displays the
+current account; editing it is a separate mutation, left to the full example.
+Add this view in `auth.cljc`:
+
+```clojure
+(rf/reg-view settings-page []
+  (let [user @(subscribe [:auth/user])]
+    [:div.container.page
+     [:h1 "Your account"]
+     [:p (:username user)]
+     [:p (:email user)]]))
+```
+
+In `core.cljs`, add `:conduit.user/settings [auth/settings-page]` to the root
+view's `case`. Add a link beside the brand in `header`, visible whether signed in
+or out so you can try both outcomes:
+
+```clojure
+[rf/route-link {:to :conduit.user/settings :class "nav-link"} "Settings"]
+```
+
+
 !!! note "Why a route guard rather than an event interceptor"
 
     Navigations arrive by several doors — `:rf.route/navigate` (in several shapes, including `{:url …}` and in-place query edits that name no route id), link clicks, and the URL bar or Back button. An interceptor on one navigation event has to handle every shape itself, and the one it misses lets a signed-out visitor in. `:can-enter` runs in the single planning step all of them pass through, so it can't be bypassed. A frame interceptor is still right for policies that aren't about routes, such as a maintenance-mode lockout — see [Require sign-in on a route](../../routing/how-to/require-sign-in-on-a-route.md#a-policy-that-is-not-about-routes).
 
 ### What a refusal does, and the login bounce
 
-A refusal is **terminal**. Nothing commits — no route slice, no URL push, no `:on-match`, so `[:settings/load]` never fires — and nothing is parked waiting to resume.
+A refusal is **terminal**. Nothing commits — no route slice, URL push or `:on-match` events — and nothing is parked waiting to resume.
 
 The runtime dispatches `:rf.route/entry-denied` once. Its default handler does nothing, so a signed-out click on *Settings* currently has no visible effect. Your replacement sends the visitor to login, with one exception that comes from Part 3's boot:
 
@@ -178,11 +199,7 @@ Three details:
 
 The return trip is an ordinary navigation: the guard runs again and, now that a user is present, allows it.
 
-??? info "Coming from Axios?"
-
-    A redirect-on-401 response interceptor does two jobs. The **gating** job moves to the route: `:can-enter` stops the navigation before any request exists. The **session-expiry** job stays on the response side, because `:can-enter` can't notice a token that expires after entry was allowed — [Part 3's second trigger](03-auth-and-forms.md#the-second-trigger-the-server-signs-you-out) is that hook.
-
-Watch it fire. Signed out, click *Settings*. In Xray the navigation row is followed by `:rf.route/entry-denied` and your redirect to login, and there's no `[:settings/load]` row, because the route never committed. Sign in, and the ledger shows the bounce back to `/settings`.
+Watch it fire. Signed out, click *Settings*. In Xray the navigation row is followed by `:rf.route/entry-denied` and your redirect to login, and `/settings` never commits. Sign in, and the ledger shows the bounce back to `/settings`.
 
 Then reload directly on `/settings` while signed in. The ledger reads: `:auth/initialise`, the initial `:rf.route/handle-url-change`, one `:rf.route/entry-denied` with **no** redirect after it, the `/user` reply, `:auth/settle-deferred-entry`, and finally the navigate that commits `/settings`. A redirect-to-login row in the middle of that sequence means the deferral has broken.
 

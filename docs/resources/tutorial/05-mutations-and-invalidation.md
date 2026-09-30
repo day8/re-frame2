@@ -8,10 +8,6 @@ Wiring each write to "now refetch these reads" at the call site works until one 
 - a publish button that saves an article and then navigates to it, via a **`:reply-to` event** rather than a callback;
 - a **`:can-leave` route guard** that stops you navigating away from a half-written draft.
 
-??? info "Coming from RTK Query or TanStack Query?"
-
-    A mutation here is RTK Query's mutation with `invalidatesTags`, with three differences: invalidation is declared once on the registration, not per call site; every invalidation is **scoped**, so a write names which users' caches it touches; and the post-write continuation is a dispatched [event](../../core/glossary.md#event), not an `onSuccess` callback.
-
 ## Tag the reads
 
 A write can only say which reads it broke if the reads say what they hold. That is the job of a [`:tags`](../glossary.md#cache-tag) key: a function of the read's params and its decoded data, returning the *facts* the data is about. In `src/conduit/resources.cljc`, add it to `:conduit/articles`'s metadata:
@@ -131,10 +127,6 @@ The map's key names one exact entry — resource, params and scope — and its v
 
 Register `:conduit/unfavorite` the same way, with `:method :delete`.
 
-??? info "Coming from RTK Query?"
-
-    `:invalidates` is `invalidatesTags`, and `:populates` is `updateQueryData` / `upsertQueryData` — except both live once on the registration, not in an `onQueryStarted` per call.
-
 ## Fire it, watch the instance
 
 A resource is a subscription you read and a cause you fire. A mutation is the mirror image: **an event you fire and an instance you watch.** The UI dispatches `:rf.mutation/execute`:
@@ -160,12 +152,15 @@ A resource is a subscription you read and a cause you fire. A mutation is the mi
 (rf/reg-view favorite-button [{:keys [article]}]
   (let [{:keys [slug favorited favoritesCount]} article
         fav @(subscribe [:rf/mutation {:instance [:favorite slug]}])]
-    [:button.btn.btn-outline-primary.btn-sm
+    [:span
+     [:button.btn.btn-outline-primary.btn-sm
      {:type     "button"
       :class    (when favorited "active")
       :disabled (:pending? fav)
       :on-click #(dispatch [:ui/favorite slug favorited])}
-     [:i.ion-heart] " " favoritesCount]))
+     [:i.ion-heart] " " favoritesCount]
+     (when (:error? fav)
+       [:span.error-messages " Could not save this favorite. Try again."])]))
 ```
 
 Mutation state is keyed by **instance**, not by mutation id. `[:favorite slug]` gives every article card its own lifecycle, so clicking hearts on three cards in quick succession can't mix them up.
@@ -177,12 +172,12 @@ The view watches its instance through the `[:rf/mutation {:instance …}]` subsc
  :result …          ;; the decoded reply value, on success
  :error  …          ;; the structured error envelope, on failure
  :affected-keys […] ;; the cache keys this write touched
- :pending? … :success? … :error? … :settled? … :optimistic?}
+ :pending? … :success? … :error? … :settled? … :optimistic? …}
 ```
 
 That's where `:disabled (:pending? fav)` comes from — no `:saving?` flag in app-db. (`:optimistic?` belongs to the optimistic variant under [Advanced](#advanced).) There are narrower subs too, such as `[:rf.mutation/pending? {:instance …}]`, and `:rf.mutation/execute` takes a few more keys than the four used here; [Invalidate after a mutation](../how-to/invalidate-after-a-mutation.md#the-rfmutationexecute-payload-and-the-focused-rfmutation-subs) lists both.
 
-When a write fails, the instance settles `{:status :error, :error <failure-map>}`, and a view shows it by reading the same instance: `(when (:error? fav) [error-banner (:error fav)])`. The failure map has the same closed `:rf.http/*` shape as a resource's `:error` ([Part 2](02-server-data.md)). A heart can ignore a failure — the count just doesn't move — but a form shouldn't.
+When a write fails, the instance settles `{:status :error, :error <failure-map>}`. The button above reads `:error?` to display a retry message. Read `:error` when different failures need different messages; it has the same closed `:rf.http/*` shape as a resource's error ([Part 2](02-server-data.md)).
 
 The view never invalidates anything. Put the button on the article page — require `[conduit.views :as views]` in `articles.cljs` and add it to the banner — and on the article cards too if you like:
 
@@ -194,10 +189,6 @@ The view never invalidates anything. Put the button on the article page — requ
 ```
 
 Favoriting behaves the same everywhere, because the consequences live on the write.
-
-??? info "Coming from RTK Query?"
-
-    `[:rf/mutation {:instance …}]` is what `useMutation` hands back — `isLoading`, `isSuccess`, `error`, `data` — but keyed by an `:instance` id you choose rather than bound to one component. Two views can watch the same write, and a write survives the unmount of the component that fired it.
 
 ### Watch it happen
 
@@ -254,7 +245,9 @@ The editor's app-db slice is a form in Part 3's style: a `:draft` the inputs edi
 ;; cf. examples/real-apps/realworld_resources/article_editor.cljs
 (ns conduit.editor
   (:require [clojure.string :as str]
-            [re-frame.core :as rf]))
+            [re-frame.core :as rf]
+            [re-frame.routing]
+            [conduit.mutations]))
 
 (def blank-draft {:title "" :description "" :body "" :tagList ""})
 
@@ -352,7 +345,7 @@ When the runtime accepts the write's reply, it dispatches `[:editor/replied nav-
               [:dispatch [:rf.route/navigate {:to :conduit.article/show :params {:slug (:slug article)}}]]]}))))
 ```
 
-`{:keys [status value instance]}` is the reply map's shape: `:status` says how the write settled, `:value` carries the decoded result on `:ok`, and `:instance` names the instance — the same [uniform reply](../../core/glossary.md#the-uniform-reply) every managed async operation produces. The token check comes first: a write runs to completion wherever the reader goes, and a save that answers after they've left the editor mustn't pull them back. Either way, retiring the instance is the last step.
+`{:keys [status value instance]}` is the reply map's shape: `:status` says how the write settled, `:value` carries the decoded result on `:ok`, and `:instance` names the instance — the same [uniform reply](../../core/glossary.md#the-uniform-reply) every managed async operation produces. The token check comes first: a write runs to completion wherever the reader goes, and a save that answers after they've left the editor mustn't pull them back. Successful or obsolete visits retire their instance; a failure on the current visit keeps its error available for rendering and retry.
 
 Three rules make `:reply-to` dependable:
 
@@ -362,9 +355,45 @@ Three rules make `:reply-to` dependable:
 
 Because `[:editor/replied nav-token]` is an event vector rather than a closure, Xray can show it (the mutation's `replied` trace op is that dispatch), a test can assert it, and replay can re-run it. [Why no await: continuations are data](../../async/continuations-are-data.md) makes the full argument.
 
-??? info "From re-frame v1"
+### Put the editor on screen
 
-    `:reply-to` is your `:on-success`/`:on-failure` pair collapsed into one stale-safe target with a uniform reply map ([From re-frame v1](../../core/25-from-re-frame-v1.md)).
+The events above own submission. Add the field event, subscription and view in
+`editor.cljs` so there is a form to submit:
+
+```clojure
+(rf/reg-event :editor/edit-field
+  (fn [{:keys [db]} [_ field value]]
+    {:db (-> db
+             (assoc-in [:editor :draft field] value)
+             (update-in [:editor :errors] dissoc field))}))
+
+(rf/reg-sub :editor/slice (fn [db _] (:editor db)))
+
+(rf/reg-view editor-page []
+  (let [{:keys [draft errors]} @(subscribe [:editor/slice])
+        instance @(subscribe [:editor/save-instance])
+        save @(subscribe [:rf/mutation {:instance instance}])]
+    [:div.editor-page.container.page
+     [:form {:no-validate true
+             :on-submit #(do (.preventDefault %) (dispatch [:editor/submit]))}
+      [:fieldset {:disabled (:pending? save)}
+       (for [[field label] [[:title "Title"] [:description "Description"]
+                            [:body "Article"] [:tagList "Tags, separated by commas"]]]
+         ^{:key field}
+         [:div.form-group
+          [:label {:for (name field)} label]
+          [(if (= field :body) :textarea.form-control :input.form-control)
+           {:id (name field) :value (get draft field "")
+            :on-change #(dispatch [:editor/edit-field field (.. % -target -value)])}]
+          (when-let [error (get errors field)] [:p.error-messages error])])
+       (when (:error? save)
+         [:p.error-messages "Could not save. Your draft is still here; try again."])
+       [:button.btn.btn-primary {:type "submit"}
+        (if (:pending? save) "Publishing…" "Publish article")]]]]))
+```
+
+The fieldset prevents duplicate submissions while a save is pending. Field
+errors clear as the reader edits; another submit validates the whole draft.
 
 ## Guard the half-written draft
 
@@ -381,7 +410,7 @@ Write half an article, click the site logo, and the draft vanishes. A [`:can-lea
   (fn [[dirty?] _] (not dirty?)))
 
 ;; also src/conduit/editor.cljs — the editor's route: signed-in to enter, clean to leave.
-;; Add [conduit.editor] to core.cljs's requires so these registrations load.
+;; core.cljs will require this namespace and render editor-page below.
 (rf/reg-route :conduit.editor/new
   {:tags      #{:requires-auth}
    :can-enter [:conduit/signed-in?]
@@ -390,7 +419,7 @@ Write half an article, click the site logo, and the draft vanishes. A [`:can-lea
   "/editor")
 ```
 
-(The example adds the `/editor/:slug` edit route the same way — same guard; its `:on-match` seeds the draft from the article read.)
+The tutorial adds the new-article route. The full example also has an edit route; it loads the article and seeds `:submitted` before rendering the same form.
 
 As with `:can-enter`, `true` allows and `false` blocks; anything else blocks *and* raises `:rf.error/can-leave-non-boolean`. The guard runs on every way out — a link click, a programmatic `:rf.route/navigate`, the Back button.
 
@@ -408,6 +437,13 @@ The two guards differ in what a refusal does. "Is this visitor signed in?" is a 
       [:button {:on-click #(dispatch [:rf.route/cancel (:id pending)])} "Stay"]]]))
 ```
 
+Finish the shell wiring in `core.cljs`: require `[conduit.editor :as editor]`,
+add `:conduit.editor/new [editor/editor-page]` to `root-view`'s `case`, and render
+`[pending-nav-dialog]` beside `[header]` (define the dialog before `root-view`).
+Add `[rf/route-link {:to :conduit.editor/new} "New article"]` in the header's
+signed-in branch. The editor now has an entry point, a page, and a visible way to
+resolve a blocked navigation.
+
 Both buttons pass the pending navigation's `:id`. `:rf.route/continue` re-issues the original navigation, skipping the guard once; `:rf.route/cancel` clears the slot and stays put. (A stale id is a safe no-op.) [Guard against unsaved changes](../../routing/how-to/guard-unsaved-changes.md) has the full recipe, including "save and close".
 
 Now re-read `:editor/replied`: on a successful save it re-seeds the editor from the saved article *before* navigating, so `:editor/dirty?` is `false` and the guard lets the navigation through. Type into the editor and press Back — dialog. Publish — a clean navigation to your new article, with the lists already refreshing.
@@ -416,7 +452,7 @@ Now re-read `:editor/replied`: on a successful save it re-seeds the editor from 
 
     A `:can-leave` guard plays the role of React Router's `useBlocker`. Instead of calling `blocker.proceed()` / `blocker.reset()` from a component, the parked navigation is a value under `:rf/pending-navigation`, and `:rf.route/continue` / `:rf.route/cancel` are ordinary events — so the dialog is a view that tests like any other.
 
-[`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources) is the full app, including the pieces trimmed here: edit mode, article delete, comments, follow/unfollow, and the editor's field markup.
+[`examples/real-apps/realworld_resources/`](../../../examples/real-apps/realworld_resources) is the full app, including the pieces trimmed here: edit mode, article delete, comments, and follow/unfollow.
 
 ## Advanced
 
@@ -470,13 +506,9 @@ You write only the forward patch; the runtime does the rest:
 
 - **It records the inverse.** Before patching, it snapshots each touched entry, so a rollback restores exactly what was there.
 - **The reply settles it.** An `:ok` reply commits: `:populates` overwrites the optimistic value with the server's article, then `:invalidates` refetches the lists. An `:error` reply rolls back, and the heart flips back everywhere.
-- **A contested rollback refetches instead of clobbering.** If another write changed a touched entry in the meantime, restoring your snapshot would overwrite newer data, so `:on-conflict :invalidate` (the default) marks that entry stale and refetches it. (TanStack and SWR restore the snapshot unconditionally.)
+- **A contested rollback refetches instead of clobbering.** If another write changed a touched entry in the meantime, restoring your snapshot would overwrite newer data, so `:on-conflict :invalidate` (the default) marks that entry stale and refetches it.
 
-In the view, drop `:disabled (:pending? fav)` — the user already sees their change — and optionally read `(:optimistic? fav)`, true while the unconfirmed value is showing. When a write touches exactly one known entry, the exact-target sibling key is `:optimistic`.
-
-??? info "Coming from TanStack / RTK / SWR?"
-
-    This is TanStack's `onMutate` + `onError` rollback, RTK's `updateQueryData` + undo patch, or SWR's `optimisticData` + `rollbackOnError` — except the inverse is recorded by the runtime, and the apply and settle appear on the trace (`:rf.mutation/optimistic-applied` → `optimistic-reconciled` / `optimistic-rolled-back`).
+Keep `:disabled (:pending? fav)` while the write is pending: the optimistic value gives immediate feedback, and disabling the control keeps repeated writes ordered. Stale-reply suppression protects the cache, but does not control the order in which a server applies requests. Optionally read `(:optimistic? fav)`, true while the unconfirmed value is showing. When a write touches exactly one known entry, the exact-target sibling key is `:optimistic`.
 
 ### More cache consequences
 

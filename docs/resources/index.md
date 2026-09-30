@@ -1,67 +1,45 @@
 # Resources & server state
 
-Much of what an app shows is the **server's** state, borrowed and cached: the article
-you are reading, the feed you are scrolling, the profile you just edited. Managed by
-hand, that means rebuilding the same machinery for every feature — fetch, store the
-result, track loading and errors, dedupe in-flight calls, decide staleness, refetch
-after a write, and keep one user's data out of another's session.
-
-**Resources** make server state declarative. You register a cached **read**
-([`reg-resource`](glossary.md#resource)) and a **write**
-([`reg-mutation`](glossary.md#mutation)); the framework owns the cache, dedupe,
-[invalidation](glossary.md#invalidate), and a required [`:scope`](glossary.md#scope)
-that keeps each user's cached data separate. Views only read — they never fetch.
+Resources manage cached server reads: articles, feeds and profiles that several
+views may need. You declare how to fetch them and when they become stale;
+routes or events request loads, and views read the cached result. Mutations
+declare how server writes update or invalidate those reads.
 
 ```clojure
 (:require [re-frame.core :as rf]
           [re-frame.resources]
           [re-frame.http.managed])
 
-(rf/reg-resource :article
+(rf/reg-resource :article/by-slug
   {:params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global}
+   :scope :rf.scope/global}
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get :url (str "/api/articles/" slug)}
-     :decode  :json}))
-
-;; a view reads the cache
-@(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
-;; => {:status :idle …}  — registered, but nothing has caused a load yet
-
-;; a route or an event is the cause; here, a one-shot ownerless ensure
-;; (supply a :cause, not an :owner — nothing pins the entry alive)
-(rf/dispatch [:rf.resource/ensure {:resource :article
-                                   :params   {:slug "hello"}
-                                   :cause    [:event :article/opened]}])
-
-;; now the same passive read progresses
-@(rf/subscribe [:rf/resource {:resource :article :params {:slug "hello"}}])
-;; => {:status :loading …}  then  {:status :loaded :data …}
+     :decode :json}))
 ```
 
-Every part of the API sits in one of three lanes: **register** a read or write once,
-**cause** a fetch or write (a route, an ensure, an execute), or **project** cached
-state into a view. [The model](concepts.md) explains each lane and ends with a
-[complete register + route + view skeleton](concepts.md#a-complete-read-loop).
+Registration sends no request. A route or event dispatches
+`[:rf.resource/ensure {:resource :article/by-slug :params {:slug "hello"}}]`;
+a view reads `[:rf/resource {:resource :article/by-slug :params {:slug "hello"}}]`.
+[The model](concepts.md) connects these forms and explains loading, errors,
+owners and scope. The [tutorial](tutorial/index.md) applies them in a small
+publishing app.
 
-Resources work alongside [events](../core/introduction.md), app-db and effects rather
-than replacing them, and use [managed HTTP](../async/index.md) (`:rf.http/managed`)
-as their transport.
+The `:scope` declaration is part of cache identity. Use `:rf.scope/global`
+only when every viewer gets the same answer; a named scope resolver separates
+viewer-dependent data. Merely subscribing neither fetches nor keeps an entry
+alive.
 
-## When *not* to use resources
+## When not to use resources
 
 | Situation | Prefer |
 |---|---|
-| One or two uncached requests | [Managed HTTP](../async/http.md) + a small app-db slice |
-| Pure client state (UI flags, form drafts) | app-db + events |
-| Named lifecycle stages (login, websocket) | [machines](../machines/index.md) |
-| No server yet | app-db + events |
+| One or two uncached requests | [Managed HTTP](../async/http.md) and app-db |
+| Form drafts, filters and other client state | app-db and events |
+| A workflow with several named stages | [Machines](../machines/index.md), using resources when a stage needs cached data |
 
-Reach for resources when cached server reads start multiplying.
-[Where should this value live?](../core/where-state-lives.md) has the full decision
-table.
-
-The [tutorial](tutorial/index.md) builds a full app with resources. If you already
-know a server-cache library, start from [Coming from TanStack Query](coming-from-tanstack-query.md)
-or [re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md);
-exact forms are in the [API reference](../api/re-frame.resources.md).
+[Where should this value live?](../core/where-state-lives.md) explains the
+choice. For exact forms and options, use the
+[API reference](../api/re-frame.resources.md); for an existing query-library
+application, [Coming from TanStack Query](coming-from-tanstack-query.md) maps
+the migration decisions.

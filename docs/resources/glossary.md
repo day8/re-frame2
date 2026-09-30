@@ -4,7 +4,7 @@ re-frame2's optional server-state capability — declarative, cached reads and w
 
 ### **resource**
 
-A declared, cached server-state **read** (the read-side partner to a [mutation](#mutation)'s write), registered with `reg-resource`. Its [`:scope`](#scope) is a required, fail-closed leak boundary — part of the read's identity (with its `:params`) — so one user's data can't surface in another's cache.
+A declared, cached server-state **read** (the read-side partner to a [mutation](#mutation)'s write), registered with `reg-resource`. Its [`:scope`](#scope) is a required, fail-closed leak boundary — part of the read's identity (with its `:params`) — so reads with different scopes use different entries. The application must choose a scope that captures every viewer-dependent part of the response.
 
 ```clojure
 (rf/reg-resource :article
@@ -17,7 +17,7 @@ Related: [the model](concepts.md).
 
 ### **mutation**
 
-A declared server-state **write** — the write-side partner to a [resource](#resource)'s read. Its cache consequences (which cached reads it [invalidates](#invalidate), by [cache tag](#cache-tag)) are declared *once, on the registration*, never imperatively at the call site.
+A declared server-state **write** — the write-side partner to a [resource](#resource)'s read. Its cache consequences (which cached reads it [invalidates](#invalidate), by [cache tag](#cache-tag)) are declared on the registration.
 
 ```clojure
 (rf/reg-mutation :article/favorite
@@ -35,7 +35,7 @@ The id one run of a [mutation](#mutation) is tracked under — the `:instance` o
 
 ### **invalidate**
 
-A [mutation](#mutation) declares — as data on its registration, never imperatively — which cached [resource](#resource) reads it makes stale (matched by [cache tag](#cache-tag)), so they refetch.
+Mark cached [resource](#resource) reads stale by [cache tag](#cache-tag). A mutation declares this with `:invalidates`; server-push handlers can dispatch `:rf.resource/invalidate-tags` directly. Owned matches refetch immediately; unowned matches wait for the next ensure.
 
 ```clojure
 {:invalidates (fn [{:keys [slug]} _result]
@@ -46,7 +46,7 @@ Related: [the model](concepts.md).
 
 ### **scope**
 
-A [resource](#resource)'s required, fail-closed leak boundary — the declaration of *whose* data a cached read belongs to (`:rf.scope/global` for a genuinely public read, or a per-user/tenant [scope resolver](#scope-resolver)). It's part of the read's cache identity, so one principal's data can never surface in another's cache; a scope that can't resolve **raises** rather than serving the wrong data.
+A [resource](#resource)'s required, fail-closed leak boundary — the declaration of *whose* data a cached read belongs to (`:rf.scope/global` for a genuinely public read, or a per-user/tenant [scope resolver](#scope-resolver)). It's part of the read's cache identity, so different declared principals use different entries; a scope that can't resolve **raises** rather than serving the wrong data.
 
 ### **scope resolver**
 
@@ -54,7 +54,7 @@ A named, pure function registered with `reg-resource-scope` that answers "whose 
 
 ### **cache tag**
 
-A structured label like `[:article slug]` a [resource](#resource) attaches to its data, declaring what the data is *about*. A [mutation](#mutation) then [invalidates](#invalidate) by tag — "I changed `[:article slug]`" — and exactly the cached reads carrying that tag refresh. (Distinct from a machine's [state tag](../machines/glossary.md#state-tag).)
+A structured label like `[:article slug]` a [resource](#resource) attaches to its data, declaring what the data is *about*. A [mutation](#mutation) then [invalidates](#invalidate) by tag — "I changed `[:article slug]`" — and matching owned entries refetch; unowned entries become stale until ensured. (Distinct from a machine's [state tag](../machines/glossary.md#state-tag).)
 
 ### **resource status**
 

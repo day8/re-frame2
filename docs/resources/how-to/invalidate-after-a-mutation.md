@@ -67,7 +67,7 @@ What happens next depends on whether anything is still using the entry. An entry
 
 `:invalidates` is a function of `(params result)`: the accepted params and the decoded reply. It gets no `db`. When a plan needs a value from [app-db](../../core/glossary.md#app-db), such as the current user's scope, it names a resolver (the `{:from-db …}` form in [the scope section](#the-scope-footgun-and-how-to-disarm-it)), which keeps the plan plain data that tools can inspect.
 
-The write goes through the same [managed HTTP](../glossary.md#managed-http) transport as your reads, and **it does not retry by default** — no managed request does. Re-sending a write can repeat its side effect (charge the card twice, post the comment twice), so a mutation retries only when its own `:request` declares `:retry`. Leave it off unless the endpoint is idempotent. Auth headers and other decoration belong in a `reg-http-interceptor`, which decorates every managed request, rather than in each mutation's `:request`.
+The write goes through the same [managed HTTP](../glossary.md#managed-http) transport as your reads, and **it does not retry by default** — no managed request does. Re-sending a write can repeat its side effect (charge the card twice, post the comment twice), so a mutation retries only when the managed-HTTP args returned by its request function declare `:retry` beside `:request`. Leave it off unless the endpoint is idempotent. Auth headers and other decoration belong in a `reg-http-interceptor`, which decorates every managed request, rather than in each mutation's `:request`.
 
 A write whose params carry a secret — a password, a card number — names the path on the registration, `:sensitive [[:params :password]]`, so the value leaves the app as a redaction marker ([data classification](../../core/glossary.md#data-classification)).
 
@@ -105,7 +105,7 @@ Notice what the view doesn't do: it never dispatches an invalidate, never refetc
 | Key | Required | Meaning |
 |---|---|---|
 | `:mutation` | yes | The registered mutation id. |
-| `:params` | yes | The params for this attempt — canonicalized, and validated against `:params-schema` once the schemas artefact is loaded. |
+| `:params` | no | Defaults to `{}` when omitted; explicit `nil` is validated as `nil`. The params for this attempt — canonicalized, and validated against `:params-schema` once the schemas artefact is loaded. |
 | `:instance` | no | The instance id. Caller-supplied, or generated when omitted — supply one when a view watches the write. Two concurrent submissions under *different* instance ids never clobber each other's `:pending` / `:success` / `:error`; re-executing under the *same* instance supersedes the earlier attempt and suppresses its stale reply. |
 | `:scope` | no | The execution scope the invalidation runs in (see [The scope footgun](#the-scope-footgun-and-how-to-disarm-it)). Optional — a mutation defaults to `:rf.scope/global`. |
 | `:cause` | no | Trace data explaining why the write fired. It never changes behaviour. |
@@ -192,7 +192,7 @@ Invalidation runs on success by default, because the data is only stale once the
 ```
 
 - **`:after-success`** *(default)* — invalidate when the write is accepted.
-- **`:before-request`** — mark the reads stale when the write *starts*. Use it when a mounted view should show a fresh-fetch spinner during the write rather than the soon-wrong old value. Combining it with an optimistic plan raises `:rf.error/mutation-optimistic-before-request` at registration.
+- **`:before-request`** — mark the reads stale when the write *starts*. Use it when the write starts work whose current state should be re-read immediately. That read can finish before the write, so this timing alone does not guarantee the final server value. Combining it with an optimistic plan raises `:rf.error/mutation-optimistic-before-request` at registration.
 - **`:after-failure`** — invalidate only when the write *fails*. Niche: you wrote the cache yourself elsewhere and want the truth back on rejection.
 - **`:after-settle`** — invalidate on either outcome.
 
@@ -316,7 +316,7 @@ A descriptor can only name scopes you know. Occasionally you need "invalidate th
                  :cross-scope? true}])
 ```
 
-Because it can stale or refetch data for *every* user, tenant, story frame and SSR request, the runtime treats it as a privacy-relevant operation:
+It can mark entries stale in every scope **within this frame**. Other frames, including other SSR requests, are unaffected. The runtime records this broader operation explicitly:
 
 - It **must** carry `:cause` evidence. A mutation's sweep always does — the runtime stamps `[:mutation <id> <instance>]` on it — while a direct `[:rf.resource/invalidate-tags {:cross-scope? true …}]` with no `:cause` raises `:rf.error/resource-cross-scope-cause-required`.
 - It emits a privacy-relevant [trace event](../../core/glossary.md#trace-event) recording that a mutation reached outside its own scope.
@@ -366,16 +366,18 @@ An optimistic plan is a registration key, in two forms that mirror `:patches` an
      :decode  :json}))
 ```
 
+When an exact target also matches a tag descriptor, the exact patch wins and runs once.
+
 The runtime does the rest:
 
 - **It records the inverse.** Before each forward patch it snapshots the whole entry as it stood (or notes that the key was absent), so a rollback restores exactly what existed. You never write a rollback.
 - **Settle is deterministic: commit, roll back, or reconcile.** On an `:ok` reply the authoritative `:populates` / `:patches` / `:invalidates` overwrite the optimistic value and the snapshot is discarded (`:rf.mutation/optimistic-reconciled`). On an `:error` or `:cancelled` reply it rolls back (`:rf.mutation/optimistic-rolled-back`). A stale reply writes nothing, but its apply isn't forgotten: a re-execute under the same `:instance` rolls back the keys it doesn't re-patch and inherits your original snapshot for the ones it does, and `:rf.mutation/clear` of a pending write rolls it back. Because the abandoned write may still have reached the server, those rollbacks mark the key stale and refetch it if something is watching. That is recovery, not write ordering — if the order of two writes matters, disable the control until the first settles.
-- **`:on-conflict` decides a contested rollback.** If another write changed the entry between your optimistic apply and the rollback, restoring your snapshot would overwrite newer data. The default `:on-conflict :invalidate` marks the entry stale in its own scope and refetches the server's value instead. `:force` restores your snapshot anyway and emits `:rf.warning/optimistic-force-clobber`. (TanStack and SWR restore the snapshot unconditionally.) Any other value raises at `reg-mutation`.
+- **`:on-conflict` decides a contested rollback.** If another write changed the entry between your optimistic apply and the rollback, restoring your snapshot would overwrite newer data. The default `:on-conflict :invalidate` marks the entry stale in its own scope and refetches the server's value instead. `:force` restores your snapshot anyway and emits `:rf.warning/optimistic-force-clobber`. An absent or `nil` policy uses `:invalidate`; any other value raises at `reg-mutation`.
 - **The view can tell.** `[:rf/mutation {:instance …}]` carries a derived `:optimistic?`, true between the apply and the settle, so you can render "pending, but already showing your change."
 
 !!! warning "Gotcha — optimistic targets fail closed and stay in their scope"
 
-    An optimistic apply writes the cache, so its targets carry the same leak boundary a read does: a `{:from-db …}` scope that resolves to `nil` drops the target rather than writing under global. There is no `:cross-scope?` optimistic form, so an optimistic write can't reach other users or tenants. A malformed `:optimistic-tags` descriptor (not a map, no `:patch`, `:tags` not a collection) is skipped with `:rf.warning/optimistic-tags-descriptor-skipped` rather than thrown, because throwing before the request would kill the whole write; the well-formed descriptors still apply. The exact-target `:optimistic` form is stricter: it runs before there is a committed write to stay consistent with, so it rejects every bad target.
+    An optimistic apply writes the cache, so its targets carry the same leak boundary a read does: a `{:from-db …}` scope that resolves to `nil` drops the target rather than writing under global. There is no `:cross-scope?` optimistic form: each target must name or inherit a scope. Choose that scope consistently with the request's authenticated viewer. A malformed `:optimistic-tags` descriptor (not a map, no `:patch`, `:tags` not a collection) is skipped with `:rf.warning/optimistic-tags-descriptor-skipped` rather than thrown, because throwing before the request would kill the whole write; the well-formed descriptors still apply. The exact-target `:optimistic` form is stricter: it runs before there is a committed write to stay consistent with, so it rejects every bad target.
 
 To skip a registered optimistic plan for one call, pass `{:optimistic? false}` on the execute payload. It only disables the plan; a call site can't supply its own.
 
