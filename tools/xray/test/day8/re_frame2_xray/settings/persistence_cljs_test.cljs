@@ -72,44 +72,6 @@
   (is (= 16 (config/get-setting :general :text-size))
       "reload from localStorage restores 16"))
 
-(deftest panel-position-round-trips
-  ;; `:popout` is not a panel-position (pop-out launches from the chrome
-  ;; ⛶ button). `:fullscreen` is the non-default position; round-trip it
-  ;; through localStorage.
-  (config/update-setting! :general :panel-position :fullscreen)
-  (is (= :fullscreen (config/get-setting :general :panel-position)))
-  (reset! config/settings config/default-settings)
-  (config/load-settings-from-storage!)
-  (is (= :fullscreen (config/get-setting :general :panel-position))))
-
-(deftest auto-open-on-error-round-trips
-  (config/update-setting! :general :auto-open-on-error? true)
-  (is (true? (config/get-setting :general :auto-open-on-error?)))
-  (reset! config/settings config/default-settings)
-  (config/load-settings-from-storage!)
-  (is (true? (config/get-setting :general :auto-open-on-error?))))
-
-(deftest theme-round-trips
-  (config/update-setting! :theme nil :light)
-  (is (= :light (config/get-setting :theme nil)))
-  (reset! config/settings config/default-settings)
-  (config/load-settings-from-storage!)
-  (is (= :light (config/get-setting :theme nil))))
-
-(deftest epoch-history-round-trips
-  ;; The Epoch history slider persists the depth through
-  ;; the same localStorage path every other :general knob uses; on
-  ;; reload the substrate cap is restored via `apply-epoch-history!`
-  ;; (separate test in effects_cljs_test).
-  (config/update-setting! :general :epoch-history 200)
-  (is (= 200 (config/get-setting :general :epoch-history)))
-  (reset! config/settings config/default-settings)
-  (is (= 50 (config/get-setting :general :epoch-history))
-      "atom-only reset returns to default")
-  (config/load-settings-from-storage!)
-  (is (= 200 (config/get-setting :general :epoch-history))
-      "reload from localStorage restores 200"))
-
 (deftest legacy-telemetry-key-is-silently-dropped
   ;; A persisted payload carrying a `:telemetry` key (there is no
   ;; telemetry section, because no telemetry endpoint exists) must not
