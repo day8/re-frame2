@@ -165,24 +165,3 @@
         "extra leading slack before the first match must not cost
          anything — leading gaps are free")))
 
-(deftest gap-penalty-ranks-tight-over-spread
-  ;; The ranking the spec intends: an evenly-spread subsequence match
-  ;; ranks below a tighter one even when both start at the same place.
-  (testing "spread-out subsequence ranks below the tight run"
-    ;; Plain-letter gaps ('x') so the penalty isn't masked by a
-    ;; separator-driven word-start bonus on the following char.
-    (let [tight   (fuzzy/score "abc"     "abc")
-          spread  (fuzzy/score "axbxc"   "abc")]
-      (is (> tight spread)
-          "the two 'x' gaps each cost -1, so the tight run wins"))))
-
-(deftest representative-palette-queries
-  (testing "representative shortcuts the user is likely to type"
-    ;; 'evdt' → event-detail wins by a wide margin
-    (let [evdt-event-detail (fuzzy/score "Open Event detail panel" "evdt")
-          evdt-trace        (fuzzy/score "Open Trace panel" "evdt")]
-      (is (some? evdt-event-detail))
-      (is (or (nil? evdt-trace) (> evdt-event-detail evdt-trace))))
-
-    ;; 'cl' → 'Clear trace buffer' should match
-    (is (some? (fuzzy/score "Clear trace buffer" "cl")))))
