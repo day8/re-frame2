@@ -7,10 +7,6 @@ Start with `ssr-handler`. Switch to `stream-handler` when a page has regions tha
 Ships in the `day8/re-frame2-ssr-ring` artefact, which depends on `day8/re-frame2-ssr`. The rendering, head model, hydration, SSR events and `:rf.server/*` fx this handler drives are documented on [`re-frame.ssr`](re-frame.ssr.md).
 
 ```clojure
-(:require [re-frame.ssr.ring :as ssr.ring])
-```
-
-```clojure
 (require '[ring.adapter.jetty :as jetty]
          '[re-frame.core      :as rf]
          '[re-frame.ssr       :as ssr]
@@ -18,6 +14,7 @@ Ships in the `day8/re-frame2-ssr-ring` artefact, which depends on `day8/re-frame
 
 (rf/init! ssr/adapter)
 
+;; Load the app namespaces that register :rf/server-init and :app/root.
 (def handler
   (ssr.ring/ssr-handler
     {:initial-events [[:rf/server-init]]              ;; setup events for each request's frame
@@ -55,11 +52,11 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - Without a hash the page still renders and hydrates; the client's check simply compares nothing. A native UIx or Fresco root carries no hash by design: its views return React elements, not hiccup, and it reports mismatches through React's hydration instead.
         - Omitted without `:renderer`: throws `:rf.error/ssr-ring-missing-root-view` at construction. Any other shape raises `:rf.error/invalid-root-view` at render time, projected like any render throw to the 5xx error page.
     - `:payload` (required) — the hydration-payload policy ([`:payload` — the fail-closed allowlist](../ssr/concepts.md#payload--the-fail-closed-allowlist)). It fails closed, in one of two shapes:
-        - A non-empty vector of top-level `app-db` keys (keywords) is an allowlist, and the recommended form. Only the listed keys ship in `:rf/app-db`; every other key is dropped, including keys added later.
+        - A non-empty sequential of top-level `app-db` keyword keys is an allowlist. Use a vector; lists and lazy sequences are accepted too. Sets are not allowlists. Only the listed keys ship in `:rf/app-db`; every other key is dropped, including keys added later.
         - `:rf.ssr.payload/whole-app-db` ships all of `app-db`. Use it only when the whole `app-db` is safe to expose.
-        - At construction, an absent value or an empty allowlist throws `:rf.error/ssr-missing-payload-policy`, an unrecognised keyword throws `:rf.error/ssr-unknown-payload-policy`, and an allowlist with non-keyword entries throws `:rf.error/ssr-malformed-payload-allowlist`.
-        - The payload is written as EDN and read back by the browser, so a number the browser would read back as a different value fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path and class: a `Long` or `BigInt` past 2^53, a `BigDecimal`, a `Ratio` or a `Float`, map keys and set members included. Narrow the value (an id to a string, money to integer cents) or leave its key off the allowlist. A symbol whose text contains `</` or `<!` fails with `:rf.error/ssr-edn-script-breakout`. Either failure is projected like a render throw, so the request answers the error page. Under `stream-handler` the final payload is built after the head commits, so the same failure truncates the stream (`:rf.error/ssr-streaming-writer-failed`, `:phase :final-payload`).
-    - `:payload-include-sensitive` — a vector of `app-db` paths that the frame classifies `:sensitive` but whose raw value may ship anyway, e.g. `[[:session :csrf]]`. Only paths inside the `:payload` allowlist; without this option every classified value ships as `:rf/redacted`. A malformed value throws `:rf.error/ssr-malformed-payload-allowlist` at construction ([Classified values inside the allowlist](../ssr/concepts.md#classified-values-inside-the-allowlist)).
+        - At construction, an absent value, an empty allowlist or an unsupported non-keyword shape (such as a set) throws `:rf.error/ssr-missing-payload-policy`, an unrecognised keyword throws `:rf.error/ssr-unknown-payload-policy`, and an allowlist with non-keyword entries throws `:rf.error/ssr-malformed-payload-allowlist`.
+        - The payload is written as EDN and read back by the browser, so a number the browser would read back as a different value fails the request with `:rf.error/ssr-hydration-payload-invalid`, naming the path and class: an integer outside −(2^53 − 1) through 2^53 − 1, or any `BigInt`, `BigInteger`, `BigDecimal`, `Ratio` or `Float`, map keys and set members included. Narrow the value (an id to a string, money to integer cents) or leave its key off the allowlist. A symbol whose text contains `</` or `<!` fails with `:rf.error/ssr-edn-script-breakout`. Either failure is projected like a render throw, so the request answers the error page. Under `stream-handler` the final payload is built after the head commits, so the same failure truncates the stream (`:rf.error/ssr-streaming-writer-failed`, `:phase :final-payload`).
+    - `:payload-include-sensitive` — a sequential of non-empty `app-db` path vectors that the frame classifies `:sensitive` but whose raw value may ship anyway, e.g. `[[:session :csrf]]`. Only paths inside the `:payload` allowlist; without this option every classified value ships as `:rf/redacted`. A malformed value throws `:rf.error/ssr-malformed-payload-allowlist` at construction ([Classified values inside the allowlist](../ssr/concepts.md#classified-values-inside-the-allowlist)).
     - `:client-frame-id` — a stable frame id written as the payload's `:rf/frame-id`, for deployments where server and client agree on one ahead of time. Default `nil`, which omits `:rf/frame-id`. Never use a per-request gensym: the client rejects a present and different id with `:rf.error/hydration-frame-id-mismatch`.
     - `:error-view` and `:on-error` — the two failure handlers, described in the table below.
     - `:ssr` — the per-frame [`:ssr` config map](re-frame.ssr.md#frame-ssr-config), e.g. `{:dev-error-detail? true :public-error-id :myapp/projector}`.
@@ -67,7 +64,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
     - `:fx-overrides` — the per-frame `:fx-overrides` map, passed through as is (e.g. to stub `:rf.http/managed` in tests).
     - `:ssr-blocking-timeout-ms` — how long the request waits for the route's blocking resources to settle before it renders; default `5000`. A resource still unsettled at the deadline settles as a first-load failure, so the request never hangs. The handler passes it to [`drain-blocking-resources!`](re-frame.ssr.md#drain-blocking-resources).
     - `:emit-hash?` — stamp the `data-rf-render-hash` marker on the root element and `data-rf-head-hash` on `<head>`; default `true`. It controls only those markers: the payload's `:rf/render-hash`, which the client checks, is written whenever the root is hashable (see `:root-view`).
-    - `:version` — the hydration payload's `:rf/version`. It defaults to the SSR artefact's pattern-protocol version (`1`), the value the client's version check expects; set it only to force a mismatch.
+    - `:version` — the hydration payload's `:rf/version`. It defaults to the SSR artefact's pattern-protocol version (`1`), the value the client's version check expects. An integer or a string of digits overrides it; `nil` uses the default, and any other value emits `:rf.ssr/invalid-version` before using the default. Set it only to force a mismatch.
     - `:schema-digest` — the hydration payload's `:rf/schema-digest`.
     - `:html-shell` — `(body-html payload-edn opts) → string`; default [`default-html-shell`](#default-html-shell). `opts` is the handler's options with this request's values in place: `:head` is the resolved head fragment (or your `:head` string), `:html-attrs` and `:body-attrs` come from the head model, and `:head-hash` is set when `:emit-hash?` is on. Write `:head` inside `<head>`, the attribute bags on `<html>` and `<body>`, and the payload as `default-html-shell` does. [The page shell](../ssr/concepts.md#the-page-shell) shows the common changes.
     - `:content-type` — replaces the response Content-Type when supplied. It has no default: omit it (the normal case) and the response keeps `text/html; charset=utf-8`, from the runtime's default or from the app's own `:rf.server/set-header "content-type"`. It applies to successful pages only; a projected error page keeps the accumulated Content-Type. See [`handler-defaults`](#handler-defaults).
@@ -77,7 +74,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
         - For all four shell-hook options (`:head`, `:body-end`, `:script-src`, `:app-element-id`), `nil` means the default, and any other non-string value except `:script-src false` throws `:rf.error/ssr-trusted-shell-opt-invalid` at construction.
     - `:lang` — the `<html lang>` value, used when the head model's `:html-attrs` carries no `:lang`; default `"en"`.
     - `:renderer` — a fn that renders the body in place of the local renderer: `(fn [{:keys [frame-id request opts]}] → {:body-html <string> :render-hash <string-or-nil>})`. It is called once per request inside the request frame's scope, after the boot-event drain and the blocking-resource settle, and before head resolution and the payload build use its result. It receives the post-drain frame id, the Ring request and the handler opts, never a hiccup value, and returns only the body markup and an optional render hash.
-        - A `nil` `:render-hash` omits both the `data-rf-render-hash` marker and the payload's `:rf/render-hash`.
+        - A `nil` `:render-hash` omits the payload's `:rf/render-hash`. The renderer owns `:body-html`, including any `data-rf-render-hash` marker; the handler does not add or remove markers in custom body HTML.
         - A throw is projected like any render-time throw.
         - Omitted, the handler renders locally: resolve `:root-view`, hash, render.
         - re-frame2 ships one other renderer, `re-frame.ssr.ring.node/renderer`, which renders on a Node sidecar ([`renderer`](re-frame.ssr.ring.node.md#renderer)).
@@ -86,7 +83,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
 
     The per-request frame takes no other `make-frame` keys. To ship its error and event records off-box, declare the process default with `(rf/configure! {:observability …})` ([`configure!`](re-frame.core.md#configure)).
 
-    `:error-view` and `:on-error` handle two different failures, and a robust deployment wires both. A failure the error projector catches is classified by its projected status. A projected 4xx (a routing miss, bad client input) keeps the app's own not-found or bad-request body and hydration payload and does not call `:error-view`; a projected 5xx ships the error page, with the projected status and no hydration payload. A root view or shell that throws while rendering always ships the error page, whatever status the projector chose, because there is no body to keep. A buggy `:error-view`, whether it throws or depends on a subscription that recovers to `nil`, falls back once to the default template and emits `:rf.error/ssr-ring-error-view-failed`. A buggy `:on-error` falls back to `default-on-error` and emits `:rf.error/ssr-ring-on-error-failed`. [When the server throws](../ssr/concepts.md#when-the-server-throws) explains the model.
+    Use `:error-view` to customise projected error pages and `:on-error` for failures outside projection. Both have usable defaults. A failure the error projector catches is classified by its projected status. A projected 4xx (a routing miss, bad client input) keeps the app's own not-found or bad-request body and hydration payload and does not call `:error-view`; a projected 5xx ships the error page, with the projected status and no hydration payload. A root view or shell that throws while rendering always ships the error page, whatever status the projector chose, because there is no body to keep. A buggy `:error-view`, whether it throws or depends on a subscription that recovers to `nil`, falls back once to the default template and emits `:rf.error/ssr-ring-error-view-failed`. A buggy `:on-error` falls back to `default-on-error` and emits `:rf.error/ssr-ring-on-error-failed`. [When the server throws](../ssr/concepts.md#when-the-server-throws) explains the model.
 
     | Aspect | `:error-view` | `:on-error` |
     |---|---|---|
@@ -125,7 +122,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
     - Once the head is committed the status cannot change. A failure while writing the rest of the stream, other than a boundary's render, emits the always-on `:rf.error/ssr-streaming-writer-failed` record, with a `:phase` tag naming the chunk in flight, and closes the stream, truncating the response; it is never projected.
     - Any `Content-Length` header set during the drain is removed (case-insensitively), so the host server controls the framing.
     - Each in-flight streamed request gets one raw daemon `java.lang.Thread`. There is no framework pool and no framework cap on in-flight streams. On every exit path the writer closes the pipe and destroys the frame. A body nobody reads, such as one dropped by Ring's `wrap-head`, ends the same way once its blocked write has seen no byte consumed for 60 seconds. The ceiling is the host server's accept-queue or worker-thread limit (Jetty, http-kit, Aleph); size that limit for high streaming concurrency or slow-client hardening.
-- **Options**: the same as `ssr-handler`: `:initial-events` (vector or `(fn [request] → …)`), `:root-view`, `:payload`, `:payload-include-sensitive`, `:client-frame-id`, `:url-strategy`, `:fx-overrides`, `:ssr-blocking-timeout-ms`, `:ssr`, `:on-error`, `:error-view`, `:emit-hash?`, `:version`, `:schema-digest` and `:content-type`, plus `:lang` and the four shell-hook options `:head`, `:body-end`, `:script-src` and `:app-element-id`, which [`default-streaming-prefix`](#default-streaming-prefix) and [`default-streaming-suffix`](#default-streaming-suffix) apply. Two are rejected at construction with `:rf.error/ssr-streaming-unsupported-opt`:
+- **Options**: the same as `ssr-handler`: `:initial-events` (vector or `(fn [request] → …)`), `:root-view`, `:payload`, `:payload-include-sensitive`, `:client-frame-id`, `:url-strategy`, `:fx-overrides`, `:ssr-blocking-timeout-ms`, `:ssr`, `:on-error`, `:error-view`, `:emit-hash?`, `:version`, `:schema-digest` and `:content-type`, plus `:lang` and the four shell-hook options `:head`, `:body-end`, `:script-src` and `:app-element-id`, which [`default-streaming-prefix`](#default-streaming-prefix) and [`default-streaming-suffix`](#default-streaming-suffix) apply. Two are rejected when non-`nil` at construction with `:rf.error/ssr-streaming-unsupported-opt`:
     - `:html-shell` — the streaming path flushes a prefix and a suffix around the continuation chunks, so a one-piece shell fn can never run. Customise the envelope with the shell-hook options, or use `ssr-handler` when you need a one-piece shell.
     - `:renderer` — the shell and every continuation render from the JVM-resolved `:root-view`, so a body rendered whole elsewhere has nothing to split. `:root-view` is therefore required here.
 - **Example**:
@@ -227,7 +224,7 @@ Those are the three required options; [The simplest server](../ssr/concepts.md#t
   (default-on-error request throwable) → ring-response
   ```
 - **Description**: The fixed `500` response `ssr-handler` and `stream-handler` return when `:on-error` is omitted.
-    - It covers failures the SSR error projector cannot see: per-request setup throws, header or cookie materialisation throws, and the streaming handler's throws before its writer thread starts. The projector handles drain-time and render-time errors.
+    - It covers failures outside projection: per-request setup (including failed initial-event steps), and header or cookie materialisation. A root or shell render failure goes through the projector and `:error-view`, including when a streaming shell fails before its writer starts.
     - It ignores the throwable and returns a generic plain-text body, because `.getMessage` can reveal internal topology: JDBC URLs, deploy paths, partial SQL, server class names. For a branded body, supply an `:on-error` that likewise returns a fixed response and ignores the throwable.
 - **Example**:
   ```clojure
@@ -303,12 +300,3 @@ Not for application code — used by adapters, tools and the test harness.
      :path      "/"})
   ;; => "session=abc123; Max-Age=3600; Path=/; HttpOnly; SameSite=Lax"
   ```
-
-## See also
-
-- [`re-frame.ssr`](re-frame.ssr.md) — rendering, the head model, hydration, streaming, error projection and the `:rf.server/*` fx this handler drives.
-- [`re-frame.ssr.head`](re-frame.ssr.head.md) — the head model the handler resolves for each page.
-- [`re-frame.ssr.ring.node`](re-frame.ssr.ring.node.md) — the Node sidecar renderer `ssr-handler` takes as `:renderer`.
-- [`re-frame.core`](re-frame.core.md) — `init!`, `make-frame`, `reg-event`, and the `rf/reg-head` / `rf/reg-error-projector` facade entries.
-- [`re-frame.routing`](re-frame.routing.md) — routes select a head with `:head` metadata.
-- [Server-side rendering](../ssr/index.md) — the guide.

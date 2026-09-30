@@ -5,8 +5,11 @@ Render a re-frame2 app to HTML on the server and resume it in the browser. Each 
 Ships in the `day8/re-frame2-ssr` artefact; require `re-frame.ssr` once at boot. Without it, `rf/reg-head` and `rf/reg-error-projector` throw `:rf.error/ssr-artefact-missing`, naming the artefact and the namespace to require.
 
 ```clojure
-(:require [re-frame.ssr :as ssr])
+(:require [re-frame.core :as rf]
+          [re-frame.ssr  :as ssr])
 ```
+
+The examples use the app's registered `:rf/server-init` event and `:app/root` view. The [SSR tutorial](../ssr/tutorial.md) builds both.
 
 ```clojure
 ;; Server (JVM): render one request in its own frame. In production,
@@ -15,22 +18,8 @@ Ships in the `day8/re-frame2-ssr` artefact; require `re-frame.ssr` once at boot.
 (rf/init! ssr/adapter)
 
 (rf/with-new-frame [f (rf/make-frame {})]
-  (rf/dispatch-sync [:app/server-init] {:frame f})
+  (rf/dispatch-sync [:rf/server-init] {:frame f})
   (ssr/render-to-string [(rf/view :app/root)] {:doctype? true}))
-
-;; Client (CLJS), with [re-frame.adapter.reagent :as reagent-adapter] required:
-;; install the server's state before the first render and check it renders
-;; the same tree, then let the adapter adopt the server's DOM.
-(defonce app-root (reagent-adapter/client-root))
-
-(rf/init! reagent-adapter/adapter)
-(rf/make-frame {:id :app :platform :client})
-(let [payload (ssr/hydrate! {:frame          :app
-                             :render-tree-fn (fn [] ((rf/view :app/root)))})]
-  (reagent-adapter/render! app-root
-                           [rf/frame-provider {:frame :app} [(rf/view :app/root)]]
-                           (js/document.getElementById "app")
-                           {:hydrate? (some? payload)}))   ;; nil payload: client-only load
 ```
 
 Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-error-projector`. Everything else is called on this namespace; there is no facade copy, because requiring `re-frame.ssr` is what installs the SSR runtime. `head-model` and `head-model->html` are defined on [`re-frame.ssr.head`](re-frame.ssr.head.md) and re-exported here. [The SSR model](../ssr/concepts.md) walks through one request from arrival to hydration.
@@ -64,7 +53,7 @@ Two registrars are on the `re-frame.core` facade: `rf/reg-head` and `rf/reg-erro
   ```clojure
   ;; Render a settled frame, stamping the hash the client will check against.
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:app/server-init] {:frame f})
+    (rf/dispatch-sync [:rf/server-init] {:frame f})
     (let [tree ((rf/view :app/root))]               ;; call the view: a hashable tree
       (ssr/render-to-string tree {:doctype?    true
                                   :render-hash (ssr/render-tree-hash tree)})))
@@ -115,7 +104,7 @@ A head model is data describing the page's `<head>`: `:title`, `:meta`, `:link`,
   ```clojure
   (reg-head id ?metadata head-fn) → id
   ```
-- **Description**: Registers a head function under `id`; a route selects it with `:head id` in its metadata. Returns `id`.
+- **Description**: Registers a head function under a namespaced keyword `id`; a route selects it with `:head id` in its metadata. Returns `id`. Registering the same id again replaces its definition.
     - `head-fn` is `(fn [db route] head-model)`: pure, like a subscription.
 - **Example**:
   ```clojure
@@ -170,10 +159,10 @@ The server writes the hydration payload into the page as EDN, in a `<script id="
  :rf/schema-digest "…"}        ;; only when the server was given a :schema-digest
 ```
 
-On the client, `hydrate!` installs that state into the frame before the first render and checks the render against the server's; then the view adapter adopts the server's DOM, as in the example at the top of this page. Three checks guard hydration, and by default each reports the problem and lets the page carry on:
+On the client, `hydrate!` installs that state into the frame before the first render and checks the render against the server's; then the view adapter adopts the server's DOM, as in the [`hydrate!` example](#hydrate). Three checks guard hydration, and by default each reports the problem and lets the page carry on:
 
-- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent, Reagent-slim), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The mismatch is reported and the client's render replaces the server's markup; the frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
-- `:rf.ssr/version-mismatch` — the payload came from a different framework version.
+- `:rf.ssr/hydration-mismatch` — the client's first render differs from the server's. For views that return hiccup (Reagent, Reagent-slim), `hydrate!` compares render-tree hashes, which needs the payload's `:rf/render-hash`; native UIx and Fresco roots report mismatches through React's hydration instead. The hash check reports the mismatch and lets boot continue; DOM adoption and recovery belong to the view adapter's subsequent render call. The frame setting `:ssr {:on-mismatch :hard-error}` makes the hash check throw instead. [`verify-hydration!`](#verify-hydration) lists what it reports.
+- `:rf.ssr/version-mismatch` — the payload and client disagree on the SSR pattern-protocol version, which is separate from the library release version.
 - `:rf.ssr/schema-digest-mismatch` — the app's schema set has changed since the payload was built.
 
 `:rf/hydrate` runs the last two, which check that the payload came from a compatible build ([client-only fx](#client-only-fx)). A payload that is not a map, or names a different frame, is refused before anything is installed ([`hydrate!`](#hydrate)'s errors). [The client side: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) explains the boot sequence.
@@ -211,10 +200,23 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
     - `:rf.error/root-manifest-invalid` — `:container` has no root manifest beside it, or the manifest (discovered or passed as `:manifest`) is invalid. Thrown before anything is installed.
 - **Example**:
   ```clojure
-  ;; Client boot: read the payload, dispatch :rf/hydrate, then verify,
-  ;; synchronously and before the adapter mounts.
-  (ssr/hydrate! {:frame          :app/main
-                 :render-tree-fn #((rf/view :app/root))})
+  ;; Client (CLJS), using the same :app/root registration as the server.
+  (:require [re-frame.core            :as rf]
+            [re-frame.ssr             :as ssr]
+            [re-frame.adapter.reagent :as reagent-adapter])
+
+  (rf/init! reagent-adapter/adapter)
+  (defonce app-root (reagent-adapter/client-root))
+  (rf/make-frame {:id :app :platform :client})
+
+  (let [payload (ssr/hydrate!
+                  {:frame :app
+                   :render-tree-fn #((rf/view :app/root))})]
+    (reagent-adapter/render!
+      app-root
+      [rf/frame-provider {:frame :app} [(rf/view :app/root)]]
+      (js/document.getElementById "app")
+      {:hydrate? (some? payload)}))
   ```
 
 ### `hydrate-page!`
@@ -227,12 +229,14 @@ The Node renderer's state is not this payload: [`re-frame.ssr.ring.node/renderer
   ```
 - **Description**: Boots a page with several roots, isolating each root's failure from the others ([Several roots on one page](../ssr/concepts.md#several-roots-on-one-page)). `roots` is a collection of per-root opts maps: each is the map `hydrate!` takes, plus an optional 0-arity `:mount-fn` that runs right after that root's hydrate, inside the same failure boundary. Pass the mount as `:mount-fn` rather than mounting after the call: a mount that throws outside the boundary is not isolated.
     - A root whose hydrate or mount throws is reported with an always-on `:rf.error/root-boot-failed` record carrying `:root-id` and `:phase`: `:hydrate` when `hydrate!` threw (a frame-id mismatch, payload conflict or manifest refusal before anything was installed, or a `:hard-error` hash mismatch after the frame was seeded), `:mount` when `hydrate!` returned and `:mount-fn` threw. The remaining roots keep booting.
-    - Outcomes come back in input order.
+    - Outcomes come back in input order. `:status :hydrated` means neither step threw; its `:payload` can be `nil` when `hydrate!` applied nothing. The mount callback still runs in that case.
+    - `:mount-fn` receives no payload argument and establishes its own frame context, usually with `rf/frame-provider`. For a page that may have no payload, choose client-only mounting in your boot code; the callback is not automatically switched to it.
     - A failed root is not retried.
 - **Example**:
   ```clojure
-  ;; Two roots hydrating one frame. mount-header! and mount-cart! are 0-arity
-  ;; fns that call the adapter's render! with {:hydrate? true}.
+  ;; This page carries a valid shared payload for two roots in one frame.
+  ;; mount-header! and mount-cart! are 0-arity fns that use frame-provider
+  ;; for :app and call the adapter's render! with {:hydrate? true}.
   (let [outcomes (ssr/hydrate-page!
                    [{:frame :app :root-id :page/header :mount-fn mount-header!}
                     {:frame :app :root-id :page/cart   :mount-fn mount-cart!}])]
@@ -468,7 +472,7 @@ A frame's `:ssr` map holds its SSR settings. Set it on `make-frame`, or, for the
 
 ```clojure
 ;; Server: a custom projector, with error detail while developing.
-(ssr.ring/ssr-handler {:initial-events [[:app/server-init]]
+(ssr.ring/ssr-handler {:initial-events [[:rf/server-init]]
                        :root-view      (fn [] ((rf/view :app/root)))
                        :payload        [:articles]
                        :ssr            {:public-error-id   :app/public-error
@@ -721,8 +725,8 @@ The server half of streaming, in the order a host calls it: `streaming-render-sh
 - **Description**: Builds the final `__rf_payload` chunk. Call it after every continuation has drained.
     - If `frame-id` is destroyed or re-created while the payload is built, `:rf/app-db` is `:rf/redacted` and `:rf/runtime-db` is omitted.
 - **Options**:
-    - `:payload` — required; the fail-closed payload policy. A vector allowlist of top-level `app-db` keys, or `:rf.ssr.payload/whole-app-db` to ship the whole `app-db`. Omitting it throws `:rf.error/ssr-missing-payload-policy`.
-    - `:version` — overrides the payload's `:rf/version`, which otherwise comes from the SSR artefact's compiled-in pattern-protocol constant. It takes an integer, or a string of digits; any other value is ignored with a `:rf.ssr/invalid-version` warning.
+    - `:payload` — required; a non-empty sequential of top-level `app-db` keyword keys (normally a vector), or `:rf.ssr.payload/whole-app-db` to ship the whole `app-db`. Omitting it throws `:rf.error/ssr-missing-payload-policy`. The [Ring payload option](re-frame.ssr.ring.md#ssr-handler) gives the full validation rules.
+    - `:version` — overrides the payload's `:rf/version`, which otherwise comes from the SSR artefact's compiled-in pattern-protocol constant. It takes an integer, or a string of digits; `nil` keeps the default, and any other value is ignored with a `:rf.ssr/invalid-version` warning.
     - `:client-frame-id` — the stable wire `:rf/frame-id`. Absent, the payload omits the key.
     - `:failed-boundaries` — the set of boundary ids whose continuation returned `:failed? true`. It is carried into the `runtime-db` slice the client `boundary` reads.
     - `:head-hash` — written as `:rf/head-hash`; omitted when `nil`.
@@ -945,7 +949,7 @@ The host adapter stores each request in a per-frame slot before the drain; the [
     - Without the resources artefact it does nothing and returns `{:settled? true :timed-out [] :route-blocking-failure nil}`.
 - **Options** (all optional):
     - `:ssr-blocking-timeout-ms` — the wall-clock budget; default `5000`.
-    - `:pump!` — a 1-arity `(fn [tick-ms] …)` that pumps pending events. The default yields to the host platform, so an in-flight async reply can land between checks.
+    - `:pump!` — a 1-arity `(fn [tick-ms] …)` that pumps pending events. The default yields to the host platform, so an in-flight async reply can land between checks. An explicit `nil` disables the pump.
     - `:tick-ms` — the polling interval hint; default `5`.
 - **Example**:
   ```clojure
@@ -953,11 +957,3 @@ The host adapter stores each request in a per-frame slot before the drain; the [
   (ssr/drain-blocking-resources! :app/request-frame {:ssr-blocking-timeout-ms 5000})
   ;; => {:settled? true :timed-out [] :route-blocking-failure nil}
   ```
-
-## See also
-
-- [`re-frame.ssr.ring`](re-frame.ssr.ring.md) — the Ring handler that runs a request through this namespace and writes the response.
-- [`re-frame.ssr.head`](re-frame.ssr.head.md) — where `head-model` and `head-model->html` are defined.
-- [`re-frame.core`](re-frame.core.md) — `init!`, `make-frame`, and the `rf/reg-head` / `rf/reg-error-projector` facade entries.
-- [`re-frame.routing`](re-frame.routing.md) — routes select a head with `:head` metadata.
-- [Server-side rendering](../ssr/index.md) — the guide.
