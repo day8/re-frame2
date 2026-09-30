@@ -334,5 +334,5 @@ With all six steps wired, open [Xray](../../xray/index.md):
 
 - Logged out, click a link to a guarded route. The next row is the `:rf.route/entry-denied` dispatch, then your redirect to login; no `:on-match` or resource row appears for the protected route.
 - Logged in, open an authenticated request. The `Authorization` header shows as redacted, as does `[:auth :token]` in the app-db view.
-- Reload the page while signed in on a protected URL. The `:auth/init` row, carrying the saved session from the coeffect, sits above the initial `:rf.route/handle-url-change` row, and the guarded route commits without an `:rf.route/entry-denied`. If the URL row ever comes first, the restore is no longer in `:initial-events`.
+- Reload the page while signed in on a protected URL. The `:auth/init` row requests `:auth.session/load`, followed by the classified `:auth/session-restored` reply. Both events finish before the initial `:rf.route/handle-url-change` row, and the guarded route commits without an `:rf.route/entry-denied`. If the URL row ever comes first, the restore is no longer in `:initial-events`.
 - Dispatch `:auth/logout`. One clear-scope row lists what was removed, aborted, and left alone.
