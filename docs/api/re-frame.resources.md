@@ -38,10 +38,11 @@ Resources ship in the optional `day8/re-frame2-resources` artefact and use manag
                       {:owner [:article/preview-opened slug]}]]]}))
 
 ;; Read it from a view. The subscription never fetches.
-(rf/reg-view article-preview [slug]
+(rf/reg-view article-preview [{:keys [slug]}]
   (let [state @(subscribe [:rf/resource {:resource :article/by-slug
                                          :params   {:slug slug}}])]
     (cond
+      (= :idle (:status state))                     [:p "Open an article to load it."]
       (:loading? state)                             [:p "Loading…"]
       (and (:error state) (not (:has-data? state))) [:p.error "Could not load the article."]
       :else                                         [:h2 (:title (:data state))])))
@@ -51,7 +52,7 @@ For page data, a route's `:resources` key is the usual cause: entering the route
 
 Three terms recur on this page:
 
-- **Scope** says whose data an entry holds. The cache key, the *scoped key*, is `[scope resource-id canonical-params]`, so one user's entry is never served to another. Every resource declares a scope policy; see [Scope policy](#scope-policy).
+- **Scope** says whose data an entry holds. The cache key, the *scoped key*, is `[scope resource-id canonical-params]`, so readers with distinct scope values have distinct entries. Your declaration must include every identity distinction the response depends on. Every resource declares a scope policy; see [Scope policy](#scope-policy).
 - An **owner** is a value you choose, such as `[:article/preview-opened slug]`, that stands for something needing the entry: a route visit, a machine, an open panel. An owned entry is kept, and invalidation, focus and polling refetch it; once its last owner is released, it is garbage-collected within [`:gc-after-ms`](#the-resource-spec). A route releases its owner when you leave it, and a machine actor that ensures with the owner `[:machine actor-id]` has it released when the actor is destroyed. Every other owner needs a matching [`[:rf.resource/release-owner …]`](#rfresourcerelease-owner-). An `ensure` with no owner still loads, but nothing keeps the entry.
 - A **cause** is a value saying why a load or write happened, such as `[:event :article/preview-opened]`. It is recorded in traces and Xray and has no other effect.
 
@@ -113,7 +114,7 @@ Each fetch of a scoped key starts a new *generation*, and each request attempt h
 - `:doc`
 - `:data-schema` — a static declaration of the decoded data's shape, shown to tooling (the resource's `:schema` fact) and in the `:rf/resource` registration read. It is not checked at runtime; validate a response with the request's `:decode`.
 - `:transport` — `:rf.http/managed`, the only transport and the default. Any other value registers, then raises `:rf.error/resource-unknown-transport` at the first load.
-- `:stale-after-ms` — how long a loaded entry stays fresh, in milliseconds. Absent means it never goes stale, and `0` means it is stale as soon as it loads. Any value other than a non-negative number, `nil` included, raises `:rf.error/resource-bad-spec` at registration.
+- `:stale-after-ms` — how long a loaded entry stays fresh, in milliseconds. Absent means it never goes stale by time alone; invalidation can still mark it stale. `0` means it is stale as soon as it loads. Any value other than a non-negative number, `nil` included, raises `:rf.error/resource-bad-spec` at registration.
 - `:gc-after-ms` — the interval of the GC check that removes an entry with no owner and no load in flight. The check's timer is armed when a load settles, not when the last owner is released. When it fires on an entry that is still owned or loading, it re-arms for another interval. So an idle entry is removed at most this long after its last owner is released, and possibly sooner. Absent defaults to `300000` (5 minutes); `:never` keeps it. Otherwise it must be a positive number of milliseconds; `nil`, `0` or any other value raises `:rf.error/resource-bad-spec`.
 - `:poll-interval-ms` — the active-owner poll interval. See [Polling](#polling). A value that is neither a number nor `nil` raises `:rf.error/resource-bad-spec`.
 - `:timeout-ms` — stamps each fetch's work-ledger record with `:deadline-at`, its `:started-at` plus this many milliseconds, which Xray's Resources panel shows. It is recorded, not enforced: nothing cancels a fetch at its deadline. Bound the request itself with the `:timeout-ms` of the managed-HTTP args your request fn returns.
@@ -195,15 +196,15 @@ A *target* names one cache entry as `{:resource <id> :params <params> :scope <sc
 **Optional keys**:
 
 - `:invalidates` — `(fn [params result] → tags-or-descriptors)`, what to mark stale on success. The runtime applies it as a scoped `:rf.resource/invalidate-tags`. Return either:
-    - a tag set, e.g. `#{[:article slug]}`, invalidated in the mutation's resolved scope; or
+    - a collection of tags, e.g. `#{[:article slug]}` or `[[:article slug]]`, invalidated in the mutation's resolved scope (a lone `[:article slug]` vector also means one tag); or
     - one descriptor map or a vector of them, `{:scope … :tags #{…}}`, each naming its own scope (the same scope forms as a target, above), so one write can invalidate both global and per-user reads. A descriptor may set `:cross-scope? true` to invalidate the tags in every scope, and `:refetch-populated? true` so this invalidation also refetches keys the same mutation populated, which otherwise stay fresh; use it when the reply carries only part of the record.
 
-    Any other return value raises `:rf.error/mutation-invalid-invalidation` when the write settles, before anything is invalidated. `result` is `nil` when `:invalidate-timing` runs `:invalidates` before the request or after a failure.
+    `nil` or an empty collection invalidates nothing. A malformed descriptor or a non-collection result raises `:rf.error/mutation-invalid-invalidation` when this arm runs, before anything is invalidated. `result` is `nil` when `:invalidate-timing` runs `:invalidates` before the request or after a failure.
 - `:patches` — `(fn [params result] → {target patch-fn})`, where each `patch-fn` is `(fn [old-data result] → new-data)`. It transforms an entry that already has data, with the same structural sharing as the read path; a target with no data is left alone.
 - `:populates` — `(fn [params result] → {target value})`. It seeds the entry as if `value` had just loaded, so `value` must have the resource's stored shape.
 - `:removes` — `(fn [params result] → [target …])`, entries to remove on success. A removed entry's in-flight request is aborted where possible.
 - `:scope` — the default cache scope for the arms above (see **Scope** below).
-- `:invalidate-timing` — when `:invalidates` runs: `:after-success` (default), `:before-request` (before the request is sent), `:after-failure` (only when the write fails) or `:after-settle` (either way). Any other value raises `:rf.error/mutation-bad-spec`.
+- `:invalidate-timing` — when `:invalidates` runs: `:after-success` (default), `:before-request` (before the request is sent), `:after-failure` (only when the write fails) or `:after-settle` (either way). An absent or `nil` value uses `:after-success`; any other value raises `:rf.error/mutation-bad-spec`.
 - `:transport` (`:rf.http/managed`, the only transport; any other value raises `:rf.error/resource-unknown-transport` when the write runs), `:doc`.
 - `:sensitive` / `:large` — per-path classification of the instance row, in the same shape as on `reg-resource`: `[:params …]` and `[:scope …]` paths classify the instance's params and scope, and `[:data …]` or bare paths classify its `:result` (e.g. `{:sensitive [[:params :token]]}`). A malformed declaration raises `:rf.error/mutation-bad-spec`.
 
@@ -225,7 +226,9 @@ The resolved scope must match the scope of the resources the write changes. A wr
 
 - `:optimistic` — `(fn [params] → {target patch-fn})`, applied before the request is sent. It has the shape of `:patches` without the `result` argument, since there is no reply yet: each `patch-fn` is `(fn [old-data] → new-data)`, and a `nil` patch-fn optimistically removes the entry.
 - `:optimistic-tags` — `(fn [params] → [{:scope … :tags #{…} :patch patch-fn} …])`, the tag-addressed form: each descriptor patches every cached entry carrying its tags, for keeping other views consistent.
-- `:on-conflict` — what to do when a rollback is contested because another write changed the entry after the optimistic apply. `:invalidate` (default) marks the entry stale so it refetches the server's value; `:force` restores the snapshot anyway and emits `:rf.warning/optimistic-force-clobber`. Any other value raises `:rf.error/mutation-bad-spec`.
+- `:on-conflict` — what to do when a rollback is contested because another write changed the entry after the optimistic apply. `:invalidate` (default) marks the entry stale so it refetches the server's value; `:force` restores the snapshot anyway and emits `:rf.warning/optimistic-force-clobber`. An absent or `nil` value uses `:invalidate`; any other value raises `:rf.error/mutation-bad-spec`.
+
+When both optimistic forms select the same entry, the exact `:optimistic` target wins; the entry is patched once. An exact patch over an absent entry receives `nil` and can seed that entry.
 
 An `:optimistic` target is checked before the request is sent. One that is not a map, has a non-keyword `:resource`, names an unregistered resource or has params that are not portable EDN raises `:rf.error/mutation-invalid-target`, and the write is not sent. A malformed `:optimistic-tags` descriptor (not a map, `:tags` not a collection, or no `:patch` fn) is dropped with `:rf.warning/optimistic-tags-descriptor-skipped` in development builds; the other descriptors and the write go ahead.
 
@@ -358,7 +361,7 @@ Resource events take a single map payload. The events that name a `:resource` va
     - `:tags` is a set or vector of tags. A lone tag vector such as `[:article slug]` is read as that one tag.
     - Invalidation is scoped by default. A scoped payload without `:scope` raises `:rf.error/resource-invalidate-scope-required`.
     - `:scope` is a concrete scope or a `{:from-db <id>}` reference, resolved against the handler's `app-db` coeffect as for `ensure`, so the handler does not need to resolve it first. A reference that resolves to `nil` raises `:rf.error/resource-scope-unresolved-reference`.
-    - A cross-scope invalidation sets `:cross-scope? true` and carries no `:scope`. It ignores the scope filter and is visible in Xray. It must carry `:cause`, or it raises `:rf.error/resource-cross-scope-cause-required`; supplying `:scope` as well raises `:rf.error/resource-cross-scope-scope-conflict`.
+    - A cross-scope invalidation sets `:cross-scope? true` and carries no `:scope`. It ignores the scope filter within the receiving frame and is visible in Xray. It never reaches another frame's cache. It must carry `:cause`, or it raises `:rf.error/resource-cross-scope-cause-required`; supplying `:scope` as well raises `:rf.error/resource-cross-scope-scope-conflict`.
     - A successful load replaces an entry's tags with the tags computed from the new data.
 - **Example**:
   ```clojure
@@ -455,7 +458,7 @@ A resource subscription reads the cache and never fetches. It resolves the scope
 
 It validates its payload as the events do, so an unregistered `:resource` (`:rf.error/resource-not-registered`), params that fail the schema or are not portable EDN (`:rf.error/resource-invalid-params`, `:rf.error/resource-non-edn-params`), an invalid scope (`:rf.error/resource-invalid-scope`) or an unregistered resolver (`:rf.error/resource-scope-not-registered`) throws when the view reads it. A valid key that nothing has ensured reads `:status :idle`.
 
-```clojure
+```text
 [:rf/resource         {:resource … :scope … :params …}]   ;; the full view-model
 [:rf.resource/data          {…}]   [:rf.resource/status        {…}]
 [:rf.resource/loading?      {…}]   [:rf.resource/fetching?     {…}]
@@ -476,7 +479,7 @@ Read them with the ordinary `subscribe`; there is no separate read function. `su
 The `:rf/resource` view-model holds facts plus derived booleans:
 
 ```clojure
-{:status        :idle | :loading | :fetching | :loaded | :error
+{:status        :idle ;; :idle | :loading | :fetching | :loaded | :error
  :data          <last-known-good-or-nil>
  :error         <first-load-error-or-nil>          ;; failure map {:kind :rf.http/… …}
  :refresh-error <background-refresh-error-or-nil>  ;; failure map {:kind :rf.http/… …}
@@ -556,7 +559,7 @@ Each focused `:rf.mutation/*` subscription returns the `:rf/mutation` view-model
 ```
 
 - `:status` is `:idle`, `:pending`, `:success` or `:error`. An instance reads as `:idle` until its first `:rf.mutation/execute`, and `:settled?` is true at `:success` or `:error`.
-- `:result` is the decoded reply (the reply map's `:value`); `:error` is the managed-HTTP failure map.
+- `:result` is the decoded reply (the reply map's `:value`); `:error` is the managed-HTTP failure map. An accepted transport abort records `:status :error` with `:kind :rf.http/aborted` on the instance, while its continuation receives `:status :cancelled`. Clearing or superseding an instance suppresses its old continuation instead.
 - `:optimistic?` (derived) is true while an optimistic apply is showing: applied but not yet settled.
 - `:affected-keys` holds the scoped keys the settle touched.
 - There is no `:refresh-error` for mutations, because a write has no last-known-good value to keep.
@@ -632,12 +635,12 @@ An infinite resource is a load-more feed: the user sees page 1, then pages 1 and
     - `:prev-page-param` — `(fn [first-page all-pages] → param-or-nil)`, the mirror of `:next-page-param`, which feeds `:rf.resource/has-prev-page?`. There is no load-previous event; pages are only appended.
     - `:initial-page-param` — the first page's param. Default `nil`.
     - `:page->items` — a keyword or `(fn [page] → items)` that extracts a page's items; a vector page is its own items. A non-vector page with no `:page->items` makes `:rf.resource/items`, `:rf.resource/infinite-state` and an `ensure`'s `:reply-to` raise `:rf.error/infinite-missing-page-accessor`.
-    - `:refetch` — which pages a refetch refreshes. By default only page 0 is refetched and replaced in place; the other loaded pages stay as they are. `{:refetch-all-pages? true}` refreshes every loaded page in order, and `{:refetch-window n}` refreshes the first `n`. Pages are replaced in place and the feed never shrinks.
+    - `:refetch` — which pages a refetch refreshes. By default only page 0 is refetched and replaced in place; the other loaded pages stay as they are. `{:refetch-all-pages? true}` refreshes every loaded page in order, and `{:refetch-window n}` refreshes the first `n`, clamped to at least one and at most the loaded page count. If both keys are present, `:refetch-all-pages? true` wins. Each page uses its saved page param; pages are replaced in place and the feed never shrinks.
     - A `:prev-page-param` that is not a fn, a `:page->items` that is neither a keyword nor a fn, or a `:refetch` that is not a map, has a non-boolean `:refetch-all-pages?` or a non-integer `:refetch-window` raises `:rf.error/resource-bad-spec`.
 
 A view reads the merged list and dispatches [`[:rf.resource/load-more {…}]`](#rfresourceload-more-) for the next page:
 
-```clojure
+```text
 [:rf.resource/items          {:resource :feed/timeline :scope … :params …}]   ;; merged flat list, the main read
 [:rf.resource/pages          {…}]   ;; raw page boundaries
 [:rf.resource/has-next-page? {…}]   [:rf.resource/fetching-next? {…}]
@@ -669,6 +672,8 @@ A feed has three error channels:
 - `:error` — page 0 failed with no pages loaded.
 - `:refresh-error` — a refetch's page 0 failed; the loaded pages are kept.
 - `:page-error` — a later page (a load-more or a multi-page refetch) failed; the pages are kept, and the next successful page clears it.
+
+The `:page-error` and `:refresh-error` fields can coexist after separate failures. A successful page append or replacement clears both.
 
 A feed's `:tags` fn receives the whole page vector as `data`. For a resource that is not `:infinite`, or a feed with no pages yet, the feed subscriptions read `[]`, `0`, `false` or `nil` (`:rf.resource/page-error`).
 

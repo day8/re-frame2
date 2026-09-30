@@ -1,240 +1,186 @@
 # The model
 
-Server state is data your app **does not own**, held in a declared, inspectable
-cache rather than fetched privately inside each view. This page explains the model:
-register a read, cause a fetch, project its status into a view, scope the cache, and
-declare writes that invalidate by tag.
+A resource keeps a cached copy of server data. Routes and events ask for it;
+views read the result. This separation lets several views share one request
+without any view deciding when to fetch.
 
 <a id="three-lanes--registering-causing-projecting"></a>
 
-Every call in the API sits in one of three **lanes**:
-
-| Lane | What you write | Who |
-|---|---|---|
-| **Register** | `reg-resource` / `reg-mutation` | Your code, once, at load |
-| **Cause** | route `:resources`, `[:rf.resource/ensure …]`, `[:rf.mutation/execute …]` | Routes, handlers, machines |
-| **Project** | `@(subscribe [:rf/resource …])` and its narrower siblings | Views — a subscription never fetches |
-
-??? info "Coming from TanStack Query?"
-
-    Keep the mental model of a keyed cache with staleness and invalidation. Three
-    deliberate differences show up below: views never fetch; scope is a required key
-    axis; invalidation is declared on the mutation, not an `onSuccess` call you
-    remember. Full mapping: [Coming from TanStack Query](coming-from-tanstack-query.md).
-
-!!! note "Optional artefact"
-
-    Require `re-frame.resources` (and usually `re-frame.http.managed`) once at boot —
-    Maven coordinate `day8/re-frame2-resources`. Forget the require and the first
-    `reg-resource` / `reg-mutation` throws `:rf.error/resources-artefact-missing`.
-
-## The cache you don't own
-
-<a id="the-cache-you-dont-own"></a>
-
-A **[resource](glossary.md#resource)** answers five questions that SPAs usually re-decide
-per feature: where the copy lives, when it is stale, who may refetch, how concurrent
-readers share one request, and how logout stops a cross-user leak.
-
-That cache lives in **[runtime-db](../core/glossary.md#runtime-db)** (path
-`:rf.runtime/resources`), not [app-db](../core/app-db.md). Ordinary handlers cannot
-wipe it by accident. You change it only through [events](../core/glossary.md#event)
-and read it through [subscriptions](../core/glossary.md#subscription).
+The application has three jobs: register how to read, cause a load, and render
+the cached state. A [mutation](#mutations-invalidate-by-tag) describes a write
+and which cached reads it changes.
 
 ## Register a resource
 
 <a id="your-first-resource-register-it"></a>
 
-A resource is *a subscription you read and a cause you fire* — two different jobs.
-
 ```clojure
 ;; cf. examples/real-apps/realworld_resources/resources.cljs
-(ns app.resources
+(ns app.articles
   (:require [re-frame.core :as rf]
             [re-frame.http.managed]
-            [re-frame.resources]))
+            [re-frame.resources]
+            [re-frame.routing]))
 
-(rf/reg-resource :realworld/article
+(rf/reg-resource :app/article
   {:params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global}       ;; required — whose cache?
+   :scope         :rf.scope/global
+   :stale-after-ms 60000
+   :tags          (fn [{:keys [slug]} _data] #{[:article slug]})}
   (fn [{:keys [slug]} _ctx]
-    {:request {:method :get
-               :url    (str "/api/articles/" slug)}
+    {:request {:method :get :url (str "/api/articles/" slug)}
      :decode  :json}))
 ```
 
-`reg-resource` takes three slots: `(reg-resource id metadata request-fn)`. Putting the
-request fn in the metadata map raises `:rf.error/resource-bad-spec`.
+This assumes the endpoint returns `{:article {...}}`, with the same response
+for every viewer. `:params-schema` describes the values identifying the read;
+`:scope` describes who can share its cached answer. The request function is
+the third argument and returns [managed-HTTP args](../async/http.md).
+Registration itself sends nothing.
 
-| Metadata key | Role |
-|---|---|
-| `:params-schema` | **Required.** Malli schema of params — the read's identity; validated once the [schemas](../core/how-to/validate-with-schemas.md) artefact is loaded |
-| `:scope` | **Required.** Either `:rf.scope/global` or `{:from-db resolver-id}` |
-| `:tags` | `(fn [params data] #{…})` — facts this data is about (for invalidation) |
-| `:stale-after-ms` | Freshness window; next ensure refetches after this (absent: never stale by the clock) |
-| `:gc-after-ms` | GC check interval for an owner-free entry, armed when the entry settles (default 5 min; `:never` to pin) |
-| `:poll-interval-ms` | Clocked re-read while owned and tab visible |
-| `:infinite` | `true` → load-more feed kind ([paginate how-to](how-to/paginate-a-feed.md)) |
-| `:sensitive` / `:large` | Paths into `:data`, `:params` or `:scope` whose values leave the app as a redaction or size marker ([data classification](../core/glossary.md#data-classification)) |
-| `:data-schema`, `:doc`, `:transport` | Tooling metadata; validate a response with the request's `:decode` ([the resource spec](../api/re-frame.resources.md#the-resource-spec)) |
+`:stale-after-ms 60000` keeps a successful response fresh for one minute.
+Without that key, only explicit invalidation makes it stale. Becoming stale
+does not start a request; the next ensure can refresh it.
 
-The request fn describes the **domain** request only. It must **not** set
-`:request-id`, `:on-success`, or `:on-failure`: the runtime decides where the reply
-goes, which is how it suppresses stale replies. Cross-cutting headers live in
-`reg-http-interceptor`.
-
-`reg-resource` does not fetch. It only teaches the runtime *how* to.
+The optional Resources and HTTP artefacts must both be loaded. Missing
+`re-frame.resources` raises `:rf.error/resources-artefact-missing` at
+registration; missing `re-frame.http.managed` raises
+`:rf.error/http-artefact-missing` when the first request starts.
+Params validation also needs the [schemas artefact](../core/how-to/validate-with-schemas.md).
+The [resource reference](../api/re-frame.resources.md#the-resource-spec) lists
+all registration options.
 
 ## Cause a fetch
 
 <a id="cause-it-to-fetch-from-a-route"></a>
 
-The cleanest cause is the **page**. Route metadata `:resources` means "this page needs
-this server state":
+For page data, let the route declare what it needs:
 
 ```clojure
-;; cf. examples/real-apps/realworld_resources/routing.cljs
-(rf/reg-route :realworld/article
-  {:params    [:map [:slug :string]]
-   :resources [{:resource  :realworld/article
-                :params    (fn [route] {:slug (get-in route [:params :slug])})
+(rf/reg-route :app/article
+  {:params [:map [:slug :string]]
+   :resources [{:resource :app/article
+                :params (fn [route] {:slug (get-in route [:params :slug])})
                 :blocking? true}]}
   "/articles/:slug")
 ```
 
-On entry the runtime **ensures** the resource with the route as **owner**; on leave it
-releases. `:blocking? true` keeps `:rf.route/transition` at `:loading` until the first
-load settles, or turns it `:error` if that load fails (also an SSR wait point); the
-route itself commits at once.
+Entering this route ensures the article. A fresh entry is a cache hit; an
+in-flight load is shared; otherwise an HTTP request starts. `:blocking? true`
+keeps `:rf.route/transition` at `:loading` until the first load settles. The
+route commits immediately, so its view can render a loading state. A failed
+first load makes the transition `:error`; a successful retry restores `:idle`.
+The same declaration gives [SSR](../ssr/concepts.md) a wait point.
 
-Other causes use the same entry with a different **cause** recorded for the trace:
-
-```clojure
-;; Ensure from a handler, with an owner your app releases later
-(rf/dispatch [:rf.resource/ensure
-              {:resource :realworld/article
-               :params   {:slug "hello"}
-               :owner    [:article/opened :article-page]
-               :cause    [:event :article/opened]}])
-
-;; Pull-to-refresh: always a new request, no owner
-(rf/dispatch [:rf.resource/refetch
-              {:resource :realworld/article
-               :params   {:slug "hello"}
-               :cause    [:manual :article/refresh]}])
-```
-
-A handler or machine that causes a read and must *continue* once it settles — fill
-an editor once the article is loaded, say — adds a `:reply-to` event vector to the
-`ensure` or `refetch`. The reply map is appended and dispatched once: immediately on a
-cache hit (`:cache-hit? true`), otherwise when the fetch settles, and never for a
-stale reply:
+Events can load data independently of navigation. Here an open preview keeps
+the entry alive until it closes:
 
 ```clojure
-(rf/dispatch [:rf.resource/ensure
-              {:resource :realworld/article
-               :params   {:slug "hello"}
-               :cause    [:event :editor/opened]
-               :reply-to [:editor/article-loaded]}])
+(rf/reg-event :article/preview-opened
+  (fn [_ [_ slug]]
+    {:fx [[:dispatch [:rf.resource/ensure
+                      {:resource :app/article :params {:slug slug}
+                       :owner [:article/preview slug]
+                       :cause [:event :article/preview-opened]}]]]}))
 
-(rf/reg-event :editor/article-loaded
-  (fn [{:keys [db]} [_ {:keys [status value]}]]
-    {:db (cond-> db
-           (= :ok status) (assoc-in [:editor :draft] (:article value)))}))
+(rf/reg-event :article/preview-closed
+  (fn [_ [_ slug]]
+    {:fx [[:dispatch [:rf.resource/release-owner
+                      {:owner [:article/preview slug]}]]]}))
 ```
 
-Views still read the cache through the subscription; `:reply-to` is for workflow
-steps. It is also how one read feeds another: a read whose params come from a first
-read's data is ensured from the first read's reply, because a route entry's `:params`
-and `:when` see only the route. The reply's fields:
-[`ensure` in the API](../api/re-frame.resources.md#rfresourceensure-).
-
-??? info "Coming from TanStack Query?"
-
-    **Views never fetch.** A route or event causes the load; the view only reads. That
-    is what lets the same view render on the server, in a test, or on a cache hit.
+An **owner** keeps an entry alive. A **cause** explains why the request happened
+in traces and Xray. Reading a subscription adds neither.
 
 ## Project: five statuses
 
 <a id="read-it-from-a-view"></a>
 <a id="what-a-view-sees-five-statuses"></a>
+<a id="a-complete-read-loop"></a>
+
+The route above and this view complete the read path. The application shell
+renders `article-page` when `:rf.route/id` is `:app/article`:
 
 ```clojure
-(rf/reg-view article-page [{:keys [slug]}]
-  (let [state @(subscribe [:rf/resource {:resource :realworld/article
-                                         :params   {:slug slug}}])]
+(rf/reg-view article-page []
+  (let [slug (:slug @(subscribe [:rf.route/params]))
+        query {:resource :app/article :params {:slug slug}}
+        state @(subscribe [:rf/resource query])]
     (cond
-      (= :idle (:status state))                      [article-placeholder]
-      (:loading? state)                              [article-skeleton]
-      (and (:error state) (not (:has-data? state)))  [article-error (:error state)]
+      (= :idle (:status state)) [:p "Waiting for the article load."]
+      (:loading? state)         [:p "Loading article…"]
+      (:error state)
+      [:div
+       [:p "Could not load the article."]
+       [:button {:on-click #(dispatch [:rf.resource/refetch query])} "Retry"]]
       :else
-      [:<>
-       (when (:fetching? state)     [refresh-indicator])
-       (when (:refresh-error state) [refresh-warning (:refresh-error state)])
-       [article-view (:data state)]])))
+      [:article
+       [:h1 (get-in state [:data :article :title])]
+       [:p (get-in state [:data :article :body])]
+       (when (:fetching? state) [:p "Refreshing…"])
+       (when (:refresh-error state) [:p "Could not refresh; showing saved data."])
+       [:button {:disabled (:fetching? state)
+                 :on-click #(dispatch [:rf.resource/refetch query])}
+        "Refresh"]])))
 ```
 
-| `:status` | Meaning | Show |
+| Status | Meaning | Useful UI |
 |---|---|---|
-| `:idle` | No load attempted | Placeholder |
-| `:loading` | First load, no usable data | Skeleton |
-| `:fetching` | Refresh while prior data stays | Data + quiet indicator |
-| `:loaded` | Usable data (maybe stale) | Data |
-| `:error` | First load failed | Error |
+| `:idle` | No load has started, or a first load was cancelled | Placeholder |
+| `:loading` | First load in flight, no data | Loading indicator |
+| `:loaded` | Data is available, possibly stale | Content or an empty-result message |
+| `:fetching` | Refresh in flight, keeping existing data | Content and a small progress indicator |
+| `:error` | First load failed | Error and retry action |
 
-**Invariants.** `:error` is first-load only — a failed background refresh keeps
-`:loaded` and records `:refresh-error`. Freshness is orthogonal to status. Prefer
-the booleans (`:loading?`, `:has-data?`, …) over re-deriving rules from `:status`.
+A failed refresh keeps `:loaded` and the data, and sets `:refresh-error`.
+`:error` is reserved for a failed first load. Both fields hold a
+[managed-HTTP failure](../async/http.md#failures-are-a-closed-set); branch on
+its `:kind` when different failures need different messages. Retries are
+opt-in in the request args; an error does not retry itself by default.
 
-!!! warning "No subscription ever fetches"
-
-    With no cause, a read stays `:idle` and the view shows its placeholder for
-    good. What's missing is a route `:resources` entry or an ensure, not a
-    subscription.
-
-Narrower projections (`[:rf.resource/data …]`, `[:rf.resource/status …]`, …) re-render
-only when that slice changes. Commands include
-`ensure`, `refetch`, `invalidate-tags`, `release-owner`, `clear-scope`, `remove` —
-full list in the [API](../api/re-frame.resources.md).
+The query must use the same params and scope as the cause. A valid but
+different key has its own entry, which stays `:idle` until ensured. Narrow
+subscriptions such as `:rf.resource/data` read one field when a view does not
+need the whole state.
 
 ## Scope: whose cache?
 
 <a id="the-scoped-key-a-leak-boundary-that-fails-closed"></a>
+<a id="logout-is-one-causal-event"></a>
 
-Cache identity is a triple: `[scope resource-id canonical-params]`.
-
-- **`:rf.scope/global`** — same answer for every viewer (explicit claim).
-- **`{:from-db resolver-id}`** — viewer-relative; resolver pure over declared
-  `:inputs`.
-
-Those are the only two forms. A use-site `:scope` — on an ensure payload or a sub
-query — is an **override**, never a required repetition.
+A cache key is `[scope resource-id canonical-params]`. `:rf.scope/global`
+asserts that everyone gets the same answer. If authentication, tenant, locale
+or permissions affect it, include those distinctions in a named scope resolver:
 
 ```clojure
-(rf/reg-resource-scope :realworld/session
+(rf/reg-resource-scope :app/session
   {:inputs {:username [:db [:auth :user :username]]}}
   (fn [{:keys [username]} _ctx]
-    (when username
-      [:rf.scope/session {:username username}])))
+    (when username [:rf.scope/session {:username username}])))
 
-(rf/reg-resource :realworld/feed
-  {:params-schema [:map [:page {:optional true} [:maybe :int]]]
-   :scope         {:from-db :realworld/session}
-   :tags          (fn [_ _] #{[:feed]})}
-  (fn [{:keys [page]} _ctx]
-    {:request {:method :get
-               :url    "/api/articles/feed"
-               :params {:limit 10 :offset (* 10 (dec (or page 1)))}}
-     :decode  :json}))
+;; On a viewer-dependent resource registration:
+;; :scope {:from-db :app/session}
 ```
 
-A resolver that returns `nil` **fails closed**: the read raises rather than falling
-back to a shared entry. Logout clears the departing user's scope:
+Routes and subscriptions inherit that policy. A resolver returning `nil`
+raises `:rf.error/resource-sub-unresolved-scope` on a subscription and
+`:rf.error/resource-scope-unresolved-reference` on an ensure. Wait until the
+identity is known before reading or loading that resource. Scope selects a
+cache entry; your server still authenticates and authorizes the request.
+
+When the resolver's inputs change, a subscription reads the new key without
+fetching. If the route stays the same, dispatch
+`[:rf.route/replan-resources {:cause :account-changed}]` after committing the
+new identity. The [scope tutorial](tutorial/04-scopes-and-guards.md) handles
+session restoration, logout and that replan together.
+
+Resolve a departing user's scope from the event's `db` before removing the
+identity, then pass the concrete value to `clear-scope`:
 
 ```clojure
 (rf/reg-event :auth/logout
   (fn [{:keys [db]} _]
-    (let [old-scope (rf/resolve-resource-scope db :realworld/session)]
+    (let [old-scope (rf/resolve-resource-scope db :app/session)]
       {:db (dissoc db :auth)
        :fx (cond-> []
              old-scope
@@ -242,228 +188,130 @@ back to a shared entry. Logout clears the departing user's scope:
                                {:scope old-scope :cause :logout}]]))})))
 ```
 
-Resolve the old scope **before** stripping auth from `db`.
-
-A `{:from-db …}` subscription **re-keys** when the resolver's inputs change — after
-that logout, or a login, the same subscription points at the new viewer's entry. The
-re-key is passive, though: it never fetches, so the new key sits `:idle` until a cause
-ensures it. Navigation is the usual cause. When identity changes and the route does
-not — a session restored after the page was entered, an account or tenant switch — the
-cause to dispatch is `[:rf.route/replan-resources {:cause …}]`, which reruns the active
-route's resource plan under the new identity without navigating: clear the old scope,
-commit the new identity, then replan. See
-[Replanning the active route's resources](../routing/concepts.md#replanning-the-active-routes-resources).
-
-??? info "Coming from TanStack Query?"
-
-    Scope is a **required structural axis**, not a key segment you assemble by hand
-    and sometimes forget.
-
 ## Owners, causes, refetch rules
 
 <a id="owners-and-causes-and-the-refetch-rules"></a>
+<a id="freshness-and-lifetime-the-policy-keys"></a>
+<a id="polling-keep-this-fresh-every-n-ms"></a>
 
-- **Owner** — a liveness hold (route, machine, app-event owner). Controls GC and whether
-  invalidation refetches now or only marks stale.
-- **Cause** — why this fetch happened (trace / Xray). Does not keep the entry alive.
+A route releases its owner on leave. A machine using `[:machine actor-id]`
+as owner releases it on actor destruction. Your own owner, as in the preview
+example, needs a matching `release-owner` event.
 
-A route's owner is released when the route is left, and a machine's
-`[:machine <actor-id>]` owner when its actor is destroyed. An owner your own event
-supplies stays until you dispatch `[:rf.resource/release-owner {:owner …}]`; until
-then the entry can't be collected.
+Owned entries survive GC and refetch when invalidated. Once unowned and no
+longer loading, an entry can be collected at the next `:gc-after-ms` check
+(default five minutes). The check is armed when a load settles; it does not
+promise five full minutes of retention after the owner leaves.
 
-| Rule | Behaviour |
-|---|---|
-| Ensure of a fresh entry | Cache hit |
-| Ensure while in flight | Join the existing request |
-| Explicit refetch | New generation; supersedes in-flight |
-| Cancel vs stale reply | Abort if possible; generation check always suppresses stale replies |
+An ownerless ensure is useful for warming the cache. It loads normally but
+keeps nothing alive. A subscription is always passive, even while a view
+remains mounted.
 
-**Cancellation is not failure.** Releasing the last owner of an in-flight read aborts
-its request where the transport can. The aborted read writes no `:error` or
-`:refresh-error`: a first load returns to `:idle`, a refresh to `:loaded` with its
-data, and a `:reply-to` receives `:status :cancelled`. `clear-scope` and `remove`
-delete the entry instead, so its late reply writes nothing and no continuation runs.
-A refetch that supersedes an in-flight read carries that read's `:reply-to` over to
-the new request.
+`refetch` always starts a new request and supersedes any old one for the key.
+Releasing the last owner aborts in-flight work where possible. A cancelled
+first load returns to `:idle`; a cancelled refresh keeps its data at `:loaded`.
+Cancellation sets neither resource error field. Late replies cannot replace
+newer cache data.
 
-Focus revalidation is opt-in, and it is declared on the frame rather than
-called: `:revalidate-on #{:focus :reconnect}` in the frame's config map. The
-frame lifecycle installs the host listeners, reconciles them on
-re-registration and removes them on destroy. It refetches only entries that
-are **stale and still owned**.
+Use `:poll-interval-ms` for data that changes regularly: it polls while owned
+and visible. Set `:revalidate-on #{:focus :reconnect}` on the frame to refresh
+stale owned entries when the user returns or the network reconnects. Both
+are optional; [polling and revalidation](../api/re-frame.resources.md#polling)
+describe the timing rules.
 
-Polling is a registration key — owner-driven, pauses when the tab is hidden:
+## Continue after a read
+
+An editor may need a fetched article copied into a draft once. Add `:reply-to`
+to the ensure rather than making the subscription dispatch:
 
 ```clojure
-(rf/reg-resource :dashboard/build-status
-  {:scope            :rf.scope/global
-   :params-schema    [:map [:repo :string]]
-   :poll-interval-ms 5000
-   :tags             (fn [_ _] #{[:build]})}
-  (fn [{:keys [repo]} _ctx]
-    {:request {:method :get :url (str "/repos/" repo "/build")}
-     :decode  :json}))
+(rf/reg-event :editor/opened
+  (fn [_ [_ slug]]
+    {:fx [[:dispatch [:rf.resource/ensure
+                      {:resource :app/article :params {:slug slug}
+                       :reply-to [:editor/article-loaded]}]]]}))
+
+(rf/reg-event :editor/article-loaded
+  (fn [{:keys [db]} [_ {:keys [status value]}]]
+    (if (= :ok status)
+      {:db (assoc-in db [:editor :draft] (:article value))}
+      {})))
 ```
 
-Three freshness tools, three questions:
-
-| Tool | Question |
-|---|---|
-| `:poll-interval-ms` | Changes on its own — keep fresh on a clock |
-| Focus revalidation | User came back — refresh stale owned data |
-| Mutation `:invalidates` | *This* write made *that* read wrong |
-
-## Routes with several resources
-
-<a id="routes-can-declare-more-than-one-resource"></a>
-
-Each `:resources` entry may carry `:params`, `:scope`, `:blocking?`, `:when`,
-`:keep-previous?` (show prior page while the next loads), and `:id` / `:after`
-(order ensure **dispatch**, not data waterfalls). Full recipe for pages:
-[Paginate a feed](how-to/paginate-a-feed.md).
+The reply arrives once for the accepted attempt, including a fresh cache hit.
+It contains `:status` and `:value` or `:error`; cancellation uses `:cancelled`.
+The view still renders loading and failure from the resource subscription.
+For editors that can close or switch articles before the reply arrives,
+carry a visit id and check it before changing the draft, as the
+[mutation tutorial](tutorial/05-mutations-and-invalidation.md#publish-from-the-editor--and-continue-with-reply-to)
+does for saves.
 
 ## Mutations invalidate by tag
 
 <a id="writes-invalidate-by-tag--causally"></a>
 <a id="optimistic-writes-commit-roll-back-or-reconcile"></a>
+<a id="running-a-mutation-and-reading-its-state"></a>
 
-A **[mutation](glossary.md#mutation)** is a named write. On success it
-[invalidates](glossary.md#invalidate) the tags it broke — declared once, not
-remembered in `onSuccess`:
-
-```clojure
-;; cf. examples/real-apps/realworld_resources/mutations.cljs
-(rf/reg-mutation :realworld/favorite
-  {:params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   :invalidates   (fn [{:keys [slug]} _result]
-                    [{:scope :rf.scope/global
-                      :tags  #{[:article slug] [:article-list]}}
-                     {:scope {:from-db :realworld/session}
-                      :tags  #{[:feed]}}])}
-  (fn [{:keys [slug]} _ctx]
-    {:request {:method :post
-               :url    (str "/api/articles/" slug "/favorite")}
-     :decode  :json}))
-```
-
-On success the arms run in a fixed order: `:patches` → `:populates` → `:removes` →
-`:invalidates`. Patches run *before* populates, so when the same key is both
-patched and populated the **populate wins** — it is applied last, overwriting the
-patch. Invalidation runs last of all. Only keys this same mutation **populated**
-are spared from its immediate refetch — a populate is an authoritative load, so
-the value it just wrote stays fresh. A **patched** key is *not* exempt: the same
-pass may still mark it stale and refetch it.
-
-Run it with an execute, and watch it through the instance id you chose:
+A mutation declares the cache consequences of a server write. Resources tag
+their data; mutations name the tags they change. Owned matches refetch now,
+while unowned matches become stale for the next ensure.
 
 ```clojure
-(rf/dispatch [:rf.mutation/execute
-              {:mutation :realworld/favorite
-               :params   {:slug "hello"}
-               :instance [:ui :favorite "hello"]
-               :cause    [:click :article/favorite]}])
+(rf/reg-mutation :app/save-article
+  {:params-schema [:map [:slug :string] [:title :string]]
+   :scope :rf.scope/global
+   :invalidates (fn [{:keys [slug]} _result] #{[:article slug]})}
+  (fn [{:keys [slug title]} _ctx]
+    {:request {:method :put :url (str "/api/articles/" slug)
+               :body {:article {:title title}}
+               :request-content-type :json}
+     :decode :json}))
 
-@(rf/subscribe [:rf/mutation {:instance [:ui :favorite "hello"]}])
-;; => {:status :pending …} then :success / :error
+;; Dispatch from a handler or a view's captured dispatch:
+;; [:rf.mutation/execute {:mutation :app/save-article
+;;                        :params {:slug "hello" :title "Hello"}
+;;                        :instance [:editor/save "hello"]}]
 ```
 
-**Scope matters.** Invalidation matches only entries **in the scopes you name**; the
-wrong scope misses silently (dev builds warn). The recipe, the populate and patch
-arms, and optimistic writes are in [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md).
+The view watches `[:rf/mutation {:instance [:editor/save "hello"]}]` for
+`:pending?`, `:success?` and `:error`. Retrying uses the same execute command;
+clearing the instance dismisses its settled state. The
+[mutation recipe](how-to/invalidate-after-a-mutation.md) adds direct cache
+updates, completion events and optimistic changes without a second read.
 
-For optimistic writes, [`linearlite`](../../examples/capabilities/resources/linearlite)
-is a focused example — create,
-retitle and change-status as three `:optimistic` mutations against one board
-entry, with a "fail the next write" toggle that puts the rollback on screen.
+## Advanced
 
-??? info "Coming from TanStack Query?"
+<a id="routes-with-several-resources"></a>
+<a id="routes-can-declare-more-than-one-resource"></a>
+<a id="infinite-feeds-accumulate-pages-with-infinite"></a>
+<a id="ssr-and-hydration"></a>
+<a id="the-full-read-and-command-surface"></a>
+<a id="the-cache-you-dont-own"></a>
+<a id="cache-home"></a>
 
-    Invalidation is **causal** — a declared consequence of the mutation, visible on
-    the event record.
+A route can declare several resources. `:id` / `:after` order their ensure
+dispatches; they do not wait for earlier data. When one read needs another's
+result, use a completion event to compute and ensure the dependent read.
+
+[Pagination](how-to/paginate-a-feed.md) chooses between an entry per numbered
+page and one growing infinite feed. Resource entries live in
+[runtime-db](../core/glossary.md#runtime-db), alongside mutation instances and
+work records; ordinary application handlers never edit those tables directly.
+SSR hydrates eligible entries and applies the same scope and freshness rules.
 
 ## Troubleshooting
 
 <a id="when-it-fails-loud--the-errors-and-warnings"></a>
-
-Registration and use-time errors fail closed (missing scope policy, bad request
-shape, unresolved scope on sub, …). There is no path from "forgot the viewer" to
-"served another user's cache." [Errors and warnings](errors-and-warnings.md) lists
-every error and warning id with its cause and fix.
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Permanent `:idle` / skeleton | No cause fired | Route `:resources` or `[:rf.resource/ensure …]` |
-| Permanent `:idle`, though a cause fired | The view subscribes with other params than the cause ensured | Subscribe with exactly the ensured params |
-| Invalidation refreshes nothing | Wrong scope on `:invalidates` | Name the matching scope per descriptor; watch the dev warning |
-| `:rf.route/transition` is `:error` | A `:blocking? true` first load failed, or the route's plan couldn't be built | Read `:rf.route/error`; its id is under [Causing and reading](errors-and-warnings.md#causing-and-reading) |
-
-## A complete read loop
-
-Register, cause the fetch from the route, project in the view — a skeleton to copy:
-
-```clojure
-(ns app.articles
-  (:require [re-frame.core :as rf]
-            [re-frame.resources]
-            [re-frame.http.managed]
-            [re-frame.routing]))
-
-(rf/reg-resource :app/article
-  {:params-schema [:map [:slug :string]]
-   :scope         :rf.scope/global
-   :stale-after-ms 60000
-   :tags          (fn [{:keys [slug]} _] #{[:article slug] [:article-list]})}
-  (fn [{:keys [slug]} _ctx]
-    {:request {:method :get :url (str "/api/articles/" slug)}
-     :decode  :json}))
-
-(rf/reg-route :app/article
-  {:params    [:map [:slug :string]]
-   :resources [{:resource  :app/article
-                :params    (fn [route] {:slug (get-in route [:params :slug])})
-                :blocking? true}]}
-  "/articles/:slug")
-
-(rf/reg-view article-page []
-  (let [slug  (get @(subscribe [:rf.route/params]) :slug)  ;; or your route projection
-        state @(subscribe [:rf/resource {:resource :app/article
-                                         :params   {:slug slug}}])]
-    (cond
-      ;; :idle — nothing has caused a load yet (no route :resources / ensure hit)
-      (= :idle (:status state))                     [placeholder]
-      ;; :loading — first load, no usable data yet
-      (:loading? state)                             [skeleton]
-      ;; :error — first load failed, still no data (a failed *refresh* keeps :loaded)
-      (and (:error state) (not (:has-data? state))) [error-panel (:error state)]
-      ;; :loaded / :fetching — usable data; a background refresh keeps it visible
-      :else
-      [:<>
-       (when (:fetching? state) [refresh-indicator])   ;; refetching with data
-       [article-body (:data state)]])))
-```
-
-## Advanced (elsewhere)
-
-| Topic | Where |
-|---|---|
-| Numbered pages & infinite feeds | [Paginate a feed](how-to/paginate-a-feed.md) |
-| Optimistic UI, patches, populate | [Invalidate after a mutation](how-to/invalidate-after-a-mutation.md) |
-| Warm a page's reads before the click | [Warming a destination before the click](../routing/concepts.md#warming-a-destination-before-the-click) |
-| SSR / hydration of the cache | [SSR: hydrate, then verify](../ssr/concepts.md#the-client-side-hydrate-then-verify) and the [`resources_ssr`](../../examples/capabilities/ssr/resources_ssr) example |
-| Reading resources from Fresco views | [Fresco: async resources](../core/fresco/08-async-resources.md) |
-| Full RealWorld build | [Tutorial](tutorial/index.md) |
-| Prove the cache in tests | [Testing](testing.md) |
-| Every key, event and subscription | [API reference](../api/re-frame.resources.md) |
-| Migrating from `re-frame-query` | [re-frame-query → resources](../../migration/from-re-frame-v1/re-frame-query-to-resources.md) |
-| When resources are the wrong tool | [When not to use resources](index.md#when-not-to-use-resources) |
-
-<a id="infinite-feeds-accumulate-pages-with-infinite"></a>
-<a id="ssr-and-hydration"></a>
-<a id="freshness-and-lifetime-the-policy-keys"></a>
-<a id="the-full-read-and-command-surface"></a>
-<a id="polling-keep-this-fresh-every-n-ms"></a>
-<a id="logout-is-one-causal-event"></a>
-<a id="running-a-mutation-and-reading-its-state"></a>
 <a id="when-resources-are-the-wrong-tool"></a>
+
+| Symptom | Check | Fix |
+|---|---|---|
+| The view stays `:idle` | Did a route or event ensure this exact key? | Match resource, params and scope in the cause and read |
+| Invalidation refreshes nothing | Do tags and scope match, and is the entry owned? | Use the read's scope and attach an owner for active data |
+| Cache grows after panels close | Is each app-created owner released? | Dispatch `release-owner` on close |
+| A session switch leaves an idle page | Re-keying is passive | Replan the active route after changing identity |
+| Route transition is `:error` | Read `:rf.route/error` | Retry a failed blocking read, or fix a failed resource plan |
+
+[Errors and warnings](errors-and-warnings.md) maps each named failure to a
+recovery. For a one-off request whose result belongs in app-db, use
+[managed HTTP](../async/http.md) directly instead of adding a cache.

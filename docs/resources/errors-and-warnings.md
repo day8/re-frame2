@@ -1,7 +1,6 @@
 # Errors and warnings
 
-Every resources error fails closed: a missing scope policy, a malformed request, or a
-scope that can't be resolved raises rather than falling back to a shared cache entry.
+Resource validation errors stop the operation: a missing scope policy, a malformed request, or an unresolved read scope raises rather than choosing a shared cache entry. Network failures instead become resource or mutation state, which views render.
 Each error's `ex-data` carries its id under `:rf.error/id`, a `:reason` naming the
 fix, and the failing surface under `:where`. The tables below group the ids by when
 they fire. [Testing resources](testing.md) turns the same failures into assertions,
@@ -43,7 +42,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/resource-route-blocking` (on `:rf.route/error`) | A blocking read's first load failed; its failure is under `:error` | Retry with `:rf.resource/refetch`; the route returns to `:idle` when it loads |
 | `:rf.error/resource-route-plan` (on `:rf.route/error`) | A route entry's `:params`, `:scope` or `:when` threw or returned nothing usable | Fix the entry; the original error data is under `:cause` |
 | `:rf.error/resource-ssr-blocking-timeout` | Under SSR, a blocking resource did not settle within the render deadline. It is reported, not thrown, and the resource settles as a first-load failure | Fix the fetch, or render the resource's error state |
-| `:rf.error/no-frame-context` | `resource-state` or `mutation-state` without `:frame` | Pass `:frame` |
+| `:rf.error/no-frame-context` | `resource-state` or `mutation-state` outside frame context without `:frame` | Pass `:frame`, or call within frame context |
 | `:rf.error/infinite-missing-page-accessor` | A feed's pages aren't vectors and it declares no `:page->items` | [Paginate a feed](how-to/paginate-a-feed.md) |
 
 ## Writing
@@ -53,7 +52,7 @@ nothing. [Troubleshooting](concepts.md#troubleshooting) in the model covers thos
 | `:rf.error/mutation-not-registered` | An execute names an unregistered mutation | Require the namespace that registers it |
 | `:rf.error/mutation-invalid-params` | Params don't conform to the mutation's `:params-schema` — checked once the schemas artefact is loaded | Fix the params |
 | `:rf.error/mutation-non-serializable-instance-id` | `:instance` isn't EDN | A keyword, string or vector of them |
-| `:rf.error/mutation-invalid-invalidation` | `:invalidates` returned neither a tag set nor a descriptor vector | Return `#{tag …}` or `[{:scope … :tags …} …]` |
+| `:rf.error/mutation-invalid-invalidation` | `:invalidates` returned a non-collection value or a malformed descriptor | Return a tag collection, a descriptor map, or a collection of descriptors; `nil` and empty collections invalidate nothing |
 | `:rf.error/mutation-invalid-target` | A `:patches`, `:populates`, `:removes` or `:optimistic` target's `:params` can't be part of a cache key | Fix the target's params |
 | `:rf.error/resource-invalidate-scope-required` | A direct `:rf.resource/invalidate-tags` with no `:scope` | Name the scope, or opt into `:cross-scope? true` |
 | `:rf.error/resource-cross-scope-cause-required` / `:rf.error/resource-cross-scope-scope-conflict` | A `:cross-scope? true` invalidation without `:cause`, or with a `:scope` | Add `:cause`; drop `:scope` |

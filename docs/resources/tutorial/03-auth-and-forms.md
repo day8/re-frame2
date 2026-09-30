@@ -1,7 +1,7 @@
 # Part 3: forms and the session
 
 In [Part 2](02-server-data.md) Conduit learned to read server data. Now it learns
-*who you are*: a sign-in page, a sign-up page, a session that survives reload, and a
+*who you are*: a sign-in page, a session that survives reload, and a
 clean sign-out. All of it is app-db and managed HTTP. [Part 4](04-scopes-and-guards.md)
 then gives each reader their own cache and guards the pages that need a signed-in user.
 
@@ -92,9 +92,6 @@ Each form gets a [route](../../routing/glossary.md#route) whose `:on-match` runs
   {:on-match [[:auth.login-form/initialise]]}
   "/login")
 
-(rf/reg-route :conduit.auth/register
-  {:on-match [[:auth.register-form/initialise]]}
-  "/register")
 ```
 
 !!! note "`:on-match` runs every time the route activates, on both hosts"
@@ -115,10 +112,6 @@ Editing a field updates the draft and marks the field touched, in one step:
 ```
 
 That's all login needs to capture input. The full convention adds `blur-field` and `reset` events ([Build a form](../../core/how-to/build-a-form.md)); login doesn't need them.
-
-??? info "Coming from React Hook Form?"
-
-    `register`, `handleSubmit`, and `formState.errors` collapse into this one map and a handful of events. There's no hook to call in the right order and no ref to wire up.
 
 ## The visibility rule
 
@@ -144,10 +137,10 @@ The rule lives in one place, a subscription:
 Every field renders its error the same way — `(when email-err …)` — and none of them decides whether to show it yet. One more sub is worth having on almost every form:
 
 ```clojure
-;; no outstanding errors, and not mid-flight — drive a submit button's :disabled with it
+;; Allow another attempt after an error; submit revalidates the edited draft.
 (rf/reg-sub :auth.login-form/can-submit? {:inputs [[:auth.login-form/slice]]}
-  (fn [[{:keys [errors status]}] _]
-    (and (empty? errors) (not= status :submitting))))
+  (fn [[{:keys [status]}] _]
+    (not= status :submitting)))
 ```
 
 Cross-field errors such as "passwords don't match" belong to the pair, not to either input, so they go under `:_form` and render through `form-errors`, whether or not a field is touched. A register-form validator shows both kinds:
@@ -281,10 +274,10 @@ The rules already live in subs and handlers, so the view is thin — read, rende
         busy?     (= status :submitting)]
     [:div.auth-page
      [:h1 "Sign in"]
-     [rf/route-link {:to :conduit.auth/register} "Need an account?"]
      (when (seq form-errs)
        [:ul.error-messages (for [m form-errs] ^{:key m} [:li m])])
-     [:form {:on-submit (fn [e] (.preventDefault e)
+     [:form {:no-validate true
+             :on-submit (fn [e] (.preventDefault e)
                           (dispatch [:auth.login-form/submit]))}
       [:input {:type "email" :placeholder "Email"
                :value (:email draft) :disabled busy?
@@ -299,11 +292,11 @@ The rules already live in subs and handlers, so the view is thin — read, rende
      (when submit-error [:p.error submit-error])]))
 ```
 
-The view does no validation and no error-visibility logic; every decision was made upstream, where you can test it without rendering.
+`:no-validate true` lets the submit event handle invalid input instead of the browser blocking submission first. The button is disabled only while submitting, so a rejected draft can be corrected and tried again.
 
 Try it: type a bad email and click *Sign in*. Both errors appear, including the password field you never touched — the latch at work. In [Xray](../../core/glossary.md#xray) the submit's event row shows the validation branch and no request. Fix and resubmit: the [epoch](../../core/glossary.md#epoch) ledger shows the submit, then the reply arriving as its own event.
 
-The register page is the same shape plus `:username` and a `:password-confirm` field (the cross-field `:_form` rule from earlier). It uses a `[:auth :register-form]` slice, the same events posting to `/users`, and the same subs. Write it as your first fill-in-the-blanks form, or crib the finished pair from [the example's `auth.cljs`](../../../examples/real-apps/realworld_http).
+Creating an account is an optional exercise; the worked path uses an existing account. Add `:username` and `:password-confirm` fields, the `validate-register` function above, and a `[:auth :register-form]` slice. Post only `:username`, `:email` and `:password` to `/users`. Register `/register` with its initialise event, add its page to the root view's route `case`, and link to it from login. The [reference app](../../../examples/real-apps/realworld_http) has the full form.
 
 !!! note "The blur-field upgrade, when you need it"
 
@@ -381,7 +374,7 @@ A handler receives exactly the facts listed in `:rf.cofx/requires` and nothing e
 
 Every authenticated request needs `Authorization: Token <jwt>`. Rather than add it to every request map, register one HTTP [interceptor](../../core/glossary.md#interceptor) on the [frame](../../core/glossary.md#frame) that decorates every managed request — including the `/user` restore above, because `:db` [commits](../../core/glossary.md#commit) before `:fx` runs, so the token is in app-db when the request leaves.
 
-The interceptor is a plain function. It reads the current token with `rf/app-db-value` — a non-reactive snapshot of app-db, for use inside an fx, handler or interceptor — and stamps the header on:
+The interceptor is a plain function. It reads the current token with `rf/app-db-value` — a non-reactive snapshot of app-db, for use inside an fx or interceptor; a pure event handler uses its `:db` coeffect — and stamps the header on:
 
 ```clojure
 (defn bearer-auth [ctx]
@@ -392,10 +385,6 @@ The interceptor is a plain function. It reads the current token with `rf/app-db-
 ```
 
 Wire it at boot with `reg-http-interceptor` (below). Because it reads app-db on every request, it always sees the current token, and logout disarms it with nothing to detach.
-
-??? info "Coming from Axios?"
-
-    This is your request interceptor, except it reads the token from app-db at call time instead of closing over a mutable module-level variable.
 
 ### Keeping the JWT redacted on both surfaces
 
@@ -472,7 +461,7 @@ Then rewrite `core.cljs`. The header shows the user, the root view gains the log
 
 The bearer interceptor is registered *before* `make-frame`, because `:auth/initialise` fires an authenticated `GET /user` straight away. Registration is keyed by frame id, so the frame needn't exist yet.
 
-The ordering that matters: **a `:url-bound? true` frame resolves the first URL after every `:initial-events` step, so the token is in app-db before any route is judged.** Dispatch the boot events after `make-frame` returns instead, and the first URL is resolved against an empty auth slice — once [Part 4](04-scopes-and-guards.md#the-guard) adds a route guard, a signed-in reader who reloads `/settings` would be bounced to login.
+The ordering that matters: **a `:url-bound? true` frame resolves the first URL after all `:initial-events` steps, so the token is in app-db before any route is judged.** Dispatch the boot events after `make-frame` returns instead, and the first URL is resolved against an empty auth slice — once [Part 4](04-scopes-and-guards.md#the-guard) adds a route guard, a signed-in reader who reloads `/settings` would be bounced to login.
 
 ## Sign out
 
