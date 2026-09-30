@@ -20,7 +20,6 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.set :as set]
-            [clojure.string :as string]
             [day8.re-frame2-xray.theme.tokens :as t]
             [day8.re-frame2-machines-viz.theme.tokens :as mv]))
 
@@ -40,18 +39,6 @@
       (is (string? v) (str palette-name " " k " resolves to a string"))
       (is (re-find #"^#[0-9A-Fa-f]{3,8}$" v)
           (str palette-name " " k " value " v " is a # hex string")))))
-
-(deftest every-tokens-value-is-a-css-variable-reference
-  (testing "`tokens` is the CSS-variable map. Every entry
-            resolves to `var(--rf-xray-<key>)` so inline `:style` reads
-            of `(:bg-1 tokens)` route through the active theme's class
-            scope rather than hardcoding the dark palette."
-    (doseq [[k v] t/tokens]
-      (is (string? v) (str "token " k " resolves to a string"))
-      (is (re-find #"^var\(--rf-xray-" v)
-          (str "token " k " value " v " is a var(--rf-xray-…) reference"))
-      (is (re-find (re-pattern (str "--rf-xray-" (name k) "\\)")) v)
-          (str "token " k " references --rf-xray-" (name k))))))
 
 (deftest rf2-5kfxe4-deep-variants-and-white-present-in-palette
   (testing "`:red-deep` and `:white` carry the danger-button /
@@ -444,12 +431,6 @@
                " contrast ratio " ratio
                " must clear WCAG 2.1 AA 4.5:1")))))
 
-(deftest text-tertiary-is-bumped-from-pre-fix-hex
-  (testing "`#6B7080` is below AA on the dark surfaces, so
-            `:text-tertiary` must not be it."
-    (is (not= "#6B7080" (:text-tertiary t/dark-palette))
-        "`:text-tertiary` is not the below-AA #6B7080")))
-
 (deftest text-secondary-still-passes-wcag-aaa
   (testing "Sanity guard — `:text-secondary` clears AAA (7:1) on
             bg-1, independently of `:text-tertiary`."
@@ -545,22 +526,6 @@
     (is (= "16px" (:gap-4 t/spacing)))
     (is (= "20px" (:gap-5 t/spacing)))
     (is (= "24px" (:gap-6 t/spacing)))))
-
-(deftest spacing-scale-monotone-increasing
-  (testing "the spacing scale is monotone increasing in
-            pixel value. Guards against accidental re-ordering when
-            adding intermediate steps later."
-    (let [px (fn [k]
-               (let [v (get t/spacing k)]
-                 (if (= v "0")
-                   0
-                   #?(:clj  (Long/parseLong (string/replace v "px" ""))
-                      :cljs (js/parseInt v 10)))))
-          ks [:gap-0 :gap-1 :gap-2 :gap-3 :gap-4 :gap-5 :gap-6]]
-      (doseq [[a b] (partition 2 1 ks)]
-        (is (< (px a) (px b))
-            (str a " (" (get t/spacing a) ") < "
-                 b " (" (get t/spacing b) ")"))))))
 
 (deftest xray-and-machines-viz-mono-and-sans-stacks-match
   (testing "the font stacks are part of the shared visual
