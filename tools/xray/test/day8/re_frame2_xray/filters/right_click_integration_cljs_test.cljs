@@ -7,7 +7,8 @@
    - fire `on-context-menu` on the row
    - assert it dispatches :rf.xray/open-row-context-menu with the
      event-id + click coords; the menu's hide item dispatches
-     :rf.xray/hide-event-type, which opens the pre-filled popup
+     :rf.xray/hide-event-type, whose pre-filled popup and save path
+     `filters.edit-popup-cljs-test` pins
 
   Plus the OUT-pill → filtered-event-bundles round-trip: once a pill is
   installed via the canonical add-filter event, the L2 event list
@@ -87,36 +88,6 @@
                        (= 256 (:y (second ev)))))
                 @dispatches)
           ":rf.xray/open-row-context-menu fired with event-id + coords"))))
-
-(deftest hide-event-type-handler-pre-populates-popup
-  (testing "the handler the row context menu's hide item dispatches
-            opens the popup with OUT mode + pattern pre-filled —
-            exercised directly via dispatch-sync"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/hide-event-type :user/mouse-move])
-      (is (true? @(rf/subscribe [:rf.xray/edit-popup-open?])))
-      (let [trig  @(rf/subscribe [:rf.xray/edit-popup-trigger])
-            draft @(rf/subscribe [:rf.xray/edit-popup-draft])]
-        (is (= :context (:source trig)))
-        (is (= :out (:mode trig)))
-        (is (= ":user/mouse-move" (:pattern draft))
-            "draft pre-populated with the row's event-id")))))
-
-(deftest right-click-then-save-installs-out-pill
-  (testing "the full right-click → confirm path lands the pill in OUT"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      ;; Step 1: the handler the right-click menu's hide item
-      ;; dispatches.
-      (rf/dispatch-sync [:rf.xray/hide-event-type :mouse-move])
-      ;; Step 2: user clicks Apply in the popup.
-      (rf/dispatch-sync [:rf.xray/save-edit-popup])
-      (is (= [{:pattern :mouse-move}]
-             (:out @(rf/subscribe [:rf.xray/active-filters])))
-          "OUT pill installed via right-click flow")
-      (is (false? @(rf/subscribe [:rf.xray/edit-popup-open?]))
-          "popup closes after save"))))
 
 ;; -------------------------------------------------------------------------
 ;; (2) Once OUT pill is set, filtered-event-bundles drops the matching row

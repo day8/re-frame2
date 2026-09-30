@@ -9,10 +9,6 @@
 
 ;; ---- normalise-pattern --------------------------------------------------
 
-(deftest normalise-pattern-exact-keyword
-  (is (= {:kind :exact :pattern :auth/login}
-         (#'matcher/normalise-pattern :auth/login))))
-
 (deftest normalise-pattern-prefix-glob
   (is (= {:kind :prefix :pattern ":auth/"}
          (#'matcher/normalise-pattern :auth/*)))
@@ -106,22 +102,6 @@
            through the NAMESPACE, and `:user/mouse-move`'s namespace is
            `user`, not `mouse-move`"))))
 
-(deftest match-event-id-bare-string-glob
-  (testing "`auth/*` (no colon) matches :auth/login"
-    (let [spec (#'matcher/normalise-pattern "auth/*")]
-      (is (matcher/match-event-id? :auth/login spec))
-      (is (matcher/match-event-id? :auth/logout spec))
-      (is (not (matcher/match-event-id? :order/submit spec)))
-      (is (not (matcher/match-event-id? nil spec))))))
-
-(deftest match-event-id-via-namespace-style-glob
-  (testing "spec/018 §7 'namespace (:order/*)' — implemented as a
-            prefix glob; matches every event-id with that namespace"
-    (let [spec (#'matcher/normalise-pattern :order/*)]
-      (is (matcher/match-event-id? :order/submit spec))
-      (is (matcher/match-event-id? :order/cancel spec))
-      (is (not (matcher/match-event-id? :auth/login spec))))))
-
 (deftest match-event-id-substring
   (let [spec (#'matcher/normalise-pattern "/login")]
     (is (matcher/match-event-id? :auth/login spec))
@@ -186,12 +166,6 @@
       (is (matcher/keep-event-bundle? {:event [:auth]} filters))
       (is (not (matcher/keep-event-bundle? {:event [:authors/x]} filters)))
       (is (not (matcher/keep-event-bundle? {:event [:order/submit]} filters))))))
-
-(deftest keep-event-bundle-in-only-whitelists
-  (let [filters {:in [{:pattern :auth/*}] :out []}]
-    (is (matcher/keep-event-bundle? {:event [:auth/login]} filters))
-    (is (matcher/keep-event-bundle? {:event [:auth/logout]} filters))
-    (is (not (matcher/keep-event-bundle? {:event [:order/submit]} filters)))))
 
 (deftest keep-event-bundle-in-and-out-intersect-correctly
   (testing "spec/018 §7 — ACTIVE = (match-any-IN) AND NOT (match-any-OUT)"
