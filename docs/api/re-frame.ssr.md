@@ -726,7 +726,7 @@ The server half of streaming, in the order a host calls it: `streaming-render-sh
     - If `frame-id` is destroyed or re-created while the payload is built, `:rf/app-db` is `:rf/redacted` and `:rf/runtime-db` is omitted.
 - **Options**:
     - `:payload` — required; a non-empty sequential of top-level `app-db` keyword keys (normally a vector), or `:rf.ssr.payload/whole-app-db` to ship the whole `app-db`. Omitting it throws `:rf.error/ssr-missing-payload-policy`. The [Ring payload option](re-frame.ssr.ring.md#ssr-handler) gives the full validation rules.
-    - `:version` — overrides the payload's `:rf/version`, which otherwise comes from the SSR artefact's compiled-in pattern-protocol constant. It takes an integer, or a string of digits; `nil` keeps the default, and any other value is ignored with a `:rf.ssr/invalid-version` warning.
+    - `:version` — overrides the payload's `:rf/version`, which otherwise comes from the SSR artefact's compiled-in pattern-protocol constant. It takes an integer, or a string of digits (within the JVM `Long` range); `nil` keeps the default, and any other value is ignored with a `:rf.ssr/invalid-version` warning.
     - `:client-frame-id` — the stable wire `:rf/frame-id`. Absent, the payload omits the key.
     - `:failed-boundaries` — the set of boundary ids whose continuation returned `:failed? true`. It is carried into the `runtime-db` slice the client `boundary` reads.
     - `:head-hash` — written as `:rf/head-hash`; omitted when `nil`.
