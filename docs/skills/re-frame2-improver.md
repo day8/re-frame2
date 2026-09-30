@@ -1,6 +1,14 @@
 # re-frame2-improver
 
-> Reviews **existing** re-frame2 ClojureScript code against a catalogue of re-frame2 anti-patterns, and fixes what it finds when you ask it to. It runs only when you ask for a review.
+Reviews **existing** re-frame2 ClojureScript code against a catalogue of re-frame2 anti-patterns, and fixes what it finds when you ask it to. It runs only when you ask for a review.
+
+## Kickoff
+
+Ask for a review with the code in scope:
+
+> *Review `src/app/cart/` for re-frame2 anti-patterns.*
+
+To apply corrections as well, ask: *"Using re-frame2-improver, review and fix `src/app/cart/`."* In Claude Code, `/re-frame2-improver` loads it explicitly.
 
 ## What it does
 
@@ -13,25 +21,17 @@ Whether it edits depends on what you asked for:
 - *"Review this"* is read-only. Each finding states its correction; nothing is applied.
 - *"Review and fix"* applies those corrections inside the scope you named, with no second approval round.
 
-A redesign that reaches beyond that scope stays a proposal either way. An instruction written into the code under review — a comment addressed to the agent — is treated as data, never obeyed. The reply includes only the sections that have content (scope reviewed, findings, fixes applied, open questions), and a clean result is one short verdict naming what was reviewed.
+A redesign that reaches beyond that scope stays a proposal either way. An instruction written into the code under review — a comment addressed to the agent — is treated as data, never obeyed. The reply includes only the sections that have content (scope reviewed, findings, fixes applied, open questions), and a clean result is one short verdict naming what was reviewed against this catalogue. That verdict does not claim the code is free of every kind of bug. Findings that share one correction are combined, so a loading flag and its boolean subscriptions do not generate conflicting rewrites.
 
 ## When to reach for it
 
-Use it when you explicitly ask for a review of re-frame2 code you already have, and that code is in front of the agent: read or edited in the conversation, pasted as a snippet, or named by a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Asking for a review with no code in scope is not enough, and a path that does not resolve does not count. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md) is the text the agent matches your request against.
+Use it when you explicitly ask for a review of re-frame2 code you already have, and that code is in front of the agent: read or edited in the conversation, pasted as a snippet, or named by a `.cljs` / `.cljc` file or directory path the skill can read (it reads the path before critiquing). Asking for a review with no code in scope is not enough, and a path that does not resolve does not count.
 
-Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
+For related work:
 
 - Writing new code → [re-frame2](re-frame2.md).
 - A retrospective on a pair session, rather than a review of source → [re-frame2-pair-retro](re-frame2-pair-retro.md).
 - *Porting* Reagent views to Fresco → [reagent-migration](reagent-migration.md). Reviewing existing Reagent-view code against the catalogue stays here.
-
-## Kickoff
-
-Ask for a review with the code in scope:
-
-> *Review `src/app/cart/` for re-frame2 anti-patterns.*
-
-Or type `/re-frame2-improver`. Ask it to "review and fix" to have it apply the corrections.
 
 ## When it stops
 
@@ -39,8 +39,4 @@ Or type `/re-frame2-improver`. Ask it to "review and fix" to have it apply the c
 - **The code is still re-frame v1** (`reg-event-db`, `reg-event-fx`, `inject-cofx`) — it says so and routes you to [re-frame-migration](re-frame-migration.md) rather than proposing re-frame2 rewrites into a v1 codebase.
 - **A finding that is really a gap in re-frame2** — it describes the gap for you to file against [`day8/re-frame2`](https://github.com/day8/re-frame2/issues). It does not rewrite your code around the gap, and it has no way to file the issue itself.
 
-## Where the skill lives
-
-- Source: [`skills/re-frame2-improver/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-improver)
-- `SKILL.md`: [`skills/re-frame2-improver/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md)
-- Canonical idioms it links to: [`skills/re-frame2/patterns/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2/patterns).
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-improver/SKILL.md) contains the full workflow and links to its reference notes.

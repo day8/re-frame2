@@ -1,24 +1,47 @@
 # re-frame2-pair
 
-> Works on your running re-frame2 app from the agent, over the app's shadow-cljs nREPL: reads any frame's `app-db`, dispatches events, hot-swaps handlers, walks epochs and reads the trace stream.
+Works on your running re-frame2 app from the agent, over the app's shadow-cljs nREPL: reads any frame's `app-db`, dispatches events, hot-swaps handlers, walks epochs and reads the trace stream.
 
-## What it does
+## Kickoff
 
-With your app running under `shadow-cljs watch`, the skill attaches to its nREPL session in `:cljs` mode and works on the live app, not just the source files. It uses three things re-frame2 exposes to tools:
+With the [one-time setup](#one-time-setup) done, `shadow-cljs watch` running and the app open in a browser tab, ask about the running app in your own words:
 
-1. **The REPL** — ClojureScript evaluated against the real app, usually through helpers in the `re-frame2-pair.runtime` namespace you add to the app's dev build.
-2. **The trace stream** — live trace events through `rf/register-listener!`, and recent ones through `rf/trace-buffer`.
-3. **The epoch history** — an *epoch* is the record one processed event leaves. `rf/epoch-history` returns a frame's recent epochs, each with `:db-before`, `:db-after`, its trace events, and the sub runs, renders and effects the event caused.
+> *What's in `app-db` under `:cart`?*
 
-It works with apps that run several frames; when it is unclear which frame to act on, every frame-targeted operation, reads included, refuses with `:ambiguous-frame` rather than guess. It registers exactly one trace listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`), so it runs alongside other tools on the same trace stream, Xray included.
+The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids. Only then does it read the sub, path or slice you asked about.
+
+With one build running there is nothing to pass. With several, name the build or give the app tab's URL: the skill can pass its integer `port` to `discover-app`. This is the browser port, not the nREPL port. The selected build stays selected until a switch or nREPL reconnect.
+
+For several app frames, name the one you want, such as `:app/main`. An explicit per-call frame wins over the session pin; otherwise the sole app frame is selected. Reserved tool frames do not create ambiguity. `set-operating-frame` pins the session choice and `reset-operating-frame` clears it.
+
+## What you can ask
+
+| Request | What the skill uses |
+|---|---|
+| "Read `[:cart/count]` and the cart items." | Targeted subscription and `app-db` reads after orientation. |
+| "What would `[:cart/remove 42]` do?" | `dispatch-dry-run`: execute the handler, suppress declared effects, then roll the frame back. |
+| "Remove item 42 and show what happened." | Real dispatch, the resulting epoch and a screen read when relevant. |
+| "Record the cart count while I click Remove." | Signal recording and readback; it can also wait for a specified condition. |
+| "Why did this view render?" | UI/source evidence and, for Fresco, mounted boundaries and subscription-read attribution. |
+| "Try this handler fix, then keep it." | A temporary REPL experiment followed by a source edit and verified hot reload. |
+| "Restore that epoch, or replay its event." | Separate restore and replay tools; replay uses the retained event and recorded coeffects. |
+| "Run the cart Story variant in this tab." | Story operations in the same browser runtime, then the ordinary frame tools. |
+
+`dispatch` and `replay-epoch` fire real effects, including HTTP, navigation and storage writes. A later restore cannot undo those effects. Replay does not rewind state first; request a restore separately when the starting state matters. The skill announces a live change before doing it.
+
+A dry run needs epoch recording. It suppresses declared effects and restores frame state, but cannot undo arbitrary side effects inside handler or listener code, and listeners may observe the temporary state. It also does not simulate effect-dispatched child events. The skill treats a result as rolled back only when both `:ok?` and `:rolled-back?` are true.
+
+## Keeping a fix
+
+An *epoch* records the work caused by a top-level event, including its child dispatches: before/after state, subscriptions, renders and effects. The skill uses those records for the result of a dispatch and raw traces for finer detail. It can run alongside Xray on the same trace stream.
 
 A change made at the REPL, such as a hot-swapped handler, is temporary: the next reload of that code replaces it, so a fix you want to keep goes into the source file. After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
 
 ## When to reach for it
 
-Use it when you want the agent to look at or change your **running** app, read-only questions included. The question is about the live runtime rather than about writing code. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md) is the text the agent matches your request against.
+Use it when you want the agent to look at or change your **running** app, read-only questions included. The question is about the live runtime rather than about writing code.
 
-Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
+For related work:
 
 - Reading the Xray panel yourself → [re-frame2-xray](re-frame2-xray.md). The line is a human reading the panel versus the agent reading the runtime, not read versus write.
 - Writing or changing code with no running app involved → [re-frame2](re-frame2.md).
@@ -70,16 +93,6 @@ Two steps, both on your side, before the first session:
 
     The snippets for each build tool are in [`references/setup.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/setup.md).
 
-## Kickoff
-
-With the setup done, `shadow-cljs watch` running and the app open in a browser tab, ask about the running app in your own words:
-
-> *What's in `app-db` under `:cart`?*
-
-The skill's first call is always `discover-app`. It finds the shadow-cljs nREPL port, connects, switches to `:cljs` mode for the running build, checks that re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the preloaded runtime namespace is there. Next it calls `orient`, a one-call summary of the app's frames, top-level `app-db` keys and registered ids. Only then does it read the sub, path or slice you asked about.
-
-With one build running there is nothing to pass. With several, `discover-app` refuses with the list of running builds rather than guessing; a `port` taken from the tab's URL picks the build served there.
-
 ## Server options
 
 The server is `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding one persistent nREPL connection per session; it is the skill's only transport. Three launch flags, passed in the `args` of the `mcpServers` entry, decide what the agent may do:
@@ -90,15 +103,17 @@ The server is `@day8/re-frame2-pair-mcp`, a stdio JSON-RPC server holding one pe
 | `--allow-sensitive-reads` | off | Lets a structured read lift `:rf/redacted` per call (`include-sensitive true`). |
 | `--no-eval` | absent (eval on) | Disables `eval-cljs` and a `tail-build` probe; they refuse with `:rf.error/eval-cljs-disabled`. |
 
-The server does not refuse a flag it cannot read. It warns about a misspelled or retired flag on stderr at startup and then ignores it, so that gate stays at its default.
+Pass boolean flags as bare arguments, for example `"--no-eval"`, not `"--no-eval=true"`. Unknown, retired or malformed launch arguments produce a warning on stderr and leave the setting at its default.
 
-`eval-cljs` returns values without the redaction the structured reads apply, so the skill uses a typed tool whenever one fits and keeps `eval-cljs` for what no typed tool covers: epoch forensics, arbitrary-selector DOM reads, cross-referencing and recovery.
+Two other flags steer discovery: `--port-file <absolute-path>` names the shadow nREPL port file; `--http-port <integer>` changes the shadow HTTP discovery endpoint from 9630. The latter is the shadow server's HTTP port, not the app tab's port. `SHADOW_CLJS_NREPL_PORT` supplies an nREPL port directly. An explicit port file takes precedence over that environment variable; otherwise the server searches workspace roots, probes shadow HTTP, then checks its working directory. Details are in the [transport reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#install--configure-one-time).
 
-The per-tool list with argument signatures is [`references/mcp-transport.md` §MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args); port discovery and the `--port-file` / `SHADOW_CLJS_NREPL_PORT` overrides are in the same file. Server source: [`tools/re-frame2-pair-mcp/`](https://github.com/day8/re-frame2/tree/main/tools/re-frame2-pair-mcp).
+These are separate controls: leaving `--allow-writes` off still permits real dispatch, replay and eval. `eval-cljs` can mutate the page and returns values without the redaction the structured reads apply, so the skill uses a typed tool whenever one fits and keeps `eval-cljs` for what no typed tool covers: epoch forensics, arbitrary-selector DOM reads, cross-referencing and recovery.
 
-## When it stops
+The [MCP tool reference](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/mcp-transport.md#mcp-tool-reference-args) lists every tool and its argument signature, including the size and privacy options supported per tool.
 
-Every tool answers a failure with `{:ok? false :reason …}` rather than guessing; the skill reports the reason and its hint verbatim and does not improvise a workaround. The ones you will meet first:
+## Troubleshooting
+
+Runtime refusals carry `{:ok? false :reason …}`; the skill reports the reason and its recovery hint. A missing server or broken connection may fail before a runtime reply is available. The ones you will meet first:
 
 | Reason | What it means | Fix |
 |---|---|---|
@@ -111,14 +126,10 @@ Every tool answers a failure with `{:ok? false :reason …}` rather than guessin
 | `:ambiguous-frame` | Two or more app frames and no frame chosen. | Name one — the skill pins it with `set-operating-frame`. |
 | `:rf.error/writes-disabled` | The server was launched without `--allow-writes`. | If you want time-travel and state injection, add `--allow-writes` to the server's `args` and start a fresh session. |
 
-The skill cannot reload a browser. When `discover-app`'s `:freshness` says the tab is serving old code (`:stale-build`) or no runtime is live (`:no-runtime`), it relays the URL to reload and waits for you. `:unknown` means the build's state could not be read, usually because a stale shadow-cljs JVM is still running: stop it with `npx shadow-cljs stop`, start one `watch`, reload the tab and let the skill reconnect.
+A successful discovery is ready for reads when `:freshness :liveness` is `:fresh`. With `:stale-build` (old code in the tab) or `:no-runtime` (no live runtime), the skill gives you the URL to reload; it cannot reload the browser itself. With `:unknown`, the build state could not be read. Follow the returned hint, which normally asks you to stop a stale shadow process with `npx shadow-cljs stop`, start one `watch`, reload and reconnect.
 
-Epoch reads that come back `[]` after the app has plainly dispatched mean `day8/re-frame2-epoch` is missing from step 2 — `discover-app` does not check for it. Without it `dispatch-dry-run`, `restore-epoch` and `replay-epoch` refuse too, and `replace-app-db` fails with `:rf.error/epoch-artefact-missing`. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
+If epoch reads stay `[]` after the app has dispatched, check that `day8/re-frame2-epoch` was added and required in step 2 — `discover-app` does not check for it. Without it `dispatch-dry-run`, `restore-epoch` and `replay-epoch` refuse too, and `replace-app-db` fails with `:rf.error/epoch-artefact-missing`. The full reason list and recoveries are in [`references/errors.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/references/errors.md).
 
-## Where the skill lives
+Fresco-specific evidence can return `:evidence-tier-unavailable` when the app uses another view layer or has not loaded `re-frame.fresco.tool`, or `:evidence-tier-inactive` outside a debug build. Those replies mean the evidence is unavailable, not that no views are mounted. DOM reads and the frame-level tools still apply to Reagent and UIx apps.
 
-- Source: [`skills/re-frame2-pair/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair)
-- `SKILL.md`: [`skills/re-frame2-pair/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md)
-- Reference notes: [`skills/re-frame2-pair/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair/references) — `SKILL.md` §Where the depth lives names the note for each question.
-- The trace stream, trace buffer and epoch history it reads: [Observability](../core/observability.md#tools-that-read-the-trace-stream).
-- The devtools panel for humans: [Xray](../xray/index.md).
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair/SKILL.md) contains the full workflow and links to its reference notes.
