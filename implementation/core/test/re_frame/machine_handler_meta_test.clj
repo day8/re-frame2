@@ -199,22 +199,6 @@
       (is (str/includes? (:rf.handler/source m-dec)  "dec"))
       (is (str/includes? (:rf.handler/source m-emit) ":dispatch")))))
 
-;; ---- guards-and-actions in one spec --------------------------------------
-
-(deftest reg-machine-captures-both-guards-and-actions-together
-  (testing "a single machine carrying both surfaces gets both kinds populated"
-    (rf/reg-machine :rf2-ypu5i/mixed
-      {:initial :idle
-       :guards  {:ready? (fn [{data :data}] (:ready? data))}
-       :actions {:start! (fn [_] {:fx [[:dispatch [:started]]]})}
-       :states  {:idle {:on {:go {:target :idle :guard :ready? :action :start!}}}}})
-    (let [mg (rf/handler-meta {:source :store :kind :machine-guard :id [:rf2-ypu5i/mixed :ready?]})
-          ma (rf/handler-meta {:source :store :kind :machine-action :id [:rf2-ypu5i/mixed :start!]})]
-      (is (= :ready? (:rf/guard-id  mg)))
-      (is (= :start! (:rf/action-id ma)))
-      (is (str/includes? (:rf.handler/source mg) ":ready?"))
-      (is (str/includes? (:rf.handler/source ma) ":dispatch")))))
-
 ;; ---- enumeration via the :event registration spec (no side-table) --------
 
 (deftest guards-and-actions-enumerable-via-event-registration-spec

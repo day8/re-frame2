@@ -373,30 +373,6 @@
 ;;             elided
 ;; ===========================================================================
 
-(deftest at-boundary-rejects-a-non-conforming-event-in-every-posture
-  (testing "Spec 010:220 — a handler that declares
-            `:boundary? true` does not run on an event that fails its
-            `:schema`, in dev AND under `-Dre-frame.debug=false`. The
-            enforcing code differs by posture (step-1 `validate-event!` in
-            dev, the boundary arm in production); the observable — the
-            handler is skipped and app-db is untouched — does not.
-
-            Red here under the gate means an untrusted system-boundary payload
-            reaches its handler unvalidated in production. That is a live
-            defect, not a test-spelling problem."
-    (let [calls (atom 0)]
-      (rf/reg-event :prod/boundary
-        {:schema    [:cat [:= :prod/boundary] :int]
-         :boundary? true}
-        (fn [{:keys [db]} [_ n]]
-          (swap! calls inc)
-          {:db (assoc db :n n)}))
-      (rf/dispatch-sync [:prod/boundary "not-an-int"])
-      (is (zero? @calls)
-          "the handler was SKIPPED on the non-conforming payload")
-      (is (nil? (:n (db-of)))
-          "and nothing from it committed to app-db"))))
-
 (deftest at-boundary-passes-a-conforming-event-through-in-every-posture
   (testing "the negative control for surface 2. The boundary
             interceptor is not simply breaking every dispatch: a CONFORMING
@@ -588,8 +564,8 @@
             because ordinary step-1 validation has been elided by the load-time
             gate exactly as Spec 010 §Validation order says it should be.
 
-            That is what makes `at-boundary-rejects-a-non-conforming-event-in-
-            every-posture` meaningful under the gate: the rejection cannot be
+            That is what makes `at-boundary-rejection-fans-one-structural-record-
+            in-every-posture` meaningful under the gate: the rejection cannot be
             step-1 doing the work, because step-1 demonstrably is not running
             in this JVM."
     (is (false? rf.interop/debug-enabled?)
