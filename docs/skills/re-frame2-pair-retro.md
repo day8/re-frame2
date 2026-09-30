@@ -39,7 +39,6 @@ For related work:
 - A review of source code, rather than of a session → [re-frame2-improver](re-frame2-improver.md).
 - A retro on a Story recording session → [re-frame2-pair](re-frame2-pair.md)'s Stories reference covers it.
 
-
 ## When it stops
 
 An explicit request over one clear session completes in one response; it does not stop at a list of candidates and ask which to pursue. It asks first only when:

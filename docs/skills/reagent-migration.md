@@ -39,7 +39,7 @@ For a cart that already registers `:cart/add` and `:cart/count`, the view change
 
 Positional parameters become one props map (and every call site changes with it), `@(subscribe …)` becomes `(h/sub …)`, which returns the value, and a dispatch-only closure becomes the event vector itself. Fresco views hold no local state. Product state moves to `app-db`, buffered field edits can use the forms module, and widget mechanics can stay in a foreign React component. The skill discusses that ownership before rewriting a stateful view.
 
-There is also a timing change: the event vector drains synchronously, while the old injected `dispatch` queued the event. Most callbacks want the vector form. If code after the dispatch relies on the old state, the skill checks the ordering and can preserve queued dispatch using an explicitly captured frame; see [MIG-04/05](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/catalog-mechanical.md#mig-04-05-dispatch-lifting).
+There is also a timing change: the event vector drains synchronously, while the old injected `dispatch` queued the event. Most callbacks want the vector form. If code after the dispatch relies on the old state, the skill checks the ordering and can preserve queued dispatch using an explicitly captured frame; see [MIG-04/05](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/catalog-mechanical.md#mig-04--05--dispatch-lifting).
 
 The skill's rules come in three tiers, each rule named by a `MIG-NN` id so you can audit any change:
 
