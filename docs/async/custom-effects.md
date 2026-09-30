@@ -1,85 +1,127 @@
 # Your own async effect
 
-To call a non-HTTP async host API (a promise SDK, a callback, IndexedDB, a worker) and
-get its result back as a named [event](../core/events.md), register an effect.
-The [event handler](../core/effects.md) stays pure, with no `.then` and no `await`: it
-asks for the effect and names the reply event. The effect does the host work and
-dispatches that event ([Why no await](continuations-are-data.md) explains the design).
+Wrap a non-HTTP host API in a registered effect. The event handler describes the
+work; the effect calls the host API and dispatches its result as another event.
+For example, an article screen can copy its text to the browser clipboard.
 
 ## Wrapping a promise
 
-Three steps: register the effect once, ask for it from a handler (naming where the reply lands), and handle the reply.
-
 ```clojure
-;; 1. Register the fx once, at boot. Its FIRST arg carries the frame; the
-;;    second is the args map you pass from the handler.
-(rf/reg-fx :payment/charge
-  {:doc       "Charge via the payment SDK, then dispatch the reply event."
-   :platforms #{:client}}                          ;; the SDK is browser-only
-  (fn [fx-ctx {:keys [amount on-success on-failure]}]
-    (let [frame (:frame fx-ctx)]                    ;; capture the frame for the deferred dispatch
-      (-> (js/paymentSdk.charge amount)            ;; the promise-returning API
-          (.then  (fn [result]                     ;; host objects become plain data here
-                    (rf/dispatch (conj on-success (js->clj result :keywordize-keys true))
-                                 {:frame frame})))
-          (.catch (fn [err]
-                    (rf/dispatch (conj on-failure {:message (.-message err)})
-                                 {:frame frame})))))))
+;; src/app/article_effects.cljs
+(ns app.article-effects
+  (:require [re-frame.core :as rf]))
 
-;; 2. A handler asks for it, naming where the reply lands.
-(rf/reg-event :checkout/pay
+(rf/reg-fx :clipboard/write
+  {:doc "Copy text and dispatch the result."
+   :platforms #{:client}}
+  (fn [{:keys [frame]} {:keys [text reply-to]}]
+    (-> (js/Promise.resolve nil)
+        ;; A missing clipboard API can throw synchronously. Starting inside
+        ;; .then sends that throw through the same path as a rejected promise.
+        (.then (fn [_] (.writeText (.-clipboard js/navigator) text)))
+        (.then (fn [_]
+                 (rf/dispatch (conj reply-to {:status :ok}) {:frame frame}))
+               (fn [error]
+                 (rf/dispatch
+                   (conj reply-to {:status :error
+                                   :error {:message (.-message error)}})
+                   {:frame frame}))))))
+
+(rf/reg-event :article/copy
   (fn [{:keys [db]} _]
-    {:db (assoc db :checkout/status :charging)
-     :fx [[:payment/charge {:amount     (:checkout/amount db)
-                            :on-success [:checkout/charged]
-                            :on-failure [:checkout/charge-failed]}]]}))
+    (let [token (inc (get db :article/copy-token 0))]
+      {:db (assoc db :article/copy-token token :article/copy-status :copying)
+       :fx [[:clipboard/write
+             {:text (get-in db [:article :data :body])
+              :reply-to [:article/copied token]}]]})))
 
-;; 3. Each reply is an ordinary event — its data appended as the last arg.
-(rf/reg-event :checkout/charged
-  (fn [{:keys [db]} [_ result]]
-    {:db (assoc db :checkout/status :paid, :checkout/receipt result)}))
-
-(rf/reg-event :checkout/charge-failed
-  (fn [{:keys [db]} [_ {:keys [message]}]]
-    {:db (assoc db :checkout/status :failed, :checkout/error message)}))
+(rf/reg-event :article/copied
+  (fn [{:keys [db]} [_ token reply]]
+    (if (= token (:article/copy-token db))
+      {:db (assoc db
+                  :article/copy-status (if (= :ok (:status reply)) :copied :error)
+                  :article/copy-error (get-in reply [:error :message]))}
+      {})))
 ```
 
-Swap `js/paymentSdk.charge` for an IndexedDB request, a `postMessage` to a worker, or a WebAuthn challenge and the shape is identical: post the work, translate the reply into a `dispatch`.
+The effect captures `:frame` before its promise callbacks run. Each callback
+passes that frame to `rf/dispatch`; a bare deferred dispatch has no frame context
+and reports `:rf.error/no-frame-context`. The reply handler receives the current
+app-db and updates it through `:db`, as any other event handler does.
 
-!!! warning "Gotcha — carry the frame"
+Here `:reply-to` and the reply map are our effect's own protocol. `reg-fx` does not
+add managed HTTP's decoding, retries, cancellation or stale-reply suppression.
+Using the familiar `:status` shape makes the handler easy to read without implying
+that those behaviors come with it.
 
-    The `.then` callback fires on a *fresh stack*, long after the handler returned, with no [frame](../core/frames.md) in scope. A bare `(rf/dispatch …)` there raises `:rf.error/no-frame-context`. So read `(:frame fx-ctx)` in the fx and pass `{:frame frame}` to every deferred dispatch — that lands the reply back in the frame the request came from.
+## Guarding replies and handling failure
 
-## Rules
+Each copy increments a token. Both success and failure carry it back, and the
+reply handler ignores an obsolete token. If leaving the article should also
+invalidate a pending copy, increment the token in that navigation event. This
+protects app state; it cannot undo a clipboard write that the browser accepted.
 
-- **Keep it serializable.** Pass keywords, ids, and data across the boundary — never closures. The reply event has to survive a trace, a replay, and an SSR payload, and a closure survives none of them. That's also why you name `:on-success`/`:on-failure` events instead of passing callbacks.
-- **Don't write `app-db` from the fx.** The fx posts work and dispatches; the *reply handler* does the state write. Keeping that split is what keeps handlers pure and replays deterministic.
-- **Guard against a stale reply.** A reply can land after the user has moved on: a second charge started, or the checkout was abandoned. Write a token into `app-db` when you issue the work (a counter works) and ride it on the reply vector, `:on-success [:checkout/charged token]`, so the handler receives `[_ token result]`. It commits only when that token still matches the one in `app-db`; on a mismatch it returns no effects.
+The [clipboard API](https://www.w3.org/TR/clipboard-apis/#async-clipboard-api)
+needs a secure browser context, and the browser may reject the write because
+permission or user activation is missing. Dispatch the copy event
+from the user's click and display the failure state if the write is refused.
+Do not retry it automatically.
+
+Use this pattern for a promise-based SDK too. For a callback API, dispatch from
+its completion callback with the same frame and token. Translate host objects
+into the plain data your reply handler needs before dispatching them.
 
 ## Testing it
 
-Each half tests on its own. The issuing handler returns the effect as data, so a [handler test](../core/testing/event-handlers.md) asserts on its `:fx`. The reply is an ordinary event, so a test can dispatch `[:checkout/charged {:id "ch_1"}]` directly. To run the whole chain, redirect the effect with `:fx-overrides` to a function that dispatches a canned reply ([Redirect any effect](../core/testing/pipeline-runs.md#redirect-any-effect-fx-overrides)):
+A [handler test](../core/testing/event-handlers.md) can assert on the issuing
+handler's `:fx`. A [pipeline test](../core/testing/pipeline-runs.md#redirect-any-effect-fx-overrides)
+can replace the clipboard effect and exercise the reply without accessing the
+browser clipboard:
 
 ```clojure
-(deftest checkout-pays
+;; test/app/article_effects_test.cljs
+(ns app.article-effects-test
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.test-support :as ts]
+            [app.article-effects]))
+
+(use-fixtures :each
+  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+
+(deftest copies-and-ignores-an-old-reply
   (rf/with-new-frame [f (rf/make-frame {})]
-    (rf/dispatch-sync [:checkout/pay]
-                      {:fx-overrides
-                       {:payment/charge (fn [{:keys [frame]} {:keys [on-success]}]
-                                          (rf/dispatch (conj on-success {:id "ch_1"}) {:frame frame}))}})
-    (is (= :paid (:checkout/status (rf/app-db-value f))))))
+    (rf/dispatch-sync
+      [:article/copy]
+      {:fx-overrides
+       {:clipboard/write
+        (fn [{:keys [frame]} {:keys [reply-to]}]
+          (rf/dispatch (conj reply-to {:status :ok}) {:frame frame}))}})
+    (is (= :copied (:article/copy-status (rf/app-db-value f))))
+    ;; The current token is 1; a late failure for token 0 must not replace it.
+    (rf/dispatch-sync [:article/copied 0
+                       {:status :error :error {:message "Old failure"}}])
+    (is (= :copied (:article/copy-status (rf/app-db-value f))))))
 ```
+
+The override tests your event protocol and token guard. Exercise the actual
+clipboard call in a browser to check permission and user-activation behavior.
 
 ## Troubleshooting
 
-| You see | What happened |
+| Symptom | Cause and fix |
 |---|---|
-| `:rf.error/no-such-fx` naming your fx id | The `reg-fx` never ran: the namespace that registers it isn't loaded. |
-| `:rf.error/fx-handler-exception` naming your fx id | The fx threw while posting the work (the SDK isn't on the page, say). That effect is skipped and no reply is dispatched; the handler's `:db` write and its other effects still apply. |
-| `:rf.fx/skipped-on-platform` | The fx ran where its `:platforms` excludes it, such as `#{:client}` during server-side rendering, and was skipped. |
-| `:rf.error/frame-destroyed` | The reply was dispatched after its frame was destroyed, and was dropped. The state it would have updated went with the frame. |
+| `:rf.error/no-such-fx` naming your effect | Its registration namespace was not loaded. Require it at boot. |
+| `:rf.error/no-frame-context` from a callback | Pass the captured `:frame` to every deferred dispatch. |
+| `:rf.error/fx-handler-exception` | The effect threw before arranging its reply. No reply is dispatched; the event's `:db` write and other effects still apply. Catch expected host failures and dispatch an error reply. |
+| `:rf.fx/skipped-on-platform` | `:platforms` excludes the current host, so no work or reply occurs. Start this browser-only effect from browser interaction. |
+| `:rf.error/frame-destroyed` | A callback dispatched after its frame was destroyed. Its state update is dropped; custom effects must arrange any host cleanup themselves. |
 
-## When *not* to roll your own
+## When to use another mechanism
 
-- **For HTTP, use [`:rf.http/managed`](http.md).** Don't hand-roll `fetch` — managed HTTP already gives you retries, abort, structured failures, and stale-result suppression. The example above is for APIs that *aren't* HTTP, so it only has the guarantees you put into it.
-- **For a long-lived connection** — a WebSocket, SSE, WebRTC peer with retry/backoff/heartbeat — the *connection* is a lifecycle, so model it with a [machine](../machines/concepts.md), not a one-shot fx. (Individual messages over an already-open socket *do* fit the one-shot shape above.)
+Use [managed HTTP](http.md) for HTTP requests. For a long-lived WebSocket, SSE or
+WebRTC connection, model connection setup, reconnect and teardown with a
+[machine](../machines/concepts.md). Individual messages can still return through
+events; the [WebSocket example](../../examples/patterns/websocket) shows the
+connection lifecycle.

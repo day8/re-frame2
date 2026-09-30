@@ -14,6 +14,9 @@ transforms the request on the way out; `:after` transforms the reply on the way 
 `rf/reg-http-interceptor` takes a positional id and an interceptor map. Here's Bearer auth as a single registration — note it reads the token *fresh on every request*, so rotation is picked up with zero re-registration:
 
 ```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.http.managed])
+
 (rf/reg-http-interceptor
   :app/bearer-auth
   {:doc    "Stamp Bearer <token> on every outgoing request."
@@ -29,7 +32,7 @@ transforms the request on the way out; `:after` transforms the reply on the way 
   (fn [_ _]
     {:fx [[:rf.http/managed
            {:request    {:method :get :url "/articles"}
-            :decode     ArticleListResponse
+            :decode     :json
             :on-success [:articles/loaded]
             :on-failure [:articles/load-failed]}]]}))
 ```
@@ -37,7 +40,7 @@ transforms the request on the way out; `:after` transforms the reply on the way 
 The two phases:
 
 - The `:before` fn receives a ctx of `{:request :args :frame :event :sensitive?}` and returns a ctx whose `:request` is the modified request map. `:sensitive?` says whether the args marked the request sensitive; to mark it from here, set `[:request :sensitive?]` to `true`. (Above, `cond-> ctx` adds the header only when a token is present, leaving the ctx untouched otherwise.) It reads app state through `rf/app-db-value` — an accessor that hands you the frame's current [app-db](../core/glossary.md#app-db) value, never a live subscription.
-- The `:after` fn is `(fn [ctx response] response')`. It sees the *same* ctx its `:before` produced — so a `:before` that stamps a start-time lets the matching `:after` compute an elapsed delta with no app state — plus the canonical `{:status :ok …}` / `{:status :error …}` response, and it returns a possibly-transformed response that the `:on-success` / `:on-failure` dispatch then carries. On success the response also carries the wire facts under `:meta` ([Handling the reply](http.md#handling-the-reply)), so header-driven concerns need no side channel.
+- The `:after` fn is `(fn [ctx response] response')`. Every `:after` sees the final ctx produced by the whole `:before` chain — so a `:before` that stamps a start-time lets the matching `:after` compute an elapsed delta with no app state — plus the canonical `{:status :ok …}` / `{:status :error …}` response, and it returns a possibly-transformed response that the `:on-success` / `:on-failure` dispatch then carries. On success the response also carries the wire facts under `:meta` ([Handling the reply](http.md#handling-the-reply)), so header-driven concerns need no side channel.
 
 That ctx-carried-forward shape, plus the `:meta` wire facts, is what makes per-request concerns — response-time telemetry, rate-limit header parsing, flagging a 401 for an auth refresh — single-interceptor jobs. Here is rate-limit parsing as a working registration — one parse per response, and every `:on-success` handler downstream reads the structured slot instead of a header string:
 
@@ -57,6 +60,7 @@ The rules that matter:
 
 - **Chains are per-frame.** An interceptor registered on one [frame](../core/frames.md) never fires for a request from another. Multi-frame apps register independent chains. So registration must name its frame: pass `:frame`, as above, or register inside a frame scope such as `rf/with-frame`. With neither, a top-level registration raises `:rf.error/no-frame-context` and installs nothing. [Add authentication](../core/how-to/add-auth.md#3-decorate-requests-once-at-the-frame-boundary) wires a full auth flow this way, including a 401 that logs the user out.
 - **Onion order.** `:before`s run in registration order, `:after`s in reverse — A-registered-before-B means `A.before → B.before → transport → B.after → A.after`. Exactly the event-interceptor mental model.
+- **The chain is captured when the request starts.** `:before` runs once; retries reuse its request, including its auth token. `:after` runs once on the final reply, including cancellation. Registering, replacing or clearing an interceptor affects later requests. Refreshing a token and reissuing a request therefore belongs in the application flow, not the transport retry policy.
 - **At least one phase is required.** A map with neither `:before` nor `:after` is rejected at registration with `:rf.error/http-bad-interceptor`, as is a phase that isn't a fn, or an id or `:frame` that isn't a keyword. A `:before`-only or `:after`-only interceptor is fine and composes cleanly.
 - **Each phase returns a map.** A `:before` returns the request ctx; an `:after` returns the reply map. Returning `nil`, a vector, or anything else fails the interceptor with `:rf.error/http-interceptor-bad-return`, carrying the interceptor's `:id` and what it `:returned`; the effect is the same as a throw (next rule). So a bad interceptor cannot erase the request or reply.
 - **A throw is named, not swallowed.** A `:before` or `:after` that throws classifies as `:rf.error/http-interceptor-failed` (carrying the offending `:interceptor-id`); a request-side throw means the transport never sees the request. Wrap recoverable logic inside the interceptor yourself — the chain has no recovery cofx.
@@ -79,7 +83,7 @@ Request bodies carry passwords, request headers carry auth tokens, and response 
   re-frame.http.managed/managed-handler)
 ```
 
-Names match case-insensitively. A malformed block fails loud with `:rf.error/bad-classification`.
+Names match case-insensitively. A malformed block raises `:rf.error/bad-classification` when a request reads it. The [reference](../api/re-frame.http.md#privacy-and-classification) lists the built-in names and the query-param policy form.
 
 **For a whole request, set `:sensitive?`.** When an *entire* request is sensitive — a login POST whose body is the password — flag it and the framework redacts the body, the `:params`, and *every* URL query value (not just the denylisted ones) on the way to the trace. The flag lives either under `:request` or at the top level of the args map; the two are equivalent, and either being true wins:
 
