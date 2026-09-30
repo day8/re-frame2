@@ -71,15 +71,25 @@ and wrap the root view's `case` in it:
 
 ```clojure
 (rf/reg-event :auth/session-restored
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    {:db (assoc-in db [:auth :user] (dissoc (:user value) :token))
-     :fx [[:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]]}))
+  {:sensitive [[:value :user :token]]}
+  (fn [{:keys [db]} [_ {:keys [value correlation]}]]
+    (if (= (:auth-generation db) (second (:request-id correlation)))
+      {:db (-> db
+               (update :auth-generation inc)
+               (assoc-in [:auth :user] (dissoc (:user value) :token)))
+       :fx [[:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]]}
+      {})))
 
 (rf/reg-event :auth/session-expired
-  (fn [{:keys [db]} _]
-    {:db (update db :auth assoc :user nil :token nil)  ;; targeted: form slices survive
-     :fx [[:auth.session/persist {:token nil}]
-          [:dispatch [:rf.route/replan-resources {:cause [:session-restore-failed]}]]]}))
+  {:sensitive [[:error :body]]}
+  (fn [{:keys [db]} [_ {:keys [correlation]}]]
+    (if (= (:auth-generation db) (second (:request-id correlation)))
+      {:db (-> db
+               (update :auth-generation inc)
+               (update :auth assoc :user nil :token nil))
+       :fx [[:auth.session/persist {:token nil}]
+            [:dispatch [:rf.route/replan-resources {:cause [:session-restore-failed]}]]]}
+      {})))
 ```
 
 **Signing in and out change the reader.** Signing in needs nothing extra: login ends by navigating, and a newly entered route plans its reads under the new reader. Signing out needs two more steps.
@@ -90,13 +100,16 @@ Part 3's `:auth/logout` ends the session. Now it also leaves a reader's cache be
 
 ```clojure
 (rf/reg-event :auth/logout
-  (fn [{:keys [db]} _]
-    (let [old-viewer (rf/resolve-resource-scope db :conduit/viewer)]
-      {:db (assoc db :auth {:user nil :token nil})
-       :fx (cond-> [[:auth.session/persist {:token nil}]]
+  (fn [{:keys [db]} [_ {:keys [generation]}]]
+    (if (and generation (not= generation (:auth-generation db)))
+      {}
+      (let [old-viewer (rf/resolve-resource-scope db :conduit/viewer)]
+        {:db (-> db (update :auth-generation (fnil inc 0))
+                  (assoc :auth {:user nil :token nil}))
+         :fx (cond-> [[:auth.session/persist {:token nil}]]
              old-viewer (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
              true       (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
-                              [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))})))
+                              [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))}))))
 ```
 
 The two new steps are about the cache. `rf/resolve-resource-scope` runs the viewer resolver against the handler's `db` — the value *before* this event, which still knows who is leaving — and `:rf.resource/clear-scope` evicts that reader's entries and aborts anything of theirs in flight. The replan comes after the navigate: signed out *on* the home page, the navigate is a no-op, and the replan is what fetches the anonymous list.

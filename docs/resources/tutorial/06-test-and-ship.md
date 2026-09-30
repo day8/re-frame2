@@ -1,8 +1,10 @@
 # Part 6: test it, ship it
 
-Conduit works in the browser. This part proves it with tests that run on the JVM in milliseconds, with no browser, then cuts the production bundle and shows what ships and what doesn't. Cache-specific tests — reads, invalidation, request counts — are in [Testing resources](../testing.md).
+This part tests Conduit's auth flow and view wiring on the JVM, then cuts the production bundle and explains what ships. Cache-specific tests — reads, invalidation, request counts — are in [Testing resources](../testing.md).
 
-The rule for every test here: **supply data, don't swap mechanisms.** You never patch `js/Date`, intercept `fetch`, or replace a module. You hand the runtime the facts a [handler](../../core/glossary.md#event-handler) declared it needs, then read the data it produced.
+Test pure handlers directly. For a pipeline, drive real dispatches and replace
+the effects that read storage or use the network with controlled replies. Assert
+the state and view that the application itself reads.
 
 ## 1. Set up the JVM test runner
 
@@ -58,108 +60,113 @@ An event handler is a pure function: coeffects and an event in, an [effect map](
 
 No frame, no dispatch, no runtime.
 
-Now a handler that needs something from the world: Part 3's boot handler, which reads the saved JWT through the recordable `:auth.session/token` [coeffect](../../core/glossary.md#coeffect) and declares that it needs it:
+Part 3's storage reply is another pure handler. Supply its classified map
+payload, including the current generation, then inspect the request it describes:
 
 ```clojure
-;; src/conduit/auth.cljc — from Part 3 (doc string elided)
-(rf/reg-cofx :auth.session/token
-  {:recordable? true}
-  (fn []
-    #?(:cljs (some-> (.-localStorage js/globalThis) (.getItem "jwtToken")))))
-
-(rf/reg-event :auth/initialise
-  {:rf.cofx/requires [:auth.session/token]}
-  (fn [{:keys [db auth.session/token]} _]
-    (cond-> {:db        (assoc db :auth {:user nil :token token})
-             :sensitive [[:auth :token]]}
-      token (assoc :fx [[:rf.http/managed
-                         {:request    {:method :get :url (str api/api-base "/user")}
-                          :decode     :json
-                          :on-success [:auth/session-restored]
-                          :on-failure [:auth/session-expired]}]]))))
-```
-
-It tests the same way, with the declared fact in the input map. A handler receives `:db`, `:event`, and exactly the facts in `:rf.cofx/requires`, so the fixture is a literal:
-
-```clojure
-(deftest initialise-folds-the-token-and-asks-who-it-is
-  (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id :auth/initialise}))
-        result  (handler {:db                 {}
-                          :auth.session/token "jwt-fixture"}  ;; the literal coeffects map
-                         [:auth/initialise])]
+(deftest saved-token-starts-session-verification
+  (let [handler (:handler-fn (rf/handler-meta
+                              {:source :store :kind :event :id :auth/session-read}))
+        result (handler {:db {:auth-generation 1 :auth {:user nil :token nil}}}
+                        [:auth/session-read {:generation 1 :token "jwt-fixture"}])]
     (is (= "jwt-fixture" (get-in result [:db :auth :token])))
-    (is (= [[:auth :token]] (:sensitive result)))
+    (is (= [:auth/restore 1] (get-in result [:fx 0 1 :request-id])))
     (is (= {:method :get :url (str api/api-base "/user")}
            (get-in result [:fx 0 1 :request])))))
 ```
 
-The last assertion checks a *description* of the request: the handler sent nothing, so no network needed mocking ([effects are data](../../core/glossary.md#effects-are-data)).
+The last assertion checks a description of a request. Calling the handler sends
+nothing, so this test needs no network stub. The credential is in the classified
+event payload, never a recordable coeffect.
 
-The declaration doubles as a **fixture checklist**. Ask the registry what a handler must be fed:
+Pin the stale-reply guard the same way. These replies belong to an earlier
+generation and must produce no effects against the current session:
 
 ```clojure
-(:rf.cofx/requires (rf/handler-meta {:source :store :kind :event :id :auth/initialise}))
-;; => [:auth.session/token]
+(deftest old-session-replies-cannot-change-the-current-session
+  (let [cofx {:db {:auth-generation 4
+                   :auth {:user {:username "bea"} :token "new-token"}}}
+        old-reply {:status :ok :value {:user {:username "ada" :token "old-token"}}
+                   :correlation {:request-id [:auth/restore 3]}}]
+    (doseq [id [:auth/session-restored :auth/session-expired
+                :auth.login-form/submit-success :auth.login-form/submit-failed]]
+      (let [handler (:handler-fn (rf/handler-meta {:source :store :kind :event :id id}))]
+        (is (= {} (handler cofx [id old-reply])))))
+    (let [logout (:handler-fn (rf/handler-meta
+                               {:source :store :kind :event :id :auth/logout}))]
+      (is (= {} (logout cofx [:auth/logout {:generation 3}]))))))
 ```
 
-Supply whatever appears there, in the literal map or on the dispatch (below). Nothing else is delivered, so nothing else can matter.
-
-!!! warning "Gotcha — freezing the clock"
-
-    Time is a declared fact too. A handler that stamps a timestamp declares `:rf.cofx/requires [:rf/time-ms]`, and a test supplies `{:rf/time-ms 1781078400123}` in the literal map. There's no `js/Date` to patch, because the handler never reads one.
+For non-secret external facts such as a clock or fresh id, a handler declares
+`:rf.cofx/requires`; a unit test supplies those keys in the coeffects map.
+[Testing handlers](../../core/testing/event-handlers.md) covers that separate case.
 
 ## 3. Test the pipeline run: one dispatch, end to end
 
-Part 3's boot restore is a *flow*: `:auth/initialise` fires a [managed HTTP](../glossary.md#managed-http) request, the reply re-enters as `:auth/session-restored`, and the user lands in app-db. Test it as one piece by driving a real dispatch through a real [frame](../../core/glossary.md#frame), redirecting only the points where it touches the outside world — the **edges**. The happy path, a cold boot that finds a saved token:
+Boot crosses two effect boundaries: storage returns a saved token, then HTTP
+verifies it. Use an effect override for each. The HTTP reply helper preserves
+the request's correlation id, which the generation guard reads:
 
 ```clojure
+(defn reply-with [reply]
+  (fn [{:keys [frame]} {:keys [request-id on-success on-failure]}]
+    (let [target (if (= :ok (:status reply)) on-success on-failure)]
+      (rf/dispatch (conj target (assoc reply :correlation {:request-id request-id}))
+                   {:frame frame}))))
+
 (deftest cold-boot-with-saved-token-restores-the-user
-  ;; :preset :test is one of make-frame's config keys — see the bullets below.
-  (rf/with-new-frame [f (rf/make-frame {:preset :test})]
-    (http-test-support/with-request-stubs
-      {[:get (str api/api-base "/user")]              ;; the URL Part 3's restore requests
-       {:reply {:ok {:user {:username "ada"
-                            :email    "ada@example.com"
-                            :token    "jwt-fixture"}}}}}
-      (fn []
-        (rf/dispatch-sync [:auth/initialise]
-                          {:rf.cofx {:auth.session/token "jwt-fixture"}})))
+  (rf/with-new-frame
+    [f (rf/make-frame
+         {:preset :test
+          :fx-overrides
+          {:auth.session/load
+           (fn [{:keys [frame]} {:keys [generation]}]
+             (rf/dispatch [:auth/session-read {:generation generation :token "jwt-fixture"}]
+                          {:frame frame}))
+           :rf.http/managed
+           (reply-with {:status :ok
+                        :value {:user {:username "ada" :email "ada@example.com"
+                                        :token "jwt-fixture"}}})}
+          :initial-events [[:auth/initialise]]})]
     (is (= "ada" (get-in (rf/app-db-value f) [:auth :user :username])))
-    (is (true?   (rf/compute-sub [:conduit/signed-in?] (rf/app-db-value f))))))
+    (is (true? (rf/compute-sub [:conduit/signed-in?] (rf/app-db-value f))))))
 ```
 
-Four things do the work, each redirecting a value at a boundary:
+`with-new-frame` destroys the frame even if an assertion fails. The frame's
+`:initial-events` drains the storage reply and our synchronous HTTP reply before
+returning. A real HTTP request remains asynchronous.
 
-- **`with-new-frame`** gives the test its own isolated frame — created for the body, destroyed on the way out, success or exception. `{:preset :test}` sets two test defaults. It answers `:rf.http/managed` with a canned success, so a request you forgot to stub never reaches the network. And it sets a **strict mint policy**: a handler that declares a supplier-backed [coeffect](../../core/glossary.md#coeffect) (a fresh id, say) and isn't *supplied* one raises `:rf.error/missing-required-cofx`, instead of generating a value that won't match production. `:rf/time-ms` is always stamped, so it never trips this.
-- **`{:rf.cofx {…}}` on the dispatch** supplies the declared fact, overriding the registered supplier for this one dispatch — no re-registering, no `localStorage`. Under `{:preset :test}`, forgetting the key raises `:rf.error/missing-required-cofx` rather than falling through to a live read.
-- **`with-request-stubs`** routes `:rf.http/managed` by method + URL for the thunk's extent and synthesizes a real reply envelope. The exact request data your handler produced arrives at the stub, and the reply re-enters through the same `:on-success` path a live response would.
-- **`dispatch-sync` drains to fixed point.** The whole pipeline run settles before the call returns — the stubbed request, the reply event, the session write. The assertions on the next lines read fully-committed state. No `act()`, no awaiting, no sleeps, no flake.
+The standard `with-request-stubs` helper is enough for tests that branch on
+`:status` and `:value`. Its [minimal replies](../../api/re-frame.http.md#testing-without-a-network)
+omit transport correlation, so this test uses an override to supply the additional
+fact the session guard needs. These overrides test the event pipeline; they do
+not test HTTP decoding, retry or transport cancellation.
 
-The unhappy path — the one your users will actually hit — is the same shape with a failure reply:
+The unhappy path uses the same helper with a failure reply:
 
 ```clojure
 (deftest wrong-password-shows-the-servers-words
   (rf/with-new-frame [f (rf/make-frame {:preset :test})]
-    (http-test-support/with-request-stubs
-      {[:post (str api/api-base "/users/login")]
-       {:reply {:failure {:kind   :rf.http/http-4xx
-                          :status 422
-                          :body   "{\"errors\":{\"email or password\":[\"is invalid\"]}}"}}}}
-      (fn []
-        (rf/dispatch-sync [:auth.login-form/initialise])
-        (rf/dispatch-sync [:auth.login-form/edit-field :email "ada@example.com"])
-        (rf/dispatch-sync [:auth.login-form/edit-field :password "wrong"])
-        (rf/dispatch-sync [:auth.login-form/submit])))
+    (rf/dispatch-sync [:auth.login-form/initialise])
+    (rf/dispatch-sync [:auth.login-form/edit-field :email "ada@example.com"])
+    (rf/dispatch-sync [:auth.login-form/edit-password {:value "wrong"}])
+    (rf/dispatch-sync
+      [:auth.login-form/submit]
+      {:fx-overrides
+       {:rf.http/managed
+        (reply-with {:status :error
+                     :error {:kind :rf.http/http-4xx :status 422
+                             :body "{\"errors\":{\"email or password\":[\"is invalid\"]}}"}})}})
     (is (= :error (get-in (rf/app-db-value f) [:auth :login-form :status])))
     (is (= ["email or password is invalid"]
            (rf/compute-sub [:auth.login-form/form-errors] (rf/app-db-value f))))))
 ```
 
-`compute-sub` runs a subscription's derivation as a plain function against a state value, headlessly. The stub replied with Conduit's real 422 body, so the second assertion also covered `failure->form-errors`' `:clj` branch. Every flow in the slice tests this way: stub the edges, drive the dispatches, assert on settled state. ([Test a pipeline run](../../core/testing/pipeline-runs.md) covers each edge, including per-dispatch `:fx-overrides`.)
-
-!!! warning "Gotcha — client-only effects skip on the server"
-
-    An effect declared `:platforms #{:client}`, like Part 3's `localStorage` persist, skips on the JVM and leaves a trace note. That's expected: the assertion targets the session in app-db, not the host write.
+`compute-sub` evaluates the real subscription headlessly. The failure body also
+exercises `failure->form-errors`' JVM JSON decoder.
+[Test a pipeline run](../../core/testing/pipeline-runs.md) explains effect overrides
+and their scope. Client-only persistence skips on the JVM; assert the app-db
+session here, and test the storage adapter separately when needed.
 
 ## 4. Test a subscription: compute it against a db
 
@@ -170,7 +177,7 @@ A subscription is a pure derivation — app-db value in, derived value out — s
   (rf/with-new-frame [f (rf/make-frame {})]
     (rf/dispatch-sync [:auth.login-form/initialise])      ;; seed the empty form
     (rf/dispatch-sync [:auth.login-form/edit-field :email    "ada@example.com"])
-    (rf/dispatch-sync [:auth.login-form/edit-field :password "hunter2"])
+    (rf/dispatch-sync [:auth.login-form/edit-password {:value "hunter2"}])
     (is (= true (rf/compute-sub [:auth.login-form/can-submit?] (rf/app-db-value f))))))
 ```
 
@@ -244,11 +251,11 @@ Three helpers from `re-frame.test-helpers` walk the hiccup: `find-by-testid` fin
 
 ```bash
 clojure -M:test
-# Ran 6 tests containing 11 assertions.
+# Ran 7 tests containing 16 assertions.
 # 0 failures, 0 errors.
 ```
 
-After dependency resolution and JVM startup, the tests run without a network service. **Try it:** break `:auth/initialise` — store the token under the wrong key — and run again. The pure test fails pointing at the exact map entry.
+After dependency resolution and JVM startup, the tests run without a network service. **Try it:** break `:auth/session-read` — store the token under the wrong key — and run again. The pure test fails pointing at the exact map entry.
 
 ## 7. Ship it: the release build
 

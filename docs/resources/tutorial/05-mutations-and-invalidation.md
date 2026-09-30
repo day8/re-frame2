@@ -60,15 +60,18 @@ Sign-out now has a second scope to clear, so extend Part 4's `:auth/logout` to r
 
 ```clojure
 (rf/reg-event :auth/logout
-  (fn [{:keys [db]} _]
-    (let [old-viewer  (rf/resolve-resource-scope db :conduit/viewer)
-          old-session (rf/resolve-resource-scope db :conduit/session)]
-      {:db (assoc db :auth {:user nil :token nil})
-       :fx (cond-> [[:auth.session/persist {:token nil}]]
+  (fn [{:keys [db]} [_ {:keys [generation]}]]
+    (if (and generation (not= generation (:auth-generation db)))
+      {}
+      (let [old-viewer  (rf/resolve-resource-scope db :conduit/viewer)
+            old-session (rf/resolve-resource-scope db :conduit/session)]
+        {:db (-> db (update :auth-generation (fnil inc 0))
+                  (assoc :auth {:user nil :token nil}))
+         :fx (cond-> [[:auth.session/persist {:token nil}]]
              old-viewer  (conj [:dispatch [:rf.resource/clear-scope {:scope old-viewer :cause :logout}]])
              old-session (conj [:dispatch [:rf.resource/clear-scope {:scope old-session :cause :logout}]])
              true        (conj [:dispatch [:rf.route/navigate {:to :conduit/home}]]
-                               [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))})))
+                               [:dispatch [:rf.route/replan-resources {:cause [:logout]}]]))}))))
 ```
 
 As with the viewer resolver, returning `nil` when logged out fails closed: the feed read fails rather than serving the previous user's feed.
@@ -290,7 +293,7 @@ The new idea is the instance id. A save can answer after the reader has left the
   (fn [[route] _] (save-instance (:nav-token route))))
 ```
 
-The token comes from the route slice: `:rf/route` carries a fresh [nav-token](../../routing/glossary.md#nav-token) for every navigation. A handler asks for the same token with `:rf.cofx/requires`, as Part 3's boot handler asked for the saved session token.
+The token comes from the route slice: `:rf/route` carries a fresh [nav-token](../../routing/glossary.md#nav-token) for every navigation. A handler asks for the same token with `:rf.cofx/requires`, which declares the non-secret navigation identity it needs. The secret JWT from Part 3 never travels through a recordable coeffect.
 
 Submit validates, then fires the mutation, naming the continuation — which carries the token too:
 
