@@ -5,8 +5,8 @@
   test runner and the shadow-cljs `:node-test` build pick it up.
   Every assertion runs identically under both runtimes because the
   helpers walk plain hiccup data — no React, no DOM."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test :refer-macros [are deftest is testing]])
             [clojure.string :as str]
             [re-frame.test-helpers :as rf.test-helpers]))
 
@@ -150,25 +150,21 @@
 ;; attrs / children
 ;; ---------------------------------------------------------------------------
 
-(deftest attrs-returns-map-when-present
-  (is (= {:k 1} (rf.test-helpers/attrs [:div {:k 1} "child"]))))
+(deftest attrs-reads-the-attrs-map-slot
+  (testing "the second element is the attrs map only when it is a map; a child
+            in that slot, or non-hiccup input, reads nil"
+    (are [node expected] (= expected (rf.test-helpers/attrs node))
+      [:div {:k 1} "child"] {:k 1}
+      [:div "child"]        nil
+      "string"              nil
+      nil                   nil)))
 
-(deftest attrs-returns-nil-when-second-is-child
-  (testing "no attrs map — second element is a child"
-    (is (nil? (rf.test-helpers/attrs [:div "child"]))))
-  (testing "non-hiccup"
-    (is (nil? (rf.test-helpers/attrs "string")))
-    (is (nil? (rf.test-helpers/attrs nil)))))
-
-(deftest children-returns-after-attrs
-  (is (= ["a" "b"] (rf.test-helpers/children [:div {:k 1} "a" "b"]))))
-
-(deftest children-returns-after-tag-when-no-attrs
-  (is (= ["a" "b"] (rf.test-helpers/children [:div "a" "b"]))))
-
-(deftest children-empty-when-no-children
-  (is (= [] (rf.test-helpers/children [:div {:k 1}])))
-  (is (= [] (rf.test-helpers/children [:div]))))
+(deftest children-are-everything-after-the-tag-and-attrs
+  (are [node expected] (= expected (rf.test-helpers/children node))
+    [:div {:k 1} "a" "b"] ["a" "b"]
+    [:div "a" "b"]        ["a" "b"]
+    [:div {:k 1}]         []
+    [:div]                []))
 
 ;; ---------------------------------------------------------------------------
 ;; find-by-testid family
@@ -301,34 +297,29 @@
 ;; text-content
 ;; ---------------------------------------------------------------------------
 
-(deftest text-content-collects-string-leaves
-  (let [tree [:div [:span "hello "] [:span "world"]]]
-    (is (= "hello world" (rf.test-helpers/text-content tree)))))
-
-(deftest text-content-coerces-numbers
-  (is (= "Count: 5" (rf.test-helpers/text-content [:span "Count: " 5]))))
+(deftest text-content-joins-string-and-number-leaves
+  (testing "string leaves join in order, numbers coerce to strings, and a node
+            with no text reads the empty string"
+    (are [node expected] (= expected (rf.test-helpers/text-content node))
+      [:div [:span "hello "] [:span "world"]] "hello world"
+      [:span "Count: " 5]                     "Count: 5"
+      [:div {:k 1}]                           "")))
 
 (deftest text-content-walks-function-components
   (let [tree (counter-view {:n 42 :on-inc identity})]
     (is (= "Count: 42"
            (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "counter-inc"))))))
 
-(deftest text-content-empty-on-no-strings
-  (is (= "" (rf.test-helpers/text-content [:div {:k 1}]))))
-
 ;; ---------------------------------------------------------------------------
 ;; extract-handler / invoke-handler
 ;; ---------------------------------------------------------------------------
 
-(deftest extract-handler-pulls-on-click
+(deftest extract-handler-reads-one-event-key
   (let [tree (counter-view {:n 0 :on-inc identity})
         btn  (rf.test-helpers/find-by-testid tree "counter-inc")]
-    (is (fn? (rf.test-helpers/extract-handler btn :on-click)))))
-
-(deftest extract-handler-nil-when-missing
-  (let [tree (counter-view {:n 0 :on-inc identity})
-        btn  (rf.test-helpers/find-by-testid tree "counter-inc")]
-    (is (nil? (rf.test-helpers/extract-handler btn :on-change)))))
+    (is (fn? (rf.test-helpers/extract-handler btn :on-click)))
+    (is (nil? (rf.test-helpers/extract-handler btn :on-change))
+        "a key the node does not carry reads nil")))
 
 (deftest invoke-handler-calls-and-returns
   (let [fired (atom nil)
@@ -357,19 +348,15 @@
 ;; testid (authoring helper)
 ;; ---------------------------------------------------------------------------
 
-(deftest testid-emits-attrs-map
-  (is (= {:data-testid "foo"} (rf.test-helpers/testid "foo"))))
-
-(deftest testid-merges-extra-attrs
-  (let [m (rf.test-helpers/testid "foo" {:on-click :handler :class "bar"})]
-    (is (= "foo"     (:data-testid m)))
-    (is (= :handler  (:on-click m)))
-    (is (= "bar"     (:class m)))))
-
-(deftest testid-id-wins-over-extra-collision
+(deftest testid-builds-the-attrs-map
+  (is (= {:data-testid "foo"} (rf.test-helpers/testid "foo")))
+  (testing "extra attrs merge in beside the testid"
+    (let [m (rf.test-helpers/testid "foo" {:on-click :handler :class "bar"})]
+      (is (= "foo"     (:data-testid m)))
+      (is (= :handler  (:on-click m)))
+      (is (= "bar"     (:class m)))))
   (testing "an :data-testid in extra is overridden by the id arg"
-    (let [m (rf.test-helpers/testid "outer" {:data-testid "inner"})]
-      (is (= "outer" (:data-testid m))))))
+    (is (= "outer" (:data-testid (rf.test-helpers/testid "outer" {:data-testid "inner"}))))))
 
 (deftest testid-round-trips-with-find-by-testid
   (testing "a view authored with `testid` is reachable by find-by-testid"

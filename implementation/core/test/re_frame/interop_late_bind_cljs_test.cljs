@@ -39,70 +39,18 @@
       (finally
         (rf.late-bind/set-fn! hook-key original)))))
 
-;; ---- ratom ----------------------------------------------------------------
-
-(deftest ratom-returns-nil-when-hook-absent
-  (testing "rf.interop/ratom returns nil (does not throw) when :adapter/ratom is unset"
-    (with-hook-as-nil :adapter/ratom
-      (fn []
-        (is (nil? (rf.late-bind/get-fn :adapter/ratom))
-            "precondition: hook is unset")
-        (is (nil? (rf.interop/ratom :v))
-            "absent hook returns nil — no throw")))))
-
-;; ---- ratom? ---------------------------------------------------------------
-
-(deftest ratom-pred-returns-false-when-hook-absent
-  (testing "rf.interop/ratom? returns false (does not throw) when :adapter/ratom? is unset"
-    (with-hook-as-nil :adapter/ratom?
-      (fn []
-        (is (false? (rf.interop/ratom? :anything))
-            "absent hook returns false per the docstring contract")))))
-
-;; ---- make-reaction --------------------------------------------------------
-
-(deftest make-reaction-returns-nil-when-hook-absent
-  (testing "rf.interop/make-reaction returns nil (does not throw) when :adapter/make-reaction is unset"
-    (with-hook-as-nil :adapter/make-reaction
-      (fn []
-        (is (nil? (rf.interop/make-reaction (fn [] :computed)))
-            "absent hook returns nil — no throw")))))
-
-;; ---- add-on-dispose! ------------------------------------------------------
-
-(deftest add-on-dispose-returns-nil-when-hook-absent
-  (testing "rf.interop/add-on-dispose! returns nil (does not throw) when :adapter/add-on-dispose! is unset"
-    (with-hook-as-nil :adapter/add-on-dispose!
-      (fn []
-        (is (nil? (rf.interop/add-on-dispose! (atom :stub) (fn [] :nothing)))
-            "absent hook returns nil — no throw")))))
-
-;; ---- dispose! -------------------------------------------------------------
-
-(deftest dispose-returns-nil-when-hook-absent
-  (testing "rf.interop/dispose! returns nil (does not throw) when :adapter/dispose! is unset"
-    (with-hook-as-nil :adapter/dispose!
-      (fn []
-        (is (nil? (rf.interop/dispose! (atom :stub)))
-            "absent hook returns nil — no throw")))))
-
-;; ---- reactive? ------------------------------------------------------------
-
-(deftest reactive-pred-returns-false-when-hook-absent
-  (testing "rf.interop/reactive? returns false (does not throw) when :adapter/reactive? is unset"
-    (with-hook-as-nil :adapter/reactive?
-      (fn []
-        (is (false? (rf.interop/reactive?))
-            "absent hook returns false per the docstring contract")))))
-
-;; ---- after-render ---------------------------------------------------------
-
-(deftest after-render-returns-nil-when-hook-absent
-  (testing "rf.interop/after-render returns nil (does not throw) when :adapter/after-render is unset"
-    ;; after-render is not in the list above but follows the same
-    ;; when-let pattern; covering it pins the same contract for the same
-    ;; call shape.
-    (with-hook-as-nil :adapter/after-render
-      (fn []
-        (is (nil? (rf.interop/after-render (fn [] :nothing)))
-            "absent hook returns nil — no throw")))))
+(deftest absent-hook-returns-its-default-rather-than-throwing
+  (doseq [[hook call expected]
+          [[:adapter/ratom           #(rf.interop/ratom :v)                                   nil]
+           [:adapter/ratom?          #(rf.interop/ratom? :anything)                           false]
+           [:adapter/make-reaction   #(rf.interop/make-reaction (fn [] :computed))            nil]
+           [:adapter/add-on-dispose! #(rf.interop/add-on-dispose! (atom :stub) (fn [] :nothing)) nil]
+           [:adapter/dispose!        #(rf.interop/dispose! (atom :stub))                      nil]
+           [:adapter/reactive?       #(rf.interop/reactive?)                                  false]
+           [:adapter/after-render    #(rf.interop/after-render (fn [] :nothing))              nil]]]
+    (testing (str hook " unset")
+      (with-hook-as-nil hook
+        (fn []
+          (is (nil? (rf.late-bind/get-fn hook)) "precondition: the hook is unset")
+          (is (= expected (call))
+              "the absent hook returns the documented default and does not throw"))))))
