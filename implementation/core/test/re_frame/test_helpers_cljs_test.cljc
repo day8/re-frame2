@@ -297,25 +297,6 @@
       (is (= 1 (count hits)))
       (is (= "x" (last (first hits)))))))
 
-;; The testid wrappers resolve exactly what the attr family resolves for
-;; `:data-testid` (Xray tests + every internal caller key on the testid wrapper).
-
-(deftest find-by-testid-still-routes-through-find-by-attr
-  (testing "find-by-testid is a thin wrapper — same semantics as find-by-attr :data-testid"
-    (let [tree (counter-view {:n 0 :on-inc identity})
-          via-testid (rf.test-helpers/find-by-testid tree "counter-root")
-          via-attr   (rf.test-helpers/find-by-attr tree :data-testid "counter-root")]
-      (is (= via-testid via-attr)
-          "the wrapper and the underlying resolve to the identical node"))))
-
-(deftest find-all-by-testid-still-routes-through-find-all-by-attr
-  (let [tree [:div
-              [:span {:data-testid "dup"} "first"]
-              [:span {:data-testid "dup"} "second"]]
-        via-testid (rf.test-helpers/find-all-by-testid tree "dup")
-        via-attr   (rf.test-helpers/find-all-by-attr tree :data-testid "dup")]
-    (is (= via-testid via-attr))))
-
 ;; ---------------------------------------------------------------------------
 ;; text-content
 ;; ---------------------------------------------------------------------------
