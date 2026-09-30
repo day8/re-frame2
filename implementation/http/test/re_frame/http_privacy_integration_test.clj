@@ -4,8 +4,8 @@
 
   Exercises the real :rf.http/managed dispatch path against an in-process
   HTTP server and asserts the emitted trace events on the trace bus are
-  correctly redacted / stamped per the per-call, per-request, and
-  handler-meta sensitivity sources.
+  correctly redacted / stamped per the per-call `:sensitive?` flag, the
+  header and query-param denylists, and `:decode`-schema sensitivity marks.
 
   The schemas artefact is a test-only dep here, so requiring it binds the
   shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)
@@ -112,8 +112,8 @@
                     (some #(= :rf.http/http-5xx (:operation %)) @captured))
                   3000)
               ev (first (filter #(= :rf.http/http-5xx (:operation %)) @captured))]
-          (is (or (true? (:sensitive? ev))
-                  (true? (get-in ev [:tags :sensitive?]))))
+          (is (true? (:sensitive? ev))
+              "the per-call flag reaches the event's top-level :sensitive?")
           (is (= :rf/redacted (get-in ev [:tags :body]))))
         (finally
           (stop-server! srv))))))
@@ -191,9 +191,8 @@
               "denylisted api_key value redacted in URL")
           (is (str/includes? url "page=2")
               "non-denylisted page param preserved")
-          (is (or (true? (:sensitive? ev))
-                  (true? (get-in ev [:tags :sensitive?])))
-              "denylist hit stamps :sensitive? on the trace event"))
+          (is (true? (:sensitive? ev))
+              "denylist hit stamps the event's top-level :sensitive?"))
         (finally
           (stop-server! srv))))))
 

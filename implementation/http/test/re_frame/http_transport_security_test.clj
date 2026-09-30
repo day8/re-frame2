@@ -280,15 +280,15 @@
 
 (deftest jvm-timeout-failure-carries-limit-ms
   (testing "a JVM `:rf.http/timeout` failure carries the
-  configured `:limit-ms` (Spec 014 §Failure categories types
-  `:rf.http/timeout` with `:elapsed-ms` / `:limit-ms`). `:elapsed-ms`
-  legitimately stays nil on JVM (the JDK exposes no elapsed value)."
+  configured `:limit-ms` and the `:elapsed-ms` the transport measured
+  (Spec 014 §Failure categories types `:rf.http/timeout` with
+  `:elapsed-ms` / `:limit-ms`)."
     (let [classify re-frame.http.transport-jvm/classify-jvm-error
           t   (java.net.http.HttpTimeoutException. "request timed out")
-          out (classify t 5000 nil)]
+          out (classify t 5000 5012)]
       (is (= :rf.http/timeout (:kind out)))
       (is (= 5000 (:limit-ms out)) ":limit-ms is threaded from the configured timeout-ms")
-      (is (nil? (:elapsed-ms out)) ":elapsed-ms stays nil on JVM"))))
+      (is (= 5012 (:elapsed-ms out)) ":elapsed-ms is threaded from the transport's measurement"))))
 
 ;; ---- classify-jvm-error matches exception types, never message text ----
 

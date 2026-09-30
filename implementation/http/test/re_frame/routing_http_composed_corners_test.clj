@@ -1,31 +1,25 @@
 (ns re-frame.routing-http-composed-corners-test
-  "Composes routing nav-token suppression with managed
-  HTTP reply paths.
+  "Composes routing's pending navigation and nav-token suppression with
+  managed HTTP.
 
   Routing nav-token staleness
   (routing_nav_token_test.clj::routing-nav-token-staleness +
   with-nav-token-fx-suppresses-stale-reply-to-and-commits-fresh) and managed
   HTTP success/failure/abort are each covered in isolation. This file pins the
-  CROSS-FEATURE composition: a managed HTTP reply that belongs to a
-  superseded navigation, pending-navigation cleanup of in-flight
-  requests, the cancel/continue branch under in-flight HTTP, and the
-  composed in-flight-registry leak audit.
+  CROSS-FEATURE composition:
+    - a pending-navigation cancel leaves the active route's in-flight
+      managed request registered;
+    - a pending-navigation continue re-issues the navigation and advances
+      the nav-token;
+    - a managed HTTP reply belonging to a navigation superseded through a
+      pending-navigation cycle is suppressed by the nav-token guard.
 
-  What it pins:
-    - Retry/backoff does not resurrect a request after nav-token
-      staleness (covered structurally via the with-nav-token suppression
-      guard — retried requests' reply commits also route through the
-      guard).
-    - Pending-navigation cancel/continue is covered with an in-flight
-      managed request and proves cleanup/no leaked retry timer.
-    - Abort-vs-decode-failure precedence is pinned in
-      `re-frame.http-abort-precedence-test`, not here, since the
-      canned-stub transport cannot reliably reproduce the race."
+  Abort-vs-decode-failure precedence is pinned in
+  `re-frame.http-abort-precedence-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as rf.fx]
             [re-frame.http.managed :as rf.http.managed]
-            [re-frame.http.test-support]
             [re-frame.routing]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
@@ -53,26 +47,24 @@
   (filter #(= :rf.route.nav-token/stale-suppressed (:operation %)) @recorded))
 
 ;; ---------------------------------------------------------------------------
-;; 2. Pending-navigation cancel leaves in-flight managed HTTP from the
+;; 1. Pending-navigation cancel leaves in-flight managed HTTP from the
 ;;    active route untouched
 ;;
 ;; Active route :route/editor declares :can-leave returning false; user
 ;; issues :rf.route/url-requested to a sibling URL; pending-nav slot
-;; populates. While pending, the active route still has a managed HTTP
-;; request mid-flight (canned stub holds back via :on-success nil to
-;; avoid auto-resolution). User cancels via :rf.route/cancel. The
-;; pending-nav slot clears; the in-flight registry is NOT pre-emptively
-;; cleared by the cancel (the request belongs to the route the user is
-;; staying on); a subsequent abort or natural completion is the only
-;; cleanup trigger.
+;; populates. While pending, the active route has a managed HTTP request
+;; in flight (seeded into the in-flight registry). User cancels via
+;; :rf.route/cancel. The pending-nav slot clears; the in-flight registry
+;; is NOT pre-emptively cleared by the cancel (the request belongs to the
+;; route the user is staying on); a subsequent abort or natural completion
+;; is the only cleanup trigger.
 ;; ---------------------------------------------------------------------------
 
 (deftest pending-navigation-cancel-clears-pending-without-touching-in-flight
   (testing ":rf.route/cancel clears the pending-nav slot; in-flight
             managed HTTP from the active route is NOT torn down by cancel"
     ;; Active route :route/editor: :can-leave returns false → blocks the
-    ;; navigation; on-match issues a long-running managed HTTP whose
-    ;; reply is silenced.
+    ;; navigation.
     (rf/reg-sub :editor/blocked? (fn [_ _] false)) ;; false = "cannot leave"
     (rf/reg-route :route/editor
                   {:params    [:map [:id :string]]
@@ -82,26 +74,11 @@
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 
-    ;; Land on /editor/draft, then issue a long-running managed HTTP
-    ;; from a user event (not :on-match — so it stays in-flight).
+    ;; Land on /editor/draft.
     (rf/dispatch-sync [:rf.route/handle-url-change "/editor/draft" {:rf.route/cause :link}])
     (is (= :route/editor (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/routing :current :route-id]))
         "precondition: landed on :route/editor")
-    (rf/reg-event :editor/save
-                     (fn [_ _]
-                       {:fx [[:rf.http/managed
-                              {:request    {:method :put
-                                            :url    "/api/editor/draft"}
-                               :request-id :editor.save/draft
-                               ;; Silence the auto-reply by binding the
-                               ;; stub to a non-existent on-success
-                               ;; handler — the in-flight entry is
-                               ;; recorded but never naturally resolves
-                               ;; against the registry's snapshot until
-                               ;; we clear it.
-                               :on-success [:editor/saved]}]]}))
-    (rf/reg-event :editor/saved (fn [{:keys [db]} _] {:db (assoc db :saved? true)}))
 
     ;; To pin "cancel does not touch in-flight bookkeeping" we seed an
     ;; in-flight entry through the registry's test helper — that mirrors
@@ -146,20 +123,16 @@
           "post-cancel: current route slice still on the active editor route"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Pending-navigation continue advances nav-token; in-flight registry
-;;    stays canonical (no orphans from the cancelled-and-resumed branch)
+;; 2. Pending-navigation continue advances the nav-token
 ;;
 ;; The continue branch re-issues the original navigation with
 ;; :bypass-leave? true. The nav-token advances on the new
-;; :rf.route/handle-url-change; any in-flight managed HTTP from before the
-;; pending-nav cycle is still in the registry until naturally aborted /
-;; resolved — but the continued nav's own HTTP requests are tracked
-;; under fresh entries.
+;; :rf.route/handle-url-change, which is what test 3's stale-reply
+;; suppression keys on.
 ;; ---------------------------------------------------------------------------
 
-(deftest pending-navigation-continue-bumps-nav-token-and-tracks-new-in-flight
-  (testing ":rf.route/continue: re-issues navigation, bumps nav-token,
-            in-flight registry stays canonical across the cycle"
+(deftest pending-navigation-continue-bumps-nav-token
+  (testing ":rf.route/continue: re-issues navigation and bumps the nav-token"
     (rf/reg-sub :editor/blocked? (fn [_ _] false)) ;; false = "cannot leave"
     (rf/reg-route :route/editor
                   {:params    [:map [:id :string]]
@@ -167,9 +140,6 @@
     ;; Use a sibling route that's an actual valid URL (not /home which
     ;; would be :route/root). /sibling has its own route entry.
     (rf/reg-route :route/sibling {} "/sibling")
-    (rf.fx/reg-fx :rf.nav/push-url
-               {:platforms #{:server :client}}
-               (fn [_ url] nil))
 
     ;; Land on /editor/draft.
     (rf/dispatch-sync [:rf.route/handle-url-change "/editor/draft" {:rf.route/cause :link}])
@@ -184,7 +154,6 @@
       ;; require a real browser-history. The route slice still updates
       ;; via :rf.route/handle-url-change dispatched from :rf.route/url-requested.
       (let [pushed (atom [])]
-        (rf/clear :fx :rf.nav/push-url)
         (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
@@ -214,7 +183,7 @@
               "post-continue: :rf.nav/push-url received /sibling"))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. Composed stale HTTP reply DURING a pending-navigation cycle is
+;; 3. Composed stale HTTP reply DURING a pending-navigation cycle is
 ;;    suppressed when it arrives post-resume
 ;;
 ;; User on /articles/A; an on-match handler issues a managed HTTP with

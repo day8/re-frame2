@@ -61,13 +61,6 @@
             [re-frame.flows]
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
-            ;; Required only to keep the test-support
-            ;; canned-stub fx ids registered (mirrors http-managed-test's
-            ;; require closure). This file does NOT use the stubs; the
-            ;; abort path is exercised by writing directly into the
-            ;; in-flight registry with a recording abort-fn (mirrors
-            ;; routing_http_composed_corners_test.clj's pattern).
-            [re-frame.http.test-support]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             [re-frame.trace.tooling :as rf.trace.tooling]))

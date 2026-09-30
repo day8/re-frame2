@@ -151,7 +151,14 @@
       (doseq [s samples]
         (is (and (<= 1500 s) (<= s 2500))
             (str "post-clamp jittered sample " s " sits in ±25% window
-                  around clamp (1500..2500)"))))))
+                  around clamp (1500..2500)")))
+      ;; Clamping AFTER jitter would pin every sample at max-ms: the raw
+      ;; value's jitter window [384000, 640000] lies wholly above the clamp.
+      ;; Jittering the clamped value spreads samples both sides of it.
+      (is (some #(> % 2000) samples)
+          "some samples sit ABOVE max-ms — jitter applies to the clamped value")
+      (is (some #(< % 2000) samples)
+          "and some sit below it"))))
 
 ;; ---- build-reply-event — Spec 014 §Reply addressing -----------------------
 ;;

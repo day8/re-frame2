@@ -31,7 +31,6 @@
             [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.reply :as rf.http.reply]
-            [re-frame.http.test-support]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.reply :as rf.reply]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -43,10 +42,9 @@
 ;; ---- per-test reset (mirrors http_managed_test.clj) -----------------------
 
 ;; The canonical fixture snapshot/restores the registrar, so the framework's
-;; built-in `:rf/time-ms` reg-cofx (registered at `re-frame.cofx` ns-load) and
-;; the `re-frame.http.test-support` canned-stub fx ids survive between tests
-;; without a per-test `:reload` — the EP-0017 reply-time tests
-;; need `:rf/time-ms` present for a reply handler declaring
+;; built-in `:rf/time-ms` reg-cofx (registered at `re-frame.cofx` ns-load)
+;; survives between tests without a per-test `:reload` — the EP-0017
+;; reply-time tests need `:rf/time-ms` present for a reply handler declaring
 ;; `:rf.cofx/requires [:rf/time-ms]`.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))

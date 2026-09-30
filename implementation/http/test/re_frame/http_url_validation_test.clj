@@ -45,7 +45,6 @@
 (defn- bad-request-throw?
   [ex offending-url]
   (and (some? ex)
-       (= :rf.error/http-bad-request (:rf.error/id (ex-data ex)))
        (let [data (ex-data ex)]
          (and (= :rf.error/http-bad-request (:rf.error/id data))
               (= :rf.http/managed          (:where data))

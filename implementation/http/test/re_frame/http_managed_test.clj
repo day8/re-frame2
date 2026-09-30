@@ -866,38 +866,22 @@
 
 (deftest jvm-managed-abort-unknown-request-id-is-silent-noop
   (testing ":rf.http/managed-abort on a request-id never seen by the in-flight
-            registry completes without throwing and dispatches no reply
-            (no :on-failure, no trace error). Idempotent abort contract."
-    (let [reply-fired? (atom false)
-          traces       (atom [])
-          listener-id  ::kdwnq-trace]
+            registry is a silent no-op: no error trace, on the first abort or
+            on a repeat of it. Idempotent abort contract."
+    (let [traces      (atom [])
+          listener-id ::kdwnq-trace]
       (try
         (rf.trace.tooling/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
-        ;; If a reply ever dispatches the test will catch it (silently
-        ;; ignored handler) — but the load-bearing assertion is that no
-        ;; throw escapes the abort fx.
         (rf/reg-event :kdwnq/abort-never-issued
           (fn [_ _]
             {:fx [[:rf.http/managed-abort :kdwnq/never-issued]]}))
-        (rf/reg-event :kdwnq/some-reply
-          (fn [{:keys [db]} _]
-            (reset! reply-fired? true)
-            {:db db}))
-        ;; The call itself must not throw.
-        (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
-            "dispatch returns nil; abort handler is a silent no-op on unknown id")
+        ;; A throwing fx does not escape `dispatch-sync`: the router traces
+        ;; it as `:rf.error/fx-handler-exception`, so the error-trace check
+        ;; below is what catches a throw.
+        (rf/dispatch-sync [:kdwnq/abort-never-issued])
         ;; Idempotent — abort the same unknown id a second time.
-        (is (nil? (rf/dispatch-sync [:kdwnq/abort-never-issued]))
-            "second abort of the same unknown id is also a silent no-op")
-        ;; Timer-semantics sleep: assertion is the *absence*
-        ;; of any reply — there is no observable signal to poll against
-        ;; (we are proving nothing fires). The 50ms window is the
-        ;; quiescence budget; if a stray reply was going to come, it
-        ;; would have surfaced within this slack.
-        (Thread/sleep 50)
-        (is (false? @reply-fired?)
-            "no reply event was dispatched — the registry knew nothing about the id")
+        (rf/dispatch-sync [:kdwnq/abort-never-issued])
         (let [errors (filter #(= :error (:op-type %)) @traces)]
           (is (empty? errors)
               (str "no :rf.error/* trace fired for the abort no-op; saw: "
