@@ -60,8 +60,9 @@ Forward; `:rf.route/url-requested` for a `route-link` click; and a `{:url …}`
 `:rf.route/navigate`. `match-url` resolves the URL to `:legacy/post`, and `moved`
 turns its params into the new address. The original query and fragment are kept,
 unless the new address overrides them, so `/posts/intro?tag=ssr#comments` reaches
-`/articles/intro?tag=ssr#comments`. Declare any query keys whose typed values the
-destination reads in that route's `:query` schema.
+`/articles/intro?tag=ssr#comments`. If the destination uses typed query values, keep
+the same `:query` schema on the old route too: matching the old URL must produce
+the types the new address expects, such as an integer for `:page`.
 
 Setting `:rf/skip-handler?` stops the original navigation before anything commits: no
 route change, no guards, no `:on-match`. The `:fx` then starts a navigation to the
