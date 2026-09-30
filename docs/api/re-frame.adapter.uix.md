@@ -197,7 +197,11 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
   ```clojure
   (uix-adapter/render! app-root ($ app-view) el)                   ;; first call: create + render
   (uix-adapter/render! app-root ($ app-view) el)                   ;; later calls: update the same root
-  (uix-adapter/render! app-root ($ app-view) el {:hydrate? true})  ;; SSR page: hydrate once, then update
+
+  ;; Alternative boot for an SSR page: hydrate on this handle's FIRST render.
+  (defonce hydrated-root (uix-adapter/client-root))
+  (uix-adapter/render! hydrated-root ($ app-view) el {:hydrate? true})
+  (uix-adapter/render! hydrated-root ($ app-view) el)  ;; later: update
   ```
 
 ### `unmount!`
@@ -208,6 +212,7 @@ These are the same three functions as on [`re-frame.adapter.reagent`](re-frame.a
   (unmount! handle) → nil
   ```
 - **Description**: Unmounts the React root `handle` holds and returns the handle to inert, so a later `render!` mounts afresh. Returns nil.
+    - Unmounting releases the view tree; it does not destroy the frames used by that tree. A `frame-root` reuses its live frame on remount. If the app owns a frame that should end here, call [`rf/destroy-frame!`](re-frame.core.md#destroy-frame) separately.
     - Idempotent: a second call, or a call after `rf/destroy-adapter!` has released the root, does nothing.
 - **Example**:
   ```clojure

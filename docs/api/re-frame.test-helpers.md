@@ -21,7 +21,7 @@ Everything here, the [connected view test](#a-connected-view-test) included, run
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (attrs node) → map
+  (attrs node) → map | nil
   ```
 - **Description**: Returns the attrs map of a hiccup node, or `nil` when it has none.
 - **Example**:
@@ -35,7 +35,7 @@ Everything here, the [connected view test](#a-connected-view-test) included, run
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (children node) → vector
+  (children node) → vector | nil
   ```
 - **Description**: Returns everything after the tag and the optional attrs map. The result is always a vector, empty when the node has no children. Non-vector input returns `nil`.
 - **Example**:
@@ -52,6 +52,7 @@ Everything here, the [connected view test](#a-connected-view-test) included, run
   (text-content node) → string
   ```
 - **Description**: Returns the text under `node`: every string leaf, with nested components expanded, joined into one string. Numbers become strings and `nil`s are skipped. With no text, the result is `""`.
+    - This walks data without a browser: it does not insert spaces between elements or account for CSS visibility. Use keyword tags (`:div`); a string tag (`"div"`) is itself a string in the walk and contributes to the result.
 - **Example**:
   ```clojure
   (th/text-content [:div "Count: " [:b 5]])  ; => "Count: 5"
@@ -80,7 +81,7 @@ These walk the whole tree, expanding components as they go, and work with any at
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (find-by-attr tree attr val) → node
+  (find-by-attr tree attr val) → node | nil
   ```
 - **Description**: Returns the first node whose attrs map has `attr` equal to `val`, or `nil` when nothing matches. A `nil` `val` matches any node without `attr`, leaves included, so looking up an unset test id returns the root or another unrelated node instead of `nil`.
 - **Example**:
@@ -125,7 +126,7 @@ The same three searches, keyed on `:data-testid`.
 - **Kind**: function
 - **Signature**:
   ```clojure
-  (find-by-testid tree test-id) → node
+  (find-by-testid tree test-id) → node | nil
   ```
 - **Description**: Returns the first node whose `:data-testid` is `test-id`, or `nil`. Equivalent to `(find-by-attr tree :data-testid test-id)`.
 - **Example**:
@@ -170,6 +171,7 @@ The same three searches, keyed on `:data-testid`.
   (invoke-handler node event-key & args) → any
   ```
 - **Description**: Calls the handler under `event-key` on `node` with `args` and returns its value. Use it to click a button or change an input in a test.
+    - The handler must be a function. A declarative event vector is not invoked here; use [Fresco's testing helpers](../core/fresco/15-testing.md) for Fresco event attributes. Supply any event argument the callback reads, and expect exceptions from the callback to propagate.
     - An ordinary `dispatch` inside the handler only queues the event, so `app-db` has not changed yet when `invoke-handler` returns. Wait for the result with [`re-frame.test-support/poll-until`](re-frame.test-support.md#poll-until), in the same fixture-owned frame the click dispatched into. A handler that calls `dispatch-sync` drains in place.
     - On CLJS, do not wrap the click and the wait in `rf/with-new-frame`: `poll-until` returns a Promise at once, so the body returns and destroys the frame before the queued event drains. On the JVM, `poll-until` blocks inside the body, so the frame outlives the wait.
 - **Errors**: `invoke-handler` throws, because a missing handler is usually the bug under test:
