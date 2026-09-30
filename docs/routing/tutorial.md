@@ -493,7 +493,7 @@ the root view, and give the article page an **Edit** link:
 `[rf/route-link {:to :app/article-editor :params {:slug slug}} "Edit"]`, with `slug`
 read from `:rf.route/params` as in Step 3.
 
-`:rf.route/continue` completes the waiting navigation; `:rf.route/cancel` drops it. As
+`:rf.route/continue` resumes the waiting navigation; `:rf.route/cancel` drops it. As
 with `:can-enter`, the guard must return a boolean — anything else blocks and raises
 `:rf.error/can-leave-non-boolean`.
 
