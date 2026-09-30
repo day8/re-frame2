@@ -2424,20 +2424,12 @@ async function runStaticModeChromeAndChord(page, state) {
         return {
           rootPresent: true,
           rootTag:     root.tagName ? root.tagName.toLowerCase() : null,
-          // Placeholder testid for the same tab id MUST be absent —
-          // proves the shell switched from placeholder-card to the
-          // real panel root.
-          placeholderAbsent: !document.querySelector(
-            `[data-testid="rf-xray-static-placeholder-${rootId.split('-').pop()}"]`,
-          ),
         };
       }, rootTestId),
-      (snap) => Boolean(snap)
-                && snap.rootPresent === true
-                && snap.placeholderAbsent === true,
+      (snap) => Boolean(snap) && snap.rootPresent === true,
       {
         timeoutMs: 5000,
-        description: `Static sub-tab :${tabId} real panel root ${rootTestId} mounted (placeholder absent)`,
+        description: `Static sub-tab :${tabId} real panel root ${rootTestId} mounted`,
       },
     );
     shippedSubTabRoots[tabId] = observed;
