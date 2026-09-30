@@ -146,27 +146,9 @@
             (is (string? (:file cs)) ":file is a string")
             (is (integer? (:line cs)) ":line is an integer")
             (is (re-find #"success_path_call_site_test" (:file cs))
-                (str ":file should point at this test file — got " (:file cs)))))))))
-
-(deftest event-dispatched-call-site-rides-at-top-level
-  (testing ":rf.trace/call-site is a top-level field on success traces,
-   NOT nested under :tags — mirrors the error / trigger-handler shape"
-    (let [envelopes (atom {})]
-      (register-probe-fx! envelopes)
-      (rf/reg-event :rf2-twt7m/top-level
-        (fn [{:keys [db]} _] {:db db :fx [[:rf2-twt7m/probe [:top]]]}))
-      (let [evs       (record-traces
-                        (fn []
-                          (rf/dispatch-sync [:rf2-twt7m/top-level])))
-            [enqueue] (events-of evs :rf.event/dispatched)]
-        (assert-dispatched envelopes :top "macro dispatch-sync")
-        ;; GUARDED: top-level-vs-`:tags` is a TRACE-SHAPE claim, and
-        ;; no trace event exists under `-Dre-frame.debug=false`.
-        (when rf.interop/debug-enabled?
-          (is (contains? enqueue :rf.trace/call-site)
-              ":rf.trace/call-site lives at top level")
+                (str ":file should point at this test file — got " (:file cs))))
           (is (not (contains? (:tags enqueue) :rf.trace/call-site))
-              ":rf.trace/call-site does NOT live under :tags"))))))
+              ":rf.trace/call-site rides at top level, NOT under :tags"))))))
 
 (deftest event-dispatched-fn-form-omits-call-site
   (testing "the owning-ns fn-form `re-frame.router/dispatch-sync!` does NOT

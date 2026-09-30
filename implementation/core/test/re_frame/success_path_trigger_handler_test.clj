@@ -49,9 +49,10 @@
   fields apiece. Under the gate `handler-meta` is stripped of coord keys AND
   the trace event does not exist, so every one of those comparisons would be
   `nil = nil` — parity certified between two absences — which is why they sit
-  inside the arm. So do the `(not (contains? handled …))` negatives in the
-  `…-omits-trigger-…` and `…-rides-at-top-level` deftests, which over the nil
-  an empty trace ring yields would pass for free."
+  inside the arm. So do the `(not (contains? … :rf.trace/trigger-handler))`
+  negatives — the field's absence in the `…-omits-trigger-…` deftests and its
+  absence under `:tags` in the `…-carries-…` deftests — which over the nil an
+  empty trace ring yields would pass for free."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as rf.interop]
@@ -164,25 +165,9 @@
         (assert-always-on-coord :fx :rf2-lf84g/my-fx)
         (when rf.interop/debug-enabled?
           (is (some? handled) ":rf.fx/handled trace fired")
-          (assert-trigger-shape handled :fx :rf2-lf84g/my-fx))))))
-
-(deftest fx-handled-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler is a top-level field on success
-   traces, NOT nested under :tags — mirrors the error path shape"
-    (rf/reg-fx :rf2-lf84g/top-level-fx (fn [_ _] :ok))
-    (rf/reg-event :rf2-lf84g/use-top-level
-                     (fn [_ _] {:fx [[:rf2-lf84g/top-level-fx {}]]}))
-    (let [evs (record-traces #(rf/dispatch-sync [:rf2-lf84g/use-top-level]))
-          [handled] (events-of evs :rf.fx/handled)]
-      (assert-always-on-coord :fx :rf2-lf84g/top-level-fx)
-      ;; GUARDED: top-level-vs-`:tags` is a trace-SHAPE claim, and
-      ;; the `:tags` negative would be vacuous under the gate (`handled` is
-      ;; nil there, and `(contains? nil k)` is false for every k).
-      (when rf.interop/debug-enabled?
-        (is (contains? handled :rf.trace/trigger-handler)
-            ":rf.trace/trigger-handler lives at top level")
-        (is (not (contains? (:tags handled) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags")))))
+          (assert-trigger-shape handled :fx :rf2-lf84g/my-fx)
+          (is (not (contains? (:tags handled) :rf.trace/trigger-handler))
+              ":rf.trace/trigger-handler rides at top level, NOT under :tags"))))))
 
 (deftest fx-handled-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on
@@ -344,26 +329,9 @@
       (assert-always-on-coord :sub :rf2-npm2p/n)
       (when rf.interop/debug-enabled?
         (is (some? run) ":rf.sub/run trace fired on recompute")
-        (assert-trigger-shape run :sub :rf2-npm2p/n)))))
-
-(deftest sub-run-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler on :rf.sub/run is a top-level field,
-   NOT nested under :tags — mirrors the error / fx-handled / machine-
-   transition shapes"
-    (rf/reg-sub :rf2-npm2p/top-level
-                (fn [db _] db))
-    (let [evs   (record-traces
-                  (fn [] (deref (rf/subscribe [:rf2-npm2p/top-level]))))
-          [run] (events-of evs :rf.sub/run)]
-      (assert-always-on-coord :sub :rf2-npm2p/top-level)
-      ;; GUARDED trace-shape claim; the `:tags` negative would be
-      ;; vacuous under the gate.
-      (when rf.interop/debug-enabled?
-        (is (some? run))
-        (is (contains? run :rf.trace/trigger-handler)
-            ":rf.trace/trigger-handler lives at top level")
+        (assert-trigger-shape run :sub :rf2-npm2p/n)
         (is (not (contains? (:tags run) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags")))))
+            ":rf.trace/trigger-handler rides at top level, NOT under :tags")))))
 
 (deftest sub-run-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on :rf.sub/run
@@ -500,30 +468,9 @@
       (assert-always-on-coord :cofx :rf2-npm2p/instrumented-cofx)
       (when rf.interop/debug-enabled?
         (is (some? probe) "custom trace fired from inside the cofx body")
-        (assert-trigger-shape probe :cofx :rf2-npm2p/instrumented-cofx)))))
-
-(deftest cofx-body-trigger-rides-at-top-level
-  (testing ":rf.trace/trigger-handler on a cofx-body trace is a
-   top-level field, NOT nested under :tags"
-    (rf/reg-cofx :rf2-npm2p/top-level-cofx
-                 (fn []
-                   (rf.trace/emit! :rf2-npm2p/probe :rf2-npm2p/probe {})
-                   :ok))
-    (rf/reg-event :rf2-npm2p/use-top-level-cofx
-                     {:rf.cofx/requires [:rf2-npm2p/top-level-cofx]}
-                     (fn [_ _] {}))
-    (let [evs     (record-traces
-                    (fn [] (rf/dispatch-sync [:rf2-npm2p/use-top-level-cofx])))
-          [probe] (events-of evs :rf2-npm2p/probe)]
-      (assert-always-on-coord :cofx :rf2-npm2p/top-level-cofx)
-      ;; GUARDED trace-shape claim; the `:tags` negative would be
-      ;; vacuous under the gate.
-      (when rf.interop/debug-enabled?
-        (is (some? probe))
-        (is (contains? probe :rf.trace/trigger-handler)
-            ":rf.trace/trigger-handler lives at top level")
+        (assert-trigger-shape probe :cofx :rf2-npm2p/instrumented-cofx)
         (is (not (contains? (:tags probe) :rf.trace/trigger-handler))
-            ":rf.trace/trigger-handler does NOT live under :tags")))))
+            ":rf.trace/trigger-handler rides at top level, NOT under :tags")))))
 
 (deftest cofx-body-trigger-matches-registrar-coord
   (testing "the :source-coord under :rf.trace/trigger-handler on a
