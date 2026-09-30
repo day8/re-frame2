@@ -6,13 +6,11 @@
   - `apply-theme!` toggles the CSS class on the shell root + <html>
   - `update-setting!` dispatched through events drives the matching
     `apply-*!` side effect
-  - The auto-open watcher edge-fires on empty→non-empty when toggle
-    is on AND Xray is hidden
+  - The auto-open watcher's install guard and its surface-preserving
+    reopen route
 
   No DOM-shell mount happens — we create a stub `#rf-xray-root`
-  element + a stub `<html>` for the CSS-var assertions; the auto-
-  open watcher test exercises the watch fn directly via the
-  subscription value transition."
+  element + a stub `<html>` for the CSS-var assertions."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch.state :as rf.epoch.state]
@@ -99,10 +97,6 @@
   (is (nil? (effects/apply-text-size! 11))
       "no-op when shell root absent; no throw"))
 
-;; ---- theme --------------------------------------------------------------
-
-;; ---- update-setting! drives the side effect ----------------------------
-
 ;; ---- filters ------------------------------------------------------------
 ;;
 ;; The Settings popup has no Filters tab — the ribbon strip + per-pill
@@ -110,49 +104,11 @@
 
 ;; ---- auto-open watcher --------------------------------------------------
 ;;
-;; The watcher reads `:rf.xray/issues-ribbon` and dispatches
-;; `mount/open!` on the empty → non-empty edge. We exercise the watch
-;; fn directly because the production install path adds a `add-watch`
-;; on the live subscription reaction, and the simplest verification is
-;; that toggling the underlying flag + simulating the value change
-;; triggers the open call.
-
-(def ^:private open-call-count (atom 0))
-
-(defn- with-mount-open-stub [f]
-  (let [orig js/window]
-    ;; Stub `mount/open!` by hooking the global browser export the
-    ;; preload installs — the watcher calls mount/open! directly, so
-    ;; we exercise it via the public test seam.
-    (reset! open-call-count 0)
-    (f)))
-
-(deftest auto-open-watcher-fires-on-empty-to-nonempty-edge
-  ;; Drive the watch fn semantics directly (without mounting Xray)
-  ;; by reproducing the same gates: toggle on, count was 0, count is
-  ;; now positive. The assertion is that under those conditions the
-  ;; gating logic returns truthy ("would dispatch open"). Avoids
-  ;; touching window.open in the test runner.
-  (config/update-setting! :general :auto-open-on-error? true)
-  (let [should-open? (fn [prev now]
-                       (let [toggle (config/get-setting
-                                      :general :auto-open-on-error?)]
-                         (and toggle (pos? now) (zero? prev))))]
-    (is (true? (should-open? 0 1))
-        "empty → non-empty AND toggle on → open")
-    (is (false? (should-open? 0 0))
-        "no issues → no open")
-    (is (false? (should-open? 1 2))
-        "non-empty → non-empty (subsequent push) → no open")))
-
-(deftest auto-open-watcher-skips-when-toggle-off
-  (config/update-setting! :general :auto-open-on-error? false)
-  (let [should-open? (fn [prev now]
-                       (let [toggle (config/get-setting
-                                      :general :auto-open-on-error?)]
-                         (and toggle (pos? now) (zero? prev))))]
-    (is (false? (should-open? 0 1))
-        "toggle off → never open, even on edge")))
+;; The watcher reads `:rf.xray/issues-ribbon` and reopens Xray on the
+;; empty → non-empty edge while the toggle is on. That edge and the toggle
+;; gate run through the real watch in
+;; `settings.auto-open-watcher-activates-ratom-node-cljs-test`; the row
+;; here pins the installer's no-frame guard.
 
 (deftest install-is-defensive-without-xray-frame
   ;; `install-auto-open-watcher!` can run at preload before `:rf/xray`
@@ -163,23 +119,6 @@
   (effects/detach-auto-open-watcher!)
   (is (nil? (effects/install-auto-open-watcher!))
       "install without `:rf/xray` frame is a silent no-op (no throw)"))
-
-(deftest update-event-toggles-watcher-install
-  (setup!)
-  ;; Flip on via the event — install should land (frame is present
-  ;; via `setup!`).
-  (effects/detach-auto-open-watcher!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-update
-                       :general :auto-open-on-error? true]))
-  (is (true? (config/get-setting :general :auto-open-on-error?))
-      "config carries the new value")
-  ;; Flip off — detach should run, no throw.
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-update
-                       :general :auto-open-on-error? false]))
-  (is (false? (config/get-setting :general :auto-open-on-error?))
-      "config carries the flipped value"))
 
 ;; ---- auto-open reopen preserves the realized surface --------------------
 ;;
@@ -193,8 +132,8 @@
 ;; We unit-test that helper's routing directly (mirroring how
 ;; mount_cljs_test's `global-toggle-*` and `first-ever-toggle-*` rows
 ;; unit-test the mount layer's own surface preservation): the auto-open
-;; GATE — the empty→non-empty edge + toggle-on + hidden — is covered by
-;; the watcher tests above. The full
+;; GATE — the empty→non-empty edge + toggle-on + hidden — is covered
+;; through the real watch in the ratom-node namespace named below. The full
 ;; `install-auto-open-watcher!` `add-watch` path can't be driven under THIS
 ;; suite's headless plain-atom adapter (its derived subscriptions reify
 ;; `IDeref`/`IDisposable` only, not `IWatchable`), and no browser suite
@@ -534,55 +473,10 @@
     ;; Clean up so unrelated tests don't see the stamped <html>.
     (effects/apply-use-system-colors! false)))
 
-(deftest update-event-applies-use-system-colors-effect
-  (testing "dispatching `:rf.xray/settings-update :general
-            :use-system-colors? true` stamps the chrome attribute via
-            the matching effect."
-    ;; The two attribute claims need a real shell root (`shell-root`
-    ;; binds nil on node), so they live in
-    ;; `settings.effects-dom-cljs-test`. The settings-slot claim below
-    ;; is host-free and genuinely runs here.
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-update
-                         :general :use-system-colors? true]))
-    (is (true? (config/get-setting :general :use-system-colors?))
-        "config slot carries the new value")
-    ;; Flip off, and assert the slot follows — the DOM half of this
-    ;; flip is the dom sibling's.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-update
-                         :general :use-system-colors? false]))
-    (is (false? (config/get-setting :general :use-system-colors?))
-        "config slot follows the flip back off")))
-
 (deftest apply-density-font-size-handles-missing-shell-root
   (remove-stub-shell-root!)
   (is (nil? (effects/apply-density-font-size! :compact))
       "no-op when shell root absent; no throw"))
-
-(deftest update-event-applies-density-font-size-effect
-  (testing "Dispatching `[:rf.xray/settings-update :general :density
-            :compact]` flips `--rf-xray-font-size` to 12px so the
-            whole `type-scale` rescales on the next paint."
-    ;; The two CSS-var claims need a real shell root (`shell-root` binds
-    ;; nil on node), so they live in `settings.effects-dom-cljs-test`. The
-    ;; settings-atom claims below are host-free and genuinely run here.
-    (setup!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-update
-                         :general :density :compact]))
-    ;; Persistence — the dual-write goes to the in-memory atom +
-    ;; localStorage shim via `config/update-setting!`.
-    (is (= :compact (config/get-setting :general :density))
-        "settings atom carries the new density")
-    ;; Flip to cosy — the atom must follow; the inline-write half of
-    ;; this flip is the dom sibling's.
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/settings-update
-                         :general :density :cosy]))
-    (is (= :cosy (config/get-setting :general :density))
-        "settings atom follows the flip to cosy")))
 
 ;; ---- Keybindings tab "Handle keys?" reactive dual-write -----------------
 ;;

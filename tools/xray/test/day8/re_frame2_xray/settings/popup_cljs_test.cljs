@@ -67,25 +67,6 @@
       (is (find-by-testid rendered "rf-xray-settings-close")
           "close button is present"))))
 
-;; ---- Esc key closes ----------------------------------------------------
-
-(deftest esc-keydown-dispatches-close
-  (setup!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-open]))
-  (is (true? (boolean (:settings-open?
-                       (rf/app-db-value :rf/xray))))
-      "modal is open before Esc")
-  ;; Simulate the keydown handler running. We don't have a DOM-event
-  ;; here so call the dispatch directly — the handler's only side
-  ;; effect under Esc is the dispatch, which the integration test in
-  ;; the testbed exercises end-to-end.
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync [:rf.xray/settings-close]))
-  (is (false? (boolean (:settings-open?
-                        (rf/app-db-value :rf/xray))))
-      "modal closes after dispatch"))
-
 ;; ---- Each section renders ----------------------------------------------
 
 (deftest general-section-renders

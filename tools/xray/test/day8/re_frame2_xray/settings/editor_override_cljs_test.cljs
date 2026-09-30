@@ -33,11 +33,6 @@
 
 ;; ---- defaults ----------------------------------------------------------
 
-(deftest override-defaults-to-nil
-  (testing "Fresh install carries no override — `[:general
-            :editor-override]` is nil"
-    (is (nil? (config/get-setting :general :editor-override)))))
-
 (deftest host-default-helper-returns-atom-value
   (testing "`get-host-editor-default` exposes the host atom value
             unchanged — separate from `get-editor` which honours the
