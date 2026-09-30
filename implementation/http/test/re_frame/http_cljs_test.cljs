@@ -79,11 +79,15 @@
 (deftest classify-non-typeerror-stays-transport
   (testing "a non-TypeError (e.g. a generic JS Error) on a
   cross-origin URL still classifies as `:rf.http/transport`. CORS
-  rejections are always TypeErrors."
-    (let [err (js/Error. "connection-reset")
-          out (classify-cljs-error err "https://other.invalid/x")]
-      (is (= :rf.http/transport (:kind out))
-          "non-TypeError stays at :rf.http/transport regardless of URL"))))
+  rejections are always TypeErrors. The page origin is injected: without
+  one `cross-origin?` is false for every URL, and the error's name would
+  never be consulted."
+    (with-stub-location "https://app.example"
+      (fn []
+        (let [err (js/Error. "connection-reset")
+              out (classify-cljs-error err "https://other.invalid/x")]
+          (is (= :rf.http/transport (:kind out))
+              "non-TypeError stays at :rf.http/transport on a cross-origin URL"))))))
 
 (deftest classify-transport-cause-is-edn-serializable-string
   (testing "the generic-rejection `:rf.http/transport` branch
