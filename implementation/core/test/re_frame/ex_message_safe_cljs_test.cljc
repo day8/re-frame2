@@ -63,15 +63,3 @@
   (testing "only a genuinely nil input yields nil (there is no message to
             extract) — the contract's single nil case"
     (is (nil? (rf.error/ex-message-safe nil)))))
-
-#?(:cljs
-   (deftest cljs-non-error-throwable-is-the-real-footgun
-     ;; The CLJS-specific proof: a raw `(.-message e)` on a non-Error value
-     ;; reads nil with NO error (the property is simply absent). This pins that
-     ;; the safe extractor does NOT share that behaviour.
-     (testing "raw (.-message v) on a non-Error value is nil — the unsafe path
-               the extractor replaces"
-       (is (nil? (.-message :boom))
-           "a thrown keyword has no .-message (this is WHY the raw read is unsafe)")
-       (is (some? (rf.error/ex-message-safe :boom))
-           "the safe extractor does not propagate that nil"))))

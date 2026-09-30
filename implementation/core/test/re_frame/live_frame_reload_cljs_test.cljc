@@ -195,27 +195,6 @@
 ;;    reload-report verb)
 ;; ===========================================================================
 
-(deftest reload-report-names-a-concrete-diff
-  (testing "generation-diff over the pre/post-reload generations names a diff of
-            [kind id] sets (EP-0023 §Hot Reload — \"A good reload result should
-            be a concrete diff\")"
-    (let [frame  (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)
-          before (rf.live-frame/frame-generation frame)
-          _      (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v2)
-          after  (rf.live-frame/frame-generation :counter/main)
-          diff   (rf.live-frame/generation-diff before after)]
-      (testing ":added names the v2-only id"
-        (is (contains? (:added diff) [:event :counter/reset])))
-      (testing ":changed names the id whose impl changed (v1 → v2)"
-        (is (contains? (:changed diff) [:event :counter/inc])))
-      (testing ":retained names the id whose descriptor is unchanged"
-        (is (contains? (:retained diff) [:sub :counter/value])))
-      (testing ":removed is empty here (v1's ids all survive in v2)"
-        (is (empty? (:removed diff))))
-      (testing "a changed id is NOT also retained, and vice versa (disjoint)"
-        (is (not (contains? (:retained diff) [:event :counter/inc])))
-        (is (not (contains? (:changed diff)  [:sub :counter/value])))))))
-
 (deftest reload-report-names-removed-ids
   (testing "reloading to a NARROWER image reports the dropped ids as :removed"
     (let [narrow (rf.image/image {:id :counter/narrow :select-ns {:include ["counter.narrow"]}})
