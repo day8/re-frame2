@@ -17,11 +17,13 @@
   mid-run when the abort fires — the most contended race), or the
   finalise seam is driven DIRECTLY with the abort intent already recorded
   on the handle (the transport-classification precedence, pinned without
-  any cross-thread timing). The abort-wins seam in
-  `re-frame.http.transport` (`finalise-failure!` / `finalise-success!`
-  re-sample the handle's `:aborted?` cell after winning the once-only CAS)
-  collapses the observable outcome to `:rf.http/aborted` regardless of
-  which side classified first.
+  any cross-thread timing). Abort wins by one of two routes in
+  `re-frame.http.transport`: an abort-fn that reaches the once-only
+  `:finalised?` CAS first dispatches the cancelled reply itself, and the
+  late classification loses the CAS and bails (tests 1 and 3); a
+  classification that wins the CAS re-samples the handle's `:aborted?`
+  cell in `finalise-failure!` / `finalise-success!` and reclassifies to
+  `:rf.http/aborted` (test 2b).
 
   Three scenarios (each its own deftest):
    1. abort-during-in-flight-decode-wins-over-decode-failure
@@ -93,16 +95,15 @@
 ;; a custom :decode fn that blocks on `decoder-entered` (signalling the
 ;; test thread that decode is mid-run) and then blocks on `decoder-may-
 ;; proceed` until the test fires the abort and lets the decoder throw
-;; (synthesising a decode-failure classification). Without the
-;; abort-precedence seam, whichever of (a) the abort-fn's CAS or (b) the
-;; thrown-decoder's finalise-failure! CAS arrived first would win, and a
-;; user would observe :rf.http/decode-failure on the reply despite
-;; explicitly aborting. The seam samples the handle's :aborted?
-;; cell inside finalise-failure! AFTER winning the CAS, so
-;; the abort observation always wins regardless of CAS ordering.
+;; (synthesising a decode-failure classification). The abort fires while
+;; the decoder is blocked, so the abort-fn wins the once-only :finalised?
+;; CAS and dispatches the :rf.http/aborted reply, and the late decode
+;; failure's finalise-failure! loses the CAS and dispatches nothing. A
+;; decode failure that won the CAS would instead be reclassified by
+;; finalise-failure!'s post-CAS :aborted? re-sample, which test 2b pins.
 
 (deftest abort-during-in-flight-decode-wins-over-decode-failure
-  (testing "abort fired while a slow decoder is in-flight reclassifies the reply as :rf.http/aborted, not :rf.http/decode-failure"
+  (testing "abort fired while a slow decoder is in-flight delivers :rf.http/aborted, not :rf.http/decode-failure"
     (let [srv               (start-200-server! "application/json" "{\"k\":1}")
           decoder-entered   (CountDownLatch. 1)
           decoder-may-throw (CountDownLatch. 1)
@@ -135,17 +136,16 @@
         (is (.await decoder-entered 5 TimeUnit/SECONDS)
             "decoder entered — response landed, decode in progress, abort window open")
         (is (= 1 (count (rf.http.managed/in-flight-snapshot))))
-        ;; Fire the abort BEFORE letting the decoder throw. Both the
-        ;; abort-fn AND the about-to-fire finalise-failure! race for the
-        ;; once-only :finalised? CAS — but the abort-fn flips :aborted?
-        ;; FIRST, and finalise-failure! samples that cell after winning
-        ;; the CAS, so the visible classification is :rf.http/aborted.
+        ;; Fire the abort BEFORE letting the decoder throw. The decoder is
+        ;; still blocked, so the abort-fn wins the once-only :finalised?
+        ;; CAS and dispatches the cancelled reply itself; the decode
+        ;; failure's finalise-failure! then loses the CAS and bails.
         (rf/dispatch-sync [:do/abort])
         (.countDown decoder-may-throw)
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
           (is (= :cancelled (:status reply))
-              "the abort-precedence seam dispatches a cancelled reply, not a success")
+              "the abort dispatches a cancelled reply, not a success")
           (is (= :rf.http/aborted (get-in reply [:error :kind]))
               "the reply MUST be :rf.http/aborted, NOT :rf.http/decode-failure")
           (is (= :user (get-in reply [:error :reason]))
@@ -254,9 +254,9 @@
 ;; is `abort-on-actor-destroy` — the cascade that fires when
 ;; a spawned state-machine actor is destroyed. The request rides under
 ;; the actor-in-flight index; destroying the actor calls the abort-fn
-;; with `:reason :actor-destroyed`. The precedence seam still observes
-;; the :aborted? flip, so the visible reply is :rf.http/aborted with
-;; :reason :actor-destroyed (the trace event :rf.http/aborted-on-actor-
+;; with `:reason :actor-destroyed`. The abort-fn wins the once-only
+;; :finalised? CAS as in test (1), so the visible reply is :rf.http/aborted
+;; with :reason :actor-destroyed (the trace event :rf.http/aborted-on-actor-
 ;; destroy fires independently from the abort-on-actor-destroy walker).
 
 (deftest abort-via-actor-destroy-wins-over-decode-failure
@@ -270,8 +270,8 @@
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; Child machine — :entry fires the managed request with a
         ;; latch-gated decoder. The decoder synthesises a decode-
-        ;; failure when released, but the abort-precedence seam
-        ;; intercepts.
+        ;; failure when released, after the abort has already
+        ;; finalised the request.
         (rf/reg-machine :worker/race
           {:initial :idle
            :data    {:port (:port srv)}
@@ -304,9 +304,9 @@
         ;; actor-in-flight index and fires :abort-fn with
         ;; :reason :actor-destroyed.
         (rf/dispatch-sync [:sup/race [:cancel]])
-        ;; Release the decoder — it throws, but the precedence seam
-        ;; has already flipped :aborted? so finalise-failure! observes
-        ;; the abort and reclassifies.
+        ;; Release the decoder — it throws, but the abort-fn already won
+        ;; the once-only CAS, so its finalise-failure! bails without a
+        ;; second reply.
         (.countDown decoder-may-throw)
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]

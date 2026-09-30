@@ -216,8 +216,8 @@
 (deftest supersede-during-backoff-stale-trace-carries-sleeping-attempt-work-id
   (testing "superseding a request that is SLEEPING in its retry backoff window records a :rf.http/stale-suppressed trace whose carried work-id is the sleeping retry attempt's work-id (issuance/attempt preserved), distinct from the superseding attempt's"
     (let [{:keys [^AtomicInteger hits] :as srv} (start-counting-500-server!)
-          ;; The superseding request targets a different blocking endpoint so
-          ;; it stays in-flight while we inspect the emitted stale trace.
+          ;; The superseding request targets a separate always-500 server, so
+          ;; its hit never counts against the old server's `hits`.
           new-srv (start-counting-500-server!)
           replies (atom [])
           traces  (atom [])

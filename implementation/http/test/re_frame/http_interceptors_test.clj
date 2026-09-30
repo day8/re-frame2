@@ -1052,13 +1052,20 @@
           {:before (fn [ctx] (assoc-in ctx [:request :headers "X-B"] "2"))})
         (rf/reg-http-interceptor :hdr-c
           {:before (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3"))})
+        ;; And one on a second frame, so the bulk-clear has more than the
+        ;; ambient frame's chain to empty.
+        (rf/reg-http-interceptor :hdr-other
+          {:frame :test.lfvi/other :before (fn [ctx] ctx)})
 
-        ;; Confirm the per-frame chain has all three before the bulk-clear.
+        ;; Confirm both frames' chains before the bulk-clear.
         (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
           (is (= 3 (count chain)))
           (is (= #{:hdr-a :hdr-b :hdr-c}
                  (set (map :id chain)))
               "all three ids appear in the :rf/default chain"))
+        (is (= [:hdr-other]
+               (mapv :id (rf.http.managed/interceptors-snapshot :test.lfvi/other)))
+            "the second frame holds its own chain")
 
         (rf/reg-event :test.lfvi/load
           (fn [{:keys [db]} [_ msg reply]]

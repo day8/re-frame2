@@ -363,9 +363,9 @@
 
   Idempotent and total: missing slots are left alone.
 
-  Public for direct test assertion; production reaches
-  redaction via the `prepare-emit-*` composers (which use the `*-with-flag`
-  forms). No production caller invokes this non-flag wrapper."
+  `project-managed-fx-args` calls it to redact a managed fx's `:request`
+  map, which needs no flag; the `prepare-emit-*` composers use the
+  `*-with-flag` forms, which also report whether a URL value was redacted."
   ([tags sensitive?] (first (redact-request-tags-with-flag tags sensitive? nil)))
   ([tags sensitive? carriers]
    (first (redact-request-tags-with-flag tags sensitive? carriers))))

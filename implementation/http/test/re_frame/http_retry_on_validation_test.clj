@@ -45,7 +45,10 @@
 
 (defn- call-managed!
   "Invoke `:rf.http/managed` via the public handler with the given
-  `:retry` map. Returns nil on success or the ex-info on a throw."
+  `:retry` map and no reply target, returning the ex-info it throws.
+  `:retry` is validated first, so a `:retry` the validator accepts reaches
+  the reply-target check and throws `:rf.error/http-no-reply-target`
+  there; no request is issued either way."
   [retry]
   (let [args {:request {:method :get :url "http://localhost/x"}
               :retry   retry}]
@@ -141,9 +144,8 @@
 
 (deftest all-closed-set-members-pass-through
   (testing "every member of the closed retryable set passes
-    validation. The `run-attempt!` that follows attempts the network
-    request synchronously on JVM; we don't care about the eventual
-    failure here, only that the validator did NOT throw."
+    validation: the handler moves on to the reply-target check, so what
+    it throws is anything but `:rf.error/http-bad-retry-on`."
     (doseq [k rf.http.handlers/retryable-categories]
       (let [ex (call-managed! {:on #{k} :max-attempts 1})]
         (is (not (and (some? ex)
