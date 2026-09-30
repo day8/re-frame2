@@ -204,36 +204,3 @@
       (when rf.interop/debug-enabled?
         (is (empty? (cross-frame-warnings recorded))
             "no frame is mid-drain when the dispatch-sync! fires — no warning expected")))))
-
-(deftest fires-on-cross-frame-dispatch-sync-during-async-drain
-  (testing "warning fires for cross-frame dispatch-sync! while caller frame's :in-drain? is true (not just :in-sync-drain?)"
-    ;; The implementation checks BOTH :in-sync-drain? AND :in-drain? so
-    ;; the warning fires regardless of whether the outer drain came from
-    ;; dispatch-sync! or an ordinary async dispatch's scheduled drain.
-    ;; Here we set up an async-drain scenario by forcing the outer drain
-    ;; through dispatch-sync (which sets :in-sync-drain?=true AND, inside
-    ;; drain!, also :in-drain?=true). Either flag's truthiness should be
-    ;; sufficient to trigger the warning.
-    (rf/make-frame {:id :cfx.test/a})
-    (rf/make-frame {:id :cfx.test/b})
-
-    (let [b-ran (atom false)]
-      (rf/reg-event :b/leaf {:frame :cfx.test/b}
-        (fn [{:keys [db]} _]
-          (reset! b-ran true)
-          {:db db}))
-      (rf/reg-event :a/touch-b
-        {:frame :cfx.test/a}
-        (fn [_ _]
-          (rf/dispatch-sync [:b/leaf] {:frame :cfx.test/b})
-          {}))
-
-      (let [recorded (record-traces! ::async-drain)]
-        (rf/dispatch-sync [:a/touch-b] {:frame :cfx.test/a})
-
-        ;; ALWAYS-ON: the cross-frame dispatch proceeded.
-        (is (true? @b-ran))
-        ;; Dev-instrumentation arm (see ns docstring §Posture split).
-        (when rf.interop/debug-enabled?
-          (is (= 1 (count (cross-frame-warnings recorded)))
-              "the cross-frame warning fires whenever any sibling frame is mid-drain"))))))

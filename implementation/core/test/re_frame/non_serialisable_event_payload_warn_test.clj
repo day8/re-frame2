@@ -13,11 +13,11 @@
 
   ## Posture split
 
-  `dispatch-proceeds-unchanged-despite-the-warning` is posture-
-  independent — it reads app-db — and runs under
-  `scripts/test-core-prod-gate.sh` as written. It is the load-bearing half of
-  a SHOULD-level lint: a diagnostic that silently changed dispatch behaviour
-  would be the actual defect.
+  Every deftest's app-db witness is posture-independent and runs under
+  `scripts/test-core-prod-gate.sh` as written: the dispatch commits whatever
+  the payload carries. That is the load-bearing half of a SHOULD-level lint:
+  a diagnostic that silently changed dispatch behaviour would be the actual
+  defect.
 
   Everything ABOUT the warning is dev-only by design and sits
   inside a `(when rf.interop/debug-enabled? …)` arm —
@@ -148,11 +148,3 @@
         "a Date in a data-only reply map is refused — a durable reply timestamp is an epoch-ms long")
     (is (= [:value :settled-at]
            (rf.reply/walk-find-host-handle {:value {:settled-at an-instant}})))))
-
-(deftest dispatch-proceeds-unchanged-despite-the-warning
-  (testing "the warning is observational only — the dispatch still commits"
-    (rf/reg-event :payload-lint/set
-      (fn [{:keys [db]} [_ payload]] {:db (assoc db :seen payload)}))
-    (rf/dispatch-sync [:payload-lint/set {:cb (fn [] nil)}] {:frame :rf/default})
-    (is (contains? (:seen (rf/app-db-value :rf/default)) :cb)
-        "the dispatch committed normally despite the non-serialisable payload")))

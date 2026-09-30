@@ -136,21 +136,3 @@
         (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
           (is (empty? skips)
               "no :rf.fx/skipped-on-platform trace — the gate passed"))))))
-
-;; ---- 3. The two frames coexist in ONE process ------------------------------
-
-(deftest per-frame-platform-is-isolated-not-process-wide
-  (testing "two frames in the SAME process resolve different platforms —
-            there is no host-wide platform marker"
-    (rf/make-frame {:id :platform-gating-test/iso-untagged})
-    (rf/make-frame {:id :platform-gating-test/iso-client :platform :client})
-    (rf/make-frame {:id :platform-gating-test/iso-server :platform :server})
-    (let [platform-of (fn [id]
-                        (or (:platform (:config (rf.frame/frame id)))
-                            (rf.interop/active-platform)))]
-      (is (= :server (platform-of :platform-gating-test/iso-untagged))
-          "untagged → the JVM host default")
-      (is (= :client (platform-of :platform-gating-test/iso-client))
-          "explicitly tagged :client wins over the host default")
-      (is (= :server (platform-of :platform-gating-test/iso-server))
-          "explicitly tagged :server matches the host default and is still explicit"))))

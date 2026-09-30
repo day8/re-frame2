@@ -323,15 +323,6 @@
     (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :pc/m-app)))
         "rf.frame/replace-app-db! never silently replaces runtime-db (decision #10)")))
 
-(deftest replace-frame-state-is-atomic-both-partitions
-  (testing "replace-frame-state! installs both partitions in one write"
-    (rf/make-frame {:id :pc/m-fs :doc "m-fs"})
-    (rf/replace-frame-state! :pc/m-fs {:rf.db/app {:a 1}
-                                       :rf.db/runtime {:rf.runtime/routing {:r 1}}})
-    (is (= {:rf.db/app {:a 1} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
-           (rf/frame-state-value :pc/m-fs))
-        "both partitions installed coherently")))
-
 (deftest replace-frame-state-replaces-the-whole-frame-state
   (testing "replace-frame-state! wholesale-replaces BOTH partitions of an
             existing frame-state (the full-frame install surface,
