@@ -1,6 +1,20 @@
 # re-frame2-pair-retro
 
-> Turns a `re-frame2-pair` session into a retrospective, in one response: where the session dragged, why, the smallest change that would fix it, and — on request — a GitHub issue draft you can file.
+Turns a `re-frame2-pair` session into a retrospective, in one response: where the session dragged, why, the smallest change that would fix it, and — on request — a GitHub issue draft you can file.
+
+## Kickoff
+
+Ask for it after a real pair session:
+
+> *Retro on this pair session, and draft an issue for the worst of it.*
+
+Or type `/re-frame2-pair-retro`. It also offers itself: after an error during live pair work — a stack trace, a pair tool returning `{:ok? false …}`, or an `:rf.error/*` trace — it waits until `re-frame2-pair` has dealt with the failure, then offers the retro in one line and runs it only if you say yes.
+
+Asked for a draft, the same response includes one focused, copy-pasteable GitHub issue with the session evidence, the missing behaviour, one implementable desired outcome, and how to tell it is done. You file it, edit it, combine it or discard it. It may first search `day8/re-frame2` issues, open and closed, and point you at an existing one instead of drafting a twin; when it skips that search or the search fails, it says duplicates were not checked.
+
+## Supplying a recap
+
+If you are supplying a recap, include the goal, the build/frame involved, the calls that caused friction and their results, plus any successful retry. For example: *"I asked for the cart count in `:app/main`; discovery found two builds, I selected `app`, and the retry succeeded. The build-selection error cost two turns. Retro on that workflow."* The skill keeps the earlier failure as evidence of friction without reporting it as the current state. Missing or truncated results stay unknown.
 
 ## What it does
 
@@ -17,23 +31,14 @@ The skill is **read-only**. It never files issues, edits a repo, writes files or
 
 ## When to reach for it
 
-Use it after a `re-frame2-pair` session, when you want to know where the session dragged and what would fix it, or want a GitHub issue drafted about it. It needs a real pair session in the conversation, or a recap of one. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/SKILL.md) is the text the agent matches your request against.
+Use it after a `re-frame2-pair` session, when you want to know where the session dragged and what would fix it, or want a GitHub issue drafted about it. It needs a real pair session in the conversation, or a recap of one.
 
-Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
+For related work:
 
 - Fixing the live bug itself, or driving the app → [re-frame2-pair](re-frame2-pair.md).
 - A review of source code, rather than of a session → [re-frame2-improver](re-frame2-improver.md).
 - A retro on a Story recording session → [re-frame2-pair](re-frame2-pair.md)'s Stories reference covers it.
 
-## Kickoff
-
-Ask for it after a real pair session:
-
-> *Retro on this pair session, and draft an issue for the worst of it.*
-
-Or type `/re-frame2-pair-retro`. It also offers itself: after an error during live pair work — a stack trace, a pair tool returning `{:ok? false …}`, or an `:rf.error/*` trace — it waits until `re-frame2-pair` has dealt with the failure, then offers the retro in one line and runs it only if you say yes.
-
-Asked for a draft, the same response includes one focused, copy-pasteable GitHub issue with the session evidence, the missing behaviour, one implementable desired outcome, and how to tell it is done. You file it, edit it, combine it or discard it. It may first search `day8/re-frame2` issues, open and closed, and point you at an existing one instead of drafting a twin; when it skips that search or the search fails, it says duplicates were not checked.
 
 ## When it stops
 
@@ -43,8 +48,4 @@ An explicit request over one clear session completes in one response; it does no
 - **Two sessions are plausible** — it names both and asks which.
 - **The evidence is too thin** to support a finding, or the request is genuinely ambiguous.
 
-## Where the skill lives
-
-- Source: [`skills/re-frame2-pair-retro/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro)
-- `SKILL.md`: [`skills/re-frame2-pair-retro/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/SKILL.md) — the whole runtime contract; the skill is self-contained under its own directory.
-- Reference notes: [`skills/re-frame2-pair-retro/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair-retro/references) — consulted on demand; `SKILL.md` says when.
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-pair-retro/SKILL.md) contains the full workflow and links to its reference notes.

@@ -1,6 +1,14 @@
 # re-frame2-implementor
 
-> Guides an engineer building a new re-frame2 implementation in another host language, with the conformance corpus as the acceptance test.
+Guides an engineer building a new re-frame2 implementation in another host language, with the conformance corpus as the acceptance test.
+
+## Kickoff
+
+In the root of your port's repository, name the host and the local contract to implement:
+
+> Using re-frame2-implementor, build a minimum TypeScript port. Read the spec from `<checkout>/spec/` at `<commit-or-tag>`. Verify the pin, origin and clean spec tree, record the port profile, then implement and test the first foundation slice. Default optional capabilities to no.
+
+Replace the placeholders with your checkout and revision. You can resume in the same session; there is no one-spec-per-session or per-spec-commit requirement. Name any optional capabilities you want in the request or add them to the profile later. The longer [kickoff prompt](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md#kickoff-optional-paste-ready-prompt) includes the full implementation loop.
 
 ## What it does
 
@@ -17,28 +25,25 @@ When it has tool access, the agent runs your port's noninteractive checks itself
 
 ## When to reach for it
 
-Use it when you are building a re-frame2 implementation rather than an application: deciding where a port starts, what claiming to be a re-frame2 implementation requires, and how the port is checked against the conformance corpus. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md) is the text the agent matches your request against.
+Use it when you are building a re-frame2 implementation rather than an application: deciding where a port starts, what claiming to be a re-frame2 implementation requires, and how the port is checked against the conformance corpus.
 
-Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
+For related work:
 
 - Writing application code on the CLJS reference → [re-frame2](re-frame2.md).
 - Moving a re-frame v1 app to re-frame2, which is also called porting → [re-frame-migration](re-frame-migration.md).
 
 A **non-React view layer** (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a **host that does not compile to JavaScript** (Python, Ruby, native Rust, Go, server-side Kotlin / Java) is out of scope by spec decision, not by oversight; the skill cites the scope footnote and stops.
 
-## Kickoff
+## What completion means
 
-Open a fresh Claude Code session in the root of your port's repo and paste the short kickoff prompt from [`SKILL.md` §Kickoff](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md#kickoff-optional-paste-ready-prompt), filling in the path to your re-frame2 spec checkout and the commit or tag it is pinned to. The session loads the skill, records the port profile, and starts the loop at the foundation, reporting exact commands and results as it goes.
+A port is complete against its declared capabilities when every applicable fixture passes, all four required capability families are present, and the port exposes the specified public API in its host's idiom. The committed port profile and README record the claim, score and corpus pin. Optional capabilities may be left out with reasons; a required capability cannot be skipped to raise the score.
+
+A port whose subscription cache does not inherently use re-frame2 equality must also demonstrate that two distinct host allocations of an equal query share one live cache entry, dispose exactly once, and remain distinct from an unequal query. This live-cache check is reported beside the fixture score: passing the corpus alone does not prove that property. The [implementation loop](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/references/phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned) describes the witness.
 
 ## When it stops
 
-- **The spec checkout does not match its pin.** Before reading anything, the skill checks that the checkout's `HEAD` and `origin` match the pin in the port profile and that its `spec/` tree has no uncommitted edits, which would otherwise pass as the recorded commit. On a mismatch it reports the paths and stops. It never resets, checks out or stashes to fix this; committing or setting aside those edits, or pinning a commit that includes them, is up to you.
+- **The spec checkout does not match its pin.** Before reading anything, the skill checks that the checkout's `HEAD` and `origin` match the pin in the port profile and that its `spec/` tree has no uncommitted changes or extra untracked/ignored files, which would otherwise pass as the recorded commit. On a mismatch it reports the paths and stops. It never resets, checks out or stashes to fix this; committing or setting aside those edits, or pinning a commit that includes them, is up to you.
 - **A spec gap** — a fixture that cannot pass without sources outside the spec. The skill does not paper over it or copy the reference implementation's behaviour. It searches the upstream `day8/re-frame2` issues (pointing you at an existing one if it matches), drafts one, shows you the full draft, and runs `gh issue create` only after an explicit yes.
 - **A choice that materially changes the port** and cannot be defaulted — the one kind of question it asks during Phase 1.
 
-## Where the skill lives
-
-- Source: [`skills/re-frame2-implementor/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor)
-- `SKILL.md`: [`skills/re-frame2-implementor/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md) — its §Reference files section lists the reference notes.
-- Reference notes: [`skills/re-frame2-implementor/references/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-implementor/references)
-- One worked example: the CLJS reference in [`implementation/`](https://github.com/day8/re-frame2/tree/main/implementation) (descriptive, not normative).
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md) contains the full workflow and links to its reference notes.

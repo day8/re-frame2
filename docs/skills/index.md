@@ -1,6 +1,6 @@
 # Skills
 
-A **skill** is a package of instructions, reference notes and optional scripts that an AI agent loads when your request matches it. re-frame2 ships nine skills for Claude Code (or any agent that reads Anthropic-format skills). With one loaded, a request like *"add an event that removes an item from the cart"* gets re-frame2's actual API and conventions instead of a guess.
+A **skill** is a package of instructions, reference notes and optional scripts that an AI agent loads when your request matches it. re-frame2 ships nine skills for Claude Code (or any agent that reads Anthropic-format skills). This page helps you choose a skill and install it. Each skill supplies re-frame2-specific recipes and a workflow for its task.
 
 Skills are for handing work to an agent. To learn re-frame2 yourself, read [the guide](../core/introduction.md).
 
@@ -29,23 +29,22 @@ scripts/install-skills.sh                                              # macOS /
 powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows
 ```
 
-It links rather than copies — symlinks on macOS/Linux, directory junctions on Windows, no admin needed — because a copy goes stale as the repo changes and Claude Code keeps loading the old version. Running it again is safe. Its options, with the PowerShell spelling in brackets:
+The links point at this checkout, so keep it on disk. Updating that checkout updates the installed instructions; installing from another checkout repoints existing links there. The installer uses symlinks on macOS/Linux and directory junctions on Windows, without requiring admin rights. Its options, with the PowerShell spelling in brackets:
 
-- `--force` (`-Force`) replaces a non-link copy with a link; without it, a copy is left alone.
-- `--check` (`-Check`) exits 0 when every skill is linked and current.
-- `--target DIR` (`-Target DIR`) links somewhere other than `~/.claude/skills/`.
+- `--check` (`-Check`) verifies without changing the installation: exit 0 means every skill links to this checkout; exit 1 means at least one is missing, copied, or linked elsewhere.
+- `--target DIR` (`-Target DIR`) chooses a different skill directory, such as your project's `.claude/skills/`. The checkout's own `skills/` directory is refused as a destination, including through an alias.
+- `--force` (`-Force`) deletes non-link copies and replaces them with links. Keep any local edits first. Without force, the installer leaves those copies alone and exits 1; other skills may already have been linked.
 
 The only other route is `npx skills add` against the public repo, which installs one skill directory. Nothing is published to npm and there is no Claude Code plugin marketplace entry; the `package.json` and `.claude-plugin/plugin.json` beside each skill are packaging metadata, not install routes. The full setup is in [`skills/README.md`](https://github.com/day8/re-frame2/blob/main/skills/README.md#installing-link-never-copy).
 
-A few skills need more than the install:
-
-- **re-frame2-pair** needs its MCP server built from a clone, and a small runtime namespace added to the app's dev build — see [its one-time setup](re-frame2-pair.md#one-time-setup).
-- **re-frame-migration** and **re-frame2-implementor** read the migration rules or the spec from a local re-frame2 checkout, pinned to a commit or tag you supply, and check that pin before reading anything.
-- **re-frame2-setup** needs Java 21+ and the Clojure CLI.
-- **reagent-migration** runs its reporter, and **re-frame-migration** its M-73 codemod, through the Clojure CLI.
+Installing a skill supplies instructions. Runtime tools are configured separately; for example, live pairing also needs its [MCP server and app preload](re-frame2-pair.md#one-time-setup).
 
 ## Run
 
-Claude Code watches its skill directories, so a running session usually picks up newly linked skills. If they do not appear — for example because `~/.claude/skills/` did not exist when the session started — run `/reload-skills` or start a new session. From then on you usually don't invoke a skill at all: ask in your own words and the matching skill loads itself. To load one explicitly, type its name as a slash command (`/re-frame2-pair`) or name it in the prompt (*"Using re-frame2-pair, trace `[:cart/add 42]`"*).
+In a project open in your agent, name the skill and the work you want:
+
+> Using re-frame2, add a `:cart/remove` event that removes an item by id and test it.
+
+Claude Code also exposes skills as slash commands, such as `/re-frame2`. Automatic selection uses the `description` in each `SKILL.md`; other hosts decide discovery and invocation in their own way. If a skill is missing, run the installer's check mode against the same target, then start a new agent session. Installing an individual directory through `npx skills add` does not install its sibling skills: install a handoff target too when you need it.
 
 Each skill's own `SKILL.md`, under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo, is the authority on what it does; the pages in this section are short entry points to it.

@@ -1,6 +1,14 @@
 # re-frame2-xray
 
-> Answers questions about **Xray**, re-frame2's in-app devtools panel: how to launch it, which tab shows what you are looking for, and what the controls around the tabs do.
+Answers questions about **Xray**, re-frame2's in-app devtools panel: how to launch it, which tab shows what you are looking for, and what the controls around the tabs do.
+
+## Kickoff
+
+Ask the question you have about the panel:
+
+> Using re-frame2-xray, show me where to look when the cart count changes but its view does not update.
+
+An answer names the mode, tab and first interaction. For a render question that is usually Dynamic → Views: select the event and inspect its render-cause chips. You can also ask about launching the panel, opening a pop-out window or browsing registrations. In Claude Code, `/re-frame2-xray` loads the skill explicitly.
 
 ## What it does
 
@@ -10,24 +18,22 @@ The skill answers three kinds of question about [Xray](../xray/index.md), the de
 2. **Which tab shows X?** — from the evidence you want (one dispatch, changed state, renders, raw ordering, machines and routes, server state, structure, registered definitions) to the one place to look first.
 3. **What are the controls around the tabs for?** — the frame picker, time-travel inspect and `Reset` rewind, the filter pills, the command palette, and the Settings popup.
 
-An answer names the mode and tab to open first, why, and the first thing to click — *"Dynamic → Views: pick the event, then read the render-cause chips"* — plus a second place to look only when it is the natural next step. It lists every tab only when you ask for the inventory. It reads nothing from your running app; it only reads its own reference notes.
+It lists every tab only when you ask for the inventory. It answers from its reference notes and does not inspect your running app.
 
 ## Two modes
 
 Xray runs in one of two modes, switched by the mode pill or a hotkey. **Dynamic** is for inspecting a single dispatch, though some of its tabs browse live structure and do not change when you pick a different event. **Static** browses what is *registered* rather than what just happened. The full tab inventory is in [`references/panels.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/panels.md), and the hotkeys in [`references/launch-lifecycle.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-lifecycle.md).
 
+Selecting an old event inspects retained evidence without changing the app. Xray's separate **Reset** button rewinds the live frame. The skill explains that distinction when guiding a time-travel question.
+
 ## When to reach for it
 
-Use it when you want to *read* the Xray panel yourself: how to get it on screen, why it never appeared, which Dynamic tab or Static catalogue shows what you are after, or what a control around the tabs does. The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/SKILL.md) is the text the agent matches your request against.
+Use it when you want to *read* the Xray panel yourself: how to get it on screen, why it never appeared, which Dynamic tab or Static catalogue shows what you are after, or what a control around the tabs does.
 
-Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
+For related work:
 
 - **Asking the agent to look at or change the running app**, read-only included → [re-frame2-pair](re-frame2-pair.md). The line is a human reading the panel versus the agent reading the runtime, not read versus write.
 - Implementing Xray itself → no skill yet; the spec under `tools/xray/spec/` is the source of truth.
-
-## Kickoff
-
-Ask the question you have about the panel — *"which Xray tab shows why this view re-rendered?"*, *"how do I pop Xray out onto a second monitor?"* — or type `/re-frame2-xray`.
 
 ## When the panel does not appear
 
@@ -43,9 +49,4 @@ The commonest launch failure is a preload that is in place and a page that loade
 
 The skill works through these with [`references/launch-modes.md` §Launch diagnostics](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/references/launch-modes.md#launch-diagnostics).
 
-## Where the skill lives
-
-- Source: [`skills/re-frame2-xray/`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-xray)
-- `SKILL.md`: [`skills/re-frame2-xray/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/SKILL.md) — its §Which reference leaf to load section names the note for each question.
-- Xray source and spec: [`tools/xray/`](https://github.com/day8/re-frame2/tree/main/tools/xray).
-- The Xray guide: [Xray](../xray/index.md).
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-xray/SKILL.md) contains the full workflow and links to its reference notes.

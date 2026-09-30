@@ -1,30 +1,45 @@
 # reagent-migration (views → Fresco)
 
-> Rewrites Reagent **view** code into **Fresco**, re-frame2's re-frame-native view layer. An optional second step after the v1→v2 move: it applies the mechanical rewrites, reasons through the judgment calls with you, and leaves on Reagent what Fresco has no equivalent for.
+Rewrites Reagent **view** code into **Fresco**, re-frame2's re-frame-native view layer. An optional second step after the v1→v2 move: it applies the mechanical rewrites, reasons through the judgment calls with you, and leaves on Reagent what Fresco has no equivalent for.
 
-## You probably do not need it
+## Kickoff
 
-An app moving from re-frame v1 to re-frame2 swaps its dependency, installs the Reagent adapter, and **keeps its view code**. That is a finished migration, and it is [re-frame-migration](re-frame-migration.md)'s job. `day8/re-frame2-reagent` is the default view adapter and the one the reference test suite runs against. Staying on it is a complete, supported configuration, not a half-migrated one.
+Ask in your own words with the code in scope — *"migrate the views under `src/app/cart/` to Fresco"* — or type `/reagent-migration`. Its first move is to check whether it has a job at all.
 
-Moving views to Fresco is a separate choice, and it is a rewrite rather than a respelling. Fresco ships in the same release set as the Reagent adapter, at the same version, so a project gets it the same way it already gets re-frame2 — from source until a release. Before it changes anything, the skill tells you that staying on Reagent is complete and that Fresco ships with the rest of re-frame2. It never implies you *should* move.
+## Scope
+
+Use this skill on an app already running re-frame2 when you want Fresco for some or all views. Keeping Reagent is fully supported. A v1 app can also migrate to re-frame2 while keeping Reagent; [re-frame-migration](re-frame-migration.md) handles the frame-dependent view calls that still need updating.
+
+Fresco ships at core's version in the same release set. The rewrite changes view parameters, handlers and state ownership; the skill discusses those choices before converting a view.
 
 ## What it does
 
-A typical rewrite, for a Reagent view mounted as `[add-button 42]`:
+For a cart that already registers `:cart/add` and `:cart/count`, the view changes like this. Both forms mount inside the app's frame:
 
 ```clojure
-;; before — Reagent
-(defn add-button [id]
+;; Before: in the Reagent view namespace, mounted as [add-button 42].
+(ns app.cart.views
+  (:require [re-frame.core :as rf]))
+
+(rf/reg-view add-button [id]
   [:button {:on-click #(dispatch [:cart/add id])}
    "Add (" @(subscribe [:cart/count]) ")"])
+```
 
-;; after — Fresco (h is re-frame.fresco), mounted as [add-button {:id 42}]
+```clojure
+;; After: replace the namespace require and view,
+;; then mount as [add-button {:id 42}].
+(ns app.cart.views
+  (:require [re-frame.fresco :as h]))
+
 (h/defview add-button [{:keys [id]}]
   [:button {:on-click [:cart/add id]}
    "Add (" (h/sub [:cart/count]) ")"])
 ```
 
-Positional parameters become one props map (and every call site changes with it), `@(subscribe …)` becomes `(h/sub …)`, which returns the value, and a dispatch-only closure becomes the event vector itself. Fresco views hold no state of their own — no `local`, no `use-state`, no cell of any kind — so view-held state moves out of the component.
+Positional parameters become one props map (and every call site changes with it), `@(subscribe …)` becomes `(h/sub …)`, which returns the value, and a dispatch-only closure becomes the event vector itself. Fresco views hold no local state. Product state moves to `app-db`, buffered field edits can use the forms module, and widget mechanics can stay in a foreign React component. The skill discusses that ownership before rewriting a stateful view.
+
+There is also a timing change: the event vector drains synchronously, while the old injected `dispatch` queued the event. Most callbacks want the vector form. If code after the dispatch relies on the old state, the skill checks the ordering and can preserve queued dispatch using an explicitly captured frame; see [MIG-04/05](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/catalog-mechanical.md#mig-04-05-dispatch-lifting).
 
 The skill's rules come in three tiers, each rule named by a `MIG-NN` id so you can audit any change:
 
@@ -34,37 +49,26 @@ The skill's rules come in three tiers, each rule named by a `MIG-NN` id so you c
 
 It rewrites the **view tier** only. Where a view forces a dataflow change — a new `reg-sub`, a hoisted event — it names the change for you rather than editing events or subscriptions. And it writes only spellings that exist in Fresco's shipped public namespace; a guide or design page is not authority for a spelling.
 
-## When to reach for it
-
-Use it only when **both** are true:
-
-- The app is **already on re-frame2** — the v1→v2 move is done.
-- You **specifically want Fresco** for some views, knowing you do not have to.
-
-The `description` in its [`SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md) is the text the agent matches your request against.
-
-Every skill is listed under [Which skill do I want?](index.md#which-skill-do-i-want). The ones most easily confused with this one:
+## Related work
 
 - The re-frame **v1 → v2** events/subs/db migration → [re-frame-migration](re-frame-migration.md).
 - Writing new re-frame2 code → [re-frame2](re-frame2.md).
 - A review of view code against re-frame2's anti-patterns, without porting it → [re-frame2-improver](re-frame2-improver.md).
 
-## Kickoff
+## How the migration runs
 
-Ask in your own words with the code in scope — *"migrate the views under `src/app/cart/` to Fresco"* — or type `/reagent-migration`. Its first move is to check whether it has a job at all.
+The skill first runs a reporter, [`migration/reagent-to-fresco/codemod`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod): a JVM tool that reads your source text, loads no re-frame2 and changes no source file. It writes an EDN report with two halves:
 
-Then it runs a reporter, [`migration/reagent-to-fresco/codemod`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod): a JVM tool that reads your source text, loads no re-frame2 and changes no file. It writes an EDN report with two halves:
-
-- a **census** of every view-layer API call site — Reagent's (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounts) and those into re-frame2's own adapter namespaces — which sizes the job;
+- a **census** of the view-layer API call sites it recognises — Reagent's (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounts) and those into re-frame2's own adapter namespaces — which sizes the job;
 - a **fixer** for the `[:> …]` prop dialect at React crossings, six of whose rewrite families can be decided from source text alone.
 
-No tool converts the views themselves; that is judgment. The skill runs the reporter from your project as an ordinary Clojure CLI invocation that pulls the codemod as a git dependency — no re-frame2 checkout is needed and none is created. Expect one line on stderr, `Use of :paths external to the project has been deprecated`; it is not a failure. The exact command is in [`SKILL.md` §Start with the reporter](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md#start-with-the-reporter--it-is-a-real-tool-and-it-runs-first). The reporter's `--rewrite --write` mode, which applies only the six decidable prop-dialect families, is the last step of a migration, never the first.
-
-## How the migration runs
+No tool converts the views themselves; that is judgment. The skill runs the reporter from your project as an ordinary Clojure CLI invocation that pulls the codemod as a git dependency — no re-frame2 checkout is needed and none is created. Expect one line on stderr, `Use of :paths external to the project has been deprecated`; it is not a failure. The exact command is in [`SKILL.md` §Start with the reporter](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md#start-with-the-reporter--it-is-a-real-tool-and-it-runs-first). `--rewrite` previews the six prop-dialect rewrites without changing source. The reporter's `--rewrite --write` mode, which applies only the six decidable prop-dialect families, is the last step of a migration, never the first.
 
 After the report, it converts one **closed subtree** at a time — a namespace, or a view and the views beneath it, leaf views first — so each pass ends compiling, rendering and tested. It converts or holds each view whole, so there is never a half-migrated view. The skill runs the compile and test gates itself and hands you the **render** check, because "compiles" is not done: the failures that cost most all compile clean. The procedure, the traps and the shipped shadow-comparison test kit are in [`references/procedure.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/procedure.md).
 
-When no Reagent view remains, it tells you the adapter choice is now open: Fresco's own adapter, `re-frame.fresco.substrate/adapter`, can replace `day8/re-frame2-reagent`. That call, and whether to drop `reagent/reagent` as well, stay yours.
+A converted view can also sit beneath a parent that remains on Reagent via `h/as-component`; the skill does not require a whole-app rewrite.
+
+When no Reagent view remains, it tells you the adapter choice is now open: Fresco's own adapter, `re-frame.fresco.substrate/adapter`, can replace `day8/re-frame2-reagent`. That choice stays yours. Dropping `reagent/reagent` also requires checking the rest of the repository for remaining uses, not just counting converted views.
 
 ## When it stops
 
@@ -75,10 +79,4 @@ When no Reagent view remains, it tells you the adapter choice is now open: Fresc
 
 A half-converted view fails at a different moment depending on what was left behind: a leftover `rf/subscribe` or `rf/dispatch` in the render raises `:rf.error/ambient-frame-refused` at render; a surviving `#(dispatch …)` closure renders fine and raises `:rf.error/no-frame-context` on click; an `h/sub` moved into a callback or timer raises `:rf.error/fresco-sub-outside-render` when it fires. Causes and fixes are in [`references/gotchas.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/references/gotchas.md).
 
-## Where the skill lives
-
-- Source: [`skills/reagent-migration/`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration)
-- `SKILL.md`: [`skills/reagent-migration/SKILL.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md)
-- Reference notes: [`skills/reagent-migration/references/`](https://github.com/day8/re-frame2/tree/main/skills/reagent-migration/references) — the skill's [`README.md`](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/README.md) §Layout lists them, the three tier catalogues among them.
-- The migration reporter: [`migration/reagent-to-fresco/codemod/`](https://github.com/day8/re-frame2/tree/main/migration/reagent-to-fresco/codemod).
-- Fresco's public namespace: [`implementation/fresco/src/re_frame/fresco.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/fresco/src/re_frame/fresco.cljc).
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/reagent-migration/SKILL.md) contains the full workflow and links to its reference notes.
