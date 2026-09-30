@@ -7,9 +7,7 @@ Ships in the `day8/re-frame2-ssr` artefact, alongside [`re-frame.ssr`](re-frame.
 ```clojure
 (:require [re-frame.core     :as rf]
           [re-frame.ssr.head :as head])
-```
 
-```clojure
 (rf/reg-head :head/article
   (fn [db {:keys [params]}]
     (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
@@ -53,7 +51,7 @@ Every key of a head model is optional:
   ```
 - **Description**: Returns `frame-id`'s head model. Pure and JVM-runnable. It resolves in one pass:
     1. The effective route is `:route` when the key is present (an explicit `{:route nil}` means no route), else the frame's active route slice from `runtime-db` at `[:rf.runtime/routing :current]`.
-    2. The head is `:head-id` when supplied, else the effective route's `:head` metadata, else [`default-head`](#default-head).
+    2. The head is a non-`nil` `:head-id` when supplied, else the effective route's `:head` metadata, else [`default-head`](#default-head).
     3. The head fn runs against that same effective route, so `{:route r}` with no `:head-id` previews `r` end to end.
     - `frame-id` is required.
     - The frame selects the registrations as well as the data, so a head declared in one image cannot run against another image's `app-db`.
@@ -112,10 +110,3 @@ Not for application code — used by adapters, tools and the test harness.
   (head/default-head :app/request-17)
   ;; => {:title "…" :meta [{:name "viewport" :content "width=device-width, initial-scale=1"}]}
   ```
-
-## See also
-
-- [`re-frame.ssr`](re-frame.ssr.md) — rendering, hydration, error projection, and the `rf/reg-head` entry.
-- [`re-frame.ssr.ring`](re-frame.ssr.ring.md) — the Ring handler that resolves and emits the head for each request.
-- [`re-frame.routing`](re-frame.routing.md) — routes select a head with `:head` metadata.
-- [Head metadata](../ssr/head.md) — the guide, including the separate `:rf/head-hash` channel.
