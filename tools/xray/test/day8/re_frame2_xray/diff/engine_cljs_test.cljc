@@ -453,7 +453,7 @@
 ;; default `compare` cannot order, so that row throws if either sort site
 ;; loses `compare-path`.
 
-(deftest n83r8-mixed-keyword-integer-path-segments-do-not-throw
+(deftest n83r8-vector-append-under-a-keyword-parent-is-one-flat-row
   (testing "vector-append under
             a keyword-keyed parent produces flat-row paths with mixed
             keyword+integer segments inside ONE path. The sort over a
