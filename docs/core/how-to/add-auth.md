@@ -6,10 +6,12 @@ It uses two add-on artefacts, [routing](../../routing/concepts.md) (`day8/re-fra
 
 ## 1. The session slice
 
-The session is two [app-db](../glossary.md#app-db) paths:
+The session uses two [app-db](../glossary.md#app-db) paths:
 
 - `[:auth :user]`: the signed-in user, or `nil` when nobody's logged in.
 - `[:auth :token]`: the credential that requests carry.
+
+A non-secret top-level `:auth-generation` counter identifies the current session. Increment it on init, restore, successful login and logout; keep it outside `:auth` so replacing that slice cannot reset it. The HTTP hook below captures it to reject failures from a previous session.
 
 The route guard checks `:user`, the request decorator reads `:token`, and logout clears both. Both have to survive a reload (the tip below explains why). Each [frame](../glossary.md#frame) has its own app-db, so a second frame on the page keeps its own session.
 
@@ -72,7 +74,9 @@ from the app-db path it will populate.
 (rf/reg-event :auth/session-restored
   {:sensitive [[:token]]}
   (fn [{:keys [db]} [_ saved]]
-    {:db (update db :auth assoc :user (:user saved) :token (:token saved))}))
+    {:db (-> db
+             (update :auth-generation (fnil inc 0))
+             (update :auth assoc :user (:user saved) :token (:token saved)))}))
 ```
 
 Unreadable storage, malformed JSON and an old session shape return `nil`, so boot
@@ -103,6 +107,7 @@ The login form is the one from [Build a form](build-a-form.md), whose running ex
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [user (:user value)]            ;; server reply: {:user {... :token "..."}}
       {:db (-> db
+               (update :auth-generation (fnil inc 0))
                (assoc-in [:auth :login :status]    :submitted)
                (assoc-in [:auth :login :submitted] (get-in db [:auth :login :draft]))
                (assoc-in [:auth :user]  (dissoc user :token))
@@ -133,8 +138,10 @@ Write it once, as an HTTP interceptor. These belong to [managed HTTP](../../asyn
 ```clojure
 ;; cf. examples/real-apps/realworld_http/core.cljs
 (defn- bearer-auth [ctx]
-  (let [token (some-> (rf/app-db-value (:frame ctx)) :auth :token)]
+  (let [db    (rf/app-db-value (:frame ctx))
+        token (get-in db [:auth :token])]
     (cond-> ctx
+      token (assoc :auth/generation (:auth-generation db))
       token (assoc-in [:request :headers "Authorization"]
                       (str "Token " token)))))  ;; "Token" is RealWorld's scheme; yours may be "Bearer"
 
@@ -155,21 +162,26 @@ This is the same move as registering one `axios` request interceptor instead of 
 The same chain has a response side, which is where you catch an expired token:
 
 ```clojure
-;; Catch a 401 and log out. `:after` receives the reply envelope:
+;; A 401 may expire only the session whose credential this request carried.
+;; `:after` receives the reply envelope:
 ;;   {:status :ok :value …}
 ;;   {:status :error :error {:kind :rf.http/http-4xx :status 401 …}}
 (rf/with-frame :app
   (rf/reg-http-interceptor :my-app/expired-session
     {:after (fn [ctx response]
-              (when (and (= :error (:status response))
+              (when (and (contains? ctx :auth/generation)
+                         (= :error (:status response))
                          (= :rf.http/http-4xx (get-in response [:error :kind]))
                          (= 401 (get-in response [:error :status])))
                 ;; The reply runs in a transport callback with no frame in
                 ;; scope, so a bare (rf/dispatch …) would raise
                 ;; :rf.error/no-frame-context. Dispatch into this request's frame.
-                (rf/dispatch [:auth/logout] {:frame (:frame ctx)}))
+                (rf/dispatch [:auth/expired {:generation (:auth/generation ctx)}]
+                             {:frame (:frame ctx)}))
               response)}))                       ;; :after must return the response
 ```
+
+The post-`:before` context reaches `:after` unchanged, including `:auth/generation`. Anonymous requests carry no generation, so a rejected login does not trigger logout. The `:auth/expired` handler in step 6 compares the captured counter with current state when the event runs; checking only in this callback could race a queued login success.
 
 Note the two `:status` levels. The reply's `:status` is `:ok`, `:error`, or `:cancelled`; the HTTP status code of a 4xx/5xx is at `(get-in response [:error :status])`, beside the failure `:kind`. Branch on the `:kind` keywords ([Managed HTTP](../../async/http.md) lists them), never on a message string.
 
@@ -238,7 +250,9 @@ Restore the session from the frame's `:initial-events`. A `:url-bound? true` fra
 ;; Seed and classify the slice before the load effect queues its reply.
 (rf/reg-event :auth/init
   (fn [{:keys [db]} _]
-    {:db        (update db :auth assoc :user nil :token nil)
+    {:db        (-> db
+                    (update :auth-generation (fnil inc 0))
+                    (update :auth assoc :user nil :token nil))
      :sensitive [[:auth :token]]
      :fx        [[:auth.session/load]]}))
 
@@ -303,18 +317,29 @@ If you use [resources](../../resources/glossary.md#resource) (managed, cached se
 In the logout handler, resolve the old scope from the handler's `db` *before* clearing the auth slice, because the scope derives from the identity you are about to remove:
 
 ```clojure
+(defn logout-effects [db]
+  (let [old-scope (rf/resolve-resource-scope db :my-app/session)]
+    {:db (-> db
+             (update :auth-generation (fnil inc 0))
+             (assoc-in [:auth :user] nil)
+             (assoc-in [:auth :token] nil))
+     ;; A nil :token removes the whole saved session, identity included.
+     :fx (cond-> [[:auth.session/persist {:token nil}]]
+           old-scope (conj [:dispatch [:rf.resource/clear-scope
+                                      {:scope old-scope :cause :logout}]])
+           true (conj [:dispatch [:rf.route/navigate {:to :app/home}]]))}))
+
 (rf/reg-event :auth/logout
-  (fn [{:keys [db]} _]
-    (let [old-scope (rf/resolve-resource-scope db :my-app/session)]   ;; pure; reads the pre-logout db
-      {:db (-> db
-               (assoc-in [:auth :user]  nil)
-               (assoc-in [:auth :token] nil))
-       ;; A nil :token removes the whole persisted session, identity included,
-       ;; so the next boot can't restore a user with no credential.
-       :fx [[:auth.session/persist {:token nil}]
-            [:dispatch [:rf.resource/clear-scope {:scope old-scope :cause :logout}]]
-            [:dispatch [:rf.route/navigate {:to :app/home}]]]})))
+  (fn [{:keys [db]} _] (logout-effects db)))
+
+(rf/reg-event :auth/expired
+  (fn [{:keys [db]} [_ {:keys [generation]}]]
+    (when (= generation (:auth-generation db))
+      (logout-effects db))))
+
 ```
+
+`logout-effects` applies the same teardown for an explicit logout and a current-session 401. A stale expiration returns no effects. The comparison and teardown belong in the same handler: dispatching an unguarded logout afterward would open another race.
 
 `clear-scope` removes that scope's cache entries, releases their owners, aborts in-flight requests nothing else owns, ignores late replies for the cleared scope, and records a trace row listing what it removed, aborted, and left alone. Other scopes, such as public reads or a second signed-in frame, are untouched ([Server state: resources](../../resources/concepts.md)). If you don't use resources, drop that `:fx` entry and skip the resolver.
 
@@ -336,3 +361,4 @@ With all six steps wired, open [Xray](../../xray/index.md):
 - Logged in, open an authenticated request. The `Authorization` header shows as redacted, as does `[:auth :token]` in the app-db view.
 - Reload the page while signed in on a protected URL. The `:auth/init` row requests `:auth.session/load`, followed by the classified `:auth/session-restored` reply. Both events finish before the initial `:rf.route/handle-url-change` row, and the guarded route commits without an `:rf.route/entry-denied`. If the URL row ever comes first, the restore is no longer in `:initial-events`.
 - Dispatch `:auth/logout`. One clear-scope row lists what was removed, aborted, and left alone.
+- Start a request, then sign in to a new session before its 401 arrives. Its `:auth/expired` event carries the old generation and makes no change; a 401 from the current session runs the teardown.
