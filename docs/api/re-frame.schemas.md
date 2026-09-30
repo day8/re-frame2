@@ -1,6 +1,6 @@
 # re-frame.schemas
 
-Use schemas to catch data of the wrong shape where it is written. Attach a [Malli](https://github.com/metosin/malli) schema to an `app-db` path with `reg-app-schema`, or to an event, effect or subscription with the `:schema` key of its registration. Development builds validate every `app-db` write, event vector, fx argument and subscription value that has a schema, and emit an `:rf.error/schema-validation-failure` trace on a mismatch; production builds elide the checks.
+Use schemas to catch data of the wrong shape where it is written. Attach a [Malli](https://github.com/metosin/malli) schema to an `app-db` path with `reg-app-schema`, or to an event, effect or subscription with the `:schema` key of its registration. Development builds validate proposed `app-db` writes, event vectors, fx arguments and subscription values that have schemas. A mismatch emits `:rf.error/schema-validation-failure`. These checks are removed in production; an event with [`:boundary? true`](#validation-in-production) keeps its input validation in every build.
 
 This namespace ships in the optional artefact `day8/re-frame2-schemas`. Require `re-frame.schemas` once at boot: loading it installs the default Malli validator. Without it, `rf/reg-app-schema` and `rf/reg-app-schemas` throw `:rf.error/schemas-artefact-missing`.
 
@@ -90,13 +90,14 @@ A production build (`:advanced` with `goog.DEBUG` false) removes the four checks
   (reg-app-schema path schema) → path
   (reg-app-schema path metadata schema) → path
   ```
-- **Description**: Attaches a Malli schema to an `app-db` path. In development builds, after each event handler commits `:db`, the new `app-db` is validated against it. A write that fails is rolled back to the pre-handler `app-db`, and the event's `:fx` do not run (see [What is validated](#what-is-validated)).
+- **Description**: Attaches a Malli schema to an `app-db` path. In development builds, after each event handler returns `:db`, the proposed `app-db` is validated before it is installed. A write that fails keeps the pre-handler `app-db`, and the event's `:fx` do not run (see [What is validated](#what-is-validated)).
     - Every registered path is checked on every commit, and a path nothing has written yet reads `nil`. So a schema registered before its slice is seeded rejects every commit until the seed lands. Seed all such slices in one `:db` write, or allow the empty state with `[:maybe …]`. See [Every registered path is checked on every commit](../core/how-to/validate-with-schemas.md#every-registered-path-is-checked-on-every-commit).
     - This is a development-build assertion. A production build still registers the schema, so `app-schemas` and `app-schema-meta` return it, but never checks it: a violating `app-db` installs with no rejection, rollback or trace. Keep invariants that must hold in production in the handler, and set [`:boundary? true`](#validation-in-production) on the event registration where untrusted input must be validated in production too.
     - The schema is the last positional argument, as in the rest of the `reg-*` family. The optional middle metadata map carries the frame under `:frame` (a frame-id keyword or a frame value), plus `:doc` and open `:my/*` keys. Without `:frame`, the schema registers against the frame in scope, for example inside `rf/with-frame`.
     - The frame need not exist yet. A schema registered against a frame id before `make-frame` creates that frame applies once it does, so schemas can be registered at boot ahead of their frames; a mistyped frame id is not detected. Destroying the frame removes its schemas.
     - The path is the registration id. App-db schemas are not a registrar kind: they live in the schemas artefact's per-frame table, and `(schemas/app-schema-meta {:frame f :path [:user]})` looks one up by the same path.
     - `path` is a sequential `get-in` path of concrete segments, normalised to a vector. `[]` registers a schema for the whole `app-db`. Returns the normalised path.
+    - A segment can be a keyword, string, symbol, boolean, UUID, instant, `nil`, or an integer from −9,007,199,254,740,991 to 9,007,199,254,740,991. Composite values, functions and host handles are rejected. A `nil` segment is a literal map key; a `nil` path is invalid. Use a non-negative integer to address a vector element.
     - In development builds, re-registering a different schema at a path whose live `app-db` value fails it emits an `:rf.schema/violation` warning trace (`:path`, `:pre-reload-schema`, `:post-reload-schema`, `:mismatching-value`, `:frame`). `app-db` is left as it is, so every later event that returns `:db` is rejected until one writes a conforming value there or the schema changes again.
     - A schema the walkers cannot inspect for `:sensitive?` / `:large?` flags warns once per process with `:rf.warning/schema-walker-opaque`: a compiled `m/schema` value, at the root or nested inside a vector form, a local `:registry`, or a `[:ref …]`. A failure against such a schema redacts every value-bearing trace slot, as if the whole schema were sensitive; register the plain vector form to keep per-slot redaction.
 - **Errors**:
@@ -287,7 +288,7 @@ Not for application code — used by adapters, tools and the test harness.
 
 ### Validation entry points
 
-The runtime calls these four functions for you: `validate-event!` before an event handler runs, `validate-fx!` before an fx handler runs, `validate-app-schema!` after a handler commits `:db`, and `validate-sub!` after a subscription recomputes. They are public so that tools and conformance tests can call them directly; application code registers a `:schema` instead.
+The runtime calls these four functions for you: `validate-event!` before an event handler runs, `validate-fx!` before an fx handler runs, `validate-app-schema!` before the handler's proposed `:db` is installed, and `validate-sub!` after a subscription recomputes. They are public so that tools and conformance tests can call them directly; application code registers a `:schema` instead.
 
 - They exist in development builds only. In a production build the code is dead-code-eliminated and each function returns `true` without checking anything.
 - A malformed registered schema (one that makes the validator throw) emits `:rf.error/malformed-schema` and counts as a failure (`false`), so a broken schema never passes silently. That trace carries only locator slots, no values.
@@ -303,7 +304,7 @@ The runtime calls these four functions for you: `validate-event!` before an even
   (validate-app-schema! db event-id frame-id) → boolean  ;; explicit frame
   (validate-app-schema! db event-id frame-id continue?) → boolean or :rf/stale-incarnation
   ```
-- **Description**: Validates `app-db` after a handler commits `:db`, against every schema registered for the frame. Schemas registered in other frames are ignored.
+- **Description**: Validates the handler's proposed `app-db` before installation, against every schema registered for the frame. Schemas registered in other frames are ignored.
     - Each failing schema emits its own `:rf.error/schema-validation-failure` trace, with the explainer's output attached. `:value` (the failing leaf) is redacted when that leaf, an ancestor or a descendant is `:sensitive?`; `:explain` and `:explain-humanized` carry the whole registered value, so they are redacted when any slot in the schema is `:sensitive?`.
     - A malformed schema emits `:rf.error/malformed-schema` for that entry, counts as `false`, and does not stop the other schemas validating.
     - `event-id` (optional) names the handler whose commit is being checked; it appears in the trace as `:failing-id`.

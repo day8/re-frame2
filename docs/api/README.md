@@ -97,8 +97,9 @@ each one reaches you.
   below marks every one.
 
 "(development builds)" after an id means only a development build checks for
-it. [Spec 009's error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue)
-is the full list of ids, with each one's payload, default recovery and channel.
+it. Each API entry names the errors relevant to that call and explains its
+recovery. The [Errors guide](../core/errors.md) shows how to catch a thrown
+error, inspect a reported failure and send production errors to a sink.
 
 ## Coverage
 
