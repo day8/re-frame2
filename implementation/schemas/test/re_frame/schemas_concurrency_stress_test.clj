@@ -30,16 +30,14 @@
        and every captured snapshot MUST be re-digestible without error
        (no torn-read fragment that breaks the serialisation pass).
 
-    3. **Sensitive-path resolution under contention** —
-       `extract-sensitive-paths-from-schema` walks a
-       Malli EDN schema vector, threading an accumulator map through
-       a recursive descent. The walker is pure — same input ALWAYS
-       produces the same output — so under N concurrent calls against
-       a shared schema input the per-call result MUST be byte-identical.
-       This test pins the purity contract under the JVM's escape-
-       analysis + biased-locking optimiser (a stateful walker would
+    3. **Sensitive-path resolution under contention** — the unmemoised
+       sensitive-path walk (`walk-sensitive-paths-from-schema`) threads
+       an accumulator map through a recursive descent of a Malli EDN
+       schema vector. The walk is pure — same input ALWAYS produces the
+       same output — so under N concurrent walks of a shared schema input
+       the per-call result MUST be identical. A stateful walker would
        silently corrupt between threads; pure recursion with local
-       accumulators does not).
+       accumulators does not.
 
   Invariants asserted:
 
@@ -63,11 +61,11 @@
        the FINAL state contains exactly one schema per (path) — no
        per-thread shadowing.
 
-    4. **No leak.** Sensitive-path walker invocations against shared
-       schema inputs MUST be byte-identical across threads (no
-       cross-thread accumulator pollution). Verified by an additional
-       `walk-cross-check` that re-runs the walker once on the main
-       thread post-stress and asserts every parallel result equals it.
+    4. **No leak.** Concurrent sensitive-path walks of a shared schema
+       input MUST be identical across threads (no cross-thread
+       accumulator pollution). Every parallel result MUST be a fresh walk
+       rather than a cached object, the walks MUST overlap, and a
+       post-stress walk on the main thread MUST still equal the baseline.
 
   Threads start in lockstep via `CountDownLatch.countDown` so contention on the
   shared `schemas-by-frame` atom is maximised.
@@ -82,7 +80,8 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.storage :as rf.schemas.storage]
-            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture])
+            [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
+            [re-frame.schemas.walker :as rf.schemas.walker])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
@@ -378,31 +377,37 @@
 (deftest sensitive-path-walker-contention-stress
   ;; Scenario 3.
   ;;
-  ;; The schema walker (`extract-sensitive-paths-from-schema`,
-  ;; the deep walker) is pure recursion through immutable
-  ;; data — every accumulator is local to the call. Under N concurrent
-  ;; calls against a shared schema input the result MUST be byte-
-  ;; identical across threads. This test pins the purity contract
-  ;; against the JVM's escape-analysis + biased-locking optimiser
-  ;; (which would surface a stateful walker as cross-thread
-  ;; pollution) and, in particular, against any future refactor that
-  ;; introduces a memoisation cache or a shared accumulator.
+  ;; The sensitive-path walk is pure recursion through immutable data —
+  ;; every accumulator is local to the call. Under N concurrent walks of a
+  ;; shared schema the result MUST be identical across threads; a walker
+  ;; carrying shared mutable state surfaces here as divergent results.
+  ;;
+  ;; The parallel phase calls the UNMEMOISED walk
+  ;; (`walk-sensitive-paths-from-schema`, what the
+  ;; `:schemas/extract-sensitive-paths-from-schema` hook publishes). The
+  ;; public `extract-sensitive-paths-from-schema` memoises on
+  ;; `(schema, base-path)`, so behind it every call after the first is a
+  ;; cache hit and no walk runs under contention at all.
   ;;
   ;; The schema input is a 4-level nested `:map` carrying a mix of
-  ;; `:sensitive?` slots, `:large?` slots, and ordinary slots — deep
-  ;; enough that the recursion has multiple frames and the
-  ;; accumulator transitions through several intermediate states
-  ;; (any one of which a stateful walker could leak between threads).
+  ;; `:sensitive?` and ordinary slots — deep enough that the recursion
+  ;; has multiple frames and the accumulator transitions through several
+  ;; intermediate states (any one of which a stateful walker could leak
+  ;; between threads).
   ;;
   ;; Invariants:
-  ;;   - Every per-call result is byte-identical to the main-thread
-  ;;     baseline computed before the futures launch.
-  ;;   - The aggregate counter (incremented inside each call) equals
-  ;;     `(n-threads × stress-iters)` — pins that no thread silently
-  ;;     skipped iterations.
+  ;;   - Every per-call result equals the main-thread baseline computed
+  ;;     before the futures launch.
+  ;;   - Every per-call result is a FRESH walk: never `identical?` to the
+  ;;     thread's previous result (the baseline, for its first call),
+  ;;     because a cache hit hands back the same object.
+  ;;   - The walks overlapped: some walk started while another was still
+  ;;     in flight, so the phase really ran under contention.
+  ;;   - Each per-thread counter equals `stress-iters` — pins that no
+  ;;     thread silently skipped iterations.
   (testing (str n-threads " threads × " stress-iters
-                " sensitive-path walks against shared schema — "
-                "byte-identical results per call")
+                " concurrent sensitive-path walks against a shared schema — "
+                "identical results per call")
     (let [;; Deeply-nested schema with sensitive slots interleaved at
           ;; multiple depths. The walker recurses through `:map`
           ;; (name-bearing), `:vector` (positional), and `:multi`
@@ -431,29 +436,41 @@
                         [:map [:provider :string] [:key :string]]]
                        [:openai {:sensitive? true}
                         [:map [:provider :string] [:key :string]]]]]]]]
-          ;; Main-thread baseline — what every parallel call MUST match
-          ;; byte-for-byte. Computed BEFORE the futures launch so the
-          ;; comparison happens against a snapshot fixed in evaluation
-          ;; order (no later main-thread mutation could perturb it).
-          baseline (rf.schemas/extract-sensitive-paths-from-schema
-                     schema [])
+          walk     rf.schemas.walker/walk-sensitive-paths-from-schema
+          ;; Main-thread baseline — what every parallel call MUST match.
+          ;; Computed BEFORE the futures launch so the comparison happens
+          ;; against a snapshot fixed in evaluation order (no later
+          ;; main-thread mutation could perturb it).
+          baseline (walk schema [])
           latch    (CountDownLatch. 1)
           ;; Per-thread divergence record + per-thread call count.
-          divergences      (vec (repeatedly n-threads #(atom [])))
+          divergences       (vec (repeatedly n-threads #(atom [])))
           per-thread-counts (vec (repeatedly n-threads #(AtomicLong. 0)))
+          ;; Calls whose result was the previous call's object (a cache hit).
+          reused            (AtomicLong. 0)
+          ;; Walks currently running, and walks that started while another
+          ;; was still running.
+          in-flight         (AtomicLong. 0)
+          overlapped        (AtomicLong. 0)
           futures
           (vec
             (for [t (range n-threads)]
               (future
                 (.await latch)
-                (dotimes [_ stress-iters]
-                  (.incrementAndGet ^AtomicLong (nth per-thread-counts t))
-                  (let [r (rf.schemas/extract-sensitive-paths-from-schema
-                            schema [])]
-                    (when (not= r baseline)
-                      (swap! (nth divergences t) conj
-                             {:got      r
-                              :expected baseline})))))))]
+                (loop [i 0 prev baseline]
+                  (when (< i stress-iters)
+                    (.incrementAndGet ^AtomicLong (nth per-thread-counts t))
+                    (when (< 1 (.incrementAndGet in-flight))
+                      (.incrementAndGet overlapped))
+                    (let [r (walk schema [])]
+                      (.decrementAndGet in-flight)
+                      (when (identical? r prev)
+                        (.incrementAndGet reused))
+                      (when (not= r baseline)
+                        (swap! (nth divergences t) conj
+                               {:got      r
+                                :expected baseline}))
+                      (recur (inc i) r)))))))]
       (.countDown latch)
       (doseq [f futures]
         (let [v (deref f 120000 ::timeout)]
@@ -485,13 +502,21 @@
               (str "Each thread must have run exactly " expected
                    " walker calls; got " actual-counts))))
 
-      ;; --- Invariant: post-stress walker still equals baseline ---
-      ;; The walker is a pure fn over immutable data; the post-stress
+      ;; --- Invariant: every call walked, and the walks overlapped ---
+      (is (zero? (.get reused))
+          (str (.get reused) " parallel calls returned the previous call's "
+               "result object — they were served from a cache, so the walk "
+               "did not run under contention"))
+      (is (pos? (.get overlapped))
+          "at least one walk started while another was still in flight")
+
+      ;; --- Invariant: post-stress walk still equals baseline ---
+      ;; The walk is a pure fn over immutable data; the post-stress
       ;; result MUST equal the pre-stress baseline. A discrepancy
-      ;; would indicate the contention exposed a memoisation cache or
-      ;; mutable global the walker reads through (it reads through
-      ;; neither; this pins that it stays so).
-      (let [post (rf.schemas/extract-sensitive-paths-from-schema schema [])]
+      ;; would indicate the contention left behind mutable global state
+      ;; the walker reads through (it reads through none; this pins that
+      ;; it stays so).
+      (let [post (walk schema [])]
         (is (= baseline post)
             (str "Post-stress walker baseline drifted: expected "
                  (pr-str baseline) "; got " (pr-str post)))))))
