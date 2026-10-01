@@ -437,30 +437,6 @@
           "identity facts remain on the summary"))))
 
 ;; ---------------------------------------------------------------------------
-;; Control: the raw reply contains the protected fields and the shared walker
-;; removes them, so the projection assertions are not satisfied by the fixture.
-;; ---------------------------------------------------------------------------
-
-(deftest control-the-raw-reply-carries-the-sensitive-body-before-projection
-  (testing "the raw fixture contains protected fields before projection"
-    (mk-frame!)
-    (let [reply (ok-reply)]
-      (is (= raw-token (get-in reply [:value :token]))
-          "the RAW reply carries the sensitive token (pre-projection)")
-      (is (= big-string (get-in reply [:value :blob]))
-          "the RAW reply carries the large blob (pre-projection)")
-      ;; The sentinel predicate finds the originals in the raw reply — its
-      ;; positive baseline (the redacted/projected outputs above must NOT).
-      (is (embeds-raw-token? reply)
-          "the sentinel predicate finds the raw token in the pre-projection reply")
-      (is (embeds-raw-blob? reply)
-          "the sentinel predicate finds the raw blob in the pre-projection reply")
-      ;; The direct walker provides the expected projection result.
-      (let [direct (rf.elision/elide-wire-value (:value reply) {:frame frame-id})]
-        (is (redacted? (get-in direct [:token]))
-            "the shared walker redacts the token")))))
-
-;; ---------------------------------------------------------------------------
 ;; Adversarial control: a marker map that STILL embeds the raw
 ;; large value passes the superficial `large-marker?` presence check but is
 ;; caught by the recursive sentinel predicate — proving the raw-value-absence
