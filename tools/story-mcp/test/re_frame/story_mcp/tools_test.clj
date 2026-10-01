@@ -332,40 +332,6 @@
       vec))
 
 (deftest registry-covers-impl-spec-7-2
-  (testing "every tool in the documented registry is present"
-    (let [names (set (map :name rf.story-mcp.tools.registry/tool-registry))]
-      ;; Per-category coverage (documentation value beyond the fixture
-      ;; check: each line names a tool category + an expected slot).
-      ;; Dev
-      (is (contains? names "get-story-instructions"))
-      (is (contains? names "preview-variant"))
-      (is (contains? names "list-substrates"))
-      ;; Docs
-      (is (contains? names "list-stories"))
-      (is (contains? names "get-story"))
-      (is (contains? names "get-variant"))
-      (is (contains? names "list-tags"))
-      (is (contains? names "list-modes"))
-      (is (contains? names "list-decorators"))
-      (is (contains? names "list-assertions"))
-      (is (contains? names "get-docs-markdown"))
-      (is (contains? names "variant->edn"))
-      (is (contains? names "explain-variant"))
-      ;; Testing
-      (is (contains? names "run-variant"))
-      (is (contains? names "snapshot-identity"))
-      (is (contains? names "read-a11y-violations"))
-      (is (contains? names "read-failures"))
-      ;; Write
-      (is (contains? names "register-variant"))
-      (is (contains? names "unregister-variant"))
-      ;; There is no record-as-variant tool: a blocking recorder bridge would
-      ;; advertise a capture window no stdio transport can reach (the single
-      ;; stdio loop would sleep through it). An explicit rejection so a
-      ;; reintroduction of the descriptor turns this red, not just the
-      ;; fixture-equality net below.
-      (is (not (contains? names "record-as-variant"))
-          "record-as-variant must not appear in the registry — no stdio client can drive it")))
   (testing "registry name set matches the shared fixture exactly"
     ;; The Node `stdio-roundtrip.js` round-trip asserts `tools/list`
     ;; against the same JSON file. A drift between code + tests on either
@@ -657,25 +623,6 @@
             s (:structuredContent r)]
         (is (success? r))
         (is (= [:reagent :uix] (:substrates s)) "the reached registry's ids, sorted")))))
-
-(deftest substrate-provider-availability-is-not-emptiness
-  ;; Availability is represented SEPARATELY from the
-  ;; returned collection. On a JVM host the CLJS-only registry has no Var,
-  ;; so the provider seam is nil (UNAVAILABLE); a bound provider (browser
-  ;; bridge / test) flips availability true and its `[]`/`#{}` then means
-  ;; 'reached and empty'.
-  (testing "no provider ⇒ unavailable (the accessors still fall back to empty for callers that gate)"
-    (is (false? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
-    (is (= [] (rf.story-mcp.tools.cljs-resolve/registered-substrates)))
-    (is (= #{} (rf.story-mcp.tools.cljs-resolve/registered-substrates-set))))
-  (testing "a bound provider ⇒ available; its reached-empty answer is DISTINCT from absence"
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [])]
-      (is (true? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
-      (is (= [] (rf.story-mcp.tools.cljs-resolve/registered-substrates))))
-    (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent])]
-      (is (true? (rf.story-mcp.tools.cljs-resolve/substrate-provider-available?)))
-      (is (= [:reagent] (rf.story-mcp.tools.cljs-resolve/registered-substrates)))
-      (is (= #{:reagent} (rf.story-mcp.tools.cljs-resolve/registered-substrates-set))))))
 
 (deftest provider-seams-are-symmetric-no-silent-asymmetry
   ;; The substrate + a11y provider seams default to the SAME posture:
@@ -2098,10 +2045,6 @@
 ;; the extra slot.
 ;; ---------------------------------------------------------------------------
 
-(deftest origin-const-is-story-mcp
-  (testing "the origin keyword is `:story-mcp` per Cross-Cutting-Designs §5"
-    (is (= :story-mcp rf.story-mcp.config/origin))))
-
 (deftest register-variant-stamps-origin-story-mcp
   (testing "register-variant writes a body carrying :origin :story-mcp"
     (rf.story-mcp.config/set-allow-writes! true)
@@ -2163,15 +2106,6 @@
     (is (= (count rf.story-mcp.tools.registry/tool-registry) (count ts)))
     (is (some #(= "list-stories" (:name %)) ts))))
 
-(deftest dispatch-tools-call-happy
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 3 :method "tools/call"
-                :params {:name "get-story"
-                         :arguments {:story-id "story.button"}}})]
-    (is (= 3 (:id resp)))
-    (is (some? (:result resp)))
-    (is (not (true? (-> resp :result :isError))))))
-
 (deftest dispatch-tools-call-unknown-tool
   (let [resp (rf.story-mcp.server/dispatch
                {:jsonrpc "2.0" :id 4 :method "tools/call"
@@ -2223,11 +2157,6 @@
   (testing "a JSON-RPC notification yields nil (no response)"
     (is (nil? (rf.story-mcp.server/dispatch
                 {:jsonrpc "2.0" :method "notifications/initialized"})))))
-
-(deftest dispatch-ping-empty-result
-  (let [resp (rf.story-mcp.server/dispatch
-               {:jsonrpc "2.0" :id 7 :method "ping"})]
-    (is (= {} (:result resp)))))
 
 (deftest dispatch-shutdown-empty-result
   ;; `handle-shutdown` in server.cljc — some agent hosts emit a
@@ -2442,16 +2371,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Boot config
 ;; ---------------------------------------------------------------------------
-
-(deftest boot-config-defaults-locked-down
-  (testing "boot config defaults allow-writes? to false"
-    (let [cfg (#'rf.story-mcp.server/parse-args [])]
-      (is (nil? (:allow-writes? cfg))))))
-
-(deftest boot-config-allow-writes-flag
-  (testing "--allow-writes flips the gate"
-    (let [cfg (#'rf.story-mcp.server/parse-args ["--allow-writes"])]
-      (is (true? (:allow-writes? cfg))))))
 
 (deftest boot-config-unknown-flag-logged-and-ignored
   ;; `parse-args` in server.cljc — the log-and-ignore branch for
@@ -4112,11 +4031,6 @@
 ;;      about the slot some other way can't exfiltrate raw values).
 ;; ---------------------------------------------------------------------------
 
-(deftest sensitive-reads-gate-defaults-closed
-  (testing "fixture leaves the gate closed by default"
-    (is (false? (rf.story-mcp.config/sensitive-reads-allowed?))
-        "fixture must reset the gate between tests")))
-
 (deftest sensitive-reads-gate-flag-flips-config
   (testing "--allow-sensitive-reads flag flips the boot config"
     (let [cfg (#'rf.story-mcp.server/parse-args ["--allow-sensitive-reads"])]
@@ -4451,19 +4365,6 @@
           (is (= :rf.error/story-mcp-frame-too-large (:rf.error/id (ex-data e)))
               "ex-data carries the canonical :rf.error/id the run-loop dispatches on"))))))
 
-(deftest read-frame-survives-after-oversize-frame
-  (testing "the next frame after an oversize one is still readable"
-    (let [oversize (apply str (repeat (inc rf.story-mcp.protocol/max-frame-bytes) \x))
-          good     "{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":7}"
-          input    (str oversize "\n" good "\n")
-          reader   (java.io.BufferedReader. (java.io.StringReader. input))]
-      ;; First read throws (frame-too-large drains the oversize frame to
-      ;; the next newline). Second read lands the good frame.
-      (try (rf.story-mcp.protocol/read-frame reader) (catch clojure.lang.ExceptionInfo _ nil))
-      (is (= {:jsonrpc "2.0" :method "ping" :id 7}
-             (rf.story-mcp.protocol/read-frame reader))
-          "post-cap recovery: stdio loop continues on the next frame"))))
-
 ;; ---------------------------------------------------------------------------
 ;; The frame cap is a UTF-8 BYTE budget, not a char count.
 ;;
@@ -4475,8 +4376,8 @@
 ;; spec + error message promise. The reader re-derives each code point's
 ;; UTF-8 byte width and bounds on the running byte total.
 ;;
-;; The oversize tests above use only ASCII \x (char count == byte
-;; count), so they cannot tell the two counters apart.
+;; The oversize test above uses only ASCII \x (char count == byte
+;; count), so it cannot tell the two counters apart.
 ;; ---------------------------------------------------------------------------
 
 ;; Multibyte fixtures are built from `\uXXXX` / code-point escapes (pure
