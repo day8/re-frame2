@@ -282,7 +282,7 @@ Two rules:
 
 ??? note "Replace-not-merge, frame-id evidence, and malformed payloads"
 
-    **Why replace, not merge.** Hydration replaces the whole frame state (app-db **and** the serialisable runtime-db projection) because a defaulting merge would hide "which side won?" bugs at every key. If client-only state must survive hydration, re-register `:rf/hydrate` with your own explicit merge, where you control the order and the semantics.
+    **Why replace, not merge.** Hydration replaces the whole frame state (app-db **and** the serialisable runtime-db projection) because a defaulting merge would hide "which side won?" bugs at every key. State only the client has, such as a draft restored from `sessionStorage`, is seeded after hydration: dispatch your own event once `hydrate!` returns. [Classified values inside the allowlist](#classified-values-inside-the-allowlist) shows that boot, with the verify step moved after the seed.
 
     **The payload is untrusted input.** A non-map payload, or a present-but-not-a-map app-db or runtime-db slice, is rejected whole (`:rf.error/malformed-hydration-payload`) and the client's existing state is left untouched. A wholly absent slice is not malformed; it is the client-only first-load case.
 
