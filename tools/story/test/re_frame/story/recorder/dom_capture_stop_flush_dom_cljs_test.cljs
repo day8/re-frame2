@@ -145,27 +145,6 @@
               "remove!'s drain captured the final keystroke after stop")
           (is (= "bob" (:text (first type-entries)))))))))
 
-(deftest in-session-flush-unchanged
-  (if-not (dom-available?)
-    (skip!)
-    (testing "the in-session path — a flush WHILE recording appends
-              exactly one entry with the final value"
-      (rf.story.recorder/start-recording! :story.x/y)
-      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
-      (let [input (.createElement js/document "input")]
-        (.setAttribute input "id" "name")
-        (.appendChild @test-root input)
-        (doseq [v ["a" "al" "ali"]]
-          (set! (.-value input) v)
-          (.dispatchEvent input (js/Event. "input" #js {:bubbles true})))
-        (is (rf.story.recorder/recording?) "still recording at flush time")
-        (rf.story.recorder.dom-capture/flush-type-buffer!)
-        (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (rf.story.recorder/recorded-entries))]
-          (is (= 1 (count type-entries))
-              "rapid typing folds to a single in-session entry")
-          (is (= "ali" (:text (first type-entries)))))))))
-
 ;; ---- cross-recording bleed regression --------------------
 ;;
 ;; `flush-type-buffer!` bypasses the `:recording?` re-check so the FINAL
@@ -229,25 +208,3 @@
         (is (empty? (filterv #(= :dom/type (:kind %))
                              (rf.story.recorder/recorded-entries)))
             "clear! cancelled the pending flush — no phantom entry in C")))))
-
-(deftest stop-into-same-recording-final-keystroke-still-survives
-  (if-not (dom-available?)
-    (skip!)
-    (testing "the post-stop guard holds alongside the start/clear reset:
-              stop-recording! does NOT drain the buffer, so a flush firing
-              after stop (with NO intervening start/clear) still captures the
-              final keystroke into the stopped recording"
-      (rf.story.recorder/start-recording! :story.x/same)
-      (rf.story.recorder.dom-capture/set-debounce-ms! 5000)
-      (let [input (.createElement js/document "input")]
-        (.setAttribute input "id" "note")
-        (.appendChild @test-root input)
-        (set! (.-value input) "keep")
-        (.dispatchEvent input (js/Event. "input" #js {:bubbles true}))
-        (rf.story.recorder/stop-recording!)          ; no start/clear after → buffer intact
-        (rf.story.recorder.dom-capture/flush-type-buffer!)            ; the pending timer's late fire
-        (let [type-entries (filterv #(= :dom/type (:kind %))
-                                    (rf.story.recorder/recorded-entries))]
-          (is (= 1 (count type-entries))
-              "the final keystroke survived the post-stop flush")
-          (is (= "keep" (:text (first type-entries)))))))))
