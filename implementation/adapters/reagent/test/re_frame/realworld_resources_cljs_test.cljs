@@ -82,6 +82,9 @@
             [re-frame.trace.tooling :as rf.trace.tooling]
             ;; the example's production source — chains in every feature ns.
             [realworld-resources.core :as core]
+            ;; `read-saved-token`, the storage read behind the app's
+            ;; `:realworld-resources.session/load` effect.
+            [realworld-resources.auth :as auth]
             [realworld-resources.scope :as scope]
             ;; the example's route table (its reg-route calls).
             [realworld-resources.routing]
@@ -346,6 +349,43 @@
 (defn- route-query [frame] (rf/compute-sub [:rf.route/query] (state-value frame)))
 (defn- route-fragment [frame] (rf/compute-sub [:rf.route/fragment] (state-value frame)))
 (defn- return-to [frame] (get-in (rf/app-db-value frame) [:auth :return-to]))
+
+;; The saved session. `:auth/initialise` asks the app's
+;; `:realworld-resources.session/load` effect to read localStorage, and the
+;; effect dispatches what it found to the classified `:auth/session-read` event.
+;; These helpers stage that storage for the length of one call, so the real
+;; effect and its reply run unchanged.
+
+(defn- with-local-storage
+  "Run `f` with `globalThis.localStorage` defined by the JS property
+   `descriptor` (a configurable `value` storage, or a `get` that throws), then
+   put back whatever was there before."
+  [descriptor f]
+  (let [g     js/globalThis
+        prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
+    (js/Object.defineProperty g "localStorage" descriptor)
+    (try
+      (f)
+      (finally
+        (if prior
+          (js/Object.defineProperty g "localStorage" prior)
+          (js-delete g "localStorage"))))))
+
+(defn- with-saved-jwt
+  "Run `f` over a localStorage holding `token` under the RealWorld contract key
+   `jwtToken` (nil: an empty store)."
+  [token f]
+  (with-local-storage
+    #js {:configurable true
+         :value        #js {:getItem    (fn [k] (when (= k "jwtToken") token))
+                            :setItem    (fn [_ _] nil)
+                            :removeItem (fn [_] nil)}}
+    f))
+
+(defn- init-auth!
+  "Run `:auth/initialise` in frame `f` over a store holding `token`."
+  [f token]
+  (with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
 
 (defn- guarded-frame!
   "A fresh anon frame carrying NO `:interceptors` chain — which is the point.
@@ -831,9 +871,8 @@
     (with-new-frame [f (rf.frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op
                                                       :realworld-resources.session/persist :rf/no-op}})]
-      ;; boot the machine at :idle (token nil → the has-token? guard routes to no-op)
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f :rf.cofx {:realworld-resources.session/token nil}})
+      ;; boot the machine at :idle (no saved token → the has-token? guard routes to no-op)
+      (init-auth! f nil)
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f))))
       ;; submit a login → :submitting. The machine is
       ;; credential-free — the credential-owning form-submit event issues the
@@ -854,24 +893,79 @@
       (is (true? (rf/compute-sub [:auth/authenticated?] (state-value f)))))))
 
 ;; ============================================================================
-;; 7. SESSION-TOKEN COFX SHAPE — recordable generator (not provided-at-dispatch)
+;; 7. THE SESSION-LOAD SEAM — the saved JWT is read by an effect, never a coeffect
 ;; ============================================================================
 
-(deftest session-token-cofx-is-a-recordable-generator
-  (testing "examples/real-apps/realworld_resources — the saved JWT is an app-owned
-            world-read that feeds durable [:auth :token], so it is a recordable
-            GENERATOR (a `:recordable? true` reg-cofx whose supplier reads
-            localStorage), NOT a provided fact stamped at the dispatch site
-            (cofx.md §Decision tree). The generator runs at processing-start, is
-            recorded onto the causal token, and replay re-presents the captured
-            value verbatim."
-    (let [cofx-meta (rf.registrar/handler-meta :cofx :realworld-resources.session/token)]
-      (is (true? (:recordable? cofx-meta))
-          "the cofx is recordable — its value rides the recorded token")
-      (is (not (:provided? cofx-meta))
-          "the cofx is NOT provided — it is generator-backed (the app supplies it)")
-      (is (fn? (:handler-fn cofx-meta))
-          "a recordable generator carries a value-returning supplier fn"))))
+(defn- auth-frame!
+  "An anon frame for the session-load tests: session persistence is a no-op so
+   the staged token never reaches the store."
+  []
+  (rf.frame/make-anon-frame-record!
+    {:fx-overrides {:realworld-resources.session/persist :rf/no-op}}))
+
+(deftest session-load-seam-reads-storage-through-an-effect
+  (testing "examples/real-apps/realworld_resources — a credential is never a
+            recordable coeffect: the saved JWT is read by a client-only effect and
+            folded by the classified :auth/session-read reply"
+    (is (nil? (rf.registrar/handler-meta :cofx :realworld-resources.session/token))
+        "no coeffect carries the saved JWT")
+    (is (nil? (:rf.cofx/requires (rf.registrar/handler-meta :event :auth/initialise)))
+        ":auth/initialise declares no coeffect")
+    (is (= #{:client}
+           (:platforms (rf.registrar/handler-meta :fx :realworld-resources.session/load)))
+        "the storage read is a client-only effect")
+    (is (= [[:token]] (:sensitive (rf.registrar/handler-meta :event :auth/session-read)))
+        "the read's reply classifies the token it carries"))
+  (testing "unreadable storage boots logged out instead of throwing"
+    (let [blocked #js {:configurable true
+                       :get          (fn [] (throw (js/Error. "storage is blocked")))}
+          failing #js {:configurable true
+                       :value        #js {:getItem (fn [_] (throw (js/Error. "read failed")))}}]
+      (is (nil? (with-local-storage blocked auth/read-saved-token))
+          "a store that refuses access reads as no saved token")
+      (is (nil? (with-local-storage failing auth/read-saved-token))
+          "a store whose read throws reads as no saved token")
+      (with-new-frame [f (auth-frame!)]
+        (with-local-storage blocked #(rf/dispatch-sync [:auth/initialise] {:frame f}))
+        (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
+            "boot over unreadable storage settles at :idle")
+        (is (nil? (get-in (rf/app-db-value f) [:auth :token]))))))
+  (testing "a read reply for an earlier generation is dropped"
+    (with-new-frame [f (auth-frame!)]
+      (init-auth! f nil)
+      (let [generation (:auth-generation (rf/app-db-value f))]
+        (rf/dispatch-sync [:auth/session-read {:generation (dec generation) :token "jwt-stale"}]
+                          {:frame f})
+        (is (nil? (get-in (rf/app-db-value f) [:auth :token]))
+            "a stale read does not resurrect a token")
+        (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
+            "and starts no restore")))))
+
+(deftest a-restore-reply-that-outlives-its-session-is-dropped
+  (testing "examples/real-apps/realworld_resources — GET /user is still on the wire
+            when a login lands. The login stores its own session and moves the
+            machine out of :restoring, so the late restore reply is about a session
+            that no longer exists and must not overwrite the new one"
+    (with-new-frame [f (auth-frame!)]
+      (init-auth! f "jwt-alice")
+      (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
+      (let [restore-req @last-managed-args]
+        (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+        (rf/dispatch-sync [:auth.login-form/edit-field :email "bob@example.com"] {:frame f})
+        (rf/dispatch-sync [:auth.login-form/edit-password {:value "pw"}] {:frame f})
+        (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
+        (reply-success! @last-managed-args
+                        {:user {:username "bob" :email "bob@example.com" :token "jwt-bob"}}
+                        f)
+        (is (= "bob" (:username (rf/compute-sub [:auth/user] (state-value f)))))
+        (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
+        (reply-success! restore-req
+                        {:user {:username "alice" :email "alice@example.com" :token "jwt-alice"}}
+                        f)
+        (is (= "bob" (:username (rf/compute-sub [:auth/user] (state-value f))))
+            "the late restore reply does not replace the session the login stored")
+        (is (= "jwt-bob" (get-in (rf/app-db-value f) [:auth :token]))
+            "nor its token")))))
 
 ;; ============================================================================
 ;; 8. PAGINATION — the page-nav semantics
@@ -1250,8 +1344,7 @@
             no-token boot takes the machine's :idle no-op branch — nothing would
             ever rescue the articles or the tags."
     (with-new-frame [f (restore-frame!)]
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f :rf.cofx {:realworld-resources.session/token nil}})
+      (init-auth! f nil)
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
           "no token → the :idle no-op branch — no restore will ever replan this route")
       (is (= anon-viewer-scope (rf/resolve-resource-scope (rf/app-db-value f) :realworld/viewer))
@@ -1296,8 +1389,7 @@
     (with-new-frame [f (restore-frame!)]
       ;; Boot WITH a saved token → :begin-restore (GET /user in flight). Capture
       ;; that request now, before the route plan below lowers others.
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f :rf.cofx {:realworld-resources.session/token "jwt-restore"}})
+      (init-auth! f "jwt-restore")
       (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
       (let [restore-req @last-managed-args]
         ;; The viewer is UNKNOWN during restore — the shell gate is up and the
@@ -1354,8 +1446,7 @@
     ;; observable in this harness (so the non-navigation above is a real signal).
     (with-new-frame [f (restore-frame!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.auth/login}] {:frame f})
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f :rf.cofx {:realworld-resources.session/token nil}})
+      (init-auth! f nil)
       (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
           "no token → the :idle no-op branch")
       ;; Drive login through the credential-owning
@@ -1397,8 +1488,7 @@
       (with-new-frame [f (rf.frame/make-anon-frame-record!
                            {:url-bound?   true
                             :fx-overrides {:realworld-resources.session/persist :rf/no-op}})]
-        (rf/dispatch-sync [:auth/initialise]
-                          {:frame f :rf.cofx {:realworld-resources.session/token "jwt-restore"}})
+        (init-auth! f "jwt-restore")
         (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
         (let [restore-req @last-managed-args]
           (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
@@ -1493,8 +1583,7 @@
             plan slot equals the two-identity map, and the slice error is repaired —
             never a navigate home, never an entry under a signed-in viewer."
     (with-new-frame [f (restore-frame!)]
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f :rf.cofx {:realworld-resources.session/token "jwt-stale"}})
+      (init-auth! f "jwt-stale")
       (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
       (let [restore-req @last-managed-args]
         (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
@@ -1534,8 +1623,7 @@
             ANONYMOUS viewer (:abandon-restore → [:rf.route/replan-resources {:cause
             [:session-restore-failed]}]), without navigating home (gate 5 failure branch)"
     (with-new-frame [f (restore-frame!)]
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f :rf.cofx {:realworld-resources.session/token "jwt-stale"}})
+      (init-auth! f "jwt-stale")
       (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
       (let [restore-req @last-managed-args]
         ;; deep link to a public article page
@@ -2372,9 +2460,7 @@
       ;; frame's `:initial-events` leave behind while `GET /user` is in flight.
       ;; `:rf.http/managed` is stubbed to CAPTURE and not reply (see `init!`), so
       ;; the restore genuinely stays outstanding, which is the whole point.
-      (rf/dispatch-sync [:auth/initialise]
-                        {:frame f
-                         :rf.cofx {:realworld-resources.session/token "jwt-in-flight"}})
+      (init-auth! f "jwt-in-flight")
       (is (nil? (get-in (rf/app-db-value f) [:auth :user]))
           "identity has not arrived — the restore GET is still outstanding")
       (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})

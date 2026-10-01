@@ -14,8 +14,8 @@
    four boot-relevant paths would therefore veto each other:
 
      [:auth]                 seeded by `:auth/initialise` — its own
-                             `:initial-events` step, since it consumes a
-                             recordable token coeffect
+                             `:initial-events` step, so the saved session
+                             is read before anything else boots
      [:auth :login-form]     seeded by `:auth.login-form/initialise`
      [:auth :register-form]  seeded by `:auth.register-form/initialise`
      [:settings-form]        NOT SEEDED AT BOOT AT ALL

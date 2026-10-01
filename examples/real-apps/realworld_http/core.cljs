@@ -83,10 +83,10 @@
          feature's own initialiser so each slice gets seeded.
 
          Notice who's NOT in this list: `:auth/initialise`. It earns its own
-         entry in the frame-root's `:initial-events` instead, because it
-         consumes the recordable `:auth.session/token` coeffect — and the
-         `:dispatch` fx doesn't forward `:rf.cofx`. Giving it a boot dispatch
-         of its own is what lets the token it reads be recorded for replay."}
+         entry in the frame-root's `:initial-events`, ahead of this one, so
+         the saved session is read and folded in before any feature
+         initialiser runs. Dispatched from this fan-out instead, its storage
+         reply would queue behind every initialiser below."}
   (fn handler-app-initialise [_ _]
     {:fx [[:dispatch [:articles/initialise]]
           [:dispatch [:article/initialise]]
@@ -387,12 +387,12 @@
     ;;   - `:auth/classify-token` — mark [:auth :token] sensitive BEFORE the
     ;;     token is ever written, so it's redacted off-box from the very first
     ;;     write. Lock the door before anyone's home.
-    ;;   - `:auth/initialise` — session restore. It pulls the saved JWT through
-    ;;     the `:auth.session/token` recordable coeffect (auth.cljs), which
-    ;;     reads localStorage once and records the value so replay and
-    ;;     epoch-restore play back the exact same token. It runs before
-    ;;     `:app/initialise` so the token is sitting in app-db before the
-    ;;     bearer-auth interceptor needs to send anything authenticated.
+    ;;   - `:auth/initialise` — session restore. It asks the
+    ;;     `:auth.session/load` effect to read localStorage, and the classified
+    ;;     `:auth/session-read` reply folds the saved JWT in, inside this same
+    ;;     step's drain (auth.cljs). It runs before `:app/initialise` so the
+    ;;     token is sitting in app-db before the bearer-auth interceptor needs
+    ;;     to send anything authenticated.
     ;;   - `:app/initialise` — fans out to all the per-feature initialisers.
     ;;
     ;; `:url-bound? true` performs the initial URL→slice sync after every
