@@ -7,6 +7,11 @@
   apply. Missing or unknown frame policy fails closed unless the caller uses
   the explicit trusted-local raw opt-in.
 
+  Two properties of this boundary are pinned in core's
+  `re-frame.projection-cljs-test` rather than here, because core's copies also
+  run under the production gate: `:rf.egress/local-raw` passes sensitive and
+  large values through, and a path declared both sensitive and large redacts.
+
   This boundary is distinct from MCP trace plumbing: `strip-sensitive` drops
   stamped trace events and `scrub-snapshot` walks trace and epoch slices, but
   neither projects snapshot `:app-db` values."
@@ -67,15 +72,6 @@
         (is (not (contains-sentinel? out))
             (str profile ": the sensitive value never crosses the boundary"))))))
 
-(deftest local-raw-is-the-trusted-boundary
-  (testing "the trusted-local profile is the ONE boundary that opts sensitive
-            AND large back in (the operator's deliberate raw-egress choice)"
-    (mk-frame! :pub/raw)
-    (let [out (rf/project-egress (app-db-value)
-                {:frame :pub/raw :rf.egress/profile :rf.egress/local-raw})]
-      (is (= sentinel (get-in out [:auth :token])) "trusted-local sees sensitive")
-      (is (= big-string (get-in out [:docs :blob])) "trusted-local sees large raw"))))
-
 (deftest no-frame-egress-fails-closed
   (testing "project-egress with no live frame redacts the whole value — no
             :rf/default synthesis"
@@ -116,21 +112,6 @@
       (is (rf.security.gen/large-marker? (:upload out)) "the large leaf is a structural marker")
       (is (not= big-string (:upload out)) "the raw large value is NOT shipped")
       (is (= "ok" (:public out))))))
-
-(deftest sensitive-wins-over-large-at-projection
-  (testing "a path declared BOTH :sensitive and :large redacts, never
-            large-elides — so NO path/size/digest marker can leak for it"
-    (rf/make-frame {:id :pub/both})
-    (rf.frame/swap-runtime-db! :pub/both
-      (fn [rt] (rf.elision/apply-classification-effects rt
-                 {:sensitive [[:secret]]
-                  :large     [[:secret]]})))
-    (let [out (rf/project-egress {:secret big-string}
-                {:frame :pub/both
-                 :rf.egress/profile :rf.egress/off-box-observability})]
-      (is (rf.security.gen/redacted? (:secret out)) "the both-marked path is :rf/redacted")
-      (is (not (rf.security.gen/large-marker? (:secret out)))
-          "NO large marker — no path/size/digest can leak for a sensitive path"))))
 
 (def ^:private gen-path
   "A 1..3-segment keyword app-db path."
