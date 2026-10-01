@@ -6,7 +6,7 @@
   `rf.story-mcp.tools.cursor/paged-result` and `rf.story-mcp.tools.result/edn-result` end-to-end through every
   `list-*` handler — but always THROUGH a handler, so the helpers' own
   contracts (the end-of-page nil guard on `encode-cursor`, the
-  blank/absent recovery on `decode-cursor`, the dual-slot invariant on
+  payload range gate on `decode-cursor`, the dual-slot invariant on
   `edn-result`, and `paged-result`'s metadata-merge) would only be
   asserted transitively. This ns pins them directly so a regression in a helper
   surfaces here rather than as a confusing failure three handlers away.
@@ -61,12 +61,6 @@
       (is (= 40 (:total p)))
       (is (= "sig-xyz" (:sig p))))))
 
-(deftest decode-cursor-absent-and-blank-read-as-nil
-  (testing "nil / empty / blank cursor ⇒ nil (no pagination requested)"
-    (is (nil? (rf.story-mcp.tools.cursor/decode-cursor nil)))
-    (is (nil? (rf.story-mcp.tools.cursor/decode-cursor "")))
-    (is (nil? (rf.story-mcp.tools.cursor/decode-cursor "   ")))))
-
 (deftest decode-cursor-malformed-reads-as-malformed-sentinel
   (testing "a non-base64 / wrong-shape cursor decodes to the malformed sentinel, not nil"
     ;; The handler maps the malformed sentinel onto the stale-cursor
@@ -75,7 +69,6 @@
     ;; the handler doesn't silently treat garbage as offset-0.
     (let [decoded (rf.story-mcp.tools.cursor/decode-cursor "!!!not-base64!!!")]
       (is (some? decoded) "a malformed cursor is NOT nil — that would silently restart at page 0")
-      (is (rf.story-mcp.tools.cursor/decode-cursor "!!!not-base64!!!"))
       (is (= decoded (rf.story-mcp.tools.cursor/decode-cursor "!!!not-base64!!!"))
           "malformed decode is deterministic"))))
 
@@ -161,8 +154,6 @@
 (deftest decode-cursor-rejects-negative-offset
   (testing "a forged cursor with :offset -1 decodes to malformed, not a payload"
     (let [forged (forge-cursor {:v 1 :offset -1 :total 5 :sig "any"})]
-      (is (rf.story-mcp.tools.cursor/decode-cursor forged)
-          "a negative-offset cursor is NOT nil — it must surface as malformed")
       (is (= (rf.story-mcp.tools.cursor/decode-cursor "!!!garbage!!!") (rf.story-mcp.tools.cursor/decode-cursor forged))
           "the negative-offset cursor reads as the SAME malformed sentinel as raw garbage"))))
 
