@@ -27,8 +27,8 @@
       output at its `:output-path`, and `:large? true` stamped.
     - no `:schema`: validator never consulted.
     - no validator registered: soft-pass (no error trace).
-    - production gate: with `debug-enabled?` false the validation is
-      silent (the whole surface DCEs in prod CLJS)."
+    - production gate: with `debug-enabled?` false the registered
+      validator is never consulted, and the value is still written."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -176,20 +176,25 @@
         "no registered validator => soft-pass, no violation")))
 
 ;; ---------------------------------------------------------------------------
-;; 5. Production gate: silent under debug-enabled? false.
+;; 5. Production gate: the validator is never consulted under
+;;    debug-enabled? false. The gate is witnessed at the validator itself:
+;;    a no-violation assertion cannot fail here, because `emit-error!` is
+;;    itself debug-gated, so no failure trace reaches the recorder under
+;;    debug false whatever the validator decides.
 ;; ---------------------------------------------------------------------------
 
 (deftest production-gate-elides-validation
-  (testing "with debug-enabled? false the whole validation surface is silent (prod elision mirror)"
-    (install-predicate-validator!)
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h))) ;; would reject IF the gate let it run
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/dispatch-sync [:seed]))
-    (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "value written even with validation elided")
-    (is (empty? (violations))
-        "no violation under debug-enabled? false — the surface DCEs in prod")))
+  (testing "with debug-enabled? false a :schema flow never consults the registered validator, and its value is still written"
+    (let [consulted (atom 0)]
+      (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
+      (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
+      (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [_] false)} (fn [w h] (* w h)))
+      (with-redefs [rf.interop/debug-enabled? false]
+        (rf/dispatch-sync [:seed]))
+      (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
+          "the flow still evaluates and writes its value")
+      (is (zero? @consulted)
+          "the registered validator is never consulted in production"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. Cascade: an upstream flow's bad output is validated independently of
