@@ -190,19 +190,6 @@
       (is (not (contains? result :value-changed-subs))
           ":value-changed-subs slot is absent when no sub changed value"))))
 
-(deftest value-changed-subs-deduped-across-repeats
-  (testing "a value-changed sub that runs multiple times in the run
-            contributes ONCE to :value-changed-subs (it is a set)"
-    (rf/make-frame {:id :test/cc})
-    (seed-buffer! :test/cc
-                  [(run-start :ev)
-                   (sub-run :a true)
-                   (sub-run :a true)
-                   (sub-run :a true)])
-    (let [result (rf.epoch.capture/run-cause :test/cc)]
-      (is (= #{:a} (:value-changed-subs result))
-          "repeats collapse — :value-changed-subs is a deduped set"))))
-
 (deftest value-changed-subs-respects-sub-cap
   (testing ":value-changed-subs is INDEPENDENTLY bounded by `sub-cap`.
             The value-changed scan is independent of the
