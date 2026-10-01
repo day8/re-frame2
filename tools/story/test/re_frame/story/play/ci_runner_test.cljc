@@ -70,6 +70,8 @@
 (deftest terminal?-separates-verdicts-from-in-flight-states
   (is (true?  (rf.story.play.ci-runner/terminal? {:status :pass})))
   (is (true?  (rf.story.play.ci-runner/terminal? {:status :fail})))
+  (is (true?  (rf.story.play.ci-runner/terminal? {:status :cannot-run}))
+      ":cannot-run is a terminal verdict, so a refused play never reads as a hang")
   (is (false? (rf.story.play.ci-runner/terminal? {:status :running})))
   (is (false? (rf.story.play.ci-runner/terminal? {:status :idle})))
   (is (false? (rf.story.play.ci-runner/terminal? nil))))
