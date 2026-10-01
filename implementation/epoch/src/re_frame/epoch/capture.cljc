@@ -19,13 +19,17 @@
 
 ;; ---- skip-ops catalogue --------------------------------------------------
 ;;
-;; Operations this namespace itself emits with a `:frame` tag, all of
-;; which fire OUTSIDE a cascade (the drain has either not started, or
-;; has just settled and the buffer has been harvested). If `capture-
-;; event!` didn't skip them they would accrete into `capture-buffers`
-;; and leak into the NEXT cascade's harvested record for the same
-;; frame — a silent correctness bug surfacing as phantom `:trace-events`
-;; and a wrong `:trigger-event` via `find-trigger-event`'s fallback arm.
+;; Operations this namespace itself emits with a `:frame` tag that must
+;; never enter an epoch record. Most fire OUTSIDE a cascade (the drain has
+;; either not started, or has just settled and the buffer has been
+;; harvested). If `capture-event!` didn't skip them they would accrete into
+;; `capture-buffers` and leak into the NEXT cascade's harvested record for
+;; the same frame — a silent correctness bug surfacing as phantom
+;; `:trace-events` and a wrong `:trigger-event` via `find-trigger-event`'s
+;; fallback arm. The two `-during-drain` refusals are the exception: they
+;; fire INSIDE the refused caller's cascade, carrying its
+;; `:rf.trace/dispatch-id`, and skipping them is what keeps a refusal out
+;; of the record of the cascade it refused.
 ;;
 ;; Enumeration (not a `:rf.epoch/*` namespace-prefix filter) is the
 ;; deliberate choice: a future in-cascade `:rf.epoch/*` op (e.g. an
@@ -52,10 +56,10 @@
     :rf.epoch/restore-version-mismatch
     :rf.epoch/restore-during-drain
     :rf.epoch/restore-non-ok-record
-    ;; replace-frame-state! success (`:rf.epoch/db-replaced`) + all three of
-    ;; its precondition failure modes. All fire
-    ;; after the synthetic record has been built and the cascade-buffer (if
-    ;; any) has been harvested — outside any cascade, each with a :frame tag.
+    ;; replace-frame-state! success (`:rf.epoch/db-replaced`) + its
+    ;; precondition failure modes, each with a :frame tag. The in-drain
+    ;; refusal fires inside the refused caller's cascade (see above); an
+    ;; in-drain call is refused first, so the rest fire outside any cascade.
     :rf.epoch/db-replaced
     :rf.epoch/replace-during-drain
     :rf.epoch/replace-schema-mismatch
