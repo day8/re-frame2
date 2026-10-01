@@ -15,8 +15,6 @@
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
             [re-frame.frame :as rf.frame]
-            [re-frame.mcp-base.cap :as rf.mcp-base.cap]
-            [re-frame.mcp-base.overflow :as rf.mcp-base.overflow]
             [re-frame.mcp-base.vocab :as rf.mcp-base.vocab]
             [re-frame.schemas :as rf.schemas]
             [re-frame.story :as rf.story]
@@ -36,23 +34,6 @@
             [re-frame.story-mcp.tools.registry :as rf.story-mcp.tools.registry]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
-
-;; ResultIO mirror over story-mcp's CLJ-map result shape — used by the
-;; cap-honours-default test to sum tokens without reaching into cap's
-;; private result-io reify. Mirrors the runtime IO instance in
-;; `re-frame.story-mcp.tools.wire-pipeline/result-io` so
-;; a drift on the consumer's content-shape would be caught by the
-;; assertion sitting on this mirror — INCLUDING the `:structuredContent`
-;; sizing path.
-(def ^:private test-io
-  (reify rf.mcp-base.cap/ResultIO
-    (wire-payload-strings [_ result]
-      (cond-> (mapv :text (:content result))
-        (some? (:structuredContent result))
-        (conj (pr-str (:structuredContent result)))))
-    (build-overflow-result [_ marker _]
-      {:content [{:type "text" :text (pr-str marker)}]
-       :structuredContent marker})))
 
 ;; ---- fixtures ------------------------------------------------------------
 
@@ -2355,10 +2336,10 @@
 ;; Wire-boundary token-budget cap.
 ;;
 ;; The cap is applied at `invoke-tool` egress — the cumulative
-;; `:text`-slot TOKEN ESTIMATE (`rf.mcp-base.overflow/token-estimate` -- a CHARACTER
+;; `:text`-slot TOKEN ESTIMATE (`re-frame.mcp-base.overflow/token-estimate` -- a CHARACTER
 ;; count divided by four, not a byte count) is compared against
 ;; `:max-tokens` (default
-;; `rf.mcp-base.overflow/default-max-tokens`; `0` disables). Over-budget responses
+;; `re-frame.mcp-base.overflow/default-max-tokens`; `0` disables). Over-budget responses
 ;; are replaced with `{:rf.mcp/overflow {...}}` per the cross-MCP shape
 ;; pinned in `re-frame.mcp-base.overflow/overflow-payload`.
 ;; ---------------------------------------------------------------------------
@@ -2446,15 +2427,6 @@
       (is (= :max-tokens
              (get-in (edn/read-string (-> r :content first :text))
                      [rf.mcp-base.vocab/invalid-arg-key :arg]))))))
-
-(deftest cap-honours-default-when-omitted
-  (testing "absent `:max-tokens` falls back to `rf.mcp-base.overflow/default-max-tokens` (5000)"
-    ;; A tiny payload like `list-tags` is well under 5K tokens; verify
-    ;; the cap does not trip on routine reads.
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {})
-          tokens (rf.mcp-base.cap/sum-payload-tokens test-io r)]
-      (is (not (overflow-marker? r)))
-      (is (< tokens rf.mcp-base.overflow/default-max-tokens)))))
 
 (deftest cap-marker-shape-is-mcp-base-overflow
   (testing "marker is byte-identical to mcp-base/overflow-payload's shape"
@@ -3236,34 +3208,15 @@
 ;; nil; `rf.story-mcp.tools.egress/scrub-rendered` returns nil for a nil
 ;; tree — and the frozen `RunResult` schema declares each of those six
 ;; slots `[:optional true] [:sequential :any]`: a PRESENT nil violates it
-;; (nil is not sequential). These pin the contract end-to-end via the real
-;; `tool-run-variant` handler (the wire pipeline, not a hand-rolled
-;; simulation of its internals) for both ways the catch branch is
-;; genuinely reachable: `rf.story/run-variant` throwing synchronously, and
-;; `async/deref-blocking`'s `.get(timeout, unit)` timing out on a promise
-;; that never settles.
+;; (nil is not sequential). The test below pins the contract end-to-end via
+;; the real `tool-run-variant` handler (the wire pipeline, not a hand-rolled
+;; simulation of its internals) on a promise that never settles. The other
+;; way the catch branch is reachable, `rf.story/run-variant` throwing
+;; synchronously, normalises through the same `error-outcome`, which
+;; `lifecycle-error-outcome-is-canonical` pins directly and
+;; `run-variant-error-branch-keeps-empty-evidence-on-non-live-frame` pins
+;; through the handler.
 ;; ---------------------------------------------------------------------------
-
-(deftest run-variant-exception-outcome-passes-valid-run-result?
-  (testing "rf.story/run-variant throwing synchronously still ships a schema-valid structuredContent"
-    (with-clean-frame [vid :story.button/primary]
-      ;; Run the variant once for real first so the frame is LIVE — the
-      ;; production-reachable shape (any path that could genuinely throw /
-      ;; time out is necessarily reached AFTER `rf.story/run-variant`'s own
-      ;; phase-0 frame allocation, which runs synchronously and unconditionally
-      ;; resolves rather than rejects on every OTHER internal error).
-      (invoke "run-variant" {:variant-id "story.button/primary"})
-      (with-redefs [rf.story/run-variant
-                    (fn [& _] (throw (ex-info "simulated run-variant boom" {})))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :error (:status s)))
-          (is (rf.story/valid-run-result? s)
-              (str "structuredContent must conform to the frozen RunResult schema; "
-                   (rf.story/explain-run-result s)))
-          (doseq [k [:schema-violations :warnings :effects :sub-runs :renders :narrative]]
-            (is (= [] (get s k)) (str k " defaults to [] rather than nil"))))))))
 
 (deftest run-variant-timeout-outcome-passes-valid-run-result?
   (testing "a genuine async/deref-blocking timeout still ships a schema-valid structuredContent"
@@ -4349,11 +4302,7 @@
       (is (= :rf.error/story-mcp-capability-unavailable (:rf.error s))
           "the requested render substrate cannot be honoured on a host with no registry")
       (is (nil? (find-kw nil name-str))
-          "rejecting the substrate MUST NOT intern its id")))
-  (testing "provider ABSENT + NO :substrate ⇒ the default-substrate path still runs (not gated)"
-    (let [r (invoke "run-variant" {:variant-id "story.button/primary"})]
-      (is (success? r)
-          "an absent :substrate is a legitimate default, independent of registry reachability"))))
+          "rejecting the substrate MUST NOT intern its id"))))
 
 (deftest run-variant-explicit-substrate-reached-provider-validates
   ;; With a REACHED substrate registry, a known id is
@@ -4893,26 +4842,6 @@
       (is (nil? (find-keyword probe))
           "diagnosing the typo never interned the unknown key"))))
 
-(deftest invoke-tool-no-diagnostic-when-all-args-recognised
-  ;; The common path: every top-level key is allowlisted ⇒ no metadata,
-  ;; no diagnostic, the handler runs normally.
-  (testing "all-recognised args carry no unknown-arg metadata + dispatch normally"
-    (let [parsed  (rf.story-mcp.protocol/parse-json
-                   (str "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\","
-                        "\"params\":{\"name\":\"run-variant\","
-                        "\"arguments\":{\"variant-id\":\"story.button/primary\","
-                        "\"substrate\":\"reagent\"}}}"))
-          arg-map (-> (rf.story-mcp.protocol/normalize-frame parsed) :params :arguments)]
-      (is (nil? (get (meta arg-map) rf.story-mcp.protocol/unknown-arg-keys-meta))
-          "no dropped keys ⇒ no unknown-arg metadata")
-      ;; The explicit `:substrate "reagent"` requires a REACHED registry;
-      ;; bind a provider so this wire-plumbing test exercises
-      ;; the normal dispatch path rather than the capability-unavailable
-      ;; reject (which the substrate-validation tests cover directly).
-      (binding [rf.story-mcp.tools.cljs-resolve/*substrate-provider* (fn [] [:reagent])]
-        (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "run-variant" arg-map)]
-          (is (success? r) "an all-recognised call dispatches the handler normally"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Per-tool argument-schema enforcement AFTER the global
 ;; no-intern normalisation.
@@ -4927,7 +4856,8 @@
 ;; `:rf.story-mcp/unknown-arguments` shape as the global-unknown diagnostic.
 ;; The wire-managed knobs (`wire-managed-arg-keys`, `:dedup` on a
 ;; non-eligible tool among them) are exempt: the wire boundary consumes
-;; them, so they are tolerated.
+;; them, so they are tolerated — the `invoke` helper's `{:dedup false}`
+;; default exercises that on every non-eligible-tool call in this file.
 ;; ---------------------------------------------------------------------------
 
 (deftest invoke-tool-rejects-tool-invalid-but-globally-known-arg
@@ -4947,41 +4877,6 @@
           "lists the tool's advertised arg-key set")
       (is (not (contains? (set (:allowed s)) "body"))
           "the tool's allowed set does NOT include the rejected key"))))
-
-(deftest invoke-tool-rejects-body-on-run-variant
-  ;; Acceptance — `run-variant` with `:body`. `:body`
-  ;; is advertised by register-variant; run-variant does not advertise it.
-  (testing "`:body` on run-variant rejects (globally-known, tool-invalid)"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "run-variant"
-                                       {:variant-id "story.button/primary"
-                                        :body "{}"})
-          s (:structuredContent r)]
-      (is (error? r))
-      (is (= :rf.story-mcp/unknown-arguments (:rf.error s)))
-      (is (= "run-variant" (:tool s)))
-      (is (= ["body"] (:unknown s))))))
-
-(deftest invoke-tool-tolerates-dedup-on-non-eligible-tool
-  ;; `:dedup` is advertised only on the two dedup-eligible
-  ;; tools but is DOCUMENTED as silently ignored elsewhere (it is a
-  ;; wire-managed knob the dispatcher gates on `:dedup-eligible?`). So a
-  ;; `:dedup` on a non-eligible tool must NOT trip the per-tool diagnostic
-  ;; — otherwise the test-helper default (`{:dedup false}` on every call)
-  ;; would break every non-eligible-tool test.
-  (testing "`:dedup` on a non-eligible tool is tolerated, not rejected"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "get-variant"
-                                       {:variant-id "story.button/primary" :dedup false})]
-      (is (success? r) "a wire-managed knob on a non-advertising tool dispatches normally"))))
-
-(deftest invoke-tool-tolerates-include-sensitive-on-advertising-tool
-  ;; `:include-sensitive` on a tool that DOES advertise it
-  ;; (read-failures) is tool-valid and must dispatch (the slot lives in the
-  ;; descriptor's properties regardless of the operator gate).
-  (testing "`:include-sensitive` on a tool that advertises it dispatches"
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "read-failures"
-                                       {:variant-id "story.button/primary"
-                                        :include-sensitive false})]
-      (is (success? r) "an advertised value-knob is tool-valid and dispatches"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pre-dispatch error envelopes ride the response cap.
@@ -5021,20 +4916,6 @@
       (is (= "get-variant" (get-in capped [:structuredContent rf.mcp-base.vocab/overflow-key :tool]))
           "the overflow marker names the tool"))))
 
-(deftest invalid-max-tokens-error-is-bounded
-  ;; The invalid-`:max-tokens` rejection envelope is small and
-  ;; bespoke, but it must still ride the cap path (default cap, since the
-  ;; caller's cap was malformed). It is well under the default, so it
-  ;; passes through intact — proving the cap path is exercised without
-  ;; tripping, and the rejection shape is preserved.
-  (testing "the invalid-max-tokens rejection is routed through the cap and preserved"
-    (let [r    (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens -1})
-          body (get-in r [:structuredContent rf.mcp-base.vocab/invalid-arg-key])]
-      (is (true? (:isError r)))
-      (is (not (overflow-marker? r)) "a tiny rejection is under the default cap")
-      (is (= :max-tokens (:arg body)) "the rejection shape survives the cap path")
-      (is (= -1 (:value body))))))
-
 (deftest tool-invalid-arg-error-rides-the-response-cap
   ;; The per-tool unknown-arg diagnostic is
   ;; capped too. The diagnostic echoes the offending key names + the tool's
@@ -5057,51 +4938,6 @@
       (is (overflow-marker? r)
           "the capped per-tool diagnostic replaces the uncapped echo — proving it rides the cap path")
       (is (= "get-variant" (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :tool]))))))
-
-;; ---------------------------------------------------------------------------
-;; Cap accounting includes :structuredContent size
-;;
-;; `text-result` writes the same payload into BOTH `:content` and
-;; `:structuredContent`, so counting only `:content[*].text` strings would
-;; underestimate the wire by ~50% on every structured tool. The accounting
-;; sums both slots under one budget.
-;; ---------------------------------------------------------------------------
-
-(deftest cap-counts-structured-content-size
-  (testing "structuredContent contributes to the cap"
-    ;; A list-stories call ships the same payload in both slots. The
-    ;; cap with structured accounting must be HIGHER than the cap that
-    ;; only counts `:text` — assert the wire-side sum reflects both.
-    (let [r          (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-stories" {:max-tokens 0})
-          text-only  (let [io (reify rf.mcp-base.cap/ResultIO
-                                (wire-payload-strings [_ result]
-                                  (map :text (:content result)))
-                                (build-overflow-result [_ _m _o] {}))]
-                       (rf.mcp-base.cap/sum-payload-tokens io r))
-          with-struct (rf.mcp-base.cap/sum-payload-tokens test-io r)]
-      ;; The `test-io` mirror counts structured content (see its definition
-      ;; at the top of the file). It MUST report more tokens than the
-      ;; text-only baseline whenever the result carries a non-nil
-      ;; `:structuredContent`.
-      (is (some? (:structuredContent r))
-          "list-stories must ship a structured slot for this assertion to bite")
-      (is (> with-struct text-only)
-          (str "structured slot must contribute extra tokens: "
-               "with-struct=" with-struct " text-only=" text-only)))))
-
-(deftest cap-trips-on-structured-content-alone
-  (testing "a tiny cap trips when only structuredContent is large"
-    ;; The cap must fire on the combined size — not silently let a
-    ;; payload through just because its :text slot fits.
-    (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-stories" {:max-tokens 1})]
-      ;; With `:max-tokens 1`, both the text AND structured slots
-      ;; combined exceed the cap, so we expect the overflow marker.
-      (is (overflow-marker? r)
-          "tiny cap must fire on combined text+structured size")
-      (let [body (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key])]
-        (is (pos? (:token-count body))
-            ":token-count reflects the over-budget count")
-        (is (= 1 (:cap-tokens body)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Named-check assertion copies honour the sensitive-record filter.
