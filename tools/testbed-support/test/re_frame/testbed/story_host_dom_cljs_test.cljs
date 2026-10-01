@@ -168,35 +168,11 @@
               (str "no createRoot-reuse / handoff warning across the full "
                    "#/ <-> #/stories cycle and re-run; saw: " (pr-str bad))))))))
 
-(deftest hot-reload-rerun-does-not-stack-listener-on-real-node
-  (testing "a re-run with a fresh listener identity advances the stored handle
-            on a real DOM node"
-    (if-not (browser?)
-      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
-      (do
-        (ensure-app-node!)
-        (with-redefs [rf.story/mount-shell!   shell-mount!
-                      rf.story/unmount-shell! shell-unmount!]
-          (set-hash! "#/")
-          (react-dom/flushSync
-           (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view)))
-          (let [handle-1 @@#'rf.testbed.story-host/hash-listener*]
-            (is (some? handle-1) "first run records a listener handle")
-            ;; A new function identity simulates a recompile.
-            (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] nil)]
-              (react-dom/flushSync
-               (fn [] (rf.testbed.story-host/mount-with-hash-routing! live-view))))
-            (let [handle-2 @@#'rf.testbed.story-host/hash-listener*]
-              (is (some? handle-2) "re-run records a (new) listener handle")
-              (is (not (identical? handle-1 handle-2))
-                  "the stored handle advanced to the recompiled listener fn — the
-                   prior one was removed, not stacked"))))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Listener census — the probe that makes the teardown above load-bearing.
 ;;
-;; The two tests above inspect the STORED HANDLE, which stays green whether or
-;; not the listener was actually unregistered from the page. `js/window`
+;; The handoff test above inspects the STORED HANDLE, which stays green whether
+;; or not the listener was actually unregistered from the page. `js/window`
 ;; publishes no listener registry, so counting the calls is the only way to
 ;; prove a mount/teardown cycle nets to zero.
 ;; ---------------------------------------------------------------------------

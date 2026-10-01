@@ -85,26 +85,6 @@
       (is (= 1 @switches)
           "the initial `on-hash-change!` ran the mount switch exactly once"))))
 
-(deftest re-run-with-changed-handler-identity-does-not-stack
-  (testing "a re-run with a fresh handler identity replaces the prior listener"
-    (let [{:keys [window hashchange-count]} (make-fake-window "#/")]
-      (install-window! window)
-      (with-redefs [rf.testbed.story-host/mount-app!     (constantly nil)
-                    rf.testbed.story-host/mount-stories! (constantly nil)]
-        ;; First install the current function identity.
-        (rf.testbed.story-host/mount-with-hash-routing! dummy-view)
-        (is (= 1 (hashchange-count)) "one listener after the first run")
-        (let [handle-1 @@#'rf.testbed.story-host/hash-listener*]
-          ;; A fresh function identity simulates a recompile.
-          (with-redefs [rf.testbed.story-host/on-hash-change! (fn [] nil)]
-            (rf.testbed.story-host/mount-with-hash-routing! dummy-view))
-          (is (= 1 (hashchange-count))
-              "STILL exactly one listener after the post-reload re-run — the
-               prior listener was removed, not stacked")
-          (let [handle-2 @@#'rf.testbed.story-host/hash-listener*]
-            (is (not (identical? handle-1 handle-2))
-                "the stored handle advanced to the new (recompiled) listener")))))))
-
 (deftest many-re-runs-never-accumulate-listeners
   (testing "across several hot-reload re-`run`s, each with a fresh
             `on-hash-change!` identity, the active hashchange listener count
