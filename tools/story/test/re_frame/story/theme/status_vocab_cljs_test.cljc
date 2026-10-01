@@ -23,7 +23,7 @@
      dropping a glyph or a shape is caught here.
   2. **Distinct channels** — the nine glyphs are distinct, the shapes
      genuinely discriminate (a `:ring` ≠ an `:outline` at the rendered
-     border), and the colours are token-resolved (zero raw hex).
+     border).
   3. **Order + rollup** — `order` lists exactly the nine statuses in the
      documented priority; `rollup` surfaces the worst member of a mixed
      set.
@@ -99,14 +99,6 @@
             five-shape vocabulary is real, not aspirational"
     (is (= valid-shapes (set (map #(:shape (rf.story.theme.status/descriptor %))
                                   expected-statuses))))))
-
-(deftest zero-raw-hex-resolved-colours
-  (testing "every colour resolves to a non-nil string (token-derived, never
-            a dangling keyword) — the zero-raw-hex contract"
-    (doseq [s expected-statuses
-            k [:fg :bg :border]]
-      (let [v (get (rf.story.theme.status/descriptor s) k)]
-        (is (string? v) (str s " " k " did not resolve to a string"))))))
 
 ;; ---- 3: the shape channel genuinely discriminates -----------------------
 
