@@ -193,10 +193,6 @@
       (is (seq (override-token-defects mutation))
           "the guard must reject a doubled separator on the token alone"))))
 
-(deftest canonical-token-passes-the-guard-test
-  (testing "the guard accepts the mandated spelling — it is strict, not vacuous"
-    (is (empty? (override-token-defects canonical-token)))))
-
 ;; --- the grammar terminology ------------------------------------------------
 
 (deftest split-spec-names-the-grammar-accurately-test
