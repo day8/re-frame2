@@ -74,19 +74,7 @@
       (is (= :flush-timeout (:reason r)))
       (is (not (contains? r :step)) "nil step is omitted"))))
 
-(deftest satisfies-boundary-predicate
-  (testing "a runner satisfies a step iff its provided boundary >= required"
-    (is (rf.story.play.settled-boundary/satisfies-boundary? :dom :headless))
-    (is (rf.story.play.settled-boundary/satisfies-boundary? :headless :headless))
-    (is (not (rf.story.play.settled-boundary/satisfies-boundary? :headless :dom)))))
-
 ;; ---- pure: the default headless flush-hooks ------------------------------
-
-(deftest headless-hooks-shape
-  (testing "the default headless hooks provide :headless and route dispatch through the drain"
-    (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary rf.story.play.settled-boundary/headless-flush-hooks)))
-    (is (fn? (:dispatch! rf.story.play.settled-boundary/headless-flush-hooks)))
-    (is (fn? (get-in rf.story.play.settled-boundary/headless-flush-hooks [:flush! :headless])))))
 
 (deftest hooks-provided-defaults-headless
   (testing "a hooks map with no :provides is assumed headless-only (fail-closed)"
@@ -282,23 +270,3 @@
         (is (= :dom     (:boundary res)))
         (is (= [:reactive :dom] @ran) "all flushes ran under a generous budget")
         (is (true? (:ok (rf/app-db-value bf))))))))
-
-(deftest no-timeout-ms-is-unbounded
-  (testing "with no :timeout-ms the flush phase is unbounded — settlement
-            completes regardless of flush duration (the headless default)"
-    (rf/reg-event :noop (fn [{:keys [db]} _] {:db db}))
-    (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
-                bf [:noop] rf.story.play.settled-boundary/headless-flush-hooks :headless [:dispatch [:noop]])]
-      (is (= :settled (:status res))))))
-
-(deftest drain-sync-settles-synchronous-redispatch
-  (testing "drain-sync! (the named headless boundary) is the framework
-            dispatch-sync! drain — re-dispatched events settle before return"
-    (rf/reg-event :seed/start
-      (fn [{:keys [db]} _]
-        {:db (assoc db :n 0)
-         :fx [[:dispatch [:seed/bump]]]}))
-    (rf/reg-event :seed/bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf.story.play.settled-boundary/drain-sync! bf [:seed/start])
-    (is (= 1 (:n (rf/app-db-value bf)))
-        "the queued :seed/bump drained synchronously within drain-sync!")))

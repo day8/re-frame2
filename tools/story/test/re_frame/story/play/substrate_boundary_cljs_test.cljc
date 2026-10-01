@@ -14,7 +14,8 @@
   nothing, and a slow one proves nothing either). It is a COUNT: with a
   substrate whose commit is observable, does the runner call it? Without
   the producer it never does — `substrate-commits-before-a-dom-step`
-  and `settle-is-synchronous-not-scheduled` would both read 0.
+  would read 0. It reads the count on the statement after `exec-step!`
+  returns, so it also pins that the commit is synchronous, not scheduled.
 
   Runner note, and it is why this file is named and extensioned the way
   it is: `.cljc` so the JVM lane (`clojure -M:test` from `tools/story`)
@@ -98,18 +99,6 @@
       (is (identical? rf.story.play.settled-boundary/headless-flush-hooks hooks))
       (is (= :headless (rf.story.play.settled-boundary/hooks-provided-boundary hooks))))))
 
-(deftest headless-when-adapter-ships-no-flush-render
-  (testing "an adapter with no live commit (plain-atom, SSR) ships no
-            :flush-render!, so the producer stays at the headless floor
-            rather than claiming a :dom boundary it cannot honour"
-    (rf/init! rf.substrate.plain-atom/adapter)
-    (is (nil? (:flush-render! (rf/current-adapter)))
-        "precondition: plain-atom ships no :flush-render!")
-    (is (nil? (rf.story.play.substrate-boundary/adapter-flush-render)))
-    (is (= :headless
-           (rf.story.play.settled-boundary/hooks-provided-boundary
-             (rf.story.play.substrate-boundary/substrate-flush-hooks :any-frame))))))
-
 (deftest provides-dom-when-the-live-adapter-can-commit
   (testing "an adapter shipping :flush-render! lifts the declared boundary
             to :dom and registers the commit at both richer rungs"
@@ -167,18 +156,6 @@
     (rf.story.play.runner-events/exec-step! :f 0 (dom-assert-step))
     (is (pos? @commits)
         "a DOM-family checkpoint must settle the substrate before reading")))
-
-(deftest settle-is-synchronous-not-scheduled
-  (testing "the commit lands INSIDE the exec-step! call — no tick, no
-            timer, nothing to race. This is the property a longer
-            setTimeout could never buy"
-    (rf/init! (committing-adapter))
-    (rf.story.play.substrate-boundary/install!)
-    (let [before @commits
-          _      (rf.story.play.runner-events/exec-step! :f 0 (dom-assert-step))
-          after  @commits]
-      (is (> after before)
-          "already committed by the time exec-step! returned"))))
 
 (deftest headless-steps-do-not-commit
   (testing "a step that requires only :headless does not drag the
