@@ -58,10 +58,9 @@
   ;; [:auth :token], and baking it into server-rendered HTML would spill a live
   ;; credential into the page source: visible in view-source, logged by
   ;; proxies, possibly cached by a CDN. So we redact it right at the boundary.
-  ;; And it costs nothing, because the client puts [:auth :token] back on
-  ;; hydrate via `:auth/initialise` (auth.cljs), reading it from localStorage
-  ;; through the `:auth.session/token` recordable coeffect. Dropping it here is
-  ;; free and stays replay-sound.
+  ;; And it costs nothing, because the client reads [:auth :token] back out of
+  ;; its own localStorage at boot (`:auth/initialise` → `:auth.session/load` →
+  ;; `:auth/session-read`, auth.cljs). Dropping it here is free.
   (cond-> (select-keys app-db ssr-app-slice-keys)
     (contains? app-db :auth) (update :auth dissoc :token)))
 

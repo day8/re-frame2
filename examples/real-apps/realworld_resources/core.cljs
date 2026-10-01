@@ -70,11 +70,11 @@
          `:editor/can-submit?` flow once (the boot one-shot `:editor/register-flow`
          — the editor route's `:on-match` handlers deliberately do NOT re-register
          it per entry). Session restore is deliberately not here — it's its own
-         `:initial-events` step (`:auth/initialise`) so its recordable token
-         coeffect can ride its own dispatch. And the page reads (articles, tags,
-         feed, …) aren't here either: the route's `:resources` metadata pulls those
-         in on the first URL→route sync. Booting an app is mostly about deciding
-         what NOT to do up front."}
+         `:initial-events` step (`:auth/initialise`), ahead of this one, so the
+         saved token is folded in before anything else boots. And the page
+         reads (articles, tags, feed, …) aren't here either: the route's
+         `:resources` metadata pulls those in on the first URL→route sync.
+         Booting an app is mostly about deciding what NOT to do up front."}
   (fn [_ _]
     {:fx [[:dispatch [:auth.login-form/initialise]]
           [:dispatch [:auth.register-form/initialise]]
@@ -338,12 +338,13 @@
 ;;     secret, so we mark it sensitive before anything (an Xray capture, an SSR
 ;;     payload) could lay eyes on the raw value. See data classification:
 ;;     ../../../docs/core/glossary.md#data-classification.
-;;   - `:auth/initialise` runs before `:app/initialise`. Session restore reads
-;;     the saved JWT from a recordable coeffect (auth.cljs) and folds it into
-;;     durable [:auth :token]. It rides its own dispatch — the `:app/initialise`
-;;     fan-out doesn't forward `:rf.cofx` — and goes first, so the token is in
-;;     app-db before the bearer-auth interceptor fires its first authenticated
-;;     request.
+;;   - `:auth/initialise` runs before `:app/initialise`. Session restore asks
+;;     the `:realworld-resources.session/load` effect to read localStorage, and
+;;     the classified `:auth/session-read` reply folds the saved JWT into
+;;     durable [:auth :token] inside this step's drain (auth.cljs). As its own
+;;     step it goes first — from the `:app/initialise` fan-out, its reply would
+;;     queue behind the fan-out — so the token is in app-db before the
+;;     bearer-auth interceptor fires its first authenticated request.
 ;;
 ;; The token is not the only credential, though: the login / register / settings
 ;; PASSWORD is one too, the moment it is typed. Every surface it crosses is

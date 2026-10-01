@@ -95,43 +95,49 @@
         (.setItem ls "jwtToken" token)
         (.removeItem ls "jwtToken")))))
 
-;; The saved JWT is a fact from the storage world, and `:auth/initialise` folds it
-;; into durable app-db (which is what drives session restore). Here's the rule
-;; that shapes the next few forms: a durable write has to fold a RECORDED fact,
-;; never an ambient `localStorage` read taken at the write site — because replay
-;; or epoch-restore could never reproduce that ambient read. So the JWT read is a
-;; recordable generator coeffect. `:realworld-resources.session/token` is a
-;; `:recordable? true` registration whose supplier reads localStorage; the
-;; generator runs at processing-start on the boot dispatch, its value is recorded
-;; onto the causal token, and replay / epoch-restore later re-presents that exact
-;; captured token rather than re-reading whatever localStorage happens to hold
-;; now. See recordable vs ambient coeffects:
-;; ../../../docs/core/glossary.md#recordable-vs-ambient-coeffects.
-(defn read-jwt-from-storage
-  "Read the saved JWT from localStorage, or nil — the supplier body behind the
-   `:realworld-resources.session/token` recordable generator. nil when the token
-   is absent or storage is unavailable."
+;; The saved JWT comes back at boot through an effect too, and that is a rule
+;; rather than a taste. A recordable coeffect is copied verbatim into every epoch
+;; record, replay fixture and exported trace, and redaction does not undo that
+;; durability, so a credential is never one. Instead `:auth/initialise` asks
+;; `:realworld-resources.session/load` to read storage, the effect dispatches
+;; what it found to the classified `:auth/session-read` event below, and that
+;; event's pure handler folds the token into [:auth :token] — which is what
+;; drives session restore. Replay re-presents the reply event like any other.
+;; See ../../../docs/resources/tutorial/03-auth-and-forms.md#read-storage-then-verify-the-session
+(defn read-saved-token
+  "The JWT saved under the contract key, or nil. Never throws: no localStorage
+   at all (node, a server) and a browser that refuses access to it (blocked
+   storage throws on access) both read as nil, so an unreadable store boots
+   logged out instead of aborting frame creation."
   []
-  (some-> (.-localStorage js/globalThis)
-          (.getItem "jwtToken")))
+  (try
+    (some-> (.-localStorage js/globalThis) (.getItem "jwtToken"))
+    (catch :default _ nil)))
 
-(rf/reg-cofx :realworld-resources.session/token
-  {:recordable? true
-   :doc "Recordable generator coeffect: the saved JWT (or nil), read from
-         localStorage. The registered supplier runs at processing-start on the
-         boot dispatch; its value is recorded onto the causal token and
-         re-presented verbatim under replay / epoch-restore. So the durable write
-         that folds it (`:auth/initialise` → [:auth :token]) replays the captured
-         token, never a fresh localStorage read. A handler folds it by declaring
-         `:rf.cofx/requires [:realworld-resources.session/token]` and reading it
-         flat. A production dispatch carries no cofx at all — the generator is the
-         source; tests pin an exact value through the dispatch-site `:rf.cofx`
-         stub seam (`{:rf.cofx {:realworld-resources.session/token \"…\"}}`)."}
-  (fn [] (read-jwt-from-storage)))
+(rf/reg-fx :realworld-resources.session/load
+  {:doc       "Read the saved JWT and dispatch it to `:auth/session-read` in this
+               frame, tagged with the session generation `:auth/initialise`
+               requested it for. The read is synchronous, so the reply joins
+               the frame's current drain."
+   :platforms #{:client}}
+  (fn fx-session-load [{:keys [frame]} {:keys [generation]}]
+    (rf/dispatch [:auth/session-read {:generation generation
+                                      :token      (read-saved-token)}]
+                 {:frame frame})))
 
 ;; ============================================================================
 ;; SESSION SUPPORT EVENTS
 ;; ============================================================================
+
+;; `:auth-generation` is a non-secret counter naming the current session. Every
+;; write that starts or ends one advances it — boot, a stored session, a
+;; cleared one — and it sits OUTSIDE `:auth`, so replacing that slice cannot
+;; reset it. A reply requested for an earlier generation is about a session
+;; that no longer exists, and its handler drops it.
+(defn advance-generation
+  "PURE: app-db with `:auth-generation` advanced past every earlier session."
+  [db]
+  (update db :auth-generation (fnil inc 0)))
 
 ;; The shared `:db` write both `:auth/store-session` (below) and the
 ;; classified reply events (`:auth/session-established` /
@@ -151,7 +157,8 @@
   [db user]
   (-> db
       (assoc-in [:auth :user] (dissoc user :token))
-      (assoc-in [:auth :token] (:token user))))
+      (assoc-in [:auth :token] (:token user))
+      advance-generation))
 
 ;; The identity half of the session, and the one question a completion that
 ;; OUTLIVES its session has to ask before it acts.
@@ -310,7 +317,8 @@
       {:db (-> db
                (assoc-in [:auth :user] nil)
                (assoc-in [:auth :token] nil)
-               (dissoc :comment-form))
+               (dissoc :comment-form)
+               advance-generation)
        :fx (cond-> []
              old-session (conj [:dispatch [:rf.resource/clear-scope
                                            {:scope old-session :cause :logout}]])
@@ -404,16 +412,17 @@
 ;; redact, and only a bare `:success` signal reaches the machine. See the
 ;; keep-secrets how-to: ../../../docs/core/how-to/keep-secrets-out-of-traces.md
 (rf/reg-machine :auth/flow
-  {:doc "The auth flow: idle → submitting/restoring → authed | error. HTTP goes
-         through :rf.http/managed, fired by the credential-owning form/restore
-         events, never by this machine — it only ever sees bare,
+  {:doc "The auth flow: idle → submitting/restoring → authed | error. Login
+         and register go through :rf.http/managed, fired by the
+         credential-owning form events; the machine fires only the
+         credential-free restore `GET /user`, and only ever sees bare,
          credential-free signals. Login, register, and restore don't retry —
          one submission per click, by design."}
   {:initial :idle
    :data    {:error nil}
    :schemas {:data app-schema/AuthFlowData}
    :guards
-   ;; `:auth/initialise` below passes a plain boolean, not the JWT itself
+   ;; `:auth/session-read` below passes a plain boolean, not the JWT itself
    ;; — the guard only ever needed the presence/absence question, and routing
    ;; the raw token through as a positional sub-event arg would ship it raw in
    ;; the dispatched-event + machine trace slots for no reason: the
@@ -557,42 +566,72 @@
                current route's reads under the freshly-resolved viewer, and
                settle any protected deep link the guard DEFERRED while identity
                was unknown. It never navigates on its own account — a public
-               deep link must stay put. The reply rides a map payload
+               deep link must stay put — and a reply that lands after the
+               session changed does nothing. The reply rides a map payload
                classified :sensitive so the token is redacted at event egress."
    :sensitive [[:value :user :token]]}
   (fn [{:keys [db]} [_ {:keys [value]}]]
-    (let [user (:user value)]
-      ;; `:db` commits before `:fx` runs, so both dispatches below see the restored
-      ;; viewer. `:rf.route/replan-resources` re-plans whatever route DID commit (a
-      ;; public deep link) under its unchanged nav-token; `:auth/settle-deferred-
-      ;; entry` handles the case where none did because the guard deferred a
-      ;; protected one. Exactly one of the two has work to do, so there is no
-      ;; double-fetch.
-      {:db (store-session-db db user)
-       :fx [[:realworld-resources.session/persist {:token (:token user)}]
-            [:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]
-            [:dispatch [:auth/settle-deferred-entry]]
-            [:dispatch [:auth/flow [:auth/success]]]]})))
+    ;; `GET /user` can still be on the wire when the session it was sent to
+    ;; confirm stops being the current one. The machine cannot see that: a login
+    ;; success also leaves `:restoring`. So the reply checks the restore window
+    ;; itself, and once `restoring-session?` is false — a login stored a user, or
+    ;; a clear removed the token — it is about an earlier session and is dropped.
+    ;; The window, not a generation in the reply, is the test because replies
+    ;; from the demo backend's canned stubs carry no `:correlation` to hold one.
+    (if-not (restoring-session? db)
+      {}
+      (let [user (:user value)]
+        ;; `:db` commits before `:fx` runs, so both dispatches below see the
+        ;; restored viewer. `:rf.route/replan-resources` re-plans whatever route
+        ;; DID commit (a public deep link) under its unchanged nav-token;
+        ;; `:auth/settle-deferred-entry` handles the case where none did because
+        ;; the guard deferred a protected one. Exactly one of the two has work to
+        ;; do, so there is no double-fetch.
+        {:db (store-session-db db user)
+         :fx [[:realworld-resources.session/persist {:token (:token user)}]
+              [:dispatch [:rf.route/replan-resources {:cause [:session-restore]}]]
+              [:dispatch [:auth/settle-deferred-entry]]
+              [:dispatch [:auth/flow [:auth/success]]]]}))))
 
 ;; ============================================================================
 ;; INITIALISATION + SESSION RESTORE
 ;; ============================================================================
 
 (rf/reg-event :auth/initialise
-  {:rf.cofx/requires [:realworld-resources.session/token]}
-  (fn [{:keys [db realworld-resources.session/token]} _]
-    ;; Fire `:auth/restore` unconditionally — even with no token — so the
-    ;; machine snapshot spawns at `:idle` from a cold boot. The `:has-token?`
-    ;; guard then quietly routes a false flag to the no-op branch. The
-    ;; dispatch carries a plain BOOLEAN, not the raw token — the guard only
-    ;; ever needed presence/absence, and the token itself already has a
-    ;; durable home at the classified `[:auth :token]` path this same `:db`
-    ;; write creates. Passing the token positionally here instead would ship
-    ;; the JWT raw on this event's own dispatched-event trace for no reason:
-    ;; `:begin-restore` reads the token back off `[:auth :token]` via the
-    ;; bearer-auth interceptor, never off this event's args.
-    {:db (assoc db :auth {:user nil :token token})
-     :fx [[:dispatch [:auth/flow [:auth/restore (not (str/blank? token))]]]]}))
+  {:doc "Seed an empty auth slice under a fresh session generation and ask
+         `:realworld-resources.session/load` for the saved JWT. The token
+         arrives in `:auth/session-read`, never as a coeffect of this event."}
+  (fn [{:keys [db]} _]
+    (let [db (-> db
+                 advance-generation
+                 (assoc :auth {:user nil :token nil}))]
+      {:db db
+       :fx [[:realworld-resources.session/load {:generation (:auth-generation db)}]]})))
+
+(rf/reg-event :auth/session-read
+  {:doc       "The storage read's reply: fold the saved JWT (blank reads as
+               none) into [:auth :token] and start the machine's restore. A
+               reply for an earlier generation is dropped. The token rides a
+               map payload classified :sensitive, so it is redacted at event
+               egress."
+   :sensitive [[:token]]}
+  (fn [{:keys [db]} [_ {:keys [generation token]}]]
+    (if (not= generation (:auth-generation db))
+      {}
+      (let [token (when-not (str/blank? token) token)]
+        ;; Fire `:auth/restore` unconditionally — even with no token — so the
+        ;; machine snapshot spawns at `:idle` from a cold boot. The
+        ;; `:has-token?` guard then quietly routes a false flag to the no-op
+        ;; branch. The dispatch carries a plain BOOLEAN, not the raw token —
+        ;; the guard only ever needed presence/absence, and the token itself
+        ;; already has a durable home at the classified `[:auth :token]` path
+        ;; this same `:db` write fills. Passing the token positionally here
+        ;; instead would ship the JWT raw on the machine's dispatched-event
+        ;; trace for no reason: `:begin-restore` reads the token back off
+        ;; `[:auth :token]` via the bearer-auth interceptor, never off this
+        ;; event's args.
+        {:db (assoc-in db [:auth :token] token)
+         :fx [[:dispatch [:auth/flow [:auth/restore (some? token)]]]]}))))
 
 ;; ============================================================================
 ;; LOGIN / REGISTER FORM DRAFTS  (app-db; submission is the machine)

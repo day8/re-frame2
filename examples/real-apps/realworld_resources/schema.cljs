@@ -109,8 +109,8 @@
 ;;
 ;;   THE BOOT WINDOW — `[:auth]`, `[:auth :login-form]`, `[:auth :register-form]`.
 ;;   app-db starts `{}` and each of these is seeded by its OWN event:
-;;   `:auth/initialise` is its own `:initial-events` step (it consumes a
-;;   recordable token coeffect), and the two form drafts are separate dispatches
+;;   `:auth/initialise` is its own `:initial-events` step (it restores the
+;;   saved session first), and the two form drafts are separate dispatches
 ;;   fanned out from `:app/initialise` (core.cljs). Separate events, separate
 ;;   commits. Register these bare and the FIRST seed is rejected by the siblings
 ;;   that have not been seeded yet, and so is every later one — app-db never

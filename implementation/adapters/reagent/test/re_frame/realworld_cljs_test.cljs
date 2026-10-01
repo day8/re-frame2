@@ -42,6 +42,10 @@
             [realworld-shared.schema :as ws]
             [realworld-http.schema :as app-schema]
             [realworld-http.core]
+            ;; `read-saved-token`, the storage read behind the app's
+            ;; `:auth.session/load` effect, exercised directly by the
+            ;; unreadable-storage arm of the session-load seam test.
+            [realworld-http.auth :as auth]
             ;; Loaded for its ns-load side effects: registers the routes (with
             ;; the `:can-enter [:realworld.routing/authed?]` auth gate on the
             ;; `:requires-auth` routes), the `:realworld.routing/authed?` guard
@@ -181,6 +185,46 @@
      :app-ns        "realworld-http."}))
 
 ;; ============================================================================
+;; the saved session — staged in the storage the app's own effect reads
+;; ============================================================================
+;;
+;; `:auth/initialise` asks the app's `:auth.session/load` effect to read
+;; localStorage, and the effect dispatches what it found to the classified
+;; `:auth/session-read` event. These helpers stage that storage for the length
+;; of one call, so the real effect and its reply run unchanged.
+
+(defn- with-local-storage
+  "Run `f` with `globalThis.localStorage` defined by the JS property
+   `descriptor` (a configurable `value` storage, or a `get` that throws), then
+   put back whatever was there before."
+  [descriptor f]
+  (let [g     js/globalThis
+        prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
+    (js/Object.defineProperty g "localStorage" descriptor)
+    (try
+      (f)
+      (finally
+        (if prior
+          (js/Object.defineProperty g "localStorage" prior)
+          (js-delete g "localStorage"))))))
+
+(defn- with-saved-jwt
+  "Run `f` over a localStorage holding `token` under the RealWorld contract key
+   `jwtToken` (nil: an empty store)."
+  [token f]
+  (with-local-storage
+    #js {:configurable true
+         :value        #js {:getItem    (fn [k] (when (= k "jwtToken") token))
+                            :setItem    (fn [_ _] nil)
+                            :removeItem (fn [_] nil)}}
+    f))
+
+(defn- init-auth!
+  "Run `:auth/initialise` in frame `f` over a store holding `token`."
+  [f token]
+  (with-saved-jwt token #(rf/dispatch-sync [:auth/initialise] {:frame f})))
+
+;; ============================================================================
 ;; auth — the auth state machine
 ;; ============================================================================
 
@@ -194,13 +238,9 @@
 
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                     :auth.session/persist :rf/no-op}})]
-    ;; EP-0017: `:auth/initialise` consumes the recordable
-    ;; `:auth.session/token` coeffect. Live, its registered supplier reads
-    ;; localStorage; a test pins an exact value through the dispatch-site
-    ;; `:rf.cofx` stub, which is the seam the registration itself documents.
-    ;; Node has no localStorage, so nil is also what the supplier would return.
-    (rf/dispatch-sync [:auth/initialise]
-                      {:frame f :rf.cofx {:auth.session/token nil}})
+    ;; No saved session: the boot read finds an empty store, and the machine
+    ;; spawns at :idle.
+    (init-auth! f nil)
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
 
     ;; The machine is credential-free — login goes through
@@ -217,24 +257,43 @@
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
     (is (nil? (rf/compute-sub [:auth/user] (rf/frame-state-value f))))))
 
-(defn- session-token-cofx-shape-test []
-  ;; EP-0017 cofx contract — the :auth.session/token cofx is a RECORDABLE
-  ;; GENERATOR: the saved JWT is an APP-OWNED world-read that feeds durable
-  ;; state, so the app registers a value-returning supplier (reading localStorage)
-  ;; rather than stamping the value at the dispatch site (cofx.md §Decision tree).
-  ;; The generator runs at processing-start on the boot dispatch, its value is
-  ;; recorded onto the causal token, and replay re-presents the captured value
-  ;; verbatim. The contract under test: the registration is recordable, is NOT
-  ;; provided (it has a generator), and carries a supplier fn (the localStorage
-  ;; read). A declaring handler receives the generated value FLAT under
-  ;; `:auth.session/token` via `:rf.cofx/requires`.
-  (let [cofx-meta (rf.registrar/handler-meta :cofx :auth.session/token)]
-    (is (true? (:recordable? cofx-meta))
-        "the cofx is recordable — its value rides the recorded token")
-    (is (not (:provided? cofx-meta))
-        "the cofx is NOT provided — it is generator-backed (the app supplies it)")
-    (is (fn? (:handler-fn cofx-meta))
-        "a recordable generator carries a value-returning supplier fn")))
+(defn- session-load-seam-test []
+  ;; A credential is never a recordable coeffect: the saved JWT is read by an
+  ;; effect and folded by the classified `:auth/session-read` reply.
+  (is (nil? (rf.registrar/handler-meta :cofx :auth.session/token))
+      "no coeffect carries the saved JWT")
+  (is (nil? (:rf.cofx/requires (rf.registrar/handler-meta :event :auth/initialise)))
+      ":auth/initialise declares no coeffect")
+  (is (= #{:client} (:platforms (rf.registrar/handler-meta :fx :auth.session/load)))
+      "the storage read is a client-only effect")
+  (is (= [[:token]] (:sensitive (rf.registrar/handler-meta :event :auth/session-read)))
+      "the read's reply classifies the token it carries")
+
+  ;; Unreadable storage boots logged out instead of throwing.
+  (let [blocked #js {:configurable true
+                     :get          (fn [] (throw (js/Error. "storage is blocked")))}
+        failing #js {:configurable true
+                     :value        #js {:getItem (fn [_] (throw (js/Error. "read failed")))}}]
+    (is (nil? (with-local-storage blocked auth/read-saved-token))
+        "a store that refuses access reads as no saved token")
+    (is (nil? (with-local-storage failing auth/read-saved-token))
+        "a store whose read throws reads as no saved token")
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+      (with-local-storage blocked #(rf/dispatch-sync [:auth/initialise] {:frame f}))
+      (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
+          "boot over unreadable storage settles at :idle")
+      (is (nil? (get-in (rf/app-db-value f) [:auth :token])))))
+
+  ;; A read reply for an earlier generation is dropped.
+  (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
+    (init-auth! f nil)
+    (let [generation (:auth-generation (rf/app-db-value f))]
+      (rf/dispatch-sync [:auth/session-read {:generation (dec generation) :token "jwt-stale"}]
+                        {:frame f})
+      (is (nil? (get-in (rf/app-db-value f) [:auth :token]))
+          "a stale read does not resurrect a token")
+      (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
+          "and starts no restore"))))
 
 (defn- login-failure-test []
   (reg-canned-failure! :realworld.test/login-failure
@@ -243,10 +302,7 @@
                         :body   {:errors {:body ["email or password is invalid"]}}})
 
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
-    ;; EP-0017: pin the recordable `:auth.session/token` through the
-    ;; dispatch-site `:rf.cofx` stub (nil node-side, as the supplier would give).
-    (rf/dispatch-sync [:auth/initialise]
-                      {:frame f :rf.cofx {:auth.session/token nil}})
+    (init-auth! f nil)
     ;; Drive login through the credential-owning form-submit
     ;; event — the machine itself is credential-free.
     (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
@@ -1663,14 +1719,13 @@
     ;; Boot with a saved JWT: the :has-token? guard routes to :begin-restore
     ;; (NOT the token-nil :idle no-op the other tests exercise). The
     ;; canned stub resolves the GET /user synchronously, so the machine settles.
-    (rf/dispatch-sync [:auth/initialise]
-                      {:frame f :rf.cofx {:auth.session/token "jwt-restore"}})
+    (init-auth! f "jwt-restore")
     (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
         "guard true → :begin-restore → :restoring → (GET /user success) → :restore-session → :authed")
     (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-state-value f))))
         "the restored session is stored")
     (is (= "jwt-restore" (get-in (rf/app-db-value f) [:auth :token]))
-        "the token rode :auth/initialise into durable app-db")
+        "the saved token reached durable app-db through :auth/session-read")
     ;; THE INVARIANT: restore must NOT navigate — the deep link survives.
     (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "restore stays put — :restore-session does NOT fire :auth/post-login-redirect"))
@@ -1681,8 +1736,7 @@
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed       :realworld.test/restore-user
                                                     :auth.session/persist :rf/no-op}})]
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/some-slug"] {:frame f})
-    (rf/dispatch-sync [:auth/initialise]
-                      {:frame f :rf.cofx {:auth.session/token nil}})
+    (init-auth! f nil)
     (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
         "no token → the :idle no-op branch (the only path the token-nil tests hit)")
     ;; Drive login through the credential-owning
@@ -1769,24 +1823,21 @@
 (defn- booting-frame!
   "A frame wired the way `realworld.core/mount!` wires the real one: URL-bound,
    the app's three ordered `:initial-events`, managed HTTP pointed at a capturing
-   override. The saved JWT rides the `:auth/initialise` STEP's own `:rf.cofx`
-   (EP-0027 §`:initial-events` — a map step may carry ordinary dispatch opts), so
-   the recordable coeffect is stubbed at the one seam its own registration
-   documents, and node's absent localStorage is not in the way."
+   override. The saved JWT sits in staged localStorage while the frame is built,
+   so the boot read runs through the app's own `:auth.session/load` effect."
   [url token sink]
-  (rf.frame/make-anon-frame-record!
-    {:url-bound?     true
-     :url-strategy   (decode-to-url-strategy url)
-     :initial-events [[:auth/classify-token]
-                      {:event [:auth/initialise]
-                       :opts  {:rf.cofx {:auth.session/token token}}}
-                      [:app/initialise]]
-     :fx-overrides   {:rf.http/managed      (do (reg-capturing-managed!
-                                                  :realworld.test/deferred-managed sink)
-                                                :realworld.test/deferred-managed)
-                      :auth.session/persist :rf/no-op
-                      :rf.nav/push-url      :rf/no-op
-                      :rf.nav/replace-url   :rf/no-op}}))
+  (reg-capturing-managed! :realworld.test/deferred-managed sink)
+  (with-saved-jwt token
+    #(rf.frame/make-anon-frame-record!
+       {:url-bound?     true
+        :url-strategy   (decode-to-url-strategy url)
+        :initial-events [[:auth/classify-token]
+                         [:auth/initialise]
+                         [:app/initialise]]
+        :fx-overrides   {:rf.http/managed      :realworld.test/deferred-managed
+                         :auth.session/persist :rf/no-op
+                         :rf.nav/push-url      :rf/no-op
+                         :rf.nav/replace-url   :rf/no-op}})))
 
 (defn- cold-boot-deep-link-race-test []
   (let [restored-user {:username "alice" :email "alice@example.com" :token "jwt-saved"}]
@@ -1901,6 +1952,39 @@
           (is (= :authed (rf/compute-sub [:auth/state] (st)))))))))
 
 ;; ============================================================================
+;; auth — a restore reply that outlives its session
+;; ============================================================================
+;;
+;; `GET /user` is still on the wire when a login lands. The login stores its own
+;; session and moves the machine out of :restoring, so the late restore reply is
+;; about a session that no longer exists and must not overwrite the new one.
+
+(defn- stale-restore-reply-test []
+  (let [sink (atom [])]
+    (reg-capturing-managed! :realworld.test/held-managed sink)
+    (with-new-frame [f (rf.frame/make-anon-frame-record!
+                         {:fx-overrides {:rf.http/managed      :realworld.test/held-managed
+                                         :auth.session/persist :rf/no-op}})]
+      (let [st #(rf/frame-state-value f)]
+        (init-auth! f "jwt-alice")
+        (is (= :restoring (rf/compute-sub [:auth/state] (st))))
+        (let [restore-req (first @sink)]
+          (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
+          (rf/dispatch-sync [:auth.login-form/edit-field :email "bob@example.com"] {:frame f})
+          (rf/dispatch-sync [:auth.login-form/edit-password {:value "pw"}] {:frame f})
+          (rf/dispatch-sync [:auth.login-form/submit] {:frame f})
+          (settle-managed! f (last @sink)
+                           {:user {:username "bob" :email "bob@example.com" :token "jwt-bob"}})
+          (is (= "bob" (:username (rf/compute-sub [:auth/user] (st)))))
+          (is (= :authed (rf/compute-sub [:auth/state] (st))))
+          (settle-managed! f restore-req
+                           {:user {:username "alice" :email "alice@example.com" :token "jwt-alice"}})
+          (is (= "bob" (:username (rf/compute-sub [:auth/user] (st))))
+              "the late restore reply does not replace the session the login stored")
+          (is (= "jwt-bob" (get-in (rf/app-db-value f) [:auth :token]))
+              "nor its token"))))))
+
+;; ============================================================================
 ;; core — top-level smoke: boots the app, checks per-feature initialisers
 ;; populate the expected slices.
 ;; ============================================================================
@@ -1909,15 +1993,9 @@
   (with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/initialise]]
                                  :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
                                                 :auth.session/persist :rf/no-op}})]
-    ;; EP-0017: `:auth/initialise` is not in the
-    ;; `:app/initialise` fan-out — it consumes the recordable
-    ;; `:auth.session/token` coeffect, and the `:dispatch` fx does not forward
-    ;; `:rf.cofx`, so it earns its own `:initial-events` step in the real app.
-    ;; Dispatch it explicitly here, pinning the token through the dispatch-site
-    ;; `:rf.cofx` stub the coeffect's own registration documents (node has no
-    ;; localStorage for the supplier to read, so the value would be nil anyway).
-    (rf/dispatch-sync [:auth/initialise]
-                      {:frame f :rf.cofx {:auth.session/token nil}})
+    ;; `:auth/initialise` is its own `:initial-events` step in the real app,
+    ;; not part of the `:app/initialise` fan-out, so boot it here explicitly.
+    (init-auth! f nil)
     ;; After init: the :auth + :articles slices and the
     ;; :realworld/tags + :settings/form machine snapshots are present.
     ;; EP-0001: app data is in app-db; machine snapshots in runtime-db.
@@ -1937,8 +2015,9 @@
     (login-happy-path-test))
   (testing "login failure surfaces error and dismiss returns to :idle"
     (login-failure-test))
-  (testing ":auth.session/token is a recordable generator (not provided-at-dispatch)"
-    (session-token-cofx-shape-test))
+  (testing "the saved JWT arrives through a client-only load effect and a classified
+            reply — never a coeffect — and unreadable or stale reads change nothing"
+    (session-load-seam-test))
   (testing "durable AuthSlice user validates token-free; wire User still requires :token"
     (durable-session-user-schema-test)))
 
@@ -2029,7 +2108,9 @@
 
 (deftest realworld-session-restore
   (testing "restore-with-token reaches :authed, stores the session, and does NOT navigate"
-    (session-restore-with-token-test)))
+    (session-restore-with-token-test))
+  (testing "a restore reply that lands after a later login is dropped"
+    (stale-restore-reply-test)))
 
 (deftest realworld-cold-boot-deep-link-race
   (testing "a URL-bound cold boot at a PROTECTED deep link with a saved token and a

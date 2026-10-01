@@ -206,6 +206,34 @@
                                             :email    "alice@example.com"
                                             :token    token-sentinel}})))))
 
+;; The saved session, staged in the storage the app's `:auth.session/load`
+;; effect reads at boot, so the real effect and its classified reply run.
+(defn- with-local-storage
+  "Run `f` with `globalThis.localStorage` defined by the JS property
+   `descriptor` (a configurable `value` storage, or a `get` that throws), then
+   put back whatever was there before."
+  [descriptor f]
+  (let [g     js/globalThis
+        prior (js/Object.getOwnPropertyDescriptor g "localStorage")]
+    (js/Object.defineProperty g "localStorage" descriptor)
+    (try
+      (f)
+      (finally
+        (if prior
+          (js/Object.defineProperty g "localStorage" prior)
+          (js-delete g "localStorage"))))))
+
+(defn- with-saved-jwt
+  "Run `f` over a localStorage holding `token` under the RealWorld contract key
+   `jwtToken` (nil: an empty store)."
+  [token f]
+  (with-local-storage
+    #js {:configurable true
+         :value        #js {:getItem    (fn [k] (when (= k "jwtToken") token))
+                            :setItem    (fn [_ _] nil)
+                            :removeItem (fn [_] nil)}}
+    f))
+
 (defn- record-traces! [id]
   (let [a (atom [])]
     (rf/register-listener! :trace id (fn [ev] (swap! a conj ev)))
@@ -428,6 +456,27 @@
               (str "PW LEAK ops: " (pr-str (mapv :operation pw-leaking))))))
       (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
           "register shares :auth/session-established with login — same credential-free machine nudge"))))
+
+(deftest boot-read-of-the-saved-jwt-redacts-everywhere
+  (testing "the boot read of the saved JWT — `:auth/initialise`, the
+            `:auth.session/load` effect, its classified `:auth/session-read`
+            reply, the machine's restore and the classified
+            `:auth/session-restored` — leaves NO emitted trace event carrying the
+            raw JWT, while the durable token stays real"
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
+                                                    :auth.session/persist :rf/no-op}})]
+      (rf/dispatch-sync [:test.realworld/classify-token] {:frame f})
+      (let [traces (record-traces! ::boot-read)]
+        (with-saved-jwt token-sentinel #(rf/dispatch-sync [:auth/initialise] {:frame f}))
+        (rf/unregister-listener! :trace ::boot-read)
+        (let [jwt-leaking (filter #(leaks? token-sentinel %) @traces)]
+          (is (seq @traces) "the boot read emitted traces to scan")
+          (is (empty? jwt-leaking)
+              (str "JWT LEAK ops: " (pr-str (mapv :operation jwt-leaking))))))
+      (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f)))
+          "the restore the read started completed")
+      (is (= token-sentinel (get-in (rf/app-db-value f) [:auth :token]))
+          "the real token reached the durable, classified [:auth :token] path"))))
 
 (deftest auth-session-persist-fx-classifies-token
   (testing "the session-persistence fx declares :sensitive [[:token]] on its

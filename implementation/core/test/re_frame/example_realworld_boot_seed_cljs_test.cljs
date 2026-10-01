@@ -73,8 +73,8 @@
 ;; The example's own boot fan-out, spelled out.
 ;;
 ;; `:app/initialise` (core.cljs) dispatches these; `:auth/initialise` runs ahead
-;; of it as its own `:initial-events` step, because it consumes the recordable
-;; `:auth.session/token` coeffect. The ORDER is the app's, and it matters: it is
+;; of it as its own `:initial-events` step, so the saved session is read before
+;; any feature boots. The ORDER is the app's, and it matters: it is
 ;; `:auth/initialise` that creates `[:auth]` in the AuthSlice shape, before the
 ;; two form initialisers write inside it.
 ;; ---------------------------------------------------------------------------
@@ -84,8 +84,8 @@
   exactly as the app does — so each `:db`-bearing initialiser is its own
   commit, which is the whole point of the test."
   [f]
-  (rf/dispatch-sync [:auth/initialise] {:frame   f
-                                        :rf.cofx {:auth.session/token nil}})
+  ;; Node has no localStorage, so the boot read finds no saved session.
+  (rf/dispatch-sync [:auth/initialise] {:frame f})
   (doseq [ev [[:articles/initialise]
               [:article/initialise]
               [:comments/initialise]
