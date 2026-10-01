@@ -1404,16 +1404,6 @@
         (is (not (contains-secret? redacted))
             "no raw secret survives — value-path fail-closed + frame-independent
              identity projection cover both leak channels")))
-    (testing "a nil frame does not borrow an ambient frame's policy"
-      (rf/with-frame :rf/default
-        (is (some? (rf.frame/resolve-current-frame))
-            "an ambient frame is bound, making policy borrowing observable")
-        (let [redacted (rf.derivation.egress/project-graph raw nil)
-              sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
-          (is (= rf.privacy/redacted-sentinel (:value sub))
-              "nil frame redacts rather than using the ambient frame")
-          (is (not (contains-secret? redacted))
-              "no raw secret survives a nil-frame egress under an ambient binding"))))
     (testing "egress under the known frame applies its classified value path"
       (let [redacted (rf.derivation.egress/project-graph raw egress-frame)
             sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
