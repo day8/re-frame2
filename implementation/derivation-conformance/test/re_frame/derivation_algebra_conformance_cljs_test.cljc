@@ -292,6 +292,8 @@
           "a multi-trigger process carries a policy set")
       (is (= :remote (get-in res [:authority :kind]))
           "remote authority is separate from local storage")
+      (is (= :rf.http/managed (get-in res [:authority :transport]))
+          "the transport mirrors the registered Spec 016 transport (a projection)")
       (is (true? (:materialized? res))))
     (testing "route — runtime-db / on-route / frame"
       (is (= :runtime-db (:storage route)))
@@ -327,18 +329,6 @@
               lk (if (map? lc) (:kind lc) lc)]
           (is (contains? lifecycles lk)
               (str node-id " :lifecycle " lk " is not a closed lifecycle")))))))
-
-(deftest b-external-authority-names-its-local-storage-separately
-  ;; Authority names the source of truth; storage still names the local home.
-  (register-one-of-each!)
-  (let [nodes (:nodes (rf.derivation.graph/derivation-graph all-contributors))
-        res   (node-by-family nodes :resources :article/by-slug)]
-    (is (= :remote     (get-in res [:authority :kind])))
-    (is (= :runtime-db (:storage res))
-        "a remote-authority node still names a local storage class")
-    (is (contains? storage-classes (:storage res)))
-    (is (= :rf.http/managed (get-in res [:authority :transport]))
-        "the transport mirrors the registered Spec 016 transport (a projection)")))
 
 ;; ===========================================================================
 ;; (c) GRAPH EDGES — :input / :param / :selector in static + live graphs.
