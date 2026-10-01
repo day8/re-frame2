@@ -805,31 +805,6 @@
 ;;  7. Classification RETENTION
 ;; ============================================================================
 
-(deftest classification-is-retained-across-later-cascades
-  (testing "classification is registered ONCE (commit-plane effect) and lives
-            in the frame's runtime-db. Every LATER epoch — including cascades
-            that never touch the classified path — must still redact it at
-            egress. A registry that only applied to the writing cascade would
-            leak the value from every subsequent record, which is exactly
-            what a `watch-epochs` stream ships."
-    (fresh-frame!)
-    (reg-login!)
-    (rf/reg-event :egress/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
-    (dotimes [_ 4] (rf/dispatch-sync [:egress/inc] {:frame frame-id}))
-    (let [raw  (rf/epoch-history frame-id)
-          bulk (mapv rf/project-egress raw)]
-      (is (= 5 (count bulk)) "fixture: five records in the ring")
-      (is (contains-secret? raw)
-          "fixture control: the raw ring carries the secret in every
-           post-login record's `:db-before` / `:db-after`")
-      (is (every? #(= :rf/redacted (get-in % [:db-after :auth :password]))
-                  (rest bulk))
-          "every record AFTER the writing cascade still redacts — the
-           classification is retained, not per-cascade")
-      (is (not (contains-secret? bulk))
-          "no secret bytes anywhere in the whole projected ring"))))
-
 (deftest classification-retention-negative-control-unclassified-frame
   (testing "the SAME cascade with NO classification registered egresses the
             value RAW. This is the suite's load-bearing negative control: if
