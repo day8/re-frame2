@@ -452,21 +452,6 @@
       (is (< idx-payload idx-close)
           "final payload before body close"))))
 
-(deftest stream-handler-no-boundary-zero-continuations
-  (testing "A tree with NO :rf/suspense-boundary still streams cleanly (degenerate case)"
-    (rf/reg-view ^{:rf/id :test/static-root} static-root []
-      [:main [:h1 "Just static"]])
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init]]
-                      :root-view [(rf/view :test/static-root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          body     (drain-stream (:body response))]
-      (is (str/includes? body "<h1>Just static</h1>") "static content emitted")
-      (is (str/includes? body "__rf_payload") "final payload emitted")
-      (is (not (str/includes? body "data-rf2-suspense-id")) "no boundary markers")
-      (is (str/includes? body "</body></html>") "body closes cleanly"))))
-
 ;; ===========================================================================
 ;; The per-boundary hydration-delta <script> is emitted ONLY
 ;; for a boundary whose render CHANGED app-db. A continuation that merely
@@ -684,9 +669,11 @@
 ;; projected non-200 error page); a recovered-to-nil sub buffers a fail-
 ;; closed status the post-shell `flush-response-result!` re-read picks up and
 ;; diverts to the non-streamed projected-error arm. Only a known-renderable shell + success status
-;; commits the chunked response. These direct-handler tests pin the
-;; contract in-process; the bytes-on-wire counterparts (root-view throw +
-;; production-sub throw through Jetty) live in `streaming_robustness_test`.
+;; commits the chunked response. The shell-walk throw and the clean-render
+;; control are pinned in-process here. The root-view throw is pinned
+;; in-process by `streaming_writer_trace_test` (with its frame teardown) and
+;; on the wire by `streaming_robustness_test`; the recovered-to-nil sub by
+;; `ring_draintime_error_view_test`.
 ;; ===========================================================================
 
 (defn- streamed-body
@@ -697,32 +684,6 @@
   (if (instance? InputStream body)
     (drain-stream body)
     body))
-
-(deftest stream-handler-root-view-throw-fails-closed
-  (testing "a root-view fn that throws on resolution fails
-            closed to a non-200 PROJECTED error response on the request
-            thread — NOT a streamed 200. No InputStream body is handed
-            out (the chunked response was never committed)."
-    (rf/reg-event :rf.test.server/init-min
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    (let [throwing-root (fn root-view-fn []
-                          (throw (ex-info ":rf.test/root-view-throw"
-                                          {:reason "shell-render fail-closed probe"})))
-          handler       (rf.ssr.ring/stream-handler
-                          {:initial-events [[:rf.test.server/init-min]]
-                           :root-view throwing-root
-                           :payload :rf.ssr.payload/whole-app-db})
-          response      (handler {:uri "/" :request-method :get})]
-      (is (= 500 (:status response))
-          "root-view throw → `:rf.error/ssr-render-failed` projection →
-           non-200 (default projector maps to 500) on the request thread,
-           not a streamed 200 (Spec 011 §Failure semantics — inline fallback)")
-      (is (not (instance? InputStream (:body response)))
-          "the body is a projected error page (ordinary String), NOT a
-           PipedInputStream — the chunked response was never committed")
-      (is (not (str/includes? (str (:body response)) "root-view-throw"))
-          "the projected body carries no internal exception detail"))))
 
 (deftest stream-handler-shell-walk-throw-fails-closed
   (testing "a view INSIDE the shell walk (NOT inside a
@@ -754,51 +715,6 @@
       (is (not (instance? InputStream (:body response)))
           "shell-walk throw fails closed to a projected error page, not a
            streamed chunked body"))))
-
-(deftest stream-handler-rendertime-sub-throw-fails-closed
-  (testing "a production-mode reactive sub
-            that THROWS during the streaming shell render recovers to nil (the
-            walk does NOT throw) but buffers a fail-closed 500 on the always-on
-            error-emit substrate; the post-shell `flush-response-result!`
-            re-read surfaces the projected 5xx and DIVERTS to the NON-STREAMED
-            projected-error arm — no writer thread, no partial-state shell:
-            a 5xx before the chunked head commits must not ship
-            a misleading half-drained page (the Spec 011 streaming
-            pre-commit rule)."
-    (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
-    (rf/reg-view ^{:rf/id :test/uses-throwing-sub} uses-throwing-sub []
-      (let [v @(rf/subscribe [:throwing-sub])]
-        [:main.broken
-         [:h1 "header that renders"]
-         [:p (str "value: " v)]]))
-    (rf/reg-event :rf.test.server/init-min
-      {:platforms #{:server}}
-      (fn [_ _] {:db {}}))
-    (let [handler (rf.ssr.ring/stream-handler
-                    {:initial-events [[:rf.test.server/init-min]]
-                     :root-view [(rf/view :test/uses-throwing-sub)]
-                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
-                                 :dev-error-detail? false}
-                     :payload :rf.ssr.payload/whole-app-db})]
-      ;; Production hardening — the dev-only trace listener elides; the
-      ;; always-on error-emit substrate is the status source of truth.
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [response (handler {:uri "/" :request-method :get})]
-          (is (= 500 (:status response))
-              "render-time sub-throw under production hardening →
-               buffered fail-closed 500 re-read AFTER the shell render →
-               Ring status 500.")
-          ;; The recovered-to-nil 5xx fails closed to the
-          ;; NON-STREAMED projected-error arm — a plain-String error body, NOT
-          ;; a chunked InputStream, and NOT the degraded shell.
-          (is (not (instance? InputStream (:body response)))
-              "the 5xx before the head commits fails closed to a plain-String
-               projected-error body — no chunked writer thread spawned")
-          (let [body (streamed-body (:body response))]
-            (is (str/includes? body "Something went wrong")
-                "the projected-error arm's locked default template rendered")
-            (is (not (str/includes? body "header that renders"))
-                "the degraded shell was DISCARDED — never streamed under 500")))))))
 
 (deftest stream-handler-clean-render-stays-200
   (testing "the request-thread shell render + post-shell
@@ -1204,6 +1120,8 @@
           (str "NO Content-Length header survives on the streamed response "
                "(any casing) — the server frames the InputStream body as "
                "chunked. Header keys (lower-cased): " (pr-str keys-lc)))
+      (is (contains? keys-lc "content-type")
+          "Content-Type survives the strip — only Content-Length is removed")
       ;; The full payload is readable end-to-end — the strip did not break
       ;; the stream, and no byte-count cap truncated it.
       (is (str/includes? body "<!DOCTYPE html>") "shell streamed")
@@ -1214,28 +1132,6 @@
       (is (str/includes? body "</body></html>")
           "the streamed body closed cleanly — full payload readable, not
            truncated to a stale Content-Length"))))
-
-(deftest stream-handler-preserves-content-type-when-stripping-content-length
-  (testing "stripping Content-Length leaves the other head
-            machinery intact — Content-Type still rides the streamed
-            response"
-    (rf/reg-event :rf.test.server/init-cl-and-ct
-      {:platforms #{:server}}
-      (fn [_ _]
-        {:db {:articles [] :comments []}
-         :fx [[:rf.server/set-header {:name "Content-Length" :value "999"}]]}))
-    (let [handler  (rf.ssr.ring/stream-handler
-                     {:initial-events [[:rf.test.server/init-cl-and-ct]]
-                      :root-view [(rf/view :test/root)]
-                      :payload :rf.ssr.payload/whole-app-db})
-          response (handler {:uri "/" :request-method :get})
-          keys-lc  (header-keys-lower response)
-          _drain   (drain-stream (:body response))]
-      (is (not (contains? keys-lc "content-length"))
-          "Content-Length stripped")
-      (is (contains? keys-lc "content-type")
-          "Content-Type default survives the strip — only Content-Length
-           is removed"))))
 
 ;; ===========================================================================
 ;; The stream-handler :content-type opt is honored on the wire
