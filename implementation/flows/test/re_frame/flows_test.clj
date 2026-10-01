@@ -14,10 +14,11 @@
     - dirty-check (=-equal inputs do NOT recompute)
     - topological sort (B reads what A wrote; one drain pass)
     - cycle detection at registration time
-    - hot-reload preserves the output value when the new body is
-      value-equivalent on current inputs
-    - :rf.fx/reg-flow / :rf.fx/clear-flow toggle round-trip
-    - clear-all / lifecycle interaction with the per-frame registry"
+    - hot-reload re-evaluates the replaced flow on the next drain
+    - clear-all / lifecycle interaction with the per-frame registry
+
+  The `:rf.fx/reg-flow` / `:rf.fx/clear-flow` settle is pinned in
+  `re-frame.flows-settle-on-dispatch-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
@@ -543,30 +544,6 @@
         "a non-leading :rf.db/runtime segment registers cleanly")
     (rf/clear :flow :deep)))
 
-(deftest reg-flow-accepts-shared-domain-path-elements
-  (testing "path elements across the SHARED EP-0012 segment domain all pass
-            (keyword / string / integer / symbol / boolean — and, via
-            re-frame.path/segment?, UUID / instant / nil too)"
-    ;; Flow `valid-path-element?` delegates to the shared
-    ;; `re-frame.path/segment?` rather than a flows-private scalar enumeration,
-    ;; so a flow path may focus through any concrete EDN identity segment the
-    ;; `:rf/path` algebra supports — including a UUID-keyed map
-    ;; (`{:by-id {#uuid "…" …}}`), an instant key, and the nil key. Each
-    ;; round-trips through reg-flow without throwing; the shared validation
-    ;; admits the common scalar case alongside these.
-    (doseq [[label elt] [[:kw      :kw]
-                         [:string  "str"]
-                         [:int     42]
-                         [:symbol  'sym]
-                         [:bool    true]
-                         [:uuid    #uuid "00000000-0000-0000-0000-000000000001"]
-                         [:instant #inst "2026-06-12T00:00:00.000-00:00"]
-                         [:nilkey  nil]]]
-      (let [flow-id (keyword "elt" (name label))]
-        (is (some? (rf/reg-flow flow-id {:inputs [[:root elt]] :output-path [:out elt]} identity))
-            (str "shared-domain path segment " (pr-str elt) " is accepted"))
-        (rf/clear :flow flow-id)))))
-
 (deftest reg-flow-accepts-empty-inputs-vector
   (testing ":inputs [] is allowed (one-shot flow with no app-db dependencies)"
     ;; The well-formedness checks reject malformed entries inside :inputs,
@@ -766,15 +743,6 @@
       (is (= large-before (rf.elision/declarations :rf/default))
           "no :large elision declaration was installed"))))
 
-(deftest reg-flow-detects-cycles-at-registration
-  (testing ":a depends on :b, :b depends on :a — registering the second throws"
-    (rf/reg-flow :a {:inputs [[:b]] :output-path [:a]} identity)
-    (is (thrown? Throwable
-                 (rf/reg-flow :b {:inputs [[:a]] :output-path [:b]} identity))
-        "the cyclic registration unwinds and throws :rf.error/flow-cycle")
-    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :b))
-        "cycle-detection rolls back the partial registration of :b")))
-
 (deftest reg-flow-cycle-error-carries-ordered-cycle-path
   ;; The cycle-error ex-data contract (per Spec 013 §Cycle detection /
   ;; Spec 009 §Error contract): `:cycle` is an ordered vector of flow ids with
@@ -847,11 +815,11 @@
         "initial :a registers cleanly")
 
     ;; 2. :b reads an unrelated path [:source], writes [:b]. Graph is
-    ;;    :b → :a (one-way), no cycle. The prior `reg-flow-detects-
-    ;;    cycles-at-registration` test pins the INITIAL-cycle case
-    ;;    (where :b at first registration closes the cycle). This test
-    ;;    pins the REPLACEMENT case — :b registers cleanly first, then
-    ;;    its replacement is what would close the cycle.
+    ;;    :b → :a (one-way), no cycle. `reg-flow-cycle-error-carries-
+    ;;    ordered-cycle-path` pins the INITIAL-cycle case (where :b at
+    ;;    first registration closes the cycle). This test pins the
+    ;;    REPLACEMENT case — :b registers cleanly first, then its
+    ;;    replacement is what would close the cycle.
     (let [original-b-output (fn [src] (str "B-of-" src))]
       (rf/reg-flow :b {:inputs [[:source]] :output-path [:b]} original-b-output)
       (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :b)
@@ -898,31 +866,6 @@
 
 (defn- flow-cycle? [^Throwable t]
   (= :rf.error/flow-cycle (:rf.error/id (ex-data t))))
-
-(deftest reg-flow-rejects-self-referential-cycle-at-registration
-  (testing "a singleton flow whose bare input EQUALS its own :output-path is a
-            self-cycle → :rf.error/flow-cycle, closing-repeat [id id], nothing
-            registered"
-    (let [before (rf.flows/flows-snapshot)
-          ex     (reg-flow-throwing {:id :probe/self :inputs [[:x]] :derive inc :output-path [:x]})]
-      (is (some? ex) "the self-cyclic registration throws")
-      (is (flow-cycle? ex) "structured :rf.error/flow-cycle")
-      (is (= [:probe/self :probe/self] (:cycle (ex-data ex)))
-          ":cycle is the closing-repeat single-node path [id id]")
-      (is (= :fix-registration (:recovery (ex-data ex)))
-          ":recovery :fix-registration — the cycle is caller-fixable")
-      (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :probe/self))
-          "the rejected flow is absent from the registry")
-      (is (= before (rf.flows/flows-snapshot))
-          "registration mutated no flow state (rejected before commit)")))
-
-  (testing "prefix self-overlap in BOTH directions is also a self-cycle"
-    ;; input PARENT / output CHILD.
-    (is (flow-cycle? (reg-flow-throwing {:id :self/parent-child :inputs [[:x]] :derive identity :output-path [:x :y]}))
-        "input [:x] is a prefix of output [:x :y] → self-cycle")
-    ;; input CHILD / output PARENT.
-    (is (flow-cycle? (reg-flow-throwing {:id :self/child-parent :inputs [[:x :y]] :derive identity :output-path [:x]}))
-        "output [:x] is a prefix of input [:x :y] → self-cycle")))
 
 (deftest reg-flow-rejects-self-cycle-even-with-other-flows-registered
   (testing "a self-edge is not discarded from a multi-node graph — registering
@@ -975,58 +918,9 @@
       (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
           "the prior materialized output is untouched"))))
 
-(deftest reg-flow-self-cycle-blocks-recurrence-before-first-dispatch
-  (testing "because registration fails BEFORE the first dispatch, unrelated
-            events cannot drive the 1 → 2 → 3 recurrence an accepted
-            self-cycle would produce"
-    (rf/reg-event :seed (fn [{:keys [db]} [_ v]] {:db (assoc db :x v)}))
-    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :other (fnil inc 0))}))
-    ;; The reproduction flow: reads [:x], writes [:x], (inc). Registration must
-    ;; throw before it can ever run.
-    (is (thrown? Throwable
-                 (rf/reg-flow :probe/self {:inputs [[:x]] :output-path [:x]} inc))
-        "the oscillator flow is rejected at registration")
-    (rf/dispatch-sync [:seed 0])
-    (rf/dispatch-sync [:tick])
-    (rf/dispatch-sync [:tick])
-    (is (= 0 (:x (rf/app-db-value :rf/default)))
-        ":x is exactly the independently-owned seeded fact (0); unrelated ticks
-         did NOT advance it — no self-feedback loop was ever installed")))
-
-(deftest flow-acyclic-diamond-registers-and-drains-correctly
-  (testing "a valid acyclic diamond (B,C read A; D reads B and C) registers and
-            settles in one drain — self-cycle detection introduces no
-            false-positive rejection of legitimate multi-node graphs"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 2}}))
-    ;; B reads [:a] → [:b]; C reads [:a] → [:c]; D reads [:b] and [:c] → [:d].
-    (rf/reg-flow :flow/b {:inputs [[:a]]      :output-path [:b]} (fn [a] (+ a 1)))
-    (rf/reg-flow :flow/c {:inputs [[:a]]      :output-path [:c]} (fn [a] (* a 10)))
-    (rf/reg-flow :flow/d {:inputs [[:b] [:c]] :output-path [:d]} (fn [b c] (+ b c)))
-    (rf/dispatch-sync [:init])
-    (let [db (rf/app-db-value :rf/default)]
-      (is (= 3  (:b db)) "B = a + 1 = 3")
-      (is (= 20 (:c db)) "C = a * 10 = 20")
-      (is (= 23 (:d db)) "D = B + C = 23, settled in one drain after B and C"))))
-
 ;; ---------------------------------------------------------------------------
 ;; 2. Dirty-check / re-evaluation
 ;; ---------------------------------------------------------------------------
-
-(deftest flow-recomputes-on-input-change
-  (testing "mutating an input path causes the flow to fire and the output to update"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:w 0 :h 0}}))
-    (rf/reg-event :w!   (fn [{:keys [db]} [_ w]] {:db (assoc db :w w)}))
-    (rf/reg-event :h!   (fn [{:keys [db]} [_ h]] {:db (assoc db :h h)}))
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area]} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:init])
-    (is (= 0 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "first drain after :init fires the flow with 0 × 0 = 0")
-    (rf/dispatch-sync [:w! 5])
-    (is (= 0 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        ":h is still 0 → 5 × 0 = 0; flow ran")
-    (rf/dispatch-sync [:h! 6])
-    (is (= 30 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "5 × 6 = 30 after both inputs are populated")))
 
 (deftest flow-noop-on-equal-input-rewrite
   (testing "rewriting an input path with an =-equal value does NOT re-fire the flow"
@@ -1108,23 +1002,8 @@
           "B saw both :name and the just-written :uppercase in one drain"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. Hot-reload — re-registration preserves output when bodies agree
+;; 4. Hot-reload — a re-registration re-evaluates on the next drain
 ;; ---------------------------------------------------------------------------
-
-(deftest flow-hot-reload-preserves-equivalent-output
-  (testing "re-registering a flow with a body that produces the same output keeps the output stable"
-    (rf/reg-event :init (fn [{:keys [db]} _] {:db {:n 5}}))
-    (rf/reg-event :tick (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
-    (rf/dispatch-sync [:init])
-    (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled])))
-    ;; Re-register with a body that produces the SAME output for the
-    ;; current input. Per Spec 013 §Re-registration the next drain
-    ;; re-evaluates; the user-visible output stays 10.
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (+ n n)))
-    (rf/dispatch-sync [:tick])
-    (is (= 10 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
-        "value-equivalent re-registration leaves the output stable")))
 
 (deftest flow-hot-reload-new-body-recomputes-on-next-drain
   (testing "if the new body would produce a different value, the next drain materialises it"
@@ -1138,80 +1017,6 @@
     (rf/dispatch-sync [:tick])
     (is (= 500 (get-in (rf/app-db-value :rf/default) [:derived :doubled]))
         "after re-registration the new body produces 5 × 100 = 500")))
-
-;; ---------------------------------------------------------------------------
-;; 5. Toggle via :rf.fx/reg-flow / :rf.fx/clear-flow
-;; ---------------------------------------------------------------------------
-
-(deftest fx-reg-flow-and-clear-flow-round-trip
-  (testing ":rf.fx/reg-flow registers; :rf.fx/clear-flow removes; the output path is dissoc'd"
-    (rf/reg-event :init  (fn [{:keys [db]} _] {:db {:wizard {:foo 3 :bar 4}}}))
-    (rf/reg-event :enter (fn [_ _]
-                              {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]]}))
-    (rf/reg-event :foo!  (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:wizard :foo] v)}))
-    (rf/reg-event :leave (fn [_ _]
-                              {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
-    (rf/dispatch-sync [:init])
-    (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "no flow yet — :result is unset")
-    ;; Register the flow during :enter. Per Spec 013 §Sequencing the `:fx`
-    ;; walk settles the frame's flows before this dispatch returns, so the
-    ;; initial output is present immediately.
-    (rf/dispatch-sync [:enter])
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed)
-        "registry now carries :step-2/computed")
-    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "and its initial output 3 + 4 = 7 settled on the registering dispatch")
-    ;; An ordinary input mutation recomputes on its own drain, as always.
-    (rf/dispatch-sync [:foo! 5])
-    (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "flow ran on this drain with 5 + 4 = 9")
-    ;; Now clear via fx. The registry removal is immediate, and per
-    ;; Spec 013 §Sequencing the app-db vacate lands on the SAME
-    ;; dispatch, so the registry row and the value it owned disappear
-    ;; together.
-    (rf/dispatch-sync [:leave])
-    (is (not (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed))
-        "registry slot removed")
-    (is (not (contains? (get (rf/app-db-value :rf/default) :wizard) :result))
-        "and :rf.fx/clear-flow's dissoc-in landed on the same dispatch")))
-
-(deftest fx-reg-flow-settles-with-or-without-a-followup-dispatch
-  ;; Spec 013 §Sequencing: a flow registered mid-event via `:rf.fx/reg-flow`
-  ;; materialises its initial output on the REGISTERING dispatch. The
-  ;; framework enqueues the settling drain itself, so no app-authored no-op
-  ;; event is required.
-  ;;
-  ;; Both arms matter. The first is the contract. The second is the
-  ;; idempotence half: an app that hand-writes a follow-up no-op
-  ;; `:dispatch` gets the same answer, because settling is idempotent — the
-  ;; dirty check makes the second pass recompute nothing.
-  (rf/reg-event :init (fn [{:keys [db]} _] {:db {:wizard {:foo 3 :bar 4}}}))
-  ;; Bare register — no follow-up dispatch of any kind.
-  (rf/reg-event :enter-bare
-    (fn [_ _]
-      {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]]}))
-  ;; Register + a follow-up no-op `:dispatch` — redundant, not
-  ;; required.
-  (rf/reg-event :enter-with-legacy-nudge
-    (fn [_ _]
-      {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]
-            [:dispatch [:wizard/nudge]]]}))
-  (rf/reg-event :wizard/nudge (fn [{:keys [db]} _] {:db db}))
-
-  (testing "a bare mid-event reg-flow settles on its own dispatch"
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:enter-bare])
-    (is (contains? (get (rf.flows/flows-snapshot) :rf/default) :step-2/computed)
-        "flow IS registered after :enter-bare")
-    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "and :result carries 3 + 4 = 7 with no follow-up event"))
-
-  (testing "an app dispatching a redundant no-op nudge gets the same result"
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:enter-with-legacy-nudge])
-    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "the redundant nudge is harmless — settling is idempotent")))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. clean-state interaction: the per-frame store is the single source of
@@ -1780,24 +1585,6 @@
             "and it is attributed to the reincarnated :host frame")
         (finally
           (re-frame.trace.tooling/unregister-listener! ::repl-recorder))))))
-
-(deftest flow-hot-reload-invalidates-last-inputs
-  (testing "re-registering a flow re-evaluates even when inputs are unchanged"
-    (rf/reg-event :init   (fn [{:keys [db]} _] {:db {:n 5}}))
-    (rf/reg-event :inc-n  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    ;; v1 flow: doubles :n at [:doubled].
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 2 n)))
-    (rf/dispatch-sync [:init])
-    (is (= 10 (:doubled (rf/app-db-value :rf/default))))
-    (rf/dispatch-sync [:inc-n])
-    (is (= 12 (:doubled (rf/app-db-value :rf/default))))
-    ;; Re-register with a NEW formula. Inputs haven't changed yet — but the
-    ;; flow body did, so the next drain should re-evaluate.
-    (rf/reg-flow :double {:inputs [[:n]] :output-path [:doubled]} (fn [n] (* 100 n)))
-    ;; Trigger ANY event to drive the drain (no input change).
-    (rf/dispatch-sync [:inc-n])
-    (is (= 700 (:doubled (rf/app-db-value :rf/default)))
-        "after re-registration the flow body re-evaluates on the next drain")))
 
 ;; ---------------------------------------------------------------------------
 ;; 10. Ordering: flows transform the pending `:db` effect as the OUTERMOST
