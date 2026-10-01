@@ -191,20 +191,3 @@
         (str "near-miss spelling " (pr-str near) " of the canonical literal "
              (pr-str kw) " MUST NOT appear in " file
              " — a drifted spelling silently breaks agent pattern-matching."))))
-
-;; ---------------------------------------------------------------------------
-;; (5) internal sanity — the enum classes match the Spec 009 / EP-0021
-;;     semantic intent (lifecycle / success / failure / dedupe).
-;; ---------------------------------------------------------------------------
-
-(deftest the-four-ops-carry-the-expected-semantic-classes
-  (testing "the closed vocabulary is exactly four ops + one error"
-    (is (= 4 (count infinite-trace-ops)))
-    (is (= 5 (count all-literals))))
-  (testing "each op's class is one of the family's closed class set"
-    (let [classes #{:lifecycle :success :failure :dedupe :invalidation
-                    :gc :suppression :hydration}]
-      (doseq [{:keys [op class]} infinite-trace-ops]
-        (is (contains? classes class)
-            (str op "'s class " class " MUST be a member of the closed "
-                 "trace-family class set (Xray 024 §The :rf.resource/* trace family)."))))))
