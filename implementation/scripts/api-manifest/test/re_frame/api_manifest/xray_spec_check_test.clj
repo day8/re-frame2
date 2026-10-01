@@ -61,18 +61,10 @@
                                         :raw "day8.re-frame2-xray.panels.views/Panel"}]})]
       (is (= 1 (count problems))
           "panels.views/Panel is NOT in the manifest — must be flagged even
-           though `Panel` is carried for panels.trace + panels.epoch-panel")
+           though `Panel` is carried for panels.trace + panels.epoch-panel
+           and for the non-Xray re-frame.core")
       (is (= "day8.re-frame2-xray.panels.views/Panel" (:raw (first problems))))
       (is (= 42 (:line (first problems)))))))
-
-(deftest non-xray-namespace-never-satisfies-xray-reference
-  (testing "a non-Xray manifest row sharing the bare var does not resolve an
-            Xray-qualified reference"
-    ;; re-frame.core/Panel exists in synthetic-rows but is not an Xray ns.
-    (is (= 1 (count (problems-for
-                      {:qualified-refs [{:ns "day8.re-frame2-xray.panels.missing"
-                                         :var "Panel" :line 7
-                                         :raw "day8.re-frame2-xray.panels.missing/Panel"}]}))))))
 
 (deftest qualified-allowlist-is-keyed-by-ns+var
   (testing "an allowlisted [ns var] qualified reference passes; the same bare
