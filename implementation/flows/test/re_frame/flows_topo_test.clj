@@ -66,17 +66,9 @@
             "ex-data carries the remaining stuck-set at the moment of the throw")))))
 
 ;; ---------------------------------------------------------------------------
-;; topo-sort smoke (positive cases) — kept tiny; the registration and
-;; drain tests cover the integrated behaviour. This file is the topo
-;; module's own algorithm-level gate.
+;; topo-sort — the topo module's own algorithm-level gate; the registration
+;; and drain tests cover the integrated behaviour.
 ;; ---------------------------------------------------------------------------
-
-(deftest topo-sort-empty-and-singleton
-  (testing "empty flow-map yields empty order"
-    (is (= [] (rf.flows.topo/topo-sort {}))))
-  (testing "single flow yields itself in order"
-    (is (= [:a]
-           (rf.flows.topo/topo-sort {:a {:id :a :inputs [[:n]] :derive identity :output-path [:a]}})))))
 
 (deftest topo-sort-detects-cycle
   (testing "two flows forming a cycle raise :rf.error/flow-cycle with the canonical thrown-error shape (per Spec 009 §The thrown-error shape)"

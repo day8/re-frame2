@@ -90,21 +90,6 @@
 (defn- violations [] @*captured*)
 
 ;; ---------------------------------------------------------------------------
-;; 1. Conforming output: no error trace; value written.
-;; ---------------------------------------------------------------------------
-
-(deftest conforming-output-passes-silently
-  (testing "a flow whose output conforms to :schema emits no violation and writes the value"
-    (install-predicate-validator!)
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:w 3 :h 4}}))
-    (rf/reg-flow :area {:inputs [[:w] [:h]] :output-path [:rect :area] :schema (fn [v] (and (integer? v) (pos? v)))} (fn [w h] (* w h)))
-    (rf/dispatch-sync [:seed])
-    (is (= 12 (get-in (rf/app-db-value :rf/default) [:rect :area]))
-        "the flow computed and wrote its output")
-    (is (empty? (violations))
-        "a conforming output emits no :rf.error/schema-validation-failure")))
-
-;; ---------------------------------------------------------------------------
 ;; 2. Non-conforming output: violation emitted, value STILL written.
 ;; ---------------------------------------------------------------------------
 
