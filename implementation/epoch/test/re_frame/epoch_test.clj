@@ -24,7 +24,7 @@
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             ;; Side-effect require: flows publishes the `:flows/reg-flow`
@@ -1693,35 +1693,20 @@
         (is (not (contains? row :large?))
             ":large? key is ABSENT when the sub's output is not large")))))
 
-(deftest effects-projection-no-such-fx
-  (testing ":effects captures :error outcomes for unknown fx-ids"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :run
-      (fn [_ _] {:fx [[:no/such-fx :payload]]}))
-    (rf/dispatch-sync [:run] {:frame :test/main})
-
-    (let [r       (last (rf/epoch-history :test/main))
-          effects (:effects r)
-          ent     (some #(when (= :no/such-fx (:fx-id %)) %) effects)]
-      (is (some? ent))
-      (is (= :error (:outcome ent)))
-      (is (some? (:error-trace ent))))))
-
-(deftest effects-projection-fx-handler-exception
-  (testing ":effects captures :error outcomes for fx that throw"
+(deftest effects-projection-error-rows-carry-an-error-trace
+  (testing ":effects captures an :error outcome, with its :error-trace, both for
+            an unknown fx-id and for an fx whose handler throws"
     (rf/make-frame {:id :test/main})
     (rf/reg-fx :throwing-fx (fn [_ _] (throw (ex-info "boom" {}))))
-    (rf/reg-event :run
-      (fn [_ _] {:fx [[:throwing-fx :payload]]}))
-
-    (rf/dispatch-sync [:run] {:frame :test/main})
-
-    (let [r       (last (rf/epoch-history :test/main))
-          effects (:effects r)
-          ent     (some #(when (= :throwing-fx (:fx-id %)) %) effects)]
-      (is (some? ent))
-      (is (= :error (:outcome ent)))
-      (is (some? (:error-trace ent))))))
+    (rf/reg-event :run (fn [_ [_ fx-id]] {:fx [[fx-id :payload]]}))
+    (doseq [fx-id [:no/such-fx :throwing-fx]]
+      (testing (str fx-id)
+        (rf/dispatch-sync [:run fx-id] {:frame :test/main})
+        (let [effects (:effects (last (rf/epoch-history :test/main)))
+              ent     (some #(when (= fx-id (:fx-id %)) %) effects)]
+          (is (some? ent))
+          (is (= :error (:outcome ent)))
+          (is (some? (:error-trace ent))))))))
 
 (deftest effects-projection-records-success
   (testing ":effects captures :ok outcomes for successful user fx"
@@ -4248,46 +4233,21 @@
 ;; explode later at `record!` time when `pos?` / `nat-int?` ran on the stored
 ;; value.
 
-(deftest configure-rejects-nil-depth
-  (testing "(rf/configure! {:epoch-history {:depth nil}}) is a no-op; the
-            previously-stored depth survives"
-    (rf/configure! {:epoch-history {:depth 7}})
-    (is (= 7 (:depth (:epoch-history (rf/current-config)))))
-
-    (rf/configure! {:epoch-history {:depth nil}})
-    (is (= 7 (:depth (:epoch-history (rf/current-config))))
-        ":depth nil silently dropped — prior 7 survives")))
-
-(deftest configure-rejects-non-numeric-depth
-  (testing "(rf/configure! {:epoch-history {:depth \"five\"}) is a no-op"
-    (rf/configure! {:epoch-history {:depth 7}})
-    (rf/configure! {:epoch-history {:depth "five"}})
-    (is (= 7 (:depth (:epoch-history (rf/current-config))))
-        ":depth non-numeric silently dropped")))
-
-(deftest configure-rejects-negative-depth
-  (testing "(rf/configure! {:epoch-history {:depth -1}}) is a no-op"
-    (rf/configure! {:epoch-history {:depth 7}})
-    (rf/configure! {:epoch-history {:depth -1}})
-    (is (= 7 (:depth (:epoch-history (rf/current-config))))
-        ":depth negative silently dropped")))
-
-(deftest configure-rejects-invalid-trace-events-keep
-  (testing "(rf/configure! {:epoch-history {:trace-events-keep <bad>}}) is a no-op"
-    (rf/configure! {:epoch-history {:trace-events-keep 3}})
-    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config)))))
-
-    (rf/configure! {:epoch-history {:trace-events-keep nil}})
-    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
-        ":trace-events-keep nil silently dropped")
-
-    (rf/configure! {:epoch-history {:trace-events-keep "no"}})
-    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
-        ":trace-events-keep non-numeric silently dropped")
-
-    (rf/configure! {:epoch-history {:trace-events-keep -5}})
-    (is (= 3 (:trace-events-keep (:epoch-history (rf/current-config))))
-        ":trace-events-keep negative silently dropped")))
+(deftest configure-drops-an-invalid-value-and-keeps-the-prior-one
+  (testing "a nil, non-numeric or negative `:depth` / `:trace-events-keep` is
+            silently dropped by `configure!`; the previously-stored valid
+            value survives (each row stores a non-default value first, so the
+            read-back also proves that value was applied)"
+    (are [k good bad]
+         (do (rf/configure! {:epoch-history {k good}})
+             (rf/configure! {:epoch-history {k bad}})
+             (= good (k (:epoch-history (rf/current-config)))))
+      :depth             7 nil
+      :depth             7 "five"
+      :depth             7 -1
+      :trace-events-keep 3 nil
+      :trace-events-keep 3 "no"
+      :trace-events-keep 3 -5)))
 
 (deftest configure-accepts-zero
   (testing "depth 0 and :trace-events-keep 0 are non-negative integers
@@ -5549,126 +5509,49 @@
                             (= [:route :r "nav-OLD"] (:owner (:tags %)))) @recorded)
                 "the deferred :rf.resource/owner-released row is committed on success")))))))
 
-(deftest replace-frame-state-app-only-post-liveness-teardown-returns-false
-  (testing "perform-replace-frame-state! (app-only map) returns
-            false, emits :rf.error/no-such-handler (kind :frame), and does NOT
-            record a synthetic epoch, emit :rf.epoch/db-replaced, or fan out a
-            record when frame/replace-frame-state! returns nil AFTER the
-            liveness check passed."
-    (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-
-    (let [fanned   (atom [])]
-      (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
-      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-      (reset! fanned [])
-
-      (let [real-write rf.frame/replace-frame-state!
-            a-token    (rf.frame/frame-incarnation-token :test/short-lived)
-            recorded   (record-trace!)
-            result     (with-redefs [rf.frame/replace-frame-state!
-                                     (fn [frame-id token fs]
-                                       (rf/destroy-frame! frame-id)
-                                       (real-write frame-id token fs))]
-                         (#'rf.epoch/perform-replace-frame-state!
-                           :test/short-lived a-token {:rf.db/app {:n 999}}))]
-        (is (false? result)
-            "perform-replace-frame-state! reports HONEST failure (false) for the
-             nil-return post-liveness teardown")
-        (is (has-error-op? @recorded :rf.error/no-such-handler)
-            ":rf.error/no-such-handler fired")
-        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
-                       @recorded)]
-          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
-          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
-        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-            "no :rf.epoch/db-replaced success trace")
-        (is (empty? @fanned)
-            "no synthetic epoch fanned out to listeners for the dropped write")
-        (is (= [] (rf/epoch-history :test/short-lived))
-            "no synthetic epoch recorded into the dropped ring")))))
-
-(deftest replace-frame-state-runtime-only-post-liveness-teardown-returns-false
-  (testing "perform-replace-frame-state! (runtime-only map)
-            returns false, emits :rf.error/no-such-handler (kind :frame), and
-            records / fans out NO synthetic epoch when
-            frame/replace-frame-state! returns nil AFTER the liveness check
-            passed."
-    (rf/make-frame {:id :test/short-lived})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-
-    (let [fanned   (atom [])]
-      (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
-      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-      (reset! fanned [])
-
-      (let [real-write rf.frame/replace-frame-state!
-            a-token    (rf.frame/frame-incarnation-token :test/short-lived)
-            recorded   (record-trace!)
-            result     (with-redefs [rf.frame/replace-frame-state!
-                                     (fn [frame-id token fs]
-                                       (rf/destroy-frame! frame-id)
-                                       (real-write frame-id token fs))]
-                         (#'rf.epoch/perform-replace-frame-state!
-                           :test/short-lived a-token
-                           {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))]
-        (is (false? result)
-            "perform-replace-frame-state! reports HONEST failure (false) for the
-             nil-return post-liveness teardown")
-        (is (has-error-op? @recorded :rf.error/no-such-handler)
-            ":rf.error/no-such-handler fired")
-        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
-                       @recorded)]
-          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
-          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
-        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-            "no :rf.epoch/db-replaced success trace")
-        (is (empty? @fanned)
-            "no synthetic epoch fanned out to listeners for the dropped write")
-        (is (= [] (rf/epoch-history :test/short-lived))
-            "no synthetic epoch recorded into the dropped ring")))))
-
 (deftest replace-frame-state-post-liveness-teardown-returns-false
   (testing "perform-replace-frame-state! returns false, emits
             :rf.error/no-such-handler (kind :frame), and records / fans out NO
-            synthetic epoch when replace-frame-state! returns nil AFTER the
-            liveness check passed."
-    (rf/make-frame {:id :test/short-lived})
+            synthetic epoch when frame/replace-frame-state! returns nil AFTER the
+            liveness check passed — for every partition shape"
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (doseq [[shape patch]
+            [[:app-only     {:rf.db/app {:n 999}}]
+             [:runtime-only {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}]
+             [:both         {:rf.db/app {:n 999}
+                             :rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}]]]
+      (testing (str shape " patch")
+        (rf/make-frame {:id :test/short-lived})
+        (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+        (let [fanned (atom [])]
+          (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
+          (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+          (reset! fanned [])
 
-    (let [fanned   (atom [])]
-      (rf/register-listener! :epoch ::fan-watcher (fn [r] (swap! fanned conj r)))
-      (rf/dispatch-sync [:seed] {:frame :test/short-lived})
-      (reset! fanned [])
-
-      (let [real-write rf.frame/replace-frame-state!
-            a-token    (rf.frame/frame-incarnation-token :test/short-lived)
-            recorded   (record-trace!)
-            new-fs     {:rf.db/app {:n 999} :rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}
-            result     (with-redefs [rf.frame/replace-frame-state!
-                                     (fn [frame-id token fs]
-                                       (rf/destroy-frame! frame-id)
-                                       (real-write frame-id token fs))]
-                         (#'rf.epoch/perform-replace-frame-state!
-                           :test/short-lived a-token new-fs))]
-        (is (false? result)
-            "perform-replace-frame-state! reports HONEST failure (false) for the
-             nil-return post-liveness teardown")
-        (is (has-error-op? @recorded :rf.error/no-such-handler)
-            ":rf.error/no-such-handler fired")
-        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
-                       @recorded)]
-          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
-          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
-        (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
-            "no :rf.epoch/db-replaced success trace")
-        (is (empty? @fanned)
-            "no synthetic epoch fanned out to listeners for the dropped write")
-        (is (= [] (rf/epoch-history :test/short-lived))
-            "no synthetic epoch recorded into the dropped ring")))))
+          (let [real-write rf.frame/replace-frame-state!
+                a-token    (rf.frame/frame-incarnation-token :test/short-lived)
+                recorded   (record-trace!)
+                result     (with-redefs [rf.frame/replace-frame-state!
+                                         (fn [frame-id token fs]
+                                           (rf/destroy-frame! frame-id)
+                                           (real-write frame-id token fs))]
+                             (#'rf.epoch/perform-replace-frame-state!
+                               :test/short-lived a-token patch))]
+            (is (false? result)
+                "perform-replace-frame-state! reports HONEST failure (false) for the
+                 nil-return post-liveness teardown")
+            (is (has-error-op? @recorded :rf.error/no-such-handler)
+                ":rf.error/no-such-handler fired")
+            (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                           @recorded)]
+              (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+              (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+            (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+                "no :rf.epoch/db-replaced success trace")
+            (is (empty? @fanned)
+                "no synthetic epoch fanned out to listeners for the dropped write")
+            (is (= [] (rf/epoch-history :test/short-lived))
+                "no synthetic epoch recorded into the dropped ring")))))))
 
 ;; Guard the OTHER side of the nil/empty-set distinction: a
 ;; live-frame NO-OP write (the value `=` the current slice) returns an EMPTY
