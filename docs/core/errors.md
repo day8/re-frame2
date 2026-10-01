@@ -161,9 +161,10 @@ nothing is dispatched.
 
 The fix is to carry the frame across the async gap:
 
-- In an effect handler, read `:frame` from the context argument and pass
-  `{:frame frame}` in the deferred dispatch's opts, as [Effects](effects.md) shows.
-- In app code, use `capture-frame`;
+- In an effect handler, pass the context argument's `:frame` to `capture-frame`
+  before registering the callback, and reply through the `dispatch` it returns, as
+  [Effects](effects.md#the-effect-handlers-two-arguments) shows.
+- Elsewhere in app code, use `capture-frame` the same way;
   [Frames](frames.md#the-async-boundary-capture-the-frame) covers it.
 - At the REPL or in a test, `with-frame` and `with-new-frame` establish the scope.
 

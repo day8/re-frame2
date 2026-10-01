@@ -311,7 +311,7 @@ and [RealWorld HTTP](../../examples/real-apps/realworld_http).
 | `:rf.error/fx-handler-exception`; later rows still run | An effect handler threw; `:db` is already committed | Chain dependent steps through reply events |
 | Handler calls `dispatch` or does I/O directly | The handler is no longer pure, and the epoch history misses the work | Return an `:fx` row (`[:dispatch …]`, or your own `reg-fx` id) |
 | `:rf.error/no-such-fx` naming `:rf.http/managed` | The HTTP artefact isn't loaded | Add `day8/re-frame2-http` and require `re-frame.http.managed` |
-| `:rf.error/no-frame-context` from an async callback | A bare `dispatch` in a callback that runs later | Capture `(:frame ctx)` in the effect handler ([below](#the-effect-handlers-two-arguments)) |
+| `:rf.error/no-frame-context` from an async callback | A bare `dispatch` in a callback that runs later | Call `rf/capture-frame` in the effect handler and reply through its `dispatch` ([below](#the-effect-handlers-two-arguments)) |
 
 ## Advanced
 
@@ -325,28 +325,34 @@ An effect that needs state gets it in its argument, or reads it at run time with
 
 You need `:frame` when an effect dispatches back later. A page can run several
 [frames](frames.md), and a callback that fires after the effect handler has returned
-no longer knows which one it belongs to. Capture the frame on entry and pass it to
-`dispatch`:
+no longer knows which one it belongs to. Capture the frame on entry with
+[`rf/capture-frame`](../api/re-frame.core.md#capture-frame), and have each callback
+reply through the `dispatch` it returns:
 
 ```clojure
 (rf/reg-fx :todo.api/save
   {:doc       "POST the todos, then dispatch the outcome into the originating frame."
    :platforms #{:client}}
   (fn [ctx {:keys [todos on-success on-failure]}]
-    (let [frame (:frame ctx)]                        ;; read once, on entry
+    (let [{:keys [dispatch]} (rf/capture-frame (:frame ctx))]   ;; on entry
       (-> (js/fetch "/api/todos" #js {:method "POST" :body (pr-str todos)})
-          (.then  #(rf/dispatch on-success {:frame frame}))
-          (.catch #(rf/dispatch on-failure {:frame frame}))))))
+          (.then  #(dispatch on-success))
+          (.catch #(dispatch on-failure))))))
 ```
 
-`dispatch` takes an optional options map as its second argument, and `{:frame frame}`
-sends the event to that frame. A bare `(rf/dispatch …)` in the `.then` raises
-`:rf.error/no-frame-context`
+A bare `(rf/dispatch …)` in the `.then` raises `:rf.error/no-frame-context`
 ([frame identity is carried, not found](glossary.md#frame-identity-is-carried-not-found)).
+The captured `dispatch` is bound to this frame instance, not just its id. If the
+frame is destroyed before the request settles, the reply is dropped with
+`:rf.error/frame-destroyed`, even when a new frame has since been made under the
+same id. `(rf/dispatch on-success {:frame (:frame ctx)})` is not the same: it
+delivers to whichever frame holds that id when the promise settles. That form
+suits a dispatch made while the effect handler is still running.
+
 In practice you would use `:rf.http/managed`, `:dispatch`, or `:dispatch-later`,
-which carry the frame for you; this example only shows the rule. Outside an effect
-handler, `rf/capture-frame` does the same job ([Frames](frames.md#the-async-boundary-capture-the-frame)),
-and the `dispatch` a view receives from [`reg-view`](views.md) is already captured.
+which carry the frame for you; this example only shows the rule. The `dispatch` a
+view receives from [`reg-view`](views.md) is already captured
+([Frames](frames.md#the-async-boundary-capture-the-frame)).
 
 ### Registration details
 

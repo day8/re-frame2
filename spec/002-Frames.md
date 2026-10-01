@@ -1495,6 +1495,7 @@ Ambient *scope* lookup (dynamic var → React context) does **not** survive asyn
 
 - The frame is captured at CREATION; every op targets the captured frame and survives async (`setTimeout`, `Promise.then`, websocket `onmessage`, observer callbacks).
 - A per-call `:frame` in the dispatch opts MUST NOT override the captured frame — the handle is **locked** to one frame.
+- The handle is pinned to the frame **incarnation** live at capture, not merely to its id. Once that incarnation is destroyed, the dispatch ops do nothing and `:subscribe` returns `nil`, each emitting `:rf.error/frame-destroyed` — even after a new frame is created under the same id. `(capture-frame frame-id)` for an id with no live frame pins nothing: its ops follow whichever frame holds the id when they run.
 - It is an OPERATION BUNDLE, not a container: read the frame's app-db value via `(rf/app-db-value (:frame handle))`, not the handle itself.
 
 > **One primitive, three faces.** `capture-frame` is THE hold primitive; `reg-view` injection and `use-frame` are its two ergonomic spellings. Reagent's `reg-view` macro injects the bundle's `dispatch` / `subscribe` as lexical bindings at registration; the UIx `use-frame` hook returns the same bundle for the ambient provider frame (capture-frame in hook position, per [006 §Cross-substrate affordance summary](006-ReactiveSubstrate.md#cross-substrate-affordance-summary)). Neither spelling is a second hold surface — all three faces resolve, lock, and carry identically.
@@ -1628,34 +1629,24 @@ The runtime needs to resolve the frame **record** (for `:fx-overrides`, and so r
 
 #### Async fx capture the frame in a closure
 
-When the actual dispatching happens after the fx handler has returned (HTTP callback, websocket message, timer, deferred promise), the fx handler captures `(:frame m)` into the closure that fires later:
+When the actual dispatching happens after the fx handler has returned (HTTP callback, websocket message, timer, deferred promise), the fx handler captures the frame with `(rf/capture-frame (:frame m))` before it registers the callback, and the callback replies through the captured `:dispatch` op:
 
 ```clojure
 (reg-fx :my-app/http
   (fn [m {:keys [url on-success on-failure]}]
-    (let [frame (:frame m)]
+    (let [{:keys [dispatch]} (rf/capture-frame (:frame m))]
       (-> (js/fetch url)
-          (.then  #(rf/dispatch on-success {:frame frame}))
-          (.catch #(rf/dispatch on-failure {:frame frame}))))))
+          (.then  #(dispatch on-success))
+          (.catch #(dispatch on-failure))))))
 ```
 
-A closure over `(:frame m)` keeps each call site terse:
-
-```clojure
-(reg-fx :my-app/http
-  (fn [m {:keys [url on-success on-failure]}]
-    (let [frame (:frame m)
-          d     (fn [ev] (rf/dispatch ev {:frame frame}))]
-      (-> (js/fetch url)
-          (.then  #(d on-success))
-          (.catch #(d on-failure))))))
-```
+The captured op is pinned to the frame **incarnation** live at capture, not merely to its id (see [§`capture-frame`](#capture-frame--the-keystone-affordance-cljs-reference)). If that frame is destroyed before the callback fires, the reply is dropped with `:rf.error/frame-destroyed`, including when a new frame has since been created under the same id. An id-addressed reply from the callback — `(rf/dispatch on-success {:frame (:frame m)})` — is **not** equivalent: it routes to whichever frame holds the id when the callback fires, so a destroyed-and-recreated same-id frame receives its predecessor's late reply. The id-addressed form is correct for a dispatch made synchronously within the fx handler's own call, while the originating frame is still live — which is how the standard `:dispatch` fx above uses it.
 
 #### What library authors of async fx have to know
 
 - **Use the binary signature** when targeting re-frame2 multi-frame.
-- **Read `(:frame m)` once** at handler entry; pass it into closures.
-- **Pass `:frame` explicitly** in callbacks — `(rf/dispatch ev {:frame frame})` — or capture a frame-locked dispatch op via `(:dispatch (rf/capture-frame))` inside the binary handler body (where `*current-frame*` is bound to `(:frame m)`). Don't rely on plain `dispatch` in callbacks; the binding is gone.
+- **Capture the frame once, at handler entry** — `(rf/capture-frame (:frame m))`, or the no-arg `(rf/capture-frame)` inside the binary handler body (where `*current-frame*` is bound to `(:frame m)`) — and hand the captured `:dispatch` op to every callback. Don't rely on plain `dispatch` in callbacks; the binding is gone.
+- **Pass `:frame` explicitly only for a synchronous dispatch** — `(rf/dispatch ev {:frame (:frame m)})` inside the handler's own call. From a callback that outlives the handler it is not equivalent to the captured op: it addresses the frame by id, so it reaches a same-id successor if the originating frame was destroyed in the meantime.
 
 `(rf/capture-frame)` — used in fx and views alike — captures the frame at definition time and re-establishes it when the closure fires, regardless of which boundary (fx handler, view callback) it is built in.
 
@@ -2712,7 +2703,7 @@ Library authors **do not need to know about frames** if they only register handl
 - **re-frame-async-flow** schedules events via the standard `:dispatch` effect; frame propagation is automatic per the rule above.
 - **re-pressed**, **re-frame-http-fx**, etc. — same story, provided their fx implementations use the standard dispatch effect or capture a frame-locked dispatch op via `(:dispatch (rf/capture-frame))`.
 
-Authors of fx that escape into async land *do* have to forward the frame — either by capturing `(rf/capture-frame)` inside the binary handler body or by threading `{:frame frame}` through every callback's dispatch. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as required rule M-51 in [MIGRATION.md](../migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).
+Authors of fx that escape into async land *do* have to forward the frame — by capturing `(rf/capture-frame)` inside the binary handler body and replying through its `:dispatch` op. Threading `{:frame frame}` through a callback's dispatch is not a substitute: it addresses the frame by id, so a late reply can reach a same-id successor of a destroyed frame. This is a small, well-defined obligation; documented in [§Async effects and frame propagation](#async-effects-and-frame-propagation) and as required rule M-51 in [MIGRATION.md](../migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg).
 
 ## Tooling and agent-amenability
 
