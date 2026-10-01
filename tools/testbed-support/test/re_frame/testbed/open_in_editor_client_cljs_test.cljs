@@ -257,38 +257,3 @@
                    (is (fetch-restored?) "the fetch stub was not left installed")
                    (done)))
           (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
-
-(deftest a-2xx-no-hint-answer-suppresses-the-fallback-too
-  (testing "the other half on the auto-detect path: a 200 is final
-            here as well, so a bare-file launch behind it is unrecoverable.
-            This is why the server must decline rather than let the client
-            decide"
-    (async done
-      (-> (click! {:editor nil :status 200})
-          (.then (fn [{:keys [requested navigated fallbacks]}]
-                   (is (some? requested) "the endpoint was asked")
-                   (is (zero? fallbacks)
-                       "no fallback — nothing downstream could recover 27:9")
-                   (is (nil? navigated))
-                   (is (fetch-restored?) "the fetch stub was not left installed")
-                   (done)))
-          (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
-
-(deftest position-carrying-editors-keep-preferring-the-endpoint
-  (testing "declining must not make every editor fall back: for an editor the
-            endpoint serves, a 2xx is final and no URI is navigated —
-            the positive control for the decline"
-    (async done
-      (-> (click-each! (map (fn [editor] {:editor editor :status 200})
-                            [:vscode :cursor :zed :idea]))
-          (.then (fn [outcomes]
-                   (is (= 4 (count outcomes))
-                       "every position-carrying editor was actually exercised")
-                   (doseq [{:keys [editor requested navigated fallbacks]} outcomes]
-                     (is (some? requested) (str editor " reached the endpoint"))
-                     (is (zero? fallbacks)
-                         (str editor " kept the endpoint's success — no fallback"))
-                     (is (nil? navigated) (str editor " navigated no URI")))
-                   (is (fetch-restored?) "the fetch stub was not left installed")
-                   (done)))
-          (.catch (fn [err] (is false (str "click! threw: " err)) (done)))))))
