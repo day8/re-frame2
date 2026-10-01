@@ -681,13 +681,9 @@
             (with-frame ...)."
     (rf/reg-app-schema [:user] [:map [:id :uuid]])
     (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
-        "schema is visible from the active frame's lookup")
-    (is (= [:map [:id :uuid]] (:schema (rf.schemas/app-schema-meta {:frame :rf/default :path [:user]})))
-        "schema is visible from explicit :rf/default lookup")
+        "the schema landed on :rf/default")
     (is (= {[:user] [:map [:id :uuid]]} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema))
-        "app-schemas returns the active frame's schema set")
-    (is (= {[:user] [:map [:id :uuid]]} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema))
-        "app-schemas with explicit :rf/default returns the same map")))
+        ":rf/default's schema set is exactly that one entry")))
 
 (deftest reg-app-schema-explicit-frame-opt-isolates-schemas
   (testing "Per Spec 010 §Per-frame schemas — :frame opt registers against
@@ -789,9 +785,7 @@
       (is (not= da db)
           "frames with different schema sets have different digests")
       (is (= db (rf.schemas/app-schemas-digest {:frame :test/b}))
-          "the empty-schema digest is stable across calls")
-      (is (= db (rf.schemas/app-schemas-digest {:frame :test/b}))
-          "a repeat opts-map read answers the same digest"))))
+          "the empty-schema digest is stable across calls"))))
 
 (deftest app-schemas-digest-keyword-arity-is-refused
   (testing "(app-schemas-digest {:frame frame-id}) is the one spelling; a
@@ -1307,13 +1301,12 @@
        :boundary? true}
       (fn [_ _] {}))
     (let [meta (rf.registrar/lookup :event :api/strict)]
-      (with-redefs [rf.spec/dev-mode? (constantly false)]
-        (is (true? (rf.spec/validate-at-boundary!
-                     :api/strict [:api/strict 42] meta nil))
-            "a conforming event runs the handler")
-        (is (false? (rf.spec/validate-at-boundary!
-                      :api/strict [:api/strict "not-an-int"] meta nil))
-            "a non-conforming event skips the handler")))))
+      (is (true? (rf.spec/validate-at-boundary!
+                   :api/strict [:api/strict 42] meta nil))
+          "a conforming event runs the handler")
+      (is (false? (rf.spec/validate-at-boundary!
+                    :api/strict [:api/strict "not-an-int"] meta nil))
+          "a non-conforming event skips the handler"))))
 
 (deftest boundary-flag-is-a-no-op-for-unflagged-handlers
   (testing "the production arm reads ONE map key per

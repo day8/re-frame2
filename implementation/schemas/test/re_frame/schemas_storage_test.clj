@@ -113,6 +113,7 @@
   (testing "entries from one frame do not bleed into another"
     (rf/reg-app-schema [:user] {:frame :tenant/a} [:map])
     (rf/reg-app-schema [:user] {:frame :tenant/b} [:vector])
+    (rf/reg-app-schema [:other-path-in-tenant-b] {:frame :tenant/b} [:int])
     (is (= [:map]    (-> (rf.schemas/app-schemas {:frame :tenant/a})
                          (get [:user]) :schema)))
     (is (= [:vector] (-> (rf.schemas/app-schemas {:frame :tenant/b})
@@ -431,11 +432,8 @@
           ;; Branch on the canonical :rf.error/id, not the message.
           (is (= :rf.error/app-schema-bad-path (:rf.error/id (ex-data thrown)))
               "ex-data names the path-shape error category")
-          (let [data (ex-data thrown)]
-            (is (= bad-path (:received data))
-                ":received slot carries the bad path verbatim")
-            (is (= :rf.error/app-schema-bad-path (:rf.error/id data))
-                ":rf.error/id slot carries the framework error id")))
+          (is (= bad-path (:received (ex-data thrown)))
+              ":received slot carries the bad path verbatim"))
         (is (= before (rf.schemas/snapshot-schemas-by-frame))
             (str "store is unchanged after rejecting " (pr-str bad-path)
                  " — the malformed entry never lands"))))))
