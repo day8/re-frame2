@@ -154,12 +154,8 @@
              ["map-of-value"
               [:map-of :string [:map [:secret {:sensitive? true} :string]]]
               {"a" {:secret [sentinel]}}]
-             ;; The sensitive :map-of KEY sibling
-             ;; (the secret is the KEY, not the value). Both the key AND the
-             ;; nested value carry the sentinel; both must redact.
-             ["map-of-sensitive-key"
-              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
-              {sentinel {:age [sentinel]}}]
+             ;; The sensitive :map-of KEY shape is pinned on its own by
+             ;; `map-of-sensitive-key-path-tag-carries-no-secret` below.
              ["sequential"
               [:sequential [:map [:pw {:sensitive? true} :string]]]
               [{:pw [sentinel]}]]
