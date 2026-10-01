@@ -359,6 +359,8 @@ The default is both (`#{:server :client}`). When a server-side drain reaches a `
 
 Coeffects work the same way. `:rf.server/request` is `#{:server}`, so on the client a handler that requires it is not given it (`:rf.cofx/skipped-on-platform`), and a setup handler that reads the request on the server doesn't break on the client.
 
+Events are not gated: an event registration stores `:platforms`, but the router never reads it. `:rf/server-init` stays on the server because only the per-request frame's `:initial-events` dispatch it, and the server-only reads and writes inside it are gated through their coeffects and effects.
+
 ## When the server throws
 
 A server-side exception must not reach the response as a stack trace, where crawlers and unauthenticated users would read it. A handler, fx, subscription or view that throws is run through a registered **error projector**, which maps the internal trace to a client-safe `:rf/public-error` map:
