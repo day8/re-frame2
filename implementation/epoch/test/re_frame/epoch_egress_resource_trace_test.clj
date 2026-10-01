@@ -461,20 +461,6 @@
 ;; (4) plain resource rides verbatim — no over-redaction
 ;; ---------------------------------------------------------------------------
 
-(deftest off-box-keeps-plain-resource-key-verbatim
-  (testing "over-redaction guard — a NON-sensitive resource's scoped key rides its
-            scope + params VERBATIM off-box; the row is NOT stamped sensitive"
-    (let [scoped-key (sk :rf.scope/global :plain/article {:slug "welcome"})
-          record     (record-with
-                       [(event :rf.resource/cache-hit
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :generation 1 :cause :ensure})])
-          projected  (rf/project-egress record)
-          tags       (:tags (first (:trace-events projected)))]
-      (is (= scoped-key (:resource/key tags))
-          "the plain scoped key rides verbatim (no over-redaction)")
-      (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
-
 ;; ---------------------------------------------------------------------------
 ;; (5) fail-closed on an UNREGISTERED owner
 ;; ---------------------------------------------------------------------------
@@ -600,19 +586,6 @@
           "the plain feed's cursor rides verbatim (no over-redaction)")
       (is (not (:sensitive? tags)) "a plain row is NOT stamped sensitive"))))
 
-(deftest trusted-local-include-sensitive-keeps-raw-cursor
-  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
-            raw cursor (the local-raw boundary)"
-    (let [scoped-key (sk :rf.scope/global :secret/article {:auth-token secret})
-          record     (record-with
-                       [(event :rf.resource/load-more
-                               {:rf.frame/id :test/rt :resource/key scoped-key
-                                :page-param cursor-secret :page-index 1})])
-          projected  (rf/project-egress record {:rf.egress/include-sensitive? true})
-          tags       (:tags (first (:trace-events projected)))]
-      (is (= cursor-secret (:page-param tags))
-          "raw cursor rides with :rf.egress/include-sensitive?"))))
-
 ;; ---------------------------------------------------------------------------
 ;; :error / :page-error HTTP failure envelope — the raw server
 ;; response body (echoing submitted form fields) MUST NOT egress off-box raw.
@@ -712,19 +685,6 @@
         (is (= :ensure (:cause tags))))
       (testing "NO raw future secret survives"
         (is (not (contains-secret? projected)))))))
-
-(deftest trusted-local-include-sensitive-keeps-raw-error-envelope
-  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
-            raw HTTP failure envelope (the local-raw boundary — the off-box
-            redaction is the DEFAULT, not an unconditional strip)"
-    (let [record    (record-with
-                      [(event :rf.resource/failed
-                              {:rf.frame/id :test/rt :status-after :error
-                               :error http-error-envelope})])
-          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
-          tags      (:tags (first (:trace-events projected)))]
-      (is (= http-error-envelope (:error tags))
-          "the raw envelope rides with :rf.egress/include-sensitive?"))))
 
 ;; ---------------------------------------------------------------------------
 ;; the SHAPE-driven fail-closed default — a scoped key sitting in a
@@ -978,23 +938,6 @@
       (is (= 2 (:left-stale tags)))
       (is (not (:sensitive? tags))
           "a row with no key-bearing slot is NOT stamped sensitive"))))
-
-(deftest trusted-local-include-sensitive-keeps-raw-plan-membership
-  (testing "the trusted-local :rf.egress/include-sensitive? opt-in keeps the
-            raw plan membership + the raw embedded work-id key (the local-raw
-            boundary — the shape-driven redaction is the off-box DEFAULT, not an
-            unconditional strip)"
-    (let [k1        (sk :rf.scope/global :secret/article {:auth-token secret})
-          work-id   (rf.resources.work-ledger/resource-work-id k1 3)
-          record    (record-with
-                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
-                       (event :rf.resource/work-started
-                              {:rf.frame/id :test/rt :work/id work-id})])
-          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
-          [plan work] (:trace-events projected)]
-      (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
-      (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
-      (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
 
 ;; ===========================================================================
 ;; (8) THE WIRING IS REACHED — driven from a REAL cascade
@@ -1517,29 +1460,6 @@
 ;; (7) the trusted-local boundary — the redaction is the off-box DEFAULT
 ;; ---------------------------------------------------------------------------
 
-(deftest trusted-local-include-sensitive-keeps-raw-free-scope
-  (testing "the trusted-local `:rf.egress/include-sensitive?` opt-in keeps the
-            raw free `:scope` tag on every rostered row type, one of each driven
-            below (the local-raw boundary — the tokenization is the off-box
-            default, not a strip)"
-    (let [record    (record-with
-                      [(event :rf.resource/invalidated
-                              {:rf.frame/id :test/rt :scope session-scope})
-                       (event :rf.resource/refetch-decision
-                              {:rf.frame/id :test/rt :scope session-scope})
-                       (event :rf.resource/removed
-                              {:rf.frame/id :test/rt :scope session-scope})
-                       (event :rf.mutation/started
-                              {:rf.frame/id :test/rt :scope session-scope})
-                       (event :rf.mutation/optimistic-applied
-                              {:rf.frame/id :test/rt :scope session-scope})])
-          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
-          scopes    (mapv #(:scope (:tags %)) (:trace-events projected))]
-      (is (= [session-scope session-scope session-scope
-              session-scope session-scope]
-             scopes)
-          "every row's raw :scope rides with :rf.egress/include-sensitive?"))))
-
 ;; ===========================================================================
 ;; the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
 ;; transport continuation payload copied onto `:rf.fx/args` / `:rf.event/fx`.
@@ -1897,24 +1817,6 @@
 ;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
 ;; ---------------------------------------------------------------------------
 
-(deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-scope
-  (testing "the trusted-local opt-ins keep the raw carrier scope
-            (the local-raw boundary — the tokenization is the off-box default,
-            not a strip). Reaching a carrier's contents at all takes BOTH
-            axes: `:rf.egress/include-fx-args? true` (supplied by
-            `project-carrier-egress`) lifts the fail-closed fx-args redaction,
-            and `:rf.egress/include-sensitive? true` lifts the family's key
-            tokenization. Neither lifts the other"
-    (let [k1        (sk session-scope :derived/profile profile-params)
-          args      (managed-args k1 session-scope)
-          projected (project-carrier-egress (fx-carrier-record args)
-                                            {:rf.egress/include-sensitive? true})]
-      (is (= [session-scope session-scope session-scope session-scope]
-             (carrier-scopes projected))
-          "every carrier's raw :scope rides with :rf.egress/include-sensitive?")
-      (is (= args (:rf.fx/args (:tags (first (:trace-events projected)))))
-          "and so does the rest of the payload it sits in"))))
-
 ;; ===========================================================================
 ;; the SAME two carriers, a DIFFERENT map: the READ COMPLETION
 ;; CONTINUATION reply, whose `:value` is the DECODED RESPONSE BODY.
@@ -2201,29 +2103,6 @@
 ;; ---------------------------------------------------------------------------
 ;; (3) THE TWO-SIDED CONTROL — over-redaction must fail as loudly as leaking
 ;; ---------------------------------------------------------------------------
-
-(deftest fx-carrier-keeps-plain-owners-reply-payload-verbatim
-  (testing "over-redaction guard — a PLAIN owner's read continuation reply must ride
-            BYTE-IDENTICAL through both carriers and must not stamp the row
-            sensitive. This is the side that proves the arm reads the ROW'S
-            OWNER rather than the two slot names: the same `:value` and
-            `:params` that tokenize for `:derived/profile` are fully readable
-            here, which is what keeps a plain resource debuggable off-box."
-    (let [k1        (sk :rf.scope/global :plain/article {:slug plain-slug})
-          reply     (read-reply k1 :rf.scope/global {:title "hello"})
-          record    (reply-carrier-record reply)
-          projected (project-carrier-egress record)
-          [handled do-fx] (:trace-events projected)]
-      (is (= (conj read-reply-target reply) (:rf.fx/args (:tags handled)))
-          "the whole dispatched event vector rides verbatim — reply :value,
-           :params, :scope and scoped key included")
-      (is (= (:rf.event/fx (:tags (second (:trace-events record))))
-             (:rf.event/fx (:tags do-fx)))
-          "and so does the whole effect vector on the other carrier")
-      (is (not (:sensitive? (:tags handled)))
-          "a plain-owner reply row is NOT stamped sensitive")
-      (is (not (:sensitive? (:tags do-fx)))
-          "on either carrier"))))
 
 (deftest fx-carrier-leaves-the-fx-familys-own-params-verbatim
   (testing "over-redaction guard — the OTHER half of the control, and
@@ -2775,26 +2654,6 @@
 ;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
 ;; ---------------------------------------------------------------------------
 
-(deftest trusted-local-include-sensitive-keeps-raw-declared-reply
-  (testing "the trusted-local opt-ins keep the raw declared slots
-            (the local-raw boundary — the redaction is the off-box default, not
-            a strip; it takes the fx-args axis as well as the sensitive one —
-            see `project-carrier-egress`). Load-bearing for the
-            same reason the
-            coarse arm's opt-in is: a `:reply-to` continuation is how a workflow
-            reads a resource, and a local tool that could not see the declared
-            field could not debug the workflow."
-    (let [k1        (sk :rf.scope/global :declared/profile declared-reply-params)
-          reply     (read-reply k1 :rf.scope/global declared-reply-value)
-          projected (project-carrier-egress (reply-carrier-record reply)
-                                            {:rf.egress/include-sensitive? true})]
-      (is (= [declared-reply-value declared-reply-value]
-             (mapv :value (carrier-replies projected)))
-          "every carrier's raw :value rides with :rf.egress/include-sensitive?")
-      (is (= (conj read-reply-target reply)
-             (:rf.fx/args (:tags (first (:trace-events projected)))))
-          "and so does the rest of the event vector it sits in"))))
-
 ;; ===========================================================================
 ;; the same declaration surface on an INFINITE FEED: the merged ITEM list under
 ;; `:value`, which an EXACT path match cannot reach.
@@ -3018,22 +2877,6 @@
 ;; (3) the trusted-local boundary — the redaction is the off-box DEFAULT
 ;; ---------------------------------------------------------------------------
 
-(deftest trusted-local-include-sensitive-keeps-raw-declared-feed-items
-  (testing "the trusted-local opt-ins keep the raw declared item
-            fields, exactly as they do for the scalar reply (which means the
-            fx-args axis as well as the sensitive one — see
-            `project-carrier-egress`).
-            A feed's `:reply-to` continuation is how a workflow reads a page,
-            and a local tool that could not see the declared field could not
-            debug the workflow."
-    (let [k1        (sk :rf.scope/global :declared/feed declared-feed-params)
-          reply     (read-reply k1 :rf.scope/global declared-feed-items)
-          projected (project-carrier-egress (reply-carrier-record reply)
-                                            {:rf.egress/include-sensitive? true})]
-      (is (= [declared-feed-items declared-feed-items]
-             (mapv :value (carrier-replies projected)))
-          "every carrier's raw merged item list rides with :rf.egress/include-sensitive?"))))
-
 ;; ===========================================================================
 ;; NON-MAP CANONICAL PARAMS — the shape read must recognise every legal scoped
 ;; key, including one on the read-reply carrier.
@@ -3214,24 +3057,6 @@
       (is (not (:sensitive? tags))
           "a row of purely structural vectors is NOT stamped sensitive"))))
 
-(deftest trusted-local-include-sensitive-keeps-raw-non-map-param-keys
-  (testing "the redaction is the off-box DEFAULT, not an
-            unconditional strip: the trusted-local :rf.egress/include-sensitive? opt-in
-            keeps the raw vector-params plan membership and the raw embedded
-            work-id key."
-    (let [k1        (sk :rf.scope/global :secret/vector-params vector-params)
-          work-id   (rf.resources.work-ledger/resource-work-id k1 3)
-          record    (record-with
-                      [(event :rf.resource/route-plan (route-plan-tags [k1] [k1]))
-                       (event :rf.resource/work-started
-                              {:rf.frame/id :test/rt :work/id work-id})])
-          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
-          [plan work] (:trace-events projected)]
-      (is (= [k1] (:blocking (:tags plan))) "raw :blocking rides")
-      (is (= [k1] (:identities (:tags plan))) "raw :identities rides")
-      (is (= work-id (:work/id (:tags work))) "raw embedded work-id key rides"))))
-
-
 ;; ---------------------------------------------------------------------------
 ;; (3) the FOREIGN CARRIER — the read-reply surface, one params shape over
 ;; ---------------------------------------------------------------------------
@@ -3411,12 +3236,6 @@
    :body      {:email (str secret "@example.com")}
    :body-text (str "email " secret " is already registered")
    :detail    {:errors [{:field :email :value secret}]}})
-
-(def ^:private other-failure-envelope
-  "A SECOND, different envelope — same shape, different bytes. The distinctness
-  control: content-addressed tokenization must keep two failures joinable as two
-  failures."
-  {:kind :rf.http/http-5xx :status 503 :body {:reason "upstream down"}})
 
 (def ^:private abort-envelope
   "An `:rf.http/aborted` envelope. `reply/failure-reply` lowers it to
@@ -3641,21 +3460,6 @@
       (is (every? #(redacted-component? (:error %)) replies))
       (is (= [] (secret-leak-paths projected))))))
 
-(deftest fx-carrier-error-tokens-stay-distinct-per-envelope
-  (testing "content-addressed, so two different failures keep two
-            different digests and a tool's per-failure joins survive."
-    (let [k    (sk :rf.scope/global :plain/article {:slug plain-slug})
-          tok  (fn [envelope]
-                 (-> (both-carriers-of k (failure-read-reply k :rf.scope/global envelope))
-                     project-carrier-egress
-                     family-carrier-replies
-                     first
-                     :error))]
-      (is (not= (tok failure-envelope) (tok other-failure-envelope))
-          "distinct envelopes ⇒ distinct tokens")
-      (is (= (tok failure-envelope) (tok failure-envelope))
-          "and the SAME envelope ⇒ the same token (stable, so joins work)"))))
-
 (deftest fx-carrier-error-projection-is-idempotent
   (testing "an already-projected record re-projects to itself; the
             token is not re-digested (the `redacted-token?` guard)."
@@ -3716,22 +3520,6 @@
 ;; ---------------------------------------------------------------------------
 ;; (5) the trusted-local opt-in — the tokenization is the off-box default
 ;; ---------------------------------------------------------------------------
-
-(deftest trusted-local-include-sensitive-keeps-raw-fx-carrier-error
-  (testing "the trusted-local opt-ins show the raw envelope
-            (which means the fx-args axis as well as the
-            sensitive one — see `project-carrier-egress`). The redaction is the
-            OFF-BOX default, not a strip: a local operator debugging a 422
-            needs the body."
-    (let [k         (sk :rf.scope/global :plain/article {:slug plain-slug})
-          reply     (failure-read-reply k :rf.scope/global failure-envelope)
-          projected (project-carrier-egress (both-carriers-of k reply)
-                                            {:rf.egress/include-sensitive? true})]
-      (is (= [failure-envelope failure-envelope]
-             (mapv :error (family-carrier-replies projected)))
-          "every carrier's raw envelope rides with :rf.egress/include-sensitive?")
-      (is (= failure-envelope (:error (:tags (first (:trace-events projected)))))
-          "and so does the family row's copy"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (6) the MUTATION continuation, covered by the same arm

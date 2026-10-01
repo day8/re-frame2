@@ -187,7 +187,8 @@
               axis specifically; the frame-declared sensitive path is the
               leaf the projection's wire-elision walker matches against.
               The trigger-event event-args axis is exercised separately by
-              the `forwarder-trigger-event-*` tests, which drive
+              `re-frame.epoch-egress-redaction-cljs-test`'s `trigger-event-*`
+              tests, which drive
               the secret IN the event vector and assert it fails closed)
     - :upload — writes the large path (large payload closed-over in the
                 handler for the same reason)
@@ -1171,21 +1172,6 @@
       (is (zero? (count-leaf-strings-at-least payload-size snapshot))
           "the bulk snapshot does not leak any raw large-payload bytes"))))
 
-(deftest watch-epochs-whole-ring-projection-preserves-oldest-first-order
-  (testing "MCP `watch-epochs` initial snapshot pattern: the snapshot
-            MUST preserve the raw ring's oldest-first ordering so the
-            server's resume-cursor (`:after-id` keyed off the last
-            epoch-id) addresses a stable point in the projected stream.
-            A reordering would break cursor pagination."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw      (rf/epoch-history :test/mcp)
-          snapshot (project-ring :test/mcp)]
-      (is (= (mapv :epoch-id raw)
-             (mapv :epoch-id snapshot))
-          "ordering matches the raw ring epoch-id-by-epoch-id"))))
-
 (deftest watch-epochs-whole-ring-projection-empty-on-fresh-frame
   (testing "MCP `watch-epochs` initial snapshot pattern: an MCP server
             attached to a frame with no recorded epochs (a freshly-
@@ -1198,24 +1184,6 @@
         "empty-ring snapshot is the empty vector")
     (is (= [] (project-ring :rf/no-such-frame))
         "missing-frame snapshot is also the empty vector — uniform shape")))
-
-(deftest watch-epochs-whole-ring-projection-is-pure-no-side-effects
-  (testing "MCP `watch-epochs` initial snapshot pattern: the whole-ring
-            projection MUST be pure — repeat calls (the initial snapshot, a
-            resync-after-reconnect, a debug print) MUST NOT mutate the
-            ring or any registry."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [ring-before    (rf/epoch-history :test/mcp)
-          schemas-before (rf.schemas/snapshot-schemas-by-frame)
-          _              (dotimes [_ 25] (project-ring :test/mcp))
-          ring-after     (rf/epoch-history :test/mcp)
-          schemas-after  (rf.schemas/snapshot-schemas-by-frame)]
-      (is (= ring-before ring-after)
-          "the ring is unchanged after 25 bulk-projection calls")
-      (is (= schemas-before schemas-after)
-          "the schemas registry is unchanged"))))
 
 ;; ============================================================================
 ;;  `:rf.egress/include-sensitive?` routes THROUGH projection, per-axis.
@@ -1230,47 +1198,10 @@
 ;; contract the tool-side form-shape tests depend on: with
 ;; `{:rf.egress/include-sensitive? true}` the app-db sensitive leaf is REVEALED while
 ;; `:effects[*].args` / the `:rf.db/runtime` partition / large slots / the
-;; axes all stay at their fail-closed defaults.
+;; axes all stay at their fail-closed defaults. The record-level axes are pinned
+;; on both hosts in `re-frame.epoch-egress-redaction-cljs-test`; this section
+;; pins the fx-args trace-tag carriers.
 ;; ============================================================================
-
-(defn- install-fx-and-runtime-schemas!
-  "Like `install-mcp-style-schemas!` but ALSO arranges for a record that
-  carries (a) a payload-bearing `:effects[*].args` row and (b) a populated
-  `:rf.db/runtime` frame-state partition — the two axes orthogonal to the
-  app-db sensitive axis. Declares the same `[:auth :password]` sensitive +
-  `[:blob :payload]` large app-db paths."
-  [frame-id]
-  (install-mcp-style-schemas! frame-id))
-
-(deftest include-sensitive-reveals-app-db-but-keeps-fx-args-redacted
-  (testing "`{:rf.egress/include-sensitive? true}` reveals the app-db
-            sensitive leaf YET keeps the orthogonal `:effects[*].args`
-            redacted (a different keyspace, governed by `:rf.egress/include-fx-args?`).
-            Asking for sensitive APP-DB values must NOT lift the
-            fx-arg payload."
-    (rf/make-frame {:id :test/mcp})
-    (install-fx-and-runtime-schemas! :test/mcp)
-    (let [creds {:password secret-password :token "tok-abc"}]
-      (rf/reg-fx :fxp/login (fn [_ _] nil))
-      ;; Write the app-db sensitive path AND fire a payload-bearing fx whose
-      ;; :args carry the same secret bytes.
-      (rf/reg-event :do-login
-                       (fn [_ [_ c]]
-                         {:db {:auth {:password (:password c)}}
-                          :fx [[:fxp/login c]]}))
-      (rf/dispatch-sync [:do-login creds] {:frame :test/mcp})
-      (let [raw      (last (rf/epoch-history :test/mcp))
-            proj     (rf/project-egress raw {:rf.egress/include-sensitive? true})
-            fx-row   (some #(when (= :fxp/login (:fx-id %)) %) (:effects proj))]
-        ;; App-db sensitive axis: REVEALED by include-sensitive.
-        (is (= secret-password (get-in proj [:db-after :auth :password]))
-            "`:rf.egress/include-sensitive? true` reveals the app-db sensitive leaf")
-        ;; fx-args axis: STILL redacted (orthogonal — needs :rf.egress/include-fx-args?).
-        (is (some? fx-row) "the fixture produced a payload-bearing fx row")
-        (is (= :rf/redacted (:args fx-row))
-            "`:effects[*].args` STAY redacted under include-sensitive alone —
-             the fx-arg keyspace is orthogonal to the app-db sensitive axis")
-        (is (= :fxp/login (:fx-id fx-row)) "value-free :fx-id preserved")))))
 
 (defn- do-fx-tags
   "The tags of `record`'s `:rf.fx/do-fx` aggregate row — the one that carries
@@ -1683,194 +1614,6 @@
           (is (= (mapv #(get (:tags rraw)  %) [:rf.fx/args :received :value :explain])
                  (mapv #(get (:tags opted) %) [:rf.fx/args :received :value :explain]))
               "`:rf.egress/include-fx-args? true` lifts all four together"))))))
-
-(deftest include-sensitive-keeps-runtime-db-partition-redacted
-  (testing "`{:rf.egress/include-sensitive? true}` keeps the
-            `:rf.db/runtime` frame-state partition REDACTED. The runtime-db
-            boundary is governed by the orthogonal `:rf.egress/include-runtime-db?`
-            opt; asking for sensitive APP-DB values must not lift the
-            machine snapshots / route slice / SSR metadata."
-    (rf/make-frame {:id :test/mcp})
-    (install-fx-and-runtime-schemas! :test/mcp)
-    ;; Write BOTH the app-db sensitive leaf and a runtime-db partition value
-    ;; (via the reserved :rf.db/runtime effect) in one cascade.
-    (rf/reg-event :seed-both
-                     (fn [{rt :rf.db/runtime} _]
-                       {:db            {:auth {:password secret-password}}
-                        :rf.db/runtime (assoc-in (or rt {})
-                                                 [:rf.runtime/machines :snapshots :m/x]
-                                                 {:state :live})}))
-    (rf/dispatch-sync [:seed-both] {:frame :test/mcp})
-    (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
-      ;; Sanity: the raw record DOES carry a populated runtime-db partition
-      ;; (the machine snapshot we wrote, alongside the frame's elision
-      ;; registry which also lives in the runtime-db partition).
-      (is (= {:state :live}
-             (get-in raw [:frame-state-after :rf.db/runtime
-                          :rf.runtime/machines :snapshots :m/x]))
-          "fixture: raw record carries a populated runtime-db partition")
-      ;; App-db sensitive axis: REVEALED.
-      (is (= secret-password
-             (get-in proj [:frame-state-after :rf.db/app :auth :password]))
-          "`:rf.egress/include-sensitive? true` reveals the app-db partition's sensitive leaf")
-      ;; runtime-db axis: STILL redacted (orthogonal — needs :rf.egress/include-runtime-db?).
-      (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
-          "the `:rf.db/runtime` partition STAYS :rf/redacted under
-           include-sensitive alone — runtime-db is orthogonal to the app-db
-           sensitive axis")
-      ;; And the explicit runtime-db opt DOES lift it (negative control).
-      (let [proj+rt (rf/project-egress raw {:rf.egress/include-sensitive?  true
-                                                 :rf.egress/include-runtime-db? true})]
-        (is (not= :rf/redacted (get-in proj+rt [:frame-state-after :rf.db/runtime]))
-            "the explicit `:rf.egress/include-runtime-db? true` opt lifts the partition —
-             proving the axis is independently governed")))))
-
-(deftest include-sensitive-keeps-large-elision-independent
-  (testing "`{:rf.egress/include-sensitive? true}` keeps the app-db
-            `:large?` slot elided to the `:rf.size/large-elided` marker.
-            Large is governed by the independent `:rf.egress/include-large?` opt;
-            the sensitive opt-in must not pull the full payload off-box."
-    (rf/make-frame {:id :test/mcp})
-    (install-fx-and-runtime-schemas! :test/mcp)
-    (rf/reg-event :seed-large
-                     (fn [{:keys [db]} _] {:db {:auth {:password secret-password}
-                                :blob {:payload (big-string payload-size)}}}))
-    (rf/dispatch-sync [:seed-large] {:frame :test/mcp})
-    (let [raw  (last (rf/epoch-history :test/mcp))
-          proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
-      ;; Sensitive REVEALED; large STILL elided.
-      (is (= secret-password (get-in proj [:db-after :auth :password]))
-          "`:rf.egress/include-sensitive? true` reveals the app-db sensitive leaf")
-      (is (rf.elision/marker? (get-in proj [:db-after :blob :payload]))
-          "the app-db large slot STAYS a `:rf.size/large-elided` marker —
-           large elision is orthogonal to the sensitive axis")
-      (is (zero? (count-leaf-strings-at-least payload-size proj))
-          "no raw large-payload bytes egress under include-sensitive alone")
-      ;; Negative control: :rf.egress/include-large? true lifts it.
-      (let [proj+lg (rf/project-egress raw {:rf.egress/include-sensitive? true
-                                                 :rf.egress/include-large?     true})]
-        (is (not (rf.elision/marker? (get-in proj+lg [:db-after :blob :payload])))
-            "the explicit `:rf.egress/include-large? true` opt lifts the large slot —
-             proving the axis is independently governed")))))
-
-;; ============================================================================
-;;  Cross-function sentinel uniformity
-;; ============================================================================
-
-(deftest per-record-and-whole-ring-share-redaction-vocabulary
-  (testing "Both functions substitute the SAME sentinel vocabulary
-            (`:rf/redacted` for sensitive, `:rf.size/large-elided` marker
-            map for large). An MCP client that branches on the marker
-            vocabulary MUST see uniform shapes across the per-record and
-            bulk-egress paths — divergence would force per-path branching
-            client-side. Pinned per-record-AND-bulk against the same ring."
-    (rf/make-frame mixed-ring-frame)
-    (install-mcp-style-schemas! :test/mcp)
-    (drive-mixed-ring! :test/mcp)
-    (let [raw        (rf/epoch-history :test/mcp)
-          bulk       (project-ring :test/mcp)
-          per-record (mapv rf/project-egress raw)]
-      ;; The :login cascade is the second one driven; pull both shapes'
-      ;; corresponding record and compare leaf-by-leaf.
-      (let [login-bulk (nth bulk       1)
-            login-per  (nth per-record 1)]
-        (is (= (get-in login-bulk [:db-after :auth :password])
-               (get-in login-per  [:db-after :auth :password]))
-            "the sensitive leaf substitution matches between bulk and per-record")
-        (is (= :rf/redacted
-               (get-in login-bulk [:db-after :auth :password]))
-            "the bulk-shape sensitive leaf is the :rf/redacted scalar sentinel")
-        (is (= :rf/redacted
-               (get-in login-per  [:db-after :auth :password]))
-            "the per-record-shape sensitive leaf is the :rf/redacted scalar sentinel"))
-      ;; The :upload cascade is the third one driven.
-      (let [upload-bulk (nth bulk       2)
-            upload-per  (nth per-record 2)
-            bulk-slot   (get-in upload-bulk [:db-after :blob :payload])
-            per-slot    (get-in upload-per  [:db-after :blob :payload])]
-        (is (= bulk-slot per-slot)
-            "the large-payload slot substitution matches between bulk and per-record")
-        (is (rf.elision/marker? bulk-slot)
-            "the bulk-shape large slot is an elision marker (`:rf.size/large-elided`)")
-        (is (rf.elision/marker? per-slot)
-            "the per-record-shape large slot is an elision marker")))))
-
-;; ============================================================================
-;;  :trigger-event event-args fail-closed off-box egress.
-;;
-;;  The dispatched event vector's args are registration-owned transient
-;;  payloads (Spec 015 §151), not app-db-rooted, so the app-db classification
-;;  walker cannot prove them safe, and a secret carried IN the event vector
-;;  (e.g. [:login "topsecret"]) must not ride the generic app-db-rooted
-;;  payload-slot projection out. The projection fails closed: args
-;;  redacted, head event-id retained; trusted-local :rf.egress/include-event-args?
-;;  opts back in. (drive-mixed-ring!'s :login keeps the secret OUT of the
-;;  trigger-event on purpose — see its :login comment — and its :halt/loop
-;;  carries it only in an arg its registration declares `:sensitive`, so these
-;;  tests drive an UNDECLARED secret IN.)
-;; ============================================================================
-
-(deftest forwarder-trigger-event-positional-secret-fails-closed
-  (testing "an MCP forwarder shipping a record whose dispatched
-            event vector carried a secret POSITIONALLY ([:login secret])
-            MUST NOT egress the secret. project-egress fails closed: the
-            head event-id is retained, the positional arg is :rf/redacted."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
-                           {:db (assoc-in db [:auth :password] pw)}))
-    (let [shipped (atom [])]
-      (rf/register-listener! :epoch ::forwarder
-                                   (fn [r] (swap! shipped conj (rf/project-egress r))))
-      (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
-      (is (pos? (count @shipped)) "the forwarder saw the cascade")
-      (is (not-any? contains-secret? @shipped)
-          "no projected record leaks the positional secret anywhere")
-      (let [proj (last @shipped)]
-        (is (= [:login :rf/redacted] (:trigger-event proj))
-            "trigger-event egresses with the head id retained, arg redacted")
-        (is (= :login (:event-id proj))
-            "the event-id summary slot is intact")))))
-
-(deftest forwarder-trigger-event-map-secret-fails-closed
-  (testing "a secret nested in a MAP arg of the dispatched
-            event vector ([:auth/login {:password secret}]) also fails
-            closed off-box: the whole arg redacts to :rf/redacted."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (rf/reg-event :auth/login (fn [{:keys [db]} [_ {:keys [password]}]]
-                                {:db (assoc-in db [:auth :password] password)}))
-    (rf/dispatch-sync [:auth/login {:password secret-password}] {:frame :test/mcp})
-    (let [proj (rf/project-egress (last (rf/epoch-history :test/mcp)))]
-      (is (= [:auth/login :rf/redacted] (:trigger-event proj)))
-      (is (not (contains-secret? (:trigger-event proj)))
-          "the map-arg secret is absent from the projected trigger-event"))))
-
-(deftest include-event-args-reveals-trigger-event-but-keeps-app-db-axes
-  (testing "`{:rf.egress/include-event-args? true}` reveals the raw
-            trigger-event args YET is ORTHOGONAL to the app-db
-            sensitive/large axes (and vice-versa). Asking for event args
-            must not lift the app-db sensitive leaf, and asking for app-db
-            sensitive values must not lift the event args."
-    (rf/make-frame {:id :test/mcp})
-    (install-mcp-style-schemas! :test/mcp)
-    (rf/reg-event :login (fn [{:keys [db]} [_ pw]]
-                           {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login secret-password] {:frame :test/mcp})
-    (let [raw (last (rf/epoch-history :test/mcp))]
-      ;; include-event-args reveals the args but keeps app-db sensitive redacted.
-      (let [proj (rf/project-egress raw {:rf.egress/include-event-args? true})]
-        (is (= [:login secret-password] (:trigger-event proj))
-            "`:rf.egress/include-event-args? true` reveals the raw trigger-event args")
-        (is (= :rf/redacted (get-in proj [:db-after :auth :password]))
-            "the app-db sensitive leaf STAYS redacted — orthogonal axis"))
-      ;; include-sensitive reveals the app-db leaf but keeps event args redacted.
-      (let [proj (rf/project-egress raw {:rf.egress/include-sensitive? true})]
-        (is (= secret-password (get-in proj [:db-after :auth :password]))
-            "`:rf.egress/include-sensitive? true` reveals the app-db sensitive leaf")
-        (is (= [:login :rf/redacted] (:trigger-event proj))
-            "the trigger-event args STAY redacted — event-args axis is orthogonal")))))
 
 ;; ============================================================================
 ;;  The resource/mutation trace family reaches this gate.

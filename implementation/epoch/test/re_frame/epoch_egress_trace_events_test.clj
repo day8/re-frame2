@@ -46,7 +46,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch :as rf.epoch]
+            [re-frame.epoch]
             [re-frame.frame :as rf.frame]
             [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -173,25 +173,6 @@
       (is (not (contains-secret? projected))
           "the raw secret appears NOWHERE in the projected record — not in
            :db-after, not nested inside any :trace-events :rf.event/db tag"))))
-
-(deftest whole-ring-projection-redacts-sensitive-leaf-inside-db-pending-trace
-  (testing "the bulk-egress composition (mapv project-egress
-            over epoch-history) applies the same per-event re-root: no
-            projected record in the ring leaks the sensitive leaf nested
-            inside a t1/t2 trace's :rf.event/db tag"
-    (rf/make-frame {:id :test/eg})
-    (install-sensitive-schema! :test/eg)
-    (rf/reg-event :seed  (fn [{:keys [db]} _] {:db {}}))
-    (rf/reg-event :login (fn [{:keys [db]} _] {:db (assoc-in db [:auth :password] secret)}))
-    (rf/dispatch-sync [:seed]  {:frame :test/eg})
-    (rf/dispatch-sync [:login] {:frame :test/eg})
-
-    (let [snapshot (mapv rf/project-egress
-                         (rf.epoch/epoch-history :test/eg))]
-      (is (pos? (count snapshot)))
-      (is (not-any? contains-secret? snapshot)
-          "no record in the bulk snapshot leaks the secret anywhere —
-           including nested inside any :rf.event/db trace tag"))))
 
 (deftest off-box-projection-of-a-path-focused-event-omits-its-after-delta-secret
   (testing "a [:rf.interceptor/path …] handler that never reads
@@ -473,31 +454,6 @@
    :renders       []
    :effects       []})
 
-(deftest off-box-omits-unschematized-replied-body
-  (testing "an UNSCHEMATIZED :rf.http/replied body (stamped
-            :rf.http/off-box-body :omit) is OMITTED off-box: the :value tag
-            is replaced with :rf/redacted, leaking nothing"
-    (rf/make-frame {:id :test/http})
-    (let [record    (http-record :test/http :rf.http/replied :value
-                                  {:token http-body-secret :user-id 42} :omit)
-          projected (rf/project-egress record)
-          ev        (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in ev [:tags :value]))
-          "the unschematized body slot is omitted off-box (fail-closed)")
-      (is (not (contains-http-secret? projected))
-          "the raw body token appears nowhere in the projected record"))))
-
-(deftest off-box-omits-unschematized-accept-failure-body
-  (testing "an UNSCHEMATIZED :rf.http/accept-failure body rides
-            at :decoded; stamped :omit, it is omitted off-box"
-    (rf/make-frame {:id :test/http})
-    (let [record    (http-record :test/http :rf.http/accept-failure :decoded
-                                  {:token http-body-secret} :omit)
-          projected (rf/project-egress record)
-          ev        (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in ev [:tags :decoded]))
-          "the unschematized :decoded body slot is omitted off-box"))))
-
 (deftest off-box-keeps-classified-schema-body
   (testing "a SCHEMATIZED body (stamped :classify) rides off-box
             as the classified projection emitted on-box (its sensitive slots
@@ -514,18 +470,6 @@
       (is (= classified (get-in ev [:tags :value]))
           "the classified schema body rides off-box untouched (sensitive
            already redacted on-box, non-sensitive structure preserved)"))))
-
-(deftest off-box-include-sensitive-lifts-omission
-  (testing "a trusted-local :rf.egress/include-sensitive? opt-in lifts
-            the off-box omission (the local-raw boundary): the unschematized
-            body rides for the trusted operator who opted sensitive back in"
-    (rf/make-frame {:id :test/http})
-    (let [body      {:token http-body-secret :user-id 42}
-          record    (http-record :test/http :rf.http/replied :value body :omit)
-          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
-          ev        (first (:trace-events projected))]
-      (is (= body (get-in ev [:tags :value]))
-          "with :rf.egress/include-sensitive? true the body is NOT omitted (lifted)"))))
 
 (deftest local-raw-profile-lifts-omission-without-an-explicit-key
   (testing "the docstring above, and every other `omit-off-box-*`
@@ -564,19 +508,6 @@
       (is (= body (get-in (first (:trace-events record)) [:tags :value]))
           "the source record is untouched by any of the projections above"))))
 
-(deftest on-box-raw-body-preserved-on-ring
-  (testing "the ON-BOX ring record is NOT projected: the raw
-            unschematized body rides verbatim on the ring (the local operator
-            sees their own process). The omission is the OFF-BOX boundary, not
-            an on-ring mutation"
-    (rf/make-frame {:id :test/http})
-    (let [body   {:token http-body-secret :user-id 42}
-          record (http-record :test/http :rf.http/replied :value body :omit)
-          ev     (first (:trace-events record))]
-      (is (= body (get-in ev [:tags :value]))
-          "the hand-built ring record carries the raw body (no projection ran)
-           — project-egress is the boundary, the ring stays raw"))))
-
 (deftest off-box-passes-through-http-events-without-stamp
   (testing "an :rf.http/replied event with NO :rf.http/off-box-body
             stamp (a body slot but no disposition) passes through the omission
@@ -600,41 +531,6 @@
 ;; lifted only by the trusted-local `:rf.egress/include-sensitive?` opt-in. On-box stays
 ;; raw.
 ;; ---------------------------------------------------------------------------
-
-(deftest off-box-omits-raw-http-5xx-body
-  (testing "a raw :rf.http/http-5xx body (stamped :omit) is
-            OMITTED off-box: the :body tag is replaced with :rf/redacted"
-    (rf/make-frame {:id :test/http})
-    (let [record    (http-record :test/http :rf.http/http-5xx :body
-                                  (str "error echoing " http-body-secret) :omit)
-          projected (rf/project-egress record)
-          ev        (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in ev [:tags :body]))
-          "the raw 5xx body slot is omitted off-box (fail-closed)")
-      (is (not (contains-http-secret? projected))
-          "the raw error-body token appears nowhere in the projected record"))))
-
-(deftest off-box-omits-raw-http-4xx-body
-  (testing "a raw :rf.http/http-4xx body is omitted off-box"
-    (rf/make-frame {:id :test/http})
-    (let [record    (http-record :test/http :rf.http/http-4xx :body
-                                  (str "forbidden " http-body-secret) :omit)
-          projected (rf/project-egress record)
-          ev        (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in ev [:tags :body])))
-      (is (not (contains-http-secret? projected))))))
-
-(deftest off-box-omits-raw-decode-failure-body-text
-  (testing "a raw :rf.http/decode-failure body-text is omitted
-            off-box (the decode is what failed, so the body is unschematized)"
-    (rf/make-frame {:id :test/http})
-    (let [record    (http-record :test/http :rf.http/decode-failure :body-text
-                                  (str "not-json " http-body-secret) :omit)
-          projected (rf/project-egress record)
-          ev        (first (:trace-events projected))]
-      (is (= :rf/redacted (get-in ev [:tags :body-text]))
-          "the raw decode-failure body-text is omitted off-box")
-      (is (not (contains-http-secret? projected))))))
 
 (deftest off-box-omits-nested-retry-attempt-failure-body
   (testing "a :rf.http/retry-attempt nests the intermediate
@@ -670,29 +566,6 @@
           "non-body failure metadata (:status) rides verbatim")
       (is (not (contains-http-secret? projected))
           "no token re-leaks via the nested retry-attempt failure body"))))
-
-(deftest off-box-include-sensitive-lifts-raw-error-body-omission
-  (testing "a trusted-local :rf.egress/include-sensitive? opt-in lifts
-            the off-box omission of a raw error body (the local-raw boundary)"
-    (rf/make-frame {:id :test/http})
-    (let [body      (str "raw error " http-body-secret)
-          record    (http-record :test/http :rf.http/http-5xx :body body :omit)
-          projected (rf/project-egress record {:rf.egress/include-sensitive? true})
-          ev        (first (:trace-events projected))]
-      (is (= body (get-in ev [:tags :body]))
-          "with :rf.egress/include-sensitive? true the raw error body is NOT omitted"))))
-
-(deftest on-box-raw-error-body-preserved-on-ring
-  (testing "the ON-BOX ring record is NOT projected: the raw
-            error body rides verbatim on the ring (the local operator sees
-            their own process). The omission is the OFF-BOX boundary."
-    (rf/make-frame {:id :test/http})
-    (let [body   (str "raw error " http-body-secret)
-          record (http-record :test/http :rf.http/http-5xx :body body :omit)
-          ev     (first (:trace-events record))]
-      (is (= body (get-in ev [:tags :body]))
-          "the hand-built ring record carries the raw error body (no projection
-           ran) — project-egress is the boundary, the ring stays raw"))))
 
 ;; ---------------------------------------------------------------------------
 ;; COLD gate-false seam. `project-egress` is a PURE off-box
