@@ -576,8 +576,11 @@
     ;; success also leaves `:restoring`. So the reply checks the restore window
     ;; itself, and once `restoring-session?` is false — a login stored a user, or
     ;; a clear removed the token — it is about an earlier session and is dropped.
-    ;; The window, not a generation in the reply, is the test because replies
-    ;; from the demo backend's canned stubs carry no `:correlation` to hold one.
+    ;; The window, not a generation in the reply, is the test because the
+    ;; request comes from the machine's `:begin-restore` action, which sees only
+    ;; the machine's own context, never app-db, and so has no `:auth-generation`
+    ;; to put in a `:request-id`. The window answers the same question from
+    ;; app-db alone.
     (if-not (restoring-session? db)
       {}
       (let [user (:user value)]
