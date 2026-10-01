@@ -28,7 +28,7 @@ Six steps; each instance fills in the concrete external system. The shape is inv
 2. The event handler returns `:fx [[:my-fx args]]`.
 3. The fx-handler posts work to the external system. No `app-db` write.
 4. The external system replies asynchronously on its own channel.
-5. A listener (closure registered inside the fx, or a one-time listener registered at boot) translates the reply into `rf/dispatch` of a named event, carrying the captured `:frame`.
+5. A listener (closure registered inside the fx, or a one-time listener registered at boot) translates the reply into a dispatch of a named event, addressed to the originating frame: through the frame the fx captured with `rf/capture-frame`, or, for a boot listener, by the frame id carried in the message.
 6. The dispatched event handler updates state from the result.
 
 ## The re-frame2 features this pattern uses
@@ -37,7 +37,7 @@ Six steps; each instance fills in the concrete external system. The shape is inv
 |---|---|
 | `reg-fx` | Registers the outgoing effect handler. |
 | `:fx` vector in handler returns | The event handler declares the work as data. |
-| Frame capture in async closures | The fx reads `:frame` off its first-arg map and threads it into the reply `dispatch` so the result lands in the originating frame. Without the carried frame an after-commit reply `dispatch` raises `:rf.error/no-frame-context` (EP-0002 — no default to fall back to), which is why the frame must be captured and threaded. |
+| `capture-frame` in async closures | The fx passes the `:frame` off its first-arg map to `rf/capture-frame` before registering the callback, and the callback replies through the captured `dispatch`, so the result lands in the originating frame — or, if that frame was destroyed first, is dropped with `:rf.error/frame-destroyed`, even when a new frame now has the same id. A bare after-commit `rf/dispatch` raises `:rf.error/no-frame-context` (EP-0002 — no default to fall back to). |
 | Plain `reg-event` | The reply handlers — nothing special; the reply is just an event. |
 
 ## Canonical declaration
@@ -49,14 +49,12 @@ The HTTP instance — the most common substrate. Replace `perform-http-request` 
   {:doc       "Issue an HTTP request. On completion, dispatch :on-success or :on-error."
    :platforms #{:server :client}}
   (fn fx-http [m {:keys [method url body on-success on-error]}]
-    (let [frame-id (:frame m)]
+    (let [{:keys [dispatch]} (rf/capture-frame (:frame m))]   ;; before registering callbacks
       (-> (perform-http-request method url body)
           (.then  (fn [resp] (when on-success
-                               (rf/dispatch (conj on-success resp)
-                                            {:frame frame-id}))))
+                               (dispatch (conj on-success resp)))))
           (.catch (fn [err]  (when on-error
-                               (rf/dispatch (conj on-error err)
-                                            {:frame frame-id}))))))))
+                               (dispatch (conj on-error err)))))))))
 
 (rf/reg-event :articles/load
   (fn handler-articles-load [{:keys [db]} _]
@@ -79,7 +77,7 @@ The HTTP instance — the most common substrate. Replace `perform-http-request` 
              (assoc-in [:articles :error]  err))}))
 ```
 
-The first argument to the fx-handler is the runtime context map; read `:frame` off it. Re-frame2 will not auto-route an async dispatch from an fx — capture explicitly.
+The first argument to the fx-handler is the runtime context map; pass its `:frame` to `rf/capture-frame` before registering the callbacks, and reply through the captured `dispatch`. Re-frame2 will not auto-route an async dispatch from an fx — capture explicitly. `(rf/dispatch ev {:frame (:frame m)})` from the callback is not the same: it addresses the frame by id, so if the frame is destroyed and a new one made under the same id before the reply arrives, the new frame receives it. Keep that form for a dispatch made synchronously inside the fx's own call.
 
 ## Parameter passing — where the args come from
 
@@ -131,6 +129,8 @@ A boot-registered listener has **no frame scope** when the reply fires — it is
 
 The request, result, and reply event must be EDN values. The round-trip preserves namespaced keywords, nested event vectors, and the originating frame id without a separate reconstruction convention. Keep worker handles and other host objects outside these messages.
 
+The reply is **id-addressed**: it reaches whichever frame holds `reply-frame` when the worker answers. A `capture-frame` bundle cannot make the trip, because its ops are functions and neither structured clone nor EDN carries a function. So if the originating frame is destroyed and a new frame is created under the same id before the reply arrives, the new frame receives its predecessor's reply. That can only happen where a frame is recreated under the same id while work is in flight; a frame that lives as long as the app never meets it.
+
 **Streaming / multi-reply.** LLM-style or SSE-style where each chunk is a separate dispatch. Each emission is a normal dispatched event; the receiving handler appends to a buffer slice. The fx posts once; the reply channel fires N events. RemoteData has no `:streaming` state — its enum is `:idle | :loading | :fetching | :loaded | :error` — so hold `:fetching` for the duration of the stream and flip to `:loaded` on the terminal chunk.
 
 **Fire-and-forget.** Logging, analytics, beacon writes — the caller may omit `:on-success` / `:on-error`. The fx-handler should treat both as nilable (see the `when on-success` / `when on-error` guards above).
@@ -142,7 +142,7 @@ The request, result, and reply event must be EDN values. The round-trip preserve
 - **Mutating `app-db` from inside the fx-handler.** The fx posts work and registers a listener; it does not write state. State writes live in the dispatched reply handler.
 - **Implicit dispatching from inside the fx.** Always require the caller to pass `:on-success` / `:on-error` explicitly — that's the only place a reader can find where the reply lands.
 - **Closures as event payload.** Reply events must serialise (for SSR hydration, Tool-Pair epoch replay, trace events). Pass ids and data; the handler closes over its own context.
-- **Forgetting to carry `:frame`.** An async dispatch fired without a carried frame (no `{:frame frame-id}`, no captured frame api) raises `:rf.error/no-frame-context` — the runtime refuses to guess a default. Always read `:frame` off the first-arg map and pass it through (or capture a `capture-frame` at fx time).
+- **Replying from a callback without a captured frame.** A deferred `rf/dispatch` with no frame raises `:rf.error/no-frame-context` — the runtime refuses to guess a default. Call `(rf/capture-frame (:frame m))` when the fx runs and reply through its `dispatch`. Adding `{:frame frame-id}` to the callback's dispatch is not the same fix: it addresses the frame by id, so a frame destroyed and recreated under the same id receives its predecessor's late reply. The id-addressed form is right for a dispatch made synchronously inside the fx's own call, and for the boot-registered listener above, with the trade-off stated there.
 - **Treating WebSockets as Async Effect.** Long-lived connections with retry / backoff / subscription state are state-machine-shaped; use Pattern-WebSocket. Individual *messages* over an established connection fit this pattern.
 
 ## Worked example

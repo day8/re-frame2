@@ -209,16 +209,19 @@ Each entry below is one CP:
     ;;    runtime-internal `:envelope`. See Spec-Schemas §:rf/handler-context.
     ;; args: the value the user put under :http in their effect map
     (let [{:keys [method url body on-success on-error]} args
-          frame-id (:frame m)]
+          ;; capture before registering the callbacks: the captured dispatch is
+          ;; pinned to this frame instance, so a reply that arrives after the frame
+          ;; is destroyed is dropped, never delivered to a same-id successor
+          {:keys [dispatch]} (rf/capture-frame (:frame m))]
       (-> (perform-http-request method url body)
-          (.then  (fn [resp] (when on-success (rf/dispatch (conj on-success resp) {:frame frame-id}))))
-          (.catch (fn [err]  (when on-error  (rf/dispatch (conj on-error err)   {:frame frame-id}))))))))
+          (.then  (fn [resp] (when on-success (dispatch (conj on-success resp)))))
+          (.catch (fn [err]  (when on-error  (dispatch (conj on-error err)))))))))
 ```
 
 **Pattern-level discipline:**
 
 - The handler is `(fx-ctx, args) → side-effect`, where `fx-ctx` is the small fx-handler map (`:frame` = frame id, `:event`, runtime-internal `:envelope` — [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx)), not the event handler's coeffects map. The args are *data*; the side-effect is performed at the boundary.
-- The handler is responsible for dispatching follow-up events (`:on-success`/`:on-error`) on the originating frame so the state-change drain resumes.
+- The handler is responsible for dispatching follow-up events (`:on-success`/`:on-error`) on the originating frame so the state-change drain resumes. A reply from a deferred callback goes through the `:dispatch` of `(rf/capture-frame (:frame m))`, taken before the callback is registered ([002 §Async fx capture the frame in a closure](002-Frames.md#async-fx-capture-the-frame-in-a-closure)). `(rf/dispatch ev {:frame (:frame m)})` is right only for a dispatch made synchronously inside the handler's own call: from a callback it reaches whichever frame holds the id by then, including a same-id successor of a destroyed frame.
 - The handler **may not modify `app-db` directly** — only via dispatched events.
 - Server-only effects (`:platforms #{:server}`) are skipped on the client; client-only on the server. The runtime emits `:rf.fx/skipped-on-platform` traces so it's visible.
 
