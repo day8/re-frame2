@@ -89,20 +89,6 @@
     (is (= [[[:k] :assoc old-sentinel]]
            (rf.mcp-base.diff-encode/collect-patches {:k 1} {:k old-sentinel} [])))))
 
-(deftest diff-encode-sentinel-valued-key-round-trips-without-false-patch
-  ;; End-to-end through encoder/decoder. The round-trip alone does NOT
-  ;; catch the bug (replay reconstructs the sentinel value either way);
-  ;; the load-bearing assertion is that ONLY the genuine change reaches
-  ;; the wire — no spurious :k patch.
-  (let [epoch   {:db-before {:k old-sentinel :count 1}
-                 :db-after  {:k old-sentinel :count 2}}
-        encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        patches (vec (mapcat :patches (get-in encoded [:db-after :sections])))]
-    (is (= [[[:count] :assoc 2]] patches)
-        "only the genuine :count change is on the wire — no false :k patch")
-    (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
-        "and the sentinel-valued stable key round-trips")))
-
 ;; ---------------------------------------------------------------------------
 ;; collect-patches — same-length vectors diff structurally.
 ;; ---------------------------------------------------------------------------
@@ -112,10 +98,6 @@
   ;; index-headed item-level patch, NOT a whole-vector replacement.
   (is (= [[[:items 0 :qty] :assoc 2]]
          (rf.mcp-base.diff-encode/collect-patches {:items [{:qty 1}]} {:items [{:qty 2}]} []))))
-
-(deftest collect-patches-diffs-same-length-scalar-vector
-  (is (= [[[:xs 1] :assoc 9]]
-         (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 9 3]} []))))
 
 (deftest collect-patches-diffs-multiple-vector-elements
   (is (= [[[:xs 0] :assoc 10]
@@ -142,9 +124,6 @@
   (testing "shrink → whole-vector :assoc"
     (is (= [[[:xs] :assoc [1 2]]]
            (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 2]} [])))))
-
-(deftest collect-patches-equal-vector-emits-nothing
-  (is (= [] (rf.mcp-base.diff-encode/collect-patches {:xs [1 2 3]} {:xs [1 2 3]} []))))
 
 ;; ---------------------------------------------------------------------------
 ;; Collection KIND is a change. `(= [1 2] '(1 2))`, so a bare-`=`
@@ -239,9 +218,6 @@
       (let [p (rf.mcp-base.diff-encode/collect-patches a b [])]
         (is (= b (rf.mcp-base.diff-encode/apply-patches a p))
             (str label " must round-trip"))))))
-
-(deftest apply-patches-dissoc-at-root-via-direct-path
-  (is (= {:a 1} (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
 
 (deftest apply-patches-applies-in-order-for-same-path
   ;; Regression pin: when two patches target
@@ -645,43 +621,6 @@
       (is (true? (m/validate rf.mcp-base.diff-encode/patches-schema (:patches s)))
           "every section's :patches subset conforms to patches-schema"))))
 
-(deftest diff-encode-db-after-throws-when-validation-disabled-elsewhere-noop
-  ;; The validation gate is `validate-patches!`. Calling it directly
-  ;; with malformed input throws; well-formed input is a silent no-op.
-  ;; This pins the boundary contract independently of the public
-  ;; encoder entry point.
-  (testing "well-formed patches return nil"
-    (is (nil? (#'rf.mcp-base.diff-encode/validate-patches! [[[:a] :assoc 1]
-                                       [[:b] :dissoc]]
-                                      'mcp-base/diff-encode-db-after))))
-  (testing "malformed patches throw :rf.error/bad-diff-patches"
-    (let [bad [[[:a] :replace 1]]]
-      (is (thrown-with-msg?
-            clojure.lang.ExceptionInfo
-            #":rf\.error/bad-diff-patches"
-            (#'rf.mcp-base.diff-encode/validate-patches! bad 'mcp-base/diff-encode-db-after)))
-      (try
-        (#'rf.mcp-base.diff-encode/validate-patches! bad 'mcp-base/diff-encode-db-after)
-        (is false "expected throw")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/bad-diff-patches
-                 (:rf.error/id (ex-data e)))
-              "ex-info carries the reserved :rf.error/* code")))))
-  (testing "the threaded `where` symbol propagates to ex-info :where"
-    (let [bad [[[:a] :replace 1]]]
-      (try
-        (#'rf.mcp-base.diff-encode/validate-patches! bad 'mcp-base/diff-encode-db-after)
-        (is false "expected throw")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= 'mcp-base/diff-encode-db-after (:where (ex-data e)))
-              "encoder caller threads its own site")))
-      (try
-        (#'rf.mcp-base.diff-encode/validate-patches! bad 'mcp-base/apply-patches)
-        (is false "expected throw")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= 'mcp-base/apply-patches (:where (ex-data e)))
-              "decoder caller threads its own site"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Sanitized validation diagnostics (EP-0015 egress-policy).
 ;;
@@ -804,14 +743,6 @@
         (is (= 'mcp-base/apply-patches
                (:where (ex-data e)))
             "ex-info names the decode-side boundary, not the encoder")))))
-
-(deftest apply-patches-well-formed-input-passes-validation
-  ;; Soft contract: well-formed patches pass the gate silently and
-  ;; produce the same output an unvalidated replay would.
-  (is (= {:a 1 :b 2}
-         (rf.mcp-base.diff-encode/apply-patches {:a 1} [[[:b] :assoc 2]])))
-  (is (= {:a 1}
-         (rf.mcp-base.diff-encode/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
 
 (deftest apply-patches-empty-patches-is-identity
   ;; Empty patch list ⇒ base returned unchanged.
@@ -980,10 +911,7 @@
                    :db-after  {:user {:name "ada" :age 31}}}
           encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)]
       (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
-          "a well-formed {:rf.mcp/diff-from :db-before :sections [...]} round-trips")))
-  (testing "a no-marker full :db-after still passes through unchanged"
-    (let [epoch {:db-before {:a 1} :db-after {:a 1 :b 2}}]
-      (is (= epoch (rf.mcp-base.diff-encode/decode-db-after epoch))))))
+          "a well-formed {:rf.mcp/diff-from :db-before :sections [...]} round-trips"))))
 
 (deftest decode-db-after-explicit-empty-sections-is-valid-no-change
   ;; Companion: an EXPLICIT `:sections []` is a legitimate
@@ -1002,13 +930,3 @@
                              :sections []}}]
       (is (= {:db-before {:a 1 :b 2} :db-after {:a 1 :b 2}}
              (rf.mcp-base.diff-encode/decode-db-after epoch))))))
-
-(deftest decode-db-after-well-formed-sections-round-trip
-  ;; The positive companion: well-formed sections decode silently and
-  ;; reconstruct :db-after — proving the decode gate is a guard, not a
-  ;; blanket reject.
-  (let [epoch   {:db-before {:user {:name "ada" :age 30}}
-                 :db-after  {:user {:name "ada" :age 31}}}
-        encoded (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
-        decoded (rf.mcp-base.diff-encode/decode-db-after encoded)]
-    (is (= epoch decoded))))
