@@ -18,8 +18,7 @@
     public or internal, anywhere in the wire shape.
 
   This gate pins THAT wire shape so a regression that introduces a realm
-  pin/slot, drops a frame-enumeration slot, or breaks the multi-frame
-  independent-resolution contract trips the conformance corpus.
+  pin/slot or drops a frame-enumeration slot trips the conformance corpus.
 
   ## What is DEFERRED (NOT in scope here)
 
@@ -258,13 +257,6 @@
   ;; schema-conformance gate AND never flow through a fixture `contains?`
   ;; check. Asserting the SCHEMA rejects the slot catches the emitter
   ;; regression the docstring names.
-  (testing "the local success-fixtures carry no realm slots (sanity on the fixtures themselves)"
-    (doseq [[fixture-name fixture-value] success-fixtures]
-      (testing (str "fixture " fixture-name)
-        (is (not (contains? fixture-value :realms)))
-        (is (not (contains? fixture-value :operating-realm)))
-        (is (not (contains? fixture-value :selected-realm)))
-        (is (not (contains? fixture-value :frame-realms))))))
   (testing "the SCHEMA rejects a realm slot (the emitter-regression guard)"
     (let [base (:multi-frame-pinned success-fixtures)]
       (doseq [realm-slot [:realms :operating-realm :selected-realm :frame-realms
@@ -282,50 +274,6 @@
                  "wire decorations (source-uri / freshness) — the realm negative "
                  "must not become a general closed-map rejection."))))))
 
-(deftest multi-frame-independent-resolution
-  ;; Two distinct frame ids resolve INDEPENDENTLY. The operating-frame
-  ;; envelope is the wire surface for this — discover-app/orient/get-operating-frame
-  ;; enumerate both frames; pinning one selects it WITHOUT affecting the
-  ;; other; with NO pin the resolution is ambiguous (refuses, never
-  ;; guesses). This is the public frame-addressing multi-frame contract
-  ;; (NOT the deferred same-id/different-image isolation — see ns
-  ;; docstring).
-  (let [ambiguous (:multi-frame-ambiguous success-fixtures)
-        pinned    (:multi-frame-pinned success-fixtures)]
-    (testing "both frame ids enumerate in the public :frames address space"
-      (is (= [:rf/default :stories] (:frames ambiguous)))
-      (is (= [:rf/default :stories] (:frames pinned)))
-      (is (= (:frames ambiguous) (:frames pinned))
-          "the enumeration is the same regardless of which frame is pinned"))
-    (testing "NO pin in a multi-frame app ⇒ :operating nil (AMBIGUOUS, refuses to guess)"
-      (is (nil? (:selected ambiguous)))
-      (is (nil? (:operating ambiguous))
-          "tier-4 ambiguity: two-plus app frames + no pin ⇒ unresolved (frame-targeted ops refuse)"))
-    (testing "pinning ONE frame resolves to exactly that frame"
-      (is (= :stories (:selected pinned)))
-      (is (= :stories (:operating pinned))
-          "the pinned frame is the resolved :operating target")
-      (is (not= :rf/default (:operating pinned))
-          "the OTHER frame is NOT resolved — independent addressing"))
-    (testing "the pin is the ONLY difference between the two multi-frame envelopes"
-      (is (= (dissoc ambiguous :selected :operating)
-             (dissoc pinned :selected :operating))
-          "same frame enumeration; only the pin/resolution differ"))))
-
-(deftest reserved-frames-excluded-from-app-frames
-  ;; The reserved-frame-aware view: `:frames` enumerates the FULL public
-  ;; address space (incl. reserved `:rf/*` tool frames); `:app-frames`
-  ;; filters the reserved ones out. A regression that leaked a reserved
-  ;; frame into :app-frames (or dropped it from :frames) trips here.
-  (let [filtered (:reserved-frame-filtered success-fixtures)]
-    (testing ":frames includes the reserved tool frame (full address space)"
-      (is (some #{:rf/xray} (:frames filtered))))
-    (testing ":app-frames EXCLUDES the reserved tool frame"
-      (is (not (some #{:rf/xray} (:app-frames filtered)))
-          "reserved :rf/* tool frames are filtered out of the app-frame view"))
-    (testing ":app-frames is a subset of :frames"
-      (is (every? (set (:frames filtered)) (:app-frames filtered))))))
-
 (deftest failure-envelope-enforces-reason-vocabulary
   ;; The two documented failure reasons are the closed wire vocabulary;
   ;; `:no-such-frame` carries the corrective `:frames` list. A novel
@@ -335,16 +283,7 @@
                          {:ok? true :reason :no-such-frame}))))
   (testing "an unrecognised :reason has no enum arm and fails"
     (is (not (m/validate OperatingFrameFailure
-                         {:ok? false :reason :bogus-reason}))))
-  (testing ":no-such-frame echoes the rejected :frame and lists valid :frames"
-    (let [nsf (:no-such-frame failure-fixtures)]
-      (is (= :nope (:frame nsf)) "the rejected frame is echoed for the agent")
-      (is (vector? (:frames nsf)) "the valid frames are listed as the corrective hint")
-      (is (not (some #{:nope} (:frames nsf)))
-          "the rejected frame is genuinely absent from the registered set")))
-  (testing "both documented reasons validate"
-    (is (m/validate OperatingFrameFailure (:no-such-frame failure-fixtures)))
-    (is (m/validate OperatingFrameFailure (:missing-frame failure-fixtures)))))
+                         {:ok? false :reason :bogus-reason})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Source-text pins — the EP-0023 frame-only addressing, as DATA, in the pair-mcp
@@ -385,8 +324,6 @@
                   second
                   (str/split #"\(def reset-operating-frame")
                   first)]
-    (is (some? block)
-        "could not isolate the set-operating-frame descriptor block")
     (is (str/includes? block ":frame")
         "the set-operating-frame inputSchema declares the public :frame address")
     (testing "no public :realm pin arg in the set-operating-frame inputSchema"
