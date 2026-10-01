@@ -641,19 +641,30 @@
                  [:map [:s [:maybe [:map [:k {:sensitive? true} :string]]]]]
                  [:s :k]))
         "sensitive leaf under a `:maybe` wrapper → leaf sensitive at [:s :k]")
-    ;; Companion: the same wrapper shape with a NON-sensitive leaf must NOT
-    ;; over-redact — the `:maybe` descent is transparent, not a fail-open bail.
-    (is (false? (rf.schemas.walker/schema-sensitive-at?
-                  [:map [:s [:maybe [:map [:k :string]]]]]
-                  [:s :k]))
-        "non-sensitive leaf under a `:maybe` wrapper → NOT leaf sensitive")
     ;; A sensitive leaf directly under a top-level `:maybe` (no outer :map):
     ;; `[:maybe [:map …]]` with :in [:k]. Align descends the `:maybe` with the
     ;; segment intact, keeps [:k], and resolves sensitive.
     (is (true? (rf.schemas.walker/schema-sensitive-at?
                  [:maybe [:map [:k {:sensitive? true} :string]]]
                  [:k]))
-        "top-level `:maybe` wrapper is transparent for the leaf decision too")))
+        "top-level `:maybe` wrapper is transparent for the leaf decision too"))
+  (testing "a non-sensitive leaf beside a `:sensitive?` sibling inside
+            the `:maybe` is NOT leaf sensitive — only the precise descent
+            tells the two slots apart"
+    ;; Without the `:maybe` arm the walk stops AT the wrapper with path
+    ;; remaining, and the fail-safe fallback redacts because the leftover
+    ;; subtree declares the sibling sensitive. So these rows read false only
+    ;; while align-in-path descends the wrapper.
+    (is (false? (rf.schemas.walker/schema-sensitive-at?
+                  [:map [:s [:maybe [:map [:k :string]
+                                          [:secret {:sensitive? true} :string]]]]]
+                  [:s :k]))
+        "nested `:maybe`: [:s :k] is not sensitive though its sibling [:s :secret] is")
+    (is (false? (rf.schemas.walker/schema-sensitive-at?
+                  [:maybe [:map [:k :string]
+                                [:secret {:sensitive? true} :string]]]
+                  [:k]))
+        "top-level `:maybe`: [:k] is not sensitive though its sibling [:secret] is")))
 
 (deftest sanitize-sensitive-path-transparent-through-maybe
   (testing "sanitize-sensitive-path descends a `:maybe` wrapper
