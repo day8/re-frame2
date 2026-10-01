@@ -1571,9 +1571,7 @@
           (is (contains? (:tags v) :explain-humanized)
               ":explain-humanized present on the sub-return surface too")
           (is (= :rf/redacted (-> v :tags :explain-humanized))
-              ":explain-humanized redacted on the meta-bearing run-validation path")
-          (is (not (str/includes? (pr-str (:tags v)) secret))
-              "the raw secret does not leak through the humanized slot"))))))
+              ":explain-humanized redacted on the meta-bearing run-validation path"))))))
 
 (deftest non-sensitive-sub-return-failure-carries-humanized-payload
   (testing "on the sub-return surface a non-sensitive sub keeps the

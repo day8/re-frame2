@@ -6,12 +6,11 @@
   hand its exact value — nil and false included — to the registered
   validator. An `if-let` in the meta-bearing hot path (`run-validation`)
   would let explicit nil / false tokens silently bypass the validator; and
-  a PRODUCTION boundary interceptor that treated a nil schema as
-  impossible and returned the context unchanged would be a
-  release-resident fail-open: `{:schema nil :boundary? true}` registers
-  successfully (the registrar checks `contains?`), so the handler would
-  run UNGUARDED on exactly the untrusted payloads the interceptor exists
-  to gate.
+  a PRODUCTION boundary check that treated a nil schema as impossible
+  would be a release-resident fail-open: `{:schema nil :boundary? true}`
+  registers successfully (the registrar checks `contains?`), so the
+  handler would run UNGUARDED on exactly the untrusted payloads the
+  boundary exists to gate.
 
   What is pinned here:
 
@@ -20,11 +19,11 @@
       verbatim, once per consult, and the false verdict returns per the
       `run-validation` contract.
    2. **The production boundary does not fail open** (JVM half) —
-      with `re-frame.spec/dev-mode?` rebound false (the documented JVM
-      route to the interceptor's production branch), a registered
-      `{:schema nil}` boundary handler's `:before` delegates nil to the
-      validator and sets `:rf/skip-handler?`. The CLJS half rides the
-      production-compiled `re-frame.schemas-boundary-prod-test` suite.
+      `re-frame.spec/validate-at-boundary!`, the router's production
+      step-1 arm, called directly with a registered `{:schema nil}`
+      boundary handler's metadata, delegates nil to the validator and
+      returns false, so the router skips the handler. The CLJS half rides
+      the production-compiled `re-frame.schemas-boundary-prod-test` suite.
    3. **Default Malli fails CLOSED** — a present nil / false
       schema takes the malformed-schema route (`:rf.error/malformed-schema`
       + false), never registration-success-plus-runtime-no-op.
@@ -95,7 +94,7 @@
                           first :tags :where)))))))
 
 ;; ===========================================================================
-;; JVM half — the production boundary interceptor delegates nil
+;; JVM half — the production boundary arm delegates nil
 ;; ===========================================================================
 
 (deftest boundary-arm-delegates-a-present-nil-schema-in-production
@@ -109,14 +108,13 @@
         {:schema    nil
          :boundary? true}
         (fn [_ _] {}))
-      (with-redefs [rf.spec/dev-mode? (constantly false)]
-        (let [meta    (rf.registrar/lookup :event :wire/received)
-              verdict (rf.spec/validate-at-boundary!
-                        :wire/received [:wire/received {:untrusted 1}] meta nil)]
-          (is (= [nil] @seen)
-              "the boundary delegated the EXACT nil token to the validator")
-          (is (false? verdict)
-              "the invalid event is rejected — the handler will not run"))))))
+      (let [meta    (rf.registrar/lookup :event :wire/received)
+            verdict (rf.spec/validate-at-boundary!
+                      :wire/received [:wire/received {:untrusted 1}] meta nil)]
+        (is (= [nil] @seen)
+            "the boundary delegated the EXACT nil token to the validator")
+        (is (false? verdict)
+            "the invalid event is rejected — the handler will not run")))))
 
 (deftest boundary-arm-fails-closed-on-nil-schema-under-default-malli
   (testing "with the DEFAULT Malli validator a present nil schema
@@ -128,11 +126,10 @@
       {:schema    nil
        :boundary? true}
       (fn [_ _] {}))
-    (with-redefs [rf.spec/dev-mode? (constantly false)]
-      (let [meta (rf.registrar/lookup :event :wire/received)]
-        (is (false? (rf.spec/validate-at-boundary!
-                      :wire/received [:wire/received {:untrusted 1}] meta nil))
-            "rejected — never registration success plus runtime no-op")))))
+    (let [meta (rf.registrar/lookup :event :wire/received)]
+      (is (false? (rf.spec/validate-at-boundary!
+                    :wire/received [:wire/received {:untrusted 1}] meta nil))
+          "rejected — never registration success plus runtime no-op"))))
 
 (deftest boundary-nil-validator-still-disables-validation-in-production
   (testing "control — set-schema-fns! {:validate nil} is the documented
@@ -143,11 +140,10 @@
       {:schema    nil
        :boundary? true}
       (fn [_ _] {}))
-    (with-redefs [rf.spec/dev-mode? (constantly false)]
-      (let [meta (rf.registrar/lookup :event :wire/received)]
-        (is (true? (rf.spec/validate-at-boundary!
-                     :wire/received [:wire/received {:untrusted 1}] meta nil))
-            "no validator registered → no validation → handler runs")))))
+    (let [meta (rf.registrar/lookup :event :wire/received)]
+      (is (true? (rf.spec/validate-at-boundary!
+                   :wire/received [:wire/received {:untrusted 1}] meta nil))
+          "no validator registered → no validation → handler runs"))))
 
 ;; ===========================================================================
 ;; Default Malli takes the malformed-schema fail-closed route

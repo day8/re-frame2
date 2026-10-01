@@ -48,7 +48,7 @@
       (is (nil? (get-in (rf/app-db-value :rf/default) [:article :data])))
       (is (= 1 (count @requests))))
     (testing "the response schema stays strict even though stored data may be absent"
-      (when-let [decode (:decode (first @requests))]
+      (let [decode (:decode (first @requests))]
         (is (m/validate decode article))
         (is (false? (m/validate decode nil)))
         (is (false? (m/validate decode {:slug "alpha"})))))
