@@ -571,7 +571,10 @@
           (is (not (str/includes? out "Testing probe.nested-green-inner-suite"))
               (str "a GREEN nested run must stay silent — its inner ns"
                    " banner must NOT appear (and must not be borrowed by"
-                   " the outer failure); got:\n" out)))))))
+                   " the outer failure); got:\n" out))
+          (is (str/includes? out "1 failures, 0 errors.")
+              (str "the OUTER summary must count exactly the outer failure"
+                   " (the green nested run adds nothing); got:\n" out)))))))
 
 (deftest nested-red-then-outer-fail-banner
   (testing "outer fail after a red nested run keeps both banners correct"
@@ -625,40 +628,14 @@
 ;; Nested-run failure tally and exit-code soundness.
 ;;
 ;; The behaviour is SOUND (the quiet reporter never overrides
-;; :summary/:pass and counts :fail/:error exactly once); this pins it so a
-;; change — overriding :summary, sharing a counter, hoisting banner
-;; handling into the counter path — can't silently turn an outer failure
-;; into a false GREEN, or leak an inner-ignored failure into the outer
-;; tally. cognitect computes the exit code from the outer summary's
-;; fail+error, so asserting BOTH the exit code AND the summary text pins
-;; the whole propagation path.
-
-(deftest nested-green-outer-fail-is-counted
-  (testing "an outer failure after a green nested run propagates to summary and exit 1"
-    (with-fixture-dir
-      (fn [dir]
-        (write-raw-fixture! dir "tally_green_inner_suite"
-          (str "(ns probe.tally-green-inner-suite\n"
-               "  (:require [clojure.test :refer [deftest is]]\n"
-               "            [re-frame.test-quiet]))\n"
-               "(deftest inner-passes (is (= 1 1)))"))
-        (write-raw-fixture! dir "tally_green_outer_test"
-          (str "(ns probe.tally-green-outer-test\n"
-               "  (:require [clojure.test :refer [deftest is run-tests]]\n"
-               "            [re-frame.test-quiet]\n"
-               "            [probe.tally-green-inner-suite]))\n"
-               "(deftest outer-fails-after-green\n"
-               "  (run-tests 'probe.tally-green-inner-suite)\n"
-               "  (is (= :outer-exp :outer-act)))"))
-        (let [{:keys [exit out err]}
-              (invoke-quiet-runner dir "-n" "probe.tally-green-outer-test")]
-          (is (= 1 exit)
-              (str "the outer failure MUST drive exit 1 — a regression that"
-                   " dropped it would be a false GREEN; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (str/includes? out "1 failures, 0 errors.")
-              (str "the OUTER summary must count exactly the outer failure"
-                   " (the green nested run adds nothing); got:\n" out)))))))
+;; :summary/:pass and counts :fail/:error exactly once). The outer-failure
+;; half is pinned by `nested-green-then-outer-fail-banner` above (exit 1 and
+;; `1 failures, 0 errors.`), the inner-failure half below, so a change —
+;; overriding :summary, sharing a counter, hoisting banner handling into the
+;; counter path — can't silently turn an outer failure into a false GREEN,
+;; or leak an inner-ignored failure into the outer tally. cognitect computes
+;; the exit code from the outer summary's fail+error, so asserting BOTH the
+;; exit code AND the summary text pins the whole propagation path.
 
 (deftest nested-inner-fail-does-not-leak-to-outer
   (testing "an ignored inner failure does not leak into the outer tally or exit"
@@ -868,27 +845,6 @@
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
 
-(deftest real-banner-still-dropped-alongside-overdrop-lookalike
-  (testing "the real `Running tests in #{...}` discovery banner is still dropped"
-    (with-fixture-dir
-      (fn [dir]
-        ;; A clean green fixture: the ONLY `Running tests in #{...}` line on
-        ;; stdout would be cognitect's own discovery banner. Proving it is
-        ;; absent confirms the candidate/confirm logic drops the genuine
-        ;; banner as well as guarding against overdrop.
-        (write-fixture! dir "banner_still_dropped_test" "banner-still-dropped-test"
-                        "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "green suite must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (not (str/includes? out "Running tests in #{"))
-              (str "the genuine `Running tests in #{...}` banner must STILL"
-                   " be swallowed — the overdrop guard must not have made the"
-                   " filter forward the real banner; got:\n" out))
-          (is (not (str/includes? out discovery-banner-marker))
-              (str "no part of the banner may reach stdout; got:\n" out)))))))
-
 ;; ----------------------------------------------------------------------
 ;; Exact-shape banner overdrop guard.
 ;;
@@ -898,29 +854,6 @@
 ;; opened by a leading blank line; a bare `(println "Running tests in
 ;; #{:fixture}")` is not. Requiring that held leading blank distinguishes
 ;; the runner banner from an exact-shape user line.
-
-(deftest banner-exact-shape-user-line-survives
-  (testing "an exact-shape banner user line without a leading blank survives"
-    (with-fixture-dir
-      (fn [dir]
-        ;; A bare `println` of the exact banner shape lacks the banner's
-        ;; leading blank and must reach stdout.
-        (write-fixture! dir "exact_shape_fixture_test" "exact-shape-fixture-test"
-                        (str "(deftest an-exact-shape-test"
-                             " (println \"Running tests in #{:fixture}\")"
-                             " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "the exact-shape suite is green; must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          ;; Exact text without the held leading blank is not the banner.
-          (is (str/includes? out "Running tests in #{:fixture}")
-              (str "an exact-shape user line `Running tests in #{:fixture}`"
-                   " printed via bare println (no leading blank) is NOT the"
-                   " cognitect banner and must survive; got:\n"
-                   out))
-          (is (str/includes? out "0 failures, 0 errors.")
-              (str "the green summary must still print; got:\n" out)))))))
 
 (deftest real-banner-still-dropped-alongside-exact-shape-user-line
   (testing "the real banner is still dropped alongside an exact-shape user line"
@@ -945,7 +878,9 @@
           (is (= 1 hits)
               (str "exactly one `Running tests in #{` must reach stdout (the"
                    " user's) — the genuine cognitect banner must STILL be"
-                   " dropped; got " hits " occurrences:\n" out)))))))
+                   " dropped; got " hits " occurrences:\n" out))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Blank-led banner shape after the real banner.
@@ -1436,8 +1371,11 @@
 ;; are pinned, and both are pinned in BOTH directions, because a check that
 ;; cannot go red is the same defect wearing a different hat:
 ;;
-;;   suite: a zero-test discovery set exits 1; an ordinary suite exits 0;
-;;          a floor ABOVE the real count reds a genuinely green suite;
+;;   suite: a zero-test discovery set exits 1; an ordinary suite exits 0
+;;          (`green-runner-exact-shape` and every green row: the floor's
+;;          complaint and its exit 1 are one branch, so exit 0 means no
+;;          complaint); a floor ABOVE the real count reds a genuinely green
+;;          suite;
 ;;          a malformed floor exits 2, never a silent default.
 ;;   probe: a zero-test run exits 0 (the false RED this rule must not
 ;;          create); a probe that GAINED tests exits 1 and says to drop the
@@ -1464,20 +1402,6 @@
           (is (str/includes? err "below the floor of 1")
               (str "the failure must name the floor it violated; got"
                    " stderr:\n" err)))))))
-
-(deftest ordinary-suite-clears-the-floor
-  (testing "an ordinary green suite is unaffected by the floor"
-    (with-fixture-dir
-      (fn [dir]
-        (write-fixture! dir "floor_ordinary_fixture_test" "floor-ordinary-fixture-test"
-                        "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "a suite that ran tests must still exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (not (str/includes? (str out err) "below the floor"))
-              (str "no floor diagnostic may appear on a clearing run; got"
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err)))))))
 
 (deftest floor-above-the-real-count-is-red
   (testing "RF2_MIN_TESTS above the executed count reds an otherwise-green suite"
