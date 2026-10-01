@@ -907,7 +907,9 @@
           original (rf.late-bind/get-fn hook-key)
           called?  (atom false)]
       (try
-        (rf.late-bind/set-fn! hook-key (fn [rdb _] (reset! called? true) rdb))
+        ;; Variadic, so a call through the real 3-argument shape lands in
+        ;; `called?` and fails the named assertion rather than throwing.
+        (rf.late-bind/set-fn! hook-key (fn [rdb & _] (reset! called? true) rdb))
         (let [fs {:rf.db/app {:n 1}}]
           (is (= fs (rf.epoch.tool-pair/reconcile-runtime-db-on-restore :test/x fs))
               "app-db-only frame-state is unchanged")
@@ -2534,7 +2536,9 @@
   state follows. The route slice
   lives in the runtime-db partition at [:rf.runtime/routing :current] — NOT
   under an app-db :rf/runtime root (a hard error) — and a
-  full-frame-state restore (EP-0001 decision #2) rewinds runtime-db with app-db."
+  full-frame-state restore (EP-0001 decision #2) rewinds runtime-db with app-db.
+  A route subscription held across the restore derefs to the rewound route
+  without re-subscribing."
     (rf/make-frame {:id :test/main})
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {} "/articles/:id")
@@ -2557,7 +2561,10 @@
            (get-in (:rf.db/runtime (rf/frame-state-value :test/main)) [:rf.runtime/routing :current :route-id]))
         "the route slice is in the runtime-db partition")
 
-    (let [history (rf/epoch-history :test/main)
+    (let [route   (rf/subscribe [:rf.route/id] {:frame :test/main})
+          _       (is (= :route/article @route)
+                      "the held route sub reads the current route before the restore")
+          history (rf/epoch-history :test/main)
           ;; The epoch whose runtime-db carries :route/home under
           ;; [:rf.db/runtime :rf.runtime/routing :current :route-id]. Restore rewinds
           ;; the whole frame-state, so :frame-state-after is the canonical unit.
@@ -2571,7 +2578,10 @@
       (is (true? (rf/restore-epoch! :test/main (:epoch-id target))))
       (is (= :route/home
              (get-in (:rf.db/runtime (rf/frame-state-value :test/main)) [:rf.runtime/routing :current :route-id]))
-          "the runtime-db route slice is rewound by the full-frame-state restore"))))
+          "the runtime-db route slice is rewound by the full-frame-state restore")
+      (is (= :route/home @route)
+          "the route sub held across the restore derefs to the rewound route")
+      (rf/unsubscribe :test/main [:rf.route/id]))))
 
 ;; ---- replace-frame-state! app-db patches ---------------------------------
 ;;
@@ -3116,13 +3126,16 @@
 
 ;; ---- capture-event! skip-ops cross-contamination ---------------------------
 ;;
-;; Every `:rf.epoch/*` op this namespace emits with a `:frame` tag fires
-;; OUTSIDE a cascade (the drain has either not started, or has just
-;; settled and the buffer has been harvested). If `capture-event!`
-;; failed to skip them they would accrete into `capture-buffers` and
-;; leak into the NEXT cascade's harvested record for the same frame —
-;; phantom `:trace-events` and a wrong `:trigger-event` from
-;; `find-trigger-event`'s fallback arm.
+;; Every `:rf.epoch/*` op this namespace emits carries a `:frame` tag. Most
+;; fire OUTSIDE a cascade (the drain has either not started, or has just
+;; settled and the buffer has been harvested); if `capture-event!` failed
+;; to skip them they would accrete into `capture-buffers` and leak into the
+;; NEXT cascade's harvested record for the same frame — phantom
+;; `:trace-events` and a wrong `:trigger-event` from `find-trigger-event`'s
+;; fallback arm. The two in-drain refusals (`:rf.epoch/restore-during-drain`,
+;; `:rf.epoch/replace-during-drain`) fire INSIDE the refused caller's
+;; cascade, carrying its dispatch-id, so the orphan-drop branch cannot catch
+;; them: `skip-ops` alone keeps them out of that cascade's own record.
 ;;
 ;; This catalogue test pins the `skip-ops` set against every
 ;; `:rf.epoch/*` op the namespace emits. If a future op is added (e.g.
@@ -3174,14 +3187,13 @@
           "no leaked effects from the out-of-drain emit"))))
 
 (deftest replace-frame-state-app-only-failure-does-not-leak-into-next-cascade
-  (testing "the two app-db-only patch failure-mode emits
-            (:rf.epoch/replace-during-drain,
-             :rf.epoch/replace-schema-mismatch) fire outside a
-            cascade with :frame tags. They MUST be filtered out of
-            capture-event!'s buffering — otherwise a failed
-            rejected patch leaks a phantom event into the next
-            real cascade for that frame."
-    ;; Use the schema-mismatch path — easier to drive than during-drain.
+  (testing "the app-db-only patch's schema-mismatch failure emit
+            (:rf.epoch/replace-schema-mismatch) fires outside a cascade
+            with a :frame tag. It MUST be filtered out of
+            capture-event!'s buffering — otherwise a rejected patch
+            leaks a phantom event into the next real cascade for that
+            frame. The in-drain refusal is pinned by
+            `in-drain-epoch-refusals-stay-out-of-the-settling-record`."
     (rf/make-frame {:id :test/sm})
     (rf/reg-app-schema [:n] {:frame :test/sm} [:int])
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
@@ -3206,9 +3218,9 @@
 
 (deftest restore-epoch-emits-do-not-leak-into-next-cascade
   (testing "restore-epoch!'s success emit (:rf.epoch/restored) and its
-            five documented failure-mode emits all fire outside a
-            cascade with :frame tags. None may bleed into the next
-            real cascade's :trace-events for that frame."
+            unknown-epoch failure emit (:rf.epoch/restore-unknown-epoch)
+            fire outside a cascade with :frame tags. Neither may bleed
+            into the next real cascade's :trace-events for that frame."
     (rf/make-frame {:id :test/r})
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
@@ -3232,6 +3244,44 @@
             ":rf.epoch/restored does not leak from a prior successful restore")
         (is (not (contains? ops :rf.epoch/restore-unknown-epoch))
             ":rf.epoch/restore-unknown-epoch does not leak from a prior failed restore")))))
+
+(deftest in-drain-epoch-refusals-stay-out-of-the-settling-record
+  (testing "a restore-epoch! and a replace-frame-state! refused from inside a
+            handler emit their -during-drain refusals INSIDE that cascade,
+            and the record the cascade settles carries no :rf.epoch/* op in
+            its :trace-events"
+    (rf/make-frame {:id :test/main})
+    (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [seed-eid (:epoch-id (last (rf/epoch-history :test/main)))
+          recorded (record-trace!)
+          attempts (atom nil)]
+      (rf/reg-event :try-both
+        (fn [{:keys [db]} _]
+          (reset! attempts [(rf/restore-epoch! :test/main seed-eid)
+                            (rf/replace-frame-state! :test/main {:rf.db/app {:n 999}})])
+          {:db (assoc db :tried? true)}))
+      (rf/dispatch-sync [:try-both] {:frame :test/main})
+      (is (= [false false] @attempts)
+          "both tool writes are refused from inside the drain")
+      (let [rec      (last (rf/epoch-history :test/main))
+            refusals (filterv #(#{:rf.epoch/restore-during-drain
+                                  :rf.epoch/replace-during-drain} (:operation %))
+                              @recorded)]
+        (is (= :try-both (:event-id rec))
+            "the settling record is the refusing cascade's own")
+        ;; Both refusals fired, stamped with THIS cascade's dispatch-id, so
+        ;; neither the orphan-drop branch nor a later harvest can be what
+        ;; keeps them out of `rec` — only the skip-ops guard can.
+        (is (= #{:rf.epoch/restore-during-drain :rf.epoch/replace-during-drain}
+               (into #{} (map :operation) refusals))
+            "both in-drain refusals were emitted")
+        (is (every? #(= (:dispatch-id rec) (get-in % [:tags :rf.trace/dispatch-id]))
+                    refusals)
+            "each refusal carries the settling cascade's dispatch-id")
+        (is (not-any? #(= "rf.epoch" (namespace (:operation %)))
+                      (:trace-events rec))
+            "no :rf.epoch/* op reached the settling record's :trace-events")))))
 
 (deftest skip-ops-catalogue-pins-every-rf-epoch-op
   (testing "skip-ops covers every :rf.epoch/* + :rf.epoch.cb/* + :rf.warning/* op this
@@ -3270,13 +3320,13 @@
                                          (re-seq #"emit-error!\s+(:rf\.(?:epoch(?:\.cb)?|warning)/[a-z][a-z0-9-]*)"
                                                  src)))
           derived        (into emit-ops (concat fail-ops error-ops))
-          ;; Every :rf.epoch/* op the artefact emits fires OUTSIDE a
-          ;; cascade — the deliberate-enumeration design (capture.cljc
-          ;; §skip-ops catalogue). If a FUTURE in-cascade :rf.epoch/* op is
-          ;; introduced (e.g. an in-drain :rf.epoch/cascade-rollback trace)
-          ;; it MUST surface in the epoch record — NOT be skipped — so list
-          ;; it here to exempt it from the skip-ops obligation below. Empty
-          ;; while no in-cascade :rf.epoch/* op exists.
+          ;; Every :rf.epoch/* op the artefact emits is kept out of epoch
+          ;; records, the two in-drain refusals included — the
+          ;; deliberate-enumeration design (capture.cljc §skip-ops
+          ;; catalogue). If a FUTURE :rf.epoch/* op must surface in the
+          ;; epoch record (e.g. an in-drain :rf.epoch/cascade-rollback
+          ;; trace), list it here to exempt it from the skip-ops obligation
+          ;; below. Empty while no such op exists.
           in-cascade     #{}
           out-of-cascade (set/difference derived in-cascade)
           ;; --- (b) the human-readable pin, kept honest against reality ----
@@ -3960,27 +4010,31 @@
 
 ;; :db-before and :db-after DIVERGE when the in-flight cascade
 ;; committed an app-db write before destroying. A parent event writes the
-;; db and `:fx`-dispatches a child; the child is the event whose handler
-;; calls destroy-frame!. The child's pre-cascade :db-before is the
-;; POST-PARENT state, and the destroy-time :db-after reflects the live
-;; container at destroy time — exercising the "partial cascade's writes
+;; db and `:fx`-dispatches a child; the child commits its own write and
+;; destroys the frame from an fx, which runs after the child's `:db`
+;; commit. The child's pre-cascade :db-before is the POST-PARENT state, and
+;; the destroy-time :db-after is the live container at destroy time, which
+;; carries the child's write — exercising the "partial cascade's writes
 ;; survive in the recorded value" half of the Spec-Schemas §Outcomes
 ;; contract with non-equal snapshots.
 
 (deftest live-halted-destroy-db-before-reflects-committed-cascade-writes
   (testing "the :halted-destroy record's :db-before is the destroying
             (child) event's pre-cascade snapshot — which reflects the
-            parent event's already-committed write"
+            parent event's already-committed write — and its :db-after is
+            the destroy-time state, which carries the child's own write"
     (rf/make-frame {:id :test/main})
     (let [records (atom [])]
       (rf/register-listener! :epoch ::watch (fn [r] (swap! records conj r)))
-      ;; Child: destroys the frame. Its pre-cascade db-before is whatever
-      ;; the container held when it was dequeued — i.e. AFTER the parent's
-      ;; {:phase :parent-done} write committed (per-event epoch boundary).
+      (rf/reg-fx :destroy-main (fn [_ _] (rf.frame/destroy-frame! :test/main)))
+      ;; Child: commits a write, then destroys the frame from an fx. Its
+      ;; pre-cascade db-before is whatever the container held when it was
+      ;; dequeued — i.e. AFTER the parent's {:phase :parent-done} write
+      ;; committed (per-event epoch boundary).
       (rf/reg-event :child-destroy
-                       (fn [_ _]
-                         (rf.frame/destroy-frame! :test/main)
-                         {}))
+                       (fn [{:keys [db]} _]
+                         {:db (assoc db :phase :child-wrote)
+                          :fx [[:destroy-main]]}))
       ;; Parent: commits a db write, then fx-dispatches the child. The
       ;; child runs as a SEPARATE dequeued event in the same drain.
       (rf/reg-event :parent-write-then-spawn
@@ -4003,9 +4057,10 @@
         (is (= {:phase :parent-done :marker 42} (:db-before halted))
             ":db-before is the destroying event's pre-cascade snapshot —
              the parent's committed {:phase :parent-done :marker 42}")
-        (is (= {:phase :parent-done :marker 42} (:db-after halted))
-            ":db-after is the destroy-time state (the child committed no
-             further write before destroying)")))))
+        (is (= {:phase :child-wrote :marker 42} (:db-after halted))
+            ":db-after is the destroy-time state — the child's committed write")
+        (is (not= (:db-before halted) (:db-after halted))
+            "the two snapshots differ, so a :db-after copied from :db-before fails here")))))
 
 ;; ---- build-record omits :event-id / :trigger-event when
 ;; ---- find-trigger-event yields nothing -----------------------------------
