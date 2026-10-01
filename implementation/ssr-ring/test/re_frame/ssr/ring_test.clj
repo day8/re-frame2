@@ -1327,14 +1327,22 @@
       (is (= [[:derived "/u"]]
              (rf.ssr.ring.lifecycle/resolve-initial-events!
                (fn [r] [[:derived (:uri r)]]) req)))
-      ;; A fn returning a non-vector throws invalid-initial-events.
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"initial-events fn must return an :initial-events vector"
-                            (rf.ssr.ring.lifecycle/resolve-initial-events! (fn [_] {:nope true}) req)))
-      ;; A non-vector, non-fn value throws invalid-initial-events.
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                            #"initial-events must be a vector OR a"
-                            (rf.ssr.ring.lifecycle/resolve-initial-events! '(:list-not-vector) req))))))
+      ;; Both invalid shapes — a fn returning a non-vector, and a value that
+      ;; is neither a vector nor a fn — throw the documented
+      ;; :rf.error/invalid-initial-events, each with its own recovery.
+      (doseq [[bad recovery message]
+              [[(fn [_] {:nope true})
+                :return-an-initial-events-vector-from-the-fn
+                #"initial-events fn must return an :initial-events vector"]
+               ['(:list-not-vector)
+                :supply-a-vector-or-a-fn-of-the-request
+                #"initial-events must be a vector OR a"]]]
+        (let [ex (try (rf.ssr.ring.lifecycle/resolve-initial-events! bad req)
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :rf.error/invalid-initial-events (:rf.error/id (ex-data ex)))
+              (str "canonical :rf.error/id for " (pr-str bad)))
+          (is (= recovery (:recovery (ex-data ex))))
+          (is (re-find message (str (ex-message ex)))))))))
 
 (deftest resolve-root-view-invalid-shape-unit-contract
   (testing "lifecycle/resolve-root-view — hiccup passthrough, 0-arity fn
