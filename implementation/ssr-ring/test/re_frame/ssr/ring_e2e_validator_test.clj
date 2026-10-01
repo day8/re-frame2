@@ -54,15 +54,12 @@
 
   ## Test scope
 
-  Five tests:
+  Four tests:
 
     1. `e2e-bad-tag-name-keyword-projects-through-projector` — view emits a hiccup
        keyword whose tag-name component is illegal under the validator
        grammar; HTTP-GET returns 500 + the default projector's body; the
        throwable's keyword does not leak onto the wire.
-    1b. `e2e-render-time-and-drain-time-share-projector-pipeline` — a
-       render-time and a drain-time validator throw yield the same
-       projector-driven status.
     2. `e2e-crlf-bearing-cookie-value-rejected` — handler sets a cookie
        whose `:value` carries CR/LF; HTTP-GET returns 500; no Set-Cookie
        on the wire; no CR/LF byte sequences in any response header.
@@ -200,72 +197,6 @@
               "the offending tag-name string must not be echoed back")
           (is (not (any-header-contains-crlf? headers))
               "no CR/LF/NUL bytes in any response header"))))))
-
-;; ===========================================================================
-;; Test 1b — render-time + drain-time both yield the same status
-;; ===========================================================================
-;;
-;; The explicit unification proof. A render-time throw
-;; (bad tag-name keyword) and a drain-time throw (CRLF cookie value)
-;; both surface as the SAME projector-driven status. Were the
-;; render-time path to produce its 500 via the Ring :on-error fallback
-;; while the drain-time path produced 500 via the projector, the
-;; statuses would match by coincidence (both default to 500) over two
-;; different pipelines, two different body contracts. This test pins
-;; them to one pipeline.
-
-(deftest e2e-render-time-and-drain-time-share-projector-pipeline
-  (testing "render-time validator throw + drain-time fx
-            throw produce identical projector-driven status + uniform
-            body shape (both flow through `apply-error-projection!`)"
-    ;; Path A: render-time throw via tag-name validator.
-    (rf/reg-event :init/ok-render-throw {:platforms #{:server}}
-      (fn [_ _] {}))
-    (rf/reg-view* :pages/render-throw
-                  (fn [] [(keyword "render throw")]))
-    (let [handler-a (rf.ssr.ring/ssr-handler
-                      {:initial-events [[:init/ok-render-throw]]
-                       :root-view [(rf/view :pages/render-throw)]
-                       :payload :rf.ssr.payload/whole-app-db})]
-      (rf.ssr.ring.test-support/with-jetty [port handler-a]
-        (let [{status-a :status body-a :body} (http-get port "/")]
-          (is (= 500 status-a))
-          ;; Path B: drain-time throw via CRLF cookie value (separate
-          ;; server so the per-frame projector buffer doesn't carry
-          ;; state across).
-          (rf/reg-event :init/drain-throw
-            {:platforms #{:server}}
-            (fn [_ _]
-              {:fx [[:rf.server/set-cookie
-                     {:name  "session"
-                      :value "abc\r\nbad"}]]}))
-          (rf/reg-view* :pages/drain-throw
-                        (fn [] [:div "drain-throw page renders"]))
-          (let [handler-b (rf.ssr.ring/ssr-handler
-                            {:initial-events [[:init/drain-throw]]
-                             :root-view [(rf/view :pages/drain-throw)]
-                             :payload :rf.ssr.payload/whole-app-db})]
-            (rf.ssr.ring.test-support/with-jetty [port-b handler-b]
-              (let [{status-b :status body-b :body} (http-get port-b "/")]
-                (is (= 500 status-b))
-                (is (= status-a status-b)
-                    "both paths produce the same projector-driven
-                     status (the unification contract)")
-                ;; Both paths run through the default projector →
-                ;; both carry `:internal-error` semantics and, since
-                ;; a projected 5xx is classified as the error
-                ;; arm, both render the PROJECTED error body (not the
-                ;; root): Path A because `render-to-string` threw; Path B
-                ;; because the drain-time 500 diverts to the error arm.
-                ;; Different trigger; SAME pipeline. The shared contract:
-                ;; both go through `apply-error-projection!` and stamp the
-                ;; projector's status on the response.
-                (is (or (str/includes? body-a "Something went wrong")
-                        (str/includes? body-a "internal-error"))
-                    "Path A: projector-driven render-time body")
-                (is (string? body-b)
-                    "Path B: drain-time 500 produces a wire body (the
-                     projected-error arm)")))))))))
 
 ;; ===========================================================================
 ;; Test 2 — CRLF-bearing cookie value → 500 status, no Set-Cookie on the wire

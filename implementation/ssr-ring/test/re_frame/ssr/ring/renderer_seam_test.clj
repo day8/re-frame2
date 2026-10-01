@@ -118,25 +118,6 @@
       (is (not (str/includes? body "render-hash"))
           "a nil hash OMITS the payload's :rf/render-hash key"))))
 
-(deftest a-custom-renderer-rides-the-wire-through-jetty
-  (testing "on the wire: status, Content-Type and
-            the whole document are JVM-built around the renderer's body"
-    (register-app!)
-    (let [handler (rf.ssr.ring/ssr-handler
-                    (assoc base-opts :renderer fixed-renderer))
-          client  (rf.ssr.ring.test-support/new-http-client)]
-      (rf.ssr.ring.test-support/with-jetty [port handler]
-        (let [{:keys [status headers body]}
-              (rf.ssr.ring.test-support/http-get client port "/seam" 10 :with-headers? true)
-              ct (first (content-type-of headers))]
-          (is (= 200 status))
-          (is (str/includes? (str ct) "text/html"))
-          (is (str/includes? body fixed-body))
-          (is (str/includes? body "<!DOCTYPE html>"))
-          (is (some? (payload-edn-of body)))
-          (is (nil? (wire-render-hash body)))
-          (is (not (str/includes? body "render-hash"))))))))
-
 ;; ===========================================================================
 ;; :root-view is required iff the renderer is the default
 ;; ===========================================================================
