@@ -10,8 +10,6 @@
   `ring.adapter.jetty` + JDK classes), so every test ns stays
   independently runnable under the artefact `:test` alias.
 
-  Contract smoke coverage lives in `test_support_contract_test.clj`.
-
   ## Per-test reset fixture
 
   `reset-runtime` is the artefact-local `:each` reset for the ssr-ring
