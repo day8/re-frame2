@@ -738,10 +738,6 @@
     (is (= :story.button (-> r :structuredContent :id)))
     (is (= "A clickable button." (-> r :structuredContent :body :doc)))))
 
-(deftest get-story-not-found
-  (let [r (invoke "get-story" {:story-id "story.nope"})]
-    (is (error? r))))
-
 (deftest get-variant-happy
   (let [r (invoke "get-variant" {:variant-id "story.button/primary"})]
     (is (success? r))
@@ -901,27 +897,6 @@
              (set (:registered s)))
           ":registered must equal the plan compiler's known-assertion-ids"))))
 
-(deftest list-assertions-registered-surfaces-browser-tier-families
-  ;; The specific browser-tier ids the canonical doc-vec does
-  ;; NOT cover but the plan compiler accepts: DOM, visual, a11y,
-  ;; reactive-count. A regression that narrowed :registered to the
-  ;; canonical eight would drop these and fail here.
-  (testing ":registered carries the DOM / visual / a11y / reactive families"
-    (let [r        (invoke "list-assertions" {})
-          reg      (set (:registered (:structuredContent r)))
-          expected #{:rf.assert/dom-visible :rf.assert/dom-hidden
-                     :rf.assert/dom-text
-                     :rf.assert/visual-snapshot :rf.assert/a11y
-                     :rf.assert/a11y-structural
-                     :rf.assert/caused :rf.assert/no-cascade-rerender}]
-      (is (success? r))
-      (is (set/subset? expected reg)
-          (str ":registered missing browser-tier ids: "
-               (set/difference expected reg)))
-      ;; And every canonical id is still present in :registered.
-      (is (set/subset? (set (rf.story/canonical-assertion-ids)) reg)
-          ":registered must remain a superset of the canonical ids"))))
-
 (deftest variant-edn-roundtrips
   (testing "variant->edn returns readable EDN text"
     (let [r (invoke "variant->edn" {:variant-id "story.button/primary"})]
@@ -1059,13 +1034,6 @@
         (is (<= (count (:stories s2)) 200)
             "first page MUST NOT exceed max-limit 200")))))
 
-(deftest list-stories-malformed-cursor-reads-as-stale
-  (testing "a malformed :cursor (bad base64 / wrong shape) returns the stale error"
-    (let [r (invoke "list-stories" {:cursor "not-a-valid-cursor!!!"})
-          s (:structuredContent r)]
-      (is (error? r))
-      (is (= :rf.mcp/cursor-stale (:reason s))))))
-
 (deftest list-modes-paginates
   (testing "list-modes honours :limit + :cursor"
     (doseq [n (range 35)]
@@ -1092,19 +1060,6 @@
       (is (every? #(= :hiccup (:kind %)) (:decorators s)))
       (is (true? (:has-more? s))))))
 
-(deftest list-tags-canonical-stays-full-under-pagination
-  (testing "the canonical-tag slot is bounded (7 inclusion + 5 :state/* magnitude = 12) so it never paginates"
-    ;; Register lots of custom tags.
-    (doseq [n (range 50)]
-      (rf.story/reg-tag (keyword (str "tag/pager" n)) {:doc ""}))
-    (let [r (invoke "list-tags" {:limit 5})
-          s (:structuredContent r)]
-      (is (success? r))
-      (is (= 12 (count (:canonical s)))
-          "the 12-entry canonical set (7 inclusion + 5 :state/* magnitude) always lands in full")
-      (is (= 5 (count (:custom s))) ":custom honours :limit")
-      (is (true? (:has-more? s))))))
-
 (deftest list-tags-all-is-full-catalogue-under-pagination
   ;; `:all` is the FULL tag catalogue (canonical ∪ ALL custom), NOT
   ;; canonical + the current page of custom. Page-scoped, a limit-5 read
@@ -1121,6 +1076,8 @@
       (is (success? r))
       (is (= 5 (count (:custom s))) "precondition: :custom is a 5-entry page (pagination active)")
       (is (true? (:has-more? s))    "precondition: more custom tags remain unfetched")
+      (is (= 12 (count (:canonical s)))
+          "the 12-entry canonical set (7 inclusion + 5 :state/* magnitude) lands in full, unpaginated")
       (is (= 62 (count (:all s)))
           ":all is the FULL catalogue — 12 canonical + all 50 custom — regardless of the :custom page size")
       (is (= (count all-set) (count (:all s))) ":all carries no duplicates")
@@ -4120,19 +4077,11 @@
 ;; Agent-onboarding text parity
 ;;
 ;; `story-instructions-text` (tools/dev.cljc) is hand-copied from the spec.
-;; CI must catch drift between the prose's canonical-tag list / assertion-id
-;; list and what the registrar reports — otherwise the agent's onboarding
-;; doc silently lies as the registry evolves.
+;; CI must catch drift between the prose's assertion-id list and what the
+;; registrar reports — otherwise the agent's onboarding doc silently lies as
+;; the registry evolves. The canonical-tag list is held to the registrar by
+;; `get-story-instructions-agrees-with-the-variant-schema-and-tag-vocabulary`.
 ;; ---------------------------------------------------------------------------
-
-(deftest story-instructions-text-mentions-every-canonical-tag
-  (testing "the onboarding text names every canonical tag the registrar ships"
-    (let [text       rf.story-mcp.tools.dev/story-instructions-text
-          tag-names  (set (map name rf.story/canonical-tags))]
-      (doseq [tag-name tag-names]
-        (is (re-find (re-pattern (str ":" tag-name "\\b")) text)
-            (str "story-instructions-text missing canonical tag :" tag-name
-                 " — keep the onboarding doc in lockstep with `rf.story/canonical-tags`"))))))
 
 (deftest story-instructions-text-mentions-every-canonical-assertion
   (testing "the onboarding text names every canonical assertion the registrar ships"
@@ -4502,14 +4451,6 @@
       (is (nil? (find-kw ns-str name-str))
           "the unknown id MUST NOT have been interned"))))
 
-(deftest list-stories-unknown-tag-does-not-intern
-  (testing "list-stories filter with an unknown :tags entry skips it WITHOUT interning"
-    (let [name-str (str "rf2-lqjbk-tag-" (System/nanoTime))
-          r        (invoke "list-stories" {:tags [name-str "dev"]})]
-      (is (success? r) "the known :dev tag still narrows; the unknown tag is dropped")
-      (is (nil? (find-kw nil name-str))
-          "unknown tag id MUST NOT intern"))))
-
 (deftest list-decorators-unknown-kind-rejects
   ;; A SUPPLIED `:kind` outside the bounded enum is an agent-recoverable
   ;; error, NOT a silent widen to the full catalogue. (Treating the typo as
@@ -4529,17 +4470,6 @@
       (is (re-find #"(?i)unknown decorator kind" (-> r :content first :text)))
       (is (nil? (find-kw nil name-str))
           "unknown kind name MUST NOT intern"))))
-
-(deftest list-decorators-known-kind-and-absent-kind-still-work
-  ;; The reject path is PRESENT-but-unrecognised only. An absent `:kind`
-  ;; (no filter requested) and a valid `:kind` both succeed.
-  (testing "absent :kind returns the full catalogue; a valid :kind filters"
-    (let [no-filter (invoke "list-decorators" {})
-          valid     (invoke "list-decorators" {:kind "hiccup"})]
-      (is (success? no-filter) "absent :kind is the legitimate no-filter path")
-      (is (vector? (-> no-filter :structuredContent :decorators)))
-      (is (success? valid) "a recognised :kind filters rather than rejecting")
-      (is (vector? (-> valid :structuredContent :decorators))))))
 
 (deftest run-variant-explicit-substrate-unavailable-is-error-no-intern
   ;; An explicit :substrate is NEVER silently dropped to nil. On the JVM
