@@ -193,12 +193,14 @@
                 ":where :event locates the failure at pre-handler validation")
             (is (= :rf2-lo28u/bad-event-args (-> v :tags :failing-id)))))))))
 
-;; ---- DIAGNOSTIC: app-schema present + dispatch-sync -----------------------
-;; Isolates the app-schema-registered variable (the live-wiring difference
-;; from the passing synthetic test) WITHOUT the async confound.
-(deftest diag-app-schema-present-sync-bad-event-args
-  (testing "DIAGNOSTIC — with an app-db schema registered for the frame
-            (live wiring), a dispatch-SYNC bad event arg"
+;; ---- app-schema present + dispatch-sync ----------------------------------
+;; The live wiring registers an app-db schema for the frame. This pins the
+;; synchronous event-args check with that schema present, apart from the
+;; async enqueue path the next test drives.
+(deftest app-schema-present-sync-bad-event-args-fires-where-event
+  (testing "with an app-db schema registered for the frame (live wiring), a
+            dispatch-SYNC bad event arg skips the handler and emits
+            :where :event"
     (rf/reg-app-schema [:auth] [:map [:token :string]])
     (let [calls (atom 0)]
       (rf/reg-event :rf2-lo28u/diag-bad-event-args
@@ -209,8 +211,9 @@
         (let [event-violations (filter #(and (= :rf.error/schema-validation-failure (:operation %))
                                              (= :event (-> % :tags :where)))
                                        @traces)]
-          (is (= 0 @calls) "DIAG: handler skipped?")
-          (is (= 1 (count event-violations)) "DIAG: :where :event fired?"))))))
+          (is (= 0 @calls) "the handler is skipped on the bad arg")
+          (is (= 1 (count event-violations))
+              "exactly one :where :event violation fired"))))))
 
 ;; ---- FAITHFUL LIVE-WIRING repro (async dispatch) --------------------------
 ;;
