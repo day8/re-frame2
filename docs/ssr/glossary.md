@@ -139,9 +139,10 @@ See [Several roots on one page](concepts.md#several-roots-on-one-page).
 
 The `:platforms` declaration on an [effect](../core/glossary.md#effect) or
 [coeffect](../core/glossary.md#coeffect). One registered as `#{:client}` (or
-`#{:server}`) is skipped, with a `:rf.fx/skipped-on-platform` trace, when a drain
-runs on the other side, so a handler runs on both platforms without branching on
-the runtime. See [`:platforms`](concepts.md#platforms--one-handler-gated-per-runtime).
+`#{:server}`) is skipped when a drain runs on the other side, with a
+`:rf.fx/skipped-on-platform` trace (`:rf.cofx/skipped-on-platform` for a coeffect),
+so a handler runs on both platforms without branching on the runtime. Events are
+not gated. See [`:platforms`](concepts.md#platforms--one-handler-gated-per-runtime).
 
 ### **head model**
 

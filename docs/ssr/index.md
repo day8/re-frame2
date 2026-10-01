@@ -4,7 +4,7 @@ Server-side rendering sends a page's HTML before its JavaScript loads, then lets
 client take over that page. In re-frame2 the same
 [events, subscriptions and views](../core/introduction.md) run on the JVM and in the
 browser, so you do not write a second, server-only version of
-the app. Code that belongs to one side is marked: effects and events with
+the app. Code that belongs to one side is marked: effects and coeffects with
 `:platforms`, and the server and client entry points with reader conditionals.
 
 ```clojure

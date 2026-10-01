@@ -113,7 +113,7 @@ body. It reads the request through a declared [coeffect](../core/glossary.md#coe
    {:id "2" :title "Hydration, verified"}])
 
 (rf/reg-event :rf/server-init
-  {:platforms        #{:server}                    ;; server only; Step 6 explains
+  {:platforms        #{:server}                    ;; records intent; Step 6 explains
    :rf.cofx/requires [:rf.server/request]}         ;; hand me the request, as data
   (fn [{:keys [db rf.server/request]} _]
     (let [limit (or (some-> (get-in request [:query-params "limit"]) parse-long) 10)]
@@ -405,7 +405,9 @@ When a server-side drain reaches a `#{:client}` effect, it skips it and emits a
 `:rf.fx/skipped-on-platform` trace. The handler that returned the effect does not
 need to know which runtime it is on. Coeffects are gated the same way:
 `:rf.server/request` is `#{:server}`, so a handler running client-side after
-hydration does not receive it.
+hydration does not receive it. Events are not gated: an event registration stores
+`:platforms`, but the router never reads it. Step 2's `:rf/server-init` stays on
+the server because only the per-request frame's `:initial-events` dispatch it.
 
 ## Step 7 — swap in the Ring adapter
 
