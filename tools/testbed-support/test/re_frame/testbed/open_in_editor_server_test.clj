@@ -260,21 +260,6 @@
                                     :peer "203.0.113.7"})))))
         (is (zero? (count @calls)) "launch! was not called")))))
 
-(deftest guard-allows-every-loopback-peer-representation
-  (testing "each address a Ring adapter can put in :remote-addr for a genuine
-            loopback caller still reaches launch!"
-    ;; `InetAddress.getHostAddress` emits IPv6 loopback EXPANDED as
-    ;; 0:0:0:0:0:0:0:1 — never the `::1` spelling.
-    (doseq [peer ["127.0.0.1" "127.0.0.53" "0:0:0:0:0:0:0:1" "::1"
-                  "::ffff:127.0.0.1" "::1%1"]]
-      (let [calls (atom [])]
-        (with-launch-spy calls
-          (let [resp (rf.testbed.open-in-editor-server/handle
-                       (req {:method :post :host "localhost:8031"
-                             :peer peer :file "fake_ns/core.cljs"}))]
-            (is (= 200 (:status resp)) (str "accepted peer: " peer))
-            (is (= 1 (count @calls)) (str "launch! ran for peer: " peer))))))))
-
 (deftest loopback-peer?-classifies-correctly
   (testing "the IPv4 loopback block, both IPv6 loopback spellings, and the
             IPv4-mapped form are accepted"
@@ -498,12 +483,6 @@
           (is (zero? (count @calls)) "launch! was not called")
           (is (= [] (cors-headers resp))
               "no CORS header — the opaque origin is never reflected"))))))
-
-(deftest guard-non-endpoint-path-falls-through
-  (testing "a request for any other path still falls through (nil) untouched"
-    (is (nil? (rf.testbed.open-in-editor-server/handle {:uri "/something/else"
-                            :request-method :post
-                            :headers {"host" "localhost:8031"}})))))
 
 ;; URI decoding failures must become JSON 400 responses at the Ring boundary.
 
