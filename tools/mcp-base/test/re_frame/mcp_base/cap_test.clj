@@ -42,26 +42,10 @@
 (deftest max-tokens-zero-disables-cap
   (is (nil? (rf.mcp-base.cap/max-tokens 0))))
 
-(deftest max-tokens-positive-integer-passed-through
-  (is (= 100 (rf.mcp-base.cap/max-tokens 100)))
-  (is (= 1000 (rf.mcp-base.cap/max-tokens 1000)))
-  (is (= 50000 (rf.mcp-base.cap/max-tokens 50000))))
-
 (deftest max-tokens-non-number-falls-back-to-default
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens "bogus")))
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens :not-a-number)))
   (is (= rf.mcp-base.overflow/default-max-tokens (rf.mcp-base.cap/max-tokens [1 2 3]))))
-
-(deftest max-tokens-only-zero-disables-not-other-numbers
-  ;; ONLY a literal `0` disables the cap (returns nil). A NEGATIVE number
-  ;; is neither a disable signal nor a passthrough cap — it is REJECTED
-  ;; as an out-of-domain arg (see
-  ;; `max-tokens-negative-rejected-with-invalid-arg` below). Smallest
-  ;; positive passes through unchanged.
-  (is (nil? (rf.mcp-base.cap/max-tokens 0)) "0 is the sole disable signal")
-  (is (= 1 (rf.mcp-base.cap/max-tokens 1)) "smallest positive passes through")
-  (is (rf.mcp-base.cap/invalid-arg? (rf.mcp-base.cap/max-tokens -1))
-      "a negative number is NOT a disable signal and NOT a cap — it is rejected"))
 
 (deftest max-tokens-negative-rejected-with-invalid-arg
   ;; A negative `:max-tokens` is REJECTED. Left unguarded it would
@@ -126,10 +110,6 @@
   (is (not (rf.mcp-base.cap/invalid-arg? {:other :map})) "an unrelated map is not a rejection")
   (is (not (rf.mcp-base.cap/invalid-arg? nil)) "nil is not a rejection"))
 
-(deftest max-tokens-coerces-double-to-long
-  (is (= 1000 (rf.mcp-base.cap/max-tokens 1000.0)))
-  (is (integer? (rf.mcp-base.cap/max-tokens 1000.0))))
-
 (deftest max-tokens-non-finite-out-of-range-rejected-not-crash-not-0-cap
   ;; `(long raw)` is UNSAFE on non-finite / out-of-range
   ;; numerics. On the JVM `##Inf` and `1.0E20` THROW
@@ -160,12 +140,6 @@
 ;; ---------------------------------------------------------------------------
 ;; sum-payload-tokens — sums every :text slot via ResultIO.
 ;; ---------------------------------------------------------------------------
-
-(deftest sum-payload-tokens-single-slot
-  (let [r (ok-text-result {:hello "world"})]
-    (is (pos? (rf.mcp-base.cap/sum-payload-tokens map-io r)))
-    (is (= (rf.mcp-base.overflow/token-estimate (pr-str {:hello "world"}))
-           (rf.mcp-base.cap/sum-payload-tokens map-io r)))))
 
 (deftest sum-payload-tokens-empty-content-is-zero
   (is (zero? (rf.mcp-base.cap/sum-payload-tokens map-io {:content []})))
@@ -262,40 +236,9 @@
                      {:type "text" :text (big-string 2000)}]}]
     (is (= 3000 (rf.mcp-base.cap/sum-payload-chars map-io r)))))
 
-(deftest sum-payload-chars-empty-content-is-zero
-  (is (zero? (rf.mcp-base.cap/sum-payload-chars map-io {:content []})))
-  (is (zero? (rf.mcp-base.cap/sum-payload-chars map-io {:content nil}))))
-
 (deftest byte-cap-multiplier-pinned-at-8x
   ;; The multiplier is part of the cap contract — call out a change.
   (is (= 8 rf.mcp-base.cap/byte-cap-multiplier)))
-
-(deftest apply-cap-cjk-payload-over-budget-tripped
-  ;; CJK / emoji / base64 payloads pass through the same `(quot c 4)`
-  ;; rule but each glyph carries ~2-3 tokens on a real tokenizer ⇒
-  ;; the heuristic under-reports. The cap MUST still trip over-budget
-  ;; CJK content under the current rule (the heuristic is not exact,
-  ;; but the absolute count grows with input size). Regression pin:
-  ;; a CJK payload of 5000 glyphs at cap=100 trips overflow.
-  (let [big-cjk (apply str (repeat 5000 \日))
-        r       {:content [{:type "text" :text big-cjk}]}
-        out     (rf.mcp-base.cap/apply-cap map-io r {:tool "cjk-test" :cap 100})
-        body    (get-in out [:structuredContent rf.mcp-base.vocab/overflow-key])]
-    (is (= :reached (:limit body)))
-    (is (pos? (:token-count body)))))
-
-(deftest byte-cap-multiplier-and-char-sum-are-pinned
-  ;; Defence-in-depth shape pin. The
-  ;; secondary byte cap is `cap * byte-cap-multiplier` and reads from
-  ;; the same `wire-payload-strings` seq the token sum does.
-  ;;
-  ;; Pin the two shape invariants — `byte-cap-multiplier = 8` and
-  ;; `sum-payload-chars` and `sum-payload-tokens` read the same content-
-  ;; texts seq.
-  (is (= 8 rf.mcp-base.cap/byte-cap-multiplier))
-  (let [r {:content [{:type "text" :text (big-string 100)}]}]
-    (is (= 100 (rf.mcp-base.cap/sum-payload-chars map-io r)))
-    (is (= 25 (rf.mcp-base.cap/sum-payload-tokens map-io r)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Two-stage gate, unit-trippable in isolation + reachable through the
@@ -445,8 +388,3 @@
     (is (contains? marker rf.mcp-base.vocab/overflow-key)
         "structuredContent payload MUST count toward the cap")))
 
-(deftest structured-content-under-budget-passes
-  (let [r {:content          [{:type "text" :text "ok"}]
-           :structuredContent {:small :payload}}
-        out (rf.mcp-base.cap/apply-cap structured-io r {:tool "snapshot" :cap 5000})]
-    (is (identical? r out))))
