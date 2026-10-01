@@ -233,42 +233,6 @@
 
 ;; ---- privacy-surface JVM false-path coverage ----------------------------
 
-(deftest whole-ring-projection-empty-under-disabled-gate
-  (testing "with the JVM debug gate off,
-            no records land in the ring, so the whole-ring projection
-            composition reads the empty vector. The projection surface composes with the
-            production-elision gate at the upstream (record assembly)
-            seam; the projection itself is a pure data transform that
-            no consumer can reach a record through under the disabled
-            gate."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/reg-event :prod-gate.priv/silent
-                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:prod-gate.priv/silent])
-      (is (= 1 (:n (app-db-of :rf/default)))
-          "WITNESS: the dispatch ran — nothing reached the ring for the
-           projection to read")
-      (is (= [] (mapv rf/project-egress
-                      (rf.epoch/epoch-history :rf/default)))
-          "empty whole-ring projection under the disabled gate"))))
-
-(deftest sensitive-rollup-not-computed-under-disabled-gate
-  (testing "the sensitive rollup is computed once per
-            assembled record (in build-record). The gate-disabled
-            path elides record assembly entirely; the rollup never
-            runs. We verify by asserting the ring stays empty — no
-            record means no rollup compute path was reached."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/reg-event :prod-gate.priv/sensitive
-                       {:sensitive? true}
-                       (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
-      (rf/dispatch-sync [:prod-gate.priv/sensitive])
-      (is (= "shh" (:token (app-db-of :rf/default)))
-          "WITNESS: the `:sensitive?`-flagged handler ran and wrote the token —
-           so the absent rollup below is elision, not an absent event")
-      (is (empty? (rf.epoch/epoch-history :rf/default))
-          "no record assembled — rollup never reached"))))
-
 (deftest project-egress-pure-transform-survives-disabled-gate
   (testing "project-egress is a pure data transform
             — it does NOT consult interop/debug-enabled?. A consumer

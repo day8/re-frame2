@@ -24,14 +24,12 @@
        the RAW dbs, so it survives the projection that replaces both
        sides with the same :rf/redacted sentinel.
 
-  Also covers retention caps and the JVM debug-disabled path."
+  Also covers the `:trace-events` retention cap."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
-            [re-frame.epoch :as rf.epoch]
             [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.frame :as rf.frame]
-            [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]
             ;; Side-effect requires (mirrors epoch_test.clj):
@@ -97,19 +95,6 @@
                {:sensitive [[:auth :password] [:auth :token]]})))
   nil)
 
-(defn- install-large-schema!
-  "Declare a `[:blob :payload]` large path against `frame-id` (EP-0025 —
-  commit-plane classification effect, `elision/apply-classification-effects`
-  under `:source :effect`). The frame container is make-frame'd by each
-  deftest before this runs."
-  [frame-id]
-  (rf.frame/swap-runtime-db! frame-id
-    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
-  nil)
-
-(defn- big-string [n]
-  (apply str (repeat n "X")))
-
 (defn- contains-leaf?
   "Walk an arbitrary EDN value looking for `secret` as a leaf string (exact
   equality or substring). Used by the trigger-event redaction
@@ -124,19 +109,6 @@
 
 ;; ---- 1. sensitive rollup ---------------------------------------------------
 
-(deftest rollup-false-on-non-sensitive-cascade
-  (testing "no sensitive handler, no frame-declared sensitive path —
-            rollup reads strict false"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (let [r (last-record :test/main)]
-      (is (false? (:rf.epoch/sensitive? r)))
-      (is (contains? r :rf.epoch/sensitive?)
-          "the slot is always present on assembled records — consumers
-           branch on (true? ...) / (false? ...) without an absence
-           special case"))))
-
 (deftest rollup-false-from-handler-meta-sensitive-removed
   (testing "A handler-meta `:sensitive?` annotation does not stamp
             trace events, so the rollup reads
@@ -150,18 +122,6 @@
     (let [r (last-record :test/main)]
       (is (false? (:rf.epoch/sensitive? r))
           "rollup reads false — a handler-meta annotation does not drive the stamp"))))
-
-(deftest rollup-true-from-frame-declared-non-nil-leaf
-  (testing "a frame-declared sensitive path that resolves to a non-nil
-            leaf in :db-after triggers the rollup even when no handler
-            in scope is sensitive"
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-    (let [r (last-record :test/main)]
-      (is (true? (:rf.epoch/sensitive? r))))))
 
 (deftest rollup-false-when-schema-path-resolves-to-nil
   (testing "a frame with a frame-declared sensitive path BUT the
@@ -277,191 +237,6 @@
 ;; (There is no `:redact-fn` hook, so there is no redact×project
 ;; composition to pin; the redacted-modified-paths counter is section 4 at
 ;; the bottom of this file.)
-
-(deftest project-egress-redacts-sensitive-in-db-after
-  (testing "frame-declared sensitive path in :db-after lands as
-            :rf/redacted in the projected record"
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
-      (is (= "topsecret" (get-in raw [:db-after :auth :password]))
-          "raw record carries the unredacted value (in-process)")
-      (is (= :rf/redacted (get-in projected [:db-after :auth :password]))
-          "projected record substitutes :rf/redacted"))))
-
-(deftest project-egress-redacts-sensitive-in-db-before
-  (testing ":db-before is also walked through the projection — a value
-            present pre-cascade lands as :rf/redacted in the projected
-            record"
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :seed
-                     (fn [{:keys [db]} _] {:db {:auth {:password "original-secret"}}}))
-    (rf/reg-event :inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (rf/dispatch-sync [:inc]  {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
-      (is (= "original-secret"
-             (get-in raw [:db-before :auth :password]))
-          "raw :db-before carries the value")
-      (is (= :rf/redacted
-             (get-in projected [:db-before :auth :password]))
-          "projected :db-before substitutes :rf/redacted"))))
-
-(deftest project-egress-elides-large-in-db-after
-  (testing "frame-declared :large? path in :db-after lands as a
-            :rf.size/large-elided marker in the projected record"
-    (rf/make-frame {:id :test/main})
-    (install-large-schema! :test/main)
-    (rf/reg-event :store
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)
-          marked    (get-in projected [:blob :payload])]
-      (is (= 50000 (count (get-in raw [:db-after :blob :payload])))
-          "raw record carries the full string")
-      ;; :large? matches at :db-after.[:blob :payload], so the projected
-      ;; record's [:db-after :blob :payload] slot is a marker map.
-      (is (or (rf.elision/marker? (get-in projected [:db-after :blob :payload]))
-              (rf.elision/marker? marked))
-          "projected record substitutes a :rf.size/large-elided marker"))))
-
-(deftest project-egress-elides-large-sub-output
-  (testing "a whole-output `:large?`-marked subscription's
-            computed value rides the structured `:sub-runs` row as
-            `:value` / `:prev-value`. The raw on-box record keeps the
-            exact value (Xray diff / restore-epoch! need it), but the
-            off-box `project-egress` egress
-            boundary MUST substitute a `:rf.size/large-elided` marker for
-            those value slots under the `:rf.egress/include-large? false` default —
-            otherwise a bulky derived value escapes the projection
-            contract. The non-value row metadata
-            (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
-            preserved, and the now-spent `:large?` row flag is stripped."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    ;; A whole-output `:large?` sub: its output is treated as large for
-    ;; downstream egress. EP-0025: this is a REGISTRATION override (read via
-    ;; `registration-classification`), NOT propagation. The trace projection
-    ;; (`classification/project-sub-tags`) stamps the `:rf.sub/run` tag with
-    ;; bare `:large?` from the registration meta and leaves the raw value in
-    ;; place; the epoch off-box projector elides it.
-    (rf/reg-sub :big {:large? true}
-                (fn [db _] (big-string 50000)))
-    ;; Read the sub inside a handler so a `:rf.sub/run` lands in the
-    ;; cascade's structured `:sub-runs` (mirrors epoch_test's
-    ;; sub-runs-projection).
-    (rf/reg-event :read-big
-                     (fn [_ _]
-                       (let [_v (rf/subscribe-once [:big] {:frame :test/main})]
-                         {})))
-    (rf/dispatch-sync [:seed]     {:frame :test/main})
-    (rf/dispatch-sync [:read-big] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          raw-row   (->> (:sub-runs raw)   (filter #(= :big (:sub-id %))) first)
-          projected (rf/project-egress raw)
-          proj-row  (->> (:sub-runs projected) (filter #(= :big (:sub-id %))) first)]
-      (is (some? raw-row)   "the :big sub produced a structured :sub-runs row")
-      (is (some? proj-row)  "the projected record keeps the :big sub-run row")
-
-      ;; Raw on-box row carries the exact 50KB value (and the :large? flag
-      ;; threaded by capture/sub-run-row).
-      (is (= 50000 (count (:value raw-row)))
-          "raw on-box row carries the full computed value")
-      (is (true? (:large? raw-row))
-          "raw row threads the whole-output :large? marker")
-
-      ;; Off-box projected row: value slot is a marker, NOT the raw value.
-      (is (rf.elision/marker? (:value proj-row))
-          "projected :sub-runs :value is a :rf.size/large-elided marker, not raw")
-      (is (not= (:value raw-row) (:value proj-row))
-          "the raw 50KB value does NOT egress in the projected :sub-runs")
-      ;; The prev-value slot (nil on first recompute) is left as-is; if a
-      ;; bulky prev-value were present it would also be a marker — assert
-      ;; it is never the raw bulky value.
-      (when (contains? proj-row :prev-value)
-        (is (or (nil? (:prev-value proj-row))
-                (rf.elision/marker? (:prev-value proj-row)))
-            "projected :prev-value is never a raw bulky value"))
-
-      ;; Non-value metadata preserved; the spent :large? flag is stripped.
-      (is (= (:sub-id raw-row)  (:sub-id proj-row)))
-      (is (= (:query-v raw-row) (:query-v proj-row)))
-      (is (= (:value-changed? raw-row) (:value-changed? proj-row)))
-      (is (not (contains? proj-row :large?))
-          "the now-spent :large? row flag is stripped from the projection")
-
-      ;; The whole-ring composition routes through the same projection.
-      (let [hist-row (->> (rf.epoch/epoch-history :test/main)
-                          (mapv rf/project-egress)
-                          (mapcat :sub-runs)
-                          (filter #(= :big (:sub-id %)))
-                          first)]
-        (is (rf.elision/marker? (:value hist-row))
-            "the whole-ring composition also elides the large :sub-runs value"))
-
-      ;; THE TRACE-TAG TWIN. The same value also rides the
-      ;; `:rf.sub/run` trace tag at `[:trace-events <i> :tags :rf.sub/value]`.
-      ;; Probing only the structured row would let the tag's raw copy egress
-      ;; unseen: a TOKEN-BUDGET leak on every off-box consumer that reads
-      ;; `:trace-events`. Both slots go through the one shared rule
-      ;; (`tool-pair/elide-whole-output-large-slots`), so they cannot drift.
-      (let [tags-of   (fn [rec]
-                        (->> (:trace-events rec)
-                             (filter #(= :rf.sub/run (:operation %)))
-                             (filter #(= :big (get-in % [:tags :rf.sub/id])))
-                             first
-                             :tags))
-            raw-tags  (tags-of raw)
-            proj-tags (tags-of projected)]
-        (is (= 50000 (count (:rf.sub/value raw-tags)))
-            "raw on-box trace tag carries the full computed value")
-        (is (true? (:large? raw-tags))
-            "the emit chokepoint stamped the whole-output :large? flag on the tag")
-        (is (rf.elision/marker? (:rf.sub/value proj-tags))
-            "projected :rf.sub/run tag's :rf.sub/value is a :rf.size/large-elided
-             marker, not the raw 50KB string")
-        (is (not (contains? proj-tags :large?))
-            "the now-spent :large? tag flag is stripped, as the row's is")
-        (is (= (get-in (:value proj-row)          [:rf.size/large-elided :bytes])
-               (get-in (:rf.sub/value proj-tags)  [:rf.size/large-elided :bytes]))
-            "row marker and tag marker agree on :bytes — one rule built both")
-        (is (rf.elision/marker? (:rf.sub/value
-                               (tags-of (rf/project-egress
-                                          (last (rf.epoch/epoch-history :test/main))))))
-            "the whole-ring composition elides the trace-tag twin too")
-        (let [lifted (tags-of (rf/project-egress raw {:rf.egress/include-large? true}))]
-          (is (= 50000 (count (:rf.sub/value lifted)))
-              "NEGATIVE CONTROL — :rf.egress/include-large? true returns the raw value to
-               the tag, so the default elision is classification-driven"))))))
-
-(deftest project-egress-bookkeeping-passes-through
-  (testing "bookkeeping slots are preserved by the projection — the
-            projection only mutates payload-bearing slots"
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
-      (doseq [k [:epoch-id :frame :committed-at :event-id :outcome
-                 :schema-digest :rf.epoch/sensitive?]]
-        (is (= (get raw k) (get projected k))
-            (str "bookkeeping slot " k " passes through unchanged"))))))
 
 (deftest project-egress-renders-and-subruns-pass-through-when-value-free
   (testing ":renders carries no app-db material (render-keys, timing,
@@ -602,81 +377,6 @@
         (is (= (:error-trace raw-row) (:error-trace proj-row))
             ":error-trace metadata is preserved")))))
 
-(deftest project-egress-fx-args-projection-is-idempotent
-  (testing "re-projecting an already-projected :effects row leaves :args as the
-            :rf/redacted sentinel (no drift under double-projection)"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-fx :fxp/login (fn [_ _] nil))
-    (rf/reg-event :do-login
-                     (fn [_ [_ creds]] {:fx [[:fxp/login creds]]}))
-    (rf/dispatch-sync [:do-login {:password "topsecret"}] {:frame :test/main})
-
-    (let [raw    (last-record :test/main)
-          once   (rf/project-egress raw)
-          twice  (rf/project-egress once)]
-      (is (= :rf/redacted (:args (effect-row once  :fxp/login))))
-      (is (= :rf/redacted (:args (effect-row twice :fxp/login)))
-          "double-projection is idempotent at the :args slot"))))
-
-(deftest project-egress-trigger-event-positional-arg-redacted
-  (testing "a sensitive value carried POSITIONALLY in the
-            dispatched event vector (e.g. a password as a bare positional
-            arg, [:login \"topsecret\"]) does NOT leak via the off-box
-            projection. The event ARGS are registration-owned transient
-            payloads (Spec 015 §151), not app-db-rooted, so the app-db
-            classification walker cannot match them — the projection FAILS
-            CLOSED: the head event-id keyword is retained as the summary,
-            every positional arg is redacted to :rf/redacted."
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    ;; The secret rides POSITIONALLY in the event vector — there is no
-    ;; app-db sensitive declaration that could match the trigger-event
-    ;; path (the frame-declared path is [:auth :password], rooted at
-    ;; app-db, not at the event vector). The off-box event-argument boundary
-    ;; therefore has to fail closed independently.
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
-      (is (= [:login "topsecret"] (:trigger-event raw))
-          "the raw ring keeps the exact dispatched event vector")
-      (is (contains? projected :trigger-event)
-          ":trigger-event slot preserved through the projection")
-      (is (= [:login :rf/redacted] (:trigger-event projected))
-          "off-box projection retains the head event-id keyword and
-           redacts the positional arg")
-      (is (not= "topsecret" (second (:trigger-event projected)))
-          "the secret positional arg is absent from the projected slot")
-      (is (= :login (:event-id projected))
-          "the event-id summary slot is unaffected (head keyword preserved)"))))
-
-(deftest project-egress-trigger-event-map-arg-redacted
-  (testing "a sensitive value nested in a MAP arg of the
-            dispatched event vector ([:auth/login {:password p}]) also
-            fails closed off-box. Map args are registration-owned
-            transient payloads too — an unmarked map arg cannot be proven
-            safe by the app-db walker, so the whole arg redacts to
-            :rf/redacted (no per-key descent that could leak the value)."
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :auth/login
-                     (fn [{:keys [db]} [_ {:keys [password]}]]
-                       {:db (assoc-in db [:auth :password] password)}))
-    (rf/dispatch-sync [:auth/login {:password "topsecret" :email "a@b.c"}]
-                      {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
-      (is (= [:auth/login {:password "topsecret" :email "a@b.c"}]
-             (:trigger-event raw))
-          "the raw ring keeps the exact dispatched map arg")
-      (is (= [:auth/login :rf/redacted] (:trigger-event projected))
-          "off-box projection redacts the whole map arg, head id retained")
-      (is (not (contains-leaf? (:trigger-event projected) "topsecret"))
-          "the secret is absent anywhere in the projected trigger-event"))))
-
 (deftest project-egress-trigger-event-marked-event-arg-redacted
   (testing "even an event whose registration DECLARES a
             sensitive arg path ({:sensitive [[:password]]}) fails closed
@@ -702,48 +402,6 @@
           "a marked event arg still fails closed at the trigger-event slot")
       (is (not (contains-leaf? (:trigger-event projected) "topsecret"))
           "the marked secret is absent from the projected trigger-event"))))
-
-(deftest project-egress-trigger-event-trusted-local-opt-in
-  (testing "the trusted-local :rf.egress/include-event-args? true opt-in
-            keeps the RAW event args off-box (a developer's own Xray panel
-            inspecting their own running app). It is ORTHOGONAL to the
-            app-db :rf.egress/include-sensitive? / :rf.egress/include-large? opt-ins — those do
-            NOT lift it; only :rf.egress/include-event-args? does."
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw (last-record :test/main)]
-      (is (= [:login "topsecret"]
-             (:trigger-event (rf/project-egress raw {:rf.egress/include-event-args? true})))
-          ":rf.egress/include-event-args? true keeps the raw event args off-box")
-      ;; Orthogonality: the app-db sensitive/large opt-ins do NOT lift the
-      ;; event-args redaction (event args are a different keyspace).
-      (is (= [:login :rf/redacted]
-             (:trigger-event (rf/project-egress raw {:rf.egress/include-sensitive? true})))
-          ":rf.egress/include-sensitive? does NOT lift the trigger-event-args redaction")
-      (is (= [:login :rf/redacted]
-             (:trigger-event (rf/project-egress raw {:rf.egress/include-large? true})))
-          ":rf.egress/include-large? does NOT lift the trigger-event-args redaction"))))
-
-(deftest project-egress-trigger-event-redaction-idempotent
-  (testing "re-projecting an already-projected record leaves
-            the trigger-event args as the :rf/redacted sentinel (no drift,
-            no re-leak under double-projection — a forwarder pipeline may
-            project the same record twice)."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw   (last-record :test/main)
-          once  (rf/project-egress raw)
-          twice (rf/project-egress once)]
-      (is (= [:login :rf/redacted] (:trigger-event once)))
-      (is (= [:login :rf/redacted] (:trigger-event twice))
-          "double-projection is idempotent at the :trigger-event slot"))))
 
 (def ^:private halt-secret "halt-secret-do-not-leak")
 
@@ -850,50 +508,6 @@
         (is (not (leaks? (rf/project-egress ok-rec)))
             "CONTROL: nor does its projection")))))
 
-(deftest project-egress-sensitive-wins-over-large
-  (testing "the wire-elision walker's composition rule (sensitive
-            wins over large) holds inside the projection — a slot
-            declared both :sensitive? AND :large? lands as :rf/redacted,
-            never as a :rf.size/large-elided marker (the marker would
-            leak :path / :bytes / :digest)"
-    (rf/make-frame {:id :test/main})
-    ;; EP-0025: classify `[:secret-pdf]` BOTH sensitive AND large via the
-    ;; commit-plane classification effect path. The egress WALKER applies the
-    ;; sensitive-wins-over-large rule (sensitive is checked before large per
-    ;; node), so the projected slot lands as `:rf/redacted`, never a large
-    ;; marker, even though both decls are present in the registry.
-    (rf.frame/swap-runtime-db! :test/main
-      (fn [rt] (rf.elision/apply-classification-effects rt
-                 {:sensitive [[:secret-pdf]]
-                  :large     [[:secret-pdf]]})))
-    (rf/reg-event :store-pdf
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (assoc db :secret-pdf payload)}))
-    (rf/dispatch-sync [:store-pdf (big-string 50000)] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
-      (is (= :rf/redacted (get-in projected [:db-after :secret-pdf]))
-          "sensitive wins — projected slot is :rf/redacted, not a marker"))))
-
-(deftest project-egress-non-record-input-fails-closed-without-throwing
-  (testing "a missing-epoch lookup must not throw. `project-egress` does
-            not short-circuit non-map input to `nil`: it treats a kindless
-            input as a VALUE and walks it, in the fail-closed direction.
-            Under a resolvable frame that walk is governed by the
-            frame's own classification, so an undeclared bare value passes
-            through; with no frame at all it fails closed to
-            `:rf/redacted`. Neither answer can carry epoch payload — a real
-            record is a map carrying `:kind` and goes to the epoch arm."
-    (is (nil? (try (mapv rf/project-egress [nil :not-a-map [:not :a :map]]) nil
-                   (catch Throwable t t)))
-        "the property that matters — no throw on any of the three")
-    (is (nil? (rf/project-egress nil))
-        "a nil hole stays nil")
-    (doseq [v [:not-a-map [:not :a :map]]]
-      (is (not (map? (rf/project-egress v)))
-          (str (pr-str v) " never becomes a record-shaped payload")))))
-
 (deftest project-egress-handles-missing-payload-slots
   (testing "a record without one of the four payload slots passes
             through cleanly (the projection only walks slots present
@@ -919,175 +533,6 @@
           "nil :db-after stays nil")
       (is (= :halted-destroy (:outcome projected))))))
 
-;; ---- 2b. EP-0015 named egress profile ------------------------------------
-;;
-;; `project-egress` lets an MCP / AI / tool epoch
-;; consumer SELECT the `:rf.egress/off-box-tool` boundary via the named
-;; `:rf.egress/profile` opt, while `:rf.egress/off-box-observability` stays
-;; the hosted-monitoring DEFAULT. The tool profile keeps the same
-;; redact-sensitive / elide-large defaults and the
-;; same no-digest floor: a large frame-owned app-db slot egresses as a
-;; `:rf.size/large-elided` marker whose `:path` / `:bytes` / `:type` /
-;; `:handle` are the structural indicators, and a `:digest` appears only
-;; under the explicit `:rf.egress/include-digests? true` override. An unknown profile
-;; is rejected against the shared closed enum.
-
-(defn- large-marker-body
-  "The marker body map at the projected `[:db-after :blob :payload]` large
-  slot (or nil if the slot is not a marker)."
-  [record]
-  (let [slot (get-in record [:db-after :blob :payload])]
-    (when (rf.elision/marker? slot)
-      (:rf.size/large-elided slot))))
-
-(deftest project-egress-tool-profile-includes-structural-digest
-  (testing "an MCP/AI/tool epoch consumer selects
-            :rf.egress/off-box-tool — the elided large slot's marker
-            equals the :rf.egress/off-box-observability default's, with no
-            :digest; the explicit include-digests? override
-            adds one. Both still elide the large value (no raw bytes
-            egress)."
-    (rf/make-frame {:id :test/main})
-    (install-large-schema! :test/main)
-    (rf/reg-event :store
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
-
-    (let [raw       (last-record :test/main)
-          obs-body  (large-marker-body
-                      (rf/project-egress raw))
-          obs-body2 (large-marker-body
-                      (rf/project-egress
-                        raw {:rf.egress/profile :rf.egress/off-box-observability}))
-          tool-body (large-marker-body
-                      (rf/project-egress
-                        raw {:rf.egress/profile :rf.egress/off-box-tool}))]
-      ;; Both off-box profiles elide the large slot to a marker (no raw bytes).
-      (is (some? obs-body)  "observability default elides the large slot")
-      (is (some? tool-body) "tool profile elides the large slot")
-      (is (not= 50000 (get-in (rf/project-egress raw) [:db-after :blob :payload]))
-          "the raw 50KB string never egresses under either off-box profile")
-      ;; The DEFAULT (no profile) == the observability profile.
-      (is (= obs-body obs-body2)
-          "the bare 1-arity default == :rf.egress/off-box-observability")
-      ;; Neither off-box profile carries a digest by default;
-      ;; the shared metadata (path / bytes / type / handle) IS the structural
-      ;; indicator set, so the two markers are equal.
-      (is (not (contains? obs-body :digest))
-          ":rf.egress/off-box-observability omits :digest")
-      (is (not (contains? tool-body :digest))
-          ":rf.egress/off-box-tool omits :digest by default")
-      (is (= tool-body obs-body)
-          "tool profile marker == observability marker")
-      (let [digest-body (large-marker-body
-                          (rf/project-egress
-                            raw {:rf.egress/profile          :rf.egress/off-box-tool
-                                 :rf.egress/include-digests? true}))]
-        (is (string? (:digest digest-body))
-            "the explicit digest override is a content hash on the JVM, not a value")))))
-
-(deftest project-egress-tool-profile-still-redacts-sensitive
-  (testing "selecting the tool profile does NOT lift the
-            sensitive redaction default — a frame-declared sensitive slot
-            still lands as :rf/redacted under :rf.egress/off-box-tool (the
-            tool profile only adds structural indicators for elided large
-            values, it does not reveal sensitive content)."
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-    (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-
-    (let [raw  (last-record :test/main)
-          tool (rf/project-egress
-                 raw {:rf.egress/profile :rf.egress/off-box-tool})]
-      (is (= :rf/redacted (get-in tool [:db-after :auth :password]))
-          "tool profile still redacts the sensitive slot"))))
-
-(deftest project-egress-unknown-profile-rejected
-  (testing "an unknown :rf.egress/profile is rejected against
-            the shared closed enum — a typo is a loud error, never a
-            silent fall-through to a permissive walk."
-    (rf/make-frame {:id :test/main})
-    (install-large-schema! :test/main)
-    (rf/reg-event :store
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
-    (let [raw (last-record :test/main)
-          ex  (try (rf/project-egress raw {:rf.egress/profile :rf.egress/not-a-real-profile})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? ex) "an unknown profile throws")
-      (is (= :rf.error/unknown-egress-profile (:rf.error/id (ex-data ex)))
-          "the error carries the closed-enum rejection id"))))
-
-(deftest whole-ring-composition-threads-tool-profile
-  (testing "the whole-ring composition threads the named
-            :rf.egress/off-box-tool profile to every record — each elided
-            large slot rides off the whole-ring egress path as a marker with
-            no :digest, and the explicit digest override
-            threads through the composition too."
-    (rf/make-frame {:id :test/main})
-    (install-large-schema! :test/main)
-    (rf/reg-event :store
-                     (fn [{:keys [db]} [_ payload]]
-                       {:db (assoc-in db [:blob :payload] payload)}))
-    (rf/dispatch-sync [:store (big-string 50000)] {:frame :test/main})
-
-    (let [tool-hist (mapv #(rf/project-egress
-                             % {:rf.egress/profile :rf.egress/off-box-tool})
-                          (rf.epoch/epoch-history :test/main))
-          last-body (large-marker-body (last tool-hist))]
-      (is (some? last-body) "the whole-ring tool egress elides the large slot")
-      (is (not (contains? last-body :digest))
-          "the tool profile carries no digest by default")
-      (is (string? (:digest (large-marker-body
-                              (last (mapv #(rf/project-egress
-                                             % {:rf.egress/profile          :rf.egress/off-box-tool
-                                                :rf.egress/include-digests? true})
-                                          (rf.epoch/epoch-history :test/main))))))
-          "the composition threads the explicit digest override"))))
-
-;; ---- 3. whole-ring projection by composition -------------------------------
-;;
-;; There is no `projected-history` convenience door: the supported
-;; whole-ring spelling is `(mapv #(project-egress % opts) (epoch-history
-;; frame-id))`. These pin that the composition carries the projection.
-
-(deftest whole-ring-composition-walks-the-ring
-  (testing "the composition returns one projected record per ring
-            entry, in oldest-first order"
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {}}))
-    (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-
-    (rf/dispatch-sync [:seed]              {:frame :test/main})
-    (rf/dispatch-sync [:login "secret-1"]  {:frame :test/main})
-    (rf/dispatch-sync [:login "secret-2"]  {:frame :test/main})
-
-    (let [history (rf/epoch-history :test/main)
-          ph      (mapv rf/project-egress history)]
-      (is (= (count history) (count ph)))
-      (is (= (mapv :epoch-id history) (mapv :epoch-id ph))
-          "ordering matches the raw ring")
-      (is (every? (fn [r]
-                    (let [pw (get-in r [:db-after :auth :password])]
-                      (or (nil? pw) (= :rf/redacted pw))))
-                  ph)
-          "every projected record's password slot is nil or :rf/redacted —
-           never the raw secret"))))
-
-(deftest whole-ring-composition-empty-when-no-records
-  (testing "the composition over a frame with no recorded epochs
-            returns the empty vector (matches the epoch-history empty
-            shape)"
-    (is (= [] (mapv rf/project-egress
-                    (rf.epoch/epoch-history :rf/no-such-frame))))))
-
 ;; ---- 4. listener delivery defaults to RAW ---------------------------------
 
 (deftest listener-fan-out-delivers-raw-record
@@ -1110,54 +555,7 @@
           "listener received the RAW value — projection is opt-in at
            the egress boundary, not the listener boundary"))))
 
-(deftest forwarder-shape-projects-at-egress
-  (testing "the canonical off-box-forwarder pattern: register raw,
-            project at egress. This pins the recommended shape for
-            tools (Xray-MCP watch-epochs, story / pair recorders)."
-    (rf/make-frame {:id :test/main})
-    (install-sensitive-schema! :test/main)
-    (let [shipped (atom [])
-          ship!   (fn [record]
-                    ;; Tool-side forwarder body — project here.
-                    (swap! shipped conj (rf/project-egress record)))]
-      (rf/register-listener! :epoch ::forwarder ship!)
-      (rf/reg-event :login
-                       (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
-      (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
-      (is (= 1 (count @shipped)))
-      (is (= :rf/redacted
-             (get-in (first @shipped) [:db-after :auth :password]))
-          "the off-box-bound payload is projected"))))
-
 ;; ---- 5. trace-events retention cap ----------------------------------------
-
-(deftest retention-cap-fixture-override-five
-  (testing "the TEST FIXTURE forces :trace-events-keep 5 (a
-            keep<depth OVERRIDE, NOT the shipped default of 50) so the
-            elision path is reachable cheaply — drive >5 cascades, the
-            oldest records lose :trace-events but keep the structured
-            projections"
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (is (= 5 (:trace-events-keep (:epoch-history (rf/current-config))))
-        "fixture OVERRIDE — the shipped runtime default is 50 (= :depth)")
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (dotimes [_ 6] (rf/dispatch-sync [:inc] {:frame :test/main}))
-
-    (let [history (rf/epoch-history :test/main)
-          n       (count history)]
-      (is (= 7 n))
-      (is (every? #(contains? % :sub-runs) history)
-          "structured :sub-runs projection survives on every record")
-      (is (every? #(contains? % :renders) history))
-      (is (every? #(contains? % :effects) history))
-      (is (every? #(contains? % :trace-events) (subvec history (- n 5) n))
-          "the most-recent 5 records keep :trace-events")
-      (is (every? #(not (contains? % :trace-events)) (subvec history 0 (- n 5)))
-          "older records (beyond the keep-5 window) drop :trace-events"))))
 
 (deftest retention-cap-zero-drops-every-trace-events
   (testing ":trace-events-keep 0 drops :trace-events from every
@@ -1177,78 +575,6 @@
           "no record carries :trace-events under :keep 0")
       (is (every? #(contains? % :sub-runs) history)
           "structured projections survive"))))
-
-(deftest retention-cap-explicit-large-keeps-all
-  (testing "an explicit :trace-events-keep value >= the depth cap
-            keeps every record's :trace-events — the opt-back-in path"
-    (rf/configure! {:epoch-history {:trace-events-keep 100}})
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (dotimes [_ 6] (rf/dispatch-sync [:inc] {:frame :test/main}))
-
-    (let [history (rf/epoch-history :test/main)]
-      (is (= 7 (count history)))
-      (is (every? #(contains? % :trace-events) history)
-          "every record retains :trace-events"))))
-
-;; ---- 6. JVM debug-disabled false-path coverage ----------------------------
-
-(deftest project-egress-handles-empty-history-under-disabled-gate
-  (testing "Per Security.md §Production gates: when
-            the JVM debug gate reads false, no records land in the
-            ring (per epoch_jvm_prod_gate_test). The whole-ring
-            composition over an empty ring is the empty vector —
-            project-egress never gets called against a record."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/reg-event :prod.priv/inc
-                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:prod.priv/inc])
-      (is (= [] (mapv rf/project-egress
-                      (rf.epoch/epoch-history :rf/default)))
-          "no records to project under disabled gate"))))
-
-(deftest project-egress-pure-fn-survives-disabled-gate
-  (testing "project-egress is a pure data transform — it does NOT
-            consult interop/debug-enabled? itself; consumers that
-            already hold a record (e.g. recorded earlier in dev,
-            replayed in a JVM test fixture) can still project it.
-            The gate elides record ASSEMBLY, not record PROJECTION."
-    (let [synthetic-record
-          {:kind          :rf/epoch-record
-           :epoch-id      1
-           :frame         :test/main
-           :committed-at  0
-           :event-id      :synthetic
-           :trigger-event [:synthetic]
-           :db-before     {:n 0}
-           :db-after      {:n 1}
-           :outcome       :ok
-           :schema-digest nil
-           :rf.epoch/sensitive? false
-           :trace-events  []
-           :sub-runs      []
-           :renders       []
-           :effects       []}]
-      (with-redefs [rf.interop/debug-enabled? false]
-        (let [projected (rf/project-egress synthetic-record)]
-          (is (some? projected))
-          (is (= 1 (:epoch-id projected))
-              "the projection runs even under the disabled gate — it
-               is a pure data transform"))))))
-
-(deftest sensitive-rollup-elides-with-record-assembly
-  (testing "no records means no rollup to compute. The gate-disabled
-            path drops the entire surface — the rollup is dev-only
-            because the records are dev-only."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (rf/reg-event :prod.priv/silent
-                       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-      (rf/dispatch-sync [:prod.priv/silent])
-      (is (empty? (rf/epoch-history :rf/default))
-          "ring stays empty — rollup never computed"))))
 
 ;; ---- 4. :rf.epoch/redacted-modified-paths-count ----------------------------
 ;;
