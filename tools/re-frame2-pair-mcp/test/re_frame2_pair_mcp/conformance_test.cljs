@@ -1373,18 +1373,22 @@
    ;; session makes the next frame-consuming op resolve to the pinned
    ;; frame instead of refusing with :ambiguous-frame.
    {:fixture/id    :set-operating-frame/happy
-    :fixture/doc   "set-operating-frame pins a registered frame and returns the resolved triple with :selected = the pinned frame (the tier-2 escape from :ambiguous-frame)."
+    :fixture/doc   "set-operating-frame pins a registered frame and returns frames-list's map with :selected = the pinned frame (the tier-2 escape from :ambiguous-frame)."
     :fixture/tool  "set-operating-frame"
     :fixture/args  {:frame ":stories"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ;; The validate-then-pin form reads frames-list, finds :stories
-     ;; registered, pins it, and re-reads the triple — now :selected
-     ;; :stories, :operating :stories.
-     ["select-frame!"             {:ok? true
-                                   :frames [:rf/default :stories]
-                                   :selected :stories
-                                   :operating :stories}]
+     ;; The runtime's answer depends on the form's shape. Pin-then-re-read
+     ;; evaluates to frames-list's map, now :selected / :operating
+     ;; :stories. A form ending at the bare pin evaluates to select-frame!'s
+     ;; own value, which carries none of that map's keys.
+     ["(let [_ (re-frame2-pair.runtime/select-frame! :stories)] (re-frame2-pair.runtime/frames-list))"
+      {:ok? true
+       :frames [:rf/default :stories]
+       :app-frames [:rf/default :stories]
+       :selected :stories
+       :operating :stories}]
+     ["select-frame!"             {:ok? true :frame :stories}]
      [:default                    nil]]
     ;; The emitted form MUST validate against the registered list AND
     ;; pin via select-frame! — the escape mechanism. The keyword rides
@@ -1396,7 +1400,7 @@
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :selected :stories :operating :stories}
-     :edn-contains-keys #{:frames :selected :operating}}}
+     :edn-contains-keys #{:frames :app-frames :selected :operating}}}
 
    {:fixture/id    :set-operating-frame/no-such-frame
     :fixture/doc   "set-operating-frame on an unregistered frame refuses with :no-such-frame as an isError envelope (Tool-Pair §Tool-surface obligations — the failed pin is not a silent success, so the invoke chokepoint won't flush the cache)."
@@ -1443,14 +1447,17 @@
     :fixture/args  {:frame ":shop/cart"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
-     ;; The form validates :shop/cart against (:frames (frames-list)) and
-     ;; pins it via select-frame!, then frames-list reports it as :selected
-     ;; / :operating.
-     ["select-frame!"             {:ok? true
-                                   :frames [:rf/default :shop/cart]
-                                   :app-frames [:shop/cart]
-                                   :selected :shop/cart
-                                   :operating :shop/cart}]
+     ;; The form validates :shop/cart against (:frames (frames-list)), pins
+     ;; it via select-frame!, then re-reads frames-list, which reports it as
+     ;; :selected / :operating. A bare pin would answer select-frame!'s own
+     ;; value instead.
+     ["(let [_ (re-frame2-pair.runtime/select-frame! :shop/cart)] (re-frame2-pair.runtime/frames-list))"
+      {:ok? true
+       :frames [:rf/default :shop/cart]
+       :app-frames [:rf/default :shop/cart]
+       :selected :shop/cart
+       :operating :shop/cart}]
+     ["select-frame!"             {:ok? true :frame :shop/cart}]
      [:default                    nil]]
     ;; The emitted form MUST pin the FRAME via select-frame!.
     :fixture/eval-form-must-contain
@@ -1458,7 +1465,7 @@
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :selected :shop/cart :operating :shop/cart}
-     :edn-contains-keys #{:frames :selected :operating}}}
+     :edn-contains-keys #{:frames :app-frames :selected :operating}}}
 
    {:fixture/id    :reset-operating-frame/clears-pin
     :fixture/doc   "reset-operating-frame clears the session frame pin (select-frame! nil), returning the post-reset map with :selected nil and :operating back at the tier-3/4 resolution."
