@@ -19,9 +19,10 @@
   the resolver values for the off-box default, and the trusted-local
   `:rf.egress/include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
 
-  resources is a TEST-ONLY dep here (production epoch never deps resources; the
-  hook is nil-safe when absent — proven by the `epoch_egress_trace_events_test`
-  suite which runs without resources)."
+  resources is a TEST-ONLY dep here: production epoch never deps resources, and
+  when the artefact is absent the hook lookup in
+  `omit-off-box-resource-scope-values` finds nil and passes the rows through
+  untouched."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as rf.epoch]
@@ -106,6 +107,28 @@
         (is (= [:username]  (get-in row [:tags :inputs]))))
       (testing "no raw secret survives anywhere in the projected record"
         (is (not (contains-secret? projected)))))))
+
+(deftest include-sensitive-lifts-the-scope-resolved-redaction
+  (testing "the trusted-local `:rf.egress/include-sensitive?` opt-in (the
+            `local-raw` boundary) lifts the scope-resolved redaction: the
+            resolver's raw `:input-values` and `:scope` come back, and the row
+            is not stamped sensitive"
+    (let [input-values {:username secret}
+          scope        [:rf.scope/session {:username secret}]
+          record       (record-with
+                         [(scope-resolved-event :rs/session input-values scope)])
+          row          (fn [projected] (first (:trace-events projected)))
+          lifted       (row (rf/project-egress record
+                                               {:rf.egress/include-sensitive? true}))]
+      (is (= :rf/redacted (get-in (row (rf/project-egress record))
+                                  [:tags :input-values]))
+          "CONTROL — the same record redacts under the off-box default")
+      (is (= input-values (get-in lifted [:tags :input-values]))
+          "the raw db reads come back")
+      (is (= scope (get-in lifted [:tags :scope]))
+          "the raw identity tuple comes back")
+      (is (not (contains? (:tags lifted) :sensitive?))
+          "the lifted row carries no sensitive stamp"))))
 
 (deftest off-box-projection-redacts-formerly-declassified-resolver-values
   (testing "a resolver declaring :rf.egress/public redacts its resolved values
