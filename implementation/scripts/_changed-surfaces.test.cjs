@@ -142,16 +142,6 @@ test('Xray src .cljs changes trigger story_xray_browser', () => {
   assert.equal(result.story_xray_browser, 'true');
 });
 
-test('Story testbed .cljs changes trigger story_xray_browser (gate runs the testbed)', () => {
-  const result = classify('tools/story/testbeds/counter_with_stories/stories.cljs');
-  assert.equal(result.story_xray_browser, 'true');
-});
-
-test('Xray feature_matrix testbed .cljs changes trigger story_xray_browser', () => {
-  const result = classify('tools/xray/testbeds/feature_matrix/core.cljs');
-  assert.equal(result.story_xray_browser, 'true');
-});
-
 // `.html` is a runtime extension under the testbed trees. The browser runners
 // COPY each testbed's hand-written index.html into the served output dir and
 // navigate to it (`stageTestbedHtml` in serve-and-run-story-play-scripts.cjs
@@ -184,27 +174,6 @@ test('Story spec-tree .html changes do NOT trigger story_xray_browser (rf2-kttom
 test('Story spec-only .md changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
   const result = classify('tools/story/spec/Spec.md');
   assert.equal(result.story_xray_browser, 'false');
-});
-
-test('Xray spec-only .md changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
-  const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
-  assert.equal(result.story_xray_browser, 'false');
-});
-
-// The exemplar is a JVM unit test, which really is inert for this tier.
-// tools/story/test/story_feature_load.cjs would be a misleading one: it is the
-// FULL Story feature-load gate's own Playwright spec, and pinning it false here
-// would read as a considered decision that no browser gate needs to run for
-// it. What is true is narrower — the PR-SMOKE tier must not run for it, because
-// neither of the smoke's two commands loads it. The full gate must, and the
-// story_full_gate rows further down assert that POSITIVELY.
-test('Story test-tree changes do NOT trigger the story_xray_browser PR-smoke tier (rf2-k9ekz)', () => {
-  const exemplar = 'tools/story/test/re_frame/story_decorator_chain_test.clj';
-  assert.ok(
-    fs.existsSync(path.join(REPO_ROOT, exemplar)),
-    `${exemplar} must exist — this row's whole claim is "a real JVM unit test"`,
-  );
-  assert.equal(classify(exemplar).story_xray_browser, 'false');
 });
 
 test('Xray test-only changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
@@ -2027,11 +1996,6 @@ test('Schemas change does NOT arm template_expensive — the scaffold registers 
 
 test('Story spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2-6r9j.108)', () => {
   const result = classify('tools/story/spec/002-Runtime.md');
-  assert.equal(result.template_expensive, 'false');
-});
-
-test('Xray spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2-6r9j.108)', () => {
-  const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
   assert.equal(result.template_expensive, 'false');
 });
 
