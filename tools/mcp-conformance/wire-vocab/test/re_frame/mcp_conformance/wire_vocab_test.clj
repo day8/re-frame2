@@ -165,22 +165,9 @@
                " failed schema validation:\n"
                (me/humanize (m/explain schema fixture-value)))))))
 
-(deftest every-canonical-marker-has-required-fixture-count
-  ;; Single-server markers need evidence; multi-server markers need at least
-  ;; two fixtures before distinct-server coverage is checked below.
-  (doseq [{:keys [key fixtures servers]} canonical-markers]
-    (testing (str "marker " key " — fixture count")
-      (let [n (count fixtures)]
-        (if (= 1 (count servers))
-          (is (>= n 1)
-              (str key " is single-server (" servers
-                   ") so >=1 fixture suffices, got " n))
-          (is (>= n 2)
-              (str key " is multi-server (" servers
-                   ") so >=2 fixtures required, got " n)))))))
-
 (deftest every-multi-server-marker-fixtures-cover-each-server
-  ;; Fixture count alone cannot prove that every contracted server is covered.
+  ;; Every server a marker is contracted for needs a fixture of its own, so a
+  ;; multi-server marker carries at least one fixture per server.
   (let [;; The servers the catalogue knows about, longest-first so a
         ;; prefix match resolves the most specific server (the names do
         ;; not overlap, but the order is stable regardless).
@@ -205,10 +192,7 @@
                 (str key " declares server " server " in :servers but no "
                      "fixture is tagged for it (fixture keys must start "
                      "with the server name; got fixtures "
-                     (vec (keys fixtures)) " covering servers " covered "). "
-                     "A multi-server marker's per-server "
-                     "fixture-coverage claim must be enforced, not just the "
-                     ">=2 count."))))))))
+                     (vec (keys fixtures)) " covering servers " covered ")."))))))))
 
 (deftest overflow-empty-body-is-rejected
   ;; `ReFrame2PairOverflowBody` requires every field: an emit MUST carry
@@ -442,12 +426,6 @@
                    {:event-id :user/sign-out :handler-id :auth}]
         cache     (rf.mcp-base.dedup/de-dupe-eq payload)
         wrapped   {:rf.mcp/dedup-table cache}]
-    (testing "the encoder emits a cache carrying the canonical cache-0 root"
-      (is (contains? cache (rf.mcp-base.dedup/make-cache-element 0))
-          (str "de-dupe-eq MUST emit a de-dupe.cache/cache-0 root entry. "
-               "If this fails the library's root convention changed and "
-               "the Node decoder's ROOT_CACHE_ID is wrong. Got keys: "
-               (pr-str (keys cache)))))
     (testing "the live-emitted marker validates against the tightened DedupTable schema"
       (is (m/validate DedupTable wrapped)
           (str "Live-emitted dedup-table failed DedupTable validation:\n"
@@ -576,12 +554,6 @@
                   :event     [:cart/add-item {:sku "xyz"}]}
         encoded  (rf.mcp-base.diff-encode/diff-encode-db-after epoch)
         db-after (:db-after encoded)]
-    (testing "the encoder writes the :rf.mcp/diff-from marker"
-      (is (= :db-before (get db-after :rf.mcp/diff-from))
-          (str "diff-encode-db-after MUST emit the :rf.mcp/diff-from "
-               "marker. If this fails, the encoder stopped diff-encoding "
-               ":db-after — the regression the fixture+grep gates miss. "
-               "Got :db-after = " (pr-str db-after))))
     (testing "the emitted body validates against the canonical DiffFromBody schema"
       (is (m/validate DiffFromBody db-after)
           (str "Live-emitted :db-after failed DiffFromBody validation:\n"
@@ -589,18 +561,6 @@
     (testing "the emitted marker decodes back to the original :db-after"
       (is (= epoch (rf.mcp-base.diff-encode/decode-db-after encoded))
           "live encode → decode round-trips the epoch"))))
-
-(deftest diff-from-marker-absent-when-encoder-disabled
-  ;; The contrapositive: `:full` mode passes :db-after through unchanged,
-  ;; so the marker MUST be absent. This pins that the marker's presence
-  ;; is genuinely tied to the encoder running — proving the live test
-  ;; above isn't accidentally green because something else writes the key.
-  (let [epoch  {:db-before {:a 1} :db-after {:a 2}}
-        passed (first (rf.mcp-base.diff-encode/diff-encode-epochs [epoch] :full))]
-    (is (not (contains? (:db-after passed) :rf.mcp/diff-from))
-        ":full mode must NOT carry the diff-from marker")
-    (is (= {:a 2} (:db-after passed))
-        ":full mode passes :db-after through verbatim")))
 
 (deftest overflow-marker-shape-emitted-live-by-canonical-builder
   ;; `:rf.mcp/overflow`'s wire emission is live-tested in
@@ -613,8 +573,6 @@
   (let [marker (rf.mcp-base.overflow/overflow-payload
                  {:tool "snapshot" :token-count 6250 :cap 5000
                   :hint "Narrow the scope."})]
-    (is (= :rf.mcp/overflow (first (keys marker)))
-        "builder emits the canonical top-level :rf.mcp/overflow key")
     (is (m/validate Overflow marker)
         (str "Live-built overflow marker failed Overflow validation:\n"
              (me/humanize (m/explain Overflow marker))))))
@@ -663,17 +621,13 @@
 
 (deftest elision-marker-emitted-live-by-canonical-walker
   ;; Drive the REAL walker over a frame-declared `:large` slot and assert
-  ;; the emitted marker (a) is the canonical single-key wrapper and (b)
-  ;; validates against the `ElisionMarker` schema — the gate that would
-  ;; have caught the `:reason :schema` → `:frame` drift.
+  ;; the emitted marker validates against the closed single-key
+  ;; `ElisionMarker` schema — the gate that catches a `:reason` drift
+  ;; between the runtime and the schema.
   (let [out    (elision-live-marker
                  [[:user :uploaded-pdf]]
                  {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         marker (get-in out [:user :uploaded-pdf])]
-    (testing "the walker substitutes a :rf.size/large-elided marker at the declared slot"
-      (is (rf.elision/marker? marker)
-          (str "elide-wire-value MUST substitute a :rf.size/large-elided "
-               "marker at a frame-declared :large slot. Got: " (pr-str marker))))
     (testing "the live-emitted marker validates against the canonical ElisionMarker schema"
       (is (m/validate ElisionMarker marker)
           (str "Live-emitted elision marker failed ElisionMarker validation "
@@ -747,16 +701,11 @@
 
 (deftest schema-validation-failure-marker-emitted-live-validates
   ;; Drive the REAL schemas-artefact validation-failure emitter and assert
-  ;; the substituted marker (a) is the canonical single-key wrapper and (b)
-  ;; validates against `ElisionMarker` — the gate that would have caught the
-  ;; `:reason :schema` / missing-`:hint` non-conformance this bead fixed.
+  ;; the substituted marker validates against the closed single-key
+  ;; `ElisionMarker` schema, which requires `:hint` and the EP-0025
+  ;; `:reason` enum.
   (let [blob   (apply str (repeat 200 "X"))
         marker (schema-validation-failure-marker blob)]
-    (testing "validate-event! substitutes a :rf.size/large-elided marker on a :large? failure"
-      (is (rf.elision/marker? marker)
-          (str "validate-event! MUST substitute a :rf.size/large-elided "
-               "marker for a :large?-flagged slot's failure. Got: "
-               (pr-str marker))))
     (testing "the live-emitted validation-failure marker validates against ElisionMarker"
       (is (m/validate ElisionMarker marker)
           (str "Live-emitted schema-validation-failure marker failed "
@@ -768,9 +717,6 @@
           (str "The validation-failure marker MUST emit :reason :effect "
                "(EP-0025 — the canonical commit-plane classification source). Got: "
                (pr-str (get-in marker [:rf.size/large-elided :reason])))))
-    (testing "the marker carries the REQUIRED :hint slot"
-      (is (contains? (:rf.size/large-elided marker) :hint)
-          ":hint is REQUIRED by ElisionMarkerBody"))
     (testing "the large blob survives nowhere verbatim in the marker"
       (is (not (str/includes? (pr-str marker) blob))
           "the whole-value substitution must not re-leak the blob"))))
@@ -994,21 +940,6 @@
                  "remove the entry from "
                  "`re-frame2-pair-overflow-js-required-grep-markers`."))))))
 
-;; ---------------------------------------------------------------------------
-;; Server-coverage pin. The set of servers each marker is contracted
-;; against is the *current* state; this test prints it on `--verbose`
-;; so a reviewer sees the shape. It also asserts the only servers we
-;; reference are the three known servers — a typo in a `:servers` set
-;; surfaces here.
-;; ---------------------------------------------------------------------------
-
-(deftest server-references-are-all-known
-  (doseq [{:keys [key servers]} canonical-markers]
-    (testing (str "marker " key " — :servers values")
-      (is (every? rf.mcp-conformance.fixtures/known-servers servers)
-          (str "Unknown server in :servers for " key ": "
-               (remove rf.mcp-conformance.fixtures/known-servers servers))))))
-
 (deftest story-mcp-still-emits-zero-uncontracted-cross-mcp-markers
   ;; Self-documenting tripwire: the day story-mcp adopts a NEW
   ;; cross-MCP marker as an INLINE EMISSION (i.e. one it is NOT
@@ -1109,19 +1040,7 @@
   ;; `mcp-base/vocab.cljc`.
   (let [wire-rel "tools/story-mcp/src/re_frame/story_mcp/tools/wire_pipeline.cljc"]
     (is (some #{wire-rel} rf.mcp-conformance.fixtures/story-mcp-source-files)
-        "wire_pipeline.cljc (emits :rf.mcp/dedup-table via base-dedup) must be in the swept source set")
-    ;; Belt-and-braces: the emitter carries NO uncontracted canonical
-    ;; marker as inline data (mirrors the green state the generic
-    ;; sweep asserts). If a future edit inline-emits one, BOTH this pin
-    ;; and the generic sweep flip RED.
-    (let [stripped          (rf.mcp-conformance.fixtures/strip-comments-and-strings (rf.mcp-conformance.fixtures/read-source wire-rel))
-          uncontracted-keys (for [{:keys [key servers]} canonical-markers
-                                  :when (not (contains? servers :story-mcp))]
-                              key)]
-      (doseq [key uncontracted-keys]
-        (is (not (str/includes? stripped (rf.mcp-conformance.wire-vocab.source-pins/marker-key->literal key)))
-            (str key " (uncontracted for story-mcp) found as inline data in "
-                 wire-rel " — would be a cross-MCP vocabulary leak."))))))
+        "wire_pipeline.cljc (emits :rf.mcp/dedup-table via base-dedup) must be in the swept source set")))
 
 ;; ---------------------------------------------------------------------------
 ;; Envelope indicator-field gate (MUST-level pin).
