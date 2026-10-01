@@ -5066,7 +5066,7 @@ const FRESCO_DOM_TESTS = pinnedRoster('FRESCO_DOM_TESTS', [
   'implementation/fresco/test/re_frame/fresco/roots_frames_isolation_dom_cljs_test.cljs',
 ]);
 
-test('fresco DOM suites and the controlled testbed arm cljs_browser without losing cljs_node_test (rf2-8a6s)', () => {
+test('fresco DOM suites and the controlled testbed arm cljs_browser without losing cljs_node_test', () => {
   // The constraint, pinned: cljs_browser is IN ADDITION TO
   // cljs_node_test, not instead of it. `cljs_node_test` is the only output
   // that schedules the package smoke and the freeze gate, and the browser
