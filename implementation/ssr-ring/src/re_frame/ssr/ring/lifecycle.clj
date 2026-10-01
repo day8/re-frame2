@@ -136,9 +136,9 @@
 
   Both spellings emit byte-identical HTML; only the first is symmetric
   with the documented client `:render-tree-fn #((rf/view :app/root))`
-  (Spec 011 §Default flow step 3 — note ITS outer call too), which is the
-  pairing `ring_streaming_test/streaming-final-hash-matches-client-
-  resolved-tree` pins."
+  (Spec 011 §Default flow step 3 — note ITS outer call too). That pairing
+  is pinned by
+  `render_hash_tier_test/the-surviving-hash-matches-the-documented-client-tree`."
   [root-view]
   (cond
     (vector? root-view) root-view
