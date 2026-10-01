@@ -45,7 +45,8 @@
   CLJS (`operating_frame.cljs` + the runtime preload), with no
   JVM-reachable builder — same FIXTURE+source-pin posture as
   `:rf.mcp/summary` / `:rf.mcp/result`."
-  (:require [clojure.string :as str]
+  (:require [clojure.edn    :as edn]
+            [clojure.string :as str]
             [clojure.test   :refer [deftest is testing]]
             [malli.core     :as m]
             [malli.error    :as me]
@@ -136,14 +137,18 @@
    [:reason [:enum :no-such-frame :missing-frame]]])
 
 ;; ---------------------------------------------------------------------------
-;; Fixtures — mirror the descriptor examples in
-;; `descriptors_data.cljs` (set/reset/get-operating-frame) verbatim, plus
-;; the multi-frame independent-resolution cases.
+;; Fixtures — the success envelopes mirror the map the runtime's
+;; `frames-list` builds (the descriptor examples abbreviate it: they omit
+;; `:app-frames`); the failure envelopes mirror set-operating-frame's
+;; descriptor examples 2 + 3. `fixtures-mirror-their-production-source`
+;; compares each with its source.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private success-fixtures
-  "Per-scenario success envelopes mirroring the documented descriptor
-  examples + the EP-0023 multi-frame independent-resolution contract.
+  "Per-scenario success envelopes — the `re-frame2-pair.runtime/frames-list`
+  map that get-operating-frame and reset-operating-frame return, in the
+  scenarios the descriptor examples document + the EP-0023 multi-frame
+  independent-resolution contract.
   Every fixture MUST validate against `OperatingFrameSuccess`."
   {;; --- single-frame, sole-app-frame tier-3 resolution -------------------
    ;; get-operating-frame example 1: nothing pinned, one app frame ⇒
@@ -297,6 +302,48 @@
   example envelopes)."
   "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs")
 
+(def ^:private frames-list-rel
+  "Repo-relative path to the runtime preload whose `frames-list` builds the
+  success envelope get-operating-frame and reset-operating-frame return."
+  "skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs")
+
+(defn- set-operating-frame-block
+  "The set-operating-frame descriptor's source text (def-to-def)."
+  []
+  (-> (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)
+      (str/split #"\(def set-operating-frame")
+      second
+      (str/split #"\(def reset-operating-frame")
+      first))
+
+(defn- set-operating-frame-example-reply
+  "The reply map of example `n` in set-operating-frame's description — the
+  EDN after `->` on its `\"<n>. … -> {…}\"` line — or nil when no such
+  example exists."
+  [n]
+  (some->> (set-operating-frame-block)
+           (re-find (re-pattern (str "\"" n "\\. .*?-> (\\{[^}]*\\})")))
+           second
+           edn/read-string))
+
+(deftest fixtures-mirror-their-production-source
+  ;; The fixtures above are hand-written; this compares each family with the
+  ;; ONE source it mirrors, so a production envelope that drops a slot the
+  ;; fixture carries goes red here rather than leaving every schema test green.
+  (testing "every success-fixture key is emitted as data by the runtime's frames-list"
+    (let [text (rf.mcp-conformance.fixtures/source-form frames-list-rel "(defn frames-list")]
+      (doseq [k (into (sorted-set) (mapcat keys) (vals success-fixtures))]
+        (is (re-find (rf.mcp-conformance.fixtures/variant-regex (pr-str k)) text)
+            (str "success-fixture key " (pr-str k) " is not emitted as data by "
+                 "frames-list in " frames-list-rel)))))
+  (testing "every failure-fixture key is in the set-operating-frame example it mirrors"
+    (doseq [[fixture-name n] {:no-such-frame 2 :missing-frame 3}
+            :let [example (set-operating-frame-example-reply n)]
+            k (keys (failure-fixtures fixture-name))]
+      (is (contains? example k)
+          (str "failure fixture " fixture-name " carries " (pr-str k)
+               " but set-operating-frame example " n " replies " (pr-str example))))))
+
 (deftest set-operating-frame-requires-frame-arg
   ;; EP-0023: the public address is the FRAME id, so `set-operating-frame`
   ;; REQUIRES `:frame`. Pin that the descriptor's inputSchema declares
@@ -317,13 +364,7 @@
   ;; carries ONLY `:frame` + `:build` (the build-targeting arg every tool
   ;; shares), and specifically NOT a `:realm` / `:realm-id` property. A
   ;; regression that added a public realm pin trips here.
-  (let [src (rf.mcp-conformance.fixtures/read-source set-operating-frame-descriptor-rel)
-        ;; isolate the set-operating-frame descriptor block (def-to-def)
-        block (-> src
-                  (str/split #"\(def set-operating-frame")
-                  second
-                  (str/split #"\(def reset-operating-frame")
-                  first)]
+  (let [block (set-operating-frame-block)]
     (is (str/includes? block ":frame")
         "the set-operating-frame inputSchema declares the public :frame address")
     (testing "no public :realm pin arg in the set-operating-frame inputSchema"
