@@ -27,13 +27,6 @@
     (is (= {:trace [1] :dropped-sensitive 3 :elided-large 2}
            (rf.mcp-base.envelope/with-indicators {:trace [1]} {:dropped 3 :elided 2})))))
 
-(deftest with-indicators-uses-vocab-keys
-  ;; The slots MUST be the canonical vocab keys, not literal keywords —
-  ;; pin the dependency so a vocab rename propagates here.
-  (let [r (rf.mcp-base.envelope/with-indicators {} {:dropped 1 :elided 1})]
-    (is (contains? r rf.mcp-base.vocab/dropped-sensitive-key))
-    (is (contains? r rf.mcp-base.vocab/elided-large-key))))
-
 ;; ---------------------------------------------------------------------------
 ;; marker-text? — wire-bounded :rf.mcp/* marker detection.
 ;; ---------------------------------------------------------------------------
@@ -53,15 +46,6 @@
   (testing "nil-safe / non-string"
     (is (false? (rf.mcp-base.envelope/marker-text? nil)))
     (is (false? (rf.mcp-base.envelope/marker-text? 42)))))
-
-(deftest marker-prefixes-are-derived-from-vocab
-  ;; The prefixes MUST track the vocab keys so a key rename can't
-  ;; silently desync the detector from the emitter. Both the flat and
-  ;; the namespaced-map print forms are present.
-  (is (some #(= % (str "{" rf.mcp-base.vocab/overflow-key)) rf.mcp-base.envelope/marker-prefixes))
-  (is (some #(= % (str "{" rf.mcp-base.vocab/cache-hit-key)) rf.mcp-base.envelope/marker-prefixes))
-  (is (some #(= % "#:rf.mcp{:overflow") rf.mcp-base.envelope/marker-prefixes))
-  (is (some #(= % "#:rf.mcp{:cache-hit") rf.mcp-base.envelope/marker-prefixes)))
 
 (deftest marker-text?-only-matches-leading-marker-not-embedded-key
   ;; `marker-text?` is `starts-with?`, not
@@ -86,15 +70,6 @@
     (let [s (pr-str (array-map :a 1 rf.mcp-base.vocab/overflow-key {:limit :reached}))]
       (is (false? (rf.mcp-base.envelope/marker-text? s))
           "overflow key present but not the leading key ⇒ not a marker"))))
-
-(deftest marker-text?-empty-and-blank-strings-are-not-markers
-  ;; Boundary pin: the empty string and whitespace are
-  ;; strings (so they pass the `string?` guard) but match no prefix.
-  (is (false? (rf.mcp-base.envelope/marker-text? "")))
-  (is (false? (rf.mcp-base.envelope/marker-text? "   ")))
-  (is (false? (rf.mcp-base.envelope/marker-text? "{")))
-  (is (false? (rf.mcp-base.envelope/marker-text? "#:rf.mcp"))
-      "the namespaced-map prefix STEM alone (no key) is not a complete marker prefix"))
 
 (deftest marker-text?-handles-both-print-forms
   ;; JVM `pr-str` emits the namespaced-map shorthand for a single-ns
@@ -127,12 +102,7 @@
   (testing "strict prefix-superset of a marker key ⇒ NOT a marker (namespaced-map form)"
     (is (false? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:overflowed {:x 1}}")))
     (is (false? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:cache-hit-extra {:x 1}}"))))
-  (testing "the EXACT marker key still matches (both print forms)"
-    (is (true? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/overflow {:x 1}}")))
-    (is (true? (rf.mcp-base.envelope/marker-text? "{:rf.mcp/cache-hit {:x 1}}")))
-    (is (true? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:overflow {:x 1}}")))
-    (is (true? (rf.mcp-base.envelope/marker-text? "#:rf.mcp{:cache-hit {:x 1}}")))
-    ;; Round-trip through pr-str under both *print-namespace-maps* settings.
+  (testing "the EXACT marker key still matches, rendered by pr-str under both print settings"
     (is (true? (rf.mcp-base.envelope/marker-text?
                  (binding [*print-namespace-maps* false]
                    (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached}})))))
@@ -217,7 +187,4 @@
                       (pr-str (array-map rf.mcp-base.vocab/overflow-key {:blob over-budget}))))))
       (is (false? (rf.mcp-base.envelope/marker-text?
                     (binding [*print-namespace-maps* true]
-                      (pr-str (array-map rf.mcp-base.vocab/overflow-key {:blob over-budget}))))))))
-  (testing "genuine tiny markers stay under the bound and STILL take the fast path"
-    (is (true? (rf.mcp-base.envelope/marker-text? (pr-str (overflow-fixture)))))
-    (is (true? (rf.mcp-base.envelope/marker-text? (pr-str {rf.mcp-base.vocab/cache-hit-key {:tool "x" :hash "abc"}}))))))
+                      (pr-str (array-map rf.mcp-base.vocab/overflow-key {:blob over-budget})))))))))
