@@ -14,7 +14,7 @@
   This file pins one example per claimed operator family for the
   `:sensitive?` flag (the parameterised walker serves both flags so
   pinning one suffices to lock the structural recognition)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.schemas :as rf.schemas]))
 
 ;; ---- dispatch-bearing combinators ----------------------------------------
@@ -28,36 +28,24 @@
 ;; POSITION, not the name — so :catn is POSITION-bearing alongside :cat /
 ;; :tuple (see the position-bearing section below).
 
-(deftest orn-branch-slot-claims-parent-path
-  (testing ":orn — a branch's :sensitive? on its slot-props claims the
-            parent path (mirrors :multi behaviour)"
-    (is (= {[:value] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:orn
-              [:secret {:sensitive? true} :string]
-              [:public :string]]
-             [:value])))))
-
-(deftest orn-branch-inner-descends-at-parent-path
-  (testing ":orn — a :sensitive? slot inside the branch's inner schema
-            descends at the parent path (the dispatch value is not a
-            path segment)"
-    (is (= {[:value :token] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:orn
-              [:authed [:map [:token {:sensitive? true} :string]]]
-              [:anon   [:map [:guest :string]]]]
-             [:value])))))
-
-(deftest altn-branch-inner-descends-at-parent-path
-  (testing ":altn — a :sensitive? slot inside an alt branch descends at
-            the parent path"
-    (is (= {[:doc :ssn] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:altn
-              [:full [:map [:ssn {:sensitive? true} :string]]]
-              [:abbr [:map [:initials :string]]]]
-             [:doc])))))
+(deftest dispatch-bearing-branches-claim-the-parent-path
+  (testing "a branch's flag, on its slot-props or inside its inner schema,
+            claims the op's base-path: the dispatch value is not a path
+            segment"
+    (are [schema base-path expected]
+         (= expected (rf.schemas/extract-sensitive-paths-from-schema schema base-path))
+      ;; :orn — a branch's slot-props claim the parent path (as :multi does)
+      [:orn [:secret {:sensitive? true} :string] [:public :string]]
+      [:value]
+      {[:value] {:sensitive? true :source :schema}}
+      ;; :orn — a flagged slot inside the branch's inner schema
+      [:orn [:authed [:map [:token {:sensitive? true} :string]]] [:anon [:map [:guest :string]]]]
+      [:value]
+      {[:value :token] {:sensitive? true :source :schema}}
+      ;; :altn — a flagged slot inside an alt branch
+      [:altn [:full [:map [:ssn {:sensitive? true} :string]]] [:abbr [:map [:initials :string]]]]
+      [:doc]
+      {[:doc :ssn] {:sensitive? true :source :schema}})))
 
 ;; ---- positional / nameless containers ------------------------------------
 ;;
@@ -70,20 +58,17 @@
 ;; `(conj base i)`; see
 ;; the position-bearing section below.
 
-(deftest set-descends-at-parent-path
-  (testing ":set — inner :sensitive? slot claims the :set's path"
-    (is (= {[:tokens] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:set [:string {:sensitive? true}]]
-             [:tokens])))))
-
-(deftest sequential-descends-at-parent-path
-  (testing ":sequential — inner :sensitive? slot claims the :sequential's
-            path"
-    (is (= {[:audit-log] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:sequential [:string {:sensitive? true}]]
-             [:audit-log])))))
+(deftest nameless-containers-descend-at-the-parent-path
+  (testing "an inner flag under a homogeneous or nameless container claims
+            the container's own path"
+    (are [schema base-path expected]
+         (= expected (rf.schemas/extract-sensitive-paths-from-schema schema base-path))
+      [:set [:string {:sensitive? true}]]        [:tokens]    {[:tokens] {:sensitive? true :source :schema}}
+      [:sequential [:string {:sensitive? true}]] [:audit-log] {[:audit-log] {:sensitive? true :source :schema}}
+      ;; :and — every child descends at the parent path
+      [:and :string [:string {:sensitive? true}]] [:slot]     {[:slot] {:sensitive? true :source :schema}}
+      ;; :not — single-child positional
+      [:not [:string {:sensitive? true}]]        [:slot]      {[:slot] {:sensitive? true :source :schema}})))
 
 ;; ---- position-bearing combinators ----------------------------------------
 ;;
@@ -112,21 +97,6 @@
              [:ev]))
         "a fixed-width :cat spliced into a regex op owns no positions")))
 
-(deftest and-descends-at-parent-path
-  (testing ":and — every child descends at the parent path"
-    (is (= {[:slot] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:and :string [:string {:sensitive? true}]]
-             [:slot])))))
-
-(deftest not-descends-at-parent-path
-  (testing ":not — single-child positional; inner sensitive descends at
-            the parent path"
-    (is (= {[:slot] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:not [:string {:sensitive? true}]]
-             [:slot])))))
-
 ;; ---- opaque / malformed forms --------------------------------------------
 ;;
 ;; Per walker.cljc — non-vector, non-keyword forms are opaque leaves;
@@ -134,20 +104,11 @@
 ;; the defensive contract that protects the walker from blowing up on
 ;; registry refs / schema objects / fn schemas.
 
-(deftest opaque-leaf-schema-skipped
-  (testing "an opaque schema value (not a vector form) yields no
-            declarations — the walker doesn't try to peer inside"
-    ;; A symbol — not a Malli vector form, not a keyword.
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema 'malli/AnyMap [])))
-    ;; A fn — also opaque.
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema (fn [_] true) [])))))
-
-(deftest empty-vector-form-tolerated
-  (testing "an empty vector (degenerate schema form) does not blow up;
-            it yields no declarations"
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema [] [])))))
-
-(deftest single-element-vector-form-tolerated
-  (testing "a single-element vector form (no props, no children) does
-            not blow up; it yields no declarations"
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema [:string] [])))))
+(deftest opaque-and-degenerate-forms-yield-no-declarations
+  (testing "the walker does not peer inside an opaque value and does not
+            blow up on a degenerate vector form"
+    (are [schema] (= {} (rf.schemas/extract-sensitive-paths-from-schema schema []))
+      'malli/AnyMap      ;; a symbol — not a Malli vector form, not a keyword
+      (fn [_] true)      ;; a fn — also opaque
+      []                 ;; an empty vector form
+      [:string])))       ;; a single-element form: no props, no children

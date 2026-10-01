@@ -8,7 +8,7 @@
   ONE FRAME SPELLING: every READ entry point takes a single
   opts MAP with a REQUIRED `:frame`. There is no keyword / bare-frame-value
   sugar and no ambient arity; their refusal is pinned below."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.schemas :as rf.schemas]
@@ -123,50 +123,38 @@
 
 ;; ---- coerce-opts ---------------------------------------------------------
 
-(deftest coerce-opts-accepts-keyword
-  (testing "keyword sugar coerces to {:frame keyword}"
-    (is (= {:frame :tenant/a} (rf.schemas.storage/coerce-opts :tenant/a)))))
-
-(deftest coerce-opts-accepts-opts-map
-  (testing "opts-map passes through verbatim"
-    (is (= {:frame :tenant/a :other :thing}
-           (rf.schemas.storage/coerce-opts {:frame :tenant/a :other :thing})))
-    (is (= {} (rf.schemas.storage/coerce-opts {})))))
-
-(deftest coerce-opts-accepts-nil-as-empty-opts
-  (testing "nil coerces to {} (the empty-opts shape), identical
-            to the no-arg arity: it means 'no override, resolve the frame
-            from scope'. A nil OPTS has no analogue to the nil-PATH hazard,
-            so accepting it removes a footgun for a trusted in-process caller."
-    (is (= {} (rf.schemas.storage/coerce-opts nil)))))
+(deftest coerce-opts-normalises-each-accepted-shape
+  (testing "keyword sugar lifts to {:frame kw}; an opts map passes through
+            verbatim; nil coerces to {} — identical to the no-arg arity: no
+            override, resolve the frame from scope. A nil OPTS has no
+            analogue to the nil-PATH hazard, so accepting it removes a
+            footgun for a trusted in-process caller."
+    (are [arg expected] (= expected (rf.schemas.storage/coerce-opts arg))
+      :tenant/a                         {:frame :tenant/a}
+      {:frame :tenant/a :other :thing}  {:frame :tenant/a :other :thing}
+      {}                                {}
+      nil                               {})))
 
 (deftest coerce-opts-throws-on-bad-arg
   (testing "a non-keyword, non-map argument throws
             :rf.error/app-schemas-bad-arg. numbers, strings, vectors all
             fail. (nil is accepted as {}; see
-            coerce-opts-accepts-nil-as-empty-opts.)"
-    (doseq [bad-arg [42 "frame-a" [:a :b] :well/-actually-keyword-is-ok]]
-      (cond
-        ;; keywords pass — exclude from the throw-loop sentinel above.
-        (keyword? bad-arg)
-        (is (map? (rf.schemas.storage/coerce-opts bad-arg))
-            (str "keyword " bad-arg " is accepted"))
-
-        :else
-        (let [thrown (try (rf.schemas.storage/coerce-opts bad-arg)
-                          (catch clojure.lang.ExceptionInfo e e)
-                          (catch Exception e e))]
-          (is (instance? clojure.lang.ExceptionInfo thrown)
-              (str "bad-arg " (pr-str bad-arg) " throws ex-info"))
-          (when (instance? clojure.lang.ExceptionInfo thrown)
-            ;; The human message leads with the :reason sentence
-            ;; and trails the [:rf.error/<id>] token; branch on the canonical
-            ;; :rf.error/id, never on the (non-normative) message bytes.
-            (let [data (ex-data thrown)]
-              (is (= :rf.error/app-schemas-bad-arg (:rf.error/id data))
-                  "ex-data carries the canonical :rf.error/id discriminator")
-              (is (= bad-arg (:received data))
-                  ":received slot carries the bad input verbatim"))))))))
+            coerce-opts-normalises-each-accepted-shape.)"
+    (doseq [bad-arg [42 "frame-a" [:a :b]]]
+      (let [thrown (try (rf.schemas.storage/coerce-opts bad-arg)
+                        (catch clojure.lang.ExceptionInfo e e)
+                        (catch Exception e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str "bad-arg " (pr-str bad-arg) " throws ex-info"))
+        (when (instance? clojure.lang.ExceptionInfo thrown)
+          ;; The human message leads with the :reason sentence
+          ;; and trails the [:rf.error/<id>] token; branch on the canonical
+          ;; :rf.error/id, never on the (non-normative) message bytes.
+          (let [data (ex-data thrown)]
+            (is (= :rf.error/app-schemas-bad-arg (:rf.error/id data))
+                "ex-data carries the canonical :rf.error/id discriminator")
+            (is (= bad-arg (:received data))
+                ":received slot carries the bad input verbatim")))))))
 
 ;; ---- reg-app-schema opts contract symmetry ------------------------------
 ;;

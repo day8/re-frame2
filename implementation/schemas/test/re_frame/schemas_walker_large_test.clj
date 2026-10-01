@@ -28,7 +28,7 @@
   declaration and omits when absent (Spec 009 §Size elision marker
   shape). These pin the propagate / omit behaviour at the walker
   level for both flags."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.schemas :as rf.schemas]))
 
 ;; ---- :large? structural recognition --------------------------------------
@@ -37,49 +37,37 @@
 ;; the walker is parameterised on flag-key, so pinning `:large?` across
 ;; the structural classes locks the parameterisation contract end-to-end.
 
-(deftest large-slot-level
-  (testing "the slot's per-slot props carry :large? true — claims (conj base k)"
-    (let [schema [:map
-                  [:id    :int]
-                  [:blob  {:large? true} :string]]]
-      (is (= {[:blob] {:large? true :source :schema}}
-             (rf.schemas/extract-large-paths-from-schema schema []))))))
-
-(deftest large-container-level
-  (testing "the schema's OWN props (container-level) claim the base-path —
-            `(reg-app-schema [:user :pdf] [:string {:large? true}])`"
-    (is (= {[:user :pdf] {:large? true :source :schema}}
-           (rf.schemas/extract-large-paths-from-schema
-             [:string {:large? true}] [:user :pdf])))))
-
-(deftest large-nested-map
-  (testing "nested :map carries the path through every level for :large?"
-    (let [schema [:map
-                  [:doc
-                   [:map
-                    [:attachment
-                     [:map
-                      [:payload {:large? true} :string]]]]]]]
-      (is (= {[:doc :attachment :payload] {:large? true :source :schema}}
-             (rf.schemas/extract-large-paths-from-schema schema []))))))
-
-(deftest large-positional-combinator-descends
-  (testing ":vector descends at the same base-path for :large? — the
-            inner type's container props claim the :vector's path"
-    (is (= {[:frames] {:large? true :source :schema}}
-           (rf.schemas/extract-large-paths-from-schema
-             [:vector [:string {:large? true}]] [:frames])))))
-
-(deftest large-dispatch-bearing-claims-parent-path
-  (testing ":multi branch slot-props claim the PARENT path for :large?
-            (dispatch values are not path segments) — symmetric with the
-            :sensitive? :orn/:altn cases in walker_operators_test"
-    (is (= {[:asset] {:large? true :source :schema}}
-           (rf.schemas/extract-large-paths-from-schema
-             [:multi {:dispatch :kind}
-              [:photo {:large? true} [:map [:kind :string]]]
-              [:icon  [:map [:kind :string]]]]
-             [:asset])))))
+(deftest large-walker-claims-each-structural-class
+  (testing "the `:large?` arm claims the same paths the `:sensitive?` arm
+            does across the structural classes"
+    (are [schema base-path expected]
+         (= expected (rf.schemas/extract-large-paths-from-schema schema base-path))
+      ;; slot-level: the slot's per-slot props claim (conj base k)
+      [:map [:id :int] [:blob {:large? true} :string]]
+      []
+      {[:blob] {:large? true :source :schema}}
+      ;; container-level: the schema's OWN props claim the base-path, as
+      ;; `(reg-app-schema [:user :pdf] [:string {:large? true}])` does
+      [:string {:large? true}]
+      [:user :pdf]
+      {[:user :pdf] {:large? true :source :schema}}
+      ;; nested :map carries the path through every level
+      [:map [:doc [:map [:attachment [:map [:payload {:large? true} :string]]]]]]
+      []
+      {[:doc :attachment :payload] {:large? true :source :schema}}
+      ;; :vector descends at the same base-path: the inner type's container
+      ;; props claim the :vector's path
+      [:vector [:string {:large? true}]]
+      [:frames]
+      {[:frames] {:large? true :source :schema}}
+      ;; :multi branch slot-props claim the PARENT path (dispatch values are
+      ;; not path segments), as the :sensitive? :orn / :altn rows in
+      ;; walker_operators_test do
+      [:multi {:dispatch :kind}
+       [:photo {:large? true} [:map [:kind :string]]]
+       [:icon  [:map [:kind :string]]]]
+      [:asset]
+      {[:asset] {:large? true :source :schema}})))
 
 (deftest large-and-sensitive-are-independent-flags
   (testing "the two flag entry points read INDEPENDENT slots — a slot
