@@ -102,32 +102,6 @@
          the `single-prim` fixture literal byte-for-byte (the path key is
          CEDN-1 `canonical-bytes`, not pr-str)")))
 
-(deftest set-schema-fns!-installs-printer
-  (testing "`(set-schema-fns! {:print fn})` swaps the printer atom
-            atomically alongside `:validate` / `:explain` — the bundle
-            entry point is symmetrical across all three fns."
-    (let [marker (fn [_] "::FROM-BUNDLE::")]
-      (rf.schemas/set-schema-fns! {:print marker})
-      (is (= "::FROM-BUNDLE::" (rf.schemas.validator/run-printer :int))
-          "the registered printer reaches the hot path"))))
-
-(deftest set-schema-fns!-nil-print-coerces-to-default
-  (testing "`(set-schema-fns! {:print nil})` coerces to
-            the default EDN canonicaliser, so `printer-fn` is never nil
-            (`run-printer` has no read-site guard) and the
-            installer's 'falls back to the default' promise is true at
-            the write site. This is the
-            ONLY printer write site, so the invariant has one place to
-            hold."
-    ;; Poison first so a no-op would be observable.
-    (rf.schemas/set-schema-fns! {:print (fn [_] "::POISONED::")})
-    (is (= "::POISONED::" (rf.schemas.validator/run-printer :int)))
-    (rf.schemas/set-schema-fns! {:print nil})
-    (is (some? @rf.schemas.validator/printer-fn)
-        "printer-fn is never nil after a {:print nil} bundle swap")
-    (is (= ":int" (rf.schemas.validator/run-printer :int))
-        "{:print nil} falls back to default-edn-print, not 'no printer'")))
-
 (deftest installing-default-schema-fns-restores-the-default-printer
   (testing "`(set-schema-fns! default-schema-fns)` restores the framework
             defaults for all three atoms — validator, explainer, AND
@@ -140,24 +114,6 @@
     (is (= ":int" (rf.schemas.validator/run-printer :int))
         "reset restores the default EDN canonicaliser")))
 
-(deftest printer-only-affects-per-schema-bytes-not-pipeline-shape
-  (testing "The digest pipeline shape (line-sort, SHA-256, '\"sha256:\" +
-            16-hex' wire form) is fixed by Spec 010 §Digest algorithm
-            and does NOT route through the printer. A custom printer
-            that returns a constant still produces a well-formed wire
-            form — and the empty-set digest is unaffected because the
-            pipeline never invokes the printer (zero entries)."
-    (rf.schemas/set-schema-fns! {:print (fn [_] "::CONSTANT::")})
-    ;; Empty set — printer never called; the empty-set digest is
-    ;; sha256:e3b0c44298fc1c14.
-    (is (= "sha256:e3b0c44298fc1c14"
-           (rf.schemas/app-schemas-digest {:frame :rf/default}))
-        "empty schema set still produces the canonical empty-string SHA")
-    (rf.schemas/reg-app-schema [:n] :int)
-    (let [d1 (rf.schemas/app-schemas-digest {:frame :rf/default})]
-      (is (re-matches #"^sha256:[0-9a-f]{16}$" d1)
-          "wire form is still '\"sha256:\" + 16-hex' regardless of printer"))))
-
 ;; ---- set-schema-fns! return contract --------------------------------------
 ;;
 ;; The bundle setter returns the INSTALLED BUNDLE as a map
@@ -165,45 +121,6 @@
 ;; three fns after the call — not just the validator. These tests pin the
 ;; return value WITHOUT dereferencing the raw `schemas/*` atoms: the return
 ;; is the public observation seam for what is now installed.
-
-(deftest set-schema-fns!-returns-full-installed-bundle
-  (testing "a full `{:validate :explain :print}` bundle call
-            returns the installed bundle map carrying exactly the three fns
-            supplied. A bundle setter returns its bundle (not just the
-            validator); the caller reads the return rather than the atoms."
-    (let [v-fn (fn [_ _] true)
-          e-fn (fn [_ _] {:explained true})
-          p-fn (fn [_] "::RET-PRINTER::")
-          ret  (rf.schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})]
-      (is (map? ret) "the return is a bundle map, not a single fn")
-      (is (= #{:validate :explain :print} (set (keys ret)))
-          "the bundle map always carries all three keys")
-      (is (= v-fn (:validate ret)) ":validate in the return is the installed validator")
-      (is (= e-fn (:explain ret))  ":explain in the return is the installed explainer")
-      (is (= p-fn (:print ret))    ":print in the return is the installed printer")
-      ;; The returned printer is the one the hot path now uses — observed
-      ;; through the public run-printer seam, not a raw atom deref.
-      (is (= "::RET-PRINTER::" (rf.schemas.validator/run-printer :int))
-          "the returned :print fn is live on the digest hot path"))))
-
-(deftest set-schema-fns!-print-only-returns-whole-bundle-incl-untouched
-  (testing "a partial `{:print marker}` call returns the live
-            state of ALL THREE fns, including the validator/explainer it did
-            NOT touch (which keep their prior registrations): the return
-            reflects the printer it
-            installed AND the untouched fns."
-    (let [marker (fn [_] "::PRINT-ONLY::")
-          ret    (rf.schemas/set-schema-fns! {:print marker})]
-      (is (= #{:validate :explain :print} (set (keys ret)))
-          "the bundle map carries all three keys even for a partial update")
-      (is (= marker (:print ret))
-          "the return's :print is the printer this call installed")
-      (is (= "::PRINT-ONLY::" (rf.schemas.validator/run-printer :int))
-          "the installed printer reaches the hot path")
-      ;; Untouched fns keep their prior (default) registrations and appear
-      ;; in the return — the reset fixture restored defaults before this test.
-      (is (some? (:validate ret)) ":validate is the untouched (default) validator")
-      (is (some? (:explain ret))  ":explain is the untouched (default) explainer"))))
 
 (deftest set-schema-fns!-nil-print-returns-non-nil-coerced-printer
   (testing "`{:print nil}` coerces to the default

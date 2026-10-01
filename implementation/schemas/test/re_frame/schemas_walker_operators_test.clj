@@ -90,28 +90,8 @@
 ;; :tuple / :cat / :catn — each element has its OWN schema; element `i`
 ;; descends at `(conj base i)`, the integer index being the discriminating
 ;; segment. Malli reports the integer POSITION in :in for all three.
-;; (:tuple is pinned in the other walker tests.)
-
-(deftest cat-element-is-position-bearing
-  (testing ":cat — POSITION-bearing; element `i`'s inner
-            sensitive claims `(conj base i)`, NOT the shared base-path"
-    ;; element 1 is the sensitive :string → claims [:ev 1], not [:ev].
-    (is (= {[:ev 1] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:cat :string [:string {:sensitive? true}]]
-             [:ev])))))
-
-(deftest catn-element-is-position-bearing
-  (testing ":catn — POSITION-bearing; the entry name is
-            decorative (Malli reports the integer position in :in), so an
-            entry-level sensitive claims `(conj base i)`, not base"
-    ;; entry 0 (:head) is sensitive → claims [:row 0], not [:row].
-    (is (= {[:row 0] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:catn
-              [:head {:sensitive? true} :string]
-              [:tail :string]]
-             [:row])))))
+;; The fixed-width positions are pinned by the `extract-*` tests in
+;; `schemas_sensitive_test`; this section pins the variable-width case.
 
 (deftest variable-width-sequence-descends-index-free
   (testing "a :cat / :catn whose width is not fixed cannot pin a

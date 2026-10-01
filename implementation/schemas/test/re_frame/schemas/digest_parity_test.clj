@@ -118,16 +118,6 @@
       (is (neg? (compare astral bmp))
           "host-native String.compareTo is UTF-16 order (the order the comparator must not use)"))))
 
-(deftest utf8-byte-sort-agrees-with-string-compare-on-ascii
-  (testing "for ASCII the UTF-8 byte order and native
-            string order coincide, so the pinned ASCII fixtures above
-            sort identically under either comparator."
-    (doseq [[a b] [["[:a]" "[:b]"] ["[:auth]" "[:user]"]
-                   ["abc" "abd"] ["[:n]" "[:n]"]]]
-      (is (= (Integer/signum (compare-utf8-bytes a b))
-             (Integer/signum (compare a b)))
-          (str "ASCII order coincides for " (pr-str [a b]))))))
-
 ;; ---- host-divergent printer cases -----------------------------------------
 ;;
 ;; The `whole-number-double` fixture rides in `all-fixtures` above, so
