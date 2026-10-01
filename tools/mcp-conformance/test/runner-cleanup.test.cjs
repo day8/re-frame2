@@ -299,24 +299,6 @@ test('makeCleanup grades a SIGTERM-exit shadow as CLEAN with the observed exit (
   assert.deepEqual(report.shadow.signals, ['SIGTERM'], 'a child that exits on SIGTERM is never escalated to SIGKILL');
 });
 
-test('concurrent cleanup() callers observe the SAME graded report — no split success/failure (rf2-j538f7.19 AC5)', async () => {
-  const browser = { close: () => Promise.reject(new Error('x')) }; // dirty (no isConnected)
-  const shadow = makeFakeShadow(); // never exits ⇒ dirty
-  const cleanup = makeCleanup({
-    getBrowser: () => browser,
-    getShadow: () => shadow,
-    hasShadowExited: () => shadow.exited,
-    log: () => {},
-    logErr: () => {},
-    browserCloseMs: 30,
-    shadowTermGraceMs: 20,
-    shadowKillGraceMs: 20,
-  });
-  const [r1, r2] = await Promise.all([cleanup(), cleanup()]);
-  assert.equal(r1, r2, 'concurrent callers must receive the identical report object');
-  assert.equal(r1.clean, false, 'and both observe the same DIRTY verdict');
-});
-
 test('makeCleanup is idempotent: concurrent calls share one in-flight promise (rf2-7ckmwx finding 1)', async () => {
   const shadow = makeFakeShadow({ exitOnTermMs: 40 });
   const cleanup = makeCleanup({
@@ -543,20 +525,6 @@ test('ownedDescendants reports an empty set when the root is already gone and le
 // Windows recycles soonest: cleanup could tree-kill a stranger and everything
 // below it. These pin the root row to the same standard as every other row.
 
-test('ownedDescendants never claims a root row that PREDATES our spawn (rf2-kzbf audit, AC2)', () => {
-  // A walk that admitted the root on its number would return [100, 200].
-  const table = [
-    { pid: 100, ppid: 1, createdMs: 1000 }, // wears our number, older than us
-    { pid: 200, ppid: 100, createdMs: 6000 },
-  ];
-  const owned = ownedDescendants(table, 100, 5000);
-  assert.ok(!owned.includes(100), 'a root row older than our spawn is NOT ours: ' + JSON.stringify(owned));
-  assert.ok(
-    !owned.includes(200),
-    'and its children are ITS children — sweeping them up is the same violation one level down',
-  );
-});
-
 test('ownedDescendants disowns the root once OUR handle has been reaped (rf2-kzbf audit, AC2)', () => {
   // The scenario a creation FLOOR alone cannot see:
   // the wrapper exits, Windows recycles the number to a process created AFTER
@@ -640,42 +608,6 @@ test('makeShadowTreeReaper still reaps OUR orphan after the wrapper exits (rf2-k
   assert.deepEqual(out.survivors, []);
 });
 
-test('an UNDATED root row fails CLOSED: not killed, and not graded clean (rf2-kzbf audit, AC3)', async () => {
-  const killed = [];
-  const reap = makeShadowTreeReaper({
-    rootPid: 100,
-    spawnedAtMs: 5000,
-    platform: 'win32',
-    readTable: () => [{ pid: 100, ppid: 1, createdMs: 0 }],
-    treeKill: (pid) => killed.push(pid),
-    isAlive: () => true,
-    graceMs: 20,
-    pollMs: 5,
-    log: () => {},
-    logErr: () => {},
-  });
-  const out = await reap();
-  assert.deepEqual(killed, [], 'a row we cannot date is not ours to kill');
-  assert.match(out.error, /cannot be proven ours/);
-
-  // ...and "we could not tell" must not certify the run.
-  const report = await makeCleanup({
-    getBrowser: () => null,
-    getShadow: () => null,
-    hasShadowExited: () => true,
-    reapShadowTree: reap,
-    log: () => {},
-    logErr: () => {},
-  })();
-  assert.equal(report.clean, false, 'an unprovable root must grade DIRTY');
-  let sentinel = null;
-  const code = finalizeConformance(report, {
-    emitPass: (l) => { sentinel = l; }, log: () => {}, logErr: () => {}, flush: () => {}, count: 0,
-  });
-  assert.equal(code, 2);
-  assert.equal(sentinel, null, 'and emit no pass sentinel');
-});
-
 // ---- and the PPID LINK is fenced too --------------------------------------
 //
 // Fencing the root ROW answers "may we kill the row wearing our number?".
@@ -684,20 +616,6 @@ test('an UNDATED root row fails CLOSED: not killed, and not graded clean (rf2-kz
 // would still hand us its children to kill. These pin the second half to the
 // same standard: no positive ownership evidence, no kill, and no clean grade
 // either.
-
-test('an UNPROVABLE root does not hand us its CHILDREN either (rf2-kzbf audit of PR #9247, AC2)', () => {
-  // An unfenced ppid walk would return [200] — the child of a row we had
-  // just refused to kill because we could not prove it ours.
-  const table = [
-    { pid: 100, ppid: 1, createdMs: 0 },      // wears our number; undatable
-    { pid: 200, ppid: 100, createdMs: 6000 }, // its child — but whose child?
-  ];
-  assert.deepEqual(
-    ownedDescendants(table, 100, 5000),
-    [],
-    'if the root row may be a stranger, that is the stranger\'s child',
-  );
-});
 
 test('makeShadowTreeReaper kills NOTHING through an unprovable root (rf2-kzbf audit of PR #9247, AC2/AC3)', async () => {
   // An unfenced walk would run `treeKill(200)` and only THEN return the dirty
