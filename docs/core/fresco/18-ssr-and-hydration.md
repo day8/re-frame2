@@ -414,7 +414,8 @@ React renders the server output; there is no parallel JVM string emitter.
 | `h/defview` bodies and `h/sub` reads | Render against the request snapshot |
 | Controlled fields | Render their model `value` and `checked` attributes |
 | `h/error-boundary` | The component renders, but a server throw uses React's server error channel rather than the client fallback |
-| Roots and `h/as-component` | Render, with request isolation and prefix matching |
+| Fresco roots | Render, with request isolation and prefix matching |
+| [`h/as-component`](09-interop.md#render-a-fresco-view-from-native-react) under a native React parent | Its bytes render, but mismatch attribution is scoped to roots the package itself adopts, so a root your own code opens reports no `:rf.ssr/hydration-mismatch` |
 | `h/defhost`, slots, render props, and `h/as-element` | Client-only until the declaration selects Render |
 | Portals, `[:>]` crossings, and opaque foreign components reached through them | Client-only |
 | A React element returned from a `defview` or placed as a child | Render, as React renders it; a component inside it has no Fresco gate, so it must be server-safe itself |
