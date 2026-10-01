@@ -37,8 +37,10 @@
                    {:namespace "re-frame.adapter.uix" :var "adapter" :tier :adapter}])))))
 
 (deftest duplicate-within-cljs-only-detected
-  (testing "two rows sharing one [namespace var] (e.g. a duplicated :cljs-only
-            sidecar entry, possibly with a CHANGED tier) are flagged"
+  (testing "two rows sharing one [namespace var] (a duplicated :cljs-only
+            sidecar entry, or a :cljs-only row colliding with a JVM-derived
+            one — duplicate-rows keys on [namespace var] alone, so the two
+            are one shape), possibly with a CHANGED tier, are flagged"
     (let [dups (rf.api-manifest.gen/duplicate-rows
                  [{:namespace "re-frame.adapter.uix" :var "adapter" :tier :adapter}
                   ;; same [ns var], conflicting tier — the exact probe shape
@@ -46,17 +48,6 @@
                   {:namespace "re-frame.core" :var "subscribe" :tier :front-porch}])]
       (is (= 1 (count dups)))
       (is (= [["re-frame.adapter.uix" "adapter"] 2] (first dups))))))
-
-(deftest duplicate-between-jvm-and-cljs-only-detected
-  (testing "a [namespace var] carried by BOTH a JVM-derived row and a
-            :cljs-only row is flagged (the cross-category collision)"
-    (let [dups (rf.api-manifest.gen/duplicate-rows
-                 [{:namespace "re-frame.core" :var "frame-provider"
-                   :tier :front-porch :runtime-verified? true}
-                  {:namespace "re-frame.core" :var "frame-provider"
-                   :tier :advanced :runtime-verified? false}])]
-      (is (= 1 (count dups)))
-      (is (= [["re-frame.core" "frame-provider"] 2] (first dups))))))
 
 (deftest duplicates-are-sorted
   (testing "the duplicate report is sorted by [namespace var] for stable output"
