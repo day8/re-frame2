@@ -236,12 +236,6 @@ test('Story NON-spec change (JVM .clj test) STILL fans out to tools_jvm / mcp_co
   assert.equal(result.cljs_node_test, 'false');
 });
 
-test('Story deps.edn change STILL fans out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
-  const result = classify('tools/story/deps.edn');
-  assert.equal(result.tools_jvm, 'true');
-  assert.equal(result.mcp_conformance, 'true');
-});
-
 test('Mixed Story spec .md + JVM .clj DOES fan out to tools_jvm (rf2-f79t8)', () => {
   const result = classify('tools/story/spec/bar.md', 'tools/story/test/some_test.clj');
   assert.equal(result.tools_jvm, 'true');
@@ -288,12 +282,6 @@ test('Docs prose with NO pinning suite still skips jvm-core + cljs (rf2-f79t8, r
   assert.equal(result.cljs_node_test, 'false');
 });
 
-test('Core change runs jvm-core + cljs (implementation_jvm + cljs_node_test true) (rf2-f79t8)', () => {
-  const result = classify('implementation/core/src/re_frame/core.cljc');
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
 test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) (rf2-f79t8)', () => {
   const result = classify('spec/conformance/fixtures/dispatch.edn');
   assert.equal(result.implementation_jvm, 'true');
@@ -302,11 +290,6 @@ test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) 
 
 test('shadow-cljs.edn change runs cljs (it defines the node-test build) (rf2-f79t8)', () => {
   const result = classify('implementation/shadow-cljs.edn');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-test('Story CLJS test-tree change runs cljs (node-test compiles tools/story/test) (rf2-f79t8)', () => {
-  const result = classify('tools/story/test/re_frame/story_cljs_test.cljs');
   assert.equal(result.cljs_node_test, 'true');
 });
 
@@ -730,17 +713,11 @@ test('a support helper does NOT fire the Playwright testbed gate (rf2-eyyd2)', (
   }
 });
 
-test('Story macros.clj schedules BOTH CLJS lanes (rf2-eyyd2)', () => {
-  // re-frame.story delegates every public registration macro to this
-  // CLJ-only namespace, so its emitted forms are what a `(story/reg-variant
-  // …)` call site compiles to — in the browser build and the node build
-  // alike. The `.clj` extension guard on the src arm alone would leave it
-  // false on both.
-  const result = classify(STORY_MACROS);
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
+// re-frame.story delegates every public registration macro to macros.clj, a
+// CLJ-only namespace, so its emitted forms are what a `(story/reg-variant …)`
+// call site compiles to — in the browser build and the node build alike. The
+// `.clj` extension guard on the src arm alone would leave both CLJS lanes
+// false; the every-lane row below pins them.
 test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
   // The CLJS arm adds lanes; it must not remove any. macros.clj is under
   // tools/story/src/**, so the examples_compile roster and the
@@ -762,19 +739,6 @@ test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
 // only on the feature-load gate's own spec modules, so the full tier would
 // skip with it — and a change to the source-coord the Story pane renders, made
 // by way of this very macro namespace, would reach no browser.
-
-test('Story macros.clj fires the Playwright browser gate (rf2-uqf5q)', () => {
-  // The macro namespace is the compile-time producer for every
-  // `(story/reg-story …)` / `(story/reg-variant …)` call site the testbed
-  // decks contain, so its emitted forms ARE what the deck renders.
-  const result = classify(STORY_MACROS);
-  assert.equal(
-    result.story_xray_browser,
-    'true',
-    'a Story macro change must schedule the Story/Xray browser gate: the decks ' +
-      'render what this namespace emits',
-  );
-});
 
 test('Story macros.clj now arms every lane its expansion reaches (rf2-uqf5q)', () => {
   // The three predicates together, pinned in one place so a future narrowing
@@ -1792,16 +1756,11 @@ test('a sibling per-feature artefact does NOT arm the machines-viz lane (rf2-wq1
 // `:machines-viz-node-test` build for them — its own bundle, so arming them
 // cannot contaminate the shared run — and declaring it INSIDE the artefact
 // also puts it on the artefact's side of the ownership line the test-lane
-// bijection gate reads.
+// bijection gate reads. An engine change arms both halves of the parity
+// ratchet; the Pair reverse-edge row for machines.cljc pins that.
 
 test('a machines-viz change schedules the artefact CLJS lane (rf2-odlm3)', () => {
   const result = classify('tools/machines-viz/src/day8/re_frame2_machines_viz/chart.cljs');
-  assert.equal(result.tools_cljs_machines_viz, 'true');
-});
-
-test('an engine change schedules BOTH halves of the parity ratchet (rf2-odlm3)', () => {
-  const result = classify('implementation/machines/src/re_frame/machines.cljc');
-  assert.equal(result.tools_jvm_machines_viz, 'true');
   assert.equal(result.tools_cljs_machines_viz, 'true');
 });
 
@@ -1901,7 +1860,10 @@ test('machines-viz spec-only .md does NOT fire its JVM lane (rf2-wq17m)', () => 
 // CLJS enumeration probe in the consolidated :node-test build, gated on
 // cljs_node_test. A sidecar / generated-manifest / API.md change must
 // therefore light cljs_node_test so the probe reconciles those rows. lint.yml
-// runs the JVM generator and projection checks, not the CLJS probe.
+// runs the JVM generator and projection checks, not the CLJS probe. The
+// generated-manifest and API.md verdicts are pinned by the spec/* catch-all
+// row, and the negative (other spec prose stays off the node build) by the
+// spec-only .md row.
 
 test('API-manifest sidecar change lights cljs_node_test (CLJS probe routing) (rf2-4ka7c2)', () => {
   const result = classify('spec/api-manifest-metadata.edn');
@@ -1910,23 +1872,6 @@ test('API-manifest sidecar change lights cljs_node_test (CLJS probe routing) (rf
     'true',
     'a sidecar edit must run the CLJS manifest probe (its only runtime verifier)',
   );
-});
-
-test('Generated api-manifest.edn change lights cljs_node_test (rf2-4ka7c2)', () => {
-  const result = classify('spec/api-manifest.edn');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-test('spec/API.md change lights cljs_node_test (rf2-4ka7c2)', () => {
-  const result = classify('spec/API.md');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-test('Other spec/*.md change does NOT light cljs_node_test (scope discipline) (rf2-4ka7c2)', () => {
-  // The routing is scoped to the THREE manifest surfaces — an unrelated spec
-  // doc must not drag the consolidated :node-test build into a docs PR.
-  const result = classify('spec/006-ReactiveSubstrate.md');
-  assert.equal(result.cljs_node_test, 'false');
 });
 
 // template_expensive is armed by the generated app's ACTUAL inputs and nothing
