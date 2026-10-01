@@ -137,12 +137,13 @@
 
 (deftest dispatch-step-result-projects-failure-to-step-fail
   (testing "a new failing assertion since prev becomes a runner step-fail
-            carrying the record's :expected / :actual / :message"
+            carrying the record's :expected / :actual, and its :reason as
+            the step's :message"
     (let [step [:dispatch-sync [:rf.assert/path-equals [:status] :loaded]]
           prev (seed-assertions! [])
-          _    (seed-assertions! [{:passed? false :id :rf.assert/path-equals
+          _    (seed-assertions! [{:passed? false :assertion :rf.assert/path-equals
                                    :expected :loaded :actual :idle
-                                   :message  "expected :loaded, got :idle"}])
+                                   :reason   "expected :loaded, got :idle"}])
           out  (dispatch-step-result bridge-frame prev 3 step)]
       (is (false? (:passed? out)) "the step result flips to fail")
       (is (= :dispatch-sync (:type out)) "step-type is preserved")
@@ -153,11 +154,11 @@
       (is (= "expected :loaded, got :idle" (:message out))))))
 
 (deftest dispatch-step-result-synthesizes-message-when-record-has-none
-  (testing "when the failing record carries no :message, the bridge
-            synthesizes one from :id / :payload / :expected / :actual"
+  (testing "when the failing record carries no :reason, the bridge
+            synthesizes one from :assertion / :payload / :expected / :actual"
     (let [step [:dispatch [:rf.assert/path-equals [:k] 1]]
           prev (seed-assertions! [])
-          _    (seed-assertions! [{:passed? false :id :rf.assert/path-equals
+          _    (seed-assertions! [{:passed? false :assertion :rf.assert/path-equals
                                    :payload  [[:k] 1] :expected 1 :actual 0}])
           out  (dispatch-step-result bridge-frame prev 0 step)]
       (is (false? (:passed? out)))
@@ -1016,7 +1017,11 @@
                 (mapv (juxt :operation :failing-id)
                       (:rf.story/assertions
                         (rf/app-db-value :story.runner/bare-unknown))))
-             "the refusal lands on the assertions slot naming the event id")))))
+             "the refusal lands on the assertions slot naming the event id")
+         (is (= "no handler registered for :does-not-exist"
+                (:message (first (:results final))))
+             "the failed step's message is the refusal record's own, naming
+              the event id")))))
 
 ;; ---- variant-play-script resolution --------------------------------------
 

@@ -507,13 +507,33 @@
     (filterv (fn [r] (false? (:passed? r)))
              (subvec all (min prev-count (count all))))))
 
+(defn- failed-record-message
+  "The one-line text a failed `:rf.story/assertions` record carries, for
+  the `:message` of the step-fail bridged from it. Read in the order the
+  assertion strip summarises the same record: a captured
+  `:rf.error/exception` record's own error text first (a handler /
+  coeffect / interceptor throw, or the router's no-such-handler refusal,
+  which names the unregistered event id), because its `:reason` is only
+  the failure-id keyword; then the record's `:reason`, which an
+  `:rf.assert/*` record carries as its sentence; else a line naming the
+  record's `:assertion`, `:payload`, `:expected` and `:actual`."
+  [rec]
+  (or (get-in rec [:error :message])
+      (when-some [reason (:reason rec)]
+        (if (string? reason) reason (pr-str reason)))
+      (str (:assertion rec) " " (pr-str (:payload rec))
+           " failed (expected " (pr-str (:expected rec))
+           ", actual " (pr-str (:actual rec)) ")")))
+
 (defn- dispatch-step-result
   "Build the step result for a (possibly-assertion-bearing) :dispatch /
-  :dispatch-sync. If new failed assertions appeared in the frame's
-  `:rf.story/assertions` since `prev` (typically because the
-  dispatched event was a `:rf.assert/*` whose reg-event handler
-  recorded a `:passed? false` record), surface them as a step-fail.
-  Otherwise step-skip (no assertion contribution to pass/fail).
+  :dispatch-sync. If new failed records appeared in the frame's
+  `:rf.story/assertions` since `prev` — an `:rf.assert/*` event whose
+  reg-event handler recorded a `:passed? false` record, or a captured
+  `:rf.error/exception` record for a dispatch that threw or named no
+  handler — surface the first as a step-fail carrying its own message
+  (`failed-record-message`). Otherwise step-skip (no assertion
+  contribution to pass/fail).
 
   The step-fail is marked `:recorded?` — its record is already on the
   accumulator, so the unified result must not count it a second time
@@ -521,15 +541,11 @@
   [frame-id prev idx step]
   (let [failed (failed-since frame-id prev)]
     (if (seq failed)
-      (let [rec (first failed)
-            msg (or (:message rec)
-                    (str (:id rec) " " (pr-str (:payload rec))
-                         " failed (expected " (pr-str (:expected rec))
-                         ", actual " (pr-str (:actual rec)) ")"))]
+      (let [rec (first failed)]
         (rf.story.play.runner/step-fail idx step
                           {:expected  (:expected rec)
                            :actual    (:actual rec)
-                           :message   msg
+                           :message   (failed-record-message rec)
                            :recorded? true}))
       (rf.story.play.runner/step-skip idx step))))
 
