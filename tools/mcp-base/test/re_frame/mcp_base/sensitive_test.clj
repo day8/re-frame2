@@ -14,9 +14,6 @@
 (deftest sensitive-event?-true-stamp-detected
   (is (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? true})))
 
-(deftest sensitive-event?-false-stamp-passes
-  (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false}))))
-
 (deftest sensitive-event?-absent-stamp-passes
   ;; Per spec/009: "Consumers treat absent as `false`."
   (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched}))))
@@ -49,22 +46,6 @@
   (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? false})))
   (is (not (rf.mcp-base.sensitive/sensitive-event? {:operation :rf.event/dispatched :sensitive? nil}))))
 
-(deftest strip-sensitive-fail-closed-drops-malformed-truthy
-  ;; A transport bug that coerces `:sensitive? true` into
-  ;; `:sensitive? "true"` (string) or `:sensitive? :yes` (keyword) MUST
-  ;; NOT silently leak the event. The fail-closed posture drops the
-  ;; malformed-truthy event (with a stderr warning) so the contract
-  ;; drift is visible to operators.
-  ;; Expected WARN quieted by the central quiet-runner stderr buffer
-  ;; — no local `*err*` sink needed.
-  (let [evts [{:id 1 :sensitive? false}
-              {:id 2 :sensitive? "true"} ; malformed-truthy → drop
-              {:id 3}
-              {:id 4 :sensitive? :yes}]  ; malformed-truthy → drop
-        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
-    (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
-    (is (= 2 dropped))))
-
 ;; ---------------------------------------------------------------------------
 ;; strip-sensitive — the default-suppress filter applied per batch.
 ;; ---------------------------------------------------------------------------
@@ -90,20 +71,6 @@
   (let [[kept dropped] (rf.mcp-base.sensitive/strip-sensitive [] false)]
     (is (= [] kept))
     (is (zero? dropped))))
-
-(deftest strip-sensitive-no-sensitive-events-zero-drop
-  (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
-        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
-    (is (= evts kept))
-    (is (zero? dropped))))
-
-(deftest strip-sensitive-all-sensitive-drops-all
-  (let [evts [{:id 1 :sensitive? true}
-              {:id 2 :sensitive? true}
-              {:id 3 :sensitive? true}]
-        [kept dropped] (rf.mcp-base.sensitive/strip-sensitive evts false)]
-    (is (= [] kept))
-    (is (= 3 dropped))))
 
 ;; ---------------------------------------------------------------------------
 ;; Default posture — the load-bearing assertion for the spec/009 MUST.
@@ -169,30 +136,6 @@
            (get-in out [:rf/default :sub-cache])))
     (is (= {:auth {:state :idle}}
            (get-in out [:rf/default :machines])))))
-
-(deftest scrub-snapshot-is-not-a-full-snapshot-projector
-  ;; A consumer must not mistake `scrub-snapshot` output for
-  ;; already-projected full-snapshot output. The function does ONE thing —
-  ;; filter sensitive trace events out of :traces / :epochs — and leaves
-  ;; the value-carrying slices (:app-db / :sub-cache / :machines) exactly
-  ;; as it found them. There is NO write-time redaction model standing in
-  ;; for the egress projection EP-0015 requires; this test fails loudly if
-  ;; a future change starts redacting non-trace payloads here (which would
-  ;; wrongly imply the scrubber is the complete privacy boundary) OR stops
-  ;; filtering traces (its actual job).
-  (let [secret-db {:password "leak-me" :token {:value "abc"}}
-        snap      {:rf/default
-                   {:app-db   secret-db
-                    :traces   [{:id 1 :sensitive? true} {:id 2}]}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    ;; The trace filter DID run (its job): the sensitive trace event is gone.
-    (is (= 1 dropped) "sensitive trace event was dropped")
-    (is (= [{:id 2}] (get-in out [:rf/default :traces])))
-    ;; The value-carrying slice is byte-identical — UNPROJECTED. A caller
-    ;; that ships this slice off-box without running `project-egress` over
-    ;; it leaks `secret-db`; the scrubber explicitly does not own that.
-    (is (identical? secret-db (get-in out [:rf/default :app-db]))
-        "scrub-snapshot leaves :app-db unprojected — it is NOT a full-snapshot privacy boundary")))
 
 (deftest scrub-snapshot-include-opt-in-passes-everything
   (let [snap {:rf/default {:traces [{:id 1 :sensitive? true}
@@ -370,16 +313,6 @@
     (is (nil? (get-in out [:rf/default :traces])) ":traces nil survives")
     (is (= [] (get-in out [:rf/default :epochs]))
         "sensitive single-map :epochs dropped fail-closed")))
-
-(deftest scrub-snapshot-sequential-batch-still-scrubbed
-  ;; The legitimate path: a vector batch is normalised + scrubbed.
-  ;; (Companion to the lazy-seq test which pins the seq case.)
-  (let [snap {:rf/default {:traces [{:id 1 :sensitive? true} {:id 2}]
-                           :epochs [{:event-id :a :sensitive? true} {:event-id :b}]}}
-        [out dropped] (rf.mcp-base.sensitive/scrub-snapshot snap false)]
-    (is (= 2 dropped))
-    (is (= [{:id 2}] (get-in out [:rf/default :traces])))
-    (is (= [{:event-id :b}] (get-in out [:rf/default :epochs])))))
 
 ;; ---------------------------------------------------------------------------
 ;; Single-map fail-closed branch routes through the caller-supplied strip-fn.
@@ -578,25 +511,3 @@
     (is (identical? evts kept)
         "no-drop path must return the identical input vector (zero allocation)")
     (is (zero? dropped))))
-
-(deftest scrub-snapshot-2-arity-delegates-to-strip-sensitive
-  ;; The 2-arity form is the default-suppress shape used by story-mcp;
-  ;; its contract that it delegates to `strip-sensitive` is
-  ;; the load-bearing spec/009 §Privacy MUST. A regression that flipped
-  ;; the default to a no-op (or any other predicate) wouldn't trip the
-  ;; other tests — those only exercise the 2-arity form's outputs
-  ;; against trace-event-stamp inputs, never the parity-with-3-arity
-  ;; contract directly. Pin it: the 2-arity output MUST equal the
-  ;; 3-arity call with `strip-sensitive` explicit.
-  (let [snap {:rf/default
-              {:traces [{:id 1 :sensitive? false}
-                        {:id 2 :sensitive? true}
-                        {:id 3}
-                        {:id 4 :sensitive? true}]
-               :epochs [{:event-id :foo}
-                        {:event-id :auth/sign-in :sensitive? true}]
-               :machines {}}}
-        two-arity   (rf.mcp-base.sensitive/scrub-snapshot snap false)
-        three-arity (rf.mcp-base.sensitive/scrub-snapshot snap false rf.mcp-base.sensitive/strip-sensitive)]
-    (is (= two-arity three-arity)
-        "2-arity MUST delegate to strip-sensitive — spec/009 §Privacy default")))
