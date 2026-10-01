@@ -28,6 +28,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.elision :as rf.elision]
+            [re-frame.epoch]
             [re-frame.epoch.assembly :as rf.epoch.assembly]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
@@ -248,7 +249,8 @@
             survives the projection byte-for-byte. This cascade declares only a
             SENSITIVE schema path and reads no large-marked sub, so its
             `:sub-runs` rows still pass through identically; the large-value
-            egress case is pinned by `project-egress-elides-large-sub-output`.
+            egress case is pinned by `re-frame.epoch-egress-redaction-cljs-test`'s
+            `large-sub-output-elides-in-both-egress-slots`.
             (`:effects` is NOT pass-through — its `:args` fail closed,
             pinned by the tests below.)"
     (rf/make-frame {:id :test/main})
