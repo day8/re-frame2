@@ -58,7 +58,7 @@ amendment behind each cell is design history at
 | HS-30 | ~~native ABI helpers: memo, lazy, ref, both embedding directions~~ | Struck 2026-08-29 (`rf2-6c12m.3`) — `React.memo` and `React.lazy` are used directly |
 | HS-31 | Optional forms module | Client-only — nothing refuses; every door beneath it is Render, and the five-clause upgrade was never taken |
 | HS-32 | Optional overlay module (popover and modal) | Client-only — the panel markup is in the bytes; the top-layer entry is a client ref callback |
-| HS-33 | Optional motion and presence module | Neither policy holds today — the server emits `:mounting` children and hydration discards the adoption; the Render repair is a server-scoped adoption window |
+| HS-33 | Optional motion and presence module | Neither policy holds. `re-frame.fresco.server/render` opens an adoption window around each request, so presence-managed children render `:present` in its bytes — the phase a hydrating client's first pass computes (`presence-ssr-seam-dom-cljs-test` §5). Render is not taken: no row hydrates presence bytes from that door, so its hydration, mismatch, two-root and cleanup clauses are unwitnessed. A hand-rolled `renderToString` opens no window, emits `:mounting` children, and hydration discards the adoption (§1–§3). Nothing refuses at source, so Client-only does not hold either |
 | HS-34 | Optional routing-integration module | Client-only — no module exists to refuse in |
 | HS-35 | Committed-read resource-demand boundary | No surface — the graduating verdict was STOP |
 | HS-36 | Supported test namespace | Development-only; absent from production and server bundles |
