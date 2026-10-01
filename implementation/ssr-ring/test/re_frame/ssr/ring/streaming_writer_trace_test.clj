@@ -304,7 +304,7 @@
 ;; production-survivable counterpart.
 ;; ===========================================================================
 
-(deftest hhutya-writer-failed-reaches-always-on-listener-under-debug-off
+(deftest writer-failed-reaches-the-always-on-listener-under-debug-off
   (testing "when run-streaming-writer!'s catch arm absorbs a
             post-commit write throw under `interop/debug-enabled? = false`,
             it ALSO fans :rf.error/ssr-streaming-writer-failed out on the
@@ -318,7 +318,7 @@
           _        (.close pipe-in) ;; pre-broken pipe — every write throws
           seen     (atom [])]
       (rf.error-emit/register-error-listener!
-        ::hhutya-writer-recorder
+        ::off-box-writer-recorder
         (fn [record] (swap! seen conj record)))
       (with-redefs [rf.interop/debug-enabled? false]
         (@#'rf.ssr.ring.streaming/run-streaming-writer!

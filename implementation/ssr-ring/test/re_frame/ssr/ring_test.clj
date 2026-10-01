@@ -1480,83 +1480,46 @@
 ;;      failure modes apart.
 ;; ===========================================================================
 
-(deftest handler-construction-fails-closed-when-no-policy-supplied
-  (testing "ssr-handler with no :payload opt throws
-            :rf.error/ssr-missing-payload-policy at construction time —
-            the canonical fail-closed pattern. Misconfigured deployments
-            fail at boot, not at first request."
-    (rf/reg-event :init/no-policy {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/no-policy (fn [] [:div "no policy"]))
+;; Both handlers share `lifecycle/validate-required-opts!`, so stream-handler
+;; refuses a missing :initial-events / :root-view at construction exactly as
+;; ssr-handler does. Checking only the policy + trusted-shell opts would let a
+;; misconfigured streaming handler ship and fail per-request (missing
+;; :initial-events → 500; missing :root-view → a silently-truncated chunked
+;; response from the writer thread) instead of refusing to construct.
 
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.ring/ssr-handler
-            {:initial-events [[:init/no-policy]]
-             :root-view [(rf/view :pages/no-policy)]}))
-        "ssr-handler MUST throw at construction time when the policy
-         is unset — Spec 011 §Payload scope (canonical boundary)
-         fail-closed contract")))
-
-(deftest stream-handler-construction-fails-closed-when-no-policy-supplied
-  (testing "stream-handler shares the policy contract —
-            mirror of ssr-handler-construction test for the chunked
-            host adapter"
-    (rf/reg-event :init/no-policy-stream {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/no-policy-stream (fn [] [:div "no policy stream"]))
-
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-missing-payload-policy"
-          (rf.ssr.ring/stream-handler
-            {:initial-events [[:init/no-policy-stream]]
-             :root-view [(rf/view :pages/no-policy-stream)]}))
-        "stream-handler MUST throw at construction time when the
-         policy is unset — same fail-closed contract as ssr-handler")))
-
-;; stream-handler MUST run the SAME required-opt
-;; (:initial-events / :root-view) construction-time validation ssr-handler
-;; does — both share `lifecycle/validate-required-opts!`. Checking only the
-;; policy + trusted-shell opts would let a misconfigured streaming handler
-;; ship and fail per-request (missing :initial-events → 500; missing
-;; :root-view → silently-truncated chunked response from the writer thread)
-;; instead of refusing to construct.
-
-(deftest ssr-handler-construction-fails-closed-when-missing-initial-events
-  (testing "ssr-handler with no :initial-events throws
-            :rf.error/ssr-ring-missing-initial-events at construction"
-    (rf/reg-view* :pages/no-oncreate (fn [] [:div]))
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-initial-events"
-          (rf.ssr.ring/ssr-handler
-            {:root-view [(rf/view :pages/no-oncreate)]
-             :payload :rf.ssr.payload/whole-app-db})))))
-
-(deftest stream-handler-construction-fails-closed-when-missing-initial-events
-  (testing "stream-handler with no :initial-events throws
-            :rf.error/ssr-ring-missing-initial-events at construction — same
-            fail-closed contract as ssr-handler"
-    (rf/reg-view* :pages/no-oncreate-stream (fn [] [:div]))
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-initial-events"
-          (rf.ssr.ring/stream-handler
-            {:root-view [(rf/view :pages/no-oncreate-stream)]
-             :payload :rf.ssr.payload/whole-app-db})))))
-
-(deftest stream-handler-construction-fails-closed-when-missing-root-view
-  (testing "stream-handler with no :root-view throws
-            :rf.error/ssr-ring-missing-root-view at construction — failing
-            at boot rather than inside the writer thread, where it would
-            truncate the chunked response"
-    (rf/reg-event :init/no-rootview-stream {:platforms #{:server}} (fn [_ _] {}))
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-ring-missing-root-view"
-          (rf.ssr.ring/stream-handler
-            {:initial-events [[:init/no-rootview-stream]]
-             :payload :rf.ssr.payload/whole-app-db})))))
+(deftest handler-construction-fails-closed-on-a-missing-or-unknown-required-opt
+  (testing "both handlers refuse to construct — failing at boot, not at first
+            request — when :payload, :initial-events or :root-view is missing,
+            or the :payload keyword is unknown. A typo'd :payload surfaces as
+            its own :rf.error/ssr-unknown-payload-policy, distinct from the
+            missing-policy id, so the two failure modes stay distinguishable
+            (Spec 011 §Payload scope)."
+    (rf/reg-event :init/construction {:platforms #{:server}} (fn [_ _] {}))
+    (rf/reg-view* :pages/construction (fn [] [:div]))
+    (let [initial-events [[:init/construction]]
+          root-view      [(rf/view :pages/construction)]]
+      (doseq [[label construct opts error-id]
+              [["ssr-handler, no :payload" rf.ssr.ring/ssr-handler
+                {:initial-events initial-events :root-view root-view}
+                #":rf\.error/ssr-missing-payload-policy"]
+               ["stream-handler, no :payload" rf.ssr.ring/stream-handler
+                {:initial-events initial-events :root-view root-view}
+                #":rf\.error/ssr-missing-payload-policy"]
+               ["ssr-handler, a typo'd :payload keyword" rf.ssr.ring/ssr-handler
+                {:initial-events initial-events :root-view root-view
+                 :payload :rf.ssr.payload/whole-db}
+                #":rf\.error/ssr-unknown-payload-policy"]
+               ["ssr-handler, no :initial-events" rf.ssr.ring/ssr-handler
+                {:root-view root-view :payload :rf.ssr.payload/whole-app-db}
+                #":rf\.error/ssr-ring-missing-initial-events"]
+               ["stream-handler, no :initial-events" rf.ssr.ring/stream-handler
+                {:root-view root-view :payload :rf.ssr.payload/whole-app-db}
+                #":rf\.error/ssr-ring-missing-initial-events"]
+               ["stream-handler, no :root-view" rf.ssr.ring/stream-handler
+                {:initial-events initial-events :payload :rf.ssr.payload/whole-app-db}
+                #":rf\.error/ssr-ring-missing-root-view"]]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo error-id (construct opts))
+            label)))))
 
 (deftest fail-closed-proof-unpermitted-slot-not-on-wire
   (testing "FAIL-CLOSED PROOF: a server-only app-db key NOT in
@@ -1649,23 +1612,6 @@
           ":public/user-id reached the wire under the whole-app-db opt-in")
       (is (str/includes? payload-edn ":dark")
           ":public/theme reached the wire under the whole-app-db opt-in"))))
-
-(deftest handler-construction-rejects-unknown-policy-keyword
-  (testing "a typo'd :payload keyword surfaces as a
-            distinct error so the developer can tell the failure modes apart"
-    (rf/reg-event :init/typo-policy {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/typo-policy (fn [] [:div]))
-
-    (is (thrown-with-msg?
-          clojure.lang.ExceptionInfo
-          #":rf\.error/ssr-unknown-payload-policy"
-          (rf.ssr.ring/ssr-handler
-            {:initial-events [[:init/typo-policy]]
-             :root-view [(rf/view :pages/typo-policy)]
-             :payload   :rf.ssr.payload/whole-db})) ; typo
-        "typo'd :payload keyword does NOT silently fall into the
-         missing-policy bucket — the developer sees a distinct
-         :rf.error/ssr-unknown-payload-policy")))
 
 ;; ===========================================================================
 ;; ssr-handler / stream-handler — trusted shell-hook contract
@@ -3197,11 +3143,11 @@
   []
   (let [seen (atom [])]
     (rf.error-emit/register-error-listener!
-      ::hhutya-wire-recorder
+      ::off-box-wire-recorder
       (fn [record] (swap! seen conj (:error record))))
     seen))
 
-(deftest hhutya-render-failed-off-box-record-under-debug-off-wire-5xx
+(deftest render-failed-ships-an-off-box-record-under-debug-off-and-a-5xx
   (testing "a view that throws mid-render → the full Ring
             handler ships a 5xx (PROJECTION-ELIGIBLE) AND delivers a
             :rf.error/ssr-render-failed record to register-error-listener!
@@ -3227,7 +3173,7 @@
               ":rf.error/ssr-render-failed reached register-error-listener!
                under -Dre-frame.debug=false (the dev trace is elided there)"))))))
 
-(deftest hhutya-head-failed-off-box-record-under-debug-off-wire-degraded-200
+(deftest head-failed-ships-an-off-box-record-under-debug-off-and-a-degraded-200
   (testing "a throwing route :head fn → the full Ring handler
             ships a DEGRADED 200 (NON-PROJECTING) AND delivers a
             :rf.error/ssr-head-resolution-failed record to register-error-
@@ -3254,7 +3200,7 @@
               ":rf.error/ssr-head-resolution-failed reached register-error-
                listener! under -Dre-frame.debug=false"))))))
 
-(deftest hhutya-error-view-failed-off-box-record-under-debug-off-wire-unchanged
+(deftest error-view-failed-ships-an-off-box-record-under-debug-off-and-keeps-the-500
   (testing "a buggy :error-view (itself throwing) → the full
             Ring handler falls back to the locked default template (the
             render-time 5xx already stamped is unchanged, NON-PROJECTING)
@@ -3262,13 +3208,13 @@
             register-error-listener! under debug-off."
     (rf.error-emit/clear-error-listeners!)
     (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (rf/reg-view* :pages/broken-evt-hhutya
+    (rf/reg-view* :pages/broken-evt-off-box
       (fn [] (throw (ex-info "boom" {}))))
     (let [seen (capture-always-on-categories!)]
       (with-redefs [rf.interop/debug-enabled? false]
         (let [handler  (rf.ssr.ring/ssr-handler
                          {:initial-events  [[:init/ok]]
-                          :root-view  [(rf/view :pages/broken-evt-hhutya)]
+                          :root-view  [(rf/view :pages/broken-evt-off-box)]
                           :error-view (fn [_public]
                                         (throw (ex-info "error-view itself broke" {})))
                           :payload :rf.ssr.payload/whole-app-db})
