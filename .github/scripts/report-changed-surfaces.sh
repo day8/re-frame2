@@ -2471,6 +2471,15 @@ else
         # preload path) would merge with BOTH owning behavioral gates SKIPPED,
         # caught only by the nightly net (a PR-time false-green). Arm
         # cljs_browser + mcp_live so the two runtime consumers run at PR time.
+        #
+        # The preload is also read as TEXT. The wire-vocab JVM suite reads
+        # runtime.cljs and pins that `frames-list` still emits every key of the
+        # operating-frame success fixtures; it runs only in
+        # mcp-conformance-wire-vocab, gated on mcp_conformance, and neither
+        # behavioral gate above compares that reply with the vocabulary. Arm
+        # mcp_conformance for the whole subtree, as the http, machines and
+        # resources src arms do: the suite owns the list of files it reads, and
+        # a copy of that list here would drift in the reassuring direction.
         # skills_structural is set here too because this more-specific case
         # shadows the generic skills/re-frame2-pair/* case below (widening
         # coverage, not narrowing it); examples_compile fires via the earlier
@@ -2480,6 +2489,7 @@ else
         skills_structural=true
         cljs_browser=true
         mcp_live=true
+        mcp_conformance=true
         ;;
       skills/re-frame2-pair/*|skills/shared/*)
         skills_structural=true

@@ -2785,6 +2785,39 @@ test('NON-preload re-frame2-pair skill file does NOT arm cljs_browser / mcp_live
   assert.equal(result.skills_structural, 'true');
 });
 
+// The preload is also read as TEXT: the wire-vocab JVM suite reads runtime.cljs
+// and pins that `frames-list` still emits every key of the operating-frame
+// success fixtures. That suite runs only in mcp-conformance-wire-vocab, gated
+// on `mcp_conformance`, and neither behavioral gate above compares the reply
+// with that vocabulary — so without this output a runtime.cljs-only diff that
+// dropped a frames-list key would merge with the one gate that pins it
+// SKIPPED. The arm is the preload directory, like the http, machines and
+// resources src arms, because the suite owns the list of files it reads. The
+// roster goes through `pinnedRoster` because the directory arm classifies a
+// phantom path exactly as it does the real file, so only the existence guard
+// lets this row fail.
+
+const PAIR_PRELOAD_WIRE_VOCAB_READ_SOURCES = pinnedRoster('PAIR_PRELOAD_WIRE_VOCAB_READ_SOURCES', [
+  'skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs',
+]);
+
+for (const file of PAIR_PRELOAD_WIRE_VOCAB_READ_SOURCES) {
+  test(`${file} arms mcp_conformance — the wire-vocab suite reads its frames-list`, () => {
+    assert.equal(
+      classify(file).mcp_conformance,
+      'true',
+      `${file} is read as text by the wire-vocab conformance suite; a change to it must ` +
+        'schedule mcp-conformance-wire-vocab, the only job that runs it',
+    );
+  });
+}
+
+test('NON-preload re-frame2-pair skill file does NOT arm mcp_conformance (scope discipline)', () => {
+  // Only the preload carries a wire surface; ordinary skill material keeps its
+  // structural-only classification.
+  assert.equal(classify('skills/re-frame2-pair/SKILL.md').mcp_conformance, 'false');
+});
+
 // `skills/re-frame2-pair-retro/**`, `skills/reagent-migration/**` and
 // `skills/re-frame2-improver/**` each need an arm of their own: the main case
 // carries no default arm, so a diff confined to a tree no arm names classifies
