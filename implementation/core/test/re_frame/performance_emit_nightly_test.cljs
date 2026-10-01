@@ -67,9 +67,9 @@
 ;; retained buffer and these emission assertions can read them
 ;; synchronously. The clear-after-emit behaviour itself is
 ;; unit-tested in `re-frame.performance-cljs-test` — a synchronous
-;; PerformanceObserver read is unreliable on the node runner (delivery is
-;; a microtask), so retention is the robust way to assert the entry
-;; NAMES / BUCKETS here.
+;; PerformanceObserver read is unreliable on the node runner (the
+;; callback runs later, as a queued task), so retention is the robust way
+;; to assert the entry NAMES / BUCKETS here.
 (defn- clear-measures!
   []
   (when (exists? js/performance.clearMeasures)

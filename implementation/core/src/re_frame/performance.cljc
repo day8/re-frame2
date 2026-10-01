@@ -37,11 +37,14 @@
     - After emitting, the bracket **clears the measure by name**
       (`performance.clearMeasures(name)`) so the host's User-Timing entry
       buffer does NOT accumulate. A live `PerformanceObserver` still
-      receives the entry — observer callbacks fire at `measure()` time,
-      before the clear — so timing is delivered to any attached observer
-      / APM; the buffer just doesn't grow. This is the real bound: the
-      framework clears after emit, NOT the (factually unbounded — W3C
-      `maxBufferSize` is Infinite for measure entries) host buffer.
+      receives the entry: `measure()` appends it to each registered
+      observer's own buffer and queues a task that runs the observer
+      callbacks later, and `clearMeasures` empties only the timeline
+      buffer, never an observer's. So timing is delivered to any
+      attached observer / APM; the buffer just doesn't grow. This is the
+      real bound: the framework clears after emit, NOT the (factually
+      unbounded — W3C `maxBufferSize` is Infinite for measure entries)
+      host buffer.
     - `retain-entries?` is a second `goog-define`d boolean, default
       `false`. Flip it (`:closure-defines {re-frame.performance/retain-entries? true}`)
       for one-shot DevTools / console workflows that read the retained
@@ -186,8 +189,9 @@
      entries are allocated. Unless `retain-entries?` is on, the measure is
      cleared by name (`performance.clearMeasures(name)`) immediately after
      emit so the host's User-Timing buffer does not grow; a live
-     `PerformanceObserver` still receives the entry (its callback fires at
-     `measure()` time, before the clear). See the ns docstring
+     `PerformanceObserver` still receives the entry (`measure()` queues it
+     in the observer's own buffer, which the clear does not touch, and the
+     callback runs later as a task). See the ns docstring
      §Observer-first contract.
 
      Exception isolation: when the flag is on, the bracket is wrapped in
@@ -208,9 +212,11 @@
                 (try
                   ;; Options-bag measure: numeric start/end timestamps,
                   ;; so no mark entries are ever allocated (nothing reads
-                  ;; marks). The entry is delivered to any live
-                  ;; PerformanceObserver at this call, then — unless the
-                  ;; consumer opted into buffer retention — cleared so the
+                  ;; marks). This call queues the entry for every live
+                  ;; PerformanceObserver, whose callback runs later as a
+                  ;; task; then — unless the consumer opted into buffer
+                  ;; retention — the entry is cleared from the timeline
+                  ;; buffer, leaving each observer's queue intact, so the
                   ;; buffer does not accumulate across a long session.
                   (.measure js/performance nm#
                             (cljs.core/js-obj "start" start#
