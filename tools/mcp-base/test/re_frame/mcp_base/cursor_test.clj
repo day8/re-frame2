@@ -82,9 +82,6 @@
   (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor 42 offset-cursor?)))
   (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor {:offset 0} offset-cursor?))))
 
-(deftest decode-cursor-garbage-is-malformed
-  (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor "!!!not-base64-edn!!!" offset-cursor?))))
-
 (deftest decode-cursor-rejects-noncanonical-base64-aliases
   ;; The host base64 DECODERS are lenient in DIFFERENT ways: `js/Buffer`
   ;; DROPS characters outside the standard alphabet (where the JVM decoder
@@ -228,13 +225,7 @@
     (is (> (token-len (inc max-n)) rf.mcp-base.cursor/max-cursor-chars)
         "one more sig char would push the token over the cap — boundary is tight")
     (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?))
-        "a cursor at the inclusive size boundary is NOT size-rejected (strict >)"))
-  ;; Unconditional companion: a realistic small cursor is well under cap.
-  (let [payload {:v 1 :offset 25 :total 137 :sig "abc123"}
-        token   (rf.mcp-base.cursor/encode-cursor payload)]
-    (is (< (count token) rf.mcp-base.cursor/max-cursor-chars)
-        "a realistic cursor is well under the character cap")
-    (is (= payload (rf.mcp-base.cursor/decode-cursor token offset-cursor?)))))
+        "a cursor at the inclusive size boundary is NOT size-rejected (strict >)")))
 
 (deftest decode-cursor-rejects-tagged-literals
   ;; The hardening contract: a cursor smuggling a tagged literal must

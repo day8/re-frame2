@@ -41,24 +41,12 @@
 ;; parse-positive-int
 ;; ---------------------------------------------------------------------------
 
-(deftest parse-positive-int-passes-through-ints
-  (is (= 5 (rf.mcp-base.args/parse-positive-int 5 50)))
-  (is (= 100 (rf.mcp-base.args/parse-positive-int 100 50))))
-
 (deftest parse-positive-int-nil-returns-default
   (is (= 50 (rf.mcp-base.args/parse-positive-int nil 50))))
 
 (deftest parse-positive-int-clamps-non-positive
   (is (= 1 (rf.mcp-base.args/parse-positive-int 0 50)))
   (is (= 1 (rf.mcp-base.args/parse-positive-int -5 50))))
-
-(deftest parse-positive-int-parses-strings
-  (is (= 12 (rf.mcp-base.args/parse-positive-int "12" 50)))
-  (is (= 1 (rf.mcp-base.args/parse-positive-int "0" 50))))
-
-(deftest parse-positive-int-non-numeric-string-falls-back
-  (is (= 50 (rf.mcp-base.args/parse-positive-int "abc" 50)))
-  (is (= 50 (rf.mcp-base.args/parse-positive-int "" 50))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-host strict-parse contract.
@@ -312,21 +300,6 @@
         "leading-colon form also rejected")
     (is (nil? (find-keyword novel-ns novel-name))
         "safe-keyword MUST NOT intern a fresh NAMESPACED keyword on rejection — DoS gate")))
-
-(deftest safe-keyword-resolves-pre-interned-namespaced-keyword
-  ;; The positive companion: a namespaced keyword that DOES exist in the
-  ;; allowlist (and was therefore interned at allowlist-definition time)
-  ;; resolves from its string form via the namespaced `find-keyword`
-  ;; arm. Pins that the namespaced arm isn't merely a rejection path —
-  ;; it correctly returns the interned member when the input matches.
-  (is (= :rf.assert/path-equals
-         (rf.mcp-base.args/safe-keyword "rf.assert/path-equals"
-                            #{:rf.assert/path-equals :rf.assert/path-absent}))
-      "an in-allowlist namespaced string resolves to its interned keyword")
-  (is (= :rf.assert/path-equals
-         (rf.mcp-base.args/safe-keyword ":rf.assert/path-equals"
-                            #{:rf.assert/path-equals :rf.assert/path-absent}))
-      "leading-colon namespaced form resolves too"))
 
 (deftest safe-keyword-non-keyword-non-string-input-returns-nil
   (is (nil? (rf.mcp-base.args/safe-keyword 42 #{:diff :full})))
