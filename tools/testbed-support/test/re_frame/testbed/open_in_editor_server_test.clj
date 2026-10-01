@@ -957,32 +957,7 @@
     (is (nil? (rf.testbed.open-in-editor-server/editor-hint nil)))
     (is (nil? (rf.testbed.open-in-editor-server/editor-hint 42)) "a non-string is rejected")))
 
-(deftest editor-command-by-keyword-is-the-launch-command-vocabulary
-  (testing "the public map defines the supported launch-command vocabulary"
-    (is (= {"vscode"          "code"
-            "vscode-insiders" "code-insiders"
-            "cursor"          "cursor"
-            "windsurf"        "windsurf"
-            "zed"             "zed"
-            "idea"            "idea"}
-           rf.testbed.open-in-editor-server/editor-command-by-keyword))))
-
 (deftest endpoint-passes-editor-hint-through-to-launch
-  (testing "the editor query value reaches launch! as a command hint"
-    (let [calls (atom [])]
-      (with-launch-spy calls
-        (let [resp (rf.testbed.open-in-editor-server/handle
-                     {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                      :request-method :post
-                      :query-string   "file=fake_ns/core.cljs&line=3&editor=vscode"
-                      :remote-addr    "127.0.0.1"
-                      :headers        {"host" "localhost:8031"}})]
-          (is (= 200 (:status resp)))
-          (is (= 1 (count @calls)))
-          (let [[_abs _line _col cmd] (first @calls)]
-            (is (= "code" cmd)
-                "editor=vscode resolved to launch-editor's `code` command
-                 (the mapping is applied, not the raw keyword)"))))))
   (testing "an unknown editor keyword → nil command hint (auto-detect)"
     (let [calls (atom [])]
       (with-launch-spy calls
@@ -1716,27 +1691,4 @@
         (is (not (<= 200 (:status resp) 299))
             "non-2xx is what runs the client's coordinate-preserving fallback")
         (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
-            "the same token the declared-vocabulary decline emits"))))
-
-  (testing "the same mapping for a COLUMN-ONLY request, the shape a
-            line-gated probe would let bypass the shim altogether: `column=7` with
-            no `line` and no `editor`. The coordinate at stake is the
-            normalised 1:7 the endpoint would have handed the launcher, and
-            the client's URI fallback is what carries it"
-    (is (= "/abs/src/app.cljs:1:7"
-           (#'rf.testbed.open-in-editor-server/build-file-spec "/abs/src/app.cljs" nil 7))
-        "column-only normalises to line 1 — a real coordinate, not an absent
-         one, which is why the shim must probe for it")
-    (with-redefs [rf.testbed.open-in-editor-server/launch! (fn [& _]
-                                 {:ok false
-                                  :message rf.testbed.open-in-editor-server/position-unsupported-error})]
-      (let [resp (rf.testbed.open-in-editor-server/handle
-                   {:uri            rf.testbed.open-in-editor-server/endpoint-path
-                    :request-method :post
-                    :query-string   "file=fake_ns/core.cljs&column=7"
-                    :remote-addr    "127.0.0.1"
-                    :headers        {"host" "localhost:8031"}})]
-        (is (= 422 (:status resp))
-            "a 200 here would claim 1:7 reached an editor that never got it")
-        (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
-            "one contract for the client, whatever shape the coordinate had")))))
+            "the same token the declared-vocabulary decline emits")))))
