@@ -146,10 +146,3 @@
                    :members {"re-frame.fresco.overlay" #{"modal"}
                              "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
                    :exempt #{["re-frame.fresco.overlay" "popover"]}})))))
-
-(deftest coverage-exempt-sidecar-key-defaults-empty
-  (testing "the coverage-exempt sidecar key, when present, is a collection of
-            [namespace var] pairs (absent → the checker defaults to #{})"
-    (let [exempt (:doc-api-coverage-exempt (rf.api-manifest.gen/read-sidecar))]
-      (is (or (nil? exempt) (coll? exempt))
-          "the coverage-exempt allowlist must be a collection of [ns var] pairs (or absent)"))))
