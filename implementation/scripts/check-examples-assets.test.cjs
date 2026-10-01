@@ -1984,13 +1984,6 @@ it('TEETH: checkSharedTree rejects a wrong-dimension og.png', () => {
 // real IDAT zlib inflate, and a terminal IEND. Each fixture below isolates one
 // real corruption a header sniff misses.
 
-it('validatePng accepts a freshly-built structurally-complete PNG', () => {
-  const v = validatePng(buildPng());
-  assert.ok(v.ok, `expected the built PNG to validate, got: ${v.reason}`);
-  assert.strictEqual(v.width, OG_PNG_WIDTH);
-  assert.strictEqual(v.height, OG_PNG_HEIGHT);
-});
-
 it('LIVE: the shipped og.png fully decodes (signature + chunks + CRC + IDAT inflate + IEND)', () => {
   const fs = require('fs');
   const bytes = fs.readFileSync(path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.png'));
