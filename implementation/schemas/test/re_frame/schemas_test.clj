@@ -1,32 +1,19 @@
 (ns re-frame.schemas-test
-  "JVM smoke tests for Spec 010 — Schemas (Malli runtime validation).
+  "JVM tests for Spec 010 — Schemas (Malli runtime validation): the
+  validation sites and their traces (app-db, event, sub-return, fx-args,
+  recordable cofx), per-frame registration, the digest, the
+  validator-install seam and the `:boundary? true` production arm.
 
-  Two surfaces here:
-
-    1. **Elision toggle**. In dev builds (per Spec 010 §Dev builds) all
-       registered schemas are checked at every validation point. In
-       production builds (per Spec 010 §Production builds) validation is
-       compile-time-elided via a host gate — `goog.DEBUG` on CLJS, the
-       JVM mirror `re-frame.interop/debug-enabled?` here. These tests
-       flip the gate via `with-redefs` and assert the dev-mode trace
-       fires while the prod-mode call is silent.
-
-    2. **Error projector → :rf/public-error mapping**. Per Spec 010 + 011
-       §Default projector, the runtime ships a default projector mapping
-       internal trace events to the locked four-key public-error shape
-       (`:status :code :message :retryable?`). The schema-validation
-       failure category maps to a 400 :bad-request. These tests pin the pure
-       mapping contract independently of trace emission.
-
-  These tests exercise schemas on the JVM via the plain-atom adapter —
-  the conformance fixtures cover the dispatch-time integration; this
-  file covers the elision toggle (which fixtures cannot flip from EDN)
-  and the projector-mapping shape (which is a separate surface from the
-  trace emission)."
+  The elision toggle: in dev builds (per Spec 010 §Dev builds) every
+  registered schema is checked at every validation point; in production
+  builds (per Spec 010 §Production builds) validation is
+  compile-time-elided via a host gate — `goog.DEBUG` on CLJS, the JVM
+  mirror `re-frame.interop/debug-enabled?` here — which these tests flip
+  with `with-redefs`. The conformance fixtures cover the dispatch-time
+  integration but cannot flip that gate from EDN."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind]
             [re-frame.interop :as rf.interop]
             [re-frame.registrar :as rf.registrar]
             [re-frame.schemas :as rf.schemas]
@@ -63,30 +50,6 @@
           (is (= "not-an-int" (-> v :tags :value)))
           (is (= :test/handler (-> v :tags :failing-id))))))))
 
-(deftest app-db-validation-elides-when-debug-disabled
-  (testing "validate-app-schema! is a no-op when debug-enabled? is false (production)"
-    (rf/reg-app-schema [:count] [:int])
-    (with-trace-recorder! [traces]
-      ;; Production mode — the validation site elides; even with a
-      ;; malformed value, no trace fires.
-      (with-redefs [rf.interop/debug-enabled? false]
-        (rf.schemas/validate-app-schema! {:count "not-an-int"} :test/handler))
-      (is (empty? (filter #(= :rf.error/schema-validation-failure
-                              (:operation %))
-                          @traces))
-          "no schema-validation-failure trace when validation is elided"))))
-
-(deftest well-typed-value-passes-silently
-  (testing "validate-app-schema! with a conforming value emits no trace"
-    (rf/reg-app-schema [:count] [:int])
-    (with-trace-recorder! [traces]
-      (with-redefs [rf.interop/debug-enabled? true]
-        (rf.schemas/validate-app-schema! {:count 42} :test/handler))
-      (is (empty? (filter #(= :rf.error/schema-validation-failure
-                              (:operation %))
-                          @traces))
-          "well-typed value triggers no validation-failure trace"))))
-
 (deftest dispatch-fires-app-db-validation
   (testing "live dispatch through the runtime validates the candidate :db
             before install"
@@ -111,27 +74,6 @@
 ;; The observable post-condition — app-db keeps its pre-event value, :fx
 ;; skipped — holds with the container never written at all.
 
-(deftest app-db-rejection-keeps-pre-handler-value-on-failure
-  (testing "Per Spec 010 §Per-step recovery row 4: an app-db
-            schema-validation failure REJECTS the candidate before install
-            — app-db keeps its pre-handler value. The dispatch is treated
-            as failed; the bad candidate never stands."
-    (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init  (fn [_ _]  {:db {:n 0}}))
-    (rf/reg-event :n/ok    (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
-    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
-    (rf/dispatch-sync [:n/init])
-    (is (= {:n 0} (rf/app-db-value (rf/current-frame-id)))
-        "baseline post-init state")
-    (rf/dispatch-sync [:n/ok])
-    (is (= {:n 42} (rf/app-db-value (rf/current-frame-id)))
-        "well-typed commit is durable")
-    (rf/dispatch-sync [:n/break])
-    (is (= {:n 42} (rf/app-db-value (rf/current-frame-id)))
-        "malformed candidate was REJECTED pre-install — app-db keeps the
-         pre-handler value (was {:n 42} before :n/break; would be
-         {:n \"boom\"} without the candidate validation)")))
-
 (deftest app-db-rejection-skips-fx-on-failure
   (testing "On rejection the dispatch is 'treated as
             failed' — :fx does NOT walk. Sibling fx that would have
@@ -150,38 +92,6 @@
           "the rejected candidate never installed")
       (is (empty? @fx-calls)
           "sibling fx did not walk — dispatch treated as failed"))))
-
-(deftest app-db-rejection-emits-no-db-changed
-  (testing "Under validate-before-install a rejected
-            candidate emits NO :rf.event/db-changed at all — the trace
-            signature is EXACTLY one :rf.error/schema-validation-failure.
-            (A commit-then-rollback pair would emit forward
-            db-changed → failure → :phase :rollback db-changed.)"
-    (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init  (fn [_ _]  {:db {:n 0}}))
-    (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
-    ;; Deliberately NOT `with-trace-recorder!` — this
-    ;; listener PROJECTS each event to an `[operation phase]` tuple on capture
-    ;; and `reset!`s the buffer mid-body (to drop :n/init's traces before
-    ;; :n/break), neither of which the raw-event recorder expresses.
-    (let [events (atom [])]
-      (rf/register-listener! :trace ::ord
-        (fn [ev] (when (#{:rf.event/db-changed
-                          :rf.error/schema-validation-failure}
-                        (:operation ev))
-                   (swap! events conj
-                          [(:operation ev)
-                           (-> ev :tags :rf.trace/phase)]))))
-      (rf/dispatch-sync [:n/init])
-      (reset! events [])
-      (rf/dispatch-sync [:n/break])
-      (rf/unregister-listener! :trace ::ord)
-      ;; ONE emission: the schema-failure diagnostic. No forward commit
-      ;; trace (the candidate never installed), no rollback re-emit.
-      (is (= [[:rf.error/schema-validation-failure nil]]
-             @events)
-          "rejection signature: exactly one schema-failure trace, zero
-           db-changed emissions"))))
 
 (deftest validate-app-schema-returns-boolean
   (testing "validate-app-schema! returns true on conform (or no schemas /
@@ -763,124 +673,6 @@
           (is (= :my/secret (-> v :tags :failing-id)))
           (is (= :fx-args   (-> v :tags :where))))))))
 
-(deftest fx-args-validation-late-bind-hook-published
-  (testing "the :schemas/validate-fx! late-bind hook IS published — the
-            schemas artefact's contract surface includes this fn alongside
-            the four siblings"
-    (let [resolved (re-frame.late-bind/get-fn :schemas/validate-fx!)]
-      (is (some? resolved) "hook resolves to a fn when schemas is loaded")
-      (is (= rf.schemas/validate-fx! resolved) "hook points at the public fn"))))
-
-;; ---- error projector → :rf/public-error mapping --------------------------
-
-(defn- default-error-projector
-  "The default projector contract per Spec 011 §Default projector, as a
-  local table. The runtime's own default lives in the ssr artefact
-  (`re-frame.ssr/default-error-projector-fn`), which is not on this
-  artefact's classpath, so this fn implements the table verbatim and
-  these tests pin the mapping contract.
-
-  Returns the locked four-key public-error shape:
-    {:status :code :message :retryable?}
-
-  In dev mode (:dev-error-detail? true) the public shape carries an
-  additional :details key with the original trace event."
-  ([trace-event] (default-error-projector trace-event {}))
-  ([trace-event {:keys [dev-error-detail?]}]
-   (let [base (case (:operation trace-event)
-                :rf.error/no-such-handler
-                {:status 404 :code :not-found
-                 :message "Page not found" :retryable? false}
-
-                :rf.error/schema-validation-failure
-                {:status 400 :code :bad-request
-                 :message "Invalid input" :retryable? false}
-
-                :rf.error/handler-exception
-                {:status 500 :code :internal-error
-                 :message "Something went wrong" :retryable? false}
-
-                :rf.error/sub-exception
-                {:status 500 :code :internal-error
-                 :message "Something went wrong" :retryable? false}
-
-                :rf.error/fx-handler-exception
-                {:status 500 :code :internal-error
-                 :message "Something went wrong" :retryable? false}
-
-                :rf.error/drain-depth-exceeded
-                {:status 500 :code :internal-error
-                 :message "Something went wrong" :retryable? false}
-
-                ;; default — generic 500
-                {:status 500 :code :internal-error
-                 :message "Something went wrong" :retryable? false})]
-     (cond-> base
-       dev-error-detail? (assoc :details trace-event)))))
-
-(deftest projector-maps-schema-failure-to-bad-request
-  (testing "schema-validation-failure projects to a locked 400 :bad-request"
-    (let [trace-event {:operation :rf.error/schema-validation-failure
-                       :op-type   :error
-                       :tags      {:where :event :event-id :user/register
-                                   :received [:user/register {:age "no"}]}
-                       :recovery  :no-recovery}
-          public      (default-error-projector trace-event)]
-      (is (= 400 (:status public)))
-      (is (= :bad-request (:code public)))
-      (is (= "Invalid input" (:message public)))
-      (is (false? (:retryable? public))
-          "schema validation failure is NOT retryable — the input is the bug")
-      (is (= #{:status :code :message :retryable?} (set (keys public)))
-          "prod-mode public shape is the locked four keys only — no :details leak"))))
-
-(deftest projector-includes-details-in-dev
-  (testing "with :dev-error-detail? true the public shape carries the original trace under :details"
-    (let [trace-event {:operation :rf.error/schema-validation-failure
-                       :tags      {:where :app-db :path [:user] :value "bad"}}
-          public      (default-error-projector trace-event {:dev-error-detail? true})]
-      (is (= 400 (:status public)))
-      (is (= :bad-request (:code public)))
-      (is (contains? public :details)
-          ":details carries the original trace event in dev mode")
-      (is (= trace-event (:details public))
-          ":details is the trace event verbatim — full internal detail"))))
-
-(deftest projector-falls-back-to-generic-500
-  (testing "an unknown error category projects to the locked generic-500 shape"
-    (let [trace-event {:operation :rf.error/something-unmapped
-                       :tags      {}}
-          public      (default-error-projector trace-event)]
-      (is (= 500 (:status public)))
-      (is (= :internal-error (:code public)))
-      (is (= "Something went wrong" (:message public)))
-      (is (false? (:retryable? public))))))
-
-(deftest projector-maps-no-such-handler-to-404
-  (testing ":rf.error/no-such-handler in routing context projects to 404"
-    (let [trace-event {:operation :rf.error/no-such-handler
-                       :tags      {:url "/no-such-page"}}
-          public      (default-error-projector trace-event)]
-      (is (= 404 (:status public)))
-      (is (= :not-found (:code public))))))
-
-(deftest projector-output-shape-is-stable
-  (testing "every projection returns the locked four keys (no extras in prod)"
-    (doseq [op [:rf.error/no-such-handler
-                :rf.error/schema-validation-failure
-                :rf.error/handler-exception
-                :rf.error/sub-exception
-                :rf.error/fx-handler-exception
-                :rf.error/drain-depth-exceeded
-                :rf.error/some-future-category]]
-      (let [public (default-error-projector {:operation op :tags {}})]
-        (is (= #{:status :code :message :retryable?} (set (keys public)))
-            (str "projection for " op " must carry exactly the four locked keys"))
-        (is (integer? (:status public)))
-        (is (keyword? (:code public)))
-        (is (string? (:message public)))
-        (is (boolean? (:retryable? public)))))))
-
 ;; ---- frame-scoped app-db schemas -----------------------------------------
 
 (deftest reg-app-schema-defaults-to-current-frame
@@ -960,15 +752,6 @@
         "the keyword-sugar arity is refused")))
 
 ;; ---- app-schemas-digest -------------------------------------------------
-
-(deftest app-schemas-digest-is-canonical-wire-form
-  (testing "Per Spec 010 §Digest algorithm — the digest is the literal
-            prefix \"sha256:\" followed by 16 lowercase hex characters."
-    (rf/reg-app-schema [:user] [:map [:id :uuid]])
-    (let [d (rf.schemas/app-schemas-digest {:frame :rf/default})]
-      (is (string? d))
-      (is (re-matches #"sha256:[0-9a-f]{16}" d)
-          "digest is exactly \"sha256:\" + 16 lowercase hex chars"))))
 
 (deftest app-schemas-digest-is-stable
   (testing "Per Spec 010 §Digest algorithm — registering the same schema
@@ -1060,20 +843,6 @@
 ;; `(set-schema-fns! {:explain ...})`. Default delegates to Malli; apps
 ;; that want to drop the ~24 KB gzipped Malli surface substitute another
 ;; fn (or `nil` for no-op).
-
-(deftest default-validator-delegates-to-malli
-  (testing "Per Spec 010 §Non-Malli validators — out of the box the
-            validator delegates to Malli; apps that never install a
-            validator of their own get Malli validation."
-    (rf/reg-app-schema [:n] [:int])
-    (with-trace-recorder! [traces]
-      ;; Malformed value triggers the default Malli validate to return
-      ;; falsey -> trace fires.
-      (rf.schemas/validate-app-schema! {:n "not-an-int"} :test/handler)
-      (let [violations (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces)]
-        (is (= 1 (count violations))
-            "default Malli validator catches the type mismatch")))))
 
 (deftest custom-validator-is-invoked-instead-of-malli
   (testing "Per Spec 010 §Non-Malli validators — a `:validate` install swaps
@@ -1287,87 +1056,6 @@
       (is (false? (rf.schemas/validate-with-registered-fn :keyword :bad))
           "invalid value fails — debug gate ignored"))))
 
-(deftest validator-set-via-public-api-is-visible-on-schemas-ns
-  (testing "A `:validate` install on the public `re-frame.schemas` door
-            flows through to the namespace's validator-fn atom."
-    (let [my-fn (fn [_ _] :sentinel)]
-      (rf.schemas/set-schema-fns! {:validate my-fn})
-      (is (= my-fn @rf.schemas.validator/validator-fn)
-          "the atom carries the fn the user registered"))))
-
-;; ---- the `:print` public-surface contract --------------------------------
-;;
-;; Per Spec 010 §Schema digest the printer fn is the
-;; third leg of the validator-surface seam: substitute-Malli ports register
-;; their own (validate, explain, print) triple so the digest reflects the
-;; port's own serialisation contract rather than the framework's Malli-EDN
-;; default. The artefact-side contract — atom swap, default fallback,
-;; hot-path read — is locked by `printer_seam_test.clj`.
-;;
-;; This file pins the PUBLIC-SURFACE contract: a `:print` install on the
-;; public `re-frame.schemas` door reaches the artefact's printer atom +
-;; run-printer hot path + digest pipeline. Parallel to `validator-set-via-
-;; public-api-is-visible-on-schemas-ns` above, so the public symbol has an
-;; end-to-end caller exercising the wiring.
-
-(deftest printer-set-via-public-api-is-visible-on-schemas-ns
-  (testing "a `:print` install on the public door reaches the
-            schemas artefact's printer-fn atom. Parallels the `:validate`
-            and `:explain` end-to-end pins above."
-    (let [my-fn (fn [_schema-value] "::PUBLIC-SURFACE::")]
-      (rf.schemas/set-schema-fns! {:print my-fn})
-      (is (= my-fn @rf.schemas.validator/printer-fn)
-          "the atom carries the printer the public-surface caller registered")
-      (is (= "::PUBLIC-SURFACE::" (rf.schemas.validator/run-printer :int))
-          "run-printer's hot path reaches the public-surface registration"))))
-
-(deftest printer-set-via-public-api-flips-digest-bytes
-  (testing "the canonical end-to-end use of the public surface:
-            a custom printer registered through the `:print` key changes
-            the digest pipeline's output. This is what a non-Malli port
-            (a Zod port, a clojure.spec port) does at boot. Spec 010
-            §Schema digest: 'two ports using
-            different schema languages produce different digests by
-            construction'."
-    (rf/reg-app-schema [:n] :int)
-    (let [default-digest (rf.schemas/app-schemas-digest {:frame :rf/default})]
-      (rf.schemas/set-schema-fns! {:print (fn [_] "::CUSTOM-PORT::")})
-      (let [custom-digest (rf.schemas/app-schemas-digest {:frame :rf/default})]
-        (is (re-matches #"^sha256:[0-9a-f]{16}$" custom-digest)
-            "digest is still the wire-form '\"sha256:\" + 16-hex'")
-        (is (not= default-digest custom-digest)
-            "registering a different printer through the public surface
-             produces a different digest — the bytes the printer emits
-             are what the digest pipeline hashes")))))
-
-(deftest printer-set-via-public-api-nil-restores-default
-  (testing "installing a nil `:print` on the public door
-            reinstalls the default EDN canonicaliser. The digest is
-            never undefined for a present schema set, even after a
-            port-specific printer has been registered and then
-            withdrawn. Mirrors the artefact-side
-            `set-schema-fns!-nil-print-coerces-to-default` test."
-    (rf.schemas/set-schema-fns! {:print (fn [_] "::TRANSIENT::")})
-    (is (= "::TRANSIENT::" (rf.schemas.validator/run-printer :int)))
-    (rf.schemas/set-schema-fns! {:print nil})
-    (is (= ":int" (rf.schemas.validator/run-printer :int))
-        "nil through the public surface falls back to default-edn-print")))
-
-(deftest printer-set-via-public-set-schema-fns-installs-printer
-  (testing "the public rf/set-schema-fns! bundle
-            setter installs a `:print` printer alongside `:validate` /
-            `:explain` atomically. End-to-end pin of the documented
-            one-call substitute-Malli boot pattern via the public surface."
-    (let [v-fn (fn [_ _] true)
-          e-fn (fn [_ _] {:explained true})
-          p-fn (fn [_] "::FROM-PUBLIC-BUNDLE::")]
-      (rf.schemas/set-schema-fns! {:validate v-fn :explain e-fn :print p-fn})
-      (is (= v-fn @rf.schemas.validator/validator-fn))
-      (is (= e-fn @rf.schemas.validator/explainer-fn))
-      (is (= p-fn @rf.schemas.validator/printer-fn))
-      (is (= "::FROM-PUBLIC-BUNDLE::" (rf.schemas.validator/run-printer :int))
-          "the printer installed via the bundle setter reaches the hot path"))))
-
 ;; ---- capture and reinstate a bundle --------------------------------------
 ;;
 ;; The validator/explainer/printer BUNDLE companion to the registry's
@@ -1416,20 +1104,6 @@
               "run-printer's hot path observes the restored printer")
           (is (= snap ret)
               "the install returns the bundle it installed"))))))
-
-(deftest installing-a-bundle-with-nil-print-coerces-to-default
-  (testing "installing a bundle whose :print is
-            nil coerces it to default-edn-print (the printer-never-nil
-            invariant run-printer relies on)"
-    ;; A hand-built bundle with an explicit nil :print (`schema-fns`
-    ;; never produces nil :print, but the install path must stay safe).
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] true)
-                             :explain  nil
-                             :print    nil})
-    (is (some? @rf.schemas.validator/printer-fn)
-        "printer-fn is never nil after restore — coerced to the default")
-    (is (= ":int" (rf.schemas.validator/run-printer :int))
-        "run-printer reaches the default EDN canonicaliser, no read-site guard")))
 
 (deftest snapshot-restore-bundle-composes-with-registry-pair
   (testing "the bundle snapshot/restore pair composes with
@@ -1749,24 +1423,6 @@
           (is (nil? (-> (first violations) :tags :explain))
               "the diagnosis is what was lost, not the verdict"))))))
 
-(deftest boundary-flag-nil-schema-token-is-delegated-verbatim
-  (testing "`{:schema nil :boundary? true}` registers (KEY
-            presence, not truthiness) and the nil token is handed to the
-            backend as an opaque value rather than read as nothing-to-check.
-            Reading it as a no-op would run the handler UNGUARDED on exactly
-            the payloads the flag exists to gate."
-    (let [seen (atom [])]
-      (rf.schemas/set-schema-fns!
-        {:validate (fn [schema _] (swap! seen conj schema) false)})
-      (rf/reg-event :api/nil-schema
-        {:schema    nil
-         :boundary? true}
-        (fn [_ _] {}))
-      (with-redefs [rf.spec/dev-mode? (constantly false)]
-        (rf/dispatch-sync [:api/nil-schema :whatever]))
-      (is (= [nil] @seen)
-          "the nil token reached the backend verbatim"))))
-
 (deftest boundary-flag-is-not-removable-by-interceptor-overrides
   (testing "the check is not a chain entry, so
             `:interceptor-overrides` cannot remove it. As a chain entry,
@@ -1976,16 +1632,6 @@
           (is (= [:n] (-> violations first :tags :path))
               ":path tag identifies the registered schema"))))))
 
-(deftest clear-empties-and-leaves-schemas-by-frame-empty
-  (testing "clear-schemas-by-frame! drops all per-frame entries"
-    (rf/reg-app-schema [:a] [:int])
-    (rf/reg-app-schema [:b] [:string])
-    (is (seq @rf.schemas.storage/schemas-by-frame)
-        "pre-clear: registry is populated")
-    (rf.schemas/clear-schemas-by-frame!)
-    (is (empty? @rf.schemas.storage/schemas-by-frame)
-        "post-clear: registry is empty")))
-
 (deftest restore-replaces-not-merges
   (testing "restore-schemas-by-frame! REPLACES the atom (does not merge);
             schemas registered after the snapshot disappear on restore"
@@ -2112,33 +1758,3 @@
           (is (= before @rf.schemas.storage/schemas-by-frame)
               (str "negative control: rejected batch " (pr-str bad)
                    " must NOT mutate the schema registry")))))))
-
-(deftest reg-app-schemas-empty-map-still-no-op-post-fix
-  ;; Pin the documented `{}` no-op: the empty map is a map, so it
-  ;; passes the shape gate and returns [].
-  (testing "rf/reg-app-schemas {} remains the documented no-op returning []"
-    (is (= [] (rf/reg-app-schemas {})))
-    (is (= {} (update-vals (rf.schemas/app-schemas {:frame :rf/default}) :schema)))))
-
-;; ---- :schema canonical --------------------------------------------------
-;;
-;; The framework uses a single name — `:schema` — where a dual
-;; vocabulary (`:spec` / `schema` / `validation` / `violation`) would
-;; otherwise sit. Alpha posture: no back-compat shims, no deprecation
-;; aliases. The v1→v2 rename is recorded in MIGRATION §M-54.
-
-(deftest boundary-arm-reads-schema-key
-  (testing "the boundary arm reads the canonical `:schema` key,
-            never a parallel one."
-    (rf/reg-event :api/schema-key
-      {:schema    [:cat [:= :api/schema-key] :int]
-       :boundary? true}
-      (fn [_ _] {}))
-    (let [meta (rf.registrar/lookup :event :api/schema-key)]
-      (with-redefs [rf.spec/dev-mode? (constantly false)]
-        (is (true? (rf.spec/validate-at-boundary!
-                     :api/schema-key [:api/schema-key 7] meta nil))
-            ":schema metadata + valid payload → handler proceeds")
-        (is (false? (rf.spec/validate-at-boundary!
-                      :api/schema-key [:api/schema-key "no"] meta nil))
-            ":schema metadata + invalid payload → handler skipped")))))
