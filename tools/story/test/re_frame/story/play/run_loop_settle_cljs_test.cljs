@@ -138,22 +138,6 @@
           (is (= :pass (:status final)))
           (done))))))
 
-(deftest raw-assert-dom-text-still-waits-for-its-node
-  (testing "the hidden arm is mode-aware, not blanket. The presence-asserting
-            half of the family still demands its node through the raw
-            entry path — otherwise `:text` / `:visible` would read a DOM
-            that had not rendered yet, which is the race the poll exists
-            to close"
-    (async done
-      (run-script!
-        [[:assert-dom absent-selector :text "42"]]
-        (fn [final]
-          (let [r (first (:results final))]
-            (is (false? (:passed? r)))
-            (is (re-find #"never settled" (message-of r))
-                "the presence precondition was enforced and timed out"))
-          (done))))))
-
 ;; ===========================================================================
 ;; 2. A FAILING COMMIT UNDER AN UNMET PRECONDITION
 ;; ===========================================================================

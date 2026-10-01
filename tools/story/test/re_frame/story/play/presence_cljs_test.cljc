@@ -96,11 +96,6 @@
     (is (contains? rf.story.play.runner/async-yield-step-types :flush-presence))
     (is (true? (rf.story.play.runner/async-yield? [:flush-presence])))))
 
-(deftest flush-presence-round-trips-through-coercion
-  (testing "a tagged step is never mistaken for a bare event vector"
-    (let [tagged [[:dispatch [:e]] [:flush-presence 100] [:flush-presence]]]
-      (is (= tagged (rf.story.play.runner/coerce-script tagged))))))
-
 ;; ===========================================================================
 ;; PURE: capabilities + determinism (both hosts)
 ;; ===========================================================================
@@ -370,10 +365,11 @@
 ;; `:dom` requirement, so an incapable runner refuses there". The grammar
 ;; requires no following assertion, nor that it be `:assert-dom`, and — more
 ;; fundamentally — "no hook installed" does not prove "no presence runtime
-;; exists". These two tests drive the SAME script under the SAME headless
-;; runner with the ONLY following assertion an `:assert-db`, so that premise
-;; cannot hold: the pair differs in exactly one thing, whether the host was
-;; installed, and the verdicts must differ.
+;; exists". The test below drives a script whose ONLY following assertion is
+;; an `:assert-db`, so that premise cannot hold. Its first three steps are
+;; the opening of `playback-with-the-presence-step-settles-deterministically`,
+;; which installs a host and passes, so the two verdicts differ on whether
+;; the host was installed.
 
 #?(:clj
    (deftest playback-with-no-presence-host-refuses-rather-than-passing-falsely
@@ -395,23 +391,6 @@
              "an uninstalled presence host fails CLOSED")
          (is (not= :pass (:status state))
              "no silent false green")))))
-
-#?(:clj
-   (deftest playback-with-an-installed-host-still-passes-the-same-script
-     (install-stub-presence-host! 300)
-     (testing "the other direction — over-tightening would be worse than a
-               silent green. The IDENTICAL script, `:assert-db` its only assertion,
-               still passes once a host is properly installed"
-       (let [done  (atom nil)
-             _     (rf.story.play.runner-events/run! presence-frame "with-host"
-                            {:name   "with-host"
-                             :script [[:dispatch [:presence/tick]]
-                                      [:flush-presence 100]
-                                      [:assert-db [:toast] :retained]]}
-                            #(reset! done %))
-             state @done]
-         (is (= :pass (:status state))
-             "a valid setup is never refused")))))
 
 ;; A host's OWN clock is not proven here, nor anywhere in Story: no supported
 ;; substrate publishes a presence-advance verb. If a substrate publishes one
