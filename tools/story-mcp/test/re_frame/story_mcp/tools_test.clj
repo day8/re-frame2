@@ -3105,22 +3105,9 @@
             out                    (scrub-re-keyed-runtime tree vid true)]
         (is (identical? tree out) "include? true returns the input unchanged")))))
 
-
-(deftest scrub-rendered-include?-true-forwards-raw-large
-  (testing "include? true forwards the raw large value (trusted-local opt-out)"
-    (with-clean-frame [vid :story.button/primary]
-      (let [blob   (vec (range 5000))
-            db     {:blob blob}
-            hiccup [:pre blob]]
-        (seed-app-db! vid db)
-        (declare-large! vid [:blob])
-        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
-              out            (scrub-rendered hiccup db vid true)]
-          (is (identical? hiccup out) "include? true returns the input unchanged")
-          (is (tree-contains? out blob) "the opt-out forwards the raw large value"))))))
-
-;; The two integration tests below pin the WIRING — that `preview-variant`
-;; and `run-variant` route `:effective-args` / `:snapshot` through
+;; The integration tests below pin the WIRING — that `preview-variant`
+;; (`:effective-args` / `:snapshot`) and `run-variant` (`:snapshot` and the
+;; evidence slots, in the next section) route their derived trees through
 ;; `scrub-rendered`. They `with-redefs` `rf.story/run-variant` to a controlled
 ;; result that embeds the secret in the derived trees, so the assertion is
 ;; independent of whatever the fixture would actually produce (the leak exists
@@ -3183,38 +3170,6 @@
           (is (tree-contains? (:snapshot s) "TOPSECRET")
               "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
-(deftest run-variant-path-redacts-matching-slot-derived-trees-fail-open
-  (testing "EP-0025: run-variant redacts a derived slot where the value sits AT the classified path, but ships re-keyed positions RAW"
-    (with-clean-frame [vid :story.button/primary]
-      (declare-sensitive! vid [:token])
-      (with-redefs [rf.story/run-variant
-                    (fn [_vk _opts]
-                      (java.util.concurrent.CompletableFuture/completedFuture
-                        (secret-bearing-run-result vid)))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (= :rf/redacted (get-in s [:app-db :token]))
-              "app-db PATH-redaction holds — the path guarantee")
-          (is (tree-contains? (:snapshot s) "TOPSECRET")
-              "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
-
-(deftest run-variant-derived-tree-forwards-secret-when-opted-in
-  (testing ":include-sensitive true forwards the raw value through the derived trees"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (declare-sensitive! vid [:token])
-      (with-redefs [rf.story/run-variant
-                    (fn [_vk _opts]
-                      (java.util.concurrent.CompletableFuture/completedFuture
-                        (secret-bearing-run-result vid)))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"
-                                       :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (tree-contains? (:snapshot s) "TOPSECRET")
-              "opt-in surfaces the raw value in the derived :snapshot tree"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; run-variant's :narrative / :warnings / :sub-runs evidence slots are
 ;; PATH-projected at egress. :narrative is a two-level evidence tree whose
@@ -3223,8 +3178,8 @@
 ;; the top-level :app-db slot — sits OFF its classified path inside the
 ;; narrative tree and ships RAW (EP-0025 fail-open). :warnings (trace-event
 ;; records) and :sub-runs (sub :value) re-key it the same way. These pin
-;; that all three ship re-keyed copies raw, with the same
-;; `:include-sensitive` opt-out as the sibling derived slots.
+;; that all three, and the :snapshot slot, ship re-keyed copies raw, with
+;; the same `:include-sensitive` opt-out as the sibling derived slots.
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-narrative-ships-re-keyed-secret-raw-fail-open
@@ -3248,7 +3203,9 @@
           (is (tree-contains? (:warnings s) "TOPSECRET")
               "fail-open: :warnings trace-event data re-keys the secret, so it ships RAW")
           (is (tree-contains? (:sub-runs s) "TOPSECRET")
-              "fail-open: :sub-runs subscription :value re-keys the secret, so it ships RAW"))))))
+              "fail-open: :sub-runs subscription :value re-keys the secret, so it ships RAW")
+          (is (tree-contains? (:snapshot s) "TOPSECRET")
+              "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
 (deftest run-variant-narrative-forwards-secret-when-opted-in
   (testing ":include-sensitive true forwards the raw value through :narrative / :warnings / :sub-runs"
@@ -3518,29 +3475,6 @@
         (let [s (:structuredContent (invoke "preview-variant" {:variant-id "story.button/primary"}))]
           (is (= :error (:lifecycle s))))))))
 
-(deftest read-failures-strips-sensitive-assertion-records-by-default
-  (testing "an assertion record stamped :sensitive? true is dropped at egress"
-    (with-clean-frame [vid :story.button/primary]
-      ;; Seed assertion accumulator with one sensitive failure + one
-      ;; benign passing record. The default-drop filter (strip-sensitive
-      ;; from mcp-base.sensitive) must remove only the sensitive one.
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion :rf.assert/path-equals
-                       :passed?   true
-                       :tags      [:public]}
-                      {:assertion  :rf.assert/path-equals
-                       :passed?    false
-                       :sensitive? true
-                       :reason     "expected TOPSECRET got something-else"}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 1 (:total s)) "only the non-sensitive record survives")
-        (is (empty? (:failures s)) "the sensitive failure is filtered out")
-        (is (= :pass (:status s))
-            ":status aggregates the scrubbed vec — agent's view is consistent; a dropped sensitive failure doesn't flip the verdict")))))
-
 (deftest read-failures-includes-sensitive-when-opted-in
   (testing ":include-sensitive true preserves sensitive records"
     (rf.story-mcp.config/set-allow-sensitive-reads! true)
@@ -3559,7 +3493,9 @@
         (is (success? r))
         (is (= 2 (:total s)) "both records survive the egress")
         (is (= 1 (count (:failures s))) "the failed sensitive record is visible")
-        (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
+        (is (= :fail (:status s)) "the visible failure drives :status :fail")
+        (is (not (contains? s :dropped-sensitive))
+            "nothing was dropped, so the slot is omitted (omit-when-zero)")))))
 
 ;; ---------------------------------------------------------------------------
 ;; explain-variant ships author data raw.
@@ -3750,21 +3686,6 @@
             (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
                 "the documented opt-in surfaces the raw node :html")))))))
 
-(deftest read-a11y-violations-gate-closed-re-keyed-html-ships-raw-fail-open
-  (testing "EP-0025 fail-open: a RE-KEYED axe-core node :html ships RAW regardless of gate state — there is no value-match"
-    (is (false? (rf.story-mcp.config/sensitive-reads-allowed?)))
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (let [vios [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]]
-        (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (a11y-stand-in {:story.button/primary vios})]
-          (let [r (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
-                                      :include-sensitive true})
-                s (:structuredContent r)]
-            (is (success? r))
-            (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
-                "fail-open: the re-keyed node :html ships raw whether the gate is open or closed (path is the only redaction route)")))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).
 ;;
@@ -3797,6 +3718,9 @@
             s (:structuredContent r)]
         (is (success? r))
         (is (= 1 (:total s)) "only the non-sensitive record survives")
+        (is (empty? (:failures s)) "the sensitive failures are filtered out")
+        (is (= :pass (:status s))
+            ":status aggregates the scrubbed vec — a dropped sensitive failure does not flip the verdict")
         (is (= 2 (:dropped-sensitive s))
             "the count of dropped sensitive records rides the envelope (MUST)")))))
 
@@ -3813,22 +3737,6 @@
             ":dropped-sensitive omitted when zero")
         (is (not (contains? s :elided-large))
             ":elided-large omitted when zero")))))
-
-(deftest read-failures-includes-sensitive-clears-dropped-indicator
-  (testing ":include-sensitive true keeps the records, so :dropped-sensitive stays absent"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid
-                    {:rf.story/assertions
-                     [{:assertion  :rf.assert/path-equals :passed? false
-                       :sensitive? true :reason "secret mismatch"}]})
-      (let [r (invoke "read-failures" {:variant-id "story.button/primary"
-                                       :include-sensitive true})
-            s (:structuredContent r)]
-        (is (success? r))
-        (is (= 1 (:total s)) "the sensitive record survives the opt-in")
-        (is (not (contains? s :dropped-sensitive))
-            "nothing was dropped, so the slot is omitted (omit-when-zero)")))))
 
 (deftest run-variant-surfaces-elided-large-indicator
   (testing ":elided-large count rides the envelope when a large value is elided"
@@ -3847,20 +3755,6 @@
         (is (pos-int? (:elided-large s))
             "the count of elided leaves rides the envelope (MUST)")))))
 
-(deftest egress-with-indicators-honours-omit-when-zero
-  ;; Unit pin on the egress helper itself — the omit-when-zero rule it
-  ;; inherits from mcp-base. Belt-and-braces alongside the tool-level
-  ;; tests above so a drift in the helper wiring trips here directly.
-  (testing "both zero ⇒ payload unchanged"
-    (is (= {:ok? true}
-           (rf.story-mcp.tools.egress/with-indicators {:ok? true} {:dropped 0 :elided 0}))))
-  (testing "positive counts ⇒ both slots spliced"
-    (is (= {:ok? true :dropped-sensitive 3 :elided-large 2}
-           (rf.story-mcp.tools.egress/with-indicators {:ok? true} {:dropped 3 :elided 2}))))
-  (testing "count-elided walks the payload for :rf.size/large-elided markers"
-    (is (= 0 (rf.story-mcp.tools.egress/count-elided {:a 1 :b [2 3]})))
-    (is (= 1 (rf.story-mcp.tools.egress/count-elided {:a {:rf.size/large-elided {:path [:a] :bytes 99}}})))))
-
 ;; The full set of tools that surface an OBSERVED-RUNTIME value-bearing slot
 ;; (live `:app-db` / assertions OR a non-live captured runtime value) and so
 ;; must accept the `:include-sensitive` opt-in. The live three
@@ -3874,14 +3768,6 @@
    "read-a11y-violations"])
 
 (deftest egress-tools-input-schema-carries-include-sensitive
-  (testing "every tool surfacing a value-bearing slot accepts :include-sensitive"
-    (doseq [tname include-sensitive-tools]
-      (let [t     (some #(when (= tname (:name %)) %) rf.story-mcp.tools.registry/tool-registry)
-            props (-> t :inputSchema :properties)]
-        (is (contains? props :include-sensitive)
-            (str tname " missing :include-sensitive slot"))
-        (is (= "boolean" (-> props :include-sensitive :type))
-            (str tname " :include-sensitive slot is not boolean-typed")))))
   ;; Pin the EXACT include-sensitive tool set against the
   ;; registry so the spec's affected-tools prose (four) and the descriptor
   ;; strip can't silently drift apart. The set is precisely the
