@@ -99,18 +99,6 @@
                   [[1 "Declare coeffects via :rf.cofx/requires; values arrive flat."]
                    [2 "The :rf.cofx envelope map is the one nested record."]])))))
 
-(deftest keyword-drift-over-files-tags-repo-relative-file
-  (testing "the file-driver scans committed surfaces and flags zero on the
-            live tree (every committed :rf.world/inputs mention is a
-            retirement/rename reference)"
-    ;; The committed docs/core/ + skills/ surfaces carry only
-    ;; retirement/rename mentions, so the live scan must be clean — a
-    ;; regression catches a fresh reintroduction.
-    (let [guide-files (rf.api-manifest.projection/markdown-files (rf.api-manifest.projection/repo-file "docs" "core"))]
-      (is (pos? (count guide-files)))
-      (is (empty? (rf.api-manifest.projection/keyword-drift-problems-over-files guide-files))
-          "live drift: a docs/core file reintroduced stale :rf.world/inputs"))))
-
 ;; ---------------------------------------------------------------------------
 ;; EP-0011 reply-envelope vocabulary-drift guard.
 ;;
@@ -189,10 +177,10 @@
                    [2 "A trusted-local operator on-box may opt into raw."]])))))
 
 (deftest keyword-drift-over-files-folds-all-three-guards-clean-on-live
-  (testing "the live docs/core surface carries no EP-0011/EP-0015 stale
-            vocabulary either (the folded driver stays clean). docs/core has
-            no migration-skill exclusion, so the whole tree must be clean."
+  (testing "the live docs/core surface carries no stale EP-0017/EP-0011/EP-0015
+            vocabulary (the folded driver stays clean). docs/core has no
+            migration-skill exclusion, so the whole tree must be clean."
     (let [guide (rf.api-manifest.projection/markdown-files (rf.api-manifest.projection/repo-file "docs" "core"))]
       (is (pos? (count guide)))
       (is (empty? (rf.api-manifest.projection/keyword-drift-problems-over-files guide))
-          "live drift: a docs/core file reintroduced stale reply/egress vocabulary"))))
+          "live drift: a docs/core file reintroduced stale keyword/reply/egress vocabulary"))))
