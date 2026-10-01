@@ -48,15 +48,13 @@
     (is (false? (rf.mcp-base.envelope/marker-text? 42)))))
 
 (deftest marker-text?-only-matches-leading-marker-not-embedded-key
-  ;; `marker-text?` is `starts-with?`, not
-  ;; `includes?` — the marker key must be the LEADING top-level key for
-  ;; the text to count as a boundary marker. The comment block in
-  ;; envelope.cljc justifies the prefix-match precisely on this ground:
-  ;; an ordinary payload that merely CONTAINS `:rf.mcp/overflow` as a
-  ;; nested value must NOT be mistaken for a boundary-step marker (which
-  ;; would make a later boundary step skip re-walking a real payload).
-  ;; A regression that loosened `starts-with?` to `includes?` would
-  ;; trip this test.
+  ;; The marker key must be the LEADING and ONLY top-level key for the
+  ;; text to count as a boundary marker: an ordinary payload that merely
+  ;; CONTAINS `:rf.mcp/overflow`, as a nested value or as a later key,
+  ;; must NOT be mistaken for a boundary-step marker (which would make a
+  ;; later boundary step skip re-walking a real payload). The
+  ;; leading-token pre-filter and the closed-wrapper read each reject
+  ;; these on their own, so loosening either one alone keeps this green.
   (testing "marker key as a nested value ⇒ NOT a marker"
     (is (false? (rf.mcp-base.envelope/marker-text?
                   (pr-str {:trace [{:note "saw :rf.mcp/overflow once"}]})))
