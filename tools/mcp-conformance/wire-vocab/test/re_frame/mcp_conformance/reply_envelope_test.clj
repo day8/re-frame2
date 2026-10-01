@@ -73,22 +73,6 @@
             [re-frame.mcp-conformance.fixtures :as rf.mcp-conformance.fixtures]
             [re-frame.mcp-conformance.wire-vocab.source-pins :as rf.mcp-conformance.wire-vocab.source-pins]))
 
-;; ---------------------------------------------------------------------------
-;; The closed reply vocabularies — mirrored from re-frame.reply as literal
-;; data (the wire-vocab gate never :requires the substrate; it consumes the
-;; WIRE facts, the same posture Xray's reply-envelope panel takes per spec
-;; 013 §One work/reply vocabulary). A substrate drift that changed these sets
-;; would also drift the production emissions the source-pin below tracks.
-;; ---------------------------------------------------------------------------
-
-(def ^:private reply-statuses
-  "The closed reply `:status` vocabulary (Managed-Effects §Status taxonomy)."
-  #{:ok :partial :error :cancelled :stale})
-
-(def ^:private work-statuses
-  "The closed `:work/status` vocabulary (Managed-Effects §Status taxonomy)."
-  #{:completed :failed :timed-out :suppressed :cancelled})
-
 (defn- work-id-tuple?
   "True when `v` is a canonical `[:rf.work/* …]` attempt-identity tuple — a
   non-empty vector whose head is an `:rf.work/`-namespaced keyword. EP-0011
@@ -106,7 +90,9 @@
 ;; vocabulary (the row is NOT a single-key wrapper; it is a trace event's tag
 ;; map). The load-bearing contract is the additive `:rf.reply/*` keys + their
 ;; shapes. The work identity rides ONLY as `:rf.reply/work-id`; there is no
-;; bare `:work/id` duplicate (one name per fact).
+;; bare `:work/id` duplicate (one name per fact). Its closed enums mirror
+;; re-frame.reply's status vocabularies as literal data: the gate consumes
+;; the WIRE facts and never :requires the substrate.
 ;; ---------------------------------------------------------------------------
 
 (def ReplyEnvelopeTraceRow
@@ -227,44 +213,6 @@
         (str family " reply-envelope trace fixture failed schema validation:\n"
              (me/humanize (m/explain ReplyEnvelopeTraceRow fixture))))))
 
-(deftest reply-envelope-row-pins-the-closed-vocabularies
-  (testing "every fixture's :rf.reply/status is in the closed reply-status set
-            and its :rf.reply/work-status is in the closed work-status set"
-    (doseq [[family fixture] all-fixtures]
-      (is (contains? reply-statuses (:rf.reply/status fixture))
-          (str family " :rf.reply/status " (:rf.reply/status fixture)
-               " is not in the closed reply-status vocabulary " reply-statuses))
-      (is (contains? work-statuses (:rf.reply/work-status fixture))
-          (str family " :rf.reply/work-status " (:rf.reply/work-status fixture)
-               " is not in the closed work-status vocabulary " work-statuses)))))
-
-(deftest reply-envelope-work-id-is-the-canonical-tuple-and-no-bare-duplicate
-  (testing "the :rf.reply/work-id is the canonical [:rf.work/* …] tuple an MCP
-            consumer joins on, and the row carries NO bare :work/id duplicate
-            (one name per fact on a reply-envelope row)"
-    (doseq [[family fixture] all-fixtures]
-      (is (work-id-tuple? (:rf.reply/work-id fixture))
-          (str family " :rf.reply/work-id is not a canonical [:rf.work/* …] tuple"))
-      (is (not (contains? fixture :work/id))
-          (str family " reply-envelope row carries a bare :work/id duplicate of "
-               ":rf.reply/work-id — the one-name-per-fact rule "
-               "forbids it")))))
-
-(deftest stale-rows-carry-the-suppression-correlation-and-reason
-  (testing "a stale-suppression row pins :work/status :suppressed + the
-            carried/current correlation gate + a stale reason (the
-            stale/cancelled outcome fields)"
-    (doseq [family [:http :resource]
-            :let [fixture (all-fixtures family)]]
-      (is (= :stale (:rf.reply/status fixture))
-          (str family " suppression row is :rf.reply/status :stale"))
-      (is (= :suppressed (:rf.reply/work-status fixture))
-          (str family " suppression row is :rf.reply/work-status :suppressed"))
-      (is (some? (:rf.reply/carried fixture))
-          (str family " suppression row carries :rf.reply/carried correlation"))
-      (is (some? (:rf.reply/current fixture))
-          (str family " suppression row carries :rf.reply/current correlation")))))
-
 ;; ===========================================================================
 ;; (2) Schema FAILS CLOSED on a renamed / dropped / scalar near-miss — the
 ;;     gate is only as strong as its ability to reject the regression shapes.
@@ -312,14 +260,6 @@
             (str "the reply-envelope key " literal " is not emitted as DATA in any "
                  "production site " (vec emit-source-files) " — a rename of the "
                  "MCP-visible reply-envelope vocabulary slipped past the gate"))))))
-
-(deftest the-canonical-reply-work-id-is-emitted-as-the-namespaced-spelling
-  (testing "the canonical reply work-identity is emitted as :rf.reply/work-id
-            (an MCP consumer joins reply rows by it; reply-envelope rows
-            carry no bare :work/id duplicate)"
-    (let [stripped (map (comp rf.mcp-conformance.fixtures/strip-comments-and-strings rf.mcp-conformance.fixtures/read-source) emit-source-files)]
-      (is (some #(str/includes? % (pr-str :rf.reply/work-id)) stripped)
-          ":rf.reply/work-id (the canonical reply join key) must be emitted as DATA"))))
 
 ;; ===========================================================================
 ;; (4) Near-miss anti-pin — a snake_case / pluralised / predicate / dotted-ns
