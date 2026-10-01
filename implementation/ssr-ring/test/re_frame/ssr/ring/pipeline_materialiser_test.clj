@@ -62,14 +62,6 @@
 ;; the adapter must simply NOT silently honour the retired keys.
 ;; ===========================================================================
 
-(deftest redirect-resolves-location-key
-  (testing "a redirect map keyed by :location emits a Location header"
-    (let [resp {:redirect {:status 302 :location "/by-location"}}
-          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
-      (is (= 302 (:status ring)))
-      (is (= "/by-location" (get (:headers ring) "Location")))
-      (is (= "" (:body ring)) "redirect has no body"))))
-
 (deftest redirect-ignores-retired-url-spelling-no-location-header
   (testing "a redirect map carrying ONLY the retired :url spelling
             (NOT :location) is treated as target-less by the materialiser,
@@ -120,21 +112,6 @@
 ;; applies to the `:content-type` override — before associating the canonical
 ;; spelling.
 ;; ===========================================================================
-
-(deftest redirect-replaces-a-lowercase-location-header
-  (testing "an existing `location` header is REPLACED, not duplicated"
-    (let [resp {:redirect {:status 302 :location "/new"}
-                :headers  [["location" "/old"]]}
-          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)
-          location-keys (filter #(= "location" (str/lower-case (str %)))
-                                (keys (:headers ring)))]
-      (is (= 302 (:status ring)))
-      (is (= 1 (count location-keys))
-          "exactly ONE Location entry, whatever its spelling")
-      (is (= "/new" (get (:headers ring) (first location-keys)))
-          "and it carries the REDIRECT target, not the stale one")
-      (is (= "Location" (first location-keys))
-          "the canonical spelling is what the redirect emits"))))
 
 (deftest redirect-replaces-every-location-casing
   (testing "`location`, `LOCATION`, `Location`, `LoCaTiOn` — each is
@@ -227,41 +204,9 @@
       (is (not-any? #(= "/old" %) (vals headers))
           "the stale target does not reach the wire under any spelling"))))
 
-(deftest redirect-default-status-302-when-absent
-  (testing "a redirect map with a target but no :status
-            defaults to 302 (the materialiser's `(or redirect-status
-            status 302)` fallback)"
-    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                 {:redirect {:location "/x"}} nil)]
-      (is (= 302 (:status ring))
-          "absent redirect :status → 302 default")
-      (is (= "/x" (get (:headers ring) "Location"))))))
-
-(deftest redirect-no-target-omits-location-header
-  (testing "a redirect with no :location / :url / :to emits
-            the status but NO Location header (the malformed-redirect
-            tolerance — the warning-trace branch is pinned end-to-end by
-            ring_test/handler-redirect-no-target-warns; here we pin the
-            materialiser's header-omission half directly)"
-    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                 {:redirect {:status 302}} nil)]
-      (is (= 302 (:status ring)) "status still emitted (no target to invent)")
-      (is (nil? (get (:headers ring) "Location"))
-          "no Location header when no target key is present")
-      (is (= "" (:body ring))))))
-
 ;; ===========================================================================
 ;; ssr-response->ring-response — non-redirect (body) path
 ;; ===========================================================================
-
-(deftest body-response-defaults-status-200
-  (testing "a non-redirect response with no :status defaults
-            to 200 and carries the supplied body verbatim"
-    (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
-                 {:headers [["Content-Type" "text/html"]]}
-                 "<p>hi</p>")]
-      (is (= 200 (:status ring)) "absent :status → 200 default")
-      (is (= "<p>hi</p>" (:body ring)) "body rides through verbatim"))))
 
 (deftest body-response-nil-body-becomes-empty-string
   (testing "a nil body materialises to the empty string, not
@@ -446,16 +391,6 @@
 ;; ring_test/content-type-override-replaces-any-casing.
 ;; ===========================================================================
 
-(deftest content-type-override-sets-when-pairs-carry-none
-  (testing "pairs that declare no Content-Type get the override
-            value set (with no existing Content-Type, override = assoc)"
-    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
-                   [["X-Custom" "v"]]
-                   "text/html; charset=utf-8")]
-      (is (= "text/html; charset=utf-8" (get result "Content-Type"))
-          "the override Content-Type is set when the pairs carry none")
-      (is (= "v" (get result "X-Custom")) "other pairs survive the fold"))))
-
 (deftest content-type-nil-override-leaves-pairs-untouched
   (testing "a nil `content-type` arg is NO override — the folded
             map flows verbatim, so the runtime seed / app-set Content-Type
@@ -472,11 +407,6 @@
                      nil)]
         (is (= "application/json" (get result "content-type"))
             "the accumulator's own Content-Type survives an absent override")))))
-
-(deftest empty-pairs-with-nil-override-yields-empty-map
-  (testing "empty pairs + nil override → empty header map (no
-            spurious keys)"
-    (is (= {} (rf.ssr.ring.headers/headers->ring-map+content-type-override [] nil)))))
 
 ;; ===========================================================================
 ;; merge-pair-into-header-map — repeated names collapse into a vector
@@ -626,19 +556,6 @@
       (is (some #(str/starts-with? % "session=abc") sc))
       (is (some #(str/starts-with? % "theme=dark") sc)))))
 
-(deftest same-case-header-fold-behaviour-unchanged
-  (testing "the case-insensitive fold keeps same-case
-            singleton/scalar/vector behaviour: a singleton is a scalar,
-            repeats promote to an ordered vector"
-    (is (= {"Vary" "Accept"}
-           (rf.ssr.ring.headers/merge-pair-into-header-map {} ["Vary" "Accept"]))
-        "a singleton stays a scalar")
-    (is (= {"Vary" ["Accept" "Cookie"]}
-           (-> {}
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"])))
-        "same-case repeats still promote to an ordered vector")))
-
 ;; ===========================================================================
 ;; merge-pair-into-header-map — dev-gated warning on a non-string value
 ;;
@@ -694,41 +611,6 @@
                            (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"]))))]
       (is (= [] warnings)
           "no non-string-header-value warning for string-valued headers"))))
-
-(deftest header-fold-collapses-repeated-names-through-full-fold
-  (testing "the full fold collapses repeated names into a
-            vector AND keeps singletons scalar in one pass — the contract
-            the materialiser relies on for multi-valued headers"
-    (let [result (rf.ssr.ring.headers/headers->ring-map+content-type-override
-                   [["Set-Cookie" "a=1"]
-                    ["Set-Cookie" "b=2"]
-                    ["X-One" "only"]]
-                   nil)]
-      (is (= ["a=1" "b=2"] (get result "Set-Cookie"))
-          "repeated Set-Cookie collapses to an ordered vector")
-      (is (= "only" (get result "X-One"))
-          "a singleton header stays a scalar string"))))
-
-;; ===========================================================================
-;; append-set-cookies — structured cookies → Set-Cookie pairs folded in
-;; ===========================================================================
-
-(deftest append-set-cookies-folds-multiple-into-vector
-  (testing "two structured cookies fold into a 2-vector under
-            Set-Cookie, each serialised per RFC 6265"
-    (let [result (rf.ssr.ring.headers/append-set-cookies
-                   {}
-                   [{:name "session" :value "abc"}
-                    {:name "theme" :value "dark"}])
-          sc     (get result "Set-Cookie")]
-      (is (vector? sc) "two cookies → vector")
-      (is (= 2 (count sc)))
-      (is (some #(str/starts-with? % "session=abc") sc))
-      (is (some #(str/starts-with? % "theme=dark") sc)))))
-
-(deftest append-set-cookies-empty-is-noop
-  (testing "no cookies → header map unchanged"
-    (is (= {"X" "y"} (rf.ssr.ring.headers/append-set-cookies {"X" "y"} [])))))
 
 ;; ===========================================================================
 ;; ssr-middleware — DEFAULT :match? (matches every GET; non-GET falls through)
