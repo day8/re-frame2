@@ -79,7 +79,8 @@
             each mark-and-measure call clears its measure by name right
             after emit, so the host's User-Timing buffer does NOT
             accumulate. A live PerformanceObserver still receives the
-            entry (callback fires at measure() time, before the clear);
+            entry (measure() queues it in the observer's own buffer,
+            which the clear does not touch);
             the retained buffer that `getEntriesByType` reads stays empty."
     (when (and rf.performance/enabled? (not rf.performance/retain-entries?))
       (clear-measures!)
