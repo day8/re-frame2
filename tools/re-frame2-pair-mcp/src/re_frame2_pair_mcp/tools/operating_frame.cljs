@@ -68,7 +68,8 @@
   consults via `current-frame`. These tools are thin wrappers over the
   already-published runtime fns:
 
-  - set   → validate against `(frames-list)` then `(select-frame! id)`.
+  - set   → validate against `(frames-list)`, `(select-frame! id)`, then
+            read back the triple.
   - reset → `(select-frame! nil)` then read back the triple.
   - get   → `(frames-list)`.
 
@@ -106,10 +107,20 @@
 ;; pin write happen atomically against the same runtime read — no
 ;; check-then-act race across two round-trips. `frames-list` returns the
 ;; `{:ok? :frames :selected :operating}` triple; we read `:frames`,
-;; test membership, and either `select-frame!` (returning the fresh
-;; triple) or refuse with `:no-such-frame` (carrying the registered
-;; `:frames` so the caller can pick a valid target).
+;; test membership, and either `pin-and-read` (returning the fresh triple)
+;; or refuse with `:no-such-frame` (carrying the registered `:frames` so
+;; the caller can pick a valid target).
 ;; ---------------------------------------------------------------------------
+
+(defn- pin-and-read
+  "IR that pins `frame-id` as the session's operating frame (nil clears the
+  pin), then reads back the `frames-list` map. `select-frame!` itself
+  answers only `{:ok? true :frame id}`, so set and reset both re-read to
+  reply with the map their descriptors document — the one an agent uses
+  to confirm the pin took."
+  [frame-id]
+  (ef/rt-let ['_ (ef/rt-call 'select-frame! frame-id)]
+    (ef/rt-call 'frames-list)))
 
 (defn- set-form
   "Build the validate-then-pin eval form for a `frame-id` keyword.
@@ -117,14 +128,14 @@
   Validation and the pin write are ONE eval form against the same runtime
   read — no check-then-act race across two round-trips. `frames-list`
   returns the `{:ok? :frames :selected :operating …}` map; we read
-  `:frames`, test membership, and either `select-frame!` (returning the
+  `:frames`, test membership, and either `pin-and-read` (returning the
   fresh map) or refuse with `:no-such-frame` (carrying the registered
   `:frames` so the caller can pick a valid target)."
   [frame-id]
   (ef/emit
     (ef/rt-raw
       (str "(if (some #{" (pr-str frame-id) "} (:frames (re-frame2-pair.runtime/frames-list)))"
-           "  (re-frame2-pair.runtime/select-frame! " (pr-str frame-id) ")"
+           "  " (ef/emit (pin-and-read frame-id))
            "  {:ok? false :reason :no-such-frame"
            "   :frame " (pr-str frame-id)
            "   :frames (:frames (re-frame2-pair.runtime/frames-list))})"))))
@@ -220,10 +231,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- reset-form []
-  (ef/emit
-    (ef/rt-let
-      ['_  (ef/rt-call 'select-frame! nil)]
-      (ef/rt-call 'frames-list))))
+  (ef/emit (pin-and-read nil)))
 
 (defn reset-operating-frame-tool [conn raw-args]
   (let [build-id (wire/arg-build conn raw-args)
