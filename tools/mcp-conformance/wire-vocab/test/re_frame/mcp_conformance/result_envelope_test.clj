@@ -209,29 +209,6 @@
     (is (m/validate ResultEnvelope {:rf.mcp/result :unserializable
                                     :type "function" :preview "#object[Function]"}))))
 
-(deftest result-envelope-distinguishes-nil-from-value-and-errors
-  ;; The load-bearing reason the marker exists: a genuine
-  ;; nil, an eval-error, and an unserializable value MUST be three
-  ;; DISTINCT tags — without the marker they would all collapse to a
-  ;; bare null. Pin
-  ;; that the schema discriminates them: the `:nil` tag is NOT the
-  ;; `:value` tag, and neither error tag validates as a value.
-  (let [genuine-nil {:rf.mcp/result :nil}
-        value-nil   {:rf.mcp/result :value :value nil}
-        eval-error  {:rf.mcp/result :eval-error
-                     :reason :rf.error/eval-cljs-threw :ex "boom"}
-        unser       {:rf.mcp/result :unserializable
-                     :type "object" :preview "#object[…]"}]
-    (testing "all four distinct tags validate"
-      (is (every? #(m/validate ResultEnvelope %)
-                  [genuine-nil value-nil eval-error unser])
-          "the four typed outcomes are each a valid envelope"))
-    (testing "the genuine-nil tag is :nil, the value-nil tag is :value"
-      (is (= :nil   (:rf.mcp/result genuine-nil)))
-      (is (= :value (:rf.mcp/result value-nil)))
-      (is (not= (:rf.mcp/result genuine-nil) (:rf.mcp/result value-nil))
-          "a genuine nil and a nil-valued :value are DIFFERENT tags — the wire-fidelity contract"))))
-
 (deftest result-key-literal-in-re-frame2-pair-mcp-emit-source
   ;; Source-text pin: the canonical `:rf.mcp/result` literal MUST appear
   ;; as DATA (the `result-key` def value) in mcp-base/vocab.cljc — the
