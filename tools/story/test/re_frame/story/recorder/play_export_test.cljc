@@ -170,7 +170,16 @@
       (is (= #{[:assert-db [:n] 1]
                [:assert-db [:extra] :added]}
              (set asserts))
-          ":who is unchanged → no assertion; :n changed + :extra new → two assertions"))))
+          ":who is unchanged → no assertion; :n changed + :extra new → two assertions")))
+  (testing "a recording that changed nothing (seed = final) emits no :assert-db
+            step — the seeded branch never falls back to asserting every key"
+    (let [db   {:n 0 :who "alice"}
+          spec (rf.story.recorder.play-export/recording->script-body
+                 [[:counter/inc]]
+                 {:auto-assert? true
+                  :seed-db      db
+                  :final-db     db})]
+      (is (= [[:dispatch [:counter/inc]]] (:script spec))))))
 
 (deftest auto-assert-never-asserts-story-bookkeeping
   (testing "Story's own run bookkeeping (:rf.story/* keys) is
