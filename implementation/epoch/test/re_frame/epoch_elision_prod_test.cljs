@@ -38,6 +38,11 @@
   registry remains valid but dead-on-arrival. The test below pins both
   halves of the contract.
 
+  Every absence below is paired with a witness that the gate is what
+  produced it: a dispatch's app-db write is read back, and where a refusal
+  would also follow from an empty ring the epoch stores are seeded directly
+  (they are value-layer machinery too) with state a dev build would act on.
+
   Naming convention: files ending in `-elision-prod-test.cljs` are
   picked up ONLY by the `:browser-test-prod-elision` build. Running
   under `goog.DEBUG=true` would FAIL — under dev these surfaces deliver
@@ -47,7 +52,8 @@
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.epoch :as rf.epoch]
-            [re-frame.epoch.listeners :as rf.epoch.listeners]))
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.epoch.state :as rf.epoch.state]))
 
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
@@ -88,6 +94,9 @@
                        (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
       (rf/dispatch-sync [:prod-epoch/ping])
       (rf/dispatch-sync [:prod-epoch/ping])
+      (is (true? (:pinged? (rf/app-db-value :rf/default)))
+          "WITNESS: the dispatches ran their handler, so the silent listener
+           below had a real cascade to miss")
       (is (empty? @seen)
           "no records delivered to the listener under
            :advanced + goog.DEBUG=false")
@@ -98,15 +107,23 @@
 (deftest restore-epoch-returns-false-under-prod
   (testing "Per Spec 009 §Production builds: `restore-epoch!` is gated
             on `interop/debug-enabled?` via an `(if-not …)`
-            early-return. Under prod it returns `false` for every
-            (frame-id, epoch-id) pair — the precondition checks and
-            perform-restore branch DCE entirely."
-    (is (false? (rf/restore-epoch! :rf/default 0))
-        "restore-epoch! returns false under prod for a never-recorded epoch")
-    (is (false? (rf/restore-epoch! :rf/default 999999))
-        "restore-epoch! returns false under prod for any epoch-id")
-    (is (false? (rf/restore-epoch! :rf.nonexistent/frame 0))
-        "restore-epoch! returns false under prod even for an unknown frame")))
+            early-return. Under prod it returns `false` even for a target a
+            dev build restores — the precondition checks and perform-restore
+            branch DCE entirely. An unknown epoch or frame is refused
+            whatever the gate reads, so the target here is a retained `:ok`
+            record with a restorable `:frame-state-after`, seeded straight
+            into the ring."
+    (rf.epoch.state/record! {:frame             :rf/default
+                             :epoch-id          1
+                             :event-id          :prod-epoch/seeded
+                             :outcome           :ok
+                             :frame-state-after {:rf.db/app {:restored true}}})
+    (is (= [1] (mapv :epoch-id (rf/epoch-history :rf/default)))
+        "PRECONDITION: the target is retained")
+    (is (false? (rf/restore-epoch! :rf/default 1))
+        "restore-epoch! refuses a retained :ok target under prod")
+    (is (not= {:restored true} (rf/app-db-value :rf/default))
+        "app-db was not replaced by the target's frame state")))
 
 ;; ---- replay-epoch! is a no-op returning false under prod ------------------
 
@@ -167,13 +184,25 @@
 
 ;; ---- on-frame-destroyed! is silent under prod ----------------------------
 
-(deftest on-frame-destroyed-emits-no-trace-under-prod
+(deftest on-frame-destroyed-is-inert-under-prod
   (testing "Per Spec 009 §Production builds:
             `on-frame-destroyed!` is gated on `interop/debug-enabled?`.
-            Under prod it does NOT emit
-            `:rf.epoch.cb/silenced-on-frame-destroy`; the
-            observed-frames-by-cb bookkeeping side-effect is dead too.
-            Frame-destroy paths that route through this hook do not
-            crash."
-    (is (nil? (rf.epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
-        "on-frame-destroyed! returns nil under prod even for unknown frames")))
+            Under prod it neither publishes the terminal record and
+            `:rf.epoch.cb/silenced-on-frame-destroy` nor runs the
+            exact-owner store cleanup, and frame-destroy paths that route
+            through this hook do not crash. Trace delivery is itself elided
+            under prod, so a trace listener cannot tell; the cleanup is the
+            observable. The stores are seeded for the owner whose token the
+            destroy presents, which a dev build drops."
+    (let [frame-id :prod-epoch/destroyed
+          token    #js {}]
+      (rf.epoch.state/claim-frame-owner! frame-id token)
+      (rf.epoch.state/record! {:frame frame-id :epoch-id 1 :outcome :ok})
+      (rf.epoch.state/buffer-event! frame-id {:operation :rf.event/run-start
+                                              :tags      {:rf.trace/dispatch-id ::seeded}})
+      (is (nil? (rf.epoch.listeners/on-frame-destroyed! frame-id token nil))
+          "on-frame-destroyed! returns nil under prod")
+      (is (= 1 (count (rf.epoch.state/history-for frame-id)))
+          "the owner's history survives — the gated cleanup did not run")
+      (is (= 1 (count (rf.epoch.state/buffer-for frame-id)))
+          "the owner's capture buffer survives too"))))
