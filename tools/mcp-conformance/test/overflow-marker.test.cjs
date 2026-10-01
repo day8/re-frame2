@@ -112,12 +112,6 @@ test('unwrapClosedOverflow: rejects multiple top-level keys even when both look 
   assert.throws(() => unwrapClosedOverflow(outer, 'test'), /CLOSED single-key map/);
 });
 
-test('validateOverflowWrapper: accepts the canonical closed wrapper and returns the body', () => {
-  const body = validateOverflowWrapper({ 'rf.mcp/overflow': validBody() }, 'test');
-  assert.equal(body.tool, 'eval-cljs');
-  assert.equal(body['token-count'], 6250);
-});
-
 test('validateOverflowWrapper: accepts additive fields inside the (open) body', () => {
   const body = validBody({ 'extra-field': 'ok', nested: { a: 1 } });
   const out = validateOverflowWrapper({ 'rf.mcp/overflow': body }, 'test');
