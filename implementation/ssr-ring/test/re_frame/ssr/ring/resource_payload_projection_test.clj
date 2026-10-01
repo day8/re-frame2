@@ -241,7 +241,7 @@
           ;; the confirm-by-revert control: the projection is not silently
           ;; empty for everyone. The NON-sensitive counterpart of this exact
           ;; render still ships its row, asserted by
-          ;; `non-streaming-payload-serializes-non-sensitive-resource` below.
+          ;; `non-streaming-payload-no-inheritance-serializes-resource` above.
           ;;
           ;; The raw viewer identity + article data must not ride ANYWHERE…
           (is (not (str/includes? (pr-str payload) "jake"))
@@ -255,61 +255,5 @@
           (is (not (str/includes? (pr-str (get payload :rf/runtime-db))
                                   "rf/redacted"))
               "no redaction token rides the runtime-db slice either"))
-        (finally
-          (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))
-
-;; ===========================================================================
-;; A NON-sensitive resource serializes verbatim — the in-frame
-;; projection does not over-redact.
-;; ===========================================================================
-
-(deftest non-streaming-payload-serializes-non-sensitive-resource
-  (testing "a resource whose `{:from-db}` resolver reads a
-            NON-sensitive input serializes its data + scope verbatim in the
-            non-streaming payload — the in-frame projection does not
-            over-redact (only the owner's own :sensitive? claim redacts)."
-    (rf.registrar/clear-kind! :resource-scope)
-    (rf.registrar/clear-kind! :resource)
-    (rf/reg-resource-scope :p026f5/locale
-      {:inputs {:locale [:db [:i18n :locale]]}}
-      (fn [{:keys [locale]} _]
-        (when locale [:rf.scope/locale {:locale locale}])))
-    (rf/reg-resource :p026f5/prefs
-      {:scope         {:from-db :p026f5/locale}
-       :params-schema [:map]}
-      (fn [_ _] {:request {:method :get :url "/prefs"}}))
-    (rf/reg-view* :p026f5/root2 (fn [] [:main [:h1 "Prefs"]]))
-    (let [fid :p026f5/req-frame-2]
-      ;; frame declares a DIFFERENT path sensitive — the locale input does NOT
-      ;; overlap it. Classified via the commit-plane effect
-      ;; — see the first deftest's note.
-      (rf/reg-event :p026f5/classify-2
-        (fn [_ _] {:sensitive [[:auth :user :username]]}))
-      (rf/make-frame {:id fid :platform       :server
-                      :initial-events [[:p026f5/classify-2]]})
-      (try
-        (let [sk    (rf.resources.state/scoped-resource-key [:rf.scope/locale {:locale :en}]
-                                               :p026f5/prefs {})
-              entry (merge (rf.resources.state/empty-entry :p026f5/prefs sk)
-                           {:status :loaded :data {:theme "dark"}
-                            :loaded-at 1000 :stale-at 9.0e15})]
-          ;; swap (not replace) to preserve the frame's elision registry.
-          (rf.frame/swap-runtime-db!
-            fid assoc rf.resources.state/resources-key {:entries     {(rf.resources.state/key-id sk) entry}
-                                           :tag-index   {} :owner-index {}})
-          (let [opts    {:initial-events nil
-                         :root-view  [(rf/view :p026f5/root2)]
-                         :emit-hash? true
-                         :html-shell rf.ssr.ring.shell/default-html-shell
-                         :payload    :rf.ssr.payload/whole-app-db}
-                resp    (#'rf.ssr.ring.pipeline/build-full-response* fid opts)
-                payload (payload-edn (:body resp))
-                we      (val (first (get-in payload [:rf/runtime-db
-                                                     :rf.runtime/resources
-                                                     :entries])))]
-            (is (= {:theme "dark"} (:data we))
-                "the non-derived-sensitive data rides verbatim")
-            (is (= sk (:resource/key we))
-                "the wire key rides verbatim (no redaction)")))
         (finally
           (rf.ssr.ring.lifecycle/destroy-frame-quietly! fid))))))

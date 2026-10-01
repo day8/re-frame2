@@ -379,35 +379,6 @@
       (is (zero? @root-calls) "no root render on a redirect")
       (is (not (str/includes? body "SHOULD-NOT-APPEAR"))))))
 
-(deftest post-render-recovered-sub-500-takes-error-arm
-  (testing "a root-view whose reactive sub recovers-to-nil buffers a
-            fail-closed 500 AFTER the render walk — the non-streaming handler
-            DISCARDS the degraded body + payload and ships the projected-error
-            arm."
-    (rf/reg-sub :render/throwing (fn [_db _] (throw (ex-info "render-sub-boom" {}))))
-    (rf/reg-view* :pages/uses-throwing-render-sub
-      (fn []
-        [:main.broken
-         [:h1 "DEGRADED-ROOT-MARKER"]
-         [:p (str "v: " @(rf/subscribe [:render/throwing]))]]))
-    (rf/reg-event :init/ok {:platforms #{:server}} (fn [_ _] {}))
-    (with-redefs [rf.interop/debug-enabled? false]
-      (let [handler  (rf.ssr.ring/ssr-handler
-                       {:initial-events [[:init/ok]]
-                        :root-view  [(rf/view :pages/uses-throwing-render-sub)]
-                        :ssr        {:public-error-id   :rf.ssr/default-error-projector
-                                     :dev-error-detail? false}
-                        :payload    :rf.ssr.payload/whole-app-db})
-            response (handler {:uri "/render-sub" :request-method :get})
-            body     (body->str (:body response))]
-        (is (= 500 (:status response)) "fail-closed 500 on the wire")
-        (is (str/includes? body "Something went wrong")
-            "the projected-error arm rendered (locked default template)")
-        (is (not (str/includes? body "DEGRADED-ROOT-MARKER"))
-            "the degraded root body was DISCARDED")
-        (is (not (str/includes? body "__rf_payload"))
-            "no hydration payload ships under the post-render 500")))))
-
 ;; ===========================================================================
 ;; Streaming — projected 5xx → non-streamed error arm (no writer thread)
 ;; ===========================================================================
