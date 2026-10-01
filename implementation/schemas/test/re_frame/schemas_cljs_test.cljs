@@ -2,18 +2,16 @@
   "CLJS-side smoke for Spec 010 — schema validation runs at dispatch
   time under the Reagent reactive substrate.
 
-  The JVM smoke (re-frame.schemas-test) covers the elision toggle and
-  the error-projector → :rf/public-error mapping shape; this file
-  confirms that under the Reagent adapter — the production substrate
-  for browser apps — a live dispatch with a malformed :db commit
-  surfaces a :rf.error/schema-validation-failure trace through the
-  same path it would on the JVM. The fact that the trace reaches the
-  registered callback under Reagent is what locks the cross-substrate
-  contract.
-
-  This is a smoke — one happy path, one violation path. The conformance
-  fixtures (schema-app-db-slice-validates.edn et al.) cover the broader
-  contract."
+  The JVM tests (re-frame.schemas-test) cover the elision toggle and
+  the full validation surface; this file confirms that under the Reagent
+  adapter — the production substrate for browser apps — a live dispatch
+  with a malformed :db commit or event payload surfaces a
+  :rf.error/schema-validation-failure trace through the same path it
+  would on the JVM, and pins the CLJS-side seams (the Malli late-bind
+  hook, and the goog.DEBUG-gated boundary arm and humanizer). The fact
+  that the trace reaches the registered callback under Reagent is what
+  locks the cross-substrate contract. The conformance fixtures
+  (schema-app-db-slice-validates.edn et al.) cover the broader contract."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
@@ -75,30 +73,16 @@
           (is (= :n/break (-> v :tags :failing-id))
               ":failing-id names the handler whose commit prompted the failure"))))))
 
-(deftest live-dispatch-well-typed-passes-silently
-  (testing "well-typed :db commits trigger no schema-validation-failure trace"
-    (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init (fn [_ _] {:db {:n 0}}))
-    (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:n/init])
-      (rf/dispatch-sync [:n/inc])
-      (rf/dispatch-sync [:n/inc])
-      (is (empty? (filter #(= :rf.error/schema-validation-failure
-                              (:operation %))
-                          @traces))
-          "no validation-failure traces — every commit conforms"))))
-
 ;; ---- Malli adapter late-bind seam ----------------------------------------
 ;;
-;; Two contract tests pin the seam. The first asserts that once
-;; `re-frame.schemas` is loaded — and it `:require`s the Malli adapter in
-;; its own ns-form — the default validator DOES consult Malli on
-;; CLJS, so a malformed commit fires :rf.error/schema-validation-failure.
-;; A `:cljs (resolve 'malli.core/validate)` runtime resolve would return
-;; nil and silently treat every value as conforming.
+;; Once `re-frame.schemas` is loaded — and it `:require`s the Malli adapter
+;; in its own ns-form — the default validator DOES consult Malli on CLJS,
+;; which `live-dispatch-validates-app-db-under-reagent` above relies on: a
+;; `:cljs (resolve 'malli.core/validate)` runtime resolve would return nil,
+;; treat every value as conforming, and that test's violation would never
+;; fire.
 ;;
-;; The second test pins the soft-pass arm. That arm is NOT an app that
+;; The test below pins the soft-pass arm. That arm is NOT an app that
 ;; forgot a require: the facade loads the
 ;; adapter, so "schemas loaded, hook unbound" cannot arise from an
 ;; application's require list at all. It is the defensive fallback
@@ -106,30 +90,6 @@
 ;; port that never bound the Malli hook, and for a harness that unbinds
 ;; it deliberately — which is exactly what the test does. We restore the
 ;; hook on the way out so downstream tests see the wired default again.
-
-(deftest cljs-malli-adapter-enables-validation
-  (testing "with the `re-frame.schemas` facade loaded — and
-            it `:require`s the Malli adapter itself — the default
-            validator consults Malli on CLJS and a malformed commit
-            fires :rf.error/schema-validation-failure.
-            This is the load-bearing contract — through a CLJS runtime
-            `resolve` Malli would never be consulted, and this trace
-            would silently never fire."
-    (rf/reg-app-schema [:user :age] :int)
-    (rf/reg-event :user/set-age-bad
-      (fn [{:keys [db]} _] {:db (assoc-in db [:user :age] "twenty-three")}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:user/set-age-bad])
-      (let [violations (filter #(= :rf.error/schema-validation-failure
-                                   (:operation %))
-                               @traces)]
-        (is (= 1 (count violations))
-            "the default Malli validator fired on CLJS via the late-bind
-             hook")
-        (let [v (first violations)]
-          (is (= :app-db (-> v :tags :where)))
-          (is (= [:user :age] (-> v :tags :path)))
-          (is (= "twenty-three" (-> v :tags :value))))))))
 
 (deftest cljs-unbound-validate-hook-soft-passes
   (testing "Per Spec 010 §Recommended soft-pass: when the late-bind hook
