@@ -2336,7 +2336,8 @@
 ;; Wire-boundary token-budget cap.
 ;;
 ;; The cap is applied at `invoke-tool` egress — the cumulative
-;; `:text`-slot TOKEN ESTIMATE (`re-frame.mcp-base.overflow/token-estimate` -- a CHARACTER
+;; TOKEN ESTIMATE over both wire slots — the `:content` text AND the `pr-edn` of
+;; `:structuredContent` (`re-frame.mcp-base.overflow/token-estimate` -- a CHARACTER
 ;; count divided by four, not a byte count) is compared against
 ;; `:max-tokens` (default
 ;; `re-frame.mcp-base.overflow/default-max-tokens`; `0` disables). Over-budget responses
@@ -2435,6 +2436,25 @@
       (is (= #{:limit :token-count :cap-tokens :tool :hint}
              (set (keys body)))))))
 
+(deftest cap-counts-the-structured-slot-beside-the-text
+  ;; `edn-result` writes one payload into BOTH wire slots, so the cap sums
+  ;; both: a cap the text slot alone fits must still trip once the
+  ;; `:structuredContent` slot is counted. Counting only the text would
+  ;; underestimate the wire by about half.
+  (let [full       (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens 0})
+        text-tok   (quot (count (-> full :content first :text)) 4)
+        struct-tok (quot (count (pr-str (:structuredContent full))) 4)]
+    (is (pos? text-tok) "precondition: the text slot is non-trivial")
+    (is (pos? struct-tok) "precondition: list-tags fills the structured slot too")
+    (testing "a cap the text slot alone fits trips on the structured slot"
+      (let [r (rf.story-mcp.tools.wire-pipeline/invoke-tool "list-tags" {:max-tokens text-tok})]
+        (is (overflow-marker? r))
+        (is (= (+ text-tok struct-tok)
+               (get-in r [:structuredContent rf.mcp-base.vocab/overflow-key :token-count]))
+            "the marker reports both slots' tokens")))
+    (testing "control: a cap both slots fit leaves the payload intact"
+      (is (not (overflow-marker? (rf.story-mcp.tools.wire-pipeline/invoke-tool
+                                   "list-tags" {:max-tokens (+ text-tok struct-tok)})))))))
 (deftest every-tool-schema-accepts-max-tokens
   (testing "every tool's input schema carries the `:max-tokens` slot"
     (doseq [t rf.story-mcp.tools.registry/tool-registry]
@@ -3179,6 +3199,40 @@
               "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
 ;; ---------------------------------------------------------------------------
+;; The `:include-sensitive` opt-in reaches every derived slot. The fail-open
+;; tests above use re-keyed copies, which ship raw with or without the
+;; opt-in, so they cannot see whether it is threaded through. Here each slot
+;; carries the secret AT a classified path — `[:token]` in the map slots,
+;; `[0 :token]` in the vector evidence slots — so it redacts unless the
+;; opt-in reaches that slot's projection.
+;; ---------------------------------------------------------------------------
+
+(def ^:private evidence-slots
+  [:schema-violations :warnings :effects :sub-runs :renders :narrative])
+
+(deftest derived-slots-at-a-classified-path-honour-the-include-sensitive-opt-in
+  (rf.story-mcp.config/set-allow-sensitive-reads! true)
+  (with-clean-frame [vid :story.button/primary]
+    (declare-sensitive! vid [:token])
+    (declare-sensitive! vid [0 :token])
+    (with-redefs [rf.story/run-variant
+                  (fn [_vk _opts]
+                    (java.util.concurrent.CompletableFuture/completedFuture
+                      (merge (secret-bearing-run-result vid)
+                             {:effective-args {:token "TOPSECRET"}
+                              :snapshot       {:token "TOPSECRET"}}
+                             (zipmap evidence-slots (repeat [{:token "TOPSECRET"}])))))]
+      (doseq [[tool slots] [["run-variant"     (conj evidence-slots :snapshot)]
+                            ["preview-variant" [:snapshot :effective-args]]]
+              :let [default (:structuredContent (invoke tool {:variant-id "story.button/primary"}))
+                    opted   (:structuredContent (invoke tool {:variant-id        "story.button/primary"
+                                                              :include-sensitive true}))]
+              slot slots
+              :let [path (if (#{:snapshot :effective-args} slot) [slot :token] [slot 0 :token])]]
+        (testing (str tool " " slot)
+          (is (= :rf/redacted (get-in default path)) "redacts without the opt-in")
+          (is (= "TOPSECRET" (get-in opted path)) "ships raw with it"))))))
+;; ---------------------------------------------------------------------------
 ;; A run-variant timeout / exception ships a structuredContent that PASSES
 ;; `valid-run-result?`. A catch branch that hand-minted a partial map
 ;; (`:status` / `:frame` / `:assertions` / `:checks` only) would omit the
@@ -3402,10 +3456,25 @@
             (is (success? r))
             (is (= :error (:status s)) (str tool " ⇒ :error"))
             (is (= :error (-> s :assertions first :status))
-                (str tool " carries the :rf.error/run-failed record")))))
+                (str tool " carries the :rf.error/run-failed record"))
+            ;; The worker future wraps the throw in `ExecutionException`, whose
+            ;; own message is the cause's `toString`
+            ;; ("clojure.lang.ExceptionInfo: simulated …"), so only an exact
+            ;; match proves the wrapper was peeled.
+            (is (= "simulated run-variant boom" (-> s :assertions first :reason))
+                (str tool "'s :reason is the Story throwable's message, not the executor wrapper's")))))
       (testing "preview-variant additionally preserves the :lifecycle :error loader-state"
         (let [s (:structuredContent (invoke "preview-variant" {:variant-id "story.button/primary"}))]
-          (is (= :error (:lifecycle s))))))))
+          (is (= :error (:lifecycle s))))))
+    (testing "a rejected Story future arrives wrapped twice, and both wrappers are peeled"
+      ;; `deref-blocking` rethrows the rejection inside an `ExecutionException`,
+      ;; which the worker future wraps again.
+      (with-redefs [rf.story/run-variant
+                    (fn [& _] (java.util.concurrent.CompletableFuture/failedFuture
+                                (ex-info "simulated Story rejection" {})))]
+        (let [s (:structuredContent (invoke "run-variant" {:variant-id "story.button/primary"}))]
+          (is (= :error (:status s)))
+          (is (= "simulated Story rejection" (-> s :assertions first :reason))))))))
 
 (deftest read-failures-includes-sensitive-when-opted-in
   (testing ":include-sensitive true preserves sensitive records"
@@ -3603,6 +3672,25 @@
             (is (= ["#api-key-input"] (get-in s [:violations 0 :nodes 0 :target]))
                 "non-sensitive node fields (CSS target selectors) pass through")))))))
 
+(deftest read-a11y-violations-node-at-a-classified-path-honours-the-include-sensitive-opt-in
+  ;; The re-keyed test above ships the node raw with or without the opt-in.
+  ;; A node value AT a classified path under a live frame redacts, so only
+  ;; the threaded opt-in can ship it raw, in both slots the re-keyed-runtime
+  ;; scrub covers.
+  (rf.story-mcp.config/set-allow-sensitive-reads! true)
+  (with-clean-frame [vid :story.button/primary]
+    (declare-sensitive! vid [0 :nodes 0 :html])
+    (let [nodes [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]]
+      (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider*            (a11y-stand-in {vid nodes})
+                rf.story-mcp.tools.cljs-resolve/*a11y-incomplete-provider* (a11y-stand-in {vid nodes})]
+        (let [default (:structuredContent (invoke "read-a11y-violations" {:variant-id "story.button/primary"}))
+              opted   (:structuredContent (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
+                                                                          :include-sensitive true}))]
+          (doseq [slot [:violations :incomplete]]
+            (testing (name slot)
+              (is (= :rf/redacted (get-in default [slot 0 :nodes 0 :html])) "redacts without the opt-in")
+              (is (= "DISTINCTIVE-A11Y-SECRET" (get-in opted [slot 0 :nodes 0 :html]))
+                  "ships raw with it"))))))))
 ;; ---------------------------------------------------------------------------
 ;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).
 ;;
