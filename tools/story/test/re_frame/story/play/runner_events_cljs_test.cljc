@@ -1000,8 +1000,9 @@
            (rf/configure! {:epoch-history {:depth 50}}))))))
 
 #?(:clj
-   (deftest bare-vector-with-unknown-event-still-dispatches
-     (testing "a bare event vector with no registered handler still dispatches; the play status does not fail because dispatch is a no-assertion step"
+   (deftest a-bare-unknown-event-step-completes-the-run
+     (testing "a bare event vector naming no registered handler runs as one
+              step and the run reaches a terminal state"
        (rf.story/reg-variant :story.runner/bare-unknown
          {:setup []
           :script {:auto-run? false

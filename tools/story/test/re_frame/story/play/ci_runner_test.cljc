@@ -67,7 +67,7 @@
 
 ;; ---- terminal? -----------------------------------------------------------
 
-(deftest terminal?-recognises-pass-and-fail-only
+(deftest terminal?-separates-verdicts-from-in-flight-states
   (is (true?  (rf.story.play.ci-runner/terminal? {:status :pass})))
   (is (true?  (rf.story.play.ci-runner/terminal? {:status :fail})))
   (is (false? (rf.story.play.ci-runner/terminal? {:status :running})))
