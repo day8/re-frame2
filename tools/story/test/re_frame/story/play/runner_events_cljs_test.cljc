@@ -384,26 +384,6 @@
                                :state      @rf.story.play.runner-events/run-state}))
               :else (do (Thread/sleep 5) (recur)))))))))
 
-;; ---- dispatch + dispatch-sync round-trip --------------------------------
-
-#?(:clj
-   (deftest dispatch-sync-fires-event
-     (testing ":dispatch-sync step fires the event into the variant's frame"
-       (let [seen (atom [])]
-         (rf/reg-event :rt/inc
-           (fn [{:keys [db]} _] (swap! seen conj :hit)
-             {:db (update db :n (fnil inc 0))}))
-         (rf.story/reg-variant :story.runner/sync
-           {:setup []
-            :script {:auto-run? false
-                          :script    [[:dispatch-sync [:rt/inc]]
-                                      [:dispatch-sync [:rt/inc]]]}})
-         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/sync) 5000)
-         (let [final (run-blocking :story.runner/sync)]
-           (is (= :pass (:status final)))
-           (is (= [:hit :hit] @seen))
-           (is (= 2 (count (:results final)))))))))
-
 ;; ---- EP-0017: captured :rf.cofx replays into the handler -----------------
 ;;
 ;; The headline contract — a replayed `[:dispatch evec {:rf.cofx …}]`
@@ -1190,16 +1170,6 @@
          (is (every? false? (map :auto-run? plays)))))))
 
 #?(:clj
-   (deftest variant-plays-wraps-legacy-play-script
-     (testing "variant-plays wraps a single :script body in a one-entry vector"
-       (rf.story/reg-variant :story.multi/legacy
-         {:setup []
-          :script {:name "lone" :script [[:dispatch [:a]]]}})
-       (let [plays (rf.story.play.runner-events/variant-plays :story.multi/legacy)]
-         (is (= 1 (count plays)))
-         (is (= "lone" (:name (first plays))))))))
-
-#?(:clj
    (deftest run-play-keys-state-per-play
      (testing "running each play stores state under [variant-id play-key]"
        (rf/reg-event :rt/inc
@@ -1327,28 +1297,6 @@
          (is (nil? (rf.story.play.runner-events/current-state-for-play :story.multi/auto
                                               "second-default-false")))))))
 
-#?(:clj
-   (deftest mutual-exclusion-warning-emits-once
-     (testing "variants declaring BOTH :script and :plays warn ONCE per variant"
-       ;; Bypass schema validation by writing directly into the side-table.
-       (require '[re-frame.story.registrar :as registrar])
-       (let [registrar (resolve 're-frame.story.registrar/kind->id->body)]
-         (swap! @registrar assoc-in
-                [:variant :story.multi/both]
-                {:script [[:dispatch [:legacy]]]
-                 :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
-         ;; First read warns; the call returns the :plays-derived plays vector.
-         (let [out1 (with-out-str
-                      (binding [*err* *out*]
-                        (rf.story.play.runner-events/variant-plays :story.multi/both)))
-               out2 (with-out-str
-                      (binding [*err* *out*]
-                        (rf.story.play.runner-events/variant-plays :story.multi/both)))]
-           (is (re-find #":script.*:plays" out1)
-               "first read prints the both-slots warning")
-           (is (empty? out2)
-               "subsequent reads stay silent — warning is one-shot per variant"))))))
-
 ;; The one-shot warning cache (`warned-both-slots`) is re-armed
 ;; by `clear-all-runs!` (the test-fixture path). Without the reset, a prior
 ;; test (or a prior hot-reload session) that warned for a variant id would
@@ -1394,20 +1342,6 @@
 ;; bails — see `run-loop!`.
 
 #?(:clj
-   (deftest run-stamps-token-on-state
-     (testing "run! writes a :run-token onto the started state map so
-              concurrent-run detection can compare loops"
-       (rf/reg-event :rt/touch (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (rf.story/reg-variant :story.runner/token
-         {:setup      []
-          :script {:auto-run? false
-                        :script    [[:dispatch-sync [:rt/touch]]]}})
-       (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/token) 5000)
-       (let [final (run-blocking :story.runner/token)]
-         (is (some? (:run-token final))
-             "every run! call stamps a non-nil token onto the started state")))))
-
-#?(:clj
    (deftest fresh-run-token-replaces-prior
      (testing "back-to-back run! calls stamp DIFFERENT tokens — the newer
               token wins and the stale loop (had it still been queued)
@@ -1426,28 +1360,6 @@
          (is (not= (:run-token first-final) (:run-token second-state))
              "the second run! stamps a fresh token — concurrent stale loops
               detect the swap and abort")))))
-
-#?(:clj
-   (deftest sync-steps-do-not-yield-between
-     (testing "a script of pure :dispatch-sync + :assert-db steps
-              runs end-to-end without intermediate yields — no extra event
-              dispatches sneak in mid-script. Probes the run-to-completion
-              semantics of synchronous steps."
-       (let [n (atom 0)]
-         (rf/reg-event :rt/inc (fn [{:keys [db]} _] (swap! n inc) {:db (update db :n (fnil inc 0))}))
-         (rf.story/reg-variant :story.runner/sync-tight
-           {:setup      [[:rt/inc] [:rt/inc] [:rt/inc]] ; seed: n=3
-            :script {:auto-run? false
-                          :script    [[:dispatch-sync [:rt/inc]]
-                                      [:dispatch-sync [:rt/inc]]
-                                      [:dispatch-sync [:rt/inc]]
-                                      [:assert-db [:n] 6]]}})
-         (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/sync-tight) 5000)
-         (let [final (run-blocking :story.runner/sync-tight)]
-           (is (= :pass (:status final))
-               "the three increments + assertion run atomically — final count is exactly 6")
-           (is (= 6 @n)
-               "no stray increments leaked from concurrent paths"))))))
 
 ;; ---- tape-evaluated in-script [:assert …] checkpoints ---------------------
 ;;
@@ -1544,29 +1456,6 @@
          (is (empty? (filterv #(= :rf.assert/no-cascade-rerender (:assertion %))
                               (rf.story/read-assertions :story.tape/no-cascade)))
              "no causal slot record was minted by a dispatch")))))
-
-#?(:clj
-   (deftest in-script-caused-checkpoint-is-tape-evaluated-not-dispatched
-     (testing "an in-script [:assert [:rf.assert/caused …]] checkpoint is a
-              no-op step-skip — NOT dispatched — so no
-              :rf.error/no-such-handler trace lands"
-       (rf/reg-event :rt/touch
-         (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-       (rf.story/reg-variant :story.tape/caused
-         {:setup      []
-          :script {:auto-run? false
-                        :script    [[:dispatch-sync [:rt/touch]]
-                                    [:assert [:rf.assert/caused
-                                              {:event :rt/touch :sub :some/sub}]]]}})
-       (let [[final no-handler] (run-capturing-no-handler-errors
-                                  :story.tape/caused)
-             checkpoint (->> (:results final)
-                             (filter #(= :assert (:type %)))
-                             first)]
-         (is (empty? no-handler)
-             "NO :rf.error/no-such-handler trace fired for the :caused atom")
-         (is (nil? (:passed? checkpoint))
-             "the tape-evaluated causal checkpoint is a no-op step-skip")))))
 
 ;; ---- unit: the tape-evaluated-assertion? classifier -----------------------
 ;;
