@@ -184,22 +184,25 @@
 ;; ---- EP-0024 frame-value targeting ---------------------------------------
 ;;
 ;; Under EP-0024 frame VALUES (rf/make-frame's return token) are first-class
-;; frame targets alongside frame-id keywords. The schema opts surface must
-;; route a frame VALUE — passed bare OR as the `:frame` opt — to the SAME
-;; frame id a read-by-id resolves, the same way `re-frame.core/dispatch`
-;; normalizes its `:frame` opt through `frame/frame-target->id`.
+;; frame targets alongside frame-id keywords. The schema WRITE surfaces
+;; route a frame VALUE — passed bare OR under `:frame` — to the SAME frame id
+;; a read-by-id resolves, the same way `re-frame.core/dispatch` normalizes
+;; its `:frame` opt through `frame/frame-target->id`. The reads take a frame
+;; value under `:frame` only.
 ;;
 ;; Two misroutes this rules out:
 ;;   (1) `{:frame frame-value}` stored / read under the frame-VALUE MAP
 ;;       itself, so a read-by-id would silently MISS the schema —
 ;;       register-by-value / read-by-id would disagree.
-;;   (2) a BARE frame value is itself a map, so a coerce-opts that classified
-;;       it as an opts map with no `:frame` key would silently fall back to
-;;       the ambient frame (or throw :rf.error/no-frame-context outside a
-;;       scope).
+;;   (2) a BARE frame value is itself a map, so a write surface that read it
+;;       as an opts or metadata map with no `:frame` key would silently fall
+;;       back to the ambient frame (or throw :rf.error/no-frame-context
+;;       outside a scope). That holds for `reg-app-schemas`' opts slot and
+;;       `reg-app-schema`'s metadata slot alike.
 ;;
-;; So coerce-opts discriminates `frame/frame-value?` BEFORE the generic map?
-;; branch, resolve-frame normalizes the `:frame` override through
+;; So coerce-opts and reg-app-schema's metadata normalization discriminate
+;; `frame/frame-value?` BEFORE the generic map? branch, resolve-frame
+;; normalizes the `:frame` override through
 ;; `frame/frame-target->id`, and the resolved target must be a keyword
 ;; frame-id so an arbitrary non-keyword `:frame` (a
 ;; string / non-frame map / vector) fails loud rather than silently becoming
@@ -222,6 +225,23 @@
       (is (= (:schema (rf.schemas/app-schema-meta {:frame :tenant/fv-a :path [:user]}))
              (:schema (rf.schemas/app-schema-meta {:frame fv :path [:user]})))
           "read via {:frame frame-value} and via the frame-id agree"))))
+
+(deftest reg-app-schema-bare-frame-value-routes-to-its-frame
+  (testing "a BARE frame value in reg-app-schema's metadata slot names its
+            frame exactly as `{:frame fv}` does, as a bare value in
+            reg-app-schemas' opts slot does — it never lands on the ambient
+            frame"
+    (binding [rf.frame/*current-frame* :review/ambient]
+      (let [fv (frame-value :tenant/fv-x)]
+        (is (= [:bare] (rf/reg-app-schema [:bare] fv [:map]))
+            "registration returns the canonical path")
+        (is (= [:tenant/fv-x] (keys (rf.schemas/snapshot-schemas-by-frame)))
+            "stored under the frame value's own id; the ambient frame is untouched")
+        (let [m (rf.schemas/app-schema-meta {:frame :tenant/fv-x :path [:bare]})]
+          (is (= [:map] (:schema m))
+              "read-by-frame-id finds the schema registered via a bare frame value")
+          (is (not (contains? m rf.frame/object-marker))
+              "the frame value is the target, not metadata: its keys are not stored"))))))
 
 (deftest read-surface-accepts-frame-value-targets
   (testing "every read entry point (app-schemas /

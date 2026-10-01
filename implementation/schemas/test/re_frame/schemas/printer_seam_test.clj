@@ -26,10 +26,13 @@
             [re-frame.schemas.validator :as rf.schemas.validator]))
 
 (defn- reset [test-fn]
-  ;; The validator/explainer/printer atoms
-  ;; are framework-wide; restore the defaults around each test so
-  ;; sibling tests are not poisoned.
+  ;; The validator/explainer/printer atoms and the per-frame schema registry
+  ;; are process-global. Restore the default fns and empty the registry
+  ;; around each test, so neither a sibling test nor a namespace that ran
+  ;; earlier can poison this one: the pinned digest literal holds only while
+  ;; the test's own registration is the frame's whole schema set.
   (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
+  (rf.schemas/clear-schemas-by-frame!)
   ;; EP-0002: the digest-seam tests register schemas via
   ;; reg-app-schema, which is context-required frame-local. Pin
   ;; :rf/default as the established scope so those ambient registrations
@@ -40,7 +43,8 @@
   ;; runtime-db container.
   (try (binding [rf.frame/*current-frame* :rf/default]
          (test-fn))
-       (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns))))
+       (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)
+                (rf.schemas/clear-schemas-by-frame!))))
 
 (use-fixtures :each reset)
 

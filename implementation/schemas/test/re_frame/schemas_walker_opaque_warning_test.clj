@@ -24,6 +24,7 @@
   — same emit-site, same warn-once-per-process pattern, same
   test-fixture cache-clear story."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.test-fixture :as rf.schemas.test-fixture]
@@ -41,16 +42,19 @@
 
 ;; ---- positive paths -------------------------------------------------------
 ;;
-;; Only genuinely opaque NON-keyword values (compiled m/schema-like
-;; maps) warn. Keyword schemas — primitive AND registry-ref — are
-;; suppressed; see the negative-path
+;; Only genuinely opaque NON-keyword values warn: a compiled m/schema
+;; value, or any other non-vector value. Where only the warn-once behaviour is
+;; under test, a plain map stands in for the compiled value. Keyword schemas
+;; — primitive AND registry-ref — are suppressed; see the negative-path
 ;; section below.
 
-(deftest warning-fires-when-schema-is-compiled-map-object
-  (testing "reg-app-schema with a compiled m/schema-like map value
-            (opaque to the walker) emits the warning exactly once"
+(deftest warning-fires-when-schema-is-a-compiled-schema-object
+  (testing "reg-app-schema with a compiled m/schema value at the root
+            (opaque to the walker) emits the warning exactly once, labelled
+            :compiled-schema-object. A compiled schema is not a map, so the
+            label cannot come from a map? test"
     (with-trace-recorder! [recorded]
-      (rf/reg-app-schema [:cart] {:malli/schema :some-compiled-form})
+      (rf/reg-app-schema [:cart] (m/schema [:map [:a :int]]))
       (let [warns (warnings-of recorded :rf.warning/schema-walker-opaque)]
         (is (= 1 (count warns))
             "exactly one warning fires on the first reg-app-schema call")

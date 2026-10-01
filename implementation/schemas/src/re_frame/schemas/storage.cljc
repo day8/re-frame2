@@ -126,7 +126,11 @@
       (reg-app-schema [:user] UserSchema)                ;; 2-slot
       (reg-app-schema [:user] {:frame :session} UserSchema) ;; 3-slot
 
-  The 2-slot form supplies no metadata (`nil` here → `{}`). A non-nil, non-map
+  The 2-slot form supplies no metadata (`nil` here → `{}`). A bare frame value
+  in the slot names its frame and lifts to `{:frame fv}`, as `coerce-opts`
+  lifts one for `reg-app-schemas`. A frame value is itself a map, so it is
+  recognized before the generic map branch; read as metadata it carries no
+  `:frame` key and would register on the ambient frame. A non-nil, non-map
   middle arg is a caller bug — the common slip is passing the schema where the
   metadata map goes — and fails LOUDLY at the authoring boundary (dev AND prod)
   with `:rf.error/app-schema-bad-metadata`, naming the path and the value.
@@ -135,6 +139,8 @@
   [path metadata]
   (cond
     (nil? metadata) {}
+    ;; A frame value is a map; keep this branch before the generic map branch.
+    (rf.frame/frame-value? metadata) {:frame metadata}
     (map? metadata) metadata
     :else
     (rf.error/throw-error!
@@ -406,13 +412,16 @@
       (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
         (emit! :warning :rf.warning/schema-walker-opaque
                {:path path
-                ;; Root-shape classification, same reach as the
-                ;; `:compiled-schema-object` arm beside it: a NESTED opaque
-                ;; value or a nested local registry leaves the root a plain
-                ;; vector form and so reports `:unknown`, as the
-                ;; nested-compiled case does.
+                ;; Root-shape classification. An opaque ROOT — a compiled
+                ;; `m/schema` value, or any other non-vector, non-keyword
+                ;; value — is `:compiled-schema-object`. The walker's own
+                ;; predicate decides, because a compiled schema is not a map
+                ;; and storage never asks Malli what a schema is. A NESTED
+                ;; opaque value or a nested local registry leaves the root a
+                ;; plain vector form and so reports `:unknown`.
                 :schema-kind (cond
-                               (map? schema) :compiled-schema-object
+                               (rf.schemas.walker/schema-opaque? schema)
+                               :compiled-schema-object
                                (rf.schemas.walker/schema-local-registry? schema)
                                :local-registry
                                :else :unknown)
@@ -603,8 +612,9 @@
   POSITIONAL value slot, uniform with every other 3-slot `reg-*` surface
   (Spec 001 §The metadata map). The OPTIONAL middle arg is the standard
   registration-metadata map carrying the `:frame` target (and any open
-  `:my/*` extension key). Omit it for the 2-slot form. A non-map middle arg
-  throws `:rf.error/app-schema-bad-metadata` at the authoring boundary.
+  `:my/*` extension key). Omit it for the 2-slot form. A bare frame value in
+  that slot names its frame, exactly as `{:frame fv}` does. A non-map middle
+  arg throws `:rf.error/app-schema-bad-metadata` at the authoring boundary.
 
   Registration is frame-scoped. The `:frame` metadata value may be a frame-id
   keyword or frame value; without it the carried frame scope is required.
