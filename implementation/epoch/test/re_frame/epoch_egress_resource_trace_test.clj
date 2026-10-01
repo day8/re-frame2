@@ -458,10 +458,6 @@
       (is (empty? (secret-leak-paths projected)) "no raw secret egresses"))))
 
 ;; ---------------------------------------------------------------------------
-;; (4) plain resource rides verbatim — no over-redaction
-;; ---------------------------------------------------------------------------
-
-;; ---------------------------------------------------------------------------
 ;; (5) fail-closed on an UNREGISTERED owner
 ;; ---------------------------------------------------------------------------
 
@@ -1456,10 +1452,6 @@
       (is (not (contains-secret? projected))
           "NO raw identity survives anywhere in the projected record"))))
 
-;; ---------------------------------------------------------------------------
-;; (7) the trusted-local boundary — the redaction is the off-box DEFAULT
-;; ---------------------------------------------------------------------------
-
 ;; ===========================================================================
 ;; the SAME free `:scope`, ONE CARRIER FURTHER OUT — inside the
 ;; transport continuation payload copied onto `:rf.fx/args` / `:rf.event/fx`.
@@ -1812,10 +1804,6 @@
       (is (= (second s1) (second s2))
           "and the two tokens AGREE — the carrier has no weaker rule than the
            row"))))
-
-;; ---------------------------------------------------------------------------
-;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
-;; ---------------------------------------------------------------------------
 
 ;; ===========================================================================
 ;; the SAME two carriers, a DIFFERENT map: the READ COMPLETION
@@ -2650,10 +2638,6 @@
       (is (not (:sensitive? tags))
           "and the row is NOT stamped :sensitive?"))))
 
-;; ---------------------------------------------------------------------------
-;; (4) the trusted-local boundary — the redaction is the off-box DEFAULT
-;; ---------------------------------------------------------------------------
-
 ;; ===========================================================================
 ;; the same declaration surface on an INFINITE FEED: the merged ITEM list under
 ;; `:value`, which an EXACT path match cannot reach.
@@ -2872,10 +2856,6 @@
            and rides verbatim")
       (is (= "Ada" (:display-name item))
           "and the undeclared sibling is untouched"))))
-
-;; ---------------------------------------------------------------------------
-;; (3) the trusted-local boundary — the redaction is the off-box DEFAULT
-;; ---------------------------------------------------------------------------
 
 ;; ===========================================================================
 ;; NON-MAP CANONICAL PARAMS — the shape read must recognise every legal scoped
@@ -3516,10 +3496,6 @@
           tags       (:tags (first (:trace-events projected)))]
       (is (= [:app/http-done http-reply] (:rf.fx/args tags))
           "the HTTP family's reply rides through this projector untouched"))))
-
-;; ---------------------------------------------------------------------------
-;; (5) the trusted-local opt-in — the tokenization is the off-box default
-;; ---------------------------------------------------------------------------
 
 ;; ---------------------------------------------------------------------------
 ;; (6) the MUTATION continuation, covered by the same arm
