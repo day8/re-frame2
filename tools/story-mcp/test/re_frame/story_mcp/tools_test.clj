@@ -1648,27 +1648,6 @@
       (is (re-find #"Write surface disabled" (-> r :content first :text)))
       (is (true? (-> r :structuredContent :gated))))))
 
-(deftest register-variant-happy-when-allowed
-  (testing "with allow-writes? true, registration goes through"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant" {:variant-id "story.button/danger"
-                                        :body {:doc "Danger button."
-                                               :args {:label "Delete"}}})]
-      (is (success? r))
-      (is (= :story.button/danger (-> r :structuredContent :variant-id)))
-      (is (true? (-> r :structuredContent :registered?)))
-      ;; Variant is now reachable via the read surface.
-      (is (some? (rf.story/variant->edn :story.button/danger))))))
-
-(deftest register-variant-edn-string-body
-  (testing "body may arrive as an EDN-encoded string"
-    (rf.story-mcp.config/set-allow-writes! true)
-    (let [r (invoke "register-variant"
-                    {:variant-id "story.button/wire"
-                     :body "{:doc \"Wire body.\" :args {:label \"OK\"}}"})]
-      (is (success? r))
-      (is (= "Wire body." (:doc (rf.story/variant->edn :story.button/wire)))))))
-
 ;; ---------------------------------------------------------------------------
 ;; EDN reader hardening on register-variant :body
 ;;
@@ -1899,11 +1878,6 @@
       (is (= "object-form body" (:doc (rf.story/variant->edn :story.button/objform)))
           "string keys were keywordised into the registered body"))))
 
-(deftest unregister-variant-gated-by-default
-  (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
-    (is (error? r))
-    (is (re-find #"Write surface disabled" (-> r :content first :text)))))
-
 (deftest unregister-variant-happy-when-allowed
   (rf.story-mcp.config/set-allow-writes! true)
   (let [r (invoke "unregister-variant" {:variant-id "story.button/primary"})]
@@ -2018,13 +1992,14 @@
       (is (= {:label "Stamped"} (:args body))))))
 
 (deftest register-variant-edn-string-body-stamps-origin
-  (testing "EDN-string body also lands :origin :story-mcp on the registered body"
+  (testing "an EDN-string body registers with its own slots and :origin :story-mcp"
     (rf.story-mcp.config/set-allow-writes! true)
     (let [r    (invoke "register-variant"
                        {:variant-id "story.button/origin-edn"
                         :body       "{:doc \"Origin via EDN.\" :args {:label \"OK\"}}"})
           body (rf.story/variant->edn :story.button/origin-edn)]
       (is (success? r))
+      (is (= "Origin via EDN." (:doc body)) "the EDN string parsed into the registered body")
       (is (= :story-mcp (:origin body))))))
 
 (deftest register-variant-overrides-caller-supplied-origin
