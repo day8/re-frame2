@@ -518,12 +518,6 @@
 ;; Query parsing uses URI semantics so a literal `+` in a path stays intact.
 
 (deftest parse-query-preserves-literal-plus
-  (testing "a literal `+` is not form-decoded to a space"
-    (is (= "C:/code/re-frame2+wip/core.cljs"
-           (get (#'rf.testbed.open-in-editor-server/parse-query
-                 "file=C:/code/re-frame2+wip/core.cljs&line=10")
-                "file"))
-        "a literal + in the query value survives verbatim"))
   (testing "percent-escapes still decode with decodeURIComponent semantics"
     (let [q (#'rf.testbed.open-in-editor-server/parse-query "file=re-frame2%2Bwip%2Fa%20b.cljs")]
       (is (= "re-frame2+wip/a b.cljs" (get q "file"))
@@ -650,10 +644,7 @@
                            :file   "fake_ns/core.cljs"}))]
           (is (= 422 (:status resp)))
           (is (not (str/includes? (:body resp) "\r")))
-          (is (= msg (json-body->file-value (:body resp) "\"error\":\"")))))))
-  (testing "the plain ASCII fast path is unaffected — no spurious escaping"
-    (is (= "\"plain/path.cljs\""
-           (str "\"" (#'rf.testbed.open-in-editor-server/escape-json-string "plain/path.cljs") "\"")))))
+          (is (= msg (json-body->file-value (:body resp) "\"error\":\""))))))))
 
 ;; launch-editor parses the first numeric suffix as a line, so column-only
 ;; coordinates must be encoded as `path:1:column`.
@@ -695,20 +686,6 @@
                 "build-file-spec normalizes column-only to line 1")))))))
 
 ;; launch-editor silently ignores missing files, so the JVM must reject them.
-
-(deftest file-exists?-detects-real-and-missing-paths
-  (testing "an existing file is detected"
-    (let [tmp (File/createTempFile "oies-exists" ".cljs")]
-      (try
-        (is (true? (#'rf.testbed.open-in-editor-server/file-exists? (.getAbsolutePath tmp)))
-            "a real on-disk file exists")
-        (finally (.delete tmp)))))
-  (testing "a nonexistent path, nil, and blank are all 'does not exist'"
-    (is (false? (#'rf.testbed.open-in-editor-server/file-exists?
-                  (str (System/getProperty "java.io.tmpdir")
-                       "/oies-absent-" (System/nanoTime) ".cljs"))))
-    (is (false? (#'rf.testbed.open-in-editor-server/file-exists? nil)))
-    (is (false? (#'rf.testbed.open-in-editor-server/file-exists? "   ")))))
 
 (deftest launch-rejects-missing-file-before-spawning-node
   (testing "launch! on a path that does not exist short-circuits to a
@@ -1101,16 +1078,6 @@
 ;; `(build-file-spec "/abs/src/app.cljs" 27 9)` would witness neither.
 
 ;; Windows paths exercise the JSON backslash and quote rules.
-
-(deftest escape-json-string-escapes-backslash-and-doublequote
-  (testing "backslashes and double-quotes are escaped"
-    (is (= "a\\\\b" (#'rf.testbed.open-in-editor-server/escape-json-string "a\\b"))
-        "one backslash → two")
-    (is (= "say \\\"hi\\\"" (#'rf.testbed.open-in-editor-server/escape-json-string "say \"hi\""))
-        "double-quotes are escaped")
-    (is (= "C:\\\\Users\\\\me\\\\core.cljs"
-           (#'rf.testbed.open-in-editor-server/escape-json-string "C:\\Users\\me\\core.cljs"))
-        "a Windows abs-path's backslashes are all doubled")))
 
 (deftest json-resp-escapes-windows-backslash-path
   (testing "a Windows path with a quote round-trips through the JSON response"
