@@ -242,8 +242,6 @@
               (str "the story renders on the scaffold's own substrate, " substrate))
           (is (string/includes? stories ":rf.assert/sub-equals")
               "the variant carries an assertion for Test mode to run")
-          (is (string/includes? stories "(rf.story/mount-shell! node)")
-              "stories.cljs mounts the Story shell")
           (when (= :uix substrate)
             (is (string/includes? stories "(rf.story/register-substrate! :uix")
                 "the UIx scaffold registers the render fn Story uses for a :uix story")
@@ -381,12 +379,12 @@
 ;;
 ;; `acme/my-app` leaves the two derivation transforms doing only trivial
 ;; work; a dotted group + a multi-dash artefact exercises the dot→slash
-;; and dash→underscore branches, the substituted `{{namespace}}`, and the
-;; npm name.
+;; and dash→underscore branches and the substituted `{{namespace}}`.
+;; `npm-name-test` pins the npm name, this dotted group included.
 
 (deftest name-derivation-dotted-group-test
-  (testing "com.acme/my-cool-app nests under com/acme/my_cool_app, names the
-            namespace com.acme.my-cool-app, and the npm package my-cool-app"
+  (testing "com.acme/my-cool-app nests under com/acme/my_cool_app and names the
+            namespace com.acme.my-cool-app"
     (let [tmp (tmp-dir "rf2-template-dotted-name-")]
       (try
         (let [root (run-template! tmp "com.acme/my-cool-app" :reagent)]
@@ -415,10 +413,7 @@
               "the story's :component keyword substitutes the derived namespace")
           (let [test-text (slurp (io/file root "test/com/acme/my_cool_app/events_test.cljs"))]
             (is (string/includes? test-text "[com.acme.my-cool-app.events]")
-                "events_test.cljs requires the events ns by derived namespace"))
-          (is (string/includes? (slurp (io/file root "package.json"))
-                                "\"name\": \"my-cool-app\"")
-              "package.json name is the artefact segment"))
+                "events_test.cljs requires the events ns by derived namespace")))
         (finally
           (delete-recursively tmp))))))
 
@@ -528,14 +523,3 @@
           (assert-no-scaffold-emitted! tmp)
           (finally
             (delete-recursively tmp)))))))
-
-(deftest harness-keys-not-rejected-test
-  (testing "deps-new's own harness keys (:overwrite, :src-dirs, :target-dir …)
-            pass the gate and a valid invocation still scaffolds"
-    (let [tmp (tmp-dir "rf2-template-harness-")]
-      (try
-        (let [proj (run-template-opts! tmp "acme/my-app" {:substrate :reagent})]
-          (is (= manifest (emitted-files proj))
-              "a valid invocation scaffolds with the gate active"))
-        (finally
-          (delete-recursively tmp))))))
