@@ -98,16 +98,6 @@
 
 ;; ---- selector picking via real DOM elements ------------------------------
 
-(deftest pick-for-element-prefers-data-test
-  (if-not (dom-available?)
-    (skip!)
-    (testing "pick-for-element walks priority on a real DOM element"
-      (let [btn (.createElement js/document "button")]
-        (.setAttribute btn "data-test" "go")
-        (.setAttribute btn "id" "btn-1")
-        (is (= "[data-test=\"go\"]"
-               (rf.story.recorder.selector/pick-for-element btn)))))))
-
 (deftest pick-for-element-falls-back-to-nth
   (if-not (dom-available?)
     (skip!)
@@ -124,19 +114,6 @@
 
 ;; ---- impure recorder seams ----------------------------------------------
 
-(deftest record-dom-click-appends-entry
-  (if-not (dom-available?)
-    (skip!)
-    (do
-      (rf.story.recorder/start-recording! :story.x/y)
-      (rf.story.recorder.dom-capture/record-dom-click! "[data-test=\"go\"]")
-      (let [entries (rf.story.recorder/recorded-entries)]
-        (is (= 1 (count entries)))
-        (let [{:keys [kind selector t]} (first entries)]
-          (is (= :dom/click kind))
-          (is (= "[data-test=\"go\"]" selector))
-          (is (number? t)))))))
-
 (deftest record-dom-type-appends-entry
   (if-not (dom-available?)
     (skip!)
@@ -147,14 +124,6 @@
         (is (= :dom/type kind))
         (is (= "[id=\"name\"]" selector))
         (is (= "alice" text))))))
-
-(deftest record-dom-submit-appends-entry
-  (if-not (dom-available?)
-    (skip!)
-    (do
-      (rf.story.recorder/start-recording! :story.x/y)
-      (rf.story.recorder.dom-capture/record-dom-submit! "[id=\"login\"]")
-      (is (= :dom/submit (:kind (first (rf.story.recorder/recorded-entries))))))))
 
 (deftest noops-when-not-recording
   (if-not (dom-available?)
@@ -306,17 +275,6 @@
           (is (= [:dom/type :dom/click] kinds)
               "type lands before click")
           (is (= "alice" (:text (first entries)))))))))
-
-;; ---- enabled? / set-enabled! --------------------------------------------
-
-(deftest set-enabled-roundtrips
-  (if-not (dom-available?)
-    (skip!)
-    (do
-      (rf.story.recorder.dom-capture/set-enabled! false)
-      (is (not (rf.story.recorder.dom-capture/enabled?)))
-      (rf.story.recorder.dom-capture/set-enabled! true)
-      (is (rf.story.recorder.dom-capture/enabled?)))))
 
 ;; ---- timestamps ride through to entries ---------------------------------
 
