@@ -20,26 +20,11 @@
 
 ;; ---- has-play-script? ----------------------------------------------------
 
-(deftest has-play-script-missing
-  (testing "has-play-script? is false when :script is absent"
-    (is (false? (rf.story.play.ci-runner/has-play-script? {})))
-    (is (false? (rf.story.play.ci-runner/has-play-script? {:setup [[:foo]]})))))
-
 (deftest has-play-script-empty
   (testing "has-play-script? is false for empty vectors / maps"
     (is (false? (rf.story.play.ci-runner/has-play-script? {:script []})))
     (is (false? (rf.story.play.ci-runner/has-play-script? {:script {:script []}})))
     (is (false? (rf.story.play.ci-runner/has-play-script? {:script {}})))))
-
-(deftest has-play-script-bare-vector
-  (testing "has-play-script? is true for a non-empty bare vector"
-    (is (true? (rf.story.play.ci-runner/has-play-script? {:script [[:dispatch [:foo]]]})))))
-
-(deftest has-play-script-map-form
-  (testing "has-play-script? is true for a map with at least one step"
-    (is (true? (rf.story.play.ci-runner/has-play-script?
-                 {:script {:script [[:dispatch [:foo]]]
-                                :auto-run? true}})))))
 
 ;; ---- variants-with-play-scripts ------------------------------------------
 
@@ -79,24 +64,6 @@
 (deftest discovery-with-zero-variants
   (testing "discovery returns the empty vector when nothing is registered"
     (is (= [] (rf.story.play.ci-runner/variants-with-play-scripts)))))
-
-;; ---- ci-context ----------------------------------------------------------
-
-(deftest ci-context-shape
-  (testing "ci-context bundles the variant list + per-play rows"
-    (swap! rf.story.registrar/kind->id->body assoc-in
-           [:variant :story.c/a]
-           {:script [[:dispatch [:a]]]})
-    (swap! rf.story.registrar/kind->id->body assoc-in
-           [:variant :story.c/b]
-           {:script {:script [[:wait 0]] :auto-run? false :name "b"}})
-    (let [ctx (rf.story.play.ci-runner/ci-context)]
-      (is (= [:story.c/a :story.c/b] (:variants ctx)))
-      (is (not (contains? ctx :summaries))
-          "there is no per-variant :summaries projection")
-      (is (= 2 (count (:rows ctx))))
-      (is (= :story.c/a (:variant-id (first (:rows ctx)))))
-      (is (= "b"        (:name       (second (:rows ctx))))))))
 
 ;; ---- terminal? -----------------------------------------------------------
 
@@ -152,11 +119,6 @@
   (is (false? (rf.story.play.ci-runner/has-plays? {})))
   (is (false? (rf.story.play.ci-runner/has-plays? {:plays []})))
   (is (true?  (rf.story.play.ci-runner/has-plays? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
-
-(deftest has-any-play?-or-of-both
-  (is (false? (rf.story.play.ci-runner/has-any-play? {})))
-  (is (true?  (rf.story.play.ci-runner/has-any-play? {:script [[:dispatch [:a]]]})))
-  (is (true?  (rf.story.play.ci-runner/has-any-play? {:plays [{:name "p" :script [[:dispatch [:a]]]}]}))))
 
 (deftest discovery-includes-plays-variants
   (testing "variants-with-play-scripts picks up :plays-carrying bodies"

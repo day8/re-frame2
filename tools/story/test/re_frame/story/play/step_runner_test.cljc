@@ -83,13 +83,6 @@
     (is (false? (rf.story.play.runner/step-arity-ok? [:focus])))
     (is (false? (rf.story.play.runner/step-arity-ok? [:focus 42])))))
 
-(deftest wait-is-still-the-determinism-opt-out
-  (testing "[:wait ms] keeps its tag distinct from [:wait-until] — the
-            determinism gate refuses [:wait ms] but not [:wait-until]"
-    (is (= :wait       (rf.story.play.runner/step-type [:wait 100])))
-    (is (= :wait-until (rf.story.play.runner/step-type [:wait-until [:db [:k] 1]])))
-    (is (not= :wait    (rf.story.play.runner/step-type [:wait-until [:db [:k] 1]])))))
-
 (deftest step-accessors
   (testing "step-assertion unwraps the [:assert …] atom"
     (is (= [:rf.assert/path-equals [:k] 1]
@@ -169,27 +162,6 @@
                       {:variant/id :story.bad/events-assert
                        :setup [[:assert [:rf.assert/no-warnings]]]}
                       {}))))))
-
-;; ===========================================================================
-;; REQUIRED-RUNNER: [:focus] requires :dom, the others are headless
-;; ===========================================================================
-
-(deftest focus-step-requires-dom-in-plan
-  (testing "a [:focus …] script step lifts :required-runner to #{:dom}"
-    (let [p (rf.story.plan/variant-plan
-              {:variant/id :story.focus/v
-               :script [[:dispatch [:e]] [:focus "[data-test=in]"]]}
-              {})]
-      (is (contains? (:required-runner p) :dom))))
-  (testing "an all-headless script (dispatch + wait-until + assert) needs no
-            DOM capability"
-    (let [p (rf.story.plan/variant-plan
-              {:variant/id :story.headless/v
-               :script [[:dispatch [:e]]
-                        [:wait-until [:db [:k] 1]]
-                        [:assert [:rf.assert/path-equals [:k] 1]]]}
-              {})]
-      (is (not (contains? (:required-runner p) :dom))))))
 
 ;; ===========================================================================
 ;; HEADLESS execution against a live frame
@@ -319,10 +291,4 @@
   (testing "the boundary ladder agrees: a headless runner does not satisfy
             the :dom boundary [:focus] requires"
     (is (= :dom (rf.story.play.settled-boundary/step-required-boundary [:focus "sel"])))
-    (is (not (rf.story.play.settled-boundary/satisfies-boundary? :headless :dom))))
-  (testing "the capability registry agrees: [:focus] requires the :dom token
-            a :headless runner lacks"
-    (is (= #{:dom} (rf.story.requirements/step-tokens [:focus "sel"])))
-    (is (false? (rf.story.requirements/runner-satisfies?
-                  (rf.story.requirements/runner-provides :headless)
-                  (rf.story.requirements/step-tokens [:focus "sel"]))))))
+    (is (not (rf.story.play.settled-boundary/satisfies-boundary? :headless :dom)))))

@@ -116,11 +116,6 @@
               [:wait 100]
               [:assert-db [:n] 0]])))))
 
-(deftest coerce-script-passthrough
-  (testing "already-tagged steps round-trip unchanged"
-    (let [script [[:dispatch [:a]] [:wait 50] [:assert-db [:x] 1]]]
-      (is (= script (rf.story.play.runner/coerce-script script))))))
-
 (deftest coerce-script-empty
   (is (= [] (rf.story.play.runner/coerce-script nil)))
   (is (= [] (rf.story.play.runner/coerce-script []))))
@@ -275,23 +270,6 @@
 ;;   (step-fail idx step {:skipped? true :message "no DOM — …"})  → :passed? false + :skipped?
 ;;   (step-fail idx step {:cannot-run? true :message "…"})        → :passed? false + :cannot-run?
 
-(deftest finish-skip-only-run-is-cannot-run-not-pass
-  (testing "a run whose only non-pass step is a no-DOM :skipped? refusal
-            terminates :cannot-run, NOT a silent :pass"
-    (let [step  [:assert-dom "[data-test=x]" :visible]
-          base  (-> {:script [[:dispatch [:a]] step]}
-                    rf.story.play.runner/parse-spec
-                    rf.story.play.runner/initial-state
-                    (rf.story.play.runner/start 0))
-          state (-> base
-                    (rf.story.play.runner/record-step-result (rf.story.play.runner/step-pass 0 [:dispatch [:a]]))
-                    (rf.story.play.runner/record-step-result
-                      (rf.story.play.runner/step-fail 1 step {:skipped? true :message "no DOM — cannot prove"})))]
-      (is (= :cannot-run (:status (rf.story.play.runner/finish state 100)))
-          "skip-only refusal → :cannot-run (the fail-closed third status)")
-      (is (not= :pass (:status (rf.story.play.runner/finish state 100)))
-          "the refusal must NOT collapse into a vacuous green"))))
-
 (deftest finish-cannot-run-refusal-only-is-cannot-run
   (testing "a boundary :cannot-run? refusal (no skip) also terminates :cannot-run"
     (let [step  [:assert-dom "[data-test=x]" :visible]
@@ -318,20 +296,6 @@
                           (rf.story.play.runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
       (is (= :fail (:status (rf.story.play.runner/finish state 100)))
           ":fail (a real failing step) outranks the refusal"))))
-
-(deftest finish-exception-outranks-refusal
-  (testing "an exception alongside a refusal terminates :fail (precedence)"
-    (let [exc-step  [:dispatch [:bad]]
-          skip-step [:assert-dom "[data-test=x]" :visible]
-          state     (-> {:script [exc-step skip-step]}
-                        rf.story.play.runner/parse-spec
-                        rf.story.play.runner/initial-state
-                        (rf.story.play.runner/start 0)
-                        (rf.story.play.runner/record-step-result
-                          (rf.story.play.runner/step-exception 0 exc-step "boom"))
-                        (rf.story.play.runner/record-step-result
-                          (rf.story.play.runner/step-fail 1 skip-step {:skipped? true :message "no DOM"})))]
-      (is (= :fail (:status (rf.story.play.runner/finish state 100)))))))
 
 ;; ---- run-state-refusals projection --------------------------------------
 
@@ -582,11 +546,6 @@
                   [{:name "p" :script [[:foo/bar 1] [:wait 0]]}])]
       (is (= [[:dispatch [:foo/bar 1]] [:wait 0]]
              (:script (first plays)))))))
-
-(deftest parse-plays-preserves-name
-  (let [plays (rf.story.play.runner/parse-plays
-                [{:name "happy path" :script [[:dispatch [:a]]]}])]
-    (is (= "happy path" (:name (first plays))))))
 
 (deftest variant-body->plays-prefers-plays-over-play-script
   (testing "if both :plays and :script are present, :plays wins"

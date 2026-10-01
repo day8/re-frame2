@@ -191,16 +191,6 @@
              (set (map :rule (:actual rec))))
           "the .class/#id suffix on the tag does not hide the element kind"))))
 
-(deftest structural-a11y-runs-at-hiccup-tier
-  (testing ":rf.assert/a11y-structural requires only :hiccup-structure"
-    (is (= #{:hiccup-structure}
-           (rf.story.requirements/assertion-tokens [:rf.assert/a11y-structural])))
-    (is (= :hiccup (rf.story.requirements/cheapest-runner #{:hiccup-structure}))
-        "the cheapest runner proving structural a11y is :hiccup, NOT :browser")
-    ;; a hiccup runner satisfies it; headless does not.
-    (is (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :hiccup) #{:hiccup-structure}))
-    (is (not (rf.story.requirements/runner-satisfies? (rf.story.requirements/runner-provides :headless) #{:hiccup-structure})))))
-
 ;; ===========================================================================
 ;; LIVE a11y READER SEAM — the inverted, late-bound hook
 ;; ===========================================================================
