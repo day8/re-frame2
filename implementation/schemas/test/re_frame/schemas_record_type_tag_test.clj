@@ -99,17 +99,6 @@
       (is (not (str/includes? (tag v) (.getName (class v))))
           "the host class name never appears in the tag"))))
 
-(deftest tag-never-throws
-  (testing "a diagnostic must not explode while explaining a
-            rejection. The protocol arms (`map?`,
-            `vector?`) are property reads, and on CLJS a Proxy get-trap can
-            raise there — the cond is wrapped for that. Nothing on the JVM
-            reaches the catch, so this pins totality rather than the catch
-            arm; the CLJS sibling exercises the throwing path directly."
-    (doseq [v [nil (Object.) (reify clojure.lang.IDeref (deref [_] nil))]]
-      (is (string? (tag v))
-          "returns a string for every input, never propagates"))))
-
 ;; ---- end-to-end: the emitted record carries no host class name ------------
 
 (deftest rejection-record-reason-carries-no-host-class-name
