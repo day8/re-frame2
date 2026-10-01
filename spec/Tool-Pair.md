@@ -344,7 +344,7 @@ The trace contract behind this law — the generation identity, final-generation
 
 ## Performance API consumption
 
-The Performance API channel (per [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) is the prod-friendly counterpart to the dev-only trace stream. Pair-shaped tools that want timing data — an in-app perf overlay, an APM forwarder, a custom `PerformanceObserver` watching for slow renders — read it via the standard browser User Timing surface. No re-frame2 API call is needed; the runtime emits `User Timing` `measure` entries and any consumer that knows about `performance.getEntriesByType` can read them.
+The Performance API channel (per [009 §Performance instrumentation](009-Instrumentation.md#performance-instrumentation)) is the prod-friendly counterpart to the dev-only trace stream. Pair-shaped tools that want timing data — an in-app perf overlay, an APM forwarder, a custom `PerformanceObserver` watching for slow renders — read it via the standard browser User Timing surface. No re-frame2 API call is needed: the runtime emits `User Timing` `measure` entries, and any `PerformanceObserver` attached before the work receives them.
 
 Names are stable and namespaced under `rf:`:
 
@@ -355,29 +355,28 @@ rf:fx:<fx-id>
 rf:render:<view-id>
 ```
 
-Consumer pattern — pull every re-frame entry from the recent run:
-
-```javascript
-performance.getEntriesByType('measure')
-  .filter(e => e.name.startsWith('rf:'))
-  .forEach(e => {
-    const [_rf, bucket, ...idParts] = e.name.split(':');
-    const id = idParts.join(':');
-    // e: { name, startTime, duration, ... }
-    // bucket: 'event' | 'sub' | 'fx' | 'render'
-  });
-```
-
-Live: `PerformanceObserver` fires per emitted entry (the canonical shape for a tool that wants to react in real time):
+The channel is **observer-first** (per [009 §Consumer access](009-Instrumentation.md#consumer-access)): entries are delivered, not retained. Each bracket emits its measure and then clears it from the retained buffer, unless the app was built with `re-frame.performance/retain-entries?` on (default `false`). The primary read is therefore a `PerformanceObserver`, and it must be attached **before** the work it wants to see. Each `measure()` queues its entry for every observer registered at that moment, and the clear does not reach that queue; an entry cleared before the observer was attached is gone, and `buffered: true` cannot recover it, because it replays only what the retained buffer still holds. Delivery is batched, not per entry: the callback runs later as a task and receives every entry queued since its last run, so a tool iterates the list rather than assuming one entry per call:
 
 ```javascript
 new PerformanceObserver((list) => {
   for (const e of list.getEntriesByType('measure')) {
     if (e.name.startsWith('rf:')) {
+      const [_rf, bucket, ...idParts] = e.name.split(':');
+      const id = idParts.join(':');
+      // e: { name, startTime, duration, ... }
+      // bucket: 'event' | 'sub' | 'fx' | 'render'
       sendToAPM(e);  // or update an overlay, or buffer for a flush
     }
   }
 }).observe({ type: 'measure', buffered: true });
+```
+
+`performance.getEntriesByType('measure')` is the one-shot read, and it sees `rf:` entries only in an app built with `retain-entries?` on. With retention off (the default) it returns none, because every entry was delivered to the attached observers and then cleared. It suits a console or DevTools snapshot rather than a long-running tool, since a retained buffer grows for the life of the page:
+
+```javascript
+// Populated only under :closure-defines {re-frame.performance/retain-entries? true}.
+performance.getEntriesByType('measure')
+  .filter(e => e.name.startsWith('rf:'));
 ```
 
 The channel is gated on `re-frame.performance/enabled?` — a `goog-define` boolean that defaults to `false`. Pair tools that depend on the channel **MUST** document the consumer's responsibility to flip the flag in their build:
@@ -388,7 +387,7 @@ The channel is gated on `re-frame.performance/enabled?` — a `goog-define` bool
                 :compiler-options {:closure-defines {re-frame.performance/enabled? true}}}}}
 ```
 
-When the flag is off (the default), Closure DCE elides every bracket; `performance.getEntriesByType('measure')` returns no `rf:`-prefixed entries because none were ever emitted. The perf channel is *opt-in for prod* — timing instrumentation has measurable cost on heavy hot paths, so consumers choose to pay it.
+When the flag is off (the default), Closure DCE elides every bracket, so no `rf:`-prefixed entry ever reaches an observer or the retained buffer — none is emitted. The perf channel is *opt-in for prod* — timing instrumentation has measurable cost on heavy hot paths, so consumers choose to pay it.
 
 The Performance API surface is **CLJS-only**. JVM artefacts (SSR, headless tests) emit no perf entries; tools running there use the host's profilers (clj-async-profiler, JFR).
 
