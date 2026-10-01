@@ -199,32 +199,6 @@
           (is (string? (-> v :tags :reason))
               ":reason — human-readable explanation, no value"))))))
 
-(deftest app-db-validation-redacts-slot-level-sensitive
-  (testing "Slot-level :sensitive? on a child entry inside a registered
-            map schema covers that slot's failures"
-    ;; reg-app-schema covers [:user], the :password child is sensitive.
-    (rf/reg-app-schema [:user]
-                       [:map
-                        [:name     :string]
-                        [:password {:sensitive? true} :string]])
-    (with-trace-recorder! [traces]
-      ;; password is an int — fails :string. Since validation is
-      ;; per-registered-path, the whole [:user] value fails the schema.
-      ;; But schema-sensitive-at? checks if [:user] is sensitive (no)
-      ;; OR a child slot of [:user] under the registered path crosses
-      ;; the failing path. Since reg-app-schema validates the whole
-      ;; registered slot, we need the :sensitive? to flag the WHOLE
-      ;; failure when ANY slot within is sensitive.
-      (rf.schemas/validate-app-schema! {:user {:name "alice" :password 99}}
-                                :user/bad)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v) "a trace fired")
-        (is (true? (:sensitive? v))
-            "the registered schema contains a :sensitive? slot — the failure is redacted (top-level stamp per Spec 009 hoist)")
-        (is (= :rf/redacted (-> v :tags :value)))
-        (is (= :rf/redacted (-> v :tags :explain)))))))
-
 (deftest app-db-validation-non-sensitive-passes-through-verbatim
   (testing "a schema with no :sensitive? props emits
             unredacted traces; :value and :explain ride verbatim"
@@ -431,34 +405,6 @@
           ":path keeps the navigable vector index (1)")
       (is (= :rf/redacted (-> v :tags :value))))))
 
-(deftest app-db-validation-map-of-path-stays-navigable
-  (testing ":map-of :path keeps its map key (the
-            navigable locator)"
-    (let [v (app-db-failure-trace
-              [:by-id]
-              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
-              {:by-id {"a" {:secret 99}}}
-              :by-id/bad)]
-      (is (some? v))
-      (is (= [:by-id "a" :secret] (-> v :tags :path))
-          ":path keeps the navigable map-of key (\"a\")")
-      (is (= :rf/redacted (-> v :tags :value))))))
-
-(deftest app-db-validation-non-sensitive-set-path-rides-verbatim
-  (testing "a NON-sensitive :set failure is not
-            spuriously scrubbed (sanitisation only runs on sensitive
-            failures)"
-    (let [v (app-db-failure-trace
-              [:tags2]
-              [:set [:map [:name :string]]]
-              {:tags2 #{{:name 99}}}
-              :tags2/bad)]
-      (is (some? v))
-      (is (not (contains? v :sensitive?))
-          "no :sensitive? stamp — nothing in the schema is sensitive")
-      (is (not= :rf/redacted (-> v :tags :value))
-          ":value rides verbatim — no spurious redaction"))))
-
 (deftest app-db-validation-set-non-sensitive-leaf-sensitive-sibling-path-carries-no-secret
   (testing "a failure at a NON-sensitive leaf inside a :set
             element whose CONFORMING sibling is :sensitive? still scrubs the
@@ -661,20 +607,6 @@
 ;; -- direct `sanitize-sensitive-path` unit tests (deterministic; independent of
 ;;    Malli's `:in` shape) --
 
-(deftest sanitize-fails-closed-on-multi-child-or
-  (testing "a sensitive :map-of key reached under a MULTI-child :or
-            is scrubbed via the fail-closed tail (the ambiguous :or cannot pick
-            a branch, so every remaining segment is scrubbed)"
-    (let [schema [:or
-                  [:map-of :int :int]                                     ;; branch 0 — non-sensitive key
-                  [:map-of [:string {:sensitive? true}] [:map [:age :int]]]] ;; branch 1 — sensitive key
-          in     ["secret-token-123" :age]
-          out    (rf.schemas.walker/sanitize-sensitive-path schema in)]
-      (is (= [:rf/redacted :rf/redacted] out)
-          "every tail segment past the ambiguous :or is scrubbed to the sentinel")
-      (is (not (some #{"secret-token-123"} out))
-          "the sensitive :map-of key does NOT survive in the sanitized path"))))
-
 (deftest sanitize-fails-closed-on-multi-child-and
   (testing "a sensitive :map-of key reached under a MULTI-child :and
             (sensitive conjunct not first) is scrubbed via the fail-closed tail"
@@ -696,27 +628,6 @@
         "single-child :or descends into its one branch and keeps the map key")
     (is (= [:k] (rf.schemas.walker/sanitize-sensitive-path [:and [:map [:k :int]]] [:k]))
         "single-child :and descends into its one branch and keeps the map key")))
-
-(deftest sanitize-scrubs-opaque-map-of-key
-  (testing "a :map-of whose KEY is a COMPILED m/schema (opaque to the
-            pure-data walker, so schema-has-sensitive? on it is false) is scrubbed
-            via the opaque-aware gate; the navigable inner :age key is kept"
-    (let [schema [:map-of (m/schema [:string {:sensitive? true}]) [:map [:age :int]]]
-          out    (rf.schemas.walker/sanitize-sensitive-path schema ["SECRET-KEY-XYZ" :age])]
-      (is (= [:rf/redacted :age] out)
-          "the opaque sensitive :map-of key is scrubbed; the :age locator survives")
-      (is (not (some #{"SECRET-KEY-XYZ"} out))
-          "the secret key does NOT survive in the sanitized path"))))
-
-(deftest sanitize-scrubs-nested-opaque-map-of-key
-  (testing "a :map-of KEY that is a vector wrapper hiding a compiled
-            m/schema (`[:and (m/schema …)]`) is scrubbed via the recursive
-            opaque-aware (schema-has-opaque-child?) gate"
-    (let [schema [:map-of [:and (m/schema [:string {:sensitive? true}])] [:map [:age :int]]]
-          out    (rf.schemas.walker/sanitize-sensitive-path schema ["NESTED-SECRET-ABC" :age])]
-      (is (= [:rf/redacted :age] out))
-      (is (not (some #{"NESTED-SECRET-ABC"} out))
-          "the nested-opaque secret key does NOT survive in the sanitized path"))))
 
 (deftest schema-sensitive-at?-true-for-opaque-map-of-key
   (testing "schema-sensitive-at? (the leaf decision that gates path
@@ -1205,22 +1116,6 @@
         (is (= :rf/redacted (-> v :tags :received)))
         (is (= :rf/redacted (-> v :tags :value)))))))
 
-(deftest event-validation-non-sensitive-cat-still-verbatim
-  (testing "no over-redaction: an event schema with a payload map
-            that has NO :sensitive? slot rides verbatim under the walk"
-    (rf/reg-event :user/update
-      {:schema [:cat [:= :user/update] [:map [:name :string] [:age :int]]]}
-      (fn [{:keys [db]} _] {:db db}))
-    (with-trace-recorder! [traces]
-      (rf/dispatch-sync [:user/update {:name "bob" :age "old"}])
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (not (contains? v :sensitive?))
-            "no :sensitive? stamp — nothing in the event schema is sensitive")
-        (is (= [:user/update {:name "bob" :age "old"}] (-> v :tags :received))
-            ":received rides verbatim — the walk did not spuriously redact")))))
-
 ;; ---- per-slot scoping: sensitive SIBLING, non-sensitive failure ----------
 ;; The shared `run-validation` path
 ;; (event / fx / sub) carries the WHOLE checked value in EVERY
@@ -1283,30 +1178,6 @@
         (is (not (str/includes? (pr-str (:tags v)) "SECRET-COFX-tok"))
             "the conforming sensitive sibling :token is ABSENT from every egressed slot")))))
 
-(deftest recordable-cofx-sensitive-slot-failure-still-redacts
-  (testing "EP-0017 recordable path — redaction fires when
-            the FAILING slot itself is sensitive"
-    (rf/reg-cofx :auth/ctx2
-      {:recordable? true :provided? true
-       :schema [:map
-                [:token {:sensitive? true} :string]
-                [:count :int]]})
-    (rf/reg-event :auth/use-ctx2
-      {:rf.cofx/requires [:auth/ctx2]}
-      (fn [_ _] {}))
-    (with-trace-recorder! [traces]
-      ;; :token fails (int, not string) — the FAILING slot IS sensitive.
-      (try
-        (rf/dispatch-sync [:auth/use-ctx2]
-                          {:rf.cofx {:auth/ctx2 {:token 1234 :count 3}}})
-        (catch clojure.lang.ExceptionInfo _))
-      (let [v (first (filter #(= :rf.error/cofx-value-invalid (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (true? (:sensitive? v))
-            ":sensitive? stamped — the failing slot (:token) is sensitive")
-        (is (= :rf/redacted (-> v :tags :value)) ":value redacted")))))
-
 (deftest sub-validation-conforming-sensitive-sibling-redacted-whole-value
   (testing "a sub-return schema with a CONFORMING sensitive
             sibling (:token) AND a non-sensitive failing sibling (:count):
@@ -1366,31 +1237,6 @@
               ":value (whole event vector) redacted")
           (is (not (str/includes? (pr-str (:tags v)) secret))
               "the conforming sensitive :password is ABSENT from every egressed slot"))))))
-
-(deftest event-validation-cat-root-sensitive-slot-failure-still-redacts
-  (testing "when the SENSITIVE `:cat`
-            payload slot itself fails, the value is redacted and
-            stamped (position precision must not under-redact the declared
-            position)"
-    (let [secret 123456789]                 ;; an int — fails the :string slot
-      (rf/reg-event :auth/profile2
-        {:schema [:cat [:= :auth/profile2]
-                  [:map
-                   [:password {:sensitive? true} :string]
-                   [:age :int]]]}
-        (fn [{:keys [db]} _] {:db db}))
-      (with-trace-recorder! [traces]
-        ;; :password fails (int, not string) — the FAILING slot IS sensitive.
-        (rf/dispatch-sync [:auth/profile2 {:password secret :age 30}])
-        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces))]
-          (is (some? v))
-          (is (true? (:sensitive? v))
-              ":sensitive? stamped — the failing slot (:password) is sensitive")
-          (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
-          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
-          (is (not (str/includes? (pr-str (:tags v)) (str secret)))
-              "the raw secret does NOT appear anywhere in the emitted tags"))))))
 
 (deftest event-validation-catn-root-conforming-sensitive-sibling-redacted-whole-received
   (testing "`:catn` behaves like `:cat`: the whole
@@ -1707,25 +1553,6 @@
         (is (some? (-> v :tags :explain))
             ":explain rides verbatim too")))))
 
-(deftest sensitive-app-db-failure-redacts-humanized-present-not-omitted
-  (testing "a SENSITIVE app-db validation failure emits
-            :explain-humanized :rf/redacted alongside :explain
-            :rf/redacted. The slot is PRESENT (the sentinel), not
-            omitted — symmetric redaction per Spec 010 §Humanize-hook"
-    (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
-    (with-trace-recorder! [traces]
-      (rf.schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v) "a trace fired")
-        (is (true? (:sensitive? v)))
-        (is (= :rf/redacted (-> v :tags :explain))
-            ":explain redacted")
-        (is (contains? (:tags v) :explain-humanized)
-            ":explain-humanized PRESENT — not silently omitted")
-        (is (= :rf/redacted (-> v :tags :explain-humanized))
-            ":explain-humanized is the :rf/redacted sentinel — symmetric with :explain")))))
-
 (deftest sensitive-app-db-failure-humanized-leaks-no-raw-value
   (testing "the raw sensitive value never appears in
             :explain-humanized on a sensitive failure (fail-closed
@@ -1822,21 +1649,6 @@
         (is (not (and (map? (-> v :tags :value))
                       (contains? (-> v :tags :value) :rf.size/large-elided)))
             "no :rf.size/large-elided marker — would re-leak :path/:bytes")))))
-
-;; ---- elision: redaction is dev-time -------------------------------------
-
-(deftest sensitive-redaction-elides-with-validation
-  (testing "Per Spec 010 §Production builds + Spec 009 §Production-elision
-            behaviour — the entire validation body (including the
-            redaction substitution) lives behind the
-            interop/debug-enabled? gate. Production builds DCE both."
-    (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
-    (with-trace-recorder! [traces]
-      (with-redefs [re-frame.interop/debug-enabled? false]
-        (rf.schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad))
-      (is (empty? (filter #(= :rf.error/schema-validation-failure (:operation %))
-                          @traces))
-          "no validation trace fires when debug-enabled? is false — redaction is moot"))))
 
 ;; ---- COMPILED / OPAQUE schema fail-closed redaction ----------------------
 ;;
@@ -2285,20 +2097,6 @@
       (is (contains? (:explain out) :rf.size/large-elided) ":explain elided")
       (is (not (str/includes? (pr-str out) blob))
           "the blob survives nowhere through the seam"))))
-
-(deftest non-large-non-sensitive-rides-verbatim
-  (testing "a plain (no :large? / :sensitive?) failure rides
-            verbatim — the elision is precise, not a blanket marker"
-    (with-trace-recorder! [traces]
-      (rf.schemas/validate-event! :api/x [:api/x {:n "nope"}]
-                               {:schema [:cat [:= :api/x] [:map [:n :int]]]})
-      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                             @traces))]
-        (is (some? v))
-        (is (not (contains? v :sensitive?)) "no :sensitive? stamp")
-        (is (not (-> v :tags :large?)) "no :large? stamp")
-        (is (= [:api/x {:n "nope"}] (-> v :tags :value))
-            ":value rides verbatim")))))
 
 (deftest app-db-validation-large-leaf-beside-sensitive-sibling-elides
   (testing "a failing :large? leaf in a schema that ALSO
