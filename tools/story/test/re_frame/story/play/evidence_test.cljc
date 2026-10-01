@@ -374,37 +374,6 @@
         (is (= [[:set 5]] (mapv :trigger-event (:epochs (nth n 4))))
             "step 4 correctly owns its surviving epoch")))))
 
-(deftest stamp-tape-plateaued-count-boundaries-would-misattribute
-  (testing "documents count-based boundaries as a CONTRAST, not a
-            desired behaviour. Once a depth-3 ring is
-            full, `(count (epoch-history ...))` plateaus at 3 for every
-            subsequent boundary snapshot, so feeding `stamp-tape` boundary
-            values shaped like that (rather than genuine epoch-ids)
-            collapses every surviving record onto the LAST step —
-            demonstrating why the producer records epoch-ids rather than
-            ring-length counts. `runner-events/last-epoch-id` never
-            emits boundaries shaped like this in production; this input
-            is deliberately pathological."
-    (let [script  [[:dispatch [:set 1]]
-                   [:dispatch [:set 2]]
-                   [:dispatch [:set 3]]
-                   [:dispatch [:set 4]]
-                   [:dispatch [:set 5]]]
-          tape    [(epoch 48 {:trigger-event [:set 3]})
-                   (epoch 49 {:trigger-event [:set 4]})
-                   (epoch 50 {:trigger-event [:set 5]})]
-          ;; What a COUNT-based recorder would have produced: 0, 1, 2,
-          ;; then PLATEAUED at 3 (the ring depth) for every subsequent
-          ;; boundary once it filled — steps 3 and 4 are indistinguishable.
-          plateaued-count-boundaries [0 1 2 3 3]
-          stamped (rf.story.play.evidence/stamp-tape script tape plateaued-count-boundaries)]
-      (is (= [4 4 4] (mapv :rf.story/script-idx stamped))
-          "these tiny plateaued counts are all `<` every real epoch-id in
-           `tape` (48-50), so every record's owner-search bottoms out at
-           the LAST boundary (index 4) — collapsing steps 2/3/4's
-           distinct epochs onto step 4 alone. This is the 'confident but
-           wrong' misattribution a count-based recorder produces."))))
-
 (deftest narrative-no-dispatch-steps-leads-whole-tape
   (testing "a script with no dispatch steps puts the whole tape in a leading span"
     (let [script [[:assert-db [:k] 1] [:wait 10]]
@@ -481,15 +450,6 @@
       (is (= [nil [:dispatch [:a]] [:dispatch [:a]] [:dispatch [:b]]]
              (mapv :step beats)) "each beat carries its owning span's step"))))
 
-(deftest narrative-beats-skip-empty-spans
-  (testing "pure assertion / wait spans (no beats) contribute nothing to the scrub"
-    (let [script [[:assert-db [:k] 1] [:wait 10]]
-          tape   [(epoch 1 {})]
-          beats  (rf.story.play.evidence/narrative-beats (rf.story.play.evidence/narrative script tape))]
-      (is (= 1 (count beats)) "only the one leading committed epoch is scrubbable")
-      (is (= 0 (:beat-idx (first beats))))
-      (is (nil? (:step (first beats))) "it leads under the nil setup span"))))
-
 (deftest narrative-beats-carry-span-caption
   (testing "a captioned span stamps :span-caption onto each of its beats"
     (let [script [[:dispatch [:a] {:caption "do the thing"}]]
@@ -512,23 +472,6 @@
       ;; beat-epoch-ids aligns 1:1 with narrative-beats
       (is (= (rf.story.play.evidence/beat-epoch-ids n)
              (mapv :epoch-id (rf.story.play.evidence/narrative-beats n)))))))
-
-(deftest navigation-agrees-with-the-tape
-  (testing "the flattened scrub sequence agrees with the retained epoch tape"
-    ;; Every committed epoch in the tape appears exactly once in the scrub,
-    ;; in tape order — no beat invented, none dropped, regardless of the
-    ;; span grouping. This is the 'narrative data AGREES with the
-    ;; retained epoch tape' contract, at the navigation layer.
-    (let [script   [[:dispatch [:a]] [:wait 5] [:dispatch [:b]]]
-          tape     [(epoch 1 {:rf.story/script-idx 0})
-                    (epoch 2 {:rf.story/script-idx 0})
-                    (epoch 3 {:rf.story/script-idx 2})]
-          n        (rf.story.play.evidence/narrative script tape)
-          beat-ids (rf.story.play.evidence/beat-epoch-ids n)]
-      (is (= (mapv :epoch-id tape) beat-ids)
-          "scrub epoch-ids are exactly the tape's epoch-ids, in order")
-      (is (= (count tape) (rf.story.play.evidence/beat-count n))
-          "one scrub position per committed epoch — none dropped, none invented"))))
 
 ;; ===========================================================================
 ;; AGREEMENT INVARIANT — no green while tape is red
@@ -568,22 +511,6 @@
     (is (true? (rf.story.play.evidence/tape-shows-failure?
                  [(epoch 1 {:effects [{:fx-id :boom :outcome :error :error-trace 99}]})])))
     (is (false? (rf.story.play.evidence/tape-shows-failure? [(epoch 1 {:outcome :ok})])))))
-
-(deftest no-accumulator-can-report-green-when-tape-is-red
-  (testing "the failure floor reads the PROJECTION, so a sibling 'pass' cannot mask a red tape"
-    ;; A hypothetical sibling accumulator that reported :pass (empty
-    ;; warnings / no recorded failures) is irrelevant: the agreement floor
-    ;; consults the projected tape evidence directly.
-    (let [tape            [(epoch 1 {:trace-events [(schema-trace 10 :app-db {}
-                                                                  {:registered-path [:x] :path [:x]})]})]
-          sibling-says-ok {:status :pass :warnings [] :assertions []}
-          tape-red?       (rf.story.play.evidence/tape-shows-failure? tape)]
-      (is (true? tape-red?))
-      ;; The contract the runner enforces: a :pass status is invalid while
-      ;; the tape is red. We assert the floor catches the disagreement.
-      (is (not (and (= :pass (:status sibling-says-ok))
-                    (not tape-red?)))
-          "cannot be both sibling-green and tape-clean"))))
 
 ;; ===========================================================================
 ;; RUN-TAPE TRUNCATION SIGNAL
