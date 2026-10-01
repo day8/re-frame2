@@ -42,6 +42,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
+            [day8.re-frame2-template.hooks :as hooks]
             [day8.re-frame2-template.test-support
              :refer [read-edn tmp-dir delete-recursively repo-root
                      run-template!]]))
@@ -322,29 +323,32 @@
                    "template resource.")))
         (finally (delete-recursively tmp))))))
 
+(def ^:private substrates
+  "Every substrate the template emits, read off `hooks.clj`'s
+  `substrate-registry` (the single roster), so a substrate added there is
+  graded here with no edit to this file."
+  (sort (keys @#'hooks/substrate-registry)))
+
 (deftest clojure-version-lockstep
-  (testing "Template's clojure + clojurescript pins match implementation/core/deps.edn"
-    ;; Both pins ride the impl core deps.edn :deps. They are
-    ;; substrate-invariant in the template (every _<substrate>/deps.edn
-    ;; carries the same two lines), so the Reagent emission recovers them.
-    (let [impl-clj  (read-impl-deps-pin "implementation/core/deps.edn"
-                                        'org.clojure/clojure)
-          impl-cljs (read-impl-deps-pin "implementation/core/deps.edn"
-                                        'org.clojure/clojurescript)
-          tmp       (tmp-dir "rf2-template-lockstep-clj-")]
-      (try
-        (let [root      (run-template! tmp "acme/my-app" :reagent)
-              deps      (read-edn (io/file root "deps.edn"))
-              tpl-clj   (get-in deps [:deps 'org.clojure/clojure :mvn/version])
-              tpl-cljs  (get-in deps [:deps 'org.clojure/clojurescript :mvn/version])]
-          (is (= impl-clj tpl-clj)
-              (str "Template org.clojure/clojure pin (" tpl-clj ") must match "
-                   "implementation/core/deps.edn (" impl-clj ") — P5 lockstep. "
-                   "Bump clojure in every _<substrate>/deps.edn template "
-                   "resource."))
-          (is (= impl-cljs tpl-cljs)
-              (str "Template org.clojure/clojurescript pin (" tpl-cljs ") must "
-                   "match implementation/core/deps.edn (" impl-cljs ") — P5 "
-                   "lockstep. Bump clojurescript in every _<substrate>/deps.edn "
-                   "template resource.")))
-        (finally (delete-recursively tmp))))))
+  (testing "Every substrate's clojure + clojurescript pins match implementation/core/deps.edn"
+    ;; Both pins ride the impl core deps.edn :deps. Each
+    ;; _<substrate>/deps.edn carries its OWN literal copy of the two lines,
+    ;; so every substrate's emission is read: one copy drifting alone is
+    ;; exactly the drift this guards.
+    (let [impl-pins (into {} (for [sym '[org.clojure/clojure org.clojure/clojurescript]]
+                               [sym (read-impl-deps-pin "implementation/core/deps.edn" sym)]))]
+      (is (seq substrates)
+          "the substrate registry is non-empty, so the loop below grades something")
+      (doseq [substrate substrates]
+        (let [tmp (tmp-dir (str "rf2-template-lockstep-clj-" (name substrate) "-"))]
+          (try
+            (let [deps (read-edn (io/file (run-template! tmp "acme/my-app" substrate)
+                                          "deps.edn"))]
+              (doseq [[sym impl-pin] impl-pins
+                      :let [tpl-pin (get-in deps [:deps sym :mvn/version])]]
+                (is (= impl-pin tpl-pin)
+                    (str "Template " sym " pin for " substrate " (" tpl-pin ") must "
+                         "match implementation/core/deps.edn (" impl-pin ") — P5 "
+                         "lockstep. Bump it in the _" (name substrate) "/deps.edn "
+                         "template resource."))))
+            (finally (delete-recursively tmp))))))))
