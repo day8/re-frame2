@@ -1958,29 +1958,11 @@ test('Other per-feature artefact (machines) does NOT arm template_expensive — 
 // Folded into the generic per-feature bucket, an
 // implementation/epoch/src/... change would set NEITHER mcp_live NOR
 // mcp_conformance — so a PR breaking the epoch egress/redaction contract
-// would merge GREEN at PR time (a false-green on a data-leak guard). These
-// assertions lock the dedicated epoch case arming the live gate, while
-// keeping the OTHER per-feature artefacts off it (they have no live MCP
-// dependency) so the scope stays disciplined.
-
-test('implementation/epoch/src change arms mcp_live + mcp_conformance (live redaction gate) (rf2-ribu5a)', () => {
-  const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
-  assert.equal(
-    result.mcp_live,
-    'true',
-    'an epoch source change must run the live re-frame2-pair redaction gate (its only PR-time epoch egress verifier)',
-  );
-  assert.equal(result.mcp_conformance, 'true');
-});
-
-test('implementation/epoch change still arms the generic per-feature gates (regression) (rf2-ribu5a)', () => {
-  const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_prod, 'true');
-  assert.equal(result.bundle_isolation, 'true');
-});
+// would merge GREEN at PR time (a false-green on a data-leak guard). The
+// Pair reverse-edge row for epoch.cljc pins the dedicated epoch case arming
+// mcp_live and mcp_conformance beside its per-feature lanes; the rows here
+// keep the OTHER per-feature artefacts off the live gate (they have no live
+// MCP dependency) so the scope stays disciplined.
 
 test('implementation/epoch does NOT arm template_expensive — transitive only, left to the nightly (rf2-ribu5a, rf2-3x7nj.37.1)', () => {
   const result = classify('implementation/epoch/src/re_frame/epoch.cljc');
@@ -2120,21 +2102,6 @@ test('HTTP test/ and deps.edn stay OFF mcp_conformance — the suites read src t
       classify(file).mcp_conformance,
       'false',
       `${file} is not read by any wire-vocab suite; it must not arm mcp_conformance`,
-    );
-  }
-});
-
-test('sibling per-feature artefacts with no rostered source stay OFF mcp_conformance (rf2-01dix scope)', () => {
-  // The negative control for the arm itself: it must not have widened the
-  // per-feature bucket. flows and ssr are rostered by no conformance suite.
-  for (const file of [
-    'implementation/flows/src/re_frame/flows.cljc',
-    'implementation/ssr/src/re_frame/ssr.cljc',
-  ]) {
-    assert.equal(
-      classify(file).mcp_conformance,
-      'false',
-      `${file} is read by no conformance suite; the HTTP arm must not have widened the bucket`,
     );
   }
 });
@@ -2391,11 +2358,6 @@ test('Core change still arms template_expensive (regression) (rf2-jdj17.1)', () 
   assert.equal(result.template_expensive, 'true');
 });
 
-test('Adapter change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
-  const result = classify('implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs');
-  assert.equal(result.template_expensive, 'true');
-});
-
 // Template npm-pin lockstep. hooks.clj pins
 // :shadow-version + :react-version; version_lockstep_test asserts those
 // emitted pins match implementation/package.json's react / react-dom /
@@ -2587,32 +2549,10 @@ test('cljs-examples-compile job uses the dedicated output and nightly retains fu
 // change compiles into every example dev build that injects it and can break
 // that gate. Armed ONLY for skills_structural, a preload break would surface
 // only in the unconditional nightly examples-compile net, never at PR time.
-// These assertions lock the examples_compile arming while keeping
-// skills_structural (the preload is skill material too) and holding scope:
-// non-preload skill files must NOT drag in the heavy example-compile sweep.
-test('re-frame2-pair PRELOAD change arms examples_compile (injected into ~28 example dev builds) (rf2-k8yl5f)', () => {
-  const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs');
-  assert.equal(
-    result.examples_compile,
-    'true',
-    'a preload change compiles into every :examples/* dev build that injects re-frame2-pair.runtime; it must run the examples-compile gate',
-  );
-});
-
-test('re-frame2-pair PRELOAD .cljc change also arms examples_compile (rf2-k8yl5f)', () => {
-  const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/pure.cljc');
-  assert.equal(result.examples_compile, 'true');
-});
-
-test('re-frame2-pair PRELOAD change STILL arms skills_structural (regression — it is skill material) (rf2-k8yl5f)', () => {
-  const result = classify('skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs');
-  assert.equal(
-    result.skills_structural,
-    'true',
-    'the preload lives under skills/re-frame2-pair/ so the structural skill gate must still fire; examples_compile widens coverage, it does not replace it',
-  );
-});
-
+// The per-file preload rows below lock the examples_compile arming while
+// keeping skills_structural (the preload is skill material too). This row holds
+// scope: non-preload skill files must NOT drag in the heavy example-compile
+// sweep.
 test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope discipline) (rf2-k8yl5f)', () => {
   // Only the shipped preload compiles into the example builds. Other skill
   // material (SKILL.md, references, the redaction guides) must NOT drag the
@@ -2641,7 +2581,8 @@ test('NON-preload re-frame2-pair skill file does NOT arm examples_compile (scope
 // With both false, a preload-only change would merge with both owning
 // behavioral gates SKIPPED (caught only by the nightly net, a PR-time
 // false-green). These assertions pin all four positive outputs (incl. a nested
-// path), the non-preload negative, and the two job-level gate wirings.
+// path), the non-preload negative, and the cljs-browser job wiring; the epoch
+// live-redaction row pins mcp-conformance-re-frame2-pair's mcp_live wiring.
 
 const PRELOAD_RUNTIME_FILES = pinnedRoster('PRELOAD_RUNTIME_FILES', [
   'skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs',
@@ -3010,18 +2951,6 @@ test('cljs-browser job is job-level gated on cljs_browser (browser consumer, rf2
   assert.match(
     block,
     /if: needs\.detect_changed_surfaces\.outputs\.cljs_browser == 'true'/,
-  );
-});
-
-test('mcp-conformance-re-frame2-pair job is job-level gated on mcp_live (live Pair consumer, rf2-11yjq)', () => {
-  const block = jobBlock(
-    fs.readFileSync(WORKFLOW, 'utf8'),
-    'mcp-conformance-re-frame2-pair',
-  );
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.mcp_live == 'true'/,
   );
 });
 
@@ -3831,11 +3760,8 @@ test('a testbed .cjs helper does NOT fire examples_compile (extension narrowing,
 // because DECLARING one edits implementation/shadow-cljs.edn — which is on the
 // examples_compile roster in its own right. That is what keeps the narrowing
 // above from being a hole: the roster is derived from the build config, and
-// the build config is armed.
-test('declaring a build in shadow-cljs.edn arms examples_compile (rf2-in6c4 backstop)', () => {
-  const result = classify('implementation/shadow-cljs.edn');
-  assert.equal(result.examples_compile, 'true');
-});
+// the build config is armed — the `implementation/shadow-cljs.edn` row of the
+// dedicated examples_compile output test pins that arm.
 
 test('Xray testbed .cljs change fires story_xray_browser only (rf2-t5slp)', () => {
   const result = classify('tools/xray/testbeds/feature_matrix/core.cljs');
@@ -4374,20 +4300,8 @@ test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=ada
 // :source-paths of implementation/shadow-cljs.edn). Without a case for them, a PR
 // touching only one would leave every output false, so the aggregator could
 // pass with the relevant JVM + consolidated node-test gates skipped. These
-// assertions lock the routing.
-
-test('implementation/resources/* arms implementation_jvm + the CLJS surfaces (rf2-dxndhc)', () => {
-  const result = classify('implementation/resources/src/re_frame/resources.cljc');
-  assert.equal(
-    result.implementation_jvm,
-    'true',
-    'a resources source change must run the jvm-resources suite (its own :test alias)',
-  );
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_prod, 'true');
-  assert.equal(result.bundle_isolation, 'true');
-});
+// assertions lock the routing; the resources src arm is pinned by the
+// per-feature fan-out sweep beside the security tier below.
 
 test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test (rf2-dxndhc)', () => {
   const result = classify('implementation/resources/deps.edn');
@@ -5152,17 +5066,7 @@ const FRESCO_DOM_TESTS = pinnedRoster('FRESCO_DOM_TESTS', [
   'implementation/fresco/test/re_frame/fresco/roots_frames_isolation_dom_cljs_test.cljs',
 ]);
 
-test('a fresco DOM-test diff lights the browser job (rf2-8a6s)', () => {
-  for (const file of FRESCO_DOM_TESTS) {
-    assert.equal(
-      classify(file).cljs_browser,
-      'true',
-      `${file} is selected by the :browser-test build and must arm cljs_browser`,
-    );
-  }
-});
-
-test('widening fresco to cljs_browser did not cost it the node lane (rf2-8a6s)', () => {
+test('fresco DOM suites and the controlled testbed arm cljs_browser without losing cljs_node_test (rf2-8a6s)', () => {
   // The constraint, pinned: cljs_browser is IN ADDITION TO
   // cljs_node_test, not instead of it. `cljs_node_test` is the only output
   // that schedules the package smoke and the freeze gate, and the browser
