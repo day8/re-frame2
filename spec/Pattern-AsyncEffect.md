@@ -19,7 +19,7 @@ A six-step shape; each instance fills in the concrete external system.
 2. **The event handler returns** `:fx [[:my/external-thing args]]` in its effect map.
 3. **The fx-handler posts work** to the external system (HTTP, `postMessage`, IndexedDB, WebAuthn, native bridge, AI/LLM, etc.) — pure outgoing side-effect, no `app-db` write.
 4. **The external system replies asynchronously** on its own channel (Promise resolution, callback, observer, message handler, completion event).
-5. **A listener** — registered at boot or per-call — translates the reply into a re-frame `dispatch` of a named event, carrying the captured `:frame` and any correlation id.
+5. **A listener** — registered per-call or at boot — translates the reply into a re-frame `dispatch` of a named event, carrying any correlation id, addressed to the frame that issued the work. A per-call listener replies through the frame api the fx captured (see [§Why this shape](#why-this-shape)). A listener registered at boot has no closure to capture into, and a frame api cannot cross `postMessage`, so it carries the frame id through the round trip and replies by id: if the originating frame is destroyed and a new one created under the same id before the reply arrives, the new frame receives it.
 6. **The dispatched event handler updates state** from the result, like any other event.
 
 Each instance differs only in the concrete external system and reply channel; the *shape* is invariant. Re-frame2 does not need a separate fx primitive per case — users register their own fxs that fit the pattern.
@@ -30,7 +30,7 @@ Three architectural properties make the shape work:
 
 - **Effects are deferred function calls described as data.** `:fx` returns a vector of `[fx-id args]` pairs; `do-fx` walks them after the handler returns. Nothing in the handler synchronously touches the outside world, so handlers stay pure (per [Principles.md](Principles.md)).
 - **Async results re-enter the runtime as named, dispatched events.** They do not mutate `app-db` directly; they cross the dispatch boundary like any other event. This is the same property that makes Pattern-StaleDetection's epoch idiom possible — the reply event is a place to attach context.
-- **Frame-aware fx handlers carry `:frame` into the closure that fires later** (per [002 §Async fx capture the frame in a closure](002-Frames.md#async-fx-capture-the-frame-in-a-closure)). `(:frame m)` is the frame **id** (a keyword, never the live frame record — the fx ctx is portable data; see [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx)), fed straight into the `{:frame …}` dispatch opt. The reply lands in the originating frame, not `:rf/default`.
+- **Frame-aware fx handlers capture the frame before registering the callback that fires later** (per [002 §Async fx capture the frame in a closure](002-Frames.md#async-fx-capture-the-frame-in-a-closure)). `(:frame m)` is the frame **id** (a keyword, never the live frame record — the fx ctx is portable data; see [Spec-Schemas §`:rf/handler-context`](Spec-Schemas.md#rfhandler-context-the-map-handlers-receive--event-context-and-fx-handler-ctx)); `(rf/capture-frame (:frame m))` turns it into a frame api pinned to the frame incarnation live at capture ([002 §`capture-frame`](002-Frames.md#capture-frame--the-keystone-affordance-cljs-reference)), and the callback replies through its `:dispatch`. The reply lands in the originating frame, not `:rf/default` — or, if that frame was destroyed first, is dropped with `:rf.error/frame-destroyed`, even when a new frame has since been created under the same id. Passing the id itself from the callback — `(rf/dispatch ev {:frame (:frame m)})` — is **not** equivalent: it routes to whichever frame holds the id when the reply fires, so a same-id successor receives its predecessor's late reply. The id-addressed form is right for a dispatch made synchronously inside the fx handler's own call.
 
 ## Worked example — HTTP
 
@@ -44,14 +44,12 @@ The canonical concrete instance. Pattern-RemoteData specifies the lifecycle slic
   {:doc       "Issue an HTTP request. On completion, dispatch :on-success or :on-error."
    :platforms #{:server :client}}
   (fn fx-http [m {:keys [method url body on-success on-error]}]
-    (let [frame-id (:frame m)]                                       ;; capture frame for async dispatch
+    (let [{:keys [dispatch]} (rf/capture-frame (:frame m))]          ;; capture before registering callbacks
       (-> (perform-http-request method url body)
           (.then  (fn [resp] (when on-success
-                               (rf/dispatch (conj on-success resp)
-                                            {:frame frame-id}))))
+                               (dispatch (conj on-success resp)))))
           (.catch (fn [err]  (when on-error
-                               (rf/dispatch (conj on-error err)
-                                            {:frame frame-id}))))))))
+                               (dispatch (conj on-error err)))))))))
 
 ;; 2. The event handler returns :fx pointing at the registered fx.
 (rf/reg-event :articles/load
@@ -174,20 +172,20 @@ All of these instantiate the same shape:
 - **Service Worker messaging** — `postMessage` in/out, with `MessageChannel` for correlation.
 - **Native bridges** — React Native, Capacitor, Tauri, Electron — all expose `postMessage`-shaped APIs.
 - **AI / LLM API calls** — HTTP variant with streaming-token replies; each chunk dispatches an event.
-- **`requestAnimationFrame` loops** — continuous animation, physics, or game loops. A `:ui/raf-loop` fx owns the RAF cycle: the fx schedules its first frame, captures `:frame` per this pattern's standard rule, and on each browser frame dispatches a per-frame event carrying delta-time. The event handler updates state; the view renders from the new state. A sibling fx (`:ui/raf-loop-stop`) cancels the RAF handle. Same kick-off-and-await shape as managed HTTP; RAF is the async source instead of `fetch`. Sketch:
+- **`requestAnimationFrame` loops** — continuous animation, physics, or game loops. A `:ui/raf-loop` fx owns the RAF cycle: the fx schedules its first frame, captures the frame with `capture-frame` per this pattern's standard rule, and on each browser frame dispatches a per-frame event carrying delta-time. The event handler updates state; the view renders from the new state. A sibling fx (`:ui/raf-loop-stop`) cancels the RAF handle. Same kick-off-and-await shape as managed HTTP; RAF is the async source instead of `fetch`. Sketch:
 
   ```clojure
   (defonce ^:private raf-handle (atom nil))
 
   (rf/reg-fx :ui/raf-loop
     (fn fx-raf-loop [m {:keys [on-frame]}]
-      (let [frame-id (:frame m)
-            last     (atom nil)]
+      (let [{:keys [dispatch]} (rf/capture-frame (:frame m))
+            last               (atom nil)]
         (letfn [(tick [now]
                   (let [prev @last
                         dt   (if prev (- now prev) 0)]
                     (reset! last now)
-                    (rf/dispatch (conj on-frame dt) {:frame frame-id})
+                    (dispatch (conj on-frame dt))
                     (reset! raf-handle (js/requestAnimationFrame tick))))]
           (reset! raf-handle (js/requestAnimationFrame tick))))))
 
@@ -241,7 +239,7 @@ This is a naming exercise, not a design: the one production-legal frame-state in
 
 ## Cross-references
 
-- [002-Frames §Async effects and frame propagation](002-Frames.md#async-effects-and-frame-propagation) — the `:frame`-capture rule for async fx callbacks.
+- [002-Frames §Async effects and frame propagation](002-Frames.md#async-effects-and-frame-propagation) — the `capture-frame` rule for async fx callbacks.
 - [Pattern-RemoteData.md](Pattern-RemoteData.md) — specific case (HTTP + lifecycle slice).
 - [Pattern-StaleDetection.md](Pattern-StaleDetection.md) — composition for stale-suppression.
 - [Pattern-WebSocket.md](Pattern-WebSocket.md) — sibling pattern for long-lived connections.
