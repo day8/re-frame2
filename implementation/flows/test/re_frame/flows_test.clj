@@ -832,8 +832,9 @@
 ;; 4. Hot-reload — a re-registration re-evaluates on the next drain
 ;; ---------------------------------------------------------------------------
 
-(deftest flow-hot-reload-new-body-recomputes-on-next-drain
-  (testing "if the new body would produce a different value, the next drain materialises it"
+(deftest flow-hot-reload-invalidates-last-inputs
+  (testing "re-registering a flow drops its dirty-check row, so the next drain
+            evaluates the new body even though its inputs are unchanged"
     (rf/reg-event :init  (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/reg-event :tick  (fn [{:keys [db]} _] {:db (update db :tick (fnil inc 0))}))
     (rf/reg-flow :double {:inputs [[:n]] :output-path [:derived :doubled]} (fn [n] (* 2 n)))
