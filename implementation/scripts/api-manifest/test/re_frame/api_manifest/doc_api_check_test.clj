@@ -72,10 +72,11 @@
 
 (deftest live-doc-api-reconciles-clean
   (testing "the committed spec/Privacy.md + docs/api + docs/story/api
-            reconcile against the committed manifest with zero problems
-            (the CI contract)"
+            reconcile against the committed manifest with zero problems, and
+            docs/api gives every eligible manifest var a page and a member
+            heading (the CI contract: check! is red if either half is)"
     (is (true? (rf.api-manifest.doc-api-check/check!))
-        "live drift: a human-doc API-reference tree names a removed/renamed public surface")))
+        "live drift: a human-doc API-reference tree names a removed/renamed public surface, or docs/api lacks a page or member heading")))
 
 (deftest story-api-references-reach-the-check-under-rf-story
   (testing "docs/story/api/** calls re-frame.story under its canonical rf.story
@@ -145,13 +146,6 @@
                    :members {"re-frame.fresco.overlay" #{"modal"}
                              "re-frame.fresco.forms"   #{"buffered-field" "drafts"}}
                    :exempt #{["re-frame.fresco.overlay" "popover"]}})))))
-
-(deftest live-doc-api-coverage-reconciles-clean
-  (testing "the committed manifest reconciles against docs/api/ with full page +
-            member coverage (the CI contract — every eligible var has a page and
-            a member heading)"
-    (is (true? (rf.api-manifest.doc-api-check/check-coverage!))
-        "live coverage drift: an eligible manifest var has no docs/api page or member heading")))
 
 (deftest coverage-exempt-sidecar-key-defaults-empty
   (testing "the coverage-exempt sidecar key, when present, is a collection of

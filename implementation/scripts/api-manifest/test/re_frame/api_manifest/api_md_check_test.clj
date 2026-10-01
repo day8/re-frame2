@@ -51,12 +51,6 @@
 ;; Qualified-row resolution.
 ;; ---------------------------------------------------------------------------
 
-(deftest live-api-md-check-passes
-  (testing "the committed tree passes the full api-md-check including the
-            EP-0011/EP-0015 keyword-drift guards (no false +)"
-    (is (true? (rf.api-manifest.api-md-check/check!))
-        "live drift: api-md-check failed with the keyword-drift guards wired")))
-
 (deftest qualified-alias-row-resolves-by-exact-ns+var
   (testing "a live aliased adapter row resolves clean against its EXACT
             [namespace var] manifest pair"
@@ -156,8 +150,9 @@
 
 (deftest live-api-md-and-manifest-reconcile-clean
   (testing "the committed spec/API.md projection reconciles against the
-            committed manifest with zero problems (the CI contract), and it
-            actually exercises qualified rows"
+            committed manifest with zero problems (the CI contract: the full
+            check!, keyword-drift guards included), and it actually exercises
+            qualified rows"
     (let [api-rows (rf.api-manifest.api-md-check/parse-api-md-var-rows)]
       (is (pos? (count (filter :qualifier api-rows)))
           "spec/API.md must actually name namespace/alias-qualified var-rows
