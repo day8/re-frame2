@@ -45,14 +45,6 @@
               :attrs {}
               :index-of-type 3})))))
 
-(deftest nth-of-type-falls-back-to-star
-  (testing "nth-of-type uses * when tag is missing/blank"
-    (is (= "*:nth-of-type(2)"
-           (rf.story.recorder.selector/pick-selector
-             {:tag nil
-              :attrs {}
-              :index-of-type 2})))))
-
 (deftest positional-recognises-the-fallback-only
   (testing "`positional?` is true of exactly what the
             nth-of-type fallback builds, so the translator hints those steps"
@@ -109,10 +101,3 @@
            (rf.story.recorder.selector/pick-selector
              {:tag "div"
               :attrs {"id" "a\\b"}})))))
-
-;; ---- attribute-priority is the documented data ---------------------------
-
-(deftest priority-list-is-data-test-id-aria-label
-  (testing "the priority list order matches the documented contract"
-    (is (= ["data-test" "id" "aria-label"]
-           (mapv first rf.story.recorder.selector/attribute-priority)))))

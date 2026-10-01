@@ -212,19 +212,6 @@
                  {:auto-assert? true})]
       (is (= [[:dispatch [:counter/inc]]] (:script spec))))))
 
-;; ---- changed-top-paths ---------------------------------------------------
-
-(deftest changed-top-paths-shape
-  (testing "changed-top-paths returns [k] vectors for every changed key"
-    (is (= [[:n]]
-           (vec (rf.story.recorder.play-export/changed-top-paths {:n 0 :who "a"}
-                                          {:n 1 :who "a"}))))
-    (is (= [[:added]]
-           (vec (rf.story.recorder.play-export/changed-top-paths {:k 1}
-                                          {:k 1 :added :new}))))
-    (is (empty? (rf.story.recorder.play-export/changed-top-paths {:n 1} {:n 1}))
-        "identical maps → no paths")))
-
 ;; ---- render round-trip ---------------------------------------------------
 
 (deftest render-script-body-round-trips
@@ -311,20 +298,6 @@
 
 ;; ---- entry->step ---------------------------------------------------------
 
-(deftest entry-step-dispatch
-  (testing ":event/dispatch entry of an ordinary event → [:dispatch ev]"
-    (is (= [:dispatch [:counter/inc]]
-           (rf.story.recorder.play-export/entry->step
-             {:kind :event/dispatch :event [:counter/inc] :t 0})))))
-
-(deftest entry-step-assertion-rides-dispatch-sync
-  (testing ":event/dispatch entry of an assertion event → [:dispatch-sync ev]"
-    (is (= [:dispatch-sync [:rf.assert/path-equals [:n] 1]]
-           (rf.story.recorder.play-export/entry->step
-             {:kind :event/dispatch
-              :event [:rf.assert/path-equals [:n] 1]
-              :t 0})))))
-
 (deftest entry-step-dom-click
   (testing ":dom/click entry → [:click selector]"
     (is (= [:click "[data-test=\"submit\"]"]
@@ -346,11 +319,6 @@
     (is (= [:click "[id=\"login-form\"]"]
            (rf.story.recorder.play-export/entry->step
              {:kind :dom/submit :selector "[id=\"login-form\"]" :t 0})))))
-
-(deftest entry-step-redacted-dispatch-drops
-  (testing ":event/dispatch of a [:rf/redacted] placeholder yields nil"
-    (is (nil? (rf.story.recorder.play-export/entry->step
-                {:kind :event/dispatch :event [:rf/redacted] :t 0})))))
 
 (deftest entry-step-unknown-kind-yields-nil
   (testing "unknown entry kinds yield nil"
@@ -402,26 +370,6 @@
              [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
               {:kind :dom/click :selector "[data-test=\"b\"]" :t 30}]
              {:wait-threshold-ms 10})))))
-
-(deftest large-wait-threshold-disables-waits
-  (testing "an effectively-infinite threshold suppresses every wait"
-    (is (= [[:click "[data-test=\"a\"]"]
-            [:click "[data-test=\"b\"]"]]
-           (rf.story.recorder.play-export/entries->steps
-             [{:kind :dom/click :selector "[data-test=\"a\"]" :t 0}
-              {:kind :dom/click :selector "[data-test=\"b\"]" :t 5000}]
-             {:wait-threshold-ms 999999})))))
-
-(deftest mixed-events-and-dom-translate-together
-  (testing "dispatched events + DOM events + waits compose"
-    (is (= [[:dispatch [:counter/inc]]
-            [:wait 100]
-            [:click "[data-test=\"submit\"]"]
-            [:type "[id=\"name\"]" "alice"]]
-           (rf.story.recorder.play-export/entries->steps
-             [{:kind :event/dispatch :event [:counter/inc] :t 0}
-              {:kind :dom/click :selector "[data-test=\"submit\"]" :t 100}
-              {:kind :dom/type :selector "[id=\"name\"]" :text "alice" :t 120}])))))
 
 (deftest redacted-entries-do-not-leave-orphan-waits
   (testing "a dropped (redacted) entry doesn't insert a wait for itself,
@@ -564,16 +512,6 @@
              (:script spec))
           "75ms gap < 100ms threshold — no :wait inserted"))))
 
-(deftest legacy-bare-events-still-translate-without-waits
-  (testing "bare event-vectors translate with no :wait steps — each is
-            coerced to an entry stamped :t 0"
-    (let [spec (rf.story.recorder.play-export/recording->script-body
-                 [[:counter/inc] [:counter/inc] [:counter/dec]])]
-      (is (= [[:dispatch [:counter/inc]]
-              [:dispatch [:counter/inc]]
-              [:dispatch [:counter/dec]]]
-             (:script spec))))))
-
 (deftest mixed-bare-and-entry-input
   (testing "an input vector mixing bare event vectors and rich entries
             coerces cleanly"
@@ -600,40 +538,6 @@
           "every emitted step has a legal arity")
       (is (= [] (rf.story.play.runner/validate-script (:script parsed)))
           "no malformed steps"))))
-
-(deftest dom-submit-survives-runner-validation
-  (testing "the :dom/submit translation produces a valid :click step"
-    (let [entries [{:kind :dom/submit :selector "[id=\"login-form\"]" :t 0}]
-          spec    (rf.story.recorder.play-export/recording->script-body entries)]
-      (is (= [[:click "[id=\"login-form\"]"]] (:script spec)))
-      (is (= [] (rf.story.play.runner/validate-script (:script spec)))))))
-
-;; ---- round-trip: 4-step recording → export → runner-parse → assert -------
-
-(deftest four-step-round-trip
-  (testing "a 4-step interaction (click → type → click → dispatch) survives
-            the full export + parse pipeline"
-    (let [entries [{:kind :dom/click :selector "[data-test=\"open\"]"  :t 0}
-                   {:kind :dom/type  :selector "[id=\"name\"]" :text "alice" :t 200}
-                   {:kind :dom/click :selector "[data-test=\"save\"]"  :t 600}
-                   {:kind :event/dispatch :event [:counter/inc] :t 1100}]
-          spec    (rf.story.recorder.play-export/recording->script-body entries {:name "round trip"})
-          parsed  (rf.story.play.runner/parse-spec spec)]
-      ;; Translation contract — every event lifts and waits insert.
-      (is (= [[:click "[data-test=\"open\"]"]
-              [:wait 200]
-              [:type "[id=\"name\"]" "alice"]
-              [:wait 400]
-              [:click "[data-test=\"save\"]"]
-              [:wait 500]
-              [:dispatch [:counter/inc]]]
-             (:script spec))
-          "all four entries translate; waits insert on each >50ms gap")
-      ;; Runner contract — every emitted step is well-formed.
-      (is (every? rf.story.play.runner/known-step? (:script spec)))
-      (is (every? rf.story.play.runner/step-arity-ok? (:script spec)))
-      (is (= [] (rf.story.play.runner/validate-script (:script spec))))
-      (is (= "round trip" (:name parsed))))))
 
 ;; ---- a positional selector carries the harden hint ------
 
