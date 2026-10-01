@@ -126,16 +126,10 @@
                "the builder hardcoded a literal that drifted from the "
                "vocab constant agents pattern-match on. Got :reason = "
                (pr-str (:reason emitted)))))
-    (testing "the emitted :reason is the pinned cross-MCP keyword"
-      (is (= :rf.mcp/cursor-stale (:reason emitted))
-          "the canonical reason keyword is :rf.mcp/cursor-stale"))
     (testing "the emitted envelope validates against canonical CursorStaleResult"
       (is (m/validate CursorStaleResult emitted)
           (str "Live-emitted cursor-stale envelope failed CursorStaleResult "
                "validation:\n" (me/humanize (m/explain CursorStaleResult emitted)))))
-    (testing "the builder preserves the :ok? false error posture"
-      (is (false? (:ok? emitted))
-          "cursor-stale rides an :ok? false envelope — success never carries a stale-reason"))
     (testing "the consumer's :extra slots merge through verbatim"
       (is (= "epoch-9001" (:requested-id emitted)))
       (is (= "epoch-9101" (:head-id emitted))))))
@@ -176,17 +170,11 @@
                "story-mcp's builder drifted from the shared cross-MCP "
                "constant agents pattern-match on. Got :reason = "
                (pr-str (:reason structured)))))
-    (testing "the emitted :reason is the pinned cross-MCP keyword"
-      (is (= :rf.mcp/cursor-stale (:reason structured))
-          "the canonical reason keyword is :rf.mcp/cursor-stale"))
     (testing "the structured content validates against canonical CursorStaleResult"
       (is (m/validate CursorStaleResult structured)
           (str "Live-emitted story-mcp cursor-stale :structuredContent failed "
                "CursorStaleResult validation:\n"
                (me/humanize (m/explain CursorStaleResult structured)))))
-    (testing "the builder preserves the :ok? false error posture"
-      (is (false? (:ok? structured))
-          "cursor-stale rides an :ok? false envelope — success never carries a stale-reason"))
     (testing "the tool name threads through to the structured slot"
       (is (= "list-stories" (:tool structured))))
     (testing "pair-mcp + story-mcp emit the IDENTICAL cross-MCP reason value"
