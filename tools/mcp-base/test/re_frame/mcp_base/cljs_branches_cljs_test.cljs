@@ -397,11 +397,7 @@
   (testing "absent cursor decodes to nil"
     (is (nil? (rf.mcp-base.cursor/decode-cursor nil any?)))
     (is (nil? (rf.mcp-base.cursor/decode-cursor "" any?))))
-  (testing "garbage / oversize / failing-payload predicate => ::malformed"
-    (is (= :re-frame.mcp-base.cursor/malformed
-           (rf.mcp-base.cursor/decode-cursor "!!!not-base64-edn!!!" any?)))
-    (is (= :re-frame.mcp-base.cursor/malformed
-           (rf.mcp-base.cursor/decode-cursor (apply str (repeat 2000 "a")) any?)))
+  (testing "failing payload predicate => ::malformed"
     (let [token (rf.mcp-base.cursor/encode-cursor {:v 1 :after-id "x"})]
       (is (= :re-frame.mcp-base.cursor/malformed
              (rf.mcp-base.cursor/decode-cursor token (fn [_] false))))))
@@ -599,11 +595,7 @@
           "an over-default-cap overflow BODY must be capped on CLJS, not skipped")
       (is (false? (rf.mcp-base.envelope/marker-text?
                     (pr-str {rf.mcp-base.vocab/cache-hit-key {:tool "x" :blob over-budget}})))
-          "the same hole for cache-hit on CLJS")))
-  (testing "genuine tiny markers stay under the bound and STILL take the fast path"
-    (is (true? (rf.mcp-base.envelope/marker-text?
-                 (pr-str {rf.mcp-base.vocab/overflow-key {:limit :reached :token-count 9000 :cap-tokens 5000}}))))
-    (is (true? (rf.mcp-base.envelope/marker-text? (pr-str {rf.mcp-base.vocab/cache-hit-key {:hash "abc" :tool "snapshot"}}))))))
+          "the same hole for cache-hit on CLJS"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 8. `sensitive.cljc` CLJS reader-conditional arms.

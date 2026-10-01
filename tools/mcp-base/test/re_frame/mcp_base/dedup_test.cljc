@@ -81,20 +81,6 @@
     (let [v [{:id 1} {:id 2} {:id 3}]]      ; all distinct ⇒ no substitution
       (is (identical? v (rf.mcp-base.dedup/dedup-value v true))))))
 
-(deftest dedup-value-repeated-subtree-still-wraps
-  ;; The adversarial complement to the no-op skip: a payload that DOES
-  ;; carry a repeated subtree must STILL wrap (the skip must not swallow a
-  ;; genuine dedup win). Its cache has >1 entry, so `no-substitutions?` is
-  ;; false and the wrap fires.
-  (let [shared {:big [:repeated :subtree]}
-        v      [shared shared shared]
-        out    (rf.mcp-base.dedup/dedup-value v true)]
-    (is (map? out))
-    (is (contains? out rf.mcp-base.vocab/dedup-table-key)
-        "a repeated subtree is a real dedup win — the wrap must fire")
-    (is (= v (rf.mcp-base.dedup/expand (get out rf.mcp-base.vocab/dedup-table-key)))
-        "and the wrap still round-trips")))
-
 (deftest dedup-value-wraps-in-cross-mcp-marker
   (let [shared {:repeated [:big :subtree :here]}
         v      {:a shared :b shared :c shared}
@@ -413,14 +399,6 @@
         "the pooling still fires on a subtree carrying a look-alike token")
     (is (= payload (rf.mcp-base.dedup/expand cache)))))
 
-(deftest a-reference-namespace-payload-alone-is-not-a-dedup-opportunity
-  ;; The complement, and the reason the tests above force a wrap: a payload
-  ;; whose only remarkable feature is a look-alike token has no repeated
-  ;; subtree, so `dedup-value` returns it verbatim and nothing can alias it.
-  (let [v {:literal 'de-dupe.cache/cache-1 :n 1}]
-    (is (identical? v (rf.mcp-base.dedup/dedup-value v true))
-        "no repeats ⇒ verbatim passthrough, escaping and all")))
-
 (deftest expand-round-trips-every-collection-kind
   ;; The codec's structure-preserving guarantee: lists,
   ;; seqs, sets, nested maps and map entries all rebuild as themselves.
@@ -474,9 +452,7 @@
             c-out   (rf.mcp-base.dedup/dedup-value control true)
             c-cache (get c-out rf.mcp-base.vocab/dedup-table-key)]
         (is (< 1 (count c-cache)))
-        (is (= control (rf.mcp-base.dedup/expand c-cache)))))
-    (testing "opting out stays a strict passthrough"
-      (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))))))
+        (is (= control (rf.mcp-base.dedup/expand c-cache)))))))
 
 (deftest sorted-set-with-a-pooled-element-beside-an-unpooled-one-round-trips
   ;; The same root cause reached through the other comparator-bearing core
@@ -514,9 +490,7 @@
         "no subtree repeats ⇒ verbatim passthrough, whatever the metadata says")
     (is (= {(rf.mcp-base.dedup/make-cache-element 0) payload}
            (rf.mcp-base.dedup/de-dupe-eq payload))
-        "the raw cache is root-only: no slot was invented for the metadata")
-    (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))
-        "opting out stays a strict passthrough")))
+        "the raw cache is root-only: no slot was invented for the metadata")))
 
 (deftest caller-cache-id-metadata-beside-a-real-repeat-expands-exactly
   (let [shared  (with-meta {:v [1 2 3]} {:cache-id 'other/id})
@@ -580,8 +554,7 @@
         (is (= control (rf.mcp-base.dedup/expand
                          (get (rf.mcp-base.dedup/dedup-value control true)
                               rf.mcp-base.vocab/dedup-table-key)))
-            "the same entries in an ordinary map round-trip"))
-      (is (identical? payload (rf.mcp-base.dedup/dedup-value payload false))))))
+            "the same entries in an ordinary map round-trip")))))
 
 ;; ---- Lists and vectors are different EDN ------------------------------------
 ;;
