@@ -12,7 +12,7 @@
   end would lie to tools (Xray flow panel, re-frame-10x cycle
   visualisation) about the offending chain. Pin the throw + ex-data
   shape so a future refactor cannot silently break the invariant."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.flows.topo :as rf.flows.topo]))
 
 ;; ---------------------------------------------------------------------------
@@ -117,78 +117,21 @@
 ;; any of B's :inputs share a path prefix in either direction.
 ;; ---------------------------------------------------------------------------
 
-(deftest depends-on?-direct-prefix-match
-  (testing "depends-on? is true when one of B's :inputs IS
-            A's :output-path (the canonical case — B reads exactly the slot
-            A writes)"
-    (let [a {:id :a :output-path [:foo]   :inputs [[:other]]}
-          b {:id :b :output-path [:bar]   :inputs [[:foo]]}]
-      (is (true? (rf.flows.topo/depends-on? b a))
-          "B's :inputs include A's :output-path exactly → B depends on A"))))
-
-(deftest depends-on?-true-when-input-is-prefix-of-output-path
-  (testing "depends-on? is true when one of B's :inputs is
-            a PREFIX of A's :output-path (B reads a parent slot of what A
-            writes — Spec 013 'prefix in either direction')"
-    (let [a {:id :a :output-path [:foo :bar :baz] :inputs []}
-          b {:id :b :output-path [:other]         :inputs [[:foo]]}]
-      (is (true? (rf.flows.topo/depends-on? b a))
-          "B reads :foo (a prefix of A's :output-path [:foo :bar :baz])"))))
-
-(deftest depends-on?-true-when-output-path-is-prefix-of-input
-  (testing "depends-on? is true when A's :output-path is a PREFIX
-            of one of B's :inputs (B reads a CHILD slot of what A
-            writes — also covered by 'prefix in either direction')"
-    (let [a {:id :a :output-path [:foo]              :inputs []}
-          b {:id :b :output-path [:other]            :inputs [[:foo :bar :baz]]}]
-      (is (true? (rf.flows.topo/depends-on? b a))
-          "A writes [:foo] which is a prefix of B's input [:foo :bar :baz]"))))
-
-(deftest depends-on?-self-edge-via-overlapping-path
-  (testing "depends-on? returns true for a self-edge
-            when a flow's own :inputs share a prefix with its own :output-path.
-            The consumer (topo-sort) RETAINS this `id -> id` self-edge and
-            rejects the flow as a single-node cycle (a flow is a pure
-            derivation of independently-owned facts, not a recurrence over its
-            own prior output — Spec 013 §Dependency rule)."
+(deftest depends-on?-is-a-prefix-overlap-in-either-direction
+  (testing "B depends on A iff one of B's :inputs and A's :output-path is a
+            prefix of the other"
+    (are [a-output b-inputs expected]
+         (= expected (rf.flows.topo/depends-on? {:id :b :output-path [:b-out] :inputs b-inputs}
+                                                {:id :a :output-path a-output :inputs []}))
+      [:foo]           [[:foo]]                       true   ; B reads exactly A's slot
+      [:foo :bar :baz] [[:foo]]                       true   ; B reads a parent of A's slot
+      [:foo]           [[:foo :bar :baz]]             true   ; B reads a child of A's slot
+      [:foo]           [[:unrelated] [:foo] [:other]] true   ; one matching input is enough
+      [:foo :bar]      [[:unrelated] [:other-thing]]  false  ; disjoint
+      [:foo :bar]      [[:bar :foo]]                  false  ; shared elements, no prefix
+      [:foo]           []                             false)) ; reads nothing
+  (testing "a flow whose own :inputs overlap its own :output-path depends on
+            itself; topo-sort retains that self-edge and rejects the flow as a
+            single-node cycle (Spec 013 §Dependency rule)"
     (let [a {:id :a :output-path [:foo] :inputs [[:foo]]}]
-      (is (true? (rf.flows.topo/depends-on? a a))
-          "A's own :inputs include A's own :output-path → depends-on? returns
-           true; topo-sort retains this self-edge to reject the self-cycle"))))
-
-(deftest depends-on?-false-when-no-overlap
-  (testing "depends-on? returns false when no input shares
-            a prefix with A's :output-path in either direction"
-    (let [a {:id :a :output-path [:foo :bar] :inputs []}
-          b {:id :b :output-path [:other]    :inputs [[:unrelated] [:other-thing]]}]
-      (is (false? (rf.flows.topo/depends-on? b a))
-          "B's inputs are disjoint from A's :output-path tree → no dependency"))))
-
-(deftest depends-on?-false-when-paths-share-no-prefix-but-share-element
-  (testing "depends-on? is PREFIX-based, not element-
-            membership-based: a shared NON-PREFIX element does NOT
-            create a dependency edge"
-    (let [a {:id :a :output-path [:foo :bar] :inputs []}
-          ;; B's input [:bar :foo] shares both elements with A's :output-path
-          ;; but neither is a prefix of the other → no dependency.
-          b {:id :b :output-path [:other]    :inputs [[:bar :foo]]}]
-      (is (false? (rf.flows.topo/depends-on? b a))
-          "shared elements without a prefix relationship → false"))))
-
-(deftest depends-on?-empty-inputs
-  (testing "depends-on? returns false when B has no :inputs
-            (cannot depend on anything if it reads nothing)"
-    (let [a {:id :a :output-path [:foo] :inputs []}
-          b {:id :b :output-path [:bar] :inputs []}]
-      (is (false? (rf.flows.topo/depends-on? b a))
-          "B has no :inputs → cannot depend on A (or anything else)"))))
-
-(deftest depends-on?-multiple-inputs-any-match-wins
-  (testing "depends-on? is an `or` across B's :inputs: a
-            single matching input is enough to establish the
-            dependency edge"
-    (let [a {:id :a :output-path [:foo] :inputs []}
-          b {:id :b :output-path [:bar] :inputs [[:unrelated] [:foo] [:other]]}]
-      (is (true? (rf.flows.topo/depends-on? b a))
-          "B's second input matches A's :output-path → dependency established
-           despite the surrounding non-matching inputs"))))
+      (is (true? (rf.flows.topo/depends-on? a a))))))

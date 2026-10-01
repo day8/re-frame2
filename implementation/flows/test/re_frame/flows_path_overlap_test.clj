@@ -64,7 +64,7 @@
   (testing "shared NON-prefix element is not an overlap (prefix-based, not membership-based)"
     ;; [:x :y] vs [:y :x] share both elements but neither is a prefix of
     ;; the other → disjoint. Mirrors depends-on?'s prefix-not-membership
-    ;; rule (flows_topo_test.clj depends-on?-false-when-...share-element).
+    ;; rule (flows_topo_test.clj depends-on?-is-a-prefix-overlap-in-either-direction).
     (is (false? (rf.flows.topo/output-paths-overlap? [:x :y] [:y :x])))))
 
 ;; ---------------------------------------------------------------------------
