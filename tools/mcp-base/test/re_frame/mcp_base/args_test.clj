@@ -178,13 +178,18 @@
                                      (pos? (count nm))
                                      (= ns "story.x")))]
     (testing "a valid-shape novel id interns and returns the keyword"
-      (let [valid "story.x/tag30h-checked-valid"]
-        (is (nil? (find-keyword "story.x" "tag30h-checked-valid"))
+      ;; The name is built at run time and never spelled as a keyword
+      ;; literal: the reader interns a literal when this namespace loads,
+      ;; so the precondition would answer whether that intern had been
+      ;; garbage-collected yet rather than what `fresh-keyword-checked` did.
+      (let [nm    (str (gensym "tag30h-checked-valid-"))
+            valid (str "story.x/" nm)]
+        (is (nil? (find-keyword "story.x" nm))
             "precondition: not interned")
-        (is (= :story.x/tag30h-checked-valid
-               (rf.mcp-base.args/fresh-keyword-checked valid shape-ok?)))
-        (is (some? (find-keyword "story.x" "tag30h-checked-valid"))
-            "a valid id DOES intern — the gate only blocks the invalid ones")))
+        (let [kw (rf.mcp-base.args/fresh-keyword-checked valid shape-ok?)]
+          (is (some? (find-keyword "story.x" nm))
+              "a valid id DOES intern — the gate only blocks the invalid ones")
+          (is (= (keyword "story.x" nm) kw)))))
     (testing "an invalid-shape novel id returns nil and interns NOTHING"
       (let [invalid "not-story/tag30h-checked-invalid"]
         (is (nil? (find-keyword "not-story" "tag30h-checked-invalid"))
