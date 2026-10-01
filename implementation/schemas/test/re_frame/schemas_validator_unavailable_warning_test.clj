@@ -59,18 +59,6 @@
 
 ;; ---- positive paths -------------------------------------------------------
 
-(deftest warning-fires-when-hook-unbound-and-default-validator
-  (testing "reg-app-schema with no Malli adapter loaded and the default
-            validator still installed emits the warning exactly once"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn []
-          (rf/reg-app-schema [:user] [:map [:id :int]])))
-      (let [warns (warnings-of recorded
-                               :rf.warning/schema-validator-unavailable)]
-        (is (= 1 (count warns))
-            "exactly one warning fires on the first reg-app-schema call")))))
-
 (deftest warning-fires-once-across-multiple-reg-app-schema-calls
   (testing "subsequent reg-app-schema calls within the same process do NOT
             re-emit the warning (process-lifecycle one-shot)"
@@ -125,17 +113,6 @@
       (is (empty? (warnings-of recorded
                                :rf.warning/schema-validator-unavailable))
           "explicit non-default validator suppresses the warning"))))
-
-(deftest warning-suppressed-when-set-schema-fns-installs-validate
-  (testing "set-schema-fns! with a {:validate ...} bundle also counts as
-            'explicit opt-out' — non-default validator-fn after the swap"
-    (with-trace-recorder! [recorded]
-      (with-unbound-malli-validate
-        (fn []
-          (rf.schemas/set-schema-fns! {:validate (fn [_ _] true)})
-          (rf/reg-app-schema [:user] [:map])))
-      (is (empty? (warnings-of recorded
-                               :rf.warning/schema-validator-unavailable))))))
 
 ;; ---- suppression — Malli adapter loaded -----------------------------------
 

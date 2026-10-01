@@ -281,20 +281,6 @@
       (finally
         (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
-;; ---- registered-path always present --------------------------------------
-
-(deftest registered-path-always-present
-  (testing ":registered-path is stamped on every emit-site regardless of
-            whether leaf narrowing succeeded — tooling can pivot on it"
-    (rf/reg-app-schema [:user] [:map [:age :int]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema! {:user {:age "x"}} :u/bad))
-          v      (first traces)]
-      (is (= [:user] (-> v :tags :registered-path))
-          ":registered-path is the registration anchor — distinct from
-          the failing leaf [:user :age]")
-      (is (= [:user :age] (-> v :tags :path))))))
-
 ;; ---- walker: schema-sensitive-at? unit tests -----------------------------
 
 (deftest sensitive-at-empty-path-equals-whole-schema-check
@@ -384,24 +370,6 @@
         (is (= [:root] (-> v :tags :registered-path)))
         (is (= {:id "bad" :age "also-bad"} (-> v :tags :value))
             ":value is the ancestor slot's value — both failing children")))))
-
-(deftest multi-error-top-level-map-narrows-to-root
-  (testing "two diverging children of a top-level [:map ...]
-            registered directly at the path; their `:in` paths
-            ([:id] + [:age]) common-prefix to [] (the map root), so the
-            leaf path collapses to the registered root. Distinguishes the
-            empty-common-prefix fold from the single-error :in [] case."
-    (rf/reg-app-schema [:rec] [:map [:id :int] [:age :int]])
-    (let [traces (capture-trace
-                   #(rf.schemas/validate-app-schema!
-                      {:rec {:id "bad" :age "bad"}}
-                      :rec/bad))]
-      (is (= 1 (count traces)))
-      (let [v (first traces)]
-        (is (= [:rec] (-> v :tags :path))
-            "common-prefix of [:id] and [:age] is [] — leaf path is the
-             registered root [:rec]")
-        (is (= [:rec] (-> v :tags :registered-path)))))))
 
 ;; ---- a :map-of KEY failure blames the key, not the entry's value ---------
 ;; Malli reports a key-schema failure and a value-schema

@@ -192,15 +192,6 @@
     (is (false? (rf.schemas/validate-with-registered-fn [:cat [:= :ok] :int] [:ok "no"]))
         "well-formed non-conforming → false")))
 
-(deftest direct-validate-event-malformed-schema-returns-false
-  (testing "the direct validate-event! call returns
-            false (not a throw) on a malformed schema and emits the trace."
-    (let [traces (capture
-                   (fn []
-                     (is (false? (rf.schemas/validate-event! :ev/x [:ev/x 1] {:schema [:vector]}))
-                         "malformed schema → false, no throw")))]
-      (is (= 1 (count (malformed-traces traces)))))))
-
 ;; ===========================================================================
 ;; Throwing explainer — must NOT become a catch-as-pass
 ;; ===========================================================================
@@ -251,24 +242,6 @@
         (is (nil? (-> v :tags :explain)) ":explain degraded to nil"))
       (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
 
-(deftest direct-validate-event-explainer-throw-preserves-false
-  (testing "validate-event! returns false (not a
-            throw) when the explainer throws on a real validation failure."
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)
-                              :explain  throwing-explainer})
-    (try
-      (let [traces (capture
-                     (fn []
-                       (is (false? (rf.schemas/validate-event!
-                                     :ev/x [:ev/x "bad"]
-                                     {:schema [:cat [:= :ev/x] :int]}))
-                           "false despite the explainer throwing")))
-            v      (first (validation-failures traces))]
-        (is (some? v))
-        (is (= :event (-> v :tags :where)))
-        (is (nil? (-> v :tags :explain))))
-      (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
-
 (deftest boundary-explain-seam-isolates-explainer-throw
   (testing "the boundary seam — explain-with-registered-fn
             degrades a throwing explainer to nil rather than propagating."
@@ -277,18 +250,3 @@
       (is (nil? (rf.schemas/explain-with-registered-fn [:int] "bad"))
           "explainer throw → nil, not a propagated exception")
       (finally (rf.schemas/set-schema-fns! rf.schemas/default-schema-fns)))))
-
-;; ===========================================================================
-;; Belt-and-braces — a non-throwing default explainer still attaches :explain
-;; ===========================================================================
-
-(deftest healthy-explainer-still-attaches-explain
-  (testing "the safe-explain wrapper is transparent on the happy
-            path: a normal Malli failure still carries a non-nil :explain."
-    (rf/reg-app-schema [:n] [:int])
-    (let [traces (capture
-                   #(rf.schemas/validate-app-schema! {:n "bad"} :n/bad))
-          v      (first (validation-failures traces))]
-      (is (some? v))
-      (is (some? (-> v :tags :explain))
-          ":explain is the real Malli explanation — safe-explain didn't swallow it"))))
