@@ -690,7 +690,7 @@
         (is (= :fix-effect (:recovery (first shape-traces)))
             "the final-boundary diagnostic carries :recovery :fix-effect")))))
 
-;; Registration shape.
+;; Registration shape and interceptor chains.
 
 (deftest reg-event-registers-under-event-kind-with-the-one-wrapper
   (testing "reg-event registers under :event with one default wrapper"
@@ -749,6 +749,44 @@
           "the public-registered interceptor's :before ran in the event chain")
       (is (= :handler-ran @(rf/subscribe [:evt-conf/public-icpt-marker]))
           "the event handler ran after the public-registered interceptor"))))
+
+(deftest reg-event-path-interceptor-works-with-db-slice-return
+  (testing "a path interceptor splices an explicit :db slice effect into app-db"
+    (rf/reg-sub :evt-conf/counter (fn [db _] (:counter db)))
+    (rf/reg-event :evt-conf/inc-via-path
+      {:interceptors [[:rf.interceptor/path [:counter]]]}
+      ;; `db` here is the FOCUSED slice at [:counter], not the whole app-db;
+      ;; the return is `{:db <new-slice>}`.
+      (fn [{:keys [db]} _] {:db (update (or db {}) :value (fnil inc 0))}))
+    (rf/dispatch-sync [:evt-conf/inc-via-path])
+    (rf/dispatch-sync [:evt-conf/inc-via-path])
+    (is (= {:value 2} @(rf/subscribe [:evt-conf/counter]))
+        "the `{:db slice}` return was spliced back into app-db at [:counter]")))
+
+(deftest raw-context-work-is-expressible-via-an-interceptor
+  (testing "an interceptor can inspect context, skip the handler, and install effects"
+    (let [handler-ran? (atom false)]
+      (rf/reg-sub :evt-conf/guard-marker (fn [db _] (:guard-marker db)))
+      (rf/reg-interceptor :evt-conf/guard
+        {:before
+         (fn [ctx]
+           ;; Capture (read the full context) + short-circuit the
+           ;; handler + install an effect directly — context-level
+           ;; work is an interceptor concern.
+           (-> ctx
+               (assoc :rf/skip-handler? true)
+               (assoc-in [:effects :fx]
+                         [[:dispatch [:evt-conf/guard-fired]]])))})
+      (rf/reg-event :evt-conf/guard-fired
+        (fn [{:keys [db]} _] {:db (assoc db :guard-marker :fired)}))
+      (rf/reg-event :evt-conf/guarded
+        {:interceptors [:evt-conf/guard]}
+        (fn [_ _] (reset! handler-ran? true) {:db {:should :not-run}}))
+      (rf/dispatch-sync [:evt-conf/guarded])
+      (is (false? @handler-ran?)
+          "the interceptor short-circuited the handler via :rf/skip-handler?")
+      (is (= :fired @(rf/subscribe [:evt-conf/guard-marker]))
+          "the interceptor's directly-installed effect ran (no reg-event-ctx needed)"))))
 
 ;; Retired registration-form tombstones.
 
@@ -821,6 +859,22 @@
       (is (some #{:rf.error/reg-event-ctx-removed} @seen-errors)
           "reg-event-ctx removal also fans out on the always-on channel"))))
 
+;; JVM-only metadata check; the CLJS manifest gate owns compile-time publics.
+
+#?(:clj
+   (deftest public-facade-no-doc-classification
+     (testing "reg-event is documented while retired facade tombstones are not"
+       (is (nil? (:no-doc (meta #'re-frame.core/reg-event)))
+           "reg-event is PUBLIC — it carries no :no-doc meta")
+       (is (true? (:no-doc (meta #'re-frame.core/reg-event-ctx)))
+           "the reg-event-ctx facade tombstone carries ^:no-doc")
+       (is (true? (:no-doc (meta #'re-frame.core/reg-event-db)))
+           "the reg-event-db facade tombstone carries ^:no-doc (off the public manifest)")
+       (is (true? (:no-doc (meta #'re-frame.core/reg-event-fx)))
+           "the reg-event-fx facade tombstone carries ^:no-doc (off the public manifest)"))))
+
+;; Always-on event channel.
+
 (deftest handled-event-fans-out-on-the-always-on-events-channel
   (testing "a handled event emits one record on the always-on event channel"
     (let [seen-events (atom [])]
@@ -843,55 +897,3 @@
         (is (contains? event-record :elapsed-ms)
             "the tight record carries the wall-clock :elapsed-ms slot (Spec 009 §Record shape)"))
       (rf.event-emit/unregister-event-listener! :evt-conf/handled-recorder))))
-
-;; JVM-only metadata check; the CLJS manifest gate owns compile-time publics.
-
-#?(:clj
-   (deftest public-facade-no-doc-classification
-     (testing "reg-event is documented while retired facade tombstones are not"
-       (is (nil? (:no-doc (meta #'re-frame.core/reg-event)))
-           "reg-event is PUBLIC — it carries no :no-doc meta")
-       (is (true? (:no-doc (meta #'re-frame.core/reg-event-ctx)))
-           "the reg-event-ctx facade tombstone carries ^:no-doc")
-       (is (true? (:no-doc (meta #'re-frame.core/reg-event-db)))
-           "the reg-event-db facade tombstone carries ^:no-doc (off the public manifest)")
-       (is (true? (:no-doc (meta #'re-frame.core/reg-event-fx)))
-           "the reg-event-fx facade tombstone carries ^:no-doc (off the public manifest)"))))
-
-(deftest reg-event-path-interceptor-works-with-db-slice-return
-  (testing "a path interceptor splices an explicit :db slice effect into app-db"
-    (rf/reg-sub :evt-conf/counter (fn [db _] (:counter db)))
-    (rf/reg-event :evt-conf/inc-via-path
-      {:interceptors [[:rf.interceptor/path [:counter]]]}
-      ;; `db` here is the FOCUSED slice at [:counter], not the whole app-db;
-      ;; the return is `{:db <new-slice>}`.
-      (fn [{:keys [db]} _] {:db (update (or db {}) :value (fnil inc 0))}))
-    (rf/dispatch-sync [:evt-conf/inc-via-path])
-    (rf/dispatch-sync [:evt-conf/inc-via-path])
-    (is (= {:value 2} @(rf/subscribe [:evt-conf/counter]))
-        "the `{:db slice}` return was spliced back into app-db at [:counter]")))
-
-(deftest raw-context-work-is-expressible-via-an-interceptor
-  (testing "an interceptor can inspect context, skip the handler, and install effects"
-    (let [handler-ran? (atom false)]
-      (rf/reg-sub :evt-conf/guard-marker (fn [db _] (:guard-marker db)))
-      (rf/reg-interceptor :evt-conf/guard
-        {:before
-         (fn [ctx]
-           ;; Capture (read the full context) + short-circuit the
-           ;; handler + install an effect directly — context-level
-           ;; work is an interceptor concern.
-           (-> ctx
-               (assoc :rf/skip-handler? true)
-               (assoc-in [:effects :fx]
-                         [[:dispatch [:evt-conf/guard-fired]]])))})
-      (rf/reg-event :evt-conf/guard-fired
-        (fn [{:keys [db]} _] {:db (assoc db :guard-marker :fired)}))
-      (rf/reg-event :evt-conf/guarded
-        {:interceptors [:evt-conf/guard]}
-        (fn [_ _] (reset! handler-ran? true) {:db {:should :not-run}}))
-      (rf/dispatch-sync [:evt-conf/guarded])
-      (is (false? @handler-ran?)
-          "the interceptor short-circuited the handler via :rf/skip-handler?")
-      (is (= :fired @(rf/subscribe [:evt-conf/guard-marker]))
-          "the interceptor's directly-installed effect ran (no reg-event-ctx needed)"))))
