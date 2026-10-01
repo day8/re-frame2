@@ -425,23 +425,22 @@
 ;; --- The Story entry --------------------------------------------------------
 ;;
 ;; shadow-cljs.edn's `:dev` override boots `stories/init` in watch and
-;; compile, and a release boots `core/init`. Two facts keep that honest, and
-;; both are pinned here on the emitted source. `core.cljs` never names Story,
-;; so nothing a release compiles reaches it. And `stories/init` renames the
-;; mount node BEFORE it mounts the shell: `core/mount!` is a
-;; `^:dev/after-load` hook that runs after every save, and on a node still
-;; called `app` it renders the counter over the shell, and React logs its
-;; second-`createRoot` error in the console.
+;; compile, and a release boots `core/init`. Two facts keep that honest.
+;; `core.cljs` never names Story, so nothing a release compiles reaches it;
+;; `template_test.clj`'s contract pins that on both substrates. And
+;; `stories/init` renames the mount node BEFORE it mounts the shell, pinned
+;; here: `core/mount!` is a `^:dev/after-load` hook that runs after every
+;; save, and on a node still called `app` it renders the counter over the
+;; shell, and React logs its second-`createRoot` error in the console.
 
 (deftest story-entry-lifecycle-test
   (testing "stories/init sends #/stories to the shell on a renamed node and every
-            other page to core/init; core.cljs never names Story"
+            other page to core/init"
     (doseq [substrate [:reagent :uix]]
       (let [tmp (tmp-dir "rf2-emission-story-entry-")]
         (try
           (let [proj    (run-template! tmp "acme/my-app" substrate)
                 stories (slurp (io/file proj "src/acme/my_app/stories.cljs"))
-                core    (slurp (io/file proj "src/acme/my_app/core.cljs"))
                 rename  (string/index-of stories "(set! (.-id node) \"stories\")")
                 mount   (string/index-of stories "(rf.story/mount-shell! node)")]
             (is (string/includes? stories "(defn ^:export init []")
@@ -452,8 +451,6 @@
                 (str substrate ": init renames the mount node before it mounts the "
                      "shell, so core/mount! finds no #app to render over it after a save"))
             (is (string/includes? stories "(core/init)")
-                (str substrate ": every other page boots the app through core/init"))
-            (is (not (string/includes? core "re-frame.story"))
-                (str substrate ": core.cljs never requires Story")))
+                (str substrate ": every other page boots the app through core/init")))
           (finally
             (delete-recursively tmp)))))))
