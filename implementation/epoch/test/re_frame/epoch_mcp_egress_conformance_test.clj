@@ -696,9 +696,11 @@
   (update (last (rf/epoch-history frame-id)) :trace-events (fnil into []) rows))
 
 (defn- redacted-token?
-  "Whether `c` is the resource family's opaque content-addressed egress token
-  `{:rf/redacted <digest>}` — distinct values stay distinct, so a tool's per-key
-  joins survive the redaction."
+  "Whether `c` is the resource family's opaque egress token `{:rf/redacted
+  <payload>}`. The payload is a content-free shape summary for a sensitive
+  value or a free `:scope` tag, and a canonical digest only for a large,
+  non-sensitive one, so the token is matched by its `:rf/redacted` key and
+  never by its payload."
   [c]
   (and (map? c) (contains? c :rf/redacted)))
 
@@ -1796,8 +1798,8 @@
               "the tier keyword rides verbatim — a tool still shows
                \"session scope\"")
           (is (redacted-token? (second pscope))
-              "and the resolver's identity MAP tokenizes, distinct scopes
-               keeping distinct digests so per-scope joins survive")
+              "and the resolver's identity MAP tokenizes to a content-free
+               shape token")
           (is (= #{invalidation-tag} (set (:tags proj-tags)))
               "the invalidated tag set rides verbatim beside it — the default
                tokenizes app payloads, not the structural attribution")))

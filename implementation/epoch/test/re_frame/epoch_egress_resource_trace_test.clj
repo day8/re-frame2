@@ -28,9 +28,10 @@
   derived-sensitive `{:from-db}` scope — and that the trusted-local
   `:rf.egress/include-sensitive?` opt-in lifts the redaction (the `local-raw` boundary).
 
-  resources is a TEST-ONLY dep here (production epoch never deps resources; the
-  hook is nil-safe when absent — proven by the `epoch_egress_trace_events_test`
-  suite which runs without resources)."
+  resources is a TEST-ONLY dep here: production epoch never deps resources, and
+  when the artefact is absent the hook lookup in
+  `omit-off-box-resource-trace-keys` finds nil and passes the rows through
+  untouched."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.walk :as walk]

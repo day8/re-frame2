@@ -998,9 +998,19 @@
             the two SHARED app-db axes lift, while the three epoch-only axes
             — different keyspaces, not app-db values — stay fail-closed. It
             is deliberately NOT `:rf.egress/local-raw`."
-    (let [raw  (login-record!)
-          proj (rf/project-egress raw {:rf.egress/profile          :rf.egress/off-box-tool
-                                       :rf.egress/include-sensitive? true})]
+    (fresh-frame!)
+    (rf/reg-fx :egress/login-fx (fn [_ _] nil))
+    (rf/reg-event :egress/login
+      (fn [{:keys [db]} [_ pw]]
+        {:db (-> db
+                 (assoc-in [:auth :password] pw)
+                 (assoc-in [:audit :note] benign))
+         :fx [[:egress/login-fx {:password pw}]]}))
+    (rf/dispatch-sync [:egress/login secret] {:frame frame-id})
+    (let [raw    (last-record)
+          proj   (rf/project-egress raw {:rf.egress/profile          :rf.egress/off-box-tool
+                                         :rf.egress/include-sensitive? true})
+          fx-row (some #(when (= :egress/login-fx (:fx-id %)) %) (:effects proj))]
       (is (= secret (get-in proj [:db-after :auth :password]))
           "the shared app-db sensitive axis lifts through the door")
       (is (= [:egress/login :rf/redacted] (:trigger-event proj))
@@ -1009,9 +1019,10 @@
       (is (= :rf/redacted (get-in proj [:frame-state-after :rf.db/runtime]))
           "and the runtime-db partition stays redacted behind its own
            `:rf.egress/include-runtime-db?` opt-in")
-      (is (every? #(= :rf/redacted (:args %))
-                  (filter #(contains? % :args) (:effects proj)))
-          "and every effect row's `:args` stays redacted behind
+      (is (some? fx-row)
+          "fixture: the cascade produced a payload-bearing fx row")
+      (is (= :rf/redacted (:args fx-row))
+          "and the effect row's `:args` stays redacted behind
            `:rf.egress/include-fx-args?`"))))
 
 (deftest an-epoch-only-axis-is-door-vocabulary-and-never-reaches-the-walker

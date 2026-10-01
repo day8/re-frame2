@@ -247,22 +247,36 @@
             whole-output sensitive (already redacted at the marks emit site)
             nor whole-output large (no `:large?` flag → nothing to substitute)
             survives the projection byte-for-byte. This cascade declares only a
-            SENSITIVE schema path and reads no large-marked sub, so its
-            `:sub-runs` rows still pass through identically; the large-value
-            egress case is pinned by `re-frame.epoch-egress-redaction-cljs-test`'s
-            `large-sub-output-elides-in-both-egress-slots`.
+            SENSITIVE schema path and reads one UNMARKED sub, so its
+            `:sub-runs` row carries a real `:value` and still passes through
+            identically; the large-value egress case is pinned by
+            `re-frame.epoch-egress-redaction-cljs-test`'s
+            `large-sub-output-elides-in-both-egress-slots`. The plain-atom
+            substrate renders nothing, so the `:renders` row is planted on the
+            raw record.
             (`:effects` is NOT pass-through — its `:args` fail closed,
             pinned by the tests below.)"
     (rf/make-frame {:id :test/main})
     (install-sensitive-schema! :test/main)
+    (rf/reg-sub :login/greeting (fn [_ _] "hello"))
     (rf/reg-event :login
-                     (fn [{:keys [db]} [_ pw]] {:db (assoc-in db [:auth :password] pw)}))
+                     (fn [{:keys [db]} [_ pw]]
+                       (rf/subscribe-once [:login/greeting] {:frame :test/main})
+                       {:db (assoc-in db [:auth :password] pw)}))
     (rf/dispatch-sync [:login "topsecret"] {:frame :test/main})
 
-    (let [raw       (last-record :test/main)
-          projected (rf/project-egress raw)]
+    (let [render-row {:render-key     [:login/view 1]
+                      :mount?         true
+                      :triggered-by   :login/greeting
+                      :elapsed-ms     0.5
+                      :cause-event-id :login}
+          raw        (assoc (last-record :test/main) :renders [render-row])
+          projected  (rf/project-egress raw)]
+      (is (= "hello" (:value (first (filter #(= :login/greeting (:sub-id %))
+                                            (:sub-runs raw)))))
+          "fixture: the cascade recorded a `:sub-runs` row carrying its value")
       (is (= (:sub-runs raw) (:sub-runs projected)))
-      (is (= (:renders  raw) (:renders  projected))))))
+      (is (= [render-row] (:renders projected))))))
 
 ;; ---- :effects :args fail closed off-box -----------------------------------
 ;;
@@ -511,29 +525,37 @@
             "CONTROL: nor does its projection")))))
 
 (deftest project-egress-handles-missing-payload-slots
-  (testing "a record without one of the four payload slots passes
-            through cleanly (the projection only walks slots present
-            on the record — halted-destroy carries nil :db-before /
-            :db-after which the projection treats as nil-no-walk)"
-    (let [partial-record {:kind          :rf/epoch-record
-                          :epoch-id      99
-                          :frame         :test/main
-                          :committed-at  0
-                          :outcome       :halted-destroy
-                          :db-before     nil
-                          :db-after      nil
-                          :trace-events  []
-                          :sub-runs      []
-                          :renders       []
-                          :effects       []
+  (testing "a record carrying none of the payload slots passes through
+            cleanly: the projection walks only the slots present on the
+            record, so an absent slot stays absent rather than being
+            fabricated"
+    (let [payload-slots  [:db-before :db-after :frame-state-before
+                          :frame-state-after :trigger-event :trace-events
+                          :sub-runs :effects]
+          partial-record {:kind                :rf/epoch-record
+                          :epoch-id            99
+                          :frame               :test/main
+                          :committed-at        0
+                          :outcome             :ok
+                          :renders             []
                           :rf.epoch/sensitive? false}
-          projected     (rf/project-egress partial-record)]
-      (is (some? projected))
-      (is (nil? (:db-before projected))
-          "nil :db-before stays nil — no fabricated value")
-      (is (nil? (:db-after projected))
-          "nil :db-after stays nil")
-      (is (= :halted-destroy (:outcome projected))))))
+          projected      (rf/project-egress partial-record)]
+      (is (= partial-record projected)
+          "the record projects to itself — nothing redacted, nothing added")
+      (doseq [slot payload-slots]
+        (is (not (contains? projected slot))
+            (str slot " is absent on the record and stays absent")))))
+
+  (testing "a nil payload slot stays nil — the projection does not
+            fabricate a value for it"
+    (let [projected (rf/project-egress {:kind      :rf/epoch-record
+                                        :epoch-id  99
+                                        :frame     :test/main
+                                        :outcome   :ok
+                                        :db-before nil
+                                        :db-after  nil})]
+      (is (nil? (:db-before projected)))
+      (is (nil? (:db-after projected))))))
 
 ;; ---- 4. listener delivery defaults to RAW ---------------------------------
 
