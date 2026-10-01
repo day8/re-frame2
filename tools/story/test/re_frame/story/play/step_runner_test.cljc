@@ -32,8 +32,7 @@
             [re-frame.story.plan        :as rf.story.plan]
             [re-frame.story.play.runner :as rf.story.play.runner]
             [re-frame.story.play.runner-events :as rf.story.play.runner-events]
-            [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]
-            [re-frame.story.requirements :as rf.story.requirements]))
+            [re-frame.story.play.settled-boundary :as rf.story.play.settled-boundary]))
 
 ;; ===========================================================================
 ;; PURE: the tagged step grammar

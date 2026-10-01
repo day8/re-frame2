@@ -23,7 +23,6 @@
   `re-frame.story.requirements-test`; this suite covers the EXECUTOR."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.story.assertions    :as rf.story.assertions]
-            [re-frame.story.requirements  :as rf.story.requirements]
             [re-frame.story.play.browser  :as rf.story.play.browser]))
 
 ;; ===========================================================================
