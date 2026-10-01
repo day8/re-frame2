@@ -45,31 +45,40 @@
   Chapter 13 carries the example and cites this namespace as its
   witness, and chapter 22 calls it the contract.
 
-  ## Keyboard conduct is measurable here, and only here
+  ## Keyboard conduct: the handler, and the key's default action
 
-  A synthetic `KeyboardEvent` performs no DEFAULT action — no Tab moves
-  focus, no Escape closes a dialog — which is why
-  `examples.ledger.keyboard-dom-cljs-test` witnesses traversal as the
-  engine's focusability answer rather than as a keypress. But
   `:on-key-down` is a React handler, and React delivers a synthetic
   keydown to it exactly as it delivers a trusted one. So the conduct the
-  APPLICATION owns — arrow keys moving the active option, Enter
-  committing it, DOM focus never leaving the trigger — is genuinely
-  driven below, by real key events — a key press is the instrument here
-  rather than the gap.
+  APPLICATION's handler owns — arrow keys moving the active option, Enter
+  committing it, DOM focus never leaving the trigger — is driven below by
+  dispatched `KeyboardEvent`s.
+
+  What a synthetic event never gets is the DEFAULT ACTION, and on a
+  native `<button>` the default action of Enter and Space is a click.
+  That click is half of this widget's contract: shut, Enter or Space
+  opens the list through it; open, the key map commits and prevents it,
+  or the click that follows a keydown commit toggles the list straight
+  back open. A synthetic row passes either way, so the trusted rows press
+  the keys for real through `re-frame.fresco.trusted-input-support` —
+  keydown, keyup and the click the engine fires for them — and
+  [[the-bare-enter-dropdown]] is their control: the same view with Enter
+  committing on keydown and left unprevented, which a synthetic Enter
+  reports as correct and a real one reopens.
 
   Escape remains the platform's: the popover owns light dismiss and the
-  close request, and `overlay-dom-cljs-test` drives it through
-  `HTMLDialogElement.requestClose` for want of trusted input.
+  close request, and `overlay-dom-cljs-test` drives it.
 
   ## Lanes
 
   The structural rows run everywhere — a role, a pointer and its
   referent are facts about markup, so they are decided on the test kit's
   a11y projections and need no engine. The conduct rows need a real React
-  DOM and state a skip in the node lane. Nothing here is `async` (an
-  async row under a positional fixture aborts the whole run)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  DOM and state a skip in the node lane; the trusted rows also need the
+  runner's trusted-input bridge, and a browser lane without one reports a
+  failure rather than a skip. The trusted rows are `async`, so the
+  fixture is a map: an async row under a positional fixture aborts the
+  whole run."
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as rf.adapter.uix]
             [re-frame.core :as rf]
@@ -77,6 +86,7 @@
             [re-frame.fresco.overlay :as rf.fresco.overlay]
             [re-frame.fresco.test :as rf.fresco.test]
             [re-frame.fresco.test.mounted :as rf.fresco.test.mounted]
+            [re-frame.fresco.trusted-input-support :as rf.fresco.trusted-input-support]
             [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -90,7 +100,6 @@
 
 (def ^:private values (mapv :value items))
 
-(def ^:private label-id "combo-locale-label")
 (def ^:private trigger-id "combo-locale-trigger")
 (def ^:private listbox-id "combo-locale-listbox")
 
@@ -116,12 +125,15 @@
       {:db (assoc db :open? true :active next)})))
 
 (rf/reg-event ::committed
-  {:doc "Enter. The active option becomes the committed value and the
-  list shuts."}
+  {:doc "Enter or Space on an open list. The active option becomes the
+  committed value and the list shuts. `:commits` counts the commits, so a
+  row can tell one key press that committed once from one that committed
+  and then did something else."}
   (fn [{:keys [db]} _]
     (let [{:keys [open? active]} db]
       {:db (cond-> (assoc db :open? false)
-             (and open? active) (assoc :value active))})))
+             (and open? active) (-> (assoc :value active)
+                                    (update :commits (fnil inc 0))))})))
 
 (rf/reg-event ::selected
   {:doc "A pointer click on an option — the same commit by the other
@@ -156,33 +168,40 @@
      where the keyboard is; the selected option is what the application
      will act on. In a list where selection does not follow focus those
      are two different options for as long as the user is looking
-     around, and collapsing them announces a choice nobody has made."
+     around, and collapsing them announces a choice nobody has made.
+
+  The key map is the guide's too. Shut, Enter and Space are not in it:
+  they reach the button's native click, which is `::toggled`'s door. Open,
+  both commit and are prevented, so no click follows the commit to toggle
+  the list back open — [[the-bare-enter-dropdown]] is what that costs."
   [_]
   (let [open?  (rf.fresco/sub [::open?])
         active (rf.fresco/sub [::active])
         value  (rf.fresco/sub [::value])
         label  (some #(when (= value (:value %)) (:label %)) items)]
     [:div.combo
-     [:span {:id label-id} "Language"]
      [:button
       {:id                    trigger-id
        :type                  "button"
+       :disabled              (empty? items)
        :role                  "combobox"
-       :aria-labelledby       (str label-id " " trigger-id)
+       :aria-label            "Language"
        :aria-haspopup         "listbox"
        :aria-expanded         open?
        :aria-controls         (when open? listbox-id)
-       :aria-activedescendant (when (and open? active) (option-id active))
+       :aria-activedescendant (when (and open? (some #{active} values))
+                                (option-id active))
        :on-click              [::toggled]
-       :on-key-down           {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
-                               "ArrowUp"   [::rf.fresco/prevent [::moved -1]]
-                               "Enter"     [::rf.fresco/prevent [::committed]]}}
+       :on-key-down           (cond-> {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
+                                       "ArrowUp"   [::rf.fresco/prevent [::moved -1]]}
+                                open? (assoc "Enter" [::rf.fresco/prevent [::committed]]
+                                             " "     [::rf.fresco/prevent [::committed]]))}
       label]
      [rf.fresco.overlay/popover {:open?      open?
                        :on-dismiss [::dismissed]
                        :anchor     trigger-id
                        :placement  :bottom-start}
-      [:ul {:id listbox-id :role "listbox" :aria-labelledby label-id}
+      [:ul {:id listbox-id :role "listbox"}
        (for [{v :value l :label} items]
          [:li {:key           v
                :id            (option-id v)
@@ -208,18 +227,20 @@
         value  (rf.fresco/sub [::value])
         label  (some #(when (= value (:value %)) (:label %)) items)]
     [:div.combo
-     [:span {:id label-id} "Language"]
      [:button
       {:id                    trigger-id
        :type                  "button"
-       :aria-labelledby       (str label-id " " trigger-id)
+       :disabled              (empty? items)
+       :aria-label            "Language"
        :aria-haspopup         "listbox"
        :aria-expanded         open?
-       :aria-activedescendant (when (and open? active) (option-id active))
+       :aria-activedescendant (when (and open? (some #{active} values))
+                                (option-id active))
        :on-click              [::toggled]
-       :on-key-down           {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
-                               "ArrowUp"   [::rf.fresco/prevent [::moved -1]]
-                               "Enter"     [::rf.fresco/prevent [::committed]]}}
+       :on-key-down           (cond-> {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
+                                       "ArrowUp"   [::rf.fresco/prevent [::moved -1]]}
+                                open? (assoc "Enter" [::rf.fresco/prevent [::committed]]
+                                             " "     [::rf.fresco/prevent [::committed]]))}
       label]
      [rf.fresco.overlay/popover {:open?      open?
                        :on-dismiss [::dismissed]
@@ -235,10 +256,57 @@
                :on-click      [::selected v]}
           l])]]]))
 
+(rf.fresco/defview the-bare-enter-dropdown
+  "THE KEY-MAP CONTROL — [[select-dropdown]] with Enter committing on
+  every keydown and NOT prevented, and Space left out.
+
+  Shut, it behaves: the commit finds nothing open, and the button's
+  native click opens the list. Open, one press does two things. The
+  keydown commits and shuts the list, and the engine then fires the
+  button's click for the same press, which `::toggled` reads as a
+  request to open it again. A synthetic Enter gets no click, so it
+  reports this spelling as correct; the trusted rows are what tell the
+  two apart."
+  [_]
+  (let [open?  (rf.fresco/sub [::open?])
+        active (rf.fresco/sub [::active])
+        value  (rf.fresco/sub [::value])
+        label  (some #(when (= value (:value %)) (:label %)) items)]
+    [:div.combo
+     [:button
+      {:id                    trigger-id
+       :type                  "button"
+       :disabled              (empty? items)
+       :role                  "combobox"
+       :aria-label            "Language"
+       :aria-haspopup         "listbox"
+       :aria-expanded         open?
+       :aria-controls         (when open? listbox-id)
+       :aria-activedescendant (when (and open? (some #{active} values))
+                                (option-id active))
+       :on-click              [::toggled]
+       :on-key-down           {"ArrowDown" [::rf.fresco/prevent [::moved 1]]
+                               "ArrowUp"   [::rf.fresco/prevent [::moved -1]]
+                               "Enter"     [::committed]}}
+      label]
+     [rf.fresco.overlay/popover {:open?      open?
+                       :on-dismiss [::dismissed]
+                       :anchor     trigger-id
+                       :placement  :bottom-start}
+      [:ul {:id listbox-id :role "listbox"}
+       (for [{v :value l :label} items]
+         [:li {:key           v
+               :id            (option-id v)
+               :role          "option"
+               :aria-selected (= v value)
+               :on-click      [::selected v]}
+          l])]]]))
+
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter       rf.adapter.uix/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     :async?        true}))
 
 ;; ---------------------------------------------------------------------------
 ;; The auditor — an active-descendant model, checked the way a platform
@@ -491,3 +559,152 @@
              restored, because nothing ever moved")
 
         (finally (rf.fresco.test.mounted/unmount! m))))))
+
+;; ---------------------------------------------------------------------------
+;; The conduct under TRUSTED keys — the default action included
+;; ---------------------------------------------------------------------------
+
+(defn- trigger [m] (query-node m (str "#" trigger-id)))
+(defn- expanded [m] (attr-of m (str "#" trigger-id) "aria-expanded"))
+(defn- commits [m] (:commits (rf/app-db-value (:frame m)) 0))
+
+(defn- trusted-walk!
+  "Press each step's keys for real, one runner request per step, then
+  settle and run that step's checks; call `k` after the last.
+
+  A step is `[keys check]`. One request per step rather than one for the
+  whole walk, because the states in between are what the checks read."
+  [m steps k]
+  (if-some [[ks check] (first steps)]
+    (rf.fresco.trusted-input-support/press!
+      ks
+      (fn [{:keys [pressed error]}]
+        (is (= (count ks) pressed)
+            (str "the runner pressed " (pr-str ks) " — pressed=" pressed
+                 (when error (str ", error=" error))))
+        (try
+          (rf.fresco.test.mounted/settle! m)
+          (check)
+          (catch :default e
+            (is false (str "the checks after " (pr-str ks) " threw: " (.-message e)))))
+        (trusted-walk! m (rest steps) k)))
+    (k)))
+
+(defn- trusted-row!
+  "Mount `view`, focus its trigger, run `before` (the synthetic arm, if
+  any), then walk the steps `steps-for` answers for the mount. The mount
+  is released and `done` called exactly once on every path."
+  [view before steps-for done]
+  (let [m (try (rf.fresco.test.mounted/mount! [view {}])
+               (catch :default e
+                 (is false (str "the mount threw: " (.-message e)))
+                 nil))]
+    (if (nil? m)
+      (done)
+      (let [finish (fn []
+                     (rf.fresco.test.mounted/unmount! m)
+                     (done))]
+        (try
+          (.focus (trigger m))
+          (is (identical? (trigger m) (active-el))
+              "premise: focus is on the trigger, which is where the runner's
+               key press lands")
+          (before m)
+          (trusted-walk! m (steps-for m) finish)
+          (catch :default e
+            (is false (str "the row threw before its walk ended: " (.-message e)))
+            (finish)))))))
+
+(deftest trusted-enter-and-space-open-a-shut-list-and-commit-an-open-one-once
+  (cond
+    (not (browser?))
+    (skip! "a trusted key press")
+
+    (not (rf.fresco.trusted-input-support/bridge?))
+    (rf.fresco.trusted-input-support/unwitnessed!
+      "the dropdown's native Enter and Space activation")
+
+    :else
+    (async done
+      (trusted-row!
+        select-dropdown
+        (fn [_m] nil)
+        (fn [m]
+          [[["Enter"]
+            #(testing "SHUT, Enter is not in the key map: the button's own
+                       click opens the list, which no synthetic Enter can do"
+               (is (= "true" (expanded m)))
+               (is (some? (query-node m (str "#" listbox-id))))
+               (is (zero? (commits m)) "and opening committed nothing"))]
+           [["ArrowDown" "ArrowDown"]
+            #(is (= (option-id "fr") (attr-of m (str "#" trigger-id) "aria-activedescendant"))
+                 "premise: the keyboard is on the second option")]
+           [["Enter"]
+            #(testing "OPEN, Enter commits once and the list STAYS shut: the
+                       keydown is prevented, so no click follows the commit
+                       to toggle the list back open"
+               (is (= 1 (commits m)))
+               (is (= "Français" (.-textContent (trigger m))))
+               (is (= "false" (expanded m))
+                   "the list did not reopen on the press that committed")
+               (is (nil? (query-node m (str "#" listbox-id))))
+               (is (identical? (trigger m) (active-el))))]
+           [["Space"]
+            #(testing "SHUT, Space opens through the click the engine fires
+                       on keyup"
+               (is (= "true" (expanded m)))
+               (is (= 1 (commits m)) "and opening committed nothing"))]
+           [["ArrowDown"]
+            #(is (= (option-id "ja") (attr-of m (str "#" trigger-id) "aria-activedescendant"))
+                 "premise: the active option survived the commit, and moved on")]
+           [["Space"]
+            #(testing "OPEN, Space commits once, and its prevented keydown
+                       leaves the keyup no click to fire"
+               (is (= 2 (commits m)))
+               (is (= "日本語" (.-textContent (trigger m))))
+               (is (= "false" (expanded m))
+                   "the list did not reopen on the press that committed")
+               (is (nil? (query-node m (str "#" listbox-id)))))]])
+        done))))
+
+(deftest an-unprevented-enter-commits-and-its-native-click-reopens-the-list
+  ;; THE CONTROL, both arms on one mount. The synthetic arm passes the
+  ;; bare spelling — which is the blind spot — and the trusted arm shows the
+  ;; same press reopening the list. Without the second arm the row above
+  ;; could be green because the instrument cannot see a click at all.
+  (cond
+    (not (browser?))
+    (skip! "a trusted key press")
+
+    (not (rf.fresco.trusted-input-support/bridge?))
+    (rf.fresco.trusted-input-support/unwitnessed!
+      "the bare Enter's native click")
+
+    :else
+    (async done
+      (trusted-row!
+        the-bare-enter-dropdown
+        (fn [m]
+          (key! m "ArrowDown")
+          (key! m "Enter")
+          (testing "SYNTHETIC: the bare Enter commits and the list stays
+                    shut, because a dispatched keydown fires no click —
+                    this spelling looks correct to a synthetic row"
+            (is (= 1 (commits m)))
+            (is (= "English" (.-textContent (trigger m))))
+            (is (= "false" (expanded m)))))
+        (fn [m]
+          [[["ArrowDown"]
+            #(is (= (option-id "fr") (attr-of m (str "#" trigger-id) "aria-activedescendant"))
+                 "premise: open again, the keyboard on the second option")]
+           [["Enter"]
+            #(testing "TRUSTED: the same key commits AND reopens. The keydown
+                       commits and shuts the list; the engine then fires the
+                       button's click for the same press, and `::toggled`
+                       opens it again"
+               (is (= 2 (commits m)) "the commit landed, once")
+               (is (= "Français" (.-textContent (trigger m))))
+               (is (= "true" (expanded m))
+                   "THE DEFECT: the list is open after the press that committed")
+               (is (some? (query-node m (str "#" listbox-id)))))]])
+        done))))
