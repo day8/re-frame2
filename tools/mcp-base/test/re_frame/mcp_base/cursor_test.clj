@@ -176,25 +176,26 @@
   ;; A cursor that base64+EDN-decodes to a well-formed but NON-MAP
   ;; value (`"5"` ⇒ 5, `"[1 2 3]"` ⇒ vector, `":kw"` ⇒ keyword) hits
   ;; the `(map? v)` short-circuit in `decode-cursor` — `valid?` is
-  ;; never consulted. This pins the non-map arm (where `valid?` would
-  ;; throw if called on, say, a number): we pass a `valid?` that THROWS
-  ;; on non-map input to prove the guard runs first — a throw here
-  ;; would mean `valid?` was reached.
-  (let [strict-map-pred (fn [m]
-                          ;; would explode on a non-map if reached
-                          (and (map? m) (pos? (count m))))
-        num-token  (rf.mcp-base.cursor/b64-encode "5")
-        vec-token  (rf.mcp-base.cursor/b64-encode "[1 2 3]")
-        kw-token   (rf.mcp-base.cursor/b64-encode ":some-keyword")
-        str-token  (rf.mcp-base.cursor/b64-encode "\"a string\"")]
-    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor num-token strict-map-pred))
-        "numeric EDN cursor ⇒ ::malformed (map? guard, valid? not consulted)")
-    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor vec-token strict-map-pred))
+  ;; never consulted. The predicate here ADMITS everything and records
+  ;; what it was handed, so the guard is the only thing that can turn
+  ;; these tokens into `::malformed`. A predicate that rejects or throws
+  ;; on a non-map cannot pin the guard: `decode-cursor` maps a `false`
+  ;; and a caught throw to `::malformed` just as the guard does.
+  (let [consulted (atom [])
+        admit-all (fn [m] (swap! consulted conj m) true)
+        num-token (rf.mcp-base.cursor/b64-encode "5")
+        vec-token (rf.mcp-base.cursor/b64-encode "[1 2 3]")
+        kw-token  (rf.mcp-base.cursor/b64-encode ":some-keyword")
+        str-token (rf.mcp-base.cursor/b64-encode "\"a string\"")]
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor num-token admit-all))
+        "numeric EDN cursor ⇒ ::malformed")
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor vec-token admit-all))
         "vector EDN cursor ⇒ ::malformed")
-    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor kw-token strict-map-pred))
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor kw-token admit-all))
         "keyword EDN cursor ⇒ ::malformed")
-    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor str-token strict-map-pred))
-        "string EDN cursor ⇒ ::malformed")))
+    (is (= ::rf.mcp-base.cursor/malformed (rf.mcp-base.cursor/decode-cursor str-token admit-all))
+        "string EDN cursor ⇒ ::malformed")
+    (is (= [] @consulted) "valid? is never handed a non-map")))
 
 (deftest decode-cursor-at-inclusive-size-boundary-is-not-rejected
   ;; The size guard is a STRICT `>`
