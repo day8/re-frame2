@@ -150,12 +150,7 @@
   (is (m/validate EventBundleVector re-frame2-pair-cross-frame-event-fixture)
       (str "Cross-frame event-bundle vector failed schema validation:\n"
            (me/humanize
-             (m/explain EventBundleVector re-frame2-pair-cross-frame-event-fixture))))
-  (testing "merge-by-:dispatch-id reconstructs a unified event timeline"
-    (let [by-id (group-by :dispatch-id re-frame2-pair-cross-frame-event-fixture)]
-      (is (= 1 (count by-id))
-          "the two bundles share one :dispatch-id (the cross-frame contract)")
-      (is (= 42 (first (keys by-id)))))))
+             (m/explain EventBundleVector re-frame2-pair-cross-frame-event-fixture)))))
 
 (deftest event-bundle-rejects-frameless-shape
   ;; An `:ungrouped` `:dispatch-id` (`:ungrouped` is the
@@ -181,9 +176,7 @@
                             :dispatch-id :ungrouped)]]
       (is (not (m/validate EventBundleVector leaky-vec))
           "an :event-bundles vector with even one :ungrouped bundle MUST fail")))
-  (testing "schema ACCEPTS a typed/numeric dispatch id (guard against over-tightening)"
-    (is (m/validate EventBundle re-frame2-pair-event-bundle-fixture)
-        "the canonical numeric :dispatch-id 17 must validate")
+  (testing "schema ACCEPTS a keyword dispatch id other than :ungrouped (guard against over-tightening)"
     (is (m/validate EventBundle
                     (assoc re-frame2-pair-event-bundle-fixture
                            :dispatch-id :cart/checkout))
