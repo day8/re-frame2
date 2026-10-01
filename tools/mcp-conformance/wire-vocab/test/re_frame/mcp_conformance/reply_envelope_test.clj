@@ -53,10 +53,10 @@
     2. Fixtures matching the REAL production emissions (HTTP
        `:rf.http/stale-suppressed`, resource `:rf.resource/stale-suppressed`,
        machine `:rf.machine/done`) so a fixture drift trips the gate.
-    3. A SOURCE-text pin asserting the additive `:rf.reply/*` keys appear as
-       DATA in the production emit sites (so a substrate / family rename
-       trips this gate even though the literals live in the implementation
-       tree, not in re-frame2-pair-mcp).
+    3. A per-family SOURCE-text pin asserting every fixture key appears as
+       DATA at that family's own emit site (so a key one family drops trips
+       this gate even though the literals live in the implementation tree,
+       not in re-frame2-pair-mcp, and another family still emits it).
     4. A near-miss anti-pin so a rename to a snake_case / pluralised /
        predicate spelling FAILS.
 
@@ -138,7 +138,7 @@
    :rf.reply/work-status  :suppressed
    :rf.reply/stale-reason :rf.reply/correlation-mismatch
    :rf.reply/work-id      [:rf.work/http :article/by-id 1 1]
-   :work/kind             :http
+   :rf.reply/work-kind    :http
    :rf.reply/carried      [:rf.work/http :article/by-id 1 1]
    :rf.reply/current      [:rf.work/http :article/by-id 2 1]
    :recovery              :superseded-by-fresh-request
@@ -160,13 +160,21 @@
    :rf.reply/current      {:work/id [:rf.work/resource [:rf.scope/global :article/by-slug {:slug "w"}] 5] :generation 5}})
 
 (def ^:private machine-stale-suppressed-fixture
-  "Mirrors a machine transition stale-suppression emit carrying the additive
-  reply vocabulary (`:rf.machine/transition.cljc`)."
-  {:rf.reply/status      :stale
-   :rf.reply/work-id     [:rf.work/machine :auth/flow#1]
-   :rf.reply/work-status :suppressed
-   :work/kind            :machine
-   :rf.machine/done      false})
+  "Mirrors `re-frame.machines.lifecycle-fx.finalize`'s `:rf.machine/done` emit
+  for a stale late spawn completion (the parent instance is gone) — the
+  bespoke actor facts PLUS the additive reply vocabulary, with the stale
+  reason and correlation riding on the stale arm."
+  {:actor-id              :auth/flow#1
+   :output                nil
+   :parent-id             :auth/root
+   :error?                false
+   :frame                 :app/main
+   :rf.reply/work-kind    :machine
+   :rf.reply/status       :stale
+   :rf.reply/work-id      [:rf.work/machine :auth/flow#1 [:authenticating] 1]
+   :rf.reply/work-status  :suppressed
+   :rf.reply/stale-reason :rf.machine/actor-not-live
+   :rf.reply/correlation  {:generation {:carried 1 :current nil}}})
 
 (def ^:private all-fixtures
   {:http     http-stale-suppressed-fixture
@@ -188,16 +196,29 @@
    :rf.reply/current])
 
 ;; ---------------------------------------------------------------------------
-;; The production emit sites where the additive `:rf.reply/*` keys MUST appear
-;; as DATA. A family / substrate rename trips the source-pin even though the
-;; literals live in the implementation tree (not in re-frame2-pair-mcp) — the
-;; same posture the cross-MCP marker pins take against `mcp-base/vocab.cljc`.
+;; The production emit sites. The literals live in the implementation tree
+;; (not in re-frame2-pair-mcp) — the same posture the cross-MCP marker pins
+;; take against `mcp-base/vocab.cljc`.
 ;; ---------------------------------------------------------------------------
 
+(def ^:private family-emit-sites
+  "Each fixture family's ONE production emit site, as `[rel-path head]`
+  pairs naming the form whose tag map the fixture mirrors (see
+  `source-form`). The resource tag map is assembled across one call — the
+  bespoke facts at the family's call site, the `:rf.reply/*` facts merged on
+  in the shared emitter it calls — so that family names both forms."
+  {:http     [["implementation/http/src/re_frame/http/transport.cljc"
+               "(defn emit-superseded-stale-trace!"]]
+   :resource [["implementation/resources/src/re_frame/resources/events.cljc"
+               "(defn- emit-resource-stale-suppressed!"]
+              ["implementation/resources/src/re_frame/resources/reply_handlers.cljc"
+               "(defn emit-stale-suppressed!"]]
+   :machine  [["implementation/machines/src/re_frame/machines/lifecycle_fx/finalize.cljc"
+               "(rf.trace/emit! :rf.machine :rf.machine/done"]]})
+
 (def ^:private emit-source-files
-  "Per-family source files emitting the additive `:rf.reply/*` reply-envelope
-  trace vocabulary. The keyword is `pr-str`'d and grepped against the file
-  text AFTER `strip-comments-and-strings` neuters docstring/comment mentions."
+  "Source files emitting the additive `:rf.reply/*` reply-envelope trace
+  vocabulary, swept whole by the near-miss anti-pin."
   ["implementation/http/src/re_frame/http/transport.cljc"
    "implementation/resources/src/re_frame/resources/events.cljc"
    "implementation/machines/src/re_frame/machines/transition.cljc"
@@ -245,21 +266,19 @@
           (str "a row missing " k " MUST fail the schema")))))
 
 ;; ===========================================================================
-;; (3) SOURCE-text pin — the additive `:rf.reply/*` keys appear as DATA in the
-;;     production emit sites. A family / substrate rename trips this gate.
+;; (3) SOURCE-text pin — every fixture key appears as DATA at its own family's
+;;     emit site. A key one family drops or renames trips this gate even while
+;;     another family still emits it.
 ;; ===========================================================================
 
-(deftest reply-envelope-keys-are-emitted-as-data-in-the-production-sites
-  (testing "each additive :rf.reply/* key appears as DATA (not a docstring /
-            comment) in at least one production emit site — so a rename of the
-            MCP-visible reply-envelope vocabulary trips this gate"
-    (let [stripped (map (comp rf.mcp-conformance.fixtures/strip-comments-and-strings rf.mcp-conformance.fixtures/read-source) emit-source-files)]
-      (doseq [k reply-envelope-keys
-              :let [literal (pr-str k)]]
-        (is (some #(str/includes? % literal) stripped)
-            (str "the reply-envelope key " literal " is not emitted as DATA in any "
-                 "production site " (vec emit-source-files) " — a rename of the "
-                 "MCP-visible reply-envelope vocabulary slipped past the gate"))))))
+(deftest each-fixture-key-is-emitted-as-data-at-its-family-emit-site
+  (doseq [[family fixture] all-fixtures
+          :let [sites (family-emit-sites family)
+                text  (str/join "\n" (map #(apply rf.mcp-conformance.fixtures/source-form %) sites))]
+          k (keys fixture)]
+    (is (re-find (rf.mcp-conformance.fixtures/variant-regex (pr-str k)) text)
+        (str family " fixture key " (pr-str k) " is not emitted as DATA at its "
+             "emit site " sites " — the fixture has drifted from production"))))
 
 ;; ===========================================================================
 ;; (4) Near-miss anti-pin — a snake_case / pluralised / predicate / dotted-ns

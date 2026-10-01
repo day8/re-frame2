@@ -5,7 +5,8 @@
   reads, the conformed server set, and filesystem-derived story tool
   sources. Schemas and marker source pins live under `wire_vocab/`; a
   focused family's fixtures remain beside its tests."
-  (:require [clojure.java.io :as io]))
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]))
 
 ;; Resolve from the classpath resource rather than the invoking CWD.
 
@@ -186,3 +187,24 @@
   string itself — pure function of `src`, so identity-keyed equality
   is fine."
   (memoize strip-comments-and-strings*))
+
+(defn source-form
+  "The text of the ONE form in `rel-path` that opens with `head` (e.g.
+  `\"(defn frames-list\"`), with comments and strings blanked, so a pin over
+  it sees only what that form emits as data. Throws unless `head` occurs
+  exactly once outside comments and strings: a renamed, moved or duplicated
+  site fails loudly rather than pinning some other text."
+  [rel-path head]
+  (let [^String src (strip-comments-and-strings (read-source rel-path))
+        start       (str/index-of src head)]
+    (when (or (nil? start) (str/index-of src head (inc start)))
+      (throw (ex-info (str "expected exactly one " (pr-str head) " in " rel-path)
+                      {:rel-path rel-path :head head})))
+    (loop [index start, depth 0]
+      (let [depth (case (.charAt src index)
+                    (\( \[ \{) (inc depth)
+                    (\) \] \}) (dec depth)
+                    depth)]
+        (if (zero? depth)
+          (subs src start (inc index))
+          (recur (inc index) depth))))))
