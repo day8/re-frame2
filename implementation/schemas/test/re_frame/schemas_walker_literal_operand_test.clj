@@ -199,20 +199,12 @@
       (is (not (contains? v :sensitive?)))
       (is (= [:demo/e "z"] (-> v :tags :value))))))
 
-(deftest sensitive-slot-still-redacts-through-event-path
-  (testing "a genuinely :sensitive? payload slot is
-            redacted + stamped through the event path"
-    (let [v (event-failure-trace
-              [:cat [:= :demo/e] [:map [:pw {:sensitive? true} :string]]]
-              [:demo/e {:pw 99}])]
-      (is (some? v))
-      (is (true? (:sensitive? v)) ":sensitive? stamped for the marked slot")
-      (is (= :rf/redacted (-> v :tags :value)) ":value redacted"))))
-
 ;; ---- validation egress: always-on redact-validation-tags -------------------
 ;; The boundary / off-namespace emit sites reach the walker through the pure
 ;; `redact-validation-tags` seam. It is host-agnostic, so the CLJS half asserts
-;; the identical cases (host parity for the always-on path).
+;; the same cases (host parity for the always-on path). The JVM cases for a
+;; genuinely sensitive or opaque schema are the `redact-validation-tags-*`
+;; tests in `schemas_sensitive_test`.
 
 (deftest redact-validation-tags-non-sensitive-literal-rides-verbatim
   (testing "the always-on boundary redactor leaves a
@@ -228,21 +220,6 @@
               (str "non-sensitive literal schema rides verbatim: " (pr-str schema)))
           (is (not (contains? out :sensitive?))
               (str "no :sensitive? stamp for: " (pr-str schema))))))))
-
-(deftest redact-validation-tags-sensitive-and-opaque-still-redact
-  (testing "the boundary redactor fails closed for a
-            genuinely :sensitive? slot AND for a nested compiled/opaque child"
-    (let [tags {:value [:demo/e 99] :received [:demo/e 99] :explain :exp}]
-      (doseq [schema [[:cat [:= :demo/e] [:map [:pw {:sensitive? true} :string]]]
-                      [:map [:tok (m/schema [:string {:sensitive? true}])]]
-                      (m/schema [:string {:sensitive? true}])]]
-        (let [out (rf.schemas/redact-validation-tags schema tags)]
-          (is (true? (:sensitive? out))
-              (str "sensitive/opaque schema is stamped: " (pr-str schema)))
-          (is (= :rf/redacted (:value out))
-              (str "sensitive/opaque schema value redacted: " (pr-str schema)))
-          (is (not (str/includes? (pr-str out) "99"))
-              (str "no raw value survives redaction for: " (pr-str schema))))))))
 
 ;; ---- the always-on seam for the explicit reference form -------------------
 ;;
