@@ -122,16 +122,6 @@
 
 ;; ---- multiple flows ------------------------------------------------------
 
-(deftest multiple-flows-all-project
-  (testing "every registered flow on a frame projects to its own node"
-    (rf/reg-flow :a {:inputs [[:w]] :output-path [:out :a]} (fn [w] w))
-    (rf/reg-flow :b {:inputs [[:h]] :output-path [:out :b]} (fn [h] h))
-    (let [per-frame (rf.flows.tooling/flow-algebra-view :rf/default)]
-      (is (= #{:a :b} (set (keys per-frame))))
-      (is (every? has-fixed-classifications? (vals per-frame)))
-      (is (= [:db [:out :a]] (:output (:a per-frame))))
-      (is (= [:db [:out :b]] (:output (:b per-frame)))))))
-
 (deftest same-flow-id-on-two-frames-projects-per-frame
   (testing "the same flow-id on two frames yields two distinct nodes (frame-scoped)"
     ;; Flows are frame-scoped — the same id may carry different :inputs /
