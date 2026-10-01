@@ -147,7 +147,7 @@
                         {:rf.cofx {:rf/time-ms 1781078400123}})
       (let [coeffects @seen-coeffects]
         (is (= 1781078400123 (:rf/time-ms coeffects))
-            "the declared recordable fact arrived FLAT under its id (:rf/time-ms), not nested")
+            "the declared recordable fact supplied on the causal token arrived FLAT under its id (:rf/time-ms), not nested")
         (is (not (contains? coeffects :rf.world/inputs))
             "the live coeffects carry NO `:rf.world/inputs` key (no nested envelope)")
         (is (not (contains? coeffects :cofx))
@@ -394,17 +394,6 @@
             (swap! rf.late-bind/hooks dissoc :schemas/explain-with-registered-fn))
           (rf.late-bind/invalidate-cache! :schemas/validate-with-registered-fn)
           (rf.late-bind/invalidate-cache! :schemas/explain-with-registered-fn))))))
-
-(deftest reg-event-declared-rf-time-ms-is-delivered-flat-from-the-token
-  (testing "a declared :rf/time-ms fact is delivered flat from the causal token"
-    (let [seen-time-ms (atom ::unset)]
-      (rf/reg-event :evt-conf/reads-time
-        {:rf.cofx/requires [:rf/time-ms]}
-        (fn [{:keys [rf/time-ms]} _] (reset! seen-time-ms time-ms) {}))
-      (rf/dispatch-sync [:evt-conf/reads-time]
-                        {:rf.cofx {:rf/time-ms 1781078400123}})
-      (is (= 1781078400123 @seen-time-ms)
-          "the DECLARED :rf/time-ms arrived FLAT under its id from the causal token"))))
 
 (deftest reg-event-registered-but-absent-provided-fact-is-missing-required-cofx
   (testing "a missing provided fact fails before the handler without a host read"
