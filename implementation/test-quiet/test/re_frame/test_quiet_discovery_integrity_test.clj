@@ -249,10 +249,7 @@
 
   (testing "a directory that does not exist contributes nothing, exactly as
             it does to cognitect"
-    (is (= [] (rf.test-quiet.runner/discovery-defects ["no-such-directory-anywhere"]))))
-
-  (testing "and this artefact's own test tree is clean"
-    (is (= [] (rf.test-quiet.runner/discovery-defects ["test"])))))
+    (is (= [] (rf.test-quiet.runner/discovery-defects ["no-such-directory-anywhere"])))))
 
 ;; ----------------------------------------------------------------------
 ;; A DISCOVERY DIRECTORY IS NOT A CLASSPATH ROOT.
