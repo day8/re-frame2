@@ -256,10 +256,12 @@
         (fn [storage-key]
           (some-> (.-localStorage js/globalThis) (.getItem storage-key))))
 
-      ;; recordable, PROVIDED — a boundary fact stamped by its owner
-      (rf/reg-cofx :auth.session/token
+      ;; recordable, PROVIDED — a boundary fact stamped by its owner. A
+      ;; recorded value is durable, so never a credential, session id or
+      ;; key (spec/Privacy.md §Recordable coeffects must exclude secrets).
+      (rf/reg-cofx :app.boot/feature-flags
         {:recordable? true :provided? true
-         :doc \"The saved JWT the boot dispatch stamps onto its token.\"})
+         :doc \"The feature-flag snapshot the boot dispatch is stamped with.\"})
 
   Returns `id`.
 
