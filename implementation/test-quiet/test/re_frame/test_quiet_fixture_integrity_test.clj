@@ -127,6 +127,10 @@
 ;; The rule.
 
 (deftest a-map-fixture-is-named-under-either-key
+  ;; `use-fixtures` writes the VALUE it was handed, so a symbol bound to a map
+  ;; lands in this metadata exactly as the literal does; the case a static
+  ;; scan cannot see is pinned end to end by the contract test's
+  ;; `symbol-bound-map-fixture-refuses-the-run`.
   (doseq [meta-key [:clojure.test/each-fixtures :clojure.test/once-fixtures]]
     (with-probe-ns 'probe.map-fixture-ns meta-key (list map-fixture)
       (fn [ns-obj]
@@ -134,17 +138,6 @@
           (is (= [['probe.map-fixture-ns meta-key map-fixture]] offenders)
               (str "both `use-fixtures` metadata keys are read; got "
                    (pr-str offenders))))))))
-
-(deftest a-symbol-bound-to-a-map-is-named-too
-  (testing "the case a static scan cannot see: `use-fixtures` writes the
-            VALUE it was handed, so a map reaching the metadata through a
-            var is indistinguishable from a map literal here"
-    (let [lifecycle map-fixture]
-      (with-probe-ns 'probe.bound-fixture-ns :clojure.test/each-fixtures
-        (list lifecycle)
-        (fn [ns-obj]
-          (is (= 1 (count (rf.test-quiet.runner/uncallable-fixtures
-                            [ns-obj])))))))))
 
 (deftest function-fixtures-are-not-offenders
   (testing "the guard must not red the honest form — a bare fn, several fns
@@ -235,18 +228,3 @@
             a live control that the rule holds on real code, not only on
             probes"
     (is (= [] (rf.test-quiet.runner/uncallable-fixtures (all-ns))))))
-
-;; ----------------------------------------------------------------------
-;; The complaint.
-
-(deftest the-complaint-names-the-namespace-and-the-repair
-  (with-probe-ns 'probe.complaint-ns :clojure.test/each-fixtures
-    (list map-fixture)
-    (fn [ns-obj]
-      (let [[[ns-sym meta-key fixture]]
-            (rf.test-quiet.runner/uncallable-fixtures [ns-obj])]
-        (is (= 'probe.complaint-ns ns-sym))
-        (is (= :clojure.test/each-fixtures meta-key))
-        (is (map? fixture)
-            "the offending value travels with the complaint, so the message
-             can name what it is rather than only that it is wrong")))))
