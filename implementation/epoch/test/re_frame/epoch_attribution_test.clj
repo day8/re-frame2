@@ -13,7 +13,7 @@
   harvested + committed the record. In a synchronous JVM `dispatch-sync`, every
   trace emits INSIDE the cascade, so the suite reproduces the real
   React-commit / React-deref timing directly: dispatch a cascade (it settles
-  and commits its record), THEN emit a `:rf.sub/run` / `:rf.view/render` via
+  and commits its record), THEN emit a `:rf.sub/run` / `:rf.view/rendered` via
   `trace/emit!` with NO `*handler-scope*` and an empty in-flight buffer —
   precisely what `capture-event!` sees when Reagent flushes a batched
   re-render / reaction recompute after the drain. The runtime's back-fill
@@ -25,9 +25,10 @@
   it guards; each FAILS if the attribution it pins regresses):
 
     inv-1  `:rf.sub/run` attributed to its OWN cascade across ≥2 distinct
-           cascades.
-    inv-2  `:rf.view/rendered` / `:rf.view/render` attributed to its CAUSING
-           cascade, not the commit-time / next epoch.
+           cascades; a memo-hit `:rf.sub/skip` rides the same back-fill.
+    inv-2  `:rf.view/rendered` attributed to its CAUSING cascade, not the
+           commit-time / next epoch; the render-start `:rf.view/render` and
+           the `:rf.view/rendered-cap-reached` marker ride the same back-fill.
     inv-3  a late MOUNT render attributed to the mount/initialise epoch ONLY,
            not double-filed onto the first post-mount cascade.
     inv-4  `:rf.sub/value-changed?` + `:rf.sub/cause-sub` land on the correct epoch.
@@ -204,6 +205,35 @@
   [record sub-id]
   (->> (:sub-runs record) (filter #(= sub-id (:sub-id %))) first))
 
+(defn- trace-ops
+  "The [op-type operation] pairs in an epoch record's :trace-events, in
+  order. nil-safe — a record whose :trace-events was elided returns []."
+  [record]
+  (mapv (juxt :op-type :operation) (:trace-events record)))
+
+(defn- assert-trace-only-back-fill
+  "Settle cascade A, run `emit!` post-settle, then settle cascade B. The op
+  `[op-type operation]` projects no structured row, so its back-fill is
+  visible only on A's retained `:trace-events`: it must be there, and must
+  not have been buffered into B. Without the back-fill route the capture
+  seam drops it as an orphan, and A never carries it."
+  [[_ operation :as op] emit!]
+  (rf/make-frame {:id :test/main})
+  (rf/reg-event :seed (fn [_ _] {:db {:n 0}}))
+  (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
+  (rf/dispatch-sync [:seed] {:frame :test/main})
+  (let [epoch-a (last-epoch :test/main)]
+    (emit!)
+    (rf/dispatch-sync [:inc] {:frame :test/main})
+    (let [a (epoch-by-id :test/main epoch-a)
+          b (last-epoch :test/main)]
+      (is (= [:seed :inc] [(:event-id a) (:event-id b)])
+          "precondition: A and B are two settled epochs")
+      (is (some #{op} (trace-ops a))
+          (str operation " fired post-settle is back-filled into A, the cascade that caused it"))
+      (is (not-any? #{op} (trace-ops b))
+          (str operation " is not buffered into B, the next cascade")))))
+
 ;; Two stable render-key tuples for the mount-attribution cases.
 (def ^:private cv-rk "counter-view render-key." [:counter-view 6])
 (def ^:private tv-rk "title-view render-key."   [:title-view 7])
@@ -291,6 +321,20 @@
           "no record materialised from an orphan sub-run")
       (is (= [] @seen)
           "no listener fan-out for a sub-run with no causing cascade"))))
+
+(deftest inv-1-post-settle-sub-skip-back-filled-into-causing-cascade
+  (testing "a memo-hit `:rf.sub/skip` fires at the same React-deref timing as
+            a recompute, so it rides the sub-run back-fill into the cascade
+            that caused it. It projects no `:sub-runs` row, so it lands only on
+            that cascade's `:trace-events`."
+    (assert-trace-only-back-fill
+      [:rf.sub :rf.sub/skip]
+      #(rf.trace/emit! :rf.sub :rf.sub/skip
+                       {:frame                        :test/main
+                        :rf.sub/id                    :title
+                        :rf.sub/query-v               [:title]
+                        :rf.sub/reason                :input-value-equal
+                        :rf.sub/input-paths-unchanged []}))))
 
 ;; ===========================================================================
 ;; :rf.epoch/sensitive? rollup recomputed on back-fill
@@ -388,8 +432,8 @@
             "rollup stays false — a non-sensitive back-fill never flips it")))))
 
 ;; ===========================================================================
-;; INVARIANT 2 — :rf.view/rendered / :rf.view/render attributed to its CAUSING
-;;                cascade, not the commit-time / next epoch
+;; INVARIANT 2 — :rf.view/rendered / :rf.view/render / :rf.view/rendered-cap-reached
+;;                attributed to its CAUSING cascade, not the commit-time / next epoch
 ;; ===========================================================================
 
 (deftest inv-2-render-attributed-to-its-causing-cascade-multi-cascade
@@ -462,6 +506,29 @@
           "no record materialised from an orphan render")
       (is (= [] @seen)
           "no listener fan-out for a render with no causing cascade"))))
+
+(deftest inv-2-post-settle-render-start-back-filled-into-causing-cascade
+  (testing "the render-START `:rf.view/render` fires at React-commit timing
+            beside its `:rf.view/rendered`, so it rides the same render
+            back-fill into the cascade that caused it. The `:renders` row is
+            sourced from `:rf.view/rendered`, so this op lands only on
+            `:trace-events`."
+    (assert-trace-only-back-fill
+      [:rf.view :rf.view/render]
+      #(rf.trace/emit! :rf.view :rf.view/render
+                       {:rf.view/render-key [:title-view 0]
+                        :frame              :test/main}))))
+
+(deftest inv-2-post-settle-render-cap-marker-back-filled-into-causing-cascade
+  (testing "the one-shot `:rf.view/rendered-cap-reached` marker is a render op
+            too, so post-settle it rides the render back-fill into the cascade
+            that caused it. It carries no render-key and projects no `:renders`
+            row, so it lands only on `:trace-events`."
+    (assert-trace-only-back-fill
+      [:rf.view :rf.view/rendered-cap-reached]
+      #(rf.trace/emit! :rf.view :rf.view/rendered-cap-reached
+                       {:frame                 :test/main
+                        :rf.view/dropped-after 100}))))
 
 ;; ===========================================================================
 ;; INVARIANT 3 — a late MOUNT render attributed to the mount/initialise epoch
@@ -789,12 +856,6 @@
 ;; in by the NEXT dequeued event's harvest as that epoch's FIRST
 ;; :trace-events entry.
 
-(defn- trace-ops
-  "The [op-type operation] pairs in an epoch record's :trace-events, in
-  order. nil-safe — a record whose :trace-events was elided returns []."
-  [record]
-  (mapv (juxt :op-type :operation) (:trace-events record)))
-
 (deftest inv-6-frame-created-not-folded-into-next-epoch
   (testing ":rf.frame/created, emitted by make-frame AFTER :initial-events'
             epoch already settled, must NOT appear in the NEXT dequeued event's
@@ -874,8 +935,9 @@
             A count-based reclaim would DROP the marker after
             one intervening harvest, which is exactly this legitimate
             interleaving. Memory is bounded by the
-            terminal paths that clear the whole buffer (drain-interrupt / depth-
-            halt / rejected dispatch), proven by inv-6c-bound below; it is NOT
+            terminal paths that end the child's life — frame destroy clears the
+            whole buffer, and the child's own rejected dispatch drops the
+            traces its id owns — proven by inv-6c-bound below; it is NOT
             bounded by a per-marker harvest count."
     (let [frame       :test/harvest-sibling
           child-mark  {:op-type :rf.event :operation :rf.event/dispatched
@@ -917,11 +979,12 @@
   (testing "a child that NEVER runs to a settle (handler
             unregistered, frame destroyed / drain-interrupted, depth-halt clears
             the queue) leaves its marker stranded, but it does NOT accrete: the
-            terminal path that ends the child's life clears the WHOLE buffer.
-            `drop-frame-buffer!` (frame destroy / discard) and the no-run-start
-            full clear-and-return (rejected dispatch) both wipe the stranded
-            marker. This is the memory bound — bounded by lifecycle, not by a
-            per-marker harvest counter."
+            terminal path that ends the child's life clears it.
+            `drop-frame-buffer!` (frame destroy / discard) wipes the whole
+            buffer, and a rejected child's own settle drops the traces its
+            dispatch id owns, its stranded marker among them. This is the
+            memory bound — bounded by lifecycle, not by a per-marker harvest
+            counter."
     (let [frame    :test/harvest-stranded-bound
           stranded {:op-type :rf.event :operation :rf.event/dispatched
                     :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}]
@@ -933,16 +996,25 @@
       (is (empty? (rf.epoch.state/buffer-for frame))
           "drop-frame-buffer! (destroy / discard) clears the stranded marker")
 
-      ;; (b) rejected-dispatch terminal clear: a buffer with NO run-start (the
-      ;; child's dispatch was rejected) reaches the no-run-start branch, which
-      ;; clears-and-returns the whole buffer.
-      (rf.epoch.state/buffer-event! frame stranded)
-      (let [returned (rf.epoch.state/harvest-buffer-for-event! frame)]
-        (is (= [stranded] returned)
-            "a no-run-start harvest returns the buffer (the degenerate record is
-             suppressed downstream by settle!'s empty-buffer policy)")
-        (is (empty? (rf.epoch.state/buffer-for frame))
-            "and clears it — the stranded marker does not accrete")))))
+      ;; (b) rejected-dispatch terminal clear, through the real settle path. A
+      ;; parent queues a child whose event has no handler. The child's
+      ;; queue-time marker carries the child's id, so the parent's settle
+      ;; leaves it buffered; the child is then rejected at dequeue, and
+      ;; `settle!` harvests with the child's envelope id, which owns the
+      ;; marker.
+      (rf/make-frame {:id :test/main})
+      (let [buffer-at-parent-settle (atom nil)]
+        (rf/register-listener! :epoch ::stranded-probe
+          (fn [_] (reset! buffer-at-parent-settle (rf.epoch.state/buffer-for :test/main))))
+        (rf/reg-event :parent (fn [_ _] {:fx [[:dispatch [:child-never-registered]]]}))
+        (rf/dispatch-sync [:parent] {:frame :test/main})
+        (is (= [[:rf.event/dispatched [:child-never-registered]]]
+               (mapv (juxt :operation #(-> % :tags :rf.event/v)) @buffer-at-parent-settle))
+            "PRECONDITION: the child's marker outlived the parent's settle, stranded")
+        (is (= [:parent] (mapv :event-id (rf/epoch-history :test/main)))
+            "the rejected child commits no epoch")
+        (is (empty? (rf.epoch.state/buffer-for :test/main))
+            "the rejected child's settle cleared its stranded marker — it does not accrete")))))
 
 (deftest inv-6c-bead-sibling-queued-behind-parent-does-not-drop-child
   (testing "queue B behind parent A; A
@@ -1898,11 +1970,15 @@
 ;; The splice therefore always lands on the record whose `:epoch-id` matches,
 ;; regardless of any interleaved append / eviction.
 ;;
-;; These tests reproduce the eviction-shift deterministically (single-threaded
-;; — drive `record!` to evict between capturing the target and back-filling it),
-;; then assert the back-fill is index-shift-IMMUNE. They exercise the splice
-;; path directly: a stale-index splice would surface as a row on the WRONG epoch (or a
-;; row on a surviving record when the target was evicted).
+;; These tests are single-threaded, so they show less than that. An eviction
+;; lands after the target is captured and BEFORE the back-fill runs, and they
+;; assert the back-fill resolves its target by `:epoch-id` against the ring as
+;; it stands then: a positional splice would surface as a row on the WRONG
+;; epoch (or a row on a surviving record when the target was evicted). Nothing
+;; runs inside the back-fill's own lookup-to-splice window here, so an
+;; implementation that looked up on one deref and spliced on a second would
+;; pass them. That race is
+;; `re-frame.epoch-concurrency-stress-test/back-fill-snapshot-consistent-under-interleaved-eviction-stress`'s.
 
 (defn- bf-sub-event
   "A bare reactive `:rf.sub/run` trace-event map (the shape
@@ -1918,10 +1994,11 @@
    :row   {:sub-id sub-id :value value}})
 
 (deftest qh13yf-back-fill-splices-target-by-id-not-stale-index
-  (testing "when an eviction at ring cap SHIFTS the target
-            epoch's index between the back-fill's would-be index resolution
-            and its splice, the splice lands on the epoch matching epoch-id
-            (re-derived inside the swap), NOT the stale positional neighbour."
+  (testing "when an eviction at ring cap SHIFTS the target epoch's index
+            after the target was captured and before the back-fill runs, the
+            splice lands on the epoch matching epoch-id, NOT the record now at
+            the target's old index. (The lookup-to-splice race inside the
+            back-fill itself is the concurrency stress suite's.)"
     ;; depth 3 — small cap so an append after filling evicts the front.
     (rf/configure! {:epoch-history {:depth 3 :trace-events-keep 50}})
     (rf/make-frame {:id :test/main})

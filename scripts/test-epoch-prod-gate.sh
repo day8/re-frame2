@@ -105,11 +105,9 @@ test_root="$artefact/test"
 # ---------------------------------------------------------------------------
 # The known-red roster.
 #
-# Every entry FAILS under `-Dre-frame.debug=false`, and the figure beside it is
-# a failures/assertions count measured with that namespace run alone.  An entry
-# that no longer names a real namespace is a hard error (see `verify_roster`
-# below), so a rename cannot leave a stale exclusion quietly suppressing
-# coverage.
+# Every entry FAILS under `-Dre-frame.debug=false`.  An entry that no longer
+# names a real namespace is a hard error (see `verify_roster` below), so a
+# rename cannot leave a stale exclusion quietly suppressing coverage.
 # ---------------------------------------------------------------------------
 # Every entry falls into one of three classes, below; NONE is the "could run,
 # nobody tried" class, so the roster has no incidental members and nothing to
@@ -138,25 +136,25 @@ known_red=(
   #    for why that is the intended posture.  NOT debt:
   #    re-including one would require inventing behaviour the artefact is
   #    designed not to have in production.  DISPOSITION: correct as-is.
-  re-frame.actor-revertibility-restore-test              #  21 /   44
-  re-frame.epoch-attribution-test                        # 107 /  208
+  re-frame.actor-revertibility-restore-test
+  re-frame.epoch-attribution-test
   #    The `:depth` transition serialization.
   #    Its subject is a writer PARKED INSIDE `record!`: under the gate
   #    `record!` is never reached, so the park never arms and the suite has
   #    nothing to observe.  Class A, and dev-only by construction rather
   #    than by choice.
-  re-frame.epoch-depth-transition-race-test              #   2 /   14
-  re-frame.epoch-drain-serialization-test                #  13 /   26
-  re-frame.epoch-egress-redaction-cljs-test              #  62 /  117
-  re-frame.epoch-egress-resource-trace-test              # 145 /  581
-  re-frame.epoch-egress-trace-events-test                #   6 /   49
-  re-frame.epoch-mcp-egress-conformance-test             #  89 /  141
-  re-frame.epoch-override-capture-test                   #   6 /   13
-  re-frame.epoch-privacy-test                            #  83 /  134
-  re-frame.epoch-run-cause-test                          #  20 /   27
-  re-frame.epoch-test                                    # 428 /  752
-  re-frame.join-strict-mint-epoch-replay-test            #  17 /   29
-  re-frame.machine-minted-cofx-replay-token-test         #   6 /    9
+  re-frame.epoch-depth-transition-race-test
+  re-frame.epoch-drain-serialization-test
+  re-frame.epoch-egress-redaction-cljs-test
+  re-frame.epoch-egress-resource-trace-test
+  re-frame.epoch-egress-trace-events-test
+  re-frame.epoch-mcp-egress-conformance-test
+  re-frame.epoch-override-capture-test
+  re-frame.epoch-privacy-test
+  re-frame.epoch-run-cause-test
+  re-frame.epoch-test
+  re-frame.join-strict-mint-epoch-replay-test
+  re-frame.machine-minted-cofx-replay-token-test
   #    `replay-epoch!` by id. Dispatches, reads the ring back
   #    and re-dispatches from a retained record; under the gate the ring
   #    never fills and `replay-epoch!` returns `false` by design (pinned in
@@ -182,12 +180,12 @@ known_red=(
   #    (`silence-decision-atomicity`, `silencing-emit-deadlock`), which is what
   #    covers the load-time risk; four more of the same shape add cost, not
   #    information.  DISPOSITION: correct as-is.
-  re-frame.epoch-silence-contract-test                   #   6 /   21
-  re-frame.epoch-silence-receiver-public-api-test        #   7 /   12
-  re-frame.epoch-silencing-generation-emission-test      #   4 /   13
-  re-frame.epoch-silencing-lineage-285-test              #  68 / 3608
-  re-frame.epoch-silencing-lineage-aba-test              #   7 /   19
-  re-frame.epoch-silencing-same-generation-rearm-test    #  17 /   34
+  re-frame.epoch-silence-contract-test
+  re-frame.epoch-silence-receiver-public-api-test
+  re-frame.epoch-silencing-generation-emission-test
+  re-frame.epoch-silencing-lineage-285-test
+  re-frame.epoch-silencing-lineage-aba-test
+  re-frame.epoch-silencing-same-generation-rearm-test
 
   # ── CLASS C · HAZARDOUS: DOES NOT TERMINATE (1).  A different fact from "red"
   #    and recorded as such.  Its stress loops wait on epoch ids the no-op floor

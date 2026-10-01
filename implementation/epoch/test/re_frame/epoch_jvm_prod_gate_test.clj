@@ -174,9 +174,27 @@
             surface is dev-only; SSR production processes do NOT
             give arbitrary in-process code the ability to mutate
             `app-db` out of band."
-    (with-redefs [rf.interop/debug-enabled? false]
-      (is (false? (rf/restore-epoch! :rf/default :some-epoch-id))
-          "restore-epoch! returns false (refuses to operate)"))))
+    (rf/reg-event :prod-gate.epoch/restore-probe
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    ;; The target is a REAL retained `:ok` epoch, recorded with the gate
+    ;; rebound open so the production-gate lane records it too. An unknown id
+    ;; is refused whatever the gate reads, so only a restorable target leaves
+    ;; the gate as the one thing refusing.
+    (let [target-id (with-redefs [rf.interop/debug-enabled? true]
+                      (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
+                      (rf/dispatch-sync [:prod-gate.epoch/restore-probe])
+                      (:epoch-id (first (rf/epoch-history :rf/default))))]
+      (is (some? target-id)
+          "PRECONDITION: a retained epoch to restore to")
+      (with-redefs [rf.interop/debug-enabled? false]
+        (is (false? (rf/restore-epoch! :rf/default target-id))
+            "restore-epoch! returns false (refuses to operate)")
+        (is (= 2 (:n (app-db-of :rf/default)))
+            "app-db is not rewound to the target epoch"))
+      (with-redefs [rf.interop/debug-enabled? true]
+        (is (true? (rf/restore-epoch! :rf/default target-id))
+            "CONTROL: with the gate open the same restore succeeds, so the
+             refusal above was the gate's alone")))))
 
 (deftest replay-epoch-refuses-when-debug-disabled
   (testing "`replay-epoch!` is gated exactly like `restore-epoch!`
