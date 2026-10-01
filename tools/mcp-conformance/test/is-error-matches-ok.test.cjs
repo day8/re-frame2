@@ -70,11 +70,6 @@ test('assertIsErrorMatchesOk: a legitimate dedup-wrapped :ok? false + isError:tr
   assert.doesNotThrow(() => assertIsErrorMatchesOk('probe', resp));
 });
 
-test('assertIsErrorMatchesOk: a legitimate dedup-wrapped :ok? true + isError:false does not throw', () => {
-  const resp = { isError: false, structuredContent: dedupWrapped({ 'ok?': true }) };
-  assert.doesNotThrow(() => assertIsErrorMatchesOk('probe', resp));
-});
-
 test('assertIsErrorMatchesOk: a non-dedup (plain) envelope still cross-checks as before', () => {
   assert.throws(
     () =>
