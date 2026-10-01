@@ -194,28 +194,32 @@
 ;; ---- :schema output validation elides under prod --------------------------
 
 (deftest flow-output-schema-validation-elides-under-prod
-  (testing "Per Spec 009 §Production-elision: a flow whose
-            computed `:derive` output VIOLATES its `:schema` emits NO
-            `:rf.error/schema-validation-failure :where :flow-output`
-            trace under `:advanced` + `goog.DEBUG=false`. A predicate
-            validator is registered so the seam is fully wired — the
-            whole validate-output! surface still DCEs because it sits
-            inside the `interop/debug-enabled?` gate. The value is still
-            written (recompute is never gated)."
-    ;; Register a validator that REJECTS every value — if validation ran,
-    ;; a violation would surface.
-    (rf.schemas/set-schema-fns! {:validate (fn [_ _] false)})
-    (rf/reg-event :prod-elision/seed-validate
-      (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
-    (rf/reg-flow :prod-elision/validated
-      {:inputs      [[:w] [:h]]
-       :output-path [:prod-elision/area]
-       :schema      (fn [_] false)}
-      (fn [w h] (* (or w 0) (or h 0))))
-    (let [traces (capture-traces
-                 (fn []
-                   (rf/dispatch-sync [:prod-elision/seed-validate])))]
-      (is (empty? traces)
-          "no schema-validation-failure (or any other) trace under prod"))
-    (is (= 12 (get-in (rf/app-db-value :rf/default) [:prod-elision/area]))
-        "flow output still written — only the validation/trace surface elided")))
+  (testing "Per Spec 009 §Production-elision: under `:advanced` +
+            `goog.DEBUG=false` a flow declaring a `:schema` never
+            consults the registered validator — `evaluate-flow!` calls
+            validate-output! only inside the `interop/debug-enabled?`
+            gate, so the whole validation surface DCEs. The gate is
+            witnessed at the validator itself, because a no-trace
+            assertion alone cannot fail on it: `emit-error!` is
+            debug-gated too. The value is still written (recompute is
+            never gated) and no trace of any kind is delivered."
+    ;; A counting validator that REJECTS every value — if validation ran,
+    ;; the count would move.
+    (let [consulted (atom 0)]
+      (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
+      (rf/reg-event :prod-elision/seed-validate
+        (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
+      (rf/reg-flow :prod-elision/validated
+        {:inputs      [[:w] [:h]]
+         :output-path [:prod-elision/area]
+         :schema      (fn [_] false)}
+        (fn [w h] (* (or w 0) (or h 0))))
+      (let [traces (capture-traces
+                     (fn []
+                       (rf/dispatch-sync [:prod-elision/seed-validate])))]
+        (is (empty? traces)
+            "no schema-validation-failure (or any other) trace under prod"))
+      (is (zero? @consulted)
+          "the registered validator is never consulted under prod")
+      (is (= 12 (get-in (rf/app-db-value :rf/default) [:prod-elision/area]))
+          "flow output still written — only the validation/trace surface elided"))))
