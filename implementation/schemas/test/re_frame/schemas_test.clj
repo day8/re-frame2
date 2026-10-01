@@ -179,20 +179,17 @@
             :rf/skip-handler?")))))
 
 (deftest event-payload-validation-elides-when-debug-disabled
-  (testing "validate-event! is a no-op when debug-enabled? is false (production)"
+  (testing "a production dispatch (debug-enabled? false) runs the handler on
+            a non-conforming payload: the router takes the boundary arm,
+            which validates only `:boundary? true` handlers"
     (let [calls (atom 0)]
       (rf/reg-event :user/strict
         {:schema [:cat [:= :user/strict] :int]}
         (fn [{:keys [db]} _] (swap! calls inc) {:db db}))
-      (with-trace-recorder! [traces]
-        (with-redefs [rf.interop/debug-enabled? false]
-          (rf/dispatch-sync [:user/strict "not-an-int"]))
-        (is (empty? (filter #(= :rf.error/schema-validation-failure
-                                (:operation %))
-                            @traces))
-            "no validation trace when debug-enabled? is false")
-        (is (= 1 @calls)
-            "handler runs anyway — production validation is elided")))))
+      (with-redefs [rf.interop/debug-enabled? false]
+        (rf/dispatch-sync [:user/strict "not-an-int"]))
+      (is (= 1 @calls)
+          "handler runs anyway — production validation is elided"))))
 
 ;; ---- sub-return validation -----------------------------------------------
 
@@ -415,7 +412,8 @@
             "no schema-validation-failure trace fires for a conforming fx-args")))))
 
 (deftest fx-args-validation-elides-when-debug-disabled
-  (testing "validate-fx! is a no-op when debug-enabled? is false (production)"
+  (testing "validate-fx! passes when debug-enabled? is false (production),
+            so the fx handler runs on non-conforming args"
     (let [calls (atom 0)]
       (rf/reg-fx :strict/fx
         {:schema [:map [:x :int]]}
@@ -423,15 +421,10 @@
       (rf/reg-event :strict/trigger
         (fn [_ _]
           {:fx [[:strict/fx {:x "not-an-int"}]]}))
-      (with-trace-recorder! [traces]
-        (with-redefs [rf.interop/debug-enabled? false]
-          (rf/dispatch-sync [:strict/trigger]))
-        (is (empty? (filter #(= :rf.error/schema-validation-failure
-                                (:operation %))
-                            @traces))
-            "no validation trace when debug-enabled? is false")
-        (is (= 1 @calls)
-            "fx handler runs anyway — production validation is elided")))))
+      (with-redefs [rf.interop/debug-enabled? false]
+        (rf/dispatch-sync [:strict/trigger]))
+      (is (= 1 @calls)
+          "fx handler runs anyway — production validation is elided"))))
 
 (deftest fx-args-validation-direct-call-shape
   (testing "validate-fx! returns true on pass, false on fail; emits the canonical
@@ -617,27 +610,34 @@
           (is (= [1 2]        (-> v :tags :received)))
           (is (= :replaced-with-default (:recovery v))))))))
 
-;; ---- production-elision symmetry for sub --------------------------------
+;; ---- production elision of the meta-bearing validators ------------------
 ;;
-;; debug-enabled?=false elision is pinned for app-db, event, and fx through
-;; the tests above; this direct-call pin covers validate-sub!. The bodies
-;; share the outer `(if interop/debug-enabled? ... true)` gate, so a
-;; refactor of one wrapper that broke its gate would otherwise slip past
-;; the suite.
+;; validate-event! / validate-sub! / validate-fx! each sit behind their own
+;; `(if interop/debug-enabled? ... true)` gate, so each is pinned by a direct
+;; call: a refactor of one wrapper that broke its gate would otherwise slip
+;; past the suite. A dispatch cannot pin validate-event!'s gate, because in
+;; production the router never reaches it. Nor can a no-trace assertion pin
+;; any of them: `emit-error!` is itself debug-gated, so no failure trace
+;; reaches a recorder under debug false whatever the validator decides.
 
-(deftest sub-return-validation-elides-when-debug-disabled
-  (testing "validate-sub! is a no-op (returns true, emits
-            nothing) when debug-enabled? is false (production)"
-    (with-trace-recorder! [traces]
+(deftest meta-bearing-validators-elide-when-debug-disabled
+  (testing "under debug-enabled? false each meta-bearing validator returns
+            true on a non-conforming value without consulting the
+            registered validator"
+    (let [consulted (atom 0)]
+      (rf.schemas/set-schema-fns! {:validate (fn [_ _] (swap! consulted inc) false)})
       (with-redefs [rf.interop/debug-enabled? false]
+        (is (true? (rf.schemas/validate-event! :user/strict [:user/strict "not-an-int"]
+                                               {:schema [:cat [:= :user/strict] :int]}))
+            "validate-event! passes in production")
         (is (true? (rf.schemas/validate-sub! :items [:items] [1 2]
-                                          {:schema [:vector :string]}))
-            "production gate returns true unconditionally — even on a
-             value that would fail in dev"))
-      (is (empty? (filter #(= :rf.error/schema-validation-failure
-                              (:operation %))
-                          @traces))
-          "no validation trace when debug-enabled? is false"))))
+                                             {:schema [:vector :string]}))
+            "validate-sub! passes in production")
+        (is (true? (rf.schemas/validate-fx! :strict/fx :strict/trigger {:x "not-an-int"}
+                                            {:schema [:map [:x :int]]}))
+            "validate-fx! passes in production"))
+      (is (zero? @consulted)
+          "the registered validator is never consulted in production"))))
 
 (deftest fx-args-validation-redacts-when-sensitive
   (testing "validate-fx! consults the schema tree for `:sensitive?` props
