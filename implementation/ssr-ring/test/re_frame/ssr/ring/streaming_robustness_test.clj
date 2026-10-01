@@ -323,7 +323,7 @@
 ;;   - no orphan `rf2-ssr-streaming-*` daemon thread (none is spawned at
 ;;     all on a shell-render failure).
 ;; The direct-handler half of this contract lives in
-;; `ring_streaming_test/stream-handler-root-view-throw-fails-closed`.
+;; `streaming_writer_trace_test/stream-handler-destroys-frame-when-shell-render-throws`.
 
 (deftest root-view-throw-fails-closed-non-200-bytes-on-wire
   (testing "a root-view throw fails closed to a non-200 on the
