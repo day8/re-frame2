@@ -1000,17 +1000,23 @@
            (rf/configure! {:epoch-history {:depth 50}}))))))
 
 #?(:clj
-   (deftest a-bare-unknown-event-step-completes-the-run
+   (deftest a-bare-unknown-event-step-fails-the-run
      (testing "a bare event vector naming no registered handler runs as one
-              step and the run reaches a terminal state"
+              :dispatch step; the router refuses it, and the refusal fails
+              the run rather than reading as a vacuous :pass"
        (rf.story/reg-variant :story.runner/bare-unknown
          {:setup []
           :script {:auto-run? false
                         :script    [[:does-not-exist :nope]]}})
        (rf.story.async/deref-blocking (rf.story/run-variant :story.runner/bare-unknown) 5000)
        (let [final (run-blocking :story.runner/bare-unknown)]
-         (is (some? final))
-         (is (= 1 (count (:results final))))))))
+         (is (= 1 (count (:results final))))
+         (is (= :fail (:status final)))
+         (is (= [[:rf.error/no-such-handler :does-not-exist]]
+                (mapv (juxt :operation :failing-id)
+                      (:rf.story/assertions
+                        (rf/app-db-value :story.runner/bare-unknown))))
+             "the refusal lands on the assertions slot naming the event id")))))
 
 ;; ---- variant-play-script resolution --------------------------------------
 
