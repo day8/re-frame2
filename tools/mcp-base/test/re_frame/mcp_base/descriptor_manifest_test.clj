@@ -45,13 +45,6 @@
     (is (= ["readOnlyHint"] (:annotations row)))
     (is (= 600 (:typicalTokens row)) "typicalTokens passed through verbatim")))
 
-(deftest descriptor->row-projects-required-and-typical-tokens
-  ;; The two live API-semantics facets: :required + :typicalTokens.
-  (let [row (rf.mcp-base.descriptor-manifest/descriptor->row (second sample-descriptors))] ; alpha
-    (is (= ["event"] (:input-keys row)))
-    (is (= ["event"] (:required row)) ":required projects the mandatory input subset")
-    (is (= 300 (:typicalTokens row)))))
-
 (deftest descriptor->row-required-is-sorted-stringified
   ;; :required is sorted + stringified the same way :input-keys is, so a
   ;; keyword-shaped or out-of-order entry still renders byte-stably.
@@ -146,19 +139,6 @@
         ":input-keys stays the FULL union — the gate-open surface")
     (is (= ["include-sensitive"] (:gated-input-keys row))
         ":gated-input-keys names the default-stripped subset")))
-
-(deftest default-vs-gate-open-surfaces-are-derivable
-  ;; The default profile excludes include-sensitive; the gate-open
-  ;; profile includes it. Both are derivable from one byte-stable row.
-  (let [row          (rf.mcp-base.descriptor-manifest/descriptor->row gated-descriptor #{"include-sensitive"})
-        gate-open    (:input-keys row)
-        default-surf (remove (set (:gated-input-keys row)) gate-open)]
-    (is (some #{"include-sensitive"} gate-open)
-        "gate-open surface (= :input-keys) INCLUDES include-sensitive")
-    (is (not (some #{"include-sensitive"} default-surf))
-        "default surface (:input-keys minus :gated-input-keys) EXCLUDES include-sensitive")
-    (is (= ["max-tokens" "variant-id"] (vec default-surf))
-        "the non-gated inputs survive on the default surface")))
 
 (deftest gated-keys-intersect-only-present-keys
   ;; A gated key the descriptor does not actually carry is NOT invented

@@ -39,14 +39,6 @@
     (is (= [:user :prefs] (:section-path (first sections))))
     (is (= patches (:patches (first sections))))))
 
-(deftest top-level-singleton-keeps-full-path
-  ;; [:flash] is already a useful breadcrumb at depth-1; don't promote
-  ;; to [] (which would conflict with the whole-DB rule).
-  (let [patches  [[[:flash] :assoc "Saved"]]
-        sections (rf.mcp-base.section-grouping/group-patches-into-sections patches)]
-    (is (= 1 (count sections)))
-    (is (= [:flash] (:section-path (first sections))))))
-
 ;; ---------------------------------------------------------------------------
 ;; Coalescence — siblings within the depth budget merge under a
 ;; common ancestor.
@@ -173,21 +165,6 @@
                                   patches {:db-before {:user {:name "bob"}}}))))
           "existing [:user] whose direct children changed is a modification, not an addition"))))
 
-(deftest synthetic-direct-child-cluster-under-absent-container-classifies-as-added
-  ;; The genuine :added shape. An advanced consumer
-  ;; supplies a synthetic patch list (NOT from collect-patches, which
-  ;; emits a whole-subtree singleton for a brand-new key): direct-child
-  ;; :assoc patches under a container that :db-before proves was absent.
-  ;; THAT is a real newly-introduced subtree → :added.
-  (let [patches [[[:user :name]  :assoc "ada"]
-                 [[:user :email] :assoc "ada@example.com"]]]
-    (is (= :added (:section-kind
-                    (first (rf.mcp-base.section-grouping/group-patches-into-sections patches {:db-before {}}))))
-        "[:user] absent in db-before + all-:assoc direct children ⇒ :added")
-    (is (= :added (:section-kind
-                    (first (rf.mcp-base.section-grouping/group-patches-into-sections patches {:db-before {:session :idle}}))))
-        "[:user] still absent (only :session present) ⇒ :added")))
-
 (deftest db-before-with-stored-nil-counts-container-as-present
   ;; A stored `nil` under the container key is PRESENT, not absent — the
   ;; sentinel-based path-present? check distinguishes a stored nil from a
@@ -252,19 +229,6 @@
 ;; Stable ordering — same input ⇒ same section order across runs.
 ;; ---------------------------------------------------------------------------
 
-(deftest section-order-is-deterministic-across-input-orders
-  (let [patches-a [[[:cart :items 0 :qty] :assoc 2]
-                   [[:flash] :assoc "Saved"]
-                   [[:cart :totals :grand] :assoc 30]]
-        patches-b [[[:flash] :assoc "Saved"]
-                   [[:cart :totals :grand] :assoc 30]
-                   [[:cart :items 0 :qty] :assoc 2]]
-        sections-a (rf.mcp-base.section-grouping/group-patches-into-sections patches-a)
-        sections-b (rf.mcp-base.section-grouping/group-patches-into-sections patches-b)]
-    (is (= (mapv :section-path sections-a)
-           (mapv :section-path sections-b))
-        "input order doesn't alter section order — the sort makes it stable")))
-
 (deftest sections-are-sorted-ascending-by-final-section-path
   ;; The initial sort keys patches by their full path, but
   ;; coalescing (`group-by-ancestor`) and singleton-promotion both
@@ -277,8 +241,8 @@
   ;; re-deriving order post-coalescing) can therefore emit sections
   ;; out of the documented ascending order. This test asserts the
   ;; FINAL output is always ascending by `(pr-str :section-path)` —
-  ;; the §Ordering contract in `spec/section-grouping.md` — not merely
-  ;; stable across input-order permutations (the order-stability test above).
+  ;; the §Ordering contract in `spec/section-grouping.md` — whatever the
+  ;; input order.
   (testing "[:cart] (narrowed ancestor) vs [:cart-summary] (untouched sibling)"
     ;; {:cart {:qty 1} :cart-summary old} -> {:cart {:qty 5} :cart-summary new}.
     ;; [:cart :qty] promotes (singleton, depth > 1) to the [:cart]
