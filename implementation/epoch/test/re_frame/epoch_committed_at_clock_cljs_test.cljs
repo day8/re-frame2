@@ -6,10 +6,11 @@
   This suite drives an unscripted event through the real router and asserts the
   stored causal time is near wall-clock epoch milliseconds. The plain-atom
   adapter is sufficient because the clock read occurs at envelope construction,
-  independently of rendering."
+  independently of rendering. That the two CLJS clocks read different classes,
+  which the band below relies on, is checked by
+  `re-frame.cofx-router-stamp-clock-cljs-test/clock-class-discriminator-sanity-cljs`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as rf.interop]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.test-support :as rf.test-support]))
 
@@ -70,17 +71,3 @@
              (within 10s) — it IS the live wall clock, not a stale or
              perf-relative read")))))
 
-(deftest committed-at-clock-class-discriminator-sanity-cljs
-  (testing "corroborate the discriminator the regression
-            assertion leans on: on the CLJS runtime epoch-now-ms is a
-            wall-clock epoch ms (> 1e12) while now-ms (performance.now) is an
-            origin-relative elapsed value BELOW the wall-clock floor. Pins
-            that the two clock surfaces ARE distinguishable here — so the
-            band test above genuinely catches a swap (it would be vacuous if
-            both clocks read the same class, as on the JVM)."
-    (is (> (rf.interop/epoch-now-ms) wall-clock-floor)
-        "epoch-now-ms is a wall-clock epoch ms on CLJS (js/Date.now)")
-    (is (< (rf.interop/now-ms) wall-clock-floor)
-        "now-ms is an origin-relative perf time on CLJS (performance.now),
-         below the wall-clock floor — distinct CLASS from epoch-now-ms, so a
-         swap is observable on this runtime (JVM-benign)")))
