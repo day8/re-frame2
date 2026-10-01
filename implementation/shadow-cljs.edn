@@ -237,13 +237,13 @@
                 ;; `clojure -M:test` re-reads on every run, so it has no
                 ;; cache to invalidate.
                 "../tools/xray/spec"
-                ;; The adversarial-property SECURITY tier. A small
-                ;; cross-artefact test tree probing three security
-                ;; boundaries a pin-and-assert regime misses: SSR escaping,
-                ;; schema redaction nested at arbitrary depth, and
-                ;; AI/MCP-boundary egress redaction. The tests sit ABOVE
-                ;; several artefacts (core,
-                ;; schemas, ssr) + a tool (mcp-base), so they live in their
+                ;; The adversarial-property SECURITY tier: every
+                ;; `-security-cljs-test` namespace under `security/test`, a
+                ;; cross-artefact test tree probing security boundaries a
+                ;; pin-and-assert regime misses — SSR escaping, schema
+                ;; redaction nested at arbitrary depth and AI/MCP-boundary
+                ;; egress redaction among them. The tests sit ABOVE several
+                ;; artefacts + a tool (mcp-base), so they live in their
                 ;; own top-level `security/` surface rather than any single
                 ;; artefact's test tree — the cross-artefact node-test
                 ;; classpath already spans every required ns. Namespaces end
@@ -785,8 +785,8 @@
 
   ;; Dedicated adversarial-property SECURITY tier runner.
   ;;
-  ;; A FOCUSED node-test build that runs ONLY the three security-boundary
-  ;; namespaces (`*_security_cljs_test.cljc` under `security/test/`), via
+  ;; A FOCUSED node-test build that runs ONLY the security tier: every
+  ;; `-security-cljs-test` namespace under `security/test/`, selected by
   ;; the `-security-cljs-test$` ns-regexp. Wired as `npm run test:security`
   ;; (implementation/package.json) so the tier has a named entry-point the
   ;; gate menu + TESTING.md can point at, and so a security-focused local
