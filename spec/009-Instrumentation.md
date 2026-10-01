@@ -1428,7 +1428,7 @@ This is **distinct from** the trace surface above:
 |---|---|---|
 | Compile-time gate | `re-frame.interop/debug-enabled?` (alias of `goog.DEBUG`) | `re-frame.performance/enabled?` |
 | Default | on in dev (`goog.DEBUG=true`), off in prod | **off** in both (`enabled?=false`) |
-| Consumer | `register-listener!` listeners, the per-frame trace rings, `:epoch` listeners | `performance.getEntriesByType('measure')`, `PerformanceObserver`, Chrome DevTools Performance |
+| Consumer | `register-listener!` listeners, the per-frame trace rings, `:epoch` listeners | `PerformanceObserver`, Chrome DevTools Performance; `performance.getEntriesByType('measure')` only with `retain-entries?` on (see [§Consumer access](#consumer-access)) |
 | Shape | structured trace events (open maps with `:operation` / `:op-type` / `:tags`) | `User Timing` measure entries (`name`, `startTime`, `duration`) |
 | Where it runs | both platforms (dev) | CLJS only — JVM is a no-op |
 
