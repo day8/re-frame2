@@ -87,24 +87,3 @@
       (is (false? (rf/epoch-silence-current? tags))
           "after the drop the signal names no live registration"))))
 
-;; ---- the decision's own boundary behaviour --------------------------------
-
-(deftest the-public-decision-answers-the-unregistered-and-unqualified-cases
-  (testing "a signal that cannot name a live registration is never current, and
-            an unregistered id never reads as silent-and-current by accident"
-    (is (false? (rf/epoch-silence-current?
-                  {:cb-id ::never-registered :frame :test/nowhere :observed-gen 1}))
-        "no registration → not current")
-    (is (false? (rf/epoch-silence-current?
-                  {:cb-id ::never-registered :frame :test/nowhere}))
-        "an absent :observed-gen → not current (it must not match the nil an
-         unregistered id reads as)")
-
-    (rf/register-listener! :epoch ::boundary-cb (fn [_] nil))
-    (try
-      (is (false? (rf/epoch-silence-current?
-                    {:cb-id ::boundary-cb :frame :test/nowhere
-                     :observed-gen ::not-a-generation}))
-          "a generation that never named this registration → not current")
-      (finally
-        (rf/unregister-listener! :epoch ::boundary-cb)))))

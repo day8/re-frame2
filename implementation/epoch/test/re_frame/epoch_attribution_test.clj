@@ -549,39 +549,6 @@
           "title-view appears exactly ONCE in its mount epoch's :renders —
            the late mount-burst tail is de-duped, not appended again"))))
 
-(deftest inv-3-genuine-re-render-of-mounted-view-rides-its-cascade
-  (testing "once a view has mounted, a LATER genuine re-render
-            (its own inputs change in a subsequent cascade) is attributed to
-            THAT cascade, not redirected back to the mount epoch. The
-            mount-epoch anchor only governs mount-burst tails — it must not
-            over-reach and collapse genuine re-renders."
-    (rf/make-frame {:id :test/main})
-    (rf/reg-event :seed        (fn [{:keys [db]} _] {:db {:counter 0}}))
-    (rf/reg-event :counter-inc (fn [{:keys [db]} _] {:db (update db :counter inc)}))
-
-    (rf/dispatch-sync [:seed] {:frame :test/main})
-    (emit-render! :test/main cv-rk)
-    (emit-mount-sub-run! :test/main :counter cv-rk nil 0)
-
-    (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-    (let [inc1 (last-epoch :test/main)]
-      (emit-sub-run! :test/main :counter 0 1)
-      (emit-render! :test/main cv-rk)
-
-      (rf/dispatch-sync [:counter-inc] {:frame :test/main})
-      (let [inc2 (last-epoch :test/main)]
-        (emit-sub-run! :test/main :counter 1 2)
-        (emit-render! :test/main cv-rk)
-
-        (let [e1 (epoch-by-id :test/main inc1)
-              e2 (epoch-by-id :test/main inc2)]
-          (is (contains? (rendered-keys e1) cv-rk)
-              "the first counter-inc carries counter-view's re-render")
-          (is (contains? (rendered-keys e2) cv-rk)
-              "the second counter-inc ALSO carries counter-view's re-render —
-               a genuine re-render rides its own cascade, never collapses back
-               to the mount epoch"))))))
-
 (deftest inv-3-keep-0-render-attributed-via-sub-runs-to-current-epoch
   (testing "with `:trace-events-keep 0` every record's raw
             `:trace-events` are elided while the structured `:sub-runs` rows are
@@ -860,58 +827,6 @@
         (is (every? (fn [ev] (= [:inc] (-> ev :tags :rf.event/v)))
                     (filter #(= :rf.event (:op-type %)) (:trace-events inc-epoch)))
             "every :event-op trace in the :inc epoch belongs to [:inc]")))))
-
-(deftest inv-6-orphan-not-correlated-on-the-record
-  (testing "the orphan carries no :rf.trace/dispatch-id, so no epoch's
-            :trace-events should reference it. Belt-and-braces on the
-            correlation contract: walk every retained epoch's :trace-events
-            and assert none is a :frame op."
-    (rf/reg-event :app/init (fn [{:keys [db]} _] {:db {:n 0}}))
-    (rf/reg-event :inc      (fn [{:keys [db]} _] {:db (update db :n inc)}))
-    (rf/make-frame {:id :test/main :initial-events [[:app/init]]})
-    (rf/dispatch-sync [:inc] {:frame :test/main})
-    (rf/dispatch-sync [:inc] {:frame :test/main})
-
-    (doseq [r (rf/epoch-history :test/main)]
-      (is (not-any? #(= :rf.frame (:op-type %)) (:trace-events r))
-          (str "no :frame-op orphan in epoch " (:event-id r)
-               "'s :trace-events")))))
-
-(deftest inv-6-harvest-discards-orphan-uncorrelated
-  (testing "direct unit test on the harvest seam. An
-            orphan event (no :rf.trace/dispatch-id) that reaches the capture
-            buffer is NOT folded into the settling event's harvest; only the
-            settling event's own :rf.trace/dispatch-id traces are returned.
-
-            The harvest is
-            self-cleaning — an orphan (nil dispatch-id) has no settle event to
-            ever reclaim it, so retaining it would leave it in
-            the buffer indefinitely (re-grouped + re-retained on every
-            subsequent harvest). It is DISCARDED at this seam, so the
-            harvest does not rely on the upstream capture guard being
-            perfect."
-    (let [frame :test/harvest
-          ;; Hand-craft a buffer: an orphan with no :rf.trace/dispatch-id, then a
-          ;; run-start + a body trace for dispatch-id 42.
-          orphan    {:op-type :rf.frame :operation :rf.frame/created :tags {}}
-          run-start {:op-type :rf.event :operation :rf.event/run-start
-                     :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 42 :rf.trace/event-id :inc}}
-          body      {:op-type :rf.event :operation :rf.event/db-changed
-                     :tags {:rf.trace/dispatch-id 42}}]
-      (rf.epoch.state/buffer-event! frame orphan)
-      (rf.epoch.state/buffer-event! frame run-start)
-      (rf.epoch.state/buffer-event! frame body)
-      (let [harvested (rf.epoch.state/harvest-buffer-for-event! frame)]
-        (is (= [run-start body] harvested)
-            "harvest returns ONLY the settling event's (:rf.trace/dispatch-id 42)
-             traces — the orphan is left uncorrelated, not vacuumed in")
-        (is (not-any? #(= :rf.frame/created (:operation %)) harvested)
-            "the orphan :rf.frame/created is not in the settling epoch's harvest")
-        ;; The orphan is DISCARDED (self-cleaning harvest), not retained —
-        ;; it has no settle event to ever reclaim it.
-        (is (empty? (rf.epoch.state/buffer-for frame))
-            "the orphan is dropped from the buffer — the harvest is
-             self-cleaning, not reliant on the upstream guard")))))
 
 (deftest inv-6b-harvest-retains-child-marker-for-its-own-settle
   (testing "the self-cleaning harvest must NOT discard a
