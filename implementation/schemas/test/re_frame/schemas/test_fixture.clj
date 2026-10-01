@@ -10,8 +10,8 @@
   The canonical reset is here; test namespaces call
   `(use-fixtures :each tf/reset-runtime)` and inherit a uniform reset
   semantics. The deliberately narrower
-  `schemas/printer_seam_test.clj` fixture (validator-only) stays
-  separate by design.
+  `schemas/printer_seam_test.clj` fixture (schema fns and the schema
+  registry; it installs no adapter) stays separate by design.
 
   ## What gets reset
 

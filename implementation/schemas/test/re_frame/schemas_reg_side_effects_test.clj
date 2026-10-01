@@ -302,12 +302,17 @@
 
 (deftest violation-is-per-frame
   (testing "the violation check reads the live app-db of
-            the registration's frame, not :rf/default"
+            the registration's frame, not :rf/default. :rf/default holds a
+            value the new schema ACCEPTS, so a read of the wrong frame finds
+            nothing to report"
     (rf/make-frame {:id :tenant/a})
     (rf/reg-app-schema [:count] {:frame :tenant/a} :int)
     (set-app-db! :tenant/a {:count "bad"})
+    (set-app-db! :rf/default {:count 5})
     (let [violations (capture :rf.schema/violation
                        (fn []
                          (rf/reg-app-schema [:count] {:frame :tenant/a} [:int {:min 0}])))]
       (is (= 1 (count violations)))
-      (is (= :tenant/a (-> violations first :tags :frame))))))
+      (is (= :tenant/a (-> violations first :tags :frame)))
+      (is (= "bad" (-> violations first :tags :mismatching-value))
+          "the reported value is :tenant/a's, not :rf/default's"))))
