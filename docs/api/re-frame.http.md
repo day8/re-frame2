@@ -359,6 +359,7 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
 - **Description**: Delivers a success reply (`{:status :ok :value v}`) without making a request, for stubbing one request inline in `:fx`.
     - `:value` defaults to `{:stubbed true}`.
     - `:meta` (optional) is copied to the reply's `:meta` slot, so `:after` interceptors that read headers can be tested without a network. Without it the reply has no `:meta`.
+    - `:request-id` (optional) comes back as the reply's `:correlation {:request-id …}`, as on the real path, so a handler that guards against stale replies by reading it can be tested. Without it the reply has no `:correlation`.
     - `:after-ms` (optional) — a positive value delays the reply by a `:dispatch-later` tick. Absent, `0` or negative delivers immediately.
     - The frame's `:before` and `:after` interceptor chains run around the reply, as on the real path. Reply addressing (`:reply-to` / `:on-success`) works as for `:rf.http/managed`; a stub reply with no target is dropped silently.
 - **Example**:
@@ -379,6 +380,7 @@ An `:fx-overrides` redirect to a stub effect the frame cannot find reports `:rf.
 - **Payload**: an `:rf.http/managed` args map, plus `:kind`, `:tags` and `:after-ms`.
 - **Description**: Delivers a failure reply without making a request.
     - `:kind` defaults to `:rf.http/transport`. `:tags` are merged into the `:error` map.
+    - A `:request-id` comes back as `:correlation {:request-id …}`, as for `:rf.http/managed-canned-success`.
     - An `:rf.http/aborted` kind produces `:status :cancelled`; every other kind produces `:status :error`.
     - `:after-ms`, the interceptor chains and reply addressing (`:reply-to` / `:on-failure`) work as for `:rf.http/managed-canned-success`.
 - **Example**:

@@ -185,6 +185,18 @@
      :reply-payload  reply-payload
      :kind           kind}))
 
+(defn- with-request-correlation
+  "Echo the args-map's `:request-id` onto a canned `reply` as
+  `:correlation {:request-id …}` — the correlation fact the live reply
+  carries (`re-frame.http.reply/base-reply`). A reply handler drops a stale
+  reply by comparing that id against what it expects, so a canned reply
+  without it would read as stale to every such guard. No `:request-id`, no
+  `:correlation`, exactly as on the live reply."
+  [reply args-map]
+  (let [request-id (:request-id args-map)]
+    (cond-> reply
+      (some? request-id) (assoc :correlation {:request-id request-id}))))
+
 ;; The canned-success / canned-failure bodies are a
 ;; pre-computed-ctx emit (`emit-canned-success!` / `emit-canned-failure!`)
 ;; plus a thin run-the-chain-then-emit wrapper. The route-map stub
@@ -210,13 +222,15 @@
                        {:where 'rf.http/emit-canned-success!})
         value        (get args-map :value {:stubbed true})
         origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
-        ;; The canned stub delivers a MINIMAL canonical reply
-        ;; (`:status :ok` + `:value`), the shape a handler actually branches
-        ;; on. A stub has no real request lifecycle, so the identity facts the
-        ;; real transport carries (`:work/id` / `:attempt` / `:completed-at`)
-        ;; are deliberately OMITTED — synthesising fake ones would add noise no
-        ;; handler reads. The real transport's full envelope is pinned by the
-        ;; lowering conformance (`http-reply-lowering-test`).
+        ;; The canned stub delivers a MINIMAL canonical reply: `:status :ok`
+        ;; and `:value`, the shape a handler branches on, plus
+        ;; `:correlation {:request-id …}` when the args carry a `:request-id`,
+        ;; the fact a handler guards a stale reply with. A stub has no real
+        ;; request lifecycle, so the lifecycle facts the real transport carries
+        ;; (`:rf.reply/work-id` / `:attempt` / `:rf.reply/work-status` /
+        ;; `:completed-at`) are OMITTED rather than faked. The real transport's
+        ;; full envelope is pinned by the lowering conformance
+        ;; (`http-reply-lowering-test`).
         ;;
         ;; An optional `:meta` on the args-map rides the reply's
         ;; `:meta` slot verbatim, so header-dependent `:after` middleware /
@@ -225,7 +239,7 @@
         ;; shape the live transport threads). ABSENT stays absent — the stub
         ;; never fabricates response metadata it was not given.
         meta*        (get args-map :meta)
-        reply        (cond-> {:status :ok :value value}
+        reply        (cond-> (with-request-correlation {:status :ok :value value} args-map)
                        (some? meta*) (assoc :meta meta*))]
     (dispatch-canned-reply!
       {:origin-event   origin-event
@@ -261,13 +275,16 @@
         ;; `:rf.http/*` failure map rides verbatim under `:error`, and an
         ;; `:rf.http/aborted` kind maps to `:status :cancelled` (mirroring the
         ;; real transport's status taxonomy) while every other kind is
-        ;; `:status :error`. The stub omits the real transport's identity facts
-        ;; (`:work/id` / `:attempt` / `:rf.reply/work-status` / `:completed-at`) — a
-        ;; handler branches on `:status` and reads `:error`, nothing more; the
-        ;; full envelope is pinned by the lowering conformance.
-        reply        (if (= :rf.http/aborted kind)
-                       {:status :cancelled :error failure}
-                       {:status :error :error failure})]
+        ;; `:status :error`. As on success, `:correlation {:request-id …}`
+        ;; rides when the args carry a `:request-id`, and the lifecycle facts
+        ;; (`:rf.reply/work-id` / `:attempt` / `:rf.reply/work-status` /
+        ;; `:completed-at`) are omitted; the full envelope is pinned by the
+        ;; lowering conformance.
+        reply        (with-request-correlation
+                       (if (= :rf.http/aborted kind)
+                         {:status :cancelled :error failure}
+                         {:status :error :error failure})
+                       args-map)]
     (dispatch-canned-reply!
       {:origin-event   origin-event
        ;; Same reply-addressing keys as the live fx, through the
