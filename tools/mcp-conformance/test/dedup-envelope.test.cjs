@@ -217,7 +217,11 @@ test('a well-formed orphan entry is harmless — root value unaffected', () => {
 // `re-frame.mcp-base.dedup/de-dupe-eq` actually emits for the matching
 // Clojure payload — the escaped spelling `de-dupe.cache/!cache-1` is
 // pinned cross-host by `colliding-payload-tokens-are-escaped-on-the-wire`
-// in `re-frame.mcp-base.dedup-test`.
+// in `re-frame.mcp-base.dedup-test`. A payload symbol or keyword of the
+// same spelling arrives here as the identical JSON token, so these cases
+// cover all three; the keyword spellings are pinned host-side by
+// `colliding-payload-keywords-are-escaped-on-the-wire` and
+// `colliding-payload-keywords-are-escaped-in-map-KEY-position-too`.
 // ---------------------------------------------------------------------
 
 // An escaped literal: what the encoder emits for a payload token that
@@ -312,108 +316,6 @@ test('an escaped literal used as a map KEY is unescaped too (rf2-kjv05)', () => 
 });
 
 // ---------------------------------------------------------------------
-// Payloads whose colliding token is a KEYWORD.
-//
-// This decoder's grammar is type-blind, so these are the SAME three
-// rules, exercised against the wider set of payloads the encoder
-// escapes. They are here because a keyword gap is invisible from the
-// Clojure side — `cache-element?` tests `symbol?`, so a payload keyword
-// is never aliased on the JVM and every round-trip assertion passes,
-// while Cheshire flattens `:de-dupe.cache/cache-1` to the very string a
-// real reference arrives under, and THIS decoder would resolve an
-// unescaped one to the cached subtree.
-//
-// Each `cache` literal below is transcribed from a real
-// Cheshire encode of the matching Clojure payload, not hand-built: the
-// same spellings are pinned host-side by
-// `colliding-payload-keywords-are-escaped-on-the-wire` and
-// `colliding-payload-keywords-are-escaped-in-map-KEY-position-too` in
-// `re-frame.mcp-base.dedup-test`. Those pins are what keep the two
-// halves in step — this file cannot run the encoder, and that suite
-// cannot run this decoder.
-// ---------------------------------------------------------------------
-
-test('a payload KEYWORD that spells a reference decodes as data, not as the slot (rf2-kjv05)', () => {
-  // Clojure payload: {:literal :de-dupe.cache/cache-1 :a shared :b shared}.
-  // Were the keyword unescaped, `literal` would decode here as
-  // {"big":["repeat","me"]}.
-  const cache = {
-    [cacheId(1)]: { big: ['repeat', 'me'] },
-    [cacheId(0)]: {
-      literal: escaped('cache-1'),
-      a: cacheId(1),
-      b: cacheId(1),
-    },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(out, {
-    literal: 'de-dupe.cache/cache-1',
-    a: { big: ['repeat', 'me'] },
-    b: { big: ['repeat', 'me'] },
-  });
-  assert.equal(out.a, out.b, 'the genuine reference is still pooled');
-});
-
-test('a payload KEYWORD in map-KEY position decodes under its own name (rf2-kjv05)', () => {
-  // Clojure payload: {:de-dupe.cache/cache-1 "keyed" :a shared :b shared}.
-  // Unescaped, the key would resolve to the cached subtree and the entry
-  // would land under a JSON.stringify of it — unreachable by its own name.
-  const cache = {
-    [cacheId(1)]: { big: ['repeat', 'me'] },
-    [cacheId(0)]: {
-      [escaped('cache-1')]: 'keyed',
-      a: cacheId(1),
-      b: cacheId(1),
-    },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.deepEqual(out, {
-    'de-dupe.cache/cache-1': 'keyed',
-    a: { big: ['repeat', 'me'] },
-    b: { big: ['repeat', 'me'] },
-  });
-});
-
-test('a payload KEYWORD already spelled like an escape sheds exactly one marker (rf2-kjv05)', () => {
-  // Clojure payload: {:literal :de-dupe.cache/!cache-1 …}. The encoder
-  // emits `!!cache-1`; unescaped it would arrive as `!cache-1` and decode
-  // to `cache-1` — the escape mangling its own payload.
-  const cache = {
-    [cacheId(1)]: { big: ['repeat', 'me'] },
-    [cacheId(0)]: {
-      literal: escaped('!cache-1'),
-      a: cacheId(1),
-      b: cacheId(1),
-    },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.equal(out.literal, 'de-dupe.cache/!cache-1');
-});
-
-test('symbol, keyword and string payloads collapse to ONE JSON token — all three decode as data (rf2-kjv05)', () => {
-  // The type erasure stated as a test. Three distinct Clojure values,
-  // one JSON spelling, all three escaped by the encoder, all three
-  // decoded verbatim beside a real reference of that same spelling.
-  // What is NOT recovered is which type each began as — that is the
-  // stated residual, not a defect: JSON has no symbol or keyword.
-  const cache = {
-    [cacheId(1)]: { big: ['repeat', 'me'] },
-    [cacheId(0)]: {
-      sym: escaped('cache-1'),
-      kw: escaped('cache-1'),
-      str: escaped('cache-1'),
-      a: cacheId(1),
-      b: cacheId(1),
-    },
-  };
-  const out = decodeDedupEnvelope(envelope(cache));
-  assert.equal(out.sym, 'de-dupe.cache/cache-1');
-  assert.equal(out.kw, 'de-dupe.cache/cache-1');
-  assert.equal(out.str, 'de-dupe.cache/cache-1');
-  assert.deepEqual(out.a, { big: ['repeat', 'me'] });
-});
-
-// ---------------------------------------------------------------------
 // An own `__proto__` payload key survives.
 //
 // `JSON.parse` keeps `"__proto__"` as an ordinary own data property, and
@@ -491,18 +393,4 @@ test('a dedup wrapper carrying a sibling key is rejected, harmless or conflictin
   assert.deepEqual(decodeDedupEnvelope(envelope(open)), {
     'ok?': true, value: 42, meta: 'additive', reason: 'x',
   });
-});
-
-test('POSITIVE CONTROL: the keyword rule did not disable resolution either (rf2-kjv05)', () => {
-  // Same shape as the keyword value test, `cache-1` deleted. Escaping
-  // keywords must not turn a dangling genuine reference into "probably
-  // data" — it is still the loud missing-entry error.
-  const cache = {
-    [cacheId(0)]: { literal: escaped('cache-1'), a: cacheId(1) },
-  };
-  assert.throws(
-    () => decodeDedupEnvelope(envelope(cache)),
-    /no matching entry/i,
-    'a genuinely dangling reference must still be rejected loudly',
-  );
 });
