@@ -39,7 +39,7 @@
        unchanged (`:value`, `:explain` ride verbatim; no top-level
        `:sensitive?` stamp on the event)."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.late-bind :as rf.late-bind]
             [re-frame.schemas :as rf.schemas]
@@ -60,95 +60,59 @@
 
 ;; ---- walker unit tests ----------------------------------------------------
 
-(deftest extract-no-sensitive-slots
-  (testing "a schema with no :sensitive? props produces no entries"
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema
-                [:map [:name :string]] [])))
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema :string [])))
-    (is (= {} (rf.schemas/extract-sensitive-paths-from-schema :int [:a :b])))))
-
-(deftest extract-slot-level-sensitive
-  (testing "the slot's per-slot props carry :sensitive? true"
-    (let [schema [:map
-                  [:user :string]
-                  [:password {:sensitive? true} :string]]]
-      (is (= {[:password] {:sensitive? true :source :schema}}
-             (rf.schemas/extract-sensitive-paths-from-schema schema []))))))
-
-(deftest extract-honours-base-path
-  (testing "base-path is prepended to every discovered slot path"
-    (let [schema [:map
-                  [:password {:sensitive? true} :string]]]
-      (is (= {[:auth :password] {:sensitive? true :source :schema}}
-             (rf.schemas/extract-sensitive-paths-from-schema schema [:auth]))))))
-
-(deftest extract-container-level-sensitive
-  (testing "the schema's OWN props (container-level) claim the base-path"
-    ;; `(reg-app-schema [:auth :token] [:string {:sensitive? true}])`
-    (is (= {[:auth :token] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:string {:sensitive? true}] [:auth :token])))))
-
-(deftest extract-nested-map
-  (testing "nested :map carries the path through every level"
-    (let [schema [:map
-                  [:user
-                   [:map
-                    [:profile
-                     [:map
-                      [:ssn {:sensitive? true} :string]]]]]]]
-      (is (= {[:user :profile :ssn] {:sensitive? true :source :schema}}
-             (rf.schemas/extract-sensitive-paths-from-schema schema []))))))
-
-(deftest extract-multiple-sensitive-slots
-  (testing "multiple sensitive slots in the same schema produce one entry each"
-    (let [schema [:map
-                  [:username :string]
-                  [:password  {:sensitive? true} :string]
-                  [:totp-code {:sensitive? true} :string]
-                  [:email :string]]]
-      (is (= {[:password]  {:sensitive? true :source :schema}
-              [:totp-code] {:sensitive? true :source :schema}}
-             (rf.schemas/extract-sensitive-paths-from-schema schema []))))))
-
-(deftest extract-positional-combinator-descends
-  (testing ":vector / :or / :and descend at the same base-path"
-    ;; A :vector with sensitive props on its inner type's container.
-    (is (= {[:tokens] {:sensitive? true :source :schema}}
-           (rf.schemas/extract-sensitive-paths-from-schema
-             [:vector [:string {:sensitive? true}]] [:tokens])))))
+(deftest extract-sensitive-paths-claims-each-flagged-slot
+  (testing "the walker claims every `:sensitive? true` slot at its path
+            under `base-path`, and nothing else"
+    (are [schema base-path expected]
+         (= expected (rf.schemas/extract-sensitive-paths-from-schema schema base-path))
+      ;; no :sensitive? props anywhere → no entries
+      [:map [:name :string]] []       {}
+      :string                []       {}
+      :int                   [:a :b]  {}
+      ;; slot-level: the slot's own props carry the flag
+      [:map [:user :string] [:password {:sensitive? true} :string]]
+      []
+      {[:password] {:sensitive? true :source :schema}}
+      ;; base-path is prepended to every discovered slot path
+      [:map [:password {:sensitive? true} :string]]
+      [:auth]
+      {[:auth :password] {:sensitive? true :source :schema}}
+      ;; container-level: the schema's OWN props claim the base-path, as
+      ;; `(reg-app-schema [:auth :token] [:string {:sensitive? true}])` does
+      [:string {:sensitive? true}]
+      [:auth :token]
+      {[:auth :token] {:sensitive? true :source :schema}}
+      ;; nested :map carries the path through every level
+      [:map [:user [:map [:profile [:map [:ssn {:sensitive? true} :string]]]]]]
+      []
+      {[:user :profile :ssn] {:sensitive? true :source :schema}}
+      ;; several flagged slots → one entry each
+      [:map
+       [:username :string]
+       [:password  {:sensitive? true} :string]
+       [:totp-code {:sensitive? true} :string]
+       [:email :string]]
+      []
+      {[:password]  {:sensitive? true :source :schema}
+       [:totp-code] {:sensitive? true :source :schema}}
+      ;; :vector descends at the same base-path
+      [:vector [:string {:sensitive? true}]]
+      [:tokens]
+      {[:tokens] {:sensitive? true :source :schema}})))
 
 ;; ---- schema-has-sensitive? -----------------------------------------------
 
-(deftest schema-has-sensitive-slot-level
-  (testing "schema-has-sensitive? returns true when ANY slot carries
-            :sensitive? — emit-sites carry the whole registered value
-            in the trace, so a sensitive child slot still leaks
-            unredacted"
-    (let [schema [:map [:password {:sensitive? true} :string]]]
-      (is (true? (rf.schemas/schema-has-sensitive? schema))
-          "slot-level :sensitive? — conservative redact"))))
-
-(deftest schema-has-sensitive-container-level
-  (testing "a container-level :sensitive? on a schema registered at a path
-            triggers redaction"
-    (let [schema [:string {:sensitive? true}]]
-      (is (true? (rf.schemas/schema-has-sensitive? schema))))))
-
-(deftest schema-has-sensitive-nested
-  (testing "a nested :sensitive? slot deep inside a map also triggers redaction"
-    (let [schema [:map
-                  [:user [:map
-                          [:profile [:map
-                                     [:ssn {:sensitive? true} :string]]]]]]]
-      (is (true? (rf.schemas/schema-has-sensitive? schema))))))
-
-(deftest schema-has-sensitive-no-match
-  (testing "no :sensitive? anywhere → false"
-    (let [schema [:map [:user :string] [:age :int]]]
-      (is (false? (rf.schemas/schema-has-sensitive? schema))))
-    (is (false? (rf.schemas/schema-has-sensitive? :int)))
-    (is (false? (rf.schemas/schema-has-sensitive? [:vector :string])))))
+(deftest schema-has-sensitive?-is-true-when-any-slot-is-flagged
+  (testing "emit-sites carry the whole registered value in the trace,
+            so a flag on ANY slot — slot-level, container-level or nested
+            deep inside a map — makes the schema sensitive"
+    (are [expected schema] (= expected (rf.schemas/schema-has-sensitive? schema))
+      true  [:map [:password {:sensitive? true} :string]]
+      true  [:string {:sensitive? true}]
+      true  [:map [:user [:map [:profile [:map [:ssn {:sensitive? true} :string]]]]]]
+      false [:map [:user :string] [:age :int]]
+      false :int
+      false [:vector :string])))
 
 (deftest sensitive-extractor-hook-is-unmemoized-public-memo-kept
   (testing "the cross-artefact hook walks unmemoised, so a

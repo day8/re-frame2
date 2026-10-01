@@ -38,7 +38,7 @@
   under the whole-schema check even when the failing leaf is not
   sensitive."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as rf.error-emit]
             [re-frame.schemas :as rf.schemas]
@@ -283,54 +283,30 @@
 
 ;; ---- walker: schema-sensitive-at? unit tests -----------------------------
 
-(deftest sensitive-at-empty-path-equals-whole-schema-check
-  (testing "(schema-sensitive-at? schema []) ≡ schema-has-sensitive? —
-            an empty path means 'the failing slot IS the schema'"
-    (let [sens     [:map [:p {:sensitive? true} :string]]
-          not-sens [:map [:p :string]]]
-      (is (true?  (rf.schemas/schema-sensitive-at? sens     [])))
-      (is (true?  (rf.schemas/schema-sensitive-at? sens     nil)))
-      (is (false? (rf.schemas/schema-sensitive-at? not-sens [])))
-      (is (false? (rf.schemas/schema-sensitive-at? not-sens nil))))))
-
-(deftest sensitive-at-leaf-direct-match
-  (testing "the failing leaf is itself flagged :sensitive?"
-    (let [schema [:map
-                  [:name     :string]
-                  [:password {:sensitive? true} :string]]]
-      (is (true?  (rf.schemas/schema-sensitive-at? schema [:password])))
-      (is (false? (rf.schemas/schema-sensitive-at? schema [:name]))))))
-
-(deftest sensitive-at-ancestor-flagged
-  (testing "an ancestor along the path carries :sensitive? — leaf
-            inherits sensitivity"
-    (let [schema [:map {:sensitive? true}
-                  [:token :string]
-                  [:expiry :int]]]
-      (is (true? (rf.schemas/schema-sensitive-at? schema [:token])))
-      (is (true? (rf.schemas/schema-sensitive-at? schema [:expiry]))))))
-
-(deftest sensitive-at-descendant-flagged
-  (testing "a descendant of the failing slot is :sensitive? — the
-            failing slot's value would carry the sensitive child"
-    (let [schema [:map
-                  [:user [:map
-                          [:name     :string]
-                          [:password {:sensitive? true} :string]]]]]
-      (is (true? (rf.schemas/schema-sensitive-at? schema [:user]))
-          "failing at :user — its value contains the sensitive :password")
-      (is (true? (rf.schemas/schema-sensitive-at? schema [:user :password])))
-      (is (false? (rf.schemas/schema-sensitive-at? schema [:user :name]))
-          "sibling-only sensitive — non-sensitive leaf stays clean"))))
-
-(deftest sensitive-at-unrelated-path
-  (testing "a sensitive declaration on an unrelated branch does not
-            taint the failing leaf"
-    (let [schema [:map
-                  [:public  :string]
-                  [:auth    [:map [:token {:sensitive? true} :string]]]]]
-      (is (false? (rf.schemas/schema-sensitive-at? schema [:public]))
-          ":public is on a different branch from :auth/:token"))))
+(deftest schema-sensitive-at?-flags-the-leaf-its-ancestors-and-descendants
+  (testing "a failing slot is sensitive when it, an ancestor along its
+            path, or a descendant it carries is flagged — never because of
+            an unrelated branch. An empty or nil path means 'the failing slot
+            IS the schema', so it answers as schema-has-sensitive? does"
+    (let [sens       [:map [:p {:sensitive? true} :string]]
+          not-sens   [:map [:p :string]]
+          leaf       [:map [:name :string] [:password {:sensitive? true} :string]]
+          ancestor   [:map {:sensitive? true} [:token :string] [:expiry :int]]
+          descendant [:map [:user [:map [:name :string] [:password {:sensitive? true} :string]]]]
+          unrelated  [:map [:public :string] [:auth [:map [:token {:sensitive? true} :string]]]]]
+      (are [expected schema path] (= expected (rf.schemas/schema-sensitive-at? schema path))
+        true  sens       []
+        true  sens       nil
+        false not-sens   []
+        false not-sens   nil
+        true  leaf       [:password]
+        false leaf       [:name]
+        true  ancestor   [:token]
+        true  ancestor   [:expiry]
+        true  descendant [:user]                ;; its value carries the sensitive :password
+        true  descendant [:user :password]
+        false descendant [:user :name]          ;; a sensitive sibling does not taint the leaf
+        false unrelated  [:public]))))
 
 ;; ---- multi-error common-prefix narrowing ---------------------------------
 ;;
