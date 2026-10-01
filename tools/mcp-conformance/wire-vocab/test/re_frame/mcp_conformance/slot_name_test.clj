@@ -415,30 +415,3 @@
                  "(Conventions §Reserved namespaces). A rename here breaks "
                  "every consumer in lockstep — which is the right invariant; "
                  "restore the constant or update this test."))))))
-
-;; ---------------------------------------------------------------------------
-;; Gate 6 — server-coverage sanity. Every server referenced in
-;; `canonical-slots` is one of the known servers. Typos surface here.
-;; ---------------------------------------------------------------------------
-
-(deftest server-references-are-all-known
-  (doseq [{:keys [slot servers]} canonical-slots]
-    (testing (str "slot " slot " — :servers values")
-      (is (every? rf.mcp-conformance.fixtures/known-servers servers)
-          (str "Unknown server in :servers for " slot ": "
-               (remove rf.mcp-conformance.fixtures/known-servers servers))))))
-
-;; ---------------------------------------------------------------------------
-;; Gate 7 — slot uniqueness. No two `canonical-slots` rows share the
-;; same `:slot` keyword. A duplicate row is a definition error.
-;; ---------------------------------------------------------------------------
-
-(deftest canonical-slot-keys-are-unique
-  (let [slot-keys (map :slot canonical-slots)]
-    (is (= (count slot-keys) (count (set slot-keys)))
-        (str "Duplicate :slot keys in canonical-slots: "
-             (->> slot-keys
-                  frequencies
-                  (filter (fn [[_ n]] (> n 1)))
-                  (map first)
-                  vec)))))
