@@ -387,4 +387,3 @@
         marker     (:structuredContent out)]
     (is (contains? marker rf.mcp-base.vocab/overflow-key)
         "structuredContent payload MUST count toward the cap")))
-
