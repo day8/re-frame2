@@ -5,8 +5,9 @@
    - JSON parse / encode round-trip
    - Envelope validation
    - Frame I/O over an in-memory reader/writer
-   - Error-response shapes (parse-error, method-not-found, invalid-params,
-     internal-error)
+   - Error-response shapes (the generic envelope, parse-error,
+     internal-error; the dispatcher tests in tools_test.clj pin
+     method-not-found and invalid-params)
    - Notification vs request discrimination
 
   The wire layer is testable without booting Story's registrar; the
@@ -77,28 +78,6 @@
       (is (= 1 (get m "id")))
       (is (nil? (:method m)) "no keyword key — parse-json is string-keyed"))))
 
-(deftest normalize-frame-keywordises-envelope
-  (testing "normalize-frame converts the JSON-RPC envelope keys to keywords"
-    (let [m (rf.story-mcp.protocol/normalize-frame (rf.story-mcp.protocol/parse-json "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}"))]
-      (is (= "2.0" (:jsonrpc m)))
-      (is (= "tools/list" (:method m)))
-      (is (= 1 (:id m))))))
-
-(deftest json-parse-throws-on-malformed
-  (testing "malformed JSON throws ex-info with :rf.error/story-mcp-json-parse-failure"
-    (try
-      (rf.story-mcp.protocol/parse-json "{not json")
-      (is false "should have thrown")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/story-mcp-json-parse-failure (:rf.error/id (ex-data e))))))))
-
-(deftest json-encode-roundtrip
-  (testing "encode then decode yields the same map (keywordised)"
-    (let [m {:jsonrpc "2.0" :id 1 :result {:foo "bar"}}
-          s (rf.story-mcp.protocol/write-json m)
-          back (json/parse-string s true)]
-      (is (= m back)))))
-
 ;; ---- frame I/O -----------------------------------------------------------
 
 (defn- reader-of
@@ -106,12 +85,6 @@
   `read-frame` in tests without touching stdin."
   [^String s]
   (java.io.BufferedReader. (java.io.StringReader. s)))
-
-(deftest read-frame-parses-one-line
-  (testing "single-line frame"
-    (let [r (reader-of "{\"jsonrpc\":\"2.0\",\"method\":\"ping\",\"id\":3}\n")
-          f (rf.story-mcp.protocol/read-frame r)]
-      (is (= {:jsonrpc "2.0" :method "ping" :id 3} f)))))
 
 (deftest read-frame-skips-blank-lines
   (testing "blank lines between frames are silently consumed"
@@ -160,30 +133,7 @@
       (is (= {:jsonrpc "2.0" :id 1 :result {:ok true}}
              (parse-line out))))))
 
-(deftest write-frame-multiple-frames-on-one-stream
-  (testing "two frames produce two readable lines"
-    (let [sw (java.io.StringWriter.)]
-      (rf.story-mcp.protocol/write-frame! sw {:jsonrpc "2.0" :id 1 :result {}})
-      (rf.story-mcp.protocol/write-frame! sw {:jsonrpc "2.0" :id 2 :result {:n 7}})
-      (let [lines (->> (str/split-lines (.toString sw))
-                       (filter seq))]
-        (is (= 2 (count lines)) "two newline-delimited frames")
-        (is (= {:jsonrpc "2.0" :id 1 :result {}}     (parse-line (nth lines 0))))
-        (is (= {:jsonrpc "2.0" :id 2 :result {:n 7}} (parse-line (nth lines 1))))))))
-
 ;; ---- error-helpers --------------------------------------------------------
-
-(deftest method-not-found-includes-method-name
-  (testing "method-not-found message names the offending method"
-    (let [e (rf.story-mcp.protocol/method-not-found 9 "tools/quux")]
-      (is (= rf.mcp-base.vocab/code-method-not-found (-> e :error :code)))
-      (is (re-find #"tools/quux" (-> e :error :message))))))
-
-(deftest invalid-params-renders-details
-  (testing "invalid-params attaches detail string to message"
-    (let [e (rf.story-mcp.protocol/invalid-params 5 "missing :variant-id")]
-      (is (= rf.mcp-base.vocab/code-invalid-params (-> e :error :code)))
-      (is (re-find #"missing :variant-id" (-> e :error :message))))))
 
 (deftest internal-error-attaches-data
   (testing "internal-error optional :data lands on the error envelope"
