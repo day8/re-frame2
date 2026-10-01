@@ -60,4 +60,4 @@ For related work:
 
 The full symptom list and fixes are in [`SKILL.md` §Troubleshooting](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md#troubleshooting-common-build-failures).
 
-The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md) contains the full workflow and links to its reference notes.
+The [skill contract](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-setup/SKILL.md) contains the full workflow and links to its [reference notes](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup/references).
