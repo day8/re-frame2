@@ -3150,8 +3150,7 @@
 ;; the top-level :app-db slot — sits OFF its classified path inside the
 ;; narrative tree and ships RAW (EP-0025 fail-open). :warnings (trace-event
 ;; records) and :sub-runs (sub :value) re-key it the same way. These pin
-;; that all three, and the :snapshot slot, ship re-keyed copies raw, with
-;; the same `:include-sensitive` opt-out as the sibling derived slots.
+;; that all three, and the :snapshot slot, ship re-keyed copies raw.
 ;; ---------------------------------------------------------------------------
 
 (deftest run-variant-narrative-ships-re-keyed-secret-raw-fail-open
@@ -3178,26 +3177,6 @@
               "fail-open: :sub-runs subscription :value re-keys the secret, so it ships RAW")
           (is (tree-contains? (:snapshot s) "TOPSECRET")
               "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
-
-(deftest run-variant-narrative-forwards-secret-when-opted-in
-  (testing ":include-sensitive true forwards the raw value through :narrative / :warnings / :sub-runs"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (declare-sensitive! vid [:token])
-      (with-redefs [rf.story/run-variant
-                    (fn [_vk _opts]
-                      (java.util.concurrent.CompletableFuture/completedFuture
-                        (secret-bearing-run-result vid)))]
-        (let [r (invoke "run-variant" {:variant-id "story.button/primary"
-                                       :include-sensitive true})
-              s (:structuredContent r)]
-          (is (success? r))
-          (is (tree-contains? (:narrative s) "TOPSECRET")
-              "opt-in surfaces the raw value in :narrative beats")
-          (is (tree-contains? (:warnings s) "TOPSECRET")
-              "opt-in surfaces the raw value in :warnings")
-          (is (tree-contains? (:sub-runs s) "TOPSECRET")
-              "opt-in surfaces the raw value in :sub-runs"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A run-variant timeout / exception ships a structuredContent that PASSES
@@ -3623,21 +3602,6 @@
                 "the public axe-core finding STRUCTURE (id/impact/help/target) survives")
             (is (= ["#api-key-input"] (get-in s [:violations 0 :nodes 0 :target]))
                 "non-sensitive node fields (CSS target selectors) pass through")))))))
-
-(deftest read-a11y-violations-includes-sensitive-violation-html-when-opted-in
-  (testing ":include-sensitive true forwards the raw axe-core node :html (gate open)"
-    (rf.story-mcp.config/set-allow-sensitive-reads! true)
-    (with-clean-frame [vid :story.button/primary]
-      (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
-      (declare-sensitive! vid [:auth :token])
-      (let [vios [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]]
-        (binding [rf.story-mcp.tools.cljs-resolve/*a11y-provider* (a11y-stand-in {:story.button/primary vios})]
-          (let [r (invoke "read-a11y-violations" {:variant-id        "story.button/primary"
-                                      :include-sensitive true})
-                s (:structuredContent r)]
-            (is (success? r))
-            (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
-                "the documented opt-in surfaces the raw node :html")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Egress indicator counts (`:dropped-sensitive` / `:elided-large`).
