@@ -188,7 +188,7 @@
 ;; and stamped. One escaped shape = one egress leak.
 ;; ---------------------------------------------------------------------------
 
-(deftest ss06u-set-path-tag-carries-no-secret
+(deftest set-path-tag-carries-no-secret
   (testing "a :set of sensitive maps must not ship the failing
             element value in ANY slot, including the structural :path tag"
     ;; The sentinel rides as a sibling :ssn (a plain string) so a leak would
@@ -231,7 +231,7 @@
       (is (not (contains-sentinel? v))
           (str "the secret leaked somewhere in the trace: " (pr-str (:tags v)))))))
 
-(deftest ss06u-ancestor-sensitive-wrapper-corpus-all-redacted
+(deftest ancestor-sensitive-wrapper-corpus-all-redacted
   (testing "a sensitive container whose failing leaf is under a
             transparent :and/:or/:multi/:orn wrapper redacts + stamps"
     (doseq [[label schema db]
