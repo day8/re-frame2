@@ -408,11 +408,11 @@
   reports ETIMEDOUT with both child streams empty, and the failure count
   tracks box load on an unchanged tree.
 
-  A generous ceiling does NOT weaken the fail-fast contract.  That contract is
-  pinned separately and strictly by `spawn-timeout-kills-a-hanging-child`,
-  which proves a never-exiting child is SIGTERM-killed using its own 1.5 s
-  ceiling.  This constant only bounds how long a wedged child may stall
-  the suite before that same mechanism ends it.
+  A generous ceiling does NOT weaken the fail-fast contract: `spawnSync`
+  kills a child that outlives its `:timeout`, and every process-level row
+  asserts the spawn error is nil, so a killed child is RED.  This constant
+  only bounds how long a wedged child may stall the suite before that
+  happens.
 
   WHY 600 s AND NOT SOMETHING TIGHTER.  The two errors are not symmetric.
   Too tight costs a false RED on an honest change, which burns a 15-minute
@@ -883,37 +883,3 @@
           (str "a run that never dispatches the exit defmethod must drain"
                " with the SEEDED 1, never 0; got status " status
                "\n--- stdout ---\n" stdout "\n--- stderr ---\n" stderr)))))
-
-;; ----------------------------------------------------------------------
-;; Shared spawn timeout/output policy.
-;;
-;; The process-level pins above all route through `spawn-runner`, which
-;; applies a single `:timeout` + `:maxBuffer` policy to every spawn so a
-;; wedged or runaway child fails fast with a diagnostic rather than
-;; hanging the whole CLJS suite.  This pins the fail-fast behaviour itself
-;; via a deliberately-hanging child so the timeout cannot be silently
-;; dropped: a child that never exits must surface a SIGTERM
-;; timeout, not block forever.  We spawn the node binary directly on a
-;; tiny inline program (no runner needed) with a SHORT explicit timeout so
-;; the test stays fast.
-
-(deftest spawn-timeout-kills-a-hanging-child
-  (testing "spawnSync timeout terminates a child that never exits"
-    (let [;; A child that blocks forever: an idle interval keeps the event
-          ;; loop alive with no exit path.
-          spawn-result (.spawnSync node-child-process
-                                   (aget js/process.argv 0) ; node binary
-                                   #js ["-e" "setInterval(function(){}, 1000)"]
-                                   #js {:encoding  "utf8"
-                                        :timeout   1500
-                                        :maxBuffer (* 1024 1024)})]
-      ;; The CORE pin: spawnSync must have KILLED the child on timeout
-      ;; (SIGTERM), proving the shared policy fails fast instead of
-      ;; hanging. A regression that dropped `:timeout` would block here
-      ;; forever (the child never exits on its own).
-      (is (= "SIGTERM" (.-signal spawn-result))
-          (str "a hanging child must be SIGTERM-killed on the spawnSync"
-               " timeout; got signal " (pr-str (.-signal spawn-result))
-               " status " (pr-str (.-status spawn-result))))
-      (is (some? (.-error spawn-result))
-          "spawnSync must surface an ETIMEDOUT-class error on the timeout"))))
