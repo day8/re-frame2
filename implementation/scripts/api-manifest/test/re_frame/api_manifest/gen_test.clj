@@ -95,6 +95,33 @@
           (is (= [[expected-key 2]] (:duplicates (ex-data e)))
               "ex-data must name the duplicated [namespace var] + count 2"))))))
 
+(deftest build-manifest-throws-on-cljs-only-row-colliding-with-jvm-row
+  (testing "a :cljs-only row naming a LIVE JVM-introspected var is refused —
+            uniqueness is checked over the JVM and :cljs-only rows TOGETHER,
+            so a JVM-loadable var hand-rowed under :cljs-only never ships as
+            two rows"
+    ;; The colliding row copies the var's own classification, facade axes
+    ;; included, so every other check passes and the duplicate check is what
+    ;; fires. A `:classification` key is a live JVM var by construction —
+    ;; `build-manifest` refuses a stale one — so this is the cross-category
+    ;; collision. The two tests above duplicate one `:cljs-only` row against
+    ;; another, which a check scoped to the `:cljs-only` rows alone still
+    ;; catches; this one pins the check to the concatenated rows.
+    (let [sidecar (rf.api-manifest.gen/read-sidecar)
+          k       ["re-frame.core" "capture-frame"]
+          c       (get-in sidecar [:classification k])]
+      (assert c "precondition: the sidecar classifies re-frame.core/capture-frame")
+      (try
+        (rf.api-manifest.gen/build-manifest
+          (update sidecar :cljs-only conj
+                  (assoc c :namespace (first k) :var (second k)
+                           :kind :fn :facade? true)))
+        (is false "expected build-manifest to throw on the colliding row")
+        (catch clojure.lang.ExceptionInfo e
+          (is (re-find #"Duplicate manifest rows" (ex-message e)))
+          (is (= [[k 2]] (:duplicates (ex-data e)))
+              "ex-data must name the colliding [namespace var] + count 2"))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Live: the committed manifest is duplicate-free (the CI contract).
 ;; ---------------------------------------------------------------------------
