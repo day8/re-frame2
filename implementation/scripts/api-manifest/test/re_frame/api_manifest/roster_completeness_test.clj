@@ -148,11 +148,6 @@
 ;; The LIVE tree — the test that fails if the gate is orphaned.
 ;; ---------------------------------------------------------------------------
 
-(deftest covered-roots-are-non-empty
-  (testing "the gate reconciles at least one real tree; an empty root list
-            would make every assertion above vacuous"
-    (is (seq rf.api-manifest.gen/roster-covered-roots))))
-
 (deftest live-rosters-account-for-the-live-trees
   (testing "every namespace under every covered root is classified, with no
             stale internal entries and no contradictions. This is the
@@ -175,7 +170,8 @@
 (deftest covered-source-namespaces-reads-the-real-tree
   (testing "the live scan returns the artefact doors it must contain — a
             silently empty scan is the defect `namespaces-under` throws to
-            prevent, and this pins that it did not happen"
+            prevent, and this pins that it did not happen, including through
+            an empty `roster-covered-roots`, which no root would throw for"
     (let [present (rf.api-manifest.gen/covered-source-namespaces)]
       (is (contains? present 're-frame.ssr))
       (is (contains? present 're-frame.ssr.ring))
