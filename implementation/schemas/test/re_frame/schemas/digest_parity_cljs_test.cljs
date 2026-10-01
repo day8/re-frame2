@@ -49,19 +49,6 @@
                  " — input-a → " (pr-str da)
                  ", input-b → " (pr-str db)))))))
 
-;; ---- corpus distinctness sanity ------------------------------------------
-
-(deftest cljs-fixture-literals-pairwise-distinct
-  (testing "The pinned-literal corpus is pairwise distinct — no two
-            fixtures collide on the 16-hex prefix. The CLJS-side check
-            is redundant with the JVM-side check (they read the same
-            `def`s) but cheap; an accidental edit that introduced a
-            duplicate would fail both."
-    (let [literals (mapv :expected rf.schemas.digest-parity-fixtures/all-fixtures)]
-      (is (= (count literals) (count (set literals)))
-          (str "Fixture literals must be pairwise distinct — got "
-               (pr-str literals))))))
-
 ;; ---- host-divergent printer cases -----------------------------------------
 ;;
 ;; The `whole-number-double` fixture rides in `all-fixtures` above, so
