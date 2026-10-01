@@ -723,7 +723,9 @@
 ;; Diagnostics-survive contract.
 ;;
 ;; The line-precise filter drops only `Running tests in #{...}`. Help,
-;; parse-error diagnostics, and test output must still reach stdout.
+;; parse-error diagnostics, and test output must still reach stdout. Test
+;; output is pinned below by `banner-lookalike-diagnostic-survives` (a whole
+;; `println` line) and `unterminated-partial-survives-exit` (a bare `print`).
 
 (deftest help-flag-prints-usage
   (testing "-H prints cognitect usage and exits 0 (a global *out* sink would swallow it)"
@@ -756,27 +758,6 @@
               (str "the offending flag must be named in the diagnostic; got:\n" out))
           (is (str/includes? out "USAGE:")
               (str "cognitect prints usage after the parse error; got:\n" out)))))))
-
-(deftest test-stdout-survives-on-green
-  (testing "bare test output reaches stdout while the banner stays quiet"
-    (with-fixture-dir
-      (fn [dir]
-        (write-fixture! dir "stdout_green_fixture_test" "stdout-green-fixture-test"
-                        (str "(deftest a-talking-test"
-                             " (println \"BARE-STDOUT-MARKER\")"
-                             " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
-          (is (zero? exit)
-              (str "the talking suite is green; must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (str/includes? out "BARE-STDOUT-MARKER")
-              (str "a test's bare println must reach the real stdout — the"
-                   " filter forwards everything but the banner; got:\n" out))
-          (is (not (str/includes? out discovery-banner-marker))
-              (str "the discovery banner must STILL be swallowed even though"
-                   " other stdout is forwarded; got:\n" out))
-          (is (str/includes? out "0 failures, 0 errors.")
-              (str "the green summary must still print; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Banner-prefix precision.
@@ -1434,6 +1415,10 @@
         ;; cognitect test-runner returns 0 when there are no test
         ;; namespaces") and names its job "Diagnostic skip-ok". This
         ;; fixture dir has NO JVM test file at all — the same shape.
+        ;; `--probe` is this wrapper's own flag and must be stripped before
+        ;; cognitect parses: a leaked one is a cognitect parse error (exit 1,
+        ;; `Unknown option` and usage on stdout), which the exit and the
+        ;; two-line pins below both catch.
         (let [{:keys [exit out err]} (invoke-quiet-runner dir "--probe")]
           (is (zero? exit)
               (str "a declared classpath probe must exit 0 on zero tests: a"
@@ -1476,26 +1461,6 @@
           (is (str/includes? err "drop --probe")
               (str "the diagnostic must say what to do about it; got"
                    " stderr:\n" err)))))))
-
-(deftest probe-flag-is-not-forwarded-to-cognitect
-  (testing "--probe is consumed by the wrapper, not passed to the test runner"
-    (with-fixture-dir
-      (fn [dir]
-        ;; cognitect owns its own arg contract and rejects what it does not
-        ;; know, so the wrapper's one flag must be stripped before delegating.
-        ;; A leaked `--probe` would surface as a cognitect parse error.
-        (write-fixture! dir "probe_strip_fixture_test" "probe-strip-fixture-test"
-                        "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]}
-              (invoke-quiet-runner dir "-r" "^zzz-matches-nothing$" "--probe")
-              both (str out err)]
-          (is (zero? exit)
-              (str "a probe whose selector matches nothing is still a green"
-                   " probe (0 tests is its correct outcome); got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (not (str/includes? both "--probe"))
-              (str "no diagnostic may echo --probe: a cognitect parse error"
-                   " naming it means the flag leaked through; got\n" both)))))))
 
 (deftest malformed-floor-is-a-configuration-error
   (testing "a non-integer RF2_MIN_TESTS exits 2 rather than silently defaulting"
