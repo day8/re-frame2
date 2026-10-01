@@ -322,10 +322,10 @@ Three details in that code:
   tree shape the server hashed in Step 3. The vector form would hash differently even
   though nothing on the page differs.
 - **Hydration replaces the client's state; it does not merge.** Whatever the client
-  pre-seeded is overwritten. You don't normally register a handler for `:rf/hydrate`:
-  the framework provides it, and it rejects a malformed payload wholesale, leaving
-  existing state untouched. To keep client-only state across hydration, re-register
-  `:rf/hydrate` with your own explicit merge
+  pre-seeded is overwritten. The framework provides the `:rf/hydrate` handler, and it
+  rejects a malformed payload wholesale, leaving existing state untouched. State only
+  the client has, such as a restored draft, is seeded after hydration: dispatch your
+  own event once `hydrate!` returns
   ([concepts](concepts.md#the-client-side-hydrate-then-verify)).
 
 Compile the client with `npx shadow-cljs watch app`; Step 7 serves the page and
