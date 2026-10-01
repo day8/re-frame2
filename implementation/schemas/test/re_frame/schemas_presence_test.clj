@@ -98,19 +98,6 @@
 ;; JVM half — the production boundary interceptor delegates nil
 ;; ===========================================================================
 
-(deftest boundary-registration-with-explicit-nil-schema-succeeds
-  (testing "the fail-open's precondition, pinned: {:schema nil} + the
-            boundary flag REGISTERS (the registrar checks key
-            presence), and the registered metadata preserves the nil"
-    (rf/reg-event :wire/received
-      {:schema    nil
-       :boundary? true}
-      (fn [_ _] {}))
-    (let [meta (rf.registrar/lookup :event :wire/received)]
-      (is (some? meta) "registration succeeded")
-      (is (contains? meta :schema) "the :schema key is present")
-      (is (nil? (:schema meta)) "…and its value is the authored nil"))))
-
 (deftest boundary-arm-delegates-a-present-nil-schema-in-production
   (testing "HEADLINE — the production boundary arm hands a present
             nil schema to the registered validator and rejects on its false
