@@ -42,16 +42,9 @@
 //      once 'close' fires.
 //   3. A fake child that exits non-zero — proves a genuinely failing
 //      child's exit code is surfaced faithfully.
-//   4. A fake child that exits 0 but never prints the sentinel (a
-//      "silently non-conformant" child, as opposed to a merely
-//      late-flushing one) — graded, then handed to the REAL verdict
-//      `main()` applies (`gradeInnerTestOutcome`), which must fail it as an
-//      orchestration failure (exit 2). Close-grading reads MORE of a
-//      child's stdout, but does not turn the sentinel gate into a rubber
-//      stamp.
-//   5. A fake child killed by a signal (code === null) — proves the
+//   4. A fake child killed by a signal (code === null) — proves the
 //      reject-on-signal contract holds under close-grading.
-//   6. The verdict itself, RED and GREEN: a SKIP banner at the start of
+//   5. The verdict itself, RED and GREEN: a SKIP banner at the start of
 //      stdout and after a newline, an exit 0 without the sentinel and a
 //      row with no sentinel all fail with exit 2; a non-zero exit keeps the
 //      inner code; only an exit 0 with the sentinel passes.
@@ -182,32 +175,6 @@ test('spawnAndGradeInnerTest still fails a genuinely non-conformant child that e
     1,
     'a genuinely failing inner test must still surface its non-zero exit ' +
       'code under close-grading',
-  );
-});
-
-test('spawnAndGradeInnerTest still surfaces a sentinel-less stdout for a silently non-conformant child (exit 0, sentinel never printed)', async () => {
-  const child = makeFakeChild();
-
-  const spawnFn = () => {
-    setImmediate(() => {
-      child.stdout.emit('data', Buffer.from('exited clean but forgot to print the sentinel\n'));
-      child.emit('exit', 0, null);
-      setImmediate(() => child.emit('close', 0, null));
-    });
-    return child;
-  };
-
-  const result = await grade(spawnFn);
-
-  assert.equal(result.code, 0);
-  // Hand the graded outcome to the verdict `main()` applies:
-  // close-grading reads MORE of a child's stdout than exit-based grading
-  // would, but it must not turn the sentinel check into a
-  // rubber stamp — a child that never actually prints its sentinel, even
-  // once its stdio is fully drained, still fails.
-  assert.throws(
-    () => gradeInnerTestOutcome({ ...result, sentinel: SENTINEL, testFile: 'fake-inner-test.cjs' }),
-    (err) => err.exitCode === 2 && /did NOT print its success sentinel/.test(err.message),
   );
 });
 
