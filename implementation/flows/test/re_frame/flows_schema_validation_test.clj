@@ -339,20 +339,23 @@
       (is (= :rf/redacted (get-in ev [:tags :explain]))))))
 
 (deftest unclassified-output-keeps-its-explanation
-  (testing "CONTROL: an output nothing classifies keeps its raw :value and
-            :explain and carries no :sensitive? — the redaction is not blanket"
+  (testing "CONTROL: a :sensitive and a :large declaration on unrelated paths
+            leave an unclassified output's raw :value and :explain alone, with
+            no :sensitive? or :large? stamp — neither redaction is blanket"
     (rf/reg-event :seed (fn [_ _] {:db {:plain "not-an-int"}}))
-    (rf/reg-event :classify-elsewhere (fn [_ _] {:sensitive [[:elsewhere]]}))
+    (rf/reg-event :classify-elsewhere (fn [_ _] {:sensitive [[:elsewhere]]
+                                                 :large     [[:out-other]]}))
     (rf/reg-flow :p2/plain
                  {:inputs [[:plain]] :output-path [:out]
                   :schema [:map [:token :int]]}
                  (fn [s] {:token s}))
-    ;; A sensitive declaration on an unrelated path does not reach this one.
+    ;; Declarations on unrelated paths do not reach this one.
     (rf/dispatch-sync [:classify-elsewhere])
     (reset! *captured* [])
     (rf/dispatch-sync [:seed])
     (let [ev (violation-for :p2/plain)]
       (is (nil? (:sensitive? ev)))
+      (is (nil? (get-in ev [:tags :large?])))
       (is (= {:token "not-an-int"} (get-in ev [:tags :value])))
       (is (= {:token "not-an-int"} (get-in ev [:tags :explain :value]))
           ":explain is the registered explainer's output, unredacted"))))
@@ -461,22 +464,3 @@
             (str flow-id ": :explain is the redacted sentinel, not a size marker"))
         (is (nil? (get-in ev [:tags :large?]))
             (str flow-id ": no :large? stamp on a sensitive failure"))))))
-
-(deftest unclassified-output-keeps-its-explanation-beside-a-large-declaration
-  (testing "CONTROL: a :large declaration on an unrelated path leaves an
-            unclassified output's :explain raw and unstamped"
-    (rf/reg-event :seed (fn [_ _] {:db {:plain "not-an-int"}}))
-    (rf/reg-event :classify-elsewhere (fn [_ _] {:large [[:out-other]]}))
-    (rf/reg-flow :size/plain
-                 {:inputs [[:plain]] :output-path [:out]
-                  :schema [:map [:token :int]]}
-                 (fn [s] {:token s}))
-    (rf/dispatch-sync [:classify-elsewhere])
-    (reset! *captured* [])
-    (rf/dispatch-sync [:seed])
-    (let [ev (violation-for :size/plain)]
-      (is (nil? (:sensitive? ev)))
-      (is (nil? (get-in ev [:tags :large?])))
-      (is (= {:token "not-an-int"} (get-in ev [:tags :value])))
-      (is (= {:token "not-an-int"} (get-in ev [:tags :explain :value]))
-          ":explain is the registered explainer's output, untouched"))))
