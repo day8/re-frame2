@@ -182,7 +182,7 @@
         (is (not (str/includes? app-inner "data-rf2-suspense-resolved"))
             "no resolved-template protocol node nested inside #app")))))
 
-(deftest stream-handler-suffix-no-longer-emits-app-close
+(deftest default-streaming-suffix-leaves-the-app-root-close-to-the-shell-chunk
   (testing "`default-streaming-suffix` does not carry the
             app-root `</div>` (the shell chunk closes it). The suffix is
             purely the bootstrap script + body-end + document close."

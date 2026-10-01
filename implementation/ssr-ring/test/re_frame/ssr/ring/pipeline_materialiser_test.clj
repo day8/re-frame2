@@ -62,26 +62,19 @@
 ;; the adapter must simply NOT silently honour the retired keys.
 ;; ===========================================================================
 
-(deftest redirect-ignores-retired-url-spelling-no-location-header
-  (testing "a redirect map carrying ONLY the retired :url spelling
-            (NOT :location) is treated as target-less by the materialiser,
-            so no Location header is emitted.
-            The runtime rejects :url loudly before this point; the adapter's
-            last-line behaviour must NOT silently resolve the retired key."
-    (let [resp {:redirect {:status 303 :url "/by-url"}}
-          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
-      (is (= 303 (:status ring)) "the redirect map's :status still rides through")
-      (is (nil? (get (:headers ring) "Location"))
-          ":url is NOT resolved as the Location target — retired spelling"))))
-
-(deftest redirect-ignores-retired-to-spelling-no-location-header
-  (testing "a redirect map carrying ONLY the retired :to spelling
-            (NOT :location) likewise emits no Location header"
-    (let [resp {:redirect {:status 307 :to "/by-to"}}
-          ring (rf.ssr.ring.pipeline/ssr-response->ring-response resp nil)]
-      (is (= 307 (:status ring)))
-      (is (nil? (get (:headers ring) "Location"))
-          ":to is NOT resolved as the Location target — retired spelling"))))
+(deftest redirect-ignores-retired-target-keys
+  (testing "a redirect map carrying ONLY a retired :url or :to spelling (NOT
+            :location) is treated as target-less by the materialiser, so no
+            Location header is emitted. The runtime rejects these keys loudly
+            before this point; the adapter's last-line behaviour must NOT
+            silently resolve them."
+    (doseq [[k status] [[:url 303] [:to 307]]]
+      (let [ring (rf.ssr.ring.pipeline/ssr-response->ring-response
+                   {:redirect {:status status k "/by-retired-key"}} nil)]
+        (is (= status (:status ring))
+            (str k ": the redirect map's :status still rides through"))
+        (is (nil? (get (:headers ring) "Location"))
+            (str k " is NOT resolved as the Location target"))))))
 
 (deftest redirect-location-only-resolution-ignores-retired-co-keys
   (testing "when :location is present alongside retired :url / :to
@@ -418,28 +411,19 @@
 ;; covered.
 ;; ===========================================================================
 
-(deftest single-value-header-stays-scalar
-  (testing "a name seen once stays a scalar string (nil arm)"
-    (is (= {"Vary" "Accept"}
-           (rf.ssr.ring.headers/merge-pair-into-header-map {} ["Vary" "Accept"])))))
-
-(deftest second-value-promotes-to-vector
-  (testing "a name seen twice promotes scalar → 2-vector
-            (string arm)"
-    (is (= {"Vary" ["Accept" "Cookie"]}
-           (-> {}
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Accept"])
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Vary" "Cookie"]))))))
-
-(deftest third-value-conjs-onto-vector-preserving-order
-  (testing "a name seen three+ times conjs onto the vector,
-            preserving per-name insertion order (vector arm — the
-            load-bearing multi-valued-header round-trip)"
-    (is (= {"Link" ["a" "b" "c"]}
-           (-> {}
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "a"])
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "b"])
-               (rf.ssr.ring.headers/merge-pair-into-header-map ["Link" "c"]))))))
+(deftest a-repeated-header-name-folds-scalar-then-vector-in-order
+  (testing "a name seen once stays a scalar (nil arm), a second value promotes
+            it to a 2-vector (string arm), and further values conj on in
+            insertion order (vector arm — the load-bearing multi-valued-header
+            round-trip)"
+    (let [fold (fn [pairs]
+                 (reduce rf.ssr.ring.headers/merge-pair-into-header-map {} pairs))]
+      (is (= {"Vary" "Accept"} (fold [["Vary" "Accept"]]))
+          "one value stays a scalar")
+      (is (= {"Vary" ["Accept" "Cookie"]} (fold [["Vary" "Accept"] ["Vary" "Cookie"]]))
+          "a second value promotes to a 2-vector")
+      (is (= {"Link" ["a" "b" "c"]} (fold [["Link" "a"] ["Link" "b"] ["Link" "c"]]))
+          "a third value conjs on, insertion order preserved"))))
 
 (deftest repeated-non-string-value-coerced-and-does-not-wipe-header-map
   (testing "a repeated header name whose value
