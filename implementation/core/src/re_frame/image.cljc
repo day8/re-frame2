@@ -585,7 +585,8 @@
 
 (defn image
   "Construct an IMAGE value — a selected registration-set value, as INERT data
-  (EP-0023 §Image, §Public API). PUBLIC (`rf/image`).
+  (EP-0023 §Image, §Public API). The runtime constructor the public `rf/image`
+  macro delegates to: a plain value fn that programmatic callers call directly.
 
   `spec` carries EXACTLY three public source keys (EP-0026 §Image Keys):
 
