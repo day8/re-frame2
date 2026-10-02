@@ -80,13 +80,9 @@
             primitives"
     (rf.story/reg-story :story.mcp.list-s-a {:doc "story A"})
     (rf.story/reg-story :story.mcp.list-s-b {:doc "story B"})
-    (let [result (rf.story/ids :story)]
-      (is (set? result)
-          "the result is a Clojure set — agents iterate / contains? against it")
-      (is (every? keyword? result)
-          "every id is a keyword")
-      (is (contains? result :story.mcp.list-s-a))
-      (is (contains? result :story.mcp.list-s-b)))))
+    (is (= #{:story.mcp.list-s-a :story.mcp.list-s-b} (rf.story/ids :story))
+        "exactly the registered keyword ids, as a set — agents iterate /
+         contains? against it")))
 
 (deftest list-variants-returns-id-set
   (testing "(ids :variant) returns the set of registered variant ids;
@@ -98,7 +94,6 @@
     (rf.story/reg-variant :story.mcp.list-v/probe {:setup []})
     (rf.story/reg-variant :story.mcp.list-v/probe-two {:setup []})
     (let [result (rf.story/ids :variant)]
-      (is (set? result))
       (is (= #{:story.mcp.list-v/probe :story.mcp.list-v/probe-two}
              result)))))
 
@@ -112,7 +107,6 @@
     (rf.story/reg-mode :Mode.mcp.list/dark  {:args {:theme :dark}})
     (rf.story/reg-mode :Mode.mcp.list/light {:args {:theme :light}})
     (let [result (rf.story/list-modes)]
-      (is (set? result))
       (is (= #{:Mode.mcp.list/dark :Mode.mcp.list/light} result))
       ;; (list-modes) MUST equal (ids :mode) — they are the same data.
       (is (= (rf.story/list-modes) (rf.story/ids :mode))
@@ -141,23 +135,16 @@
        :script [[:dispatch-sync [:rf.assert/path-equals [:n] 42]]]})
     (let [result (rf.story.async/deref-blocking
                    (rf.story/run-variant :story.mcp.run/probe) 5000)]
-      (is (map? result)
-          "run-variant returns a map (the MCP run-variant tool's payload)")
-      (is (contains? result :frame)
-          ":frame slot present — the agent reads which frame received the dispatch")
-      (is (= :story.mcp.run/probe (:frame result)))
-      (is (contains? result :app-db)
-          ":app-db slot present — the agent reads the frame's post-run state")
+      (is (= :story.mcp.run/probe (:frame result))
+          ":frame — the agent reads which frame received the dispatch")
       (is (= 42 (:n (:app-db result)))
-          "events phase seeded :n = 42")
-      (is (contains? result :assertions)
-          ":assertions slot present — the agent reads pass/fail rows")
-      (is (vector? (:assertions result)))
+          ":app-db — the frame's post-run state; events phase seeded :n = 42")
+      (is (vector? (:assertions result))
+          ":assertions — the agent reads pass/fail rows")
       (is (every? :passed? (:assertions result))
           "the play assertion passed")
-      (is (contains? result :elapsed-ms)
-          ":elapsed-ms slot present — wall-clock for the run")
-      (is (number? (:elapsed-ms result)))
+      (is (number? (:elapsed-ms result))
+          ":elapsed-ms — wall-clock for the run")
       (is (contains? result :snapshot)
           ":snapshot slot present — the spec/002 snapshot tuple")
       (is (contains? result :decorators)

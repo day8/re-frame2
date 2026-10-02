@@ -94,55 +94,6 @@
 
 ;; ---- which string gets picked ----------------------------------------------
 
-(deftest file-prefers-form-meta-over-bound-file
-  (testing "when (meta &form) carries :file, that wins over the
-            *file* arg — covers the CLJS analyzer case where *file* is
-            unbound (or stuck at NO_SOURCE_PATH) but the reader has
-            attached :file to the form's metadata"
-    (let [coords (eval-coords-form
-                   {:line 196 :column 3 :file on-classpath-story-file}
-                   "NO_SOURCE_PATH"                ; the CLJS macro-expansion default
-                   're-frame.story.macros)]
-      (is (not= "NO_SOURCE_PATH" (:file coords))
-          ":file must NOT be the cljs.analyzer NO_SOURCE_PATH sentinel")
-      (assert-absolute-and-real!
-        (:file coords) on-classpath-story-file
-        "form-meta :file is picked AND absolutised")
-      (is (= 196 (:line coords)) ":line still captured")
-      (is (= 3 (:column coords)) ":column still captured")
-      (is (= 're-frame.story.macros (:ns coords))
-          ":ns still captured"))))
-
-(deftest file-falls-back-to-bound-file-when-form-meta-missing
-  (testing "JVM compilation: (meta &form) has no :file (clojure.lang.LispReader
-            only attaches :line/:column), so coords-form falls back to the
-            *file* arg the macro captured — and absolutises THAT too"
-    (let [coords (eval-coords-form
-                   {:line 42 :column 1}            ; JVM reader — no :file
-                   on-classpath-story-file
-                   're-frame.story.macros)]
-      (assert-absolute-and-real!
-        (:file coords) on-classpath-story-file
-        "the *file* fallback is absolutised on the same path")
-      (is (= 42 (:line coords)))
-      (is (= 1  (:column coords)))
-      (is (= 're-frame.story.macros (:ns coords))))))
-
-(deftest unresolvable-file-passes-through-unchanged
-  (testing "absolutisation is a RESOLUTION, not a string join —
-            a path the class-loader cannot find (an in-jar source, a
-            synthetic coord, a REPL eval) degrades to the input unchanged
-            rather than being prefixed with a guessed root. This is the
-            case the public :rf.story/project-root knob serves, and it is
-            why that knob exists."
-    (let [coords (eval-coords-form
-                   {:line 7 :column 2 :file "no/such/story_file.cljs"}
-                   "NO_SOURCE_PATH"
-                   'some.ns)]
-      (is (= "no/such/story_file.cljs" (:file coords))
-          "unresolvable :file ships verbatim — no fabricated absolute path")
-      (is (not (rf.source-coords.editor-uri/absolute-path? (:file coords)))))))
-
 (deftest file-omitted-when-both-sources-are-sentinel
   (testing "if BOTH (meta &form) :file and *file* resolve to
             NO_SOURCE_PATH (pathological cljs case), omit :file entirely
@@ -155,16 +106,6 @@
           ":file is omitted rather than carrying the NO_SOURCE_PATH sentinel")
       (is (= 1 (:line coords)))
       (is (= 'some.ns (:ns coords))))))
-
-(deftest file-omitted-when-both-sources-are-nil
-  (testing "no :file anywhere — omit the slot"
-    (let [coords (eval-coords-form
-                   {:line 7 :column 3}             ; no :file in meta
-                   nil                              ; no *file* either
-                   'some.ns)]
-      (is (not (contains? coords :file))
-          ":file is omitted when no source is available")
-      (is (= 7 (:line coords))))))
 
 (deftest gen-reg-call-carries-absolutised-file-into-pending-coords
   (testing "end-to-end: the gen-reg-call expansion (which

@@ -28,10 +28,6 @@
     compiles through the DEFAULT side-table lookup (no explicit
     `:lookup`) so the registered path and explicit-`:lookup` tests share
     ONE merge engine: setup APPENDS, checks INHERIT, decorators INHERIT.
-  - **Meta → story → variant chain** — story's `:tags` /
-    `:argtypes` / `:substrates` cascade into the variant's effective
-    body where the variant didn't declare its own; the variant's
-    declarations win where it did.
 
   Per spec/001 §reg-variant authoring schema + spec/002 §:extends
   resolution + spec/010 §Mode authoring."
@@ -352,13 +348,3 @@
     (let [pack (rf.story/resolve-decorators :story.s84/child)]
       (is (= [:s84-parent-deco] (mapv :id (:hiccup pack)))
           "resolve-decorators inherits the parent's decorator via the plan"))))
-
-;; ===========================================================================
-;; Meta → story → variant inheritance
-;;
-;; Story-level slots cascade into the variant when the variant didn't
-;; declare its own. The story's :tags / :argtypes / :decorators flow
-;; through to the variant's effective body via the docs-pane row
-;; helpers and resolve-decorators.
-;; ===========================================================================
-

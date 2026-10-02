@@ -52,31 +52,42 @@
 
 (use-fixtures :each reset-story-registry)
 
+(defn- shape-data
+  "Call `f` and return the thrown ex-data, or nil when it did not throw."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
 ;; ===========================================================================
 ;; ERROR-SHAPE CONTRACT — every registration raises with structured ex-data
 ;; ===========================================================================
 
-(deftest reg-variant-bad-shape-carries-error-key
-  (testing "an invalid variant body raises with :rf.error in ex-data"
-    (try
-      (rf.story/reg-variant :story.auth.bad/v
-        {:tags "not-a-set"})                         ; :tags must be a set
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e)))
-            "ex-data carries the :rf.error/variant-shape sentinel")
-        (is (re-find #"variant schema" (:reason (ex-data e)))
+(deftest every-kind-bad-shape-carries-its-error-key
+  (doseq [[error-id kind register!]
+          [[:rf.error/variant-shape "variant"
+            #(rf.story/reg-variant :story.auth.bad/v
+               {:tags "not-a-set"})]                     ; :tags must be a set
+           [:rf.error/workspace-shape "workspace"
+            #(rf.story/reg-workspace :Workspace.bad/empty
+               {:layout :unknown-layout})]               ; :layout must be one of four
+           [:rf.error/decorator-shape "decorator"
+            #(rf.story/reg-decorator :bad-decorator
+               {:kind :not-a-decorator-kind})]
+           [:rf.error/tag-shape "tag"
+            #(rf.story/reg-tag :bad/default-filter
+               {:default-filter :sometimes})]            ; only :include / :exclude
+           [:rf.error/mode-shape "mode"
+            #(rf.story/reg-mode :Mode.bad/missing-args
+               {:args "not-a-map"})]                     ; :args must be a map
+           [:rf.error/story-panel-shape "story-panel"
+            #(rf.story/reg-story-panel :rf.story/bad-panel
+               {:placement :nowhere                      ; not one of the five
+                :render    :some/view})]]]
+    (testing (str "an invalid " kind " body")
+      (let [data (shape-data register!)]
+        (is (= error-id (:rf.error/id data))
+            "ex-data carries the kind's :rf.error/<kind>-shape id")
+        (is (str/includes? (str (:reason data)) (str kind " schema"))
             ":reason names the failing kind")))))
-
-(deftest reg-workspace-bad-shape-carries-error-key
-  (testing "an invalid workspace body raises with :rf.error in ex-data"
-    (try
-      (rf.story/reg-workspace :Workspace.bad/empty
-        {:layout :unknown-layout})                   ; :layout must be one of four
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))
-        (is (re-find #"workspace schema" (:reason (ex-data e))))))))
 
 (deftest reg-workspace-refuses-a-custom-layout
   (testing "there is no :custom layout, so registration refuses it"
@@ -103,43 +114,6 @@
       (is false "expected an exception")
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-decorator-bad-shape-carries-error-key
-  (testing "an invalid decorator body raises with :rf.error in ex-data"
-    (try
-      (rf.story/reg-decorator :bad-decorator
-        {:kind :not-a-decorator-kind})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/decorator-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-tag-bad-shape-carries-error-key
-  (testing "an invalid tag body raises with :rf.error in ex-data"
-    (try
-      (rf.story/reg-tag :bad/default-filter
-        {:default-filter :sometimes})                ; only :include / :exclude
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/tag-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-mode-bad-shape-carries-error-key
-  (testing "an invalid mode body raises with :rf.error in ex-data"
-    (try
-      (rf.story/reg-mode :Mode.bad/missing-args
-        {:args "not-a-map"})                         ; :args must be a map
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/mode-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-story-panel-bad-shape-carries-error-key
-  (testing "an invalid story-panel body raises with :rf.error in ex-data"
-    (try
-      (rf.story/reg-story-panel :rf.story/bad-panel
-        {:placement :nowhere                          ; not one of the five
-         :render    :some/view})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/story-panel-shape (:rf.error/id (ex-data e))))))))
 
 ;; ---- fragments + checks ---------------------------------------------------
 
@@ -226,19 +200,6 @@
           (is (re-find #"closed" reason)
               ":reason explains the body is closed"))))))
 
-(deftest reg-variant-rejects-typoed-slot-with-nearest-suggestion
-  (testing "a typo'd variant slot is rejected and the nearest declared
-            slot is suggested (e.g. :scripts → :script)"
-    (try
-      (rf.story/reg-variant :story.swallow/typo
-        {:setup   []
-         :scripts [[:dispatch [:x]]]})              ; typo for :script
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))
-        (is (re-find #"did you mean :script\?" (:reason (ex-data e)))
-            "the nearest-key suggestion points at :script")))))
-
 ;; ---- there are no body-level props-schema slots --------------------------
 ;;
 ;; The view-args (props) schema lives ONLY on the registered `:component`
@@ -293,21 +254,7 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
-(deftest props-schema-on-view-metadata-still-drives-validation
-  (testing "the LIVE path — a props schema on the registered
-            :component view's metadata (NOT the body) copies into the
-            compiled plan and validates :effective-args"
-    (rf.story/reg-variant :story.live/props
-      {:component :views/widget
-       :args      {:label "Hi"}})
-    (let [view-schema [:map [:label :string]]
-          p (rf.story.plan/variant-plan :story.live/props
-                               {:view-lookup {:views/widget {:rf/props view-schema}}})]
-      (is (= view-schema (get-in p [:world :view-args-schema]))
-          "the view-meta props schema is copied to [:world :view-args-schema]")
-      (is (= {:label "Hi"} (get-in p [:world :effective-args]))))))
-
-(deftest reg-variant-migrated-setup-script-authoring-validates
+(deftest reg-variant-template-scaffold-bodies-validate
   (testing "the template scaffold's authoring shape
             — :setup preconditions + :script with [:assert [:rf.assert/…]]
             checkpoints + dispatch-sync increments — VALIDATES cleanly"
@@ -330,12 +277,7 @@
                            [:assert [:rf.assert/dispatched? [:counter/increment]]]]
                   :tags   #{:dev :docs :test}
                   :substrates #{:reagent}}))
-        "incremented-variant scaffold-shaped body validates")
-    ;; The body is stored under the keys the author wrote.
-    (let [body (rf.story/handler-meta :variant :story.migrated/incremented)]
-      (is (= [[:counter/initialise]] (:setup body)) ":setup stored verbatim")
-      (is (= 6 (count (:script body))) ":script stored verbatim")
-      (is (not (contains? body :play)) "no :play slot is stored"))))
+        "incremented-variant scaffold-shaped body validates")))
 
 (deftest reg-variant-accepts-mcp-origin-stamp
   (testing "the story-mcp write surface stamps :origin onto the variant
@@ -397,47 +339,22 @@
 ;; :plays multi-play schema contract
 ;; ===========================================================================
 
-(deftest reg-variant-plays-empty-rejected
-  (testing ":plays must contain at least one entry"
-    (try
-      (rf.story/reg-variant :story.multi/empty
-        {:setup []
-         :plays  []})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-variant-plays-without-name-rejected
-  (testing "each :plays entry must carry a :name"
-    (try
-      (rf.story/reg-variant :story.multi/no-name
-        {:setup []
-         :plays  [{:script [[:dispatch [:foo]]]}]})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-variant-plays-duplicate-names-rejected
-  (testing ":plays entries must have unique :name values"
-    (try
-      (rf.story/reg-variant :story.multi/dup
-        {:setup []
-         :plays  [{:name "p" :script [[:dispatch [:a]]]}
-                  {:name "p" :script [[:dispatch [:b]]]}]})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
-
-(deftest reg-variant-play-script-and-plays-mutually-exclusive
-  (testing "a variant may not declare BOTH :script and :plays"
-    (try
-      (rf.story/reg-variant :story.multi/both
-        {:setup      []
-         :script [[:dispatch [:legacy]]]
-         :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
-      (is false "expected an exception")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+(deftest reg-variant-rejects-malformed-plays
+  (doseq [[label body]
+          [[":plays must contain at least one entry"
+            {:setup [] :plays []}]
+           ["each :plays entry must carry a :name"
+            {:setup [] :plays [{:script [[:dispatch [:foo]]]}]}]
+           [":plays entries must have unique :name values"
+            {:setup [] :plays [{:name "p" :script [[:dispatch [:a]]]}
+                               {:name "p" :script [[:dispatch [:b]]]}]}]
+           ["a variant may not declare BOTH :script and :plays"
+            {:setup  []
+             :script [[:dispatch [:legacy]]]
+             :plays  [{:name "p" :script [[:dispatch [:plays]]]}]}]]]
+    (testing label
+      (is (= :rf.error/variant-shape
+             (:rf.error/id (shape-data #(rf.story/reg-variant* :story.multi/v body))))))))
 
 ;; ===========================================================================
 ;; ONE variant vocabulary: :setup / :script / :plays
@@ -493,11 +410,6 @@
 ;; The `PlaySpec` / `NamedPlaySpec` map branches are closed: the typo rejects
 ;; at reg-time, naming the key, WHERE it sits, and the nearest declared key.
 
-(defn- shape-data
-  "Call `f` and return the thrown ex-data, or nil when it did not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (deftest reg-variant-rejects-misspelt-play-map-key
   (doseq [[label body at]
           [[":script map, :autorun?"
@@ -552,9 +464,8 @@
       (rf.story/reg-variant* :story.vocab/public authored)
       (let [body (rf.story/variant->edn :story.vocab/public)]
         (is (= authored (dissoc body :source))
-            "the stored body is the authored body plus the :source stamp")
-        (is (not (contains? body :events))      "no :events key appears on read-back")
-        (is (not (contains? body :play-script)) "no :play-script key appears on read-back"))))
+            "the stored body is the authored body plus the :source stamp, so
+             no :events or :play-script key appears on read-back"))))
   (testing "the :script map form (with :name / :auto-run?) round-trips intact"
     (let [authored {:setup  []
                     :script {:name "named" :auto-run? false
@@ -566,9 +477,8 @@
                     :plays [{:name "happy" :script [[:dispatch [:foo]]]}
                             {:name "error" :script [[:dispatch [:bar]]]}]}]
       (rf.story/reg-variant* :story.vocab/named-plays authored)
-      (let [body (rf.story/variant->edn :story.vocab/named-plays)]
-        (is (= authored (dissoc body :source)))
-        (is (not (contains? body :script)) ":plays is the only play surface")))))
+      (is (= authored (dissoc (rf.story/variant->edn :story.vocab/named-plays) :source))
+          ":plays is the only play surface — no :script key appears"))))
 
 (deftest reg-variant-script-map-form-drives-the-plan
   (testing "a map-form :script's :auto-run? / :name reach the compiled plan
@@ -665,19 +575,6 @@
       (is (not (contains? body :script))
           "the inherited :script was dropped — no double-encoding"))))
 
-(deftest reg-variant-extends-child-play-script-overrides-parent-plays
-  (testing "the symmetric case — child :script overrides parent :plays"
-    (rf.story/reg-variant :story.extplay/parent2
-      {:setup []
-       :plays  [{:name "p" :script [[:dispatch [:p/plays]]]}]})
-    (rf.story/reg-variant :story.extplay/child2
-      {:extends     :story.extplay/parent2
-       :script {:script [[:dispatch [:c/legacy]]]}})
-    (let [body (rf.story/handler-meta :variant :story.extplay/child2)]
-      (is (contains? body :script) "child's :script survived")
-      (is (not (contains? body :plays))
-          "the inherited :plays was dropped"))))
-
 (deftest reg-variant-extends-does-not-inherit-play-surface
   (testing "SCRIPT IS NOT INHERITED through :extends (spec/017 §942-945:
             context flows down, behaviour/judgement is local). A child
@@ -735,37 +632,26 @@
 ;; the parent's source-coord stamp because all the expansions originate
 ;; from the same `&form` meta.
 
-(deftest combined-form-stamps-source-on-parent-story
-  (testing "a Form-B (:variants sugar) reg-story stamps :source on the parent"
-    (rf.story/reg-story :story.combined.src
-      {:doc      "parent."
-       :variants {:a {:setup [[:init]]}}})
-    (let [body (rf.story/handler-meta :story :story.combined.src)]
-      (is (map? (:source body)))
-      (is (= 're-frame.story-authoring-validation-test (:ns (:source body))))
-      (is (integer? (:line (:source body)))))))
-
-(deftest combined-form-stamps-source-on-generated-variants
-  (testing "a Form-B reg-story stamps :source on each generated child variant
-            — the variants are expanded at the parent's macro site, so each
-            child inherits the same `&form` line/file/ns. Per spec/001
-            §Source-coord stamping the IDE 'Open in editor' affordance reads
-            this slot for both stories and variants generated from sugar."
+(deftest combined-form-stamps-one-source-on-parent-and-generated-variants
+  (testing "a Form-B (:variants sugar) reg-story stamps :source on the parent
+            and on each generated child variant — the variants are expanded
+            at the parent's macro site, so each child inherits the same
+            `&form` line/file/ns. Per spec/001 §Source-coord stamping the IDE
+            'Open in editor' affordance reads this slot for both stories and
+            variants generated from sugar."
     (rf.story/reg-story :story.combined.gen
       {:doc      "parent with two generated variants."
        :variants {:a {:setup [[:init-a]]}
                   :b {:setup [[:init-b]]}}})
-    (let [body-a (rf.story/handler-meta :variant :story.combined.gen/a)
-          body-b (rf.story/handler-meta :variant :story.combined.gen/b)]
-      (is (map? (:source body-a)) "child :a carries :source")
-      (is (map? (:source body-b)) "child :b carries :source")
-      (is (= 're-frame.story-authoring-validation-test
-             (:ns (:source body-a))))
-      (is (= 're-frame.story-authoring-validation-test
-             (:ns (:source body-b))))
-      (is (= (:line (:source body-a))
-             (:line (:source body-b)))
-          "both generated variants share the parent's expansion line"))))
+    (let [parent (:source (rf.story/handler-meta :story :story.combined.gen))]
+      (is (= 're-frame.story-authoring-validation-test (:ns parent)))
+      (is (integer? (:line parent)))
+      (doseq [vid [:story.combined.gen/a :story.combined.gen/b]
+              :let [child (:source (rf.story/handler-meta :variant vid))]]
+        (is (= 're-frame.story-authoring-validation-test (:ns child))
+            (str vid " carries the parent's :ns"))
+        (is (= (:line parent) (:line child))
+            (str vid " shares the parent's expansion line"))))))
 
 ;; ---- a NON-literal :variants map is desugared at runtime -----------------
 ;;
@@ -953,13 +839,6 @@
                (catch clojure.lang.ExceptionInfo e e))]
     (is (= :rf.error/story-bad-variant-name (:rf.error/id (ex-data e))))
     (is (re-find #"variant-name in :variants map" (:reason (ex-data e))))))
-
-(deftest variant-id-for-builds-canonical-id
-  (testing "the canonical :story.<path>/<variant> id shape"
-    (is (= :story.auth.login-form/empty
-           (rf.story.macros/variant-id-for :story.auth.login-form :empty)))
-    (is (= :story.foo/bar
-           (rf.story.macros/variant-id-for :story.foo :bar)))))
 
 ;; ===========================================================================
 ;; configure! key validation

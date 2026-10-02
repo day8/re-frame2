@@ -254,7 +254,7 @@
 ;; `registrations` QUERY API — the spec/001-mirror MCP read tools consume
 ;; ===========================================================================
 
-(deftest handlers-returns-id-to-body-map-per-kind
+(deftest registrations-returns-id-to-body-map-per-kind
   (testing "(registrations :variant) returns a `{id → body}` map of every
             registered variant; (registrations :tag) does the same for tags.
             Per spec/006 §Story's public read primitives this mirrors
@@ -273,12 +273,3 @@
                 (count rf.story.schemas/canonical-state-tags))
              (count tags))
           "the canonical seven inclusion + five :state/* magnitude tags surface via registrations"))))
-
-(deftest ids-returns-the-id-set-per-kind
-  (testing "(ids :kind) returns the set of registered ids for that kind"
-    (rf.story/reg-story   :story.ids {:doc "ids fixture"})
-    (rf.story/reg-variant :story.ids/a {:setup []})
-    (rf.story/reg-variant :story.ids/b {:setup []})
-    (is (= #{:story.ids/a :story.ids/b} (rf.story/ids :variant)))
-    (is (contains? (rf.story/ids :tag) :dev)
-        "the canonical :dev tag id is in the tag id-set")))

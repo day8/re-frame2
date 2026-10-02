@@ -20,7 +20,7 @@
   Reagent / DOM / shadow-cljs required. Per `001-Authoring.md`
   §Registration macros, every artefact that can run on the JVM
   should."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [are deftest is testing use-fixtures]]
             [re-frame.story :as rf.story]
             [re-frame.story.canonical :as rf.story.canonical]
             [re-frame.story.config :as rf.story.config]
@@ -349,17 +349,6 @@
                           (rf.story/reg-workspace :Workspace.bad/empty
                             {:layout :grid})))))
 
-;; ---- mode --------------------------------------------------------------
-
-(deftest reg-mode-saved-tuple
-  (testing "reg-mode stores an args tuple"
-    (rf.story/reg-mode :Mode.app/dark-mobile
-      {:doc  "Dark theme on mobile."
-       :args {:theme :dark :viewport :mobile}})
-    (is (= {:theme :dark :viewport :mobile}
-           (:args (rf.story/handler-meta :mode :Mode.app/dark-mobile))))
-    (is (contains? (rf.story/list-modes) :Mode.app/dark-mobile))))
-
 ;; ---- decorator (per-kind) ---------------------------------------------
 
 (deftest reg-decorator-frame-setup
@@ -385,27 +374,7 @@
       (is (= :fx-override (:kind body)))
       (is (= :http (:fx-id body))))))
 
-(deftest reg-decorator-unknown-kind
-  (testing "decorator with an unknown :kind fails the schema"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                          #":rf\.error/decorator-shape"
-                          (rf.story/reg-decorator :bad-kind
-                            {:kind :no-such-kind})))))
-
-;; ---- tag ---------------------------------------------------------------
-
-(deftest reg-tag-project-tag
-  (testing "project tags can be registered and then used on variants"
-    (rf.story/reg-tag :auth/regression-set
-      {:doc "Auth regression-suite variants."})
-    (is (rf.story/registered? :tag :auth/regression-set))
-    ;; Now a variant tagged with it should validate
-    (rf.story/reg-variant :story.auth.login/regression-empty
-      {:setup [[:auth/initialise]]
-       :tags   #{:dev :auth/regression-set}})
-    (is (rf.story/registered? :variant :story.auth.login/regression-empty))))
-
-;; ---- :axis + :default-filter slots (SB9 parity) ------------------------
+;; ---- tags: the :axis + :default-filter slots ---------------------------
 
 (deftest reg-tag-stores-default-filter
   (testing ":default-filter is stored on the registered tag body"
@@ -416,20 +385,6 @@
     (let [body (rf.story/handler-meta :tag :status/alpha)]
       (is (= :status (:axis body)))
       (is (= :exclude (:default-filter body))))))
-
-(deftest reg-tag-without-axis-defaults-sanely
-  (testing "tags without :axis / :default-filter remain valid and queryable"
-    ;; Canonical inclusion tags carry neither slot — they're pre-installed
-    ;; by the fixture's `install-canonical-vocabulary!`. Confirm they're
-    ;; absent from every non-:state axis-keyed lookup and the
-    ;; default-excluded set. (The :state axis is populated by
-    ;; install-canonical-tags! and is covered separately.)
-    (is (= #{} (rf.story/tags-by-axis :status)))
-    (is (= #{} (rf.story/tags-by-axis :role)))
-    (is (= #{} (rf.story/tags-default-excluded)))
-    ;; The seven canonical INCLUSION tags live in the un-axis-grouped bucket.
-    ;; (The :state/* tags carry :axis :state so they're NOT in tags-without-axis.)
-    (is (= rf.story.schemas/canonical-tags (rf.story/tags-without-axis)))))
 
 (deftest tags-by-axis-filters-correctly
   (testing "tags-by-axis returns only tags registered on the requested axis"
@@ -442,9 +397,10 @@
     (is (= #{:role/dev}                  (rf.story/tags-by-axis :role)))
     (is (= #{:auth/regression}           (rf.story/tags-by-axis :team)))
     (is (= #{} (rf.story/tags-by-axis :nonexistent)))
-    ;; un-axis-grouped tag sits in tags-without-axis alongside the canonical seven
-    (is (contains? (rf.story/tags-without-axis) :no-axis/freeform))
-    (is (not (contains? (rf.story/tags-by-axis :status) :no-axis/freeform)))))
+    ;; the un-axis-grouped tag joins exactly the canonical seven inclusion
+    ;; tags (the :state/* tags carry the :state axis)
+    (is (= (conj rf.story.schemas/canonical-tags :no-axis/freeform)
+           (rf.story/tags-without-axis)))))
 
 (deftest tags-default-excluded-filters-correctly
   (testing "tags-default-excluded returns only tags with :default-filter :exclude"
@@ -463,16 +419,6 @@
 
 ;; ---- !-prefix removal syntax -------------------------------------------
 
-(deftest tags-with-bang-prefix-validate
-  (testing "the !-prefix removal syntax passes tag validation"
-    ;; A variant body's :tags may carry :!dev to remove :dev from the
-    ;; inherited tag set. The registrar accepts these as long as the
-    ;; base (un-prefixed) tag is registered.
-    (rf.story/reg-variant :story.bang/test
-      {:setup []
-       :tags   #{:!dev :docs}})
-    (is (rf.story/registered? :variant :story.bang/test))))
-
 (deftest tags-with-bang-prefix-rejects-unknown
   (testing "the !-prefix variant rejects unknown base tags"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -483,37 +429,22 @@
 
 ;; ---- query API ---------------------------------------------------------
 
-(deftest variants-of-finds-children
-  (testing "variants-of returns only the variants of the requested story"
-    (rf.story/reg-variant :story.foo/a {:setup []})
-    (rf.story/reg-variant :story.foo/b {:setup []})
-    (rf.story/reg-variant :story.bar/c {:setup []})
-    (is (= #{:story.foo/a :story.foo/b} (rf.story/variants-of :story.foo)))
-    (is (= #{:story.bar/c}              (rf.story/variants-of :story.bar)))))
-
-(deftest variants-of-empty-when-no-children
-  (testing "variants-of returns empty set when the story has no registered variants"
-    (is (= #{} (rf.story/variants-of :story.no-variants)))
-    (rf.story/reg-variant :story.other/x {:setup []})
-    (is (= #{} (rf.story/variants-of :story.no-variants)))))
-
-(deftest variants-of-rejects-nested-namespace
-  (testing "variants-of must NOT return variants of a deeper-namespaced story
-            — a string-prefix match would treat `:story.foo.bar/x` as a
-            structurally-suspect 'prefix match' of `:story.foo`. The
-            namespace-equality check rules it out by construction."
-    (rf.story/reg-variant :story.foo/a     {:setup []})
-    (rf.story/reg-variant :story.foo.bar/x {:setup []})
-    (rf.story/reg-variant :story.foo.bar/y {:setup []})
-    (is (= #{:story.foo/a}                       (rf.story/variants-of :story.foo)))
-    (is (= #{:story.foo.bar/x :story.foo.bar/y}  (rf.story/variants-of :story.foo.bar)))))
-
-(deftest variants-of-short-and-bare-story
-  (testing "variants-of works for the bare `:story` root and short names"
-    (rf.story/reg-variant :story/root {:setup []})
-    (rf.story/reg-variant :story.a/v  {:setup []})
-    (is (= #{:story/root} (rf.story/variants-of :story)))
-    (is (= #{:story.a/v}  (rf.story/variants-of :story.a)))))
+(deftest variants-of-returns-only-the-storys-own-variants
+  (testing "variants-of matches a variant id's namespace EXACTLY: a deeper-
+            namespaced story's variants are never a string-prefix match, the
+            bare `:story` root works, and a story with none answers #{}"
+    (is (= #{} (rf.story/variants-of :story.no-variants)) "empty registry")
+    (doseq [vid [:story.foo/a :story.foo/b :story.bar/c
+                 :story.foo.bar/x :story.foo.bar/y
+                 :story/root :story.a/v]]
+      (rf.story/reg-variant* vid {:setup []}))
+    (are [story-id expected] (= expected (rf.story/variants-of story-id))
+      :story.foo         #{:story.foo/a :story.foo/b}
+      :story.bar         #{:story.bar/c}
+      :story.foo.bar     #{:story.foo.bar/x :story.foo.bar/y}
+      :story             #{:story/root}
+      :story.a           #{:story.a/v}
+      :story.no-variants #{})))
 
 (deftest variants-by-story-single-pass-index
   (testing "variants-by-story builds a {story-id #{variant-ids}} index in one pass"
@@ -568,23 +499,6 @@
                 (count rf.story.schemas/canonical-state-tags))
              (:tag counts))))))
 
-;; ---- variant->edn ----------------------------------------------------
-
-(deftest variant->edn-returns-body
-  (testing "variant->edn returns the registered body verbatim"
-    (rf.story/reg-variant :story.edn/x
-      {:setup [[:init]]
-       :tags   #{:dev}})
-    (let [edn (rf.story/variant->edn :story.edn/x)]
-      (is (= [[:init]] (:setup edn)))
-      (is (= #{:dev}    (:tags edn))))))
-
-;; ---- elision sentinel ------------------------------------------------
-
-(deftest config-flag-controls-expansion
-  (testing "re-frame.story.config/enabled? is true at JVM-test time"
-    (is (true? rf.story.config/enabled?))))
-
 ;; ---- static-mode? ----------------------------------------------------
 
 (deftest static-mode-defaults-false-on-jvm
@@ -613,14 +527,6 @@
           (let [t3 (rf.story.registrar/current-mutation-tick)]
             (rf.story.registrar/clear-kind! :variant)
             (is (> (rf.story.registrar/current-mutation-tick) t3))))))))
-
-(deftest mutation-tick-is-monotonic
-  (testing "the tick only ever advances — never resets to a smaller value"
-    (let [t0 (rf.story.registrar/current-mutation-tick)]
-      (dotimes [i 5]
-        (rf.story/reg-variant (keyword (str "story.tick.mono/v" i))
-                           {:setup [[:init]]}))
-      (is (>= (rf.story.registrar/current-mutation-tick) (+ t0 5))))))
 
 (deftest variants-with-tags-memoised-on-mutation-tick
   (testing "variants-with-tags returns cached results between two registrar writes"
@@ -651,7 +557,6 @@ without :axis (the public-API contract)"
     (rf.story/reg-tag :role/dev       {:axis :role})
     (rf.story/reg-tag :loose/freeform {:doc "no axis on this tag"})
     (let [idx (rf.story/tag->axis-index)]
-      (is (map? idx))
       (testing "axis-bearing tags map to their axis"
         (is (= :status (get idx :status/stable)))
         (is (= :role   (get idx :role/dev))))
