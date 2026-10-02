@@ -194,7 +194,7 @@ Read the leaf matching the task. Screen reads — what is on screen and why it r
 | Install/configure the persistent-connection MCP server, its launch flags, port discovery | [references/mcp-transport.md](references/mcp-transport.md) |
 | Map a v1 (`re-frame-pair`) surface to its v2 equivalent (or know it has none) | [references/ops.md §Dropped from v1](references/ops.md#dropped-from-v1-re-frame-pair--surfaces-with-no-v2-equivalent) |
 
-Load at most two references for a single task. Wanting three means the request spans concerns and should be broken up.
+Start with the leaf matching the task and load more only as the work needs them. Keep the user's complete request in scope; setup, source changes and live verification may legitimately span several references.
 
 ---
 
@@ -225,13 +225,17 @@ A re-frame2-pair session and a running Xray panel are **complementary** surfaces
 
 | re-frame2-pair just did | Open Xray to … |
 |---|---|
-| Rewound to an earlier epoch via `restore-epoch` | Scrub the bottom-rail time-travel scrubber to inspect adjacent epochs visually; pin slices via the app-db tab's inline diff. |
+| Rewound to an earlier epoch via `restore-epoch` | Use the L2 event list or ribbon's `‹ › »` controls to inspect adjacent epochs; selecting them is passive inspection, while the separate `Reset` button rewinds the live frame. |
 | Dispatched into a cascade you don't fully understand | The Epoch tab lands on the latest cascade and shows the dispatch-id tree. |
 | Hot-swapped a sub or reg-event handler | Watch the Epoch SUBSCRIPTIONS step recompute the invalidation chain (`:cart/total` ← `:cart/items` ← `[:cart :items]`). |
 | Stepped into a machine transition | Open the Machine tab / Machine Inspector for the state-chart view with transition history. |
 | Triggered a schema violation | Schema violations surface inline on the Epoch tab (and as an L2 pink-wash) with recovery mode + source coord. |
 
 Authoring-side guidance for getting Xray mounted (preload, layout host, suppress-auto-open knob, popout, host-CSS-variable resize) lives at [`skills/re-frame2/references/tooling/xray.md`](https://github.com/day8/re-frame2/blob/main/skills/re-frame2/references/tooling/xray.md). When advising a user mid-session on which panel to look at, route them there for the mount-side detail; this skill stays focused on the *driving* side.
+
+## Handoff
+
+When the requested investigation or fix is complete, report the observed result, the build/frame it came from, and what changed. Distinguish saved source edits with verified hot reload from REPL changes that remain temporary. Name any remaining verification plainly; a proposed fix or a delayed reload is not a verified live result.
 
 ---
 
