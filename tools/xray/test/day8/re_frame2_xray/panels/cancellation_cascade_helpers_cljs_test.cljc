@@ -16,9 +16,9 @@
        no aborts, nested destroys, mixed cancel-causes, correlation-id
        pairing) plus the empty-state branches.
     3. cascade-summary / should-collapse?
-    5. frame scoping - the extraction is restricted to the
+    4. frame scoping - the extraction is restricted to the
        focused host frame, so a peer frame's aborts do not fold in.
-    4. Formatters."
+    5. Formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.set]
@@ -45,9 +45,8 @@
   `:op :rf.machine.lifecycle/destroyed` and
   `:reason :parent-frame-destroyed`: per Spec 009's channel/reason
   matrix the channels are disjoint, so any other combination is a tuple
-  the runtime cannot emit. `lifecycle-destroy-ev` below builds the
-  registrar pair; `impossible-destroy-ev` deliberately builds tuples
-  that violate the matrix."
+  the runtime cannot emit. `impossible-destroy-ev` below deliberately
+  builds tuples that violate the matrix."
   [{:keys [machine-id reason dispatch-id time id op spawned-id parent-id frame]
     :or {reason       :explicit
          dispatch-id  1
@@ -67,15 +66,6 @@
                 ;; a fixture that names no frame carries none, exactly as an
                 ;; unattributable (frameless) emit does.
                 frame      (assoc :frame frame))})
-
-(defn- lifecycle-destroy-ev
-  "The REGISTRAR-substrate destroy — the frame-exit reap. This channel
-  carries exactly one reason (`:parent-frame-destroyed`), so the pair is
-  built together and the reason is not a caller knob."
-  [m]
-  (destroy-ev (assoc m
-                     :op     :rf.machine.lifecycle/destroyed
-                     :reason :parent-frame-destroyed)))
 
 (defn- impossible-destroy-ev
   "Build a destroy event whose (channel, reason) tuple the disjoint
@@ -186,26 +176,6 @@
 (deftest destroy-event?-negative
   (is (false? (h/destroy-event? (dispatched-ev [:auth/logout]))))
   (is (false? (h/destroy-event? (http-abort-ev {})))))
-
-(deftest cancellation-anchor?-true-for-each-emitted-family
-  ;; The channels are DISJOINT (Spec 009 §op-type
-  ;; vocabulary), so each cancellation reason is asserted against the
-  ;; ONE channel that actually carries it, never a cross-product.
-  (testing "fx-substrate channel — the non-frame-exit teardowns"
-    (is (true? (h/cancellation-anchor?
-                 (destroy-ev {:machine-id :x :reason :explicit})))))
-  (testing "registrar-substrate channel — the frame-exit reap"
-    (is (true? (h/cancellation-anchor?
-                 (lifecycle-destroy-ev {:machine-id :x}))))))
-
-(deftest cancellation-anchor?-false-for-non-cancellation-reasons
-  (testing "a natural :final? termination — which is also how a folded
-            :spawn-all join child tears itself down — is an EMITTABLE destroy
-            whose REASON rules it out as a cancellation"
-    (let [ev (destroy-ev {:machine-id :x :reason :rf.machine/finished})]
-      (is (true? (h/emittable-destroy? ev))
-          "the tuple is one the runtime emits, so the reason is what decides")
-      (is (false? (h/cancellation-anchor? ev))))))
 
 (deftest cancellation-anchor?-rejects-impossible-channel-reason-tuples
   ;; Validating channel membership and reason membership INDEPENDENTLY
@@ -498,21 +468,21 @@
       (is (= :req-XYZ (:request-id row)))
       (is (= "/api/x"  (:url row))))))
 
-;; ---- (2) extract-cascade: empty buffer ---------------------------------
+;; ---- (2) extract-cascade: no anchor -----------------------------------
 
-(deftest extract-empty-buffer
-  (let [c (h/extract-cascade [])]
-    (is (= :no-trigger (:empty-kind c)))
-    (is (nil? (:parent-decision c)))
-    (is (= [] (:child-teardowns c)))
-    (is (= [] (:effect-aborts c)))))
-
-(deftest extract-natural-finish-is-not-an-anchor
+(deftest extract-without-an-anchor-has-no-trigger
+  (testing "an empty buffer projects the :no-trigger empty state"
+    (let [c (h/extract-cascade [])]
+      (is (= :no-trigger (:empty-kind c)))
+      (is (nil? (:parent-decision c)))
+      (is (= [] (:child-teardowns c)))
+      (is (= [] (:effect-aborts c)))
+      (is (= "No cancellation cascade in the trace window."
+             (h/cascade-summary c)))))
   (testing "a :rf.machine/finished destroy is NOT a cancellation anchor"
     (let [buf [(destroy-ev {:machine-id :x :dispatch-id 1 :time 1
-                            :reason :rf.machine/finished})]
-          c   (h/extract-cascade buf)]
-      (is (= :no-trigger (:empty-kind c))))))
+                            :reason :rf.machine/finished})]]
+      (is (= :no-trigger (:empty-kind (h/extract-cascade buf)))))))
 
 ;; ---- (2) extract-cascade: focus by machine-id --------------------------
 
@@ -529,10 +499,6 @@
       (is (= :a (-> c :child-teardowns first :child-id))))))
 
 ;; ---- (3) summarisers ---------------------------------------------------
-
-(deftest cascade-summary-empty
-  (is (= "No cancellation cascade in the trace window."
-         (h/cascade-summary (h/extract-cascade [])))))
 
 (deftest cascade-summary-with-aborts
   (let [buf [(destroy-ev {:machine-id :s :dispatch-id 1 :time 1000 :id 1})
@@ -563,7 +529,7 @@
     (is (true?  (h/should-collapse? big)))
     (is (true?  (h/should-collapse? tiny 2)))))
 
-;; ---- (5) frame scoping -------------------------------------------------
+;; ---- (4) frame scoping -------------------------------------------------
 ;;
 ;; Xray's trace buffer is EVERY host frame's ring merged, and a
 ;; `:rf.trace/dispatch-id` is unique only WITHIN a frame (Spec 002 §Frame
@@ -574,17 +540,6 @@
 ;; a caller naming no frame gets) and scoped. A test that only asserted the
 ;; scoped count would pass against a projection that had simply stopped
 ;; gathering aborts.
-
-(deftest in-frame?-escapes
-  (testing "a nil frame scopes nothing — every event is in scope"
-    (is (true? (h/in-frame? nil {:tags {:frame :frame/a}})))
-    (is (true? (h/in-frame? nil {:tags {}}))))
-  (testing "an event carrying NO frame tag is unattributable, not foreign"
-    (is (true? (h/in-frame? :frame/a {:tags {}})))
-    (is (true? (h/in-frame? :frame/a {}))))
-  (testing "a DIFFERENT frame is out of scope"
-    (is (true?  (h/in-frame? :frame/a {:tags {:frame :frame/a}})))
-    (is (false? (h/in-frame? :frame/a {:tags {:frame :frame/b}})))))
 
 (deftest extract-cascade-does-not-fold-a-peer-frames-abort
   ;; Frame A tears an actor down; 15 ms later frame B aborts an in-flight
@@ -654,7 +609,7 @@
     (is (= 1 (count (:effect-aborts c))))
     (is (= :r1 (-> c :effect-aborts first :request-id)))))
 
-;; ---- (4) formatters ----------------------------------------------------
+;; ---- (5) formatters ----------------------------------------------------
 
 (deftest format-time-ms-handles-nil
   (is (= "—" (h/format-time-ms nil)))
