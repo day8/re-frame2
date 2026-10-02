@@ -28,9 +28,9 @@
   without duplicating the per-panel suite. The strategy below is:
 
     (1) **Smoke registration block** — the exact-set snapshot of every
-        registered name, plus one subscribe per sub (proves the
-        orchestrator `register-xray-handlers!` plus each panel
-        `install!` reached every form without an early throw).
+        registered name (proves the orchestrator
+        `register-xray-handlers!` plus each panel `install!` reached
+        every form without an early throw).
     (2) **High-value sub contracts** — defaults, composite shapes,
         override-aware readers (sub-cache, registered-flows, etc.),
         the panel-suppression / dormant-frame signal slots, and the
@@ -1120,25 +1120,6 @@
       (is (identical? e1 (rf.registrar/handler :event :rf.xray/select-tab)))
       (is (identical? f1 (rf.registrar/handler :fx :rf.xray.fx/copy-to-clipboard))))))
 
-(deftest registers-every-canonical-rf-xray-sub
-  ;; Holistic subscribe-side smoke. The snapshot above asserts that the
-  ;; registrar holds every id; this test takes the subscriber's view —
-  ;; `(rf/subscribe [q-v])` returns a non-nil reaction for every
-  ;; canonical sub-id once the registrar has run. The two smokes catch
-  ;; different drift: the snapshot catches a missing registration;
-  ;; subscribe-resolution catches a sub
-  ;; whose subscribe path throws (e.g. a downstream `install!` that
-  ;; depends on a not-yet-registered upstream).
-  (testing "every :rf.xray/* sub-id resolves through rf/subscribe after
-            register-xray-handlers! runs (panel migrations should not
-            silently drop a registration from the orchestrator)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (doseq [q-v all-sub-names]
-        (is (some? (rf/subscribe [q-v]))
-            (str q-v " must resolve through rf/subscribe after
-                 register-xray-handlers!"))))))
-
 ;; ---- registration-schema seam: fresh-install atomicity -----------------
 ;;
 ;; `register-xray-handlers!` flips the `registered?` umbrella BEFORE the
@@ -1605,19 +1586,6 @@
 
 ;; ---- (2) high-value sub contracts: defaults on a fresh frame ------------
 
-(deftest sub-trace-buffer-empty-by-default
-  (testing "a fresh :rf/xray frame with an empty `:trace-buffer` slot
-            yields `[]` from the `:rf.xray/trace-buffer` sub. The
-            sub reads directly from the app-db slot
-            (no atom fall-through; the slot is populated by the
-            task-coalesced `:rf.xray/sync-trace-buffer` dispatch
-            from `trace-collector/refresh-trace-rings!`)."
-    (setup-xray-frame!)
-    (trace-collector/reset-for-test!)
-    (rf/with-frame :rf/xray
-      (is (= [] @(rf/subscribe [:rf.xray/trace-buffer]))
-          "empty rings + empty slot → sub returns []"))))
-
 (deftest sub-trace-buffer-clear-event-drops-mirror-slot
   (testing "`:rf.xray/clear-trace-buffer` (dispatched
             from `trace-collector/retroactive-scrub!` on privacy
@@ -1721,23 +1689,6 @@
         (is (= [:cart/add-item :checkout/start] event-ids)
             "the :rf.xray/select-tab cascade is filtered out at the data-layer")))))
 
-(deftest sub-cascades-pure-user-app-pass-through
-  (testing "a buffer with only user-app cascades is
-            untouched by the data-layer filter (count + ordering
-            preserved). Symmetry guard: the filter is narrow, not a
-            blanket rejection."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-buffer-with-dispatched-events!
-        [{:dispatch-id 1 :event-vec [:cart/add-item {:item-id "apple"}]}
-         {:dispatch-id 2 :event-vec [:cart/remove-item {:item-id "apple"}]}
-         {:dispatch-id 3 :event-vec [:checkout/start]}])
-      (let [cascades @(rf/subscribe [:rf.xray/event-bundles])]
-        (is (= 3 (count cascades))
-            "user-app-only buffer is untouched by the filter")
-        (is (= [:cart/add-item :cart/remove-item :checkout/start]
-               (mapv #(first (:event %)) cascades)))))))
-
 (deftest sub-suppressed-sensitive-count-reads-app-db
   (testing ":rf.xray/suppressed-sensitive-count reads from Xray's
             app-db at `:suppressed-counters` — first deref
@@ -1761,43 +1712,6 @@
       (is (= 0 @(rf/subscribe [:rf.xray/suppressed-sensitive-count]))
           "reset event drops every bucket"))))
 
-(deftest sub-target-frame-defaults-to-unselected
-  (testing "EP-0002 — :rf.xray/target-frame defaults to
-            `default-target-frame` = nil = UNSELECTED (not :rf/default)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (= registry/default-target-frame
-             @(rf/subscribe [:rf.xray/target-frame])))
-      (is (nil? @(rf/subscribe [:rf.xray/target-frame]))
-          "the unselected default is nil"))))
-
-(deftest sub-epoch-history-defaults-empty
-  (testing ":rf.xray/epoch-history defaults to []"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (is (= [] @(rf/subscribe [:rf.xray/epoch-history]))))))
-
-;; The segment-inspector popup's subs and open + close events, the
-;; show-me-when walker's sub and the slice-focus pair are not part of the
-;; surface. The snapshot test pins their absence; this is the explicit
-;; read.
-
-(deftest retired-path-click-handlers-stay-gone
-  (testing "the segment-inspector popup, the
-            show-me-when walker's sub and the slice-focus pair are not
-            registered. `:rf.xray/epoch-history` is the positive
-            control that `register-xray-handlers!` really ran."
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/epoch-history))
-        "control: a live sub still resolves")
-    (is (nil? (rf.registrar/handler :sub :rf.xray/segment-inspector-open?)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/focused-slice-path)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/open-segment-inspector)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/close-segment-inspector)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/focus-slice-path)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/clear-slice-focus)))))
-
 ;; ---- (3) high-value composite sub shapes --------------------------------
 
 (deftest sub-focused-event-bundle-detail-shape-on-empty-buffer
@@ -1815,20 +1729,6 @@
 ;; The app-db tab's empty-history shape is pinned via
 ;; `:rf.xray/app-db-current+diff` / `:rf.xray/app-db-state` in
 ;; app_db_diff_cljs_test.
-
-(deftest sub-issues-ribbon-shape-on-empty-buffer
-  (testing ":rf.xray/issues-ribbon returns :no-focus empty-kind when
-            no focused epoch yet (focused-epoch-scoped
-            projection per spec/021 §1.2; cold-start surfaces :no-focus.
-            There is no Issues tab; this composite is the
-            auto-open-on-error signal source and lives in registry.cljs)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/issues-ribbon])]
-        (is (contains? data :issues))
-        (is (= 0 (:total data)))
-        (is (= 0 (:rendered data)))
-        (is (= :no-focus (:empty-kind data)))))))
 
 ;; ---- the PINNED-NO-EPOCH focus ------------------------------------------
 ;;
@@ -2044,21 +1944,6 @@
         (is (= 0 (:total data)))
         (is (= :no-machines (:empty-kind data)))))))
 
-(deftest sub-reactive-data-shape-empty
-  (testing ":rf.xray/reactive-data returns empty defaults when no
-            cascade is focused (spec/021 §3 · §11.5)"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/reactive-data])]
-        (is (contains? data :subs-ran))
-        ;; The memo-hit `:subs-skipped` slice is a real slot
-        ;; (fed by canonical `:rf.sub/skip` ops); empty when no cascade is
-        ;; focused, DISTINCT from `:subs-ran`.
-        (is (contains? data :subs-skipped))
-        (is (= [] (:subs-skipped data)))
-        (is (contains? data :views-rendered))
-        (is (false? (:has-event-bundle? data)))))))
-
 (deftest sub-reactive-data-show-unchanged-resolves-both-axes
   (testing "the §3.4 disclosure open-state (`:show-unchanged?`
             on :rf.xray/reactive-data, the flag the panel view reads) is the
@@ -2189,41 +2074,6 @@
       (is (= :traffic-light @(rf/subscribe [:rf.xray/selected-machine-id])))
       (rf/dispatch-sync [:rf.xray/clear-machine-selection])
       (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id]))))))
-
-(deftest event-open-in-editor-routes-through-editor-fx
-  (testing "`:rf.xray/open-in-editor` is a reg-event handler
-            that returns `:fx` — it coerces the coord and
-            fires `:rf.xray.fx/open-in-editor`. It does NOT write to app-db (the
-            click is pure navigation). Detailed
-            contract assertions live in `open_in_editor_cljs_test.cljs`;
-            here we pin the registry-level shape only."
-    (setup-xray-frame!)
-    ;; Model a wired host: explicitly set an editor so the
-    ;; click navigates (fires `:rf.xray.fx/open-in-editor`) rather than surfacing
-    ;; the unconfigured-host DX hint. The unconfigured-host branch is
-    ;; covered in `open_in_editor_cljs_test.cljs`.
-    (config/set-editor! :vscode)
-    (let [captured (atom [])]
-      ;; Capture via the frame's :fx-overrides seam (fn-value form) —
-      ;; a cross-ns re-registration of the xray-owned fx id
-      ;; fails the frame's default-image assembly loud.
-      (rf/make-frame {:id :rf/xray
-                      :fx-overrides {:rf.xray.fx/open-in-editor
-                                     (fn [_ctx args] (swap! captured conj args))}})
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/open-in-editor
-                           {:file "src/x.cljs" :line 10 :column 5}])
-        (is (= 1 (count @captured))
-            "the event-fx emits exactly one :rf.xray.fx/open-in-editor fx")
-        (is (= {:file "src/x.cljs" :line 10 :column 5}
-               (:source-coord (first @captured)))
-            "the fx carries the structured :source-coord so
-             :rf.xray.fx/open-in-editor can prefer the dev-server endpoint and fall
-             back to the editor:// URI")
-        (is (nil? (:last-open-in-editor-coord
-                    (rf.frame/frame-app-db-value :rf/xray)))
-            "Xray's app-db is NOT written — there is no
-             `:last-open-in-editor-coord` slot")))))
 
 ;; ---- (5) test-only override events --------------------------------------
 

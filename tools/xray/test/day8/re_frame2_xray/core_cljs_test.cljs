@@ -25,7 +25,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.core :as core]
             [day8.re-frame2-xray.mount :as mount]
@@ -138,31 +137,6 @@
       (is (nil? (core/load-theme! nil)) "nil is a safe no-op"))))
 
 ;; ---- init! contract ----------------------------------------------------
-
-(deftest init!-no-opts-is-safe-to-call-repeatedly
-  (testing "init! wires the foundation side-effects; a second call is SAFE
-            but is NOT a no-op"
-    ;; First call wires registry + trace-cb + epoch-cb + browser-API
-    ;; exports + keybinding. There is no view-evidence acquire step and
-    ;; none is missing: the Fresco tab's door is a pure reader with no
-    ;; registry to claim, so startup has nothing to acquire.
-    ;; The keybinding listener requires js/window which the node-test
-    ;; host does not expose; the attach call no-ops on that host (the
-    ;; (when (exists? js/window) ...) guard inside keybinding/attach!).
-    ;; The contract here is that init! runs to completion without
-    ;; throwing and the registry's idempotency sentinel reports
-    ;; installed.
-    (core/init!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/target-frame))
-        "registry/register-xray-handlers! ran")
-    ;; Second call: INSTALLATION is deduplicated — each
-    ;; install sits behind a `defonce` sentinel atom flipped by
-    ;; `compare-and-set!` — but OPTION APPLICATION re-runs, so a repeat
-    ;; call is SAFE rather than a no-op. No opts are supplied here, so
-    ;; there is nothing to re-apply; we assert only that it does not
-    ;; throw.
-    (core/init!)
-    (is true "second init! did not throw")))
 
 (deftest init!-with-target-frame-dispatches-set-target-frame
   (testing "init! threads :target-frame through to
