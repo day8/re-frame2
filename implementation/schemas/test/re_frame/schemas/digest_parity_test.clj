@@ -23,6 +23,7 @@
   namespace dereferences the var once and exposes it as
   `compute-digest`, so per-fixture assertions are runtime-agnostic."
   (:require [clojure.test :refer [deftest is testing]]
+            [re-frame.identity :as rf.identity]
             [re-frame.schemas.digest]
             [re-frame.schemas.digest-parity-fixtures :as rf.schemas.digest-parity-fixtures]
             [re-frame.schemas.validator :as rf.schemas.validator]))
@@ -94,11 +95,9 @@
 ;; compare) is UTF-16 code-unit order, which diverges from UTF-8 byte
 ;; order for supplementary-plane (> U+FFFF) characters. For ASCII the
 ;; two coincide (so every pinned fixture above sorts the same either way). These
-;; pins lock the comparator to the normative UTF-8 byte order so a
-;; non-CLJS/JVM port that byte-sorts agrees with the reference.
-
-(def ^:private compare-utf8-bytes
-  #'re-frame.schemas.digest/compare-utf8-bytes)
+;; pins lock the comparator the digest sorts its lines with
+;; (`re-frame.identity/compare-canonical-bytes`) to the normative UTF-8 byte
+;; order so a non-CLJS/JVM port that byte-sorts agrees with the reference.
 
 (deftest utf8-byte-sort-diverges-from-utf16-on-supplementary-plane
   (testing "the comparator orders by UTF-8 bytes, not
@@ -110,9 +109,9 @@
             `Character/toChars` to avoid source-encoding fragility."
     (let [astral (String. (Character/toChars 0x1F600))  ;; supplementary plane
           bmp    (String. (Character/toChars 0xFFFD))]   ;; BMP replacement char
-      (is (pos? (compare-utf8-bytes astral bmp))
+      (is (pos? (rf.identity/compare-canonical-bytes astral bmp))
           "UTF-8 byte order: astral (F0…) sorts AFTER bmp (EF…)")
-      (is (neg? (compare-utf8-bytes bmp astral)))
+      (is (neg? (rf.identity/compare-canonical-bytes bmp astral)))
       ;; Sanity: host-native compare gives the OPPOSITE (UTF-16) answer,
       ;; confirming the comparator is genuinely doing byte-order work.
       (is (neg? (compare astral bmp))

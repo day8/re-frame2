@@ -96,40 +96,19 @@
        (sha256-hex (rf.schemas.validator/run-printer schema-value))
        "\n"))
 
-(defn- compare-utf8-bytes
-  "Lexicographic comparison of two strings as UTF-8 byte sequences, per
-  Spec 010 §Digest algorithm step 4 (\"sort the lines lexicographically
-  as byte sequences (UTF-8) … identical across hosts\"). Bytes are
-  compared unsigned (0..255) so the order matches a byte-sort on any port.
-
-  Host-native string `compare` (JVM `String.compareTo` / JS string
-  comparison) is UTF-16 code-unit order, which diverges from UTF-8 byte
-  order for supplementary-plane (> U+FFFF) characters, so it would split
-  ports on exotic path keywords. For ASCII the two orders coincide."
-  [a b]
-  (let [ba   (utf8-bytes a)
-        bb   (utf8-bytes b)
-        na   (count ba)
-        nb   (count bb)
-        n    (min na nb)]
-    (loop [i 0]
-      (if (== i n)
-        (compare na nb)
-        (let [ua (bit-and (long (nth ba i)) 0xff)
-              ub (bit-and (long (nth bb i)) 0xff)]
-          (if (== ua ub)
-            (recur (inc i))
-            (compare ua ub)))))))
-
 (defn- compute-digest
   "Run the Spec 010 §Digest algorithm against the supplied
   `{path → schema-value}` map. Returns the canonical wire form
   `\"sha256:\" + first-16-hex-chars`. Lines are sorted as UTF-8 byte
-  sequences (`compare-utf8-bytes`) per Spec 010 §Digest algorithm step 4."
+  sequences per Spec 010 §Digest algorithm step 4 (\"sort the lines
+  lexicographically as byte sequences (UTF-8) … identical across hosts\").
+  `re-frame.identity/compare-canonical-bytes` gives that order without
+  encoding anything: UTF-8 byte order is code-point order, which host string
+  `compare` (UTF-16 code-unit order) breaks for supplementary characters."
   [path->schema]
   (let [lines       (mapv (fn [[path schema]] (digest-line path schema))
                           path->schema)
-        sorted      (sort compare-utf8-bytes lines)
+        sorted      (sort rf.identity/compare-canonical-bytes lines)
         joined      (apply str sorted)
         full-hex    (sha256-hex joined)]
     (str "sha256:" (subs full-hex 0 16))))
