@@ -23,7 +23,7 @@
   is uniform across walks.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.substrate.spine :as rf.substrate.spine]
             [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
             [re-frame.views.warn-once :as rf.views.warn-once]))
@@ -74,24 +74,17 @@
 
 ;; ---- parity matrix --------------------------------------------------------
 
-(deftest string-returning-view-warns-on-both-walks
-  (testing "a reg-view'd component returning a STRING root warns on BOTH
-            walks"
-    (is (= 1 (reagent-warned? "just a string"))
-        "Reagent hiccup walk warns on a string root")
-    (is (= 1 (spine-warned? "just a string"))
-        "React-hook spine walk warns on a string root")))
-
-(deftest number-returning-view-warns-on-both-walks
-  (testing "a NUMBER root is equally un-annotatable and warns on both walks"
-    (is (= 1 (reagent-warned? 42)) "Reagent walk warns on a number root")
-    (is (= 1 (spine-warned? 42))   "spine walk warns on a number root")))
-
-(deftest nil-returning-view-is-silent-on-both-walks
-  (testing "a view legitimately rendering NOTHING (nil) stays silent on
-            both walks — the warn predicate is non-NIL, not non-element"
-    (is (= 0 (reagent-warned? nil)) "Reagent walk silent on nil")
-    (is (= 0 (spine-warned? nil))   "spine walk silent on nil")))
+(deftest un-annotatable-roots-warn-identically-on-both-walks
+  (testing "a STRING or NUMBER root is un-annotatable and warns on BOTH walks;
+            a view legitimately rendering NOTHING (nil) stays silent on both —
+            the warn predicate is non-NIL, not non-element"
+    (are [walk out warned] (= warned (walk out))
+      reagent-warned? "just a string" 1
+      spine-warned?   "just a string" 1
+      reagent-warned? 42              1
+      spine-warned?   42              1
+      reagent-warned? nil             0
+      spine-warned?   nil             0)))
 
 (deftest dom-tag-root-is-silent-on-reagent-walk
   (testing "a real DOM-tag-rooted hiccup is annotated, not warned (Reagent

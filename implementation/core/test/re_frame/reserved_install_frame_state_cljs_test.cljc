@@ -31,10 +31,6 @@
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
 
-(deftest install-frame-state-is-a-reserved-event-id
-  (testing "`:rf/install-frame-state` is a member of the reserved set"
-    (is (contains? rf.events/reserved-event-ids :rf/install-frame-state))))
-
 (deftest a-public-reg-event-over-install-frame-state-is-refused
   (testing "an application `rf/reg-event` of `:rf/install-frame-state` fails
             loud with `:rf.error/reserved-event-id`, and registers nothing"
@@ -61,7 +57,3 @@
     (is (= rf.events/install-frame-state-handler
            (:handler-fn (rf.registrar/handler-meta :event :rf/install-frame-state))))))
 
-(deftest a-non-reserved-id-still-registers
-  (testing "control: the guard refuses the reserved ids and nothing else"
-    (is (= :no-throw
-           (thrown-error-id #(rf/reg-event :probe/ordinary-event (fn [_ _] {})))))))

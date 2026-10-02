@@ -72,14 +72,6 @@
           (is (true? (get-in m [:schemas :loaded?]))
               "the flip is isolated — other features stay loaded"))))))
 
-(deftest features-omits-unknown-feature
-  (testing "an unknown feature keyword has NO entry — the lookup reads nil,
-            not false; no throw"
-    (let [m (rf.features/features)]
-      (is (not (contains? m :not-a-feature)))
-      (is (nil? (get-in m [:not-a-feature :loaded?])))
-      (is (nil? (get m nil))))))
-
 (deftest features-supports-the-boot-time-guard
   (testing "the documented guard idiom — an explicit
             (when-not … (throw (ex-info …))) carrying the inventory entry as

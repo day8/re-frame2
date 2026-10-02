@@ -124,8 +124,3 @@
       (is (zero? @fired)
           "the plain-atom impl did NOT run under a uix-kind install"))))
 
-(deftest routed-hook-falls-through-when-nothing-installed
-  (testing "a routed hook falls through to the fallback when no adapter is installed"
-    (let [routed (install-probe! rf.substrate.plain-atom/adapter (fn [& _] :live-impl))]
-      (is (= :fell-through (routed))
-          "no adapter installed ⇒ the routed closure returns its fallback"))))

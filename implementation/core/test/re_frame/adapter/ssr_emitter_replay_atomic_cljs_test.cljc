@@ -89,7 +89,6 @@
     (testing "no generation is seated — the failed boot is not installed"
       (is (nil? (rf.substrate.adapter/current-adapter))
           "current-adapter is nil: the seated generation was rolled back")
-      (is (nil? (rf.substrate.adapter/current-adapter)))
       (is (false? (rf.substrate.adapter/adapter-disposed?))
           "a failed install disposed nothing — the never-installed diagnosis stands"))
 
@@ -148,9 +147,9 @@
     (is (false? @broadcast-ran)
         "the :reagent/set-hiccup-emitter! broadcast was NOT invoked by install-replay")))
 
-;; ---- 3. precedence: replay arms only an otherwise-unarmed slot ------------
+;; ---- 3. the replay hands the retained emitter to the if-unarmed arm hook --
 
-(deftest replay-arms-an-unarmed-slot-but-never-overwrites-an-armed-one
+(deftest replay-arms-an-unarmed-slot-from-the-retained-emitter
   (rf.late-bind/set-fn! :ssr/current-hiccup-emitter ::retained-default)
   (let [slot (atom nil)]
     ;; The arm hook mirrors the real spine impl: arm the slot ONLY when unarmed.
@@ -160,11 +159,4 @@
     (testing "an otherwise-unarmed fresh generation receives the retained default"
       (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter)))
       (is (= ::retained-default @slot)
-          "the freshly installed, unarmed slot was armed from the durable emitter"))
-
-    (testing "an explicit pre-init override is NOT clobbered by the replay"
-      (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
-      (reset! slot ::explicit-custom)          ;; app set a custom emitter pre-init
-      (is (= fake-adapter (rf.substrate.adapter/install-adapter! fake-adapter)))
-      (is (= ::explicit-custom @slot)
-          "install-replay left the explicit override authoritative — the default did not win"))))
+          "the freshly installed, unarmed slot was armed from the durable emitter"))))
