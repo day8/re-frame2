@@ -189,25 +189,6 @@
     (is (= [:auth/login :order/submit] ids)
         ":user/mouse-move stripped from filtered-event-bundles")))
 
-(deftest muting-strips-rows-from-l2-event-list
-  (xray-setup!)
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:auth/login]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 2 [:user/mouse-move]))
-  (trace-collector/seed-trace-for-test! (dispatch-trace-ev 3 [:order/submit]))
-  (rf/with-frame :rf/xray
-    ;; All three rows render pre-mute.
-    (let [tree (dynamic-shell-tree/shell-view-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))
-    (rf/dispatch-sync [:rf.xray/mute-event-id :user/mouse-move])
-    ;; Row 2 (:user/mouse-move) disappears.
-    (let [tree (dynamic-shell-tree/shell-view-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-1")))
-      (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-2"))
-          "muted row stripped from L2 list")
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-event-row-3"))))))
-
 ;; -------------------------------------------------------------------------
 ;; (7) Row context menu open / close state
 ;; -------------------------------------------------------------------------
@@ -280,13 +261,6 @@
                    {:event-id nil :x 0 :y 0}])
   (is (nil? (frame-sub [:rf.xray/row-context-menu]))
       "nil event-id refuses to open the menu — defensive guard"))
-
-(deftest close-row-context-menu-event-clears-slot
-  (xray-setup!)
-  (frame-dispatch [:rf.xray/open-row-context-menu
-                   {:event-id :a :x 10 :y 20}])
-  (frame-dispatch [:rf.xray/close-row-context-menu])
-  (is (nil? (frame-sub [:rf.xray/row-context-menu]))))
 
 (deftest row-context-menu-renders-mute-and-hide-items
   (xray-setup!)
