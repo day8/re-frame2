@@ -153,7 +153,9 @@ For v1.0 release of `skills/re-frame2/`:
   least one eval per dimension (if baseline matches with-skill, the skill is
   not earning its tokens for that dimension)
 - no eval shows pathological behaviour (the agent ignoring the skill, hitting
-  a recursion limit, or reading `>3` leaves for a single prompt)
+  a recursion limit, or loading leaves unrelated to the prompt). A composed
+  feature may legitimately need several leaves; grade their relevance, not
+  their count
 
 If an eval consistently fails, the fix usually lives in the leaf, not the
 eval — that's the whole point of evaluation-driven development. Fix the leaf

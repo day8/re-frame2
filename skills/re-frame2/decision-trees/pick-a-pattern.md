@@ -5,7 +5,7 @@
 
 The canonical shape → leaf inventory lives **once** in [`../SKILL.md`](../SKILL.md) §Decision shortcuts (the *Which pattern fits* table) — every shipped pattern, including ResourcesMutations, is reachable from there. This tree does **not** restate that inventory; it carries the value the router can't: the **disambiguation rules** for patterns that share vocabulary, plus the two follow-on decisions. Worked examples are indexed in [`../examples-map.md`](../examples-map.md).
 
-Patterns compose: most real screens combine two or three of them. Pick the *primary* pattern — the one whose shape the feature is built around — from SKILL.md's table; the secondary patterns get loaded in their own pass after the primary one is in place. **Load at most two pattern leaves at a time**; if three or more seem necessary, the request spans features — author each pattern's leaf in its own pass.
+Patterns compose. Pick the *primary* pattern — the one whose shape the feature is built around — from [SKILL.md's table](../SKILL.md#decision-shortcuts). Load the other pattern leaves when their concerns become relevant: a resource-backed form may need Resources, ResourcesMutations, and Forms together. Keep unrelated leaves unloaded; the feature's needs determine the reading, not a fixed leaf count.
 
 ## Step 1 — the disambiguation pairs
 
