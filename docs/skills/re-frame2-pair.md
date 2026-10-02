@@ -37,6 +37,8 @@ An *epoch* records the work caused by a top-level event, including its child dis
 
 A change made at the REPL, such as a hot-swapped handler, is temporary: the next reload of that code replaces it, so a fix you want to keep goes into the source file. After a source edit, the skill waits for hot reload to finish before dispatching or tracing, so it never exercises the old code.
 
+The handoff names the observed result and its build/frame, saved source edits, and any temporary REPL changes still in place. Verification that has not happened remains explicit; a proposed fix is not reported as a verified live result.
+
 ## When to reach for it
 
 Use it when you want the agent to look at or change your **running** app, read-only questions included. The question is about the live runtime rather than about writing code.
