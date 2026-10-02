@@ -5,69 +5,16 @@ the thing and explains only what you need to use it; the chapter it links
 explains why it works. Exact signatures are in the [API
 reference](api-reference.md).
 
-Every recipe builds on the small todo model below. View recipes live in a views
-namespace that requires `[re-frame.core :as rf]` and `[re-frame.fresco :as h]`;
-a recipe shows its own `ns` form only when it needs something more.
+Every recipe uses [the todo model](01-getting-started.md#the-todo-model)
+introduced in Getting started. View recipes live in a views namespace that
+requires `[my.app.model]`, `[re-frame.core :as rf]`, and
+`[re-frame.fresco :as h]`; each recipe names any additional requires.
 
 ## The todo model
 
-```clojure
-(ns my.app.model
-  (:require [re-frame.core :as rf]))
-
-(def initial-db
-  {:todos   {1 {:id 1 :title "Buy milk"     :done? false}
-             2 {:id 2 :title "Walk the dog" :done? true}}
-   :showing :all})
-
-(rf/reg-event :todo/initialise
-  (fn [_ _]
-    {:db initial-db}))
-
-(rf/reg-event :todo/add
-  (fn [{:keys [db]} [_ title]]
-    (let [id (inc (apply max 0 (keys (:todos db))))]
-      {:db (assoc-in db [:todos id] {:id id :title title :done? false})})))
-
-(rf/reg-event :todo/toggle
-  (fn [{:keys [db]} [_ id]]
-    {:db (update-in db [:todos id :done?] not)}))
-
-(rf/reg-event :todo/delete
-  (fn [{:keys [db]} [_ id]]
-    {:db (update db :todos dissoc id)}))
-
-(rf/reg-event :todo/set-showing
-  (fn [{:keys [db]} [_ showing]]
-    {:db (assoc db :showing showing)}))
-
-(rf/reg-sub :todo/todos
-  (fn [db _]
-    (:todos db)))
-
-(rf/reg-sub :todo/all {:inputs [[:todo/todos]]}
-  (fn [[todos] _]
-    (vec (sort-by :id (vals todos)))))
-
-(rf/reg-sub :todo/by-id
-  (fn [db [_ id]]
-    (get-in db [:todos id])))
-
-(rf/reg-sub :todo/showing
-  (fn [db _]
-    (:showing db)))
-
-(rf/reg-sub :todo/visible
-  {:inputs [[:todo/all] [:todo/showing]]}
-  (fn [[todos showing] _]
-    (case showing
-      :active (filterv (complement :done?) todos)
-      :done   (filterv :done? todos)
-      todos)))
-```
-
-Chapter: [Getting started](01-getting-started.md). A complete TodoMVC, written
-for the Reagent adapter with its own event names, is `examples/core/todomvc`.
+Use the registrations from [Getting started](01-getting-started.md#the-todo-model)
+in `src/my/app/model.cljs`. A complete TodoMVC, written for the Reagent
+adapter with its own event names, is `examples/core/todomvc`.
 
 ## Boot an application
 
@@ -130,7 +77,8 @@ handler is an event vector.
 
 ```clojure
 (ns my.app.views
-  (:require [re-frame.fresco :as h]))
+  (:require [my.app.model]
+            [re-frame.fresco :as h]))
 
 (h/defview todo-row
   "One todo: a checkbox, its title, and a delete button."
@@ -243,7 +191,8 @@ of the committed value.
 
 ```clojure
 (ns my.app.views
-  (:require [clojure.string :as str]
+  (:require [my.app.model]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fresco :as h]
             [re-frame.fresco.forms :as forms]))
@@ -489,7 +438,8 @@ Hiccup head.
 
 ```clojure
 (ns my.app.views
-  (:require [re-frame.fresco :as h]
+  (:require [my.app.model]
+            [re-frame.fresco :as h]
             [my.app.vendor :as vendor]))   ;; requires the JavaScript library
 
 (h/defhost virtual-list

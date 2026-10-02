@@ -16,10 +16,10 @@ The React DevTools profiler still works, but a flame graph shows which component
 
 Attach Xray ([Debug with Xray](../../xray/index.md)), reproduce the slow interaction once, select the newest event row, and open the **Views** tab. It lists every view that re-rendered in that [pipeline run](../glossary.md#run) with its render time, and nests under each view the subscriptions it read; each sub can be drilled into to see why it re-ran, back to the causing event. Mounted, re-rendered, and unmounted views are grouped separately, and a re-rendered row names its cause: `← :sub-id` when a subscription's value changed, `← props` when the parent passed different arguments.
 
-Look for one of two shapes:
+Look for one of these shapes:
 
 - **One wide row.** A single view, or one subscription under it, accounts for the time. The work is misplaced: go to step 2.
-- **A cloud of rows.** Dozens or hundreds of views re-rendered for a change that concerned one of them. That is a re-render storm: go to step 3.
+- **A large list.** The list view spends time rebuilding many rows for a change to one item. Or many child views re-render although their displayed data didn't change. Go to step 3.
 
 If the dev build feels fine and only production is slow, go to step 4.
 
@@ -75,19 +75,21 @@ To confirm the fix, dispatch the same event with the Views tab open: the sub's d
 
 ## 3. Break up the re-render storm
 
-A cloud of rows in the Views tab almost always means a parent passes each child more state than it needs:
+Start with the ordinary list from [Views](../views.md#the-todo-list-as-views),
+passing each row its todo map. This is a good default for small lists:
 
 ```clojure
-;; Don't do this: every row receives its whole todo map.
+;; Normal list: each row receives its todo map.
 (rf/reg-view todo-list []
   [:ul
    (for [todo @(subscribe [:todo/all])]           ;; a vector of full todo maps
      ^{:key (:id todo)} [todo-item todo])])
 ```
 
-Toggle one todo in a 200-item list and `:todo/all` is a new vector, because one map inside it changed. `todo-list` re-renders and builds hiccup for all 200 rows. The 199 untouched rows receive the same todo maps as last time, so their `=` prop checks pass at once and they keep their DOM. The hitch is `todo-list` itself: it re-renders and builds 200 row elements for one changed todo.
+Toggle one todo in a 200-item list and `:todo/all` is a new vector, because one map inside it changed. `todo-list` re-renders and builds hiccup for all 200 rows. The 199 untouched rows receive the same todo maps as last time, so their `=` prop checks pass and those rows don't re-render. The remaining cost is rebuilding the list's hiccup. Check the list's render time before changing this design.
 
-Pass each row an id, and let the row subscribe to its own slice:
+If that measured cost matters, pass each row an id and let the row subscribe to
+its own slice:
 
 ```clojure
 ;; Rows get an id; each subscribes to exactly what it renders.
@@ -107,7 +109,12 @@ Pass each row an id, and let the row subscribe to its own slice:
      title]))
 ```
 
-On a toggle, one todo's map changes, so `:todo/sorted-ids` recomputes, but it returns an `=` id vector and `todo-list` doesn't re-render. `[:todo/by-id id]` changes for one id, so one row re-renders. The Views tab shows one row where the cloud was.
+On a toggle, one todo's map changes, so `:todo/sorted-ids` recomputes, but it returns an `=` id vector and `todo-list` doesn't re-render. `[:todo/by-id id]` changes for one id, so one row re-renders. Compare the same interaction's timing after the change to confirm it helped.
+
+If the profile instead shows many child views re-rendering, inspect their props:
+passing the whole app-db, a changing key, or a new callback to every row can
+invalidate them all. Narrow the data each row receives; use the id pattern above
+when it fits the measured problem.
 
 `^{:key id}` gives each row a stable identity, so inserting or removing a todo is diffed by identity instead of position; without it, one deletion at the top re-renders every row below it. The inline `#(dispatch …)` on the checkbox is fine as written, because replacing a listener on a DOM element is cheap (see [Stable callbacks](#stable-callbacks-only-with-a-measurement) for when it isn't).
 

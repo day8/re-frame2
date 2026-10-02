@@ -153,11 +153,9 @@ To check a different frame, pass `{:frame x}`, where `x` is the frame's id or th
 
 `with-new-frame` gives each test its own app-db, but not its own registrar. `reg-event` and its siblings write to one process-global [registrar](../glossary.md#registrar) shared by the whole test run.
 
-If two test namespaces register different handlers under the same id, the later load wins silently. Every test passes alone, the suite fails together, and the failure moves when test order changes.
+Re-registering an id in the same namespace replaces that namespace's handler, as it does on hot reload. Registrations from different namespaces are retained separately. If a frame's default image includes two different handlers for the same id, frame creation fails with `:rf.error/image-duplicate-id`; load order doesn't choose a winner. Give test-only handlers their own ids. When separate apps intentionally share ids, select their registrations with [images](../images.md#when-two-registrations-collide).
 
-That is why the test namespace in section 1 installs the reset fixture.
-
-The fixture snapshots the registrar before each test and restores it afterwards, keeping what was registered before the `use-fixtures` form ran. So register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes. [Testing](index.md#set-up-the-test-runner) lists everything else it resets.
+The reset fixture prevents changes made inside one test from leaking into another. It captures a registration baseline when the `use-fixtures` form runs, reinstates that baseline before each test, and restores registrations afterwards. It doesn't resolve competing registrations already in that baseline. Register in your required app namespaces, above the fixture, or inside the test body: a top-level `reg-*` below `use-fixtures` is invisible to frames the test makes. [Testing](index.md#set-up-the-test-runner) lists everything else it resets.
 
 For a single ad-hoc block, call the primitives `ts/snapshot-registrar` and `ts/restore-registrar!` yourself:
 

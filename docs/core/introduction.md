@@ -63,8 +63,12 @@ rendered, which is why the app appears above. It describes:
 
 Edit the code and press **`Ctrl-Enter`** / **`Cmd-Enter`** to re-evaluate:
 
-1. Change `"LavenderBlush"` to `"green"`
-2. Change `[:initialise 3]` to `[:initialise 4]`
+1. In the mounting block, change `"LavenderBlush"` to `"green"`. The counter's
+   background changes.
+2. In the registration block, change the button's `"+"` label to `"Add one"`.
+   The button shows the new label and still increments the count.
+
+To work in your own editor, [run and change the counter locally](getting-started.md).
 
 ## What a frame holds
 

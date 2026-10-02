@@ -66,6 +66,11 @@ Use a literal `db` when the sub is trivial and the shape is obvious, and seed wi
 
 `compute-sub` checks the computation, not the reactive machinery: it proves the value is right, not that a view re-renders when it changes. Change propagation is the framework's job, so you don't re-test it per sub. When the thing under test is "the view updated", write a [view test](views.md).
 
+One diagnostic differs from a live subscription: an unregistered sub or input
+computes to `nil` without a `:rf.error/no-such-sub` record. Live `subscribe` reports
+that missing registration. If a value assertion unexpectedly returns `nil`, check
+the input ids and require list as well as the sub's computation.
+
 ## When the sub carries a `:schema`
 
 Your assertions don't change. A sub registered with an output [`:schema`](../subscriptions.md#saying-things-about-a-sub-metadata) validates its value in dev, `compute-sub` included. A shape bug emits a `:rf.error/schema-validation-failure` error record, and the call returns `nil`. [Asserting on that error record](../errors.md#test-the-structure-not-the-string) is an ordinary listener-based test.
