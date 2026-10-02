@@ -10,6 +10,8 @@ In the root of your port's repository, name the host and the local contract to i
 
 Replace the placeholders with your checkout and revision. You can resume in the same session; there is no one-spec-per-session or per-spec-commit requirement. Name any optional capabilities you want in the request or add them to the profile later. The longer [kickoff prompt](https://github.com/day8/re-frame2/blob/main/skills/re-frame2-implementor/SKILL.md#kickoff-optional-paste-ready-prompt) includes the full implementation loop.
 
+When resuming, the skill reads your existing profile, re-verifies the pinned checkout and continues the first unfinished slice. Defaults fill missing choices; they do not erase your existing claim. Scores come from actual full harness runs. A narrow slice's result remains labelled separately, and a previous score is marked stale when the code, claim or pin changes.
+
 ## What it does
 
 The skill is for engineers **building re-frame2 itself**, not applications with it. It takes you from "I want to port re-frame2 to TypeScript" to "my port passes every conformance fixture that applies to the capabilities it claims." The in-scope hosts are the eight languages that compile to JavaScript and render through React: ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, F# (Fable), Squint, Scala.js, PureScript and Kotlin/JS, as set by the scope footnote in the [Vision spec](../../spec/000-Vision.md).

@@ -20,7 +20,7 @@ A loop-step-4 slice may report "not run" only while this seam does not yet exist
 3. **Implement the smallest vertical slice.**
 4. **Run the narrowest gate that covers it** — the port's unit-test command for the module, or the fixture subset for the EP's tags. Foreground; capture the exact command and result.
 5. **Repair, or diagnose** — implementation bug vs spec gap per [`conformance.md` §Diagnosis](conformance.md#diagnosis--spec-gap-vs-implementation-bug); a spec gap goes through cardinal rules 8–9.
-6. **Update the port profile** only if a real choice or claim changed.
+6. **Update the port profile** when a real choice or claim changed, or a full harness run supplies a new measured score. A narrow slice result stays labelled as slice evidence; do not present it as the full claim's score.
 
 **Checkpoint** — at whatever granularity fits the work; the contents and the no-mandate rule are in [`SKILL.md` §Checkpoints](../SKILL.md).
 
