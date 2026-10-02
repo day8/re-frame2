@@ -11,18 +11,25 @@ EDN fixtures, one canonical interaction each, in two modes (README §Fixture for
 
 **Derive, never transcribe.** The Mode-B `:call` operator set, the handler-DSL op set, the capability vocabulary, the dynamic-host-only fixture set, and the fixture count are all facts of the corpus **at your pin** — enumerate them there rather than trusting any prose list (this leaf included):
 
-```bash
-ls <path-to-re-frame2>/spec/conformance/fixtures/*.edn | wc -l  # fixture count
-grep -rhoE '^\{? ?:fixture/[a-z0-9?-]+' <path-to-re-frame2>/spec/conformance/fixtures/ | tr -d '{ ' | sort -u  # top-level fixture keys
-grep -rl ':fixture/dynamic-host-only?' <path-to-re-frame2>/spec/conformance/fixtures/  # static-host-inapplicable fixtures
-grep -rhoE ':fixture/spec-version\s+"[^"]*"' <path-to-re-frame2>/spec/conformance/fixtures/ | sort -u  # spec versions in play
-```
+Parse every `.edn` fixture as an EDN map with the reader used by the port's
+harness, then derive:
 
-**These read the filesystem, so they are the corpus *at your pin* only once cardinal rule 1's status check (explicitly including untracked and ignored files) has succeeded silently.** An untracked or ignored `.edn` in `fixtures/` is a fixture to the glob and to no commit; an uncommitted edit to a tracked one changes an expectation the pin still appears to name. Either way the denominator stops meaning what the profile says it was measured against.
+- the fixture count and the union of **top-level map keys**;
+- the union of `:fixture/capabilities` sets;
+- the union of `:call` values in each fixture's `:fixture/calls`;
+- the fixtures whose `:fixture/dynamic-host-only?` value is **true**;
+- the distinct `:fixture/spec-version` values.
 
-The **line anchor** in the key grep is load-bearing, not tidiness. Fixtures also register, dispatch, and handle **event ids in the `:fixture/` namespace** (a fixture that needs a marker event registers one under `:fixture/registry`), and those are values inside the map, not keys of it — an unanchored `:fixture/*` search returns them mixed in with the real keys, and also picks up mentions inside `:fixture/doc` strings and `;;` commentary. Both are false positives for the key floor below: build it against an id and a conforming fixture fails. Anchoring on the top-level map's own keys is the discriminator; once the harness has parsed the fixture, take the key set from the parsed map and skip the text search entirely.
+This reads the filesystem, so it represents the corpus at the pin only after
+cardinal rule 1's clean-tree check, including untracked and ignored files.
+An added fixture or edited expectation changes the inventory even when HEAD
+still matches the recorded SHA.
 
-**Capability tags and Mode-B `:call` ops come only from the parsed fixtures** — the union of every `:fixture/capabilities` set and every `:call` value. No text search reads them: a whole-file tag grep also matches fixture ids and doc strings, a `:call` grep counts whitespace variants as distinct ops, and a `:fixture/capabilities` set can span lines, so a line-anchored grep under-reads.
+Use the parsed structure rather than text searches. `:fixture/*` event ids,
+doc strings and comments are not top-level keys; a marker key's presence does
+not establish a true value; multiline capability sets and whitespace around
+operators do not change their values. Feed this inventory into the
+[harness's fail-loud checks](#the-harness-300-lines-per-host).
 
 New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
