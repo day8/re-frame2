@@ -164,12 +164,13 @@
                                            {:interceptors [[:rf.interceptor/path [:x]]]}
                                            event-body]]})
             :event :parity/pathed)]
-    (testing "a framework :rf.interceptor/* ref passes assembly with no
-              interceptor selected (framework-provided, exempt from the image
-              reference check) — the control for the missing-reference row"
-      (is (some? d) "assembly sealed the generation"))
+    ;; A framework :rf.interceptor/* ref passes assembly with no interceptor
+    ;; selected (framework-provided, exempt from the image reference check) —
+    ;; the control for the missing-reference row: the reads below run on the
+    ;; sealed generation.
     (testing "the authored ref leads the lowered chain, the wrapper stays at its tail"
-      (is (= [:rf.interceptor/path [:x]] (first (:interceptors d))))
+      (is (= [:rf.interceptor/path [:x]] (first (:interceptors d)))
+          "assembly sealed the generation, and the authored ref leads the chain")
       (is (= 2 (count (:interceptors d))))
       (is (true? (:rf/default? (peek (:interceptors d))))
           "the :rf/event-handler wrapper is still the chain's tail"))))

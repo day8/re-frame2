@@ -101,13 +101,10 @@
           gen  (rf.image-assembly/assemble-default pool)]
       (testing "every namespace's descriptors are selected (no glob — the whole
                 store)"
-        (is (contains? (:rf.gen/resolver gen) [:event :cart/add]))
         (is (contains? (:rf.gen/resolver gen) [:sub   :cart/items]))
-        (is (contains? (:rf.gen/resolver gen) [:event :auth/login]))
-        (is (contains? (:rf.gen/resolver gen) [:view  :catalog/grid])))
+        (is (contains? (:rf.gen/resolver gen) [:event :auth/login])))
       (testing "the framework standard is unioned in, exactly as the explicit
                 path"
-        (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url]))
         (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))))
       (testing "resolve-descriptor reads one descriptor per (kind, id)"
         (is (= ::cart-add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
@@ -120,7 +117,6 @@
             projection (resolving only framework standards) — no zero-match
             fail-loud, unlike a :select-ns :include glob"
     (let [gen (rf.image-assembly/assemble-default [])]
-      (is (map? gen))
       (is (= {} (:rf.gen/resolver gen)))
       (is (= #{} (rf.image-assembly/generation-kinds gen)))
       (testing "with only a framework standard present, the default projects it"
@@ -285,10 +281,8 @@
       (is (= :rf.error/image-standard-replacement-forbidden
              (assembly-error-id #(rf.image-assembly/assemble-default pool))))
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(rf.image-assembly/assemble [explicit] pool))))
-      (is (= (assembly-error-id #(rf.image-assembly/assemble-default pool))
              (assembly-error-id #(rf.image-assembly/assemble [explicit] pool)))
-          "same error id on both paths"))))
+          "the same error id on both paths"))))
 
 (deftest default-projection-drops-framework-own-no-provenance-standard-shadow
   (testing "the framework's OWN no-provenance registrar shadow of a standard
@@ -303,10 +297,9 @@
           pool       [own-shadow
                       (reg-desc "shop.cart" :event :cart/add ::cart-add)]
           gen        (rf.image-assembly/assemble-default pool)]
-      (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url])
-          "the standard is present (unioned in)")
       (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))
-          "resolves to the standard's own copy; the no-provenance shadow was dropped")
+          "the standard is unioned in and resolves to its own copy; the
+           no-provenance shadow was dropped")
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
           "ordinary app descriptors project into the default generation"))))
 
