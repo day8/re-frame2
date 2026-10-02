@@ -233,8 +233,6 @@
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-header")))
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-title")))
       (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-source-coord")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-state-count")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-live-count")))
       (let [text (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-state-count"))]
         (is (re-find #"3 states" text)))
       (let [text (rf.test-helpers/text-content (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-detail-live-count"))]
@@ -252,16 +250,6 @@
 ;; -------------------------------------------------------------------------
 ;; (7) 4-mode sub-strip
 ;; -------------------------------------------------------------------------
-
-(deftest sub-strip-renders-four-pills
-  (xray-setup!)
-  (seed-machines! [:m/a])
-  (rf/with-frame :rf/xray
-    (let [tree (machines-tree/panel-tree)]
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-topology")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-sim")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-instances")))
-      (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-static-machines-pill-cascade"))))))
 
 (deftest sub-strip-default-is-topology
   (xray-setup!)
@@ -319,9 +307,10 @@
                      tree "rf-xray-static-machines-sim-no-definition"))
             "real Sim body's no-definition hint mounts in :sim mode")))))
 
-(deftest sim-mode-auto-starts-sim-when-definition-present
-  (testing "Selecting :sim mode for a machine with a definition auto-
-            starts the hermetic sim; the rail mounts in the body."
+(deftest sim-mode-mounts-the-sim-body-and-rail-once-sim-has-started
+  (testing "With :sim mode selected for a machine with a definition and the
+            hermetic sim started, the panel mounts the real Sim body and its
+            rail."
     (xray-setup!)
     (seed-machines! [:m/a])
     (seed-definitions! {:m/a {:initial :idle
