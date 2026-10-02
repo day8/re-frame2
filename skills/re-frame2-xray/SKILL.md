@@ -35,7 +35,7 @@ of its own, so a host installing from app code owns that exclusion
 
 The skill is read-only: it answers from this file and its references and
 never touches the user's running app. Routine routing needs only this
-file; for depth, load one leaf from
+file; for depth, start with the relevant leaf from
 [§Which reference leaf to load](#which-reference-leaf-to-load).
 
 ## First fork — who is looking?
@@ -160,6 +160,12 @@ selector · fall back to `open-overlay!`) and the full decision tree
 lifecycle is in
 [`references/launch-lifecycle.md`](references/launch-lifecycle.md).
 
+If the build cannot find the preload namespace, or the browser API is
+undefined, check the dev dependency and preload first — `status()` is
+available only after Xray's installation code ran. Installing this skill
+does not install the Xray runtime dependency; see
+[`references/launch-modes.md` §Install the preload](references/launch-modes.md#install-the-preload).
+
 ### Wired hotkeys
 
 Four hotkey families are wired (three global, one focus-gated). Full
@@ -220,8 +226,10 @@ the control-by-control inventory.
 
 ## Which reference leaf to load
 
-Routine selection questions are answerable from this body alone. A
-deeper question loads at most **one** focused leaf:
+Routine selection questions are answerable from this body alone. Start a
+deeper question with its focused leaf. Load another only when the user's
+question spans its subject or the answer needs it; keep the whole requested
+question in scope rather than stopping at an arbitrary reference limit.
 
 | Deep question about… | Load |
 |---|---|

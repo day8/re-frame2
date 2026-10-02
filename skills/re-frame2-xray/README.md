@@ -35,7 +35,7 @@ Xray is the human-facing panel; when the user asks an agent to inspect or change
 
 - [`re-frame2-pair`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-pair) — the agent-facing runtime companion: reads and drives the running app (read-sub, get-path, snapshots, trace/epoch reads, dispatch, hot-swap). Xray is the human's panel; Pair is the agent's runtime access, read or write.
 - [`re-frame2`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2) — authors host application code. The host app provides the `[data-rf-xray-host]` column Xray mounts into.
-- [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) — bootstraps a fresh re-frame2 project. The setup skill ensures the dev build is configured so Xray's `:preloads` entry can mount on first run.
+- [`re-frame2-setup`](https://github.com/day8/re-frame2/tree/main/skills/re-frame2-setup) — bootstraps a fresh counter project. Xray attaches later, on request: add its dev dependency, preload and layout host using this skill's launch guidance.
 
 This skill does not depend on or reference `re-frame-10x` — Xray is its structural successor (re-frame2's Tool-Pair surfaces replace the v1 reliance on the 10x dev tool entirely; [`spec/Tool-Pair.md` §Implications for downstream tools](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#implications-for-downstream-tools) owns that contract).
 

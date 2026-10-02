@@ -39,6 +39,8 @@ For related work:
 
 Xray is loaded into dev builds through shadow-cljs `:preloads` and opens inline, in a column your app's layout provides and marks with `data-rf-xray-host`. It stays out of release builds because `:preloads` is dev build configuration — the manual `init!` / mount path has no `goog.DEBUG` check of its own. So if you install Xray from app code instead, keep the `:require` and the calls in a dev-only namespace.
 
+The tour skill does not install the runtime. First put `day8/re-frame2-xray` on your dev build's classpath; the [installation guide](../xray/01-installation.md#add-the-dev-dependency) shows the pre-alpha checkout dependency. A missing preload namespace or undefined browser API calls for checking that dependency and the preload before calling `status()`.
+
 The commonest launch failure is a preload that is in place and a page that loaded with no inline panel. Xray logs the reason to the console and reports it at `window.day8.re_frame2_xray.status()`, under `:diagnostic :reason`:
 
 | Reason | Cause | Fix |

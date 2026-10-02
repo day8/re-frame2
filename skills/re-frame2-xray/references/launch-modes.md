@@ -42,8 +42,17 @@ Sibling leaves carry the rest: **§Programmatic init!** and
 
 ## Install the preload
 
-The default path. Add the preload namespace to shadow-cljs's
-`:devtools/preloads`:
+The default path needs the Xray runtime dependency on the dev build's
+classpath before adding its preload. Installing the tour skill alone does
+not supply it. Pre-alpha, add `day8/re-frame2-xray` in the project's dev
+alias with a `:local/root` pointing to `tools/xray` in the matching
+re-frame2 checkout; resolve that path from the project's `deps.edn`, and
+include the alias in shadow-cljs's `:deps {:aliases [...]}`. Preserve the
+project's existing dependencies and aliases. The
+[installation guide](https://github.com/day8/re-frame2/blob/main/docs/xray/01-installation.md#add-the-dev-dependency)
+shows the coordinate and layout together.
+
+Then add the preload namespace to shadow-cljs's `:devtools/preloads`:
 
 ```clojure
 ;; shadow-cljs.edn — dev build only
