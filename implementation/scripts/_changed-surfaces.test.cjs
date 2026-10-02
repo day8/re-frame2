@@ -271,12 +271,12 @@ test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2
 });
 
 test('Docs prose with NO pinning suite still skips jvm-core + cljs (rf2-f79t8, rf2-61ar)', () => {
-  // The classifier arms only the docs trees a test.yml suite reads
-  // (docs/machines, two docs/api pages, one docs/design page, and
-  // docs/ssr/concepts.md); every other docs page arms nothing. That asymmetry
+  // The classifier arms the JVM tier only for the docs pages a JVM-tier suite
+  // reads (docs/machines, two docs/api pages, one docs/design page, and
+  // docs/ssr/concepts.md); every other docs page leaves it off. That asymmetry
   // is the narrowing, so this case's control is a docs/core page, which
-  // reaches none of the armed trees — and that holds for the WHOLE of
-  // docs/core.
+  // reaches none of the JVM-armed pages — and that holds for the WHOLE of
+  // docs/core, whose two pinned pages arm `adapter_diagnostic` alone.
   const result = classify('docs/core/intro.md');
   assert.equal(result.implementation_jvm, 'false');
   assert.equal(result.cljs_node_test, 'false');
@@ -6037,12 +6037,43 @@ pinnedRoster(
   PROSE_PINS_ARMING_JVM.map(([file]) => file),
 );
 
+// The roster's readers whose job gates on an output OTHER than the JVM tier:
+// path -> the suite that reads it -> the job that runs it -> the output that
+// job's `if:` reads. A page arms its reader's output, and `implementation_jvm`
+// schedules neither job.
+const PROSE_PINS_ARMING_OTHER_LANES = [
+  ['docs/core/testing/views.md', 'uix_component_recipe_docs_pin_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['docs/core/how-to/use-uix-or-slim.md', 'uix_consumer_deps_recipe_test.clj', 'jvm-uix', 'adapter_diagnostic'],
+  ['docs/skills/re-frame2-setup.md', 'setup_drift_test.clj', 'skills-structural', 'skills_structural'],
+];
+
+pinnedRoster(
+  'PROSE_PINS_ARMING_OTHER_LANES',
+  PROSE_PINS_ARMING_OTHER_LANES.map(([file]) => file),
+);
+
 test('every measured prose pin arms the JVM tier that runs its suite (rf2-61ar)', () => {
   for (const [file, suite, job] of PROSE_PINS_ARMING_JVM) {
     assert.equal(
       classify(file).implementation_jvm,
       'true',
       `${file} is slurped by ${suite}, which runs in ${job} — it must arm implementation_jvm`,
+    );
+  }
+});
+
+test('every prose pin outside the JVM tier arms the output its job is gated on', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  for (const [file, suite, job, output] of PROSE_PINS_ARMING_OTHER_LANES) {
+    assert.equal(
+      classify(file)[output],
+      'true',
+      `${file} is read by ${suite}, which runs in ${job} — it must arm ${output}`,
+    );
+    assert.match(
+      jobBlock(workflow, job),
+      new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${output} == 'true'`),
+      `${job} must be gated on ${output}, or arming it for ${file} schedules nothing`,
     );
   }
 });
@@ -6067,6 +6098,9 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
     // so this one does NOT follow the guide to docs/core/fresco/.
     // REWRITE-NOTES.md is unpinned like the rest.
     'docs/design/fresco/draft-guide/REWRITE-NOTES.md', // 144 docs/design md files, one pinned
+    // The setup page's sibling in docs/skills/, which has no reader: that arm
+    // is the PAGE, not the tree.
+    'docs/skills/re-frame2-pair.md',
     'migration/from-re-frame-v1/README.md',
     'README.md',
   ]) {
@@ -6082,7 +6116,7 @@ test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', (
   // prose arm, `spec/Spec-Schemas.md` included (its own case below).
   const forbidden = ['cljs_browser', 'cljs_prod', 'bundle_isolation',
     'adapter_testbed_smokes', 'story_xray_browser', 'fresco_controlled', 'playground'];
-  for (const [file] of PROSE_PINS_ARMING_JVM) {
+  for (const [file] of [...PROSE_PINS_ARMING_JVM, ...PROSE_PINS_ARMING_OTHER_LANES]) {
     const result = classify(file);
     for (const key of forbidden) {
       assert.equal(result[key], 'false', `${file} must not arm ${key}`);
@@ -6682,24 +6716,26 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   docs: DOCS_YML,
   'docs/EP': DOCS_YML,
   'docs/async': DOCS_YML,
-  // Declared rather than armed: the only output that would reach the Fresco
-  // guide's checker (docs/core/fresco/**) is cljs_node_test — the ~10-minute
-  // node build, scheduled on a prose typo. The guide-samples gate checks only
-  // that every fresco verb a sample names resolves.
-  'docs/core': {
-    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job; and lint.yml runs api-manifest doc-guide-check over docs/core/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Fresco guide's fenced samples are covered by the unconditional fresco-guide-samples job (it checks only that every fresco verb a sample names resolves to a public def), which is unconditional PRECISELY so that a guide-only PR runs it.",
-    coveredBy: [
-      '.github/workflows/docs.yml',
-      'scripts/check_doc_slugs.py',
-      'implementation/scripts/api-manifest/src/re_frame/api_manifest/doc_guide_check.clj',
-      'implementation/fresco/scripts/check_guide_samples.py',
-    ],
-  },
+  // `docs/core` is DELIBERATELY ABSENT, for the reason `docs/ssr` is below:
+  // two of its pages carry a test.yml reader — testing/views.md and
+  // how-to/use-uix-or-slim.md, both read by jvm-uix suites — and an arm
+  // setting `adapter_diagnostic` to schedule them, so one armed file arms the
+  // tree. Its other pages arm no output, and the gates that read them are
+  // always-on or lint.yml's own: docs.yml stages the tree and runs
+  // mkdocs --strict; check_doc_slugs.py validates its links and anchors from
+  // the unconditional verify-readme-links job; lint.yml runs api-manifest
+  // doc-guide-check over docs/core/**; and the unconditional
+  // fresco-guide-samples job checks that every fresco verb a Fresco guide
+  // sample names resolves. That job is unconditional precisely so that a
+  // guide-only PR runs it: the only output that would otherwise reach its
+  // checker is cljs_node_test, the ~10-minute node build.
   'docs/images': DOCS_YML,
   'docs/resources': DOCS_YML,
   'docs/routing': DOCS_YML,
   'docs/scripts': DOCS_YML,
-  'docs/skills': DOCS_YML,
+  // `docs/skills` is DELIBERATELY ABSENT as well: re-frame2-setup.md is read
+  // by the setup skill's setup_drift_test.clj in the `skills-structural` job,
+  // and its arm sets `skills_structural` to schedule it.
   // `docs/ssr` is DELIBERATELY ABSENT, and the ratchet below is what makes
   // that a requirement rather than a tidy-up: `docs/ssr/concepts.md` carries a
   // test.yml pin (ssr_doc_example_node_build_id_test.clj, jvm-ssr) and an arm
