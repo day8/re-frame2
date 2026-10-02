@@ -237,6 +237,9 @@
         ;; Inline expand carries the meta + jump button + sim-nav toggle.
         (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))
             "registrar meta block rendered")
+        (is (seq (find-all-by-testid-prefix tree "rf-xray-edn-inspector-"))
+            "the registrar meta renders through the shared EDN widget, which
+             carries no copy chrome (spec/021 §10.5, B.9)")
         (is (some? (find-by-testid tree "rf-xray-static-routes-jump-runtime-route/cart"))
             "→ Dynamic cross-link chip rendered")
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-toggle-route/cart"))
@@ -430,25 +433,3 @@
             (on-key (mk-ev "a" prevented))
             (is (false? @prevented))
             (is (= [] @seen) "and toggles nothing")))))))
-
-;; ---- (11) expand-surface EDN renders via the shared widget --------------
-
-(deftest expand-meta-renders-through-edn-widget
-  (testing "the registrar-meta block routes
-            through the shared EDN widget, which delegates to the
-            first-class edn-inspector widget. This test smokes that
-            wiring. The renderer carries no copy chrome (spec/021 §10.5,
-            B.9)."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/toggle-row :route/cart]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)
-            widget (find-all-by-testid-prefix
-                     tree "rf-xray-edn-inspector-")]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-meta-route/cart"))
-            "meta block wrapper present")
-        (is (seq widget)
-            "registrar meta renders through the edn-inspector widget")))))

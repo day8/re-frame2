@@ -109,8 +109,9 @@
 
 ;; ---- input chrome -------------------------------------------------------
 
-(deftest simulate-url-input-renders
-  (testing "Simulate-URL input + label render when routes are present"
+(deftest simulate-url-blank-input-renders-the-input-without-clear-or-result
+  (testing "Simulate-URL input + label render when routes are present; with
+            the input blank there is no clear button and no result block"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
@@ -121,24 +122,15 @@
         (is (some? (find-by-testid tree "rf-xray-static-routes-sim-input"))
             "Simulate-URL input present")
         (is (nil? (find-by-testid tree "rf-xray-static-routes-sim-clear"))
-            "clear button absent when input blank")))))
-
-(deftest simulate-url-clear-button-visible-when-input-set
-  (testing "clear button surfaces when sim-url is non-blank"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      (rf/dispatch-sync [:rf.xray.static.routes/set-sim-url "/cart"]
-                        {:frame :rf/xray})
-      (let [tree (panel-tree)]
-        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-clear"))
-            "clear button surfaces when input is non-blank")))))
+            "clear button absent when input blank")
+        (is (nil? (find-by-testid tree "rf-xray-static-routes-sim-result"))
+            "no result block when input is blank")))))
 
 ;; ---- result block -------------------------------------------------------
 
 (deftest simulate-url-renders-winner-candidate-row
-  (testing "/cart resolves to :route/cart as winner"
+  (testing "/cart resolves to :route/cart as winner, and the clear button
+            surfaces once the input is non-blank"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
@@ -149,7 +141,9 @@
             winner (find-by-testid tree "rf-xray-static-routes-sim-candidate-route/cart")]
         (is (some? winner) "winner candidate row rendered")
         (is (= "true" (:data-winner (second winner)))
-            "winner row carries data-winner=\"true\"")))))
+            "winner row carries data-winner=\"true\"")
+        (is (some? (find-by-testid tree "rf-xray-static-routes-sim-clear"))
+            "clear button surfaces when input is non-blank")))))
 
 (deftest simulate-url-redirect-url-crowns-the-route-it-names-rf2-y8doi-22
   (testing "a redirect-style URL (`?next=https://…`) resolves to its own path
@@ -185,17 +179,6 @@
             "result surface still renders")
         (is (= 0 (count candidates))
             "no candidate rows when nothing matches")))))
-
-(deftest simulate-url-blank-input-no-result
-  (testing "blank input → result block absent"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
-                        {:frame :rf/xray})
-      ;; Default — no sim-url set.
-      (let [tree (panel-tree)]
-        (is (nil? (find-by-testid tree "rf-xray-static-routes-sim-result"))
-            "no result block when input is blank")))))
 
 (deftest simulate-url-clear-event-empties-input
   (testing "set-sim-url with empty string drops the slot"

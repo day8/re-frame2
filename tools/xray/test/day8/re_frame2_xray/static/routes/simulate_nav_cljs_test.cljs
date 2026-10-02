@@ -100,19 +100,16 @@
           "unknown surface rendered"))))
 
 (deftest preview-registered-no-url
-  (testing "registered route, no URL → path + on-match + db-slot + slot-shape"
+  (testing "registered route, no URL → path + on-match + db-slot + slot-shape,
+            on a surface that labels itself hermetic (no dispatch)"
     (let [tree (simulate-nav/preview routes :route/cart nil)]
+      (is (re-find #"Hermetic preview" (text-of tree))
+          "the preview surface labels itself 'Hermetic preview'")
       (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-route/cart")))
       (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-path")))
       (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-on-match")))
       (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-db-slot")))
       (is (some? (find-by-testid tree "rf-xray-static-routes-sim-nav-slot-shape"))))))
-
-(deftest preview-renders-hermetic-marker
-  (testing "the preview surface labels itself hermetic (no dispatch)"
-    (let [tree (simulate-nav/preview routes :route/cart nil)]
-      (is (re-find #"Hermetic preview" (text-of tree))
-          "the preview surface labels itself 'Hermetic preview'"))))
 
 (deftest preview-slot-shape-row-names-the-slice-navigate-writes-rf2-y8doi-22
   (testing "the rendered 'Slot shape' row carries every key a real navigation
