@@ -73,7 +73,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 ## Authoring workflow (every task)
 
 1. Identify the surface — event? sub? fx? cofx? view? machine? route? story? schema?
-2. Load at most two leaves, picked from §Decision shortcuts and §Where the depth lives below (the relevant fundamentals or pattern; a second only if the task spans two surfaces).
+2. Load the leaves needed for the requested surface, using §Decision shortcuts and §Where the depth lives below. Start with the relevant fundamental or pattern; add a cross-cutting leaf when its concern applies. Keep unrelated leaves unloaded.
 3. Match the canonical declaration in the leaf; do not re-derive.
 4. Pick the feature prefix (`:cart/...`, `:auth/...`) — never `:rf/*`.
 5. Cross-check a worked example or reference view that uses the same shape when one exists (in the re-frame2 repo, that's `examples/**`; in a consumer app, your project's own reference views).
@@ -84,9 +84,9 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Fr
 
 ## Decision shortcuts
 
-**Slice vs machine vs region** — `decision-trees/slice-or-machine.md`. Tell: if the prompt names *transitions* or *modes*, machine. If it names *fields*, *flags*, or *counters*, slice. A sub-concern of a larger feature's lifecycle is a *region* inside that feature's machine, not its own top-level machine.
+**Slice vs machine vs region** — [`decision-trees/slice-or-machine.md`](decision-trees/slice-or-machine.md). Tell: if the prompt names *transitions* or *modes*, machine. If it names *fields*, *flags*, or *counters*, slice. A sub-concern of a larger feature's lifecycle is a *region* inside that feature's machine, not its own top-level machine.
 
-**Which pattern fits** — `decision-trees/pick-a-pattern.md`. Quick map:
+**Which pattern fits** — [`decision-trees/pick-a-pattern.md`](decision-trees/pick-a-pattern.md). Quick map:
 
 | Need | Pattern leaf |
 |---|---|
@@ -121,7 +121,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 
 ## Where the depth lives
 
-Load at most two leaves per task. If a task seems to need three, it likely spans patterns and should be broken up.
+Use this index to select references by the task. A task that composes features may need several leaves; load them as each surface becomes relevant while keeping the user's requested scope intact.
 
 **Fundamentals — `references/fundamentals/`**: `events.md` (`reg-event`, `reg-interceptor`, `:interceptors` chains), `fx.md`, `cofx.md` (value-returning `reg-cofx`, `:rf.cofx/requires`), `subs.md`, `views.md` (`reg-view`, injected `dispatch`/`subscribe`, `reg-view*`), `flows.md` (`reg-flow`, flow-vs-sub), `schemas.md`, `frames.md`, `images.md` (`rf/image`, image-order composition, frame-isolation story — EP-0023), `event-state-cycle.md`, `project-structure.md`.
 
@@ -147,12 +147,12 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 ## How re-frame2 differs from re-frame v1
 
-Do not re-derive v1 mappings from training memory. Migration workflow + breaking-change rule index: `skills/re-frame-migration/`; authoritative rule corpus: [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
+Do not re-derive v1 mappings from training memory. Migration workflow + breaking-change rule index: [`re-frame-migration`](https://github.com/day8/re-frame2/tree/main/skills/re-frame-migration); authoritative rule corpus: [`migration/from-re-frame-v1/README.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md).
 
 ## Background reading (optional)
 
-For "why does it work this way?" or a feature whose shape isn't obvious. All route via the repo-root table: `SKILL-REDIRECT.md` → *Principles*, *Conventions*, *Construction prompts (AI-shaped templates)*, and the `EP — …` rows under §Spec corpus for design rationale.
+For "why does it work this way?" or a feature whose shape isn't obvious. Use the [canonical reading index](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) → *Principles*, *Conventions*, *Construction prompts (AI-shaped templates)*, and the `EP — …` rows under §Spec corpus for design rationale.
 
 ---
 
-*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). Deep-dive links route through `SKILL-REDIRECT.md`.*
+*re-frame2 (v2 line). v1: [re-frame](https://github.com/day8/re-frame). Full skill-disambiguation matrix: [`skills/README.md` §Skill routing — single source](https://github.com/day8/re-frame2/blob/main/skills/README.md#skill-routing--single-source). Deep-dive links route through the [canonical reading index](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md).*
