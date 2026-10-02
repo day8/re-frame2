@@ -17,6 +17,7 @@ without recording those values.
    [:user-id :int]])
 
 (rf/reg-event :auth/login
+  {:sensitive [[:password]]}
   (fn [_ [_ credentials]]
     {:fx [[:rf.http/managed
            {:request    {:method :post :url "/api/login"
@@ -27,6 +28,7 @@ without recording those values.
             :on-failure [:auth/login-failed]}]]}))
 
 (rf/reg-event :auth/logged-in
+  {:sensitive [[:value :token]]}
   (fn [{:keys [db]} [_ {:keys [value]}]]
     {:db (-> db
              (assoc-in [:auth :token] (:token value))
@@ -37,6 +39,11 @@ without recording those values.
   (fn [{:keys [db]} _]
     {:db (assoc-in db [:auth :status] :error)}))
 ```
+
+Each [event registration](../core/how-to/keep-secrets-out-of-traces.md#classify-a-transient-payload-on-the-registration)
+classifies its own arguments; HTTP redaction does not carry over to them. Managed
+HTTP appends the success envelope to `[:auth/logged-in]`, so the token's event
+path is `[:value :token]`.
 
 `:sensitive? true` redacts the request body, params and all URL query values,
 and the response payload, in HTTP traces. `LoginResponse` also marks the token
