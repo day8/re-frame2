@@ -12,8 +12,34 @@ application with no island carries none of it. It is ClojureScript only: on the 
 the namespace loads but defines neither hook.
 
 ```clojure
-(:require [re-frame.fresco.native :as n])
+(ns my-app.counter-island
+  (:require ["react" :as react]
+            [re-frame.core :as rf]
+            [re-frame.fresco :as h]
+            [re-frame.fresco.native :as n]))
 ```
+
+```clojure
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _]
+    {:db (update db :counter/value (fnil inc 0))}))
+
+(rf/reg-sub :counter/value
+  (fn [db _] (:counter/value db 0)))
+
+(defn counter* [_]
+  (let [n                  (n/use-sub [:counter/value])
+        {:keys [dispatch]} (n/use-frame)]
+    (react/createElement "button"
+      #js {:onClick (fn [_] (dispatch [:counter/inc]))}
+      (str "Clicked " n " times"))))
+
+(h/defhost counter counter*)
+```
+
+Render `[counter]` under `[h/frame-root {:id :app/main} …]` after installing an
+adapter, as in the [Fresco counter example](re-frame.fresco.md). The native
+component reads the same counter state as the surrounding Fresco views.
 
 React's own hooks are used directly through `["react"]`; this namespace wraps none
 of them and supplies only the frame. Both hooks are real React hooks, so call them
@@ -54,8 +80,8 @@ written against either pair finds the same frame.
       as `h/sub` does.
 - **Example**:
   ```clojure
-  (defui ticker [{:keys [sym]}]
-    ($ :span (n/use-sub [:quote/price sym])))
+  (defn counter-label* [_]
+    (react/createElement "span" nil (n/use-sub [:counter/value])))
   ```
 
 ### `use-frame`
@@ -77,9 +103,11 @@ written against either pair finds the same frame.
       dropped and emits `:rf.error/frame-destroyed` rather than throwing.
 - **Example**:
   ```clojure
-  (defui col-resizer [_]
+  (defn increment-button* [_]
     (let [{:keys [dispatch]} (n/use-frame)]
-      ($ :div {:on-pointer-up (fn [_] (dispatch [:col/commit]))})))
+      (react/createElement "button"
+        #js {:onClick (fn [_] (dispatch [:counter/inc]))}
+        "+")))
   ```
 
 ## See also

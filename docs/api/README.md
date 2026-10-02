@@ -1,11 +1,8 @@
 # The re-frame2 API
 
-These pages record the exact public API of re-frame2's implementation
-(ClojureScript, with `re-frame.ssr.ring` on the JVM): every public function,
-macro and var an application uses, one
-page per namespace, with its signatures, options, return values and errors. They answer "what
-exactly can I call?". To learn how to build with re-frame2, start with the
-[Core guide](../core/introduction.md) instead.
+Use this reference to look up signatures, options, return values and errors
+for the public API. Entries are grouped by namespace or feature. To learn how
+to build an application, use the [Core guide](../core/introduction.md).
 
 ```clojure
 (ns my-app.core
@@ -15,31 +12,31 @@ exactly can I call?". To learn how to build with re-frame2, start with the
 (rf/init! reagent-adapter/adapter)
 ```
 
-Most application code needs only `re-frame.core`, required as `rf`, plus the
-adapter for its view substrate. Everything else is optional and required when
-you use it.
+`re-frame.core`, required as `rf`, supplies events, subscriptions, effects and
+frames. Install an adapter at boot; the example uses Reagent. A Fresco app also
+requires [`re-frame.fresco`](re-frame.fresco.md) for its view functions and can
+install [Fresco's own adapter](re-frame.fresco.substrate.md).
 
 ## Which page
 
-| When you need to… | Page |
-|---|---|
-| Register events, subscriptions, effects and views; dispatch; create frames; boot the app | [re-frame.core](re-frame.core.md) |
-| Render with Reagent (stock or slim) | [re-frame.adapter.reagent](re-frame.adapter.reagent.md) |
-| Render with UIx | [re-frame.adapter.uix](re-frame.adapter.uix.md) |
-| Write views with Fresco, re-frame2's own view layer | [re-frame.fresco](re-frame.fresco.md), and [re-frame.fresco.substrate](re-frame.fresco.substrate.md) for its adapter |
-| Add a buffered form field, a popover or modal, exit animations, or React-island hooks to a Fresco app | [re-frame.fresco.forms](re-frame.fresco.forms.md), [re-frame.fresco.overlay](re-frame.fresco.overlay.md), [re-frame.fresco.motion](re-frame.fresco.motion.md), [re-frame.fresco.native](re-frame.fresco.native.md) |
-| Validate `app-db`, events and effects with Malli schemas | [re-frame.schemas](re-frame.schemas.md) |
-| Keep a derived value materialised in `app-db` | [re-frame.flows](re-frame.flows.md) |
-| Make HTTP requests with retries, cancellation and decoding handled for you | [Managed HTTP reference](re-frame.http.md) |
-| Model a workflow as a state machine | [re-frame.machines](re-frame.machines.md) |
-| Map URLs to routes and render links | [re-frame.routing](re-frame.routing.md) |
-| Cache server data that views subscribe to, and write it back with mutations | [re-frame.resources](re-frame.resources.md) |
-| Render on the server and hydrate on the client | [re-frame.ssr](re-frame.ssr.md), [re-frame.ssr.head](re-frame.ssr.head.md) for the `<head>`, [re-frame.ssr.ring](re-frame.ssr.ring.md) for the Ring handler, [re-frame.ssr.ring.node](re-frame.ssr.ring.node.md) to render the body on a Node sidecar |
-| Inspect or rewind a frame's recent history in development | [re-frame.epoch](re-frame.epoch.md) |
-| Group the dev trace stream into one record per event | [re-frame.trace.projection](re-frame.trace.projection.md) |
-| Emit User-Timing measures in production builds | [re-frame.performance](re-frame.performance.md) |
-| Isolate and reset framework state between tests | [re-frame.test-support](re-frame.test-support.md) |
-| Walk rendered hiccup in tests | [re-frame.test-helpers](re-frame.test-helpers.md) |
+Look on [`re-frame.core`](re-frame.core.md) for a registration macro or frame
+operation. A feature page holds the full contract for its registrations,
+keyword-addressed events and effects, and feature-specific functions. Requiring
+the feature namespace loads its runtime; calling a facade macro alone does not.
+
+Choose the API by how the value is used. A value derived only for views usually
+needs a [subscription](re-frame.core.md#reg-sub). A derived value that handlers
+must read from `app-db` needs a [flow](re-frame.flows.md). Server data that needs
+caching, deduplication or invalidation belongs in a
+[resource](re-frame.resources.md); a one-off request whose reply an event handles
+can use [managed HTTP](re-frame.http.md) directly.
+
+A [machine](re-frame.machines.md) is useful when the events a workflow accepts
+depend on its named state. Ordinary event handlers are enough while those
+checks are small. View APIs depend on the installed view layer: Reagent views
+use `rf/reg-view`, UIx components read with
+[`use-sub`](re-frame.adapter.uix.md#use-sub), and Fresco views read with
+[`h/sub`](re-frame.fresco.md#sub).
 
 The Fresco pages list each namespace's public vars. The guide's
 [Fresco API reference](../core/fresco/api-reference.md) lists every Fresco name
@@ -93,8 +90,7 @@ each one reaches you.
 - **Always-on**: some reported ids are also delivered in every build,
   production included, as records on the `:errors` stream, which a frame's
   [observability sink](re-frame.core.md#register-observability-sink) ships.
-  An entry calls such an id always-on where it matters, and the catalogue
-  below marks every one.
+  An entry calls such an id always-on where it matters.
 
 "(development builds)" after an id means only a development build checks for
 it. Each API entry names the errors relevant to that call and explains its

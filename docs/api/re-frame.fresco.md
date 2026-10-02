@@ -17,20 +17,29 @@ You can mix them: `defhost` mounts a React component inside a Fresco view, and
 fits](../core/fresco/index.md#when-fresco-fits) has the longer comparison.
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.fresco :as h]
-          [re-frame.fresco.substrate :as substrate])
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.fresco :as h]
+            [re-frame.fresco.substrate :as substrate]))
 ```
 
 ```clojure
+(rf/reg-event :counter/inc
+  (fn [{:keys [db]} _]
+    {:db (update db :counter/value (fnil inc 0))}))
+
+(rf/reg-sub :counter/value
+  (fn [db _] (:counter/value db 0)))
+
 (h/defview counter [_]
-  [:button {:on-click [:counter/inc]} (h/sub [:counter/value])])
+  [:button {:on-click [:counter/inc]}
+   "Clicked " (h/sub [:counter/value]) " times"])
 
 (defonce app-root (h/client-root))
 
 (defn ^:dev/after-load mount! []
   (h/render! app-root
-             [h/frame-root {:id :rf/default :initial-events [[:counter/initialise]]}
+             [h/frame-root {:id :app/main}
               [counter]]
              (js/document.getElementById "app")))
 

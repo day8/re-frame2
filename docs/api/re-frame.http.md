@@ -18,12 +18,17 @@ Managed HTTP ships in the optional artefact `day8/re-frame2-http`. Require `re-f
   (fn [_ _]
     {:fx [[:rf.http/managed
            {:request    {:method :get :url "/api/cart"}
+            :decode     :json
             :on-success [:cart/loaded]
             :on-failure [:cart/load-failed]}]]}))
 
 (rf/reg-event :cart/loaded
   (fn [{:keys [db]} [_ {:keys [value]}]]
     {:db (assoc-in db [:cart :items] value)}))
+
+(rf/reg-event :cart/load-failed
+  (fn [{:keys [db]} [_ {:keys [error]}]]
+    {:db (assoc-in db [:cart :load-error] error)}))
 
 (rf/reg-sub :cart/items
   (fn [db _] (get-in db [:cart :items])))
