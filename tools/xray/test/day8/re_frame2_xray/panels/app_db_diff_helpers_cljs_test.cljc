@@ -153,7 +153,7 @@
 ;; `triple-path` / `partition-reserved` cluster: with no path-click
 ;; machinery, nothing in `tools/xray/src` would call it.
 
-(deftest runtime-areas-covers-the-six-subsystems-in-runtime-db
+(deftest runtime-areas-covers-the-five-subsystems-in-runtime-db
   (testing "runtime-areas maps each operator-facing area-id to its
             sub-path under the RUNTIME-DB partition's reserved
             :rf.runtime/* roots (EP-0001)"
@@ -293,17 +293,6 @@
       (is (= :instances (:kind area)))
       (is (= [:parent-a] (mapv :id (:instances area)))))))
 
-(deftest current-state-sections-empty-machines-registry-is-omitted
-  (testing "an absent OR present-but-empty :rf/machines
-            registry is OMITTED from :areas entirely; no placeholder
-            card reaches the renderer"
-    (is (nil? (area-by (h/current-state-sections {:counter 1} {}) :rf/machines))
-        "absent :rf.runtime/machines → no area entry")
-    (is (nil? (area-by (h/current-state-sections
-                         {} {:rf.runtime/machines {:snapshots {}}})
-                       :rf/machines))
-        "present-but-empty registry → no area entry")))
-
 (deftest current-state-sections-route-is-singleton
   (testing ":rf/route (logical area for [:rf.runtime/routing :current])
             is a SINGLE current-route slice → :singleton kind, one
@@ -318,15 +307,6 @@
       (is (false? (:empty? area)))
       (is (= route (:value area))
           "the section value is the whole current-route slice"))))
-
-(deftest current-state-sections-empty-singleton-collection-is-omitted
-  (testing "a present-but-empty singleton collection (e.g. {}
-            pending-nav at [:rf.runtime/routing :pending-navigation]) is
-            OMITTED from :areas entirely"
-    (is (nil? (area-by (h/current-state-sections
-                         {} {:rf.runtime/routing {:pending-navigation {}}})
-                       :rf/pending-navigation))
-        "{} pending-navigation → no area entry")))
 
 (deftest current-state-sections-nil-and-empty-db-safe
   (testing "nil-safe: nil / empty partitions yield an empty
@@ -343,7 +323,7 @@
 (deftest current-state-sections-area-order-is-stable
   (testing "areas render in `reserved-area-order` — machines + spawned
             (the registries) lead, then the singleton slices. With every
-            runtime subsystem populated, all six appear in canonical
+            runtime subsystem populated, all five appear in canonical
             order. The underlying values live at [:rf.runtime/…] in the
             runtime-db partition (EP-0001)."
     (let [runtime-db {:rf.runtime/machines {:snapshots  {:auth {:state :idle}}

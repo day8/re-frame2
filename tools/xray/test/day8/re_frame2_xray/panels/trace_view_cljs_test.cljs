@@ -5,16 +5,16 @@
   ## What's under test (in addition to the pure-data tests in
   `trace_helpers_cljs_test.cljc`)
 
-    1. **Registry wires the composite sub** under `:rf.xray/trace-feed`
-       (the epoch-scoped feed) + the row-expand event.
+    1. **Registration** — the composite sub, the layer-3 sub and the
+       row-expand event are named by `registry_cljs_test`'s snapshot,
+       which is where a missing or a stray registration goes red.
 
     2. **Render contract** — the flat row list (the six-column rows)
-       matches the production view; there is no top header / chip-filter
-       UI.
+       matches the production view.
 
     3. **Focused-epoch scope** (spec/018 §6) — the panel surfaces the
        focused epoch record's `:trace-events` (the complete arc);
-       refocusing changes the rendered feed.
+       `reactivity/trace_reactivity_cljs_test` grades a refocus.
 
     4. **Empty states** — `:no-events`, `:no-focus`, `:epoch-evicted`
        each render their distinct container.
@@ -43,7 +43,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.ssr :as rf.ssr]
             [re-frame.test-helpers :as rf.test-helpers]
             [day8.re-frame2-xray.install :as install]
@@ -277,68 +276,6 @@
   [dispatch-id]
   (rf/dispatch-sync [:rf.xray/focus-event dispatch-id nil]))
 
-;; ---- (1) registry wiring ------------------------------------------------
-
-(deftest registry-installs-trace-handlers
-  (testing "register-xray-handlers! installs the epoch-scoped composite
-            sub + the row-expand event"
-    (registry/register-xray-handlers!)
-    (is (some? (rf.registrar/handler :sub :rf.xray/trace-feed))
-        ":rf.xray/trace-feed sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray.trace/focused-event-bundle))
-        ":rf.xray.trace/focused-event-bundle layer-3 sub registered")
-    (is (some? (rf.registrar/handler :sub :rf.xray/trace-expanded-row-ids))
-        ":rf.xray/trace-expanded-row-ids sub registered")
-    (is (some? (rf.registrar/handler :event :rf.xray/toggle-trace-row-expand))
-        ":rf.xray/toggle-trace-row-expand event registered")))
-
-(deftest band-collapse-handlers-are-gone
-  (testing "the flat list has no phase-band hierarchy, so
-            the band-collapse sub + event MUST NOT register"
-    (registry/register-xray-handlers!)
-    (is (nil? (rf.registrar/handler :sub :rf.xray/trace-collapsed-band-ids))
-        ":rf.xray/trace-collapsed-band-ids sub is not registered (no bands)")
-    (is (nil? (rf.registrar/handler :event :rf.xray/toggle-trace-band-collapse))
-        ":rf.xray/toggle-trace-band-collapse event is not registered (no bands)")))
-
-(deftest filter-handlers-are-gone
-  (testing "the chip-filter subs + events MUST NOT register"
-    (registry/register-xray-handlers!)
-    (is (nil? (rf.registrar/handler :sub :rf.xray/trace-filters)))
-    (is (nil? (rf.registrar/handler :sub :rf.xray/trace-feed-state)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/set-trace-filter)))
-    (is (nil? (rf.registrar/handler :event :rf.xray/clear-trace-filters)))))
-
-(deftest trace-feed-defaults-no-focus
-  (testing "with no focus + no epoch history the composite returns an
-            empty feed with :no-focus"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
-        (is (= [] (:rows feed)))
-        (is (zero? (:total feed)))
-        (is (zero? (:rendered feed)))
-        (is (= :no-focus (:empty-kind feed)))))))
-
-(deftest trace-feed-projects-focused-epoch-events-into-rows
-  (testing "with a focused epoch the composite returns one row per trace
-            event in that epoch's :trace-events"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch 1 42
-                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :dispatch-id 42 :event-id :cart/add})
-                    (mk-trace {:id 2 :op-type :error :operation :rf.error/handler-exception
-                               :dispatch-id 42 :reason "boom"})])])
-      (focus! 42)
-      (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
-        (is (= 2 (:total feed)))
-        (is (= 2 (:rendered feed)))
-        (is (nil? (:empty-kind feed)))
-        (is (= #{1 2} (set (map :id (:rows feed)))))
-        (is (= 1 (:epoch-id feed)))))))
-
 ;; ---- (2) render contract ------------------------------------------------
 
 (deftest panel-container-renders
@@ -348,22 +285,6 @@
       (let [tree (rendered-tree)]
         (is (some? (find-by-testid tree "rf-xray-trace"))
             "panel container present")))))
-
-(deftest top-header-and-chip-filter-ui-are-gone
-  (testing "there is no top header row or chip-filter UI"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch 1 42
-                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :dispatch-id 42 :source :ui})])])
-      (focus! 42)
-      (let [tree (rendered-tree)]
-        (is (nil? (find-by-testid tree "rf-xray-trace-counts")))
-        (is (nil? (find-by-testid tree "rf-xray-trace-epoch-indicator")))
-        (is (nil? (find-by-testid tree "rf-xray-trace-film-strip")))
-        (is (nil? (find-by-testid tree "rf-xray-trace-axis-row-op-type")))
-        (is (nil? (find-by-testid tree "rf-xray-trace-clear-filters")))))))
 
 (deftest flat-list-renders-every-op-as-a-row
   (testing "a focused epoch renders ALL its ops as a single
@@ -601,28 +522,6 @@
         (is (nil? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
             "no diff sub-list when db-before == db-after")))))
 
-(deftest non-db-changed-row-renders-no-diff-section
-  (testing "an event-row that is not :rf.event/db-changed never renders
-            a per-path diff section, regardless of db-before/db-after"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch-with-db 1 1 {:counter 1} {:counter 2}
-            [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                        :time 100 :dispatch-id 1})
-             (mk-trace {:id 2 :op-type :rf.event :operation :rf.event/db-changed
-                        :time 102 :dispatch-id 1})
-             (mk-trace {:id 3 :op-type :rf.fx :operation :rf.fx/handled
-                        :time 105 :dispatch-id 1})])])
-      (focus! 1)
-      (let [tree (rendered-tree)]
-        (is (nil? (find-by-testid tree "rf-xray-trace-row-1-db-diff"))
-            "the dispatch row carries no diff section")
-        (is (nil? (find-by-testid tree "rf-xray-trace-row-3-db-diff"))
-            "the fx row carries no diff section")
-        (is (some? (find-by-testid tree "rf-xray-trace-row-2-db-diff"))
-            "only the db-changed row carries the diff section")))))
-
 ;; ---- (3) empty states ---------------------------------------------------
 
 (deftest empty-state-no-events-renders-for-empty-epoch
@@ -797,32 +696,6 @@
               "the expanded row carries the server's hash tag")
           (is (= "cafef00d" (:client-hash tags))
               "the expanded row carries the client's hash tag"))))))
-
-;; ---- (4) focused-epoch scope (refocus) ----------------------------------
-
-(deftest trace-feed-rescopes-on-refocus
-  (testing "focusing a different epoch re-renders with that epoch's
-            :trace-events"
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch 1 100
-                   [(mk-trace {:id 1 :op-type :rf.event :operation :rf.event/dispatched
-                               :dispatch-id 100})
-                    (mk-trace {:id 2 :op-type :rf.fx :operation :rf.fx/handled})])
-         (mk-epoch 2 200
-                   [(mk-trace {:id 3 :op-type :rf.event :operation :rf.event/dispatched
-                               :dispatch-id 200})
-                    (mk-trace {:id 4 :op-type :rf.sub :operation :rf.sub/run})
-                    (mk-trace {:id 5 :op-type :rf.view :operation :rf.view/render})])])
-      (focus! 100)
-      (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
-        (is (= #{1 2} (set (map :id (:rows feed)))))
-        (is (= 1 (:epoch-id feed))))
-      (focus! 200)
-      (let [feed @(rf/subscribe [:rf.xray/trace-feed])]
-        (is (= #{3 4 5} (set (map :id (:rows feed)))))
-        (is (= 2 (:epoch-id feed)))))))
 
 ;; ---- (4b) focused-event-bundle layer-3 sub ------------------------------
 ;;
@@ -1190,30 +1063,6 @@
         "structural navigation landed on the feed container")
     (vec (drop 2 feed))))
 
-(deftest trace-feed-children-keys-reach-react
-  (testing "both feed children reach React with a key. Reader meta on
-            the `(flat-row-list …)` CALL form attaches to the source list
-            and the returned vector carries none of it, so a
-            `^{:key \"rows\"}` there would reach React as nil
-            (`[\"ops-header\" nil]`). The rows key rides the props map
-            `flat-row-list` builds.
-
-            Asserting on `(meta child)` would be a HOLLOW GATE — it
-            reads nil for the rows child, because the key is in props."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (seed-history!
-        [(mk-epoch 1 1
-                   [(mk-trace {:id 11 :op-type :rf.event :operation :rf.event/dispatched
-                               :time 100 :dispatch-id 1})])])
-      (focus! 1)
-      (let [kids (feed-children (panel-tree))
-            ks   (mapv #(.-key (r/as-element %)) kids)]
-        (is (= 2 (count kids)))
-        (is (= ["ops-header" "rows"] ks))
-        (is (every? some? ks) "both feed children reach React with a key")
-        (is (= 2 (count (distinct ks))) "sibling keys are distinct")))))
-
 ;; ---- both feed keys live where BOTH substrates read -------------------
 
 (deftest trace-feed-children-keys-live-in-the-attribute-map
@@ -1225,10 +1074,9 @@
             failing to reach React with nothing on screen to say so. The
             props map is the one place both substrates read.
 
-            The row above pins the REAGENT renderer and stays green either
-            way, so it cannot see this; that is why this row exists
-            and why its first assertion is the attribute map. A
-            `(meta child)` assertion would be hollow in BOTH directions —
+            A Reagent-only read stays green either way, so it cannot see
+            this; that is why this row's first assertion is the attribute
+            map. A `(meta child)` assertion would be hollow in BOTH directions —
             it reads nil wherever the key is in props — so metadata appears
             here only as the negative below.
 

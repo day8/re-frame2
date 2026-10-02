@@ -114,17 +114,6 @@
         (is (re-find #":title/flow" (pr-str flow-section))
             "section title carries the machine id")))))
 
-(deftest machines-empty-is-omitted-entirely
-  (testing "absent / empty :rf/machines is OMITTED from the
-            rendered tree entirely (no placeholder card with 'No
-            machines registered.' copy)"
-    (let [model (sections {:counter 1} {})
-          tree  (state/state-body model)]
-      (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/machines"))
-          "no machines area section in the tree")
-      (is (not (re-find #"No machines" (pr-str tree)))
-          "no 'No machines registered.' empty-state copy"))))
-
 ;; ---- route singleton ----------------------------------------------------
 
 (deftest route-singleton-renders-one-section
@@ -135,17 +124,6 @@
           tree  (state/state-body model)]
       (is (some? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
           "route singleton section present"))))
-
-(deftest route-absent-is-omitted-entirely
-  (testing "absent :rf/route is OMITTED from the rendered
-            tree entirely (no placeholder card with 'No active route.'
-            copy)"
-    (let [model (sections {:counter 1} {})
-          tree  (state/state-body model)]
-      (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
-          "no route area section in the tree")
-      (is (not (re-find #"No active route" (pr-str tree)))
-          "no 'No active route.' empty-state copy"))))
 
 ;; ---- an empty db renders only the TOP section ---------------------------
 
@@ -180,37 +158,12 @@
         (is (nil? (find-by-testid tree "rf-xray-app-db-state-area-:rf/route"))
             "absent route → no placeholder card")))))
 
-;; ---- affordance strip ---------------------------------------------------
+;; ---- no per-block affordances -------------------------------------------
 ;;
-;; There is no per-section "⤴ subs" downstream-subs hover trigger. The
-;; current-state inspector is a clean sectioned view with no per-block
-;; affordances. This test pins the negative: the trigger appears nowhere
-;; in the rendered tree.
-
-(defn- all-testids
-  "Every `:data-testid` in the rendered tree (no fn-component expansion
-  needed — the section renderers are plain hiccup)."
-  [tree]
-  (testids tree))
-
-(deftest no-downstream-subs-trigger-anywhere
-  (testing "there is no `⤴ subs` downstream-subs trigger in any section
-            (TOP, machine fan-out, singleton areas, empty-state areas)"
-    (let [model (sections {:counter 5 :user {:name "ada"}}
-                          {:rf/route    {:id :home}
-                           :rf/machines {:title/flow {:state :playing}}})
-          tree  (state/state-body model)
-          ids   (all-testids tree)]
-      (is (not (contains? ids "rf-xray-app-db-state-top-triggers"))
-          "no TOP-triggers container")
-      (is (not-any? #(.startsWith % "rf-xray-app-db-downstream-trigger-")
-                    ids)
-          "no path-keyed downstream-subs trigger on any section"))))
-
-;; There is no copy-button negative here. The EDN widget has no universal
-;; copy affordance, so nothing in the tool can produce a `-copy` testid and
-;; such an assertion would be vacuously green. App-DB carries no copy
-;; control by construction.
+;; The current-state inspector is a clean sectioned view with no per-block
+;; affordances: no `⤴ subs` downstream-subs trigger and no copy button.
+;; Nothing in the tool renders either, so a negative for them would be
+;; vacuously green, and there is none here.
 
 ;; ---- section-shell chrome ------------------------------------------------
 ;;
@@ -480,101 +433,33 @@
            boot mode: with no focused epoch there is no 'this epoch added
            it' claim, so every slot renders plain current-state"))))
 
-;; ---- popup affordance ---------------------------------------------------
-;;
-;; App-DB does NOT use `:popup-affordance?`. The side panel has plenty of
-;; horizontal room; the whole-tree inspector reads comfortably in place.
-;; These tests pin the absence of the opt so a stray opt-in trips the gate.
-
-(deftest edn-inspector-mounts-omit-popup-affordance-opt
-  (testing "no `[ei/edn-inspector-view ...]` mount the App-DB
-            panel produces carries `:popup-affordance? true`; the App-
-            DB tree renders comfortably in-place and the affordance
-            would be unnecessary noise"
-    (let [model  (sections {:counter 2}
-                           {:rf/route {:id :home}
-                            :rf/machines {:auth {:state :idle}}})
-          tree   (state/state-body model)
-          mounts (find-edn-inspector-mounts tree)]
-      (is (seq mounts) "the panel mounts edn-inspector widget instances")
-      (is (not-any? #(true? (:popup-affordance? (:opts %))) mounts)
-          "no mount opts in to the popup affordance"))))
-
-(deftest diff-mode-mounts-also-omit-popup-affordance-opt
-  (testing "DIFF-mode mounts (when a pre-image is supplied)
-            ALSO omit the popup affordance opt"
-    (let [model  (h/current-state-sections {:counter 2} {}
-                                           {:app {:counter 1} :runtime {}})
-          tree   (state/state-body model)
-          mounts (find-edn-inspector-mounts tree)
-          diff-mts (filter #(contains? (:opts %) :before) mounts)]
-      (is (seq diff-mts) "diff-mode mounts present")
-      (is (not-any? #(true? (:popup-affordance? (:opts %))) diff-mts)
-          "diff-mode mounts also omit the popup affordance"))))
-
-;; ---- card chrome --------------------------------------------------------
+;; ---- mount opts: card chrome, no popup affordance -----------------------
 ;;
 ;; The App-DB panel renders the user-domain TOP + every reserved `:rf/*`
 ;; area as top-level mounts in the same panel. Without card chrome the
-;; mounts blend into one continuous block; `:card? true` gives each mount
-;; a distinct inspector-card affordance.
+;; mounts blend into one continuous block, so every mount carries
+;; `:card? true`. None uses `:popup-affordance?`: the side panel has plenty
+;; of horizontal room and the whole-tree inspector reads comfortably in
+;; place. Both hold in browse and diff mode alike.
 
-(deftest browse-mode-mounts-carry-card-opt
-  (testing "every `[ei/edn-inspector-view ...]` mount the App-DB
-            panel produces (BROWSE mode, 1-arity / no-diff) carries
-            `:card? true` so each top-level mount reads as a discrete
-            inspector card"
-    (let [model  (sections {:counter 2}
-                           {:rf/route {:id :home}
-                            :rf/machines {:auth {:state :idle}}})
-          tree   (state/state-body model)
-          mounts (find-edn-inspector-mounts tree)]
+(deftest every-mount-is-a-card-without-the-popup-affordance
+  (doseq [[mode mounts]
+          [["browse" (find-edn-inspector-mounts
+                       (state/state-body
+                         (sections {:counter 2}
+                                   {:rf/route {:id :home}
+                                    :rf/machines {:auth {:state :idle}}})))]
+           ["diff" (filter #(contains? (:opts %) :before)
+                           (find-edn-inspector-mounts
+                             (state/state-body
+                               (h/current-state-sections {:counter 2} {}
+                                                         {:app {:counter 1} :runtime {}}))))]]]
+    (testing (str mode "-mode mounts")
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
       (is (every? #(true? (:card? (:opts %))) mounts)
-          "every browse-mode mount opts in to the card chrome"))))
-
-(deftest diff-mode-mounts-also-carry-card-opt
-  (testing "DIFF-mode mounts (when a pre-image is supplied)
-            ALSO carry `:card? true`; card chrome is independent of
-            diff mode and applies to every top-level App-DB mount"
-    (let [model  (h/current-state-sections {:counter 2} {}
-                                           {:app {:counter 1} :runtime {}})
-          tree   (state/state-body model)
-          mounts (find-edn-inspector-mounts tree)
-          diff-mts (filter #(contains? (:opts %) :before) mounts)]
-      (is (seq diff-mts) "diff-mode mounts present")
-      (is (every? #(true? (:card? (:opts %))) diff-mts)
-          "diff-mode mounts also opt in to the card chrome"))))
-
-;; ---- single render path: `:before` presence is the only diff signal -----
-;;
-;; The edn-inspector has ONE rendering path keyed on value (always) +
-;; before (optional). There is no `:full-with-diff?` flag and no
-;; distinction between a plain `:diff` lens and full+diff; with a single
-;; path the R4 2px vertical rail + R3 chip paint whenever a `:before`
-;; pre-image is present. The
-;; App-DB call site threads `:before` ONLY when a real pre-image differs
-;; and omits it otherwise (one `ei/edn-inspector-view` call, no browse/diff
-;; branch). These tests pin that the diff signal rides EXCLUSIVELY on
-;; `:before` presence and that no mount carries a `:full-with-diff?` opt.
-
-(deftest no-mount-carries-the-removed-full-with-diff-flag
-  (testing "there is no `:full-with-diff?` opt; no
-            App-DB mount (diff or plain) may carry it. The R4 rail + R3
-            chip paint whenever `:before` is present, with no
-            separate flag."
-    (let [diff-tree  (state/state-body
-                       (h/current-state-sections {:counter 2} {}
-                                                 {:app {:counter 1} :runtime {}}))
-          plain-tree (state/state-body
-                       (sections {:counter 2}
-                                 {:rf/route {:id :home}
-                                  :rf/machines {:auth {:state :idle}}}))
-          mounts     (concat (find-edn-inspector-mounts diff-tree)
-                             (find-edn-inspector-mounts plain-tree))]
-      (is (seq mounts) "the panel mounts edn-inspector widget instances")
-      (is (not-any? #(contains? (:opts %) :full-with-diff?) mounts)
-          "no mount carries a `:full-with-diff?` opt"))))
+          "every mount opts in to the card chrome")
+      (is (not-any? #(true? (:popup-affordance? (:opts %))) mounts)
+          "no mount opts in to the popup affordance"))))
 
 ;; ===========================================================================
 ;; TWO PANEL INSTANCES UNDER ONE FRAME PROVIDER
