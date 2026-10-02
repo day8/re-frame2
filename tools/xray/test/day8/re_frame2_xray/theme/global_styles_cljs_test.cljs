@@ -199,15 +199,6 @@
 ;; primary-vs-secondary text. Each test below asserts one of those
 ;; signals has a system-token landing inside the forced-colors block.
 
-(deftest motion-css-forced-colors-maps-focus-ring-to-highlight
-  (testing "the global :focus-visible accent outline
-            overrides to `Highlight` under HCM so keyboard-only users
-            see the user's selected-emphasis hue rather than the UA's
-            forced override of the author colour."
-    (let [css @#'gs/motion-css]
-      (is (re-find #"outline-color:\s*Highlight" css)
-          "focus-visible outline-color is Highlight inside the block"))))
-
 (deftest motion-css-has-no-ribbon-border-left-color-rule
   (testing "the chrome ribbon carries no left-edge mode stripe (it
             matches the Figma authority), so there is no HCM

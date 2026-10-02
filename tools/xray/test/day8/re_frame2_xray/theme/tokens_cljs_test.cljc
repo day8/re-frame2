@@ -71,23 +71,11 @@
             `calc(<ms>ms * var(--rf-xray-motion-scale, 1))` string.
             Consumers paste this into the `:animation` declaration so
             the reduced-motion seam is honoured without per-component
-            branching."
-    (let [css (t/duration-css 400)]
-      (is (string? css))
-      (is (re-find #"400ms" css)
-          "the ms value is interpolated literally")
-      (is (re-find #"var\(--rf-xray-motion-scale" css)
-          "the seam variable is referenced")
-      (is (re-find #"calc\(" css)
-          "the expression is wrapped in calc() so the multiplication
-           resolves at the CSS layer rather than build-time"))))
-
-(deftest duration-css-fallback-is-one
-  (testing "the var() reference carries a `, 1` fallback so unstyled
-            consumers (no install of theme/global-styles) still see
-            full-duration motion rather than zero."
-    (let [css (t/duration-css 180)]
-      (is (re-find #"var\(--rf-xray-motion-scale,\s*1\)" css)))))
+            branching. calc() makes the multiplication resolve at the
+            CSS layer, and the `, 1` fallback keeps full-duration motion
+            for consumers that never install theme/global-styles."
+    (is (= "calc(400ms * var(--rf-xray-motion-scale, 1))"
+           (t/duration-css 400)))))
 
 ;; ---- light theme -------------------------------------------------------
 
@@ -168,17 +156,10 @@
             \"55\")`). Returns a `color-mix(in srgb, var(--rf-xray-<key>)
             <pct>%, transparent)` string. CSS-Color-4 is the cross-
             browser path that composes alpha against an arbitrary
-            CSS-variable colour."
-    (let [out (t/with-alpha :accent 33)]
-      (is (string? out))
-      (is (re-find #"^color-mix\(in srgb" out)
-          "starts with color-mix(in srgb")
-      (is (re-find #"var\(--rf-xray-accent\)" out)
-          "references the canonical CSS variable")
-      (is (re-find #"33%" out)
-          "carries the requested percentage")
-      (is (re-find #"transparent\)$" out)
-          "ends with the transparent partner so the result is a tint"))))
+            CSS-variable colour, and the transparent partner makes the
+            result a tint."
+    (is (= "color-mix(in srgb, var(--rf-xray-accent) 33%, transparent)"
+           (t/with-alpha :accent 33)))))
 
 ;; ---- L4 panel accent stripe --------------------------------------------
 
@@ -508,24 +489,15 @@
 
 ;; ---- spacing scale (spec/021 §17.1.1) ----------------------------------
 
-(deftest spacing-scale-covers-canonical-steps
-  (testing "`spacing` exposes :gap-0 through :gap-6 per
-            spec/021 §17.1.1. Density is binding (§0); the 4-px base
-            grid is the canonical scale every panel reads."
-    (let [expected #{:gap-0 :gap-1 :gap-2 :gap-3 :gap-4 :gap-5 :gap-6}]
-      (is (= expected (set (keys t/spacing)))))))
-
 (deftest spacing-scale-emits-px-strings
-  (testing "every spacing entry is a CSS string callers can
-            drop into inline `:style` maps. `:gap-0` is the literal
-            `0` (no unit); the rest are px-suffixed multiples of 4."
-    (is (= "0"    (:gap-0 t/spacing)))
-    (is (= "4px"  (:gap-1 t/spacing)))
-    (is (= "8px"  (:gap-2 t/spacing)))
-    (is (= "12px" (:gap-3 t/spacing)))
-    (is (= "16px" (:gap-4 t/spacing)))
-    (is (= "20px" (:gap-5 t/spacing)))
-    (is (= "24px" (:gap-6 t/spacing)))))
+  (testing "`spacing` is exactly :gap-0 through :gap-6 per spec/021
+            §17.1.1: CSS strings callers drop into inline `:style` maps.
+            Density is binding (§0); the 4-px base grid is the canonical
+            scale every panel reads. `:gap-0` is the literal `0` (no
+            unit); the rest are px-suffixed multiples of 4."
+    (is (= {:gap-0 "0"    :gap-1 "4px"  :gap-2 "8px"  :gap-3 "12px"
+            :gap-4 "16px" :gap-5 "20px" :gap-6 "24px"}
+           t/spacing))))
 
 (deftest xray-and-machines-viz-mono-and-sans-stacks-match
   (testing "the font stacks are part of the shared visual
