@@ -171,7 +171,9 @@
       (testing "frame-generation via the OBJECT returns blue's sealed generation"
         (is (= ::blue-inc (:handler-fn (rf.image-assembly/resolve-descriptor
                                          (rf/frame-generation blue-obj)
-                                         :event :counter/inc))))))))
+                                         :event :counter/inc))))
+        (is (= (rf.live-frame/frame-generation blue-obj) (rf/frame-generation blue-obj))
+            "the object's OWN generation, verbatim")))))
 
 ;; ===========================================================================
 ;; 3. frame-generation returns the sealed generation (the four :rf.gen/* keys)
@@ -183,30 +185,17 @@
             EP-0026: no :rf.gen/requires)"
     (let [_blue (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
           gen   (rf/frame-generation :blue/main)]
-      (testing "the :rf.gen/* keys are present"
-        (is (contains? gen :rf.gen/resolver))
-        (is (contains? gen :rf.gen/images))
-        (is (contains? gen :rf.gen/kinds))
-        (is (contains? gen :rf.gen/shadows)
+      (testing "the four :rf.gen/* keys, and no :rf.gen/requires (EP-0026)"
+        (is (= #{:rf.gen/resolver :rf.gen/images :rf.gen/kinds :rf.gen/shadows}
+               (set (keys gen)))
             "the sealed generation carries the cross-image shadow report key
              (the shadow report's read path)"))
-      (testing "the :rf.gen/requires key is absent (EP-0026)"
-        (is (not (contains? gen :rf.gen/requires))))
       (testing "the resolver is the id-disjoint [kind id] -> descriptor map"
         (is (= ::blue-inc (:handler-fn (get (:rf.gen/resolver gen) [:event :counter/inc])))))
       (testing ":rf.gen/kinds names the kinds the frame's image carries"
-        (is (contains? (:rf.gen/kinds gen) :event))
-        (is (contains? (:rf.gen/kinds gen) :sub)))
+        (is (= #{:event :sub} (:rf.gen/kinds gen))))
       (testing "it equals the generation the live frame is running (verbatim)"
         (is (= gen (rf.live-frame/frame-generation (rf.live-frame/live-frame :blue/main))))))))
-
-(deftest frame-generation-accepts-a-registered-id-and-a-direct-object
-  (testing "frame-generation resolves a registered id AND a direct object to the
-            same target's generation"
-    (let [blue-id-frame (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
-          green-obj     (rf/make-frame {:images [green-img]} green-pool)]
-      (is (= (rf.live-frame/frame-generation blue-id-frame) (rf/frame-generation :blue/main)))
-      (is (= (rf.live-frame/frame-generation green-obj)      (rf/frame-generation green-obj))))))
 
 ;; ===========================================================================
 ;; 3b. The cross-image SHADOW REPORT — read off the frame's sealed generation
