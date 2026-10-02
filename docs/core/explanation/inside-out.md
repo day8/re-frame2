@@ -9,7 +9,7 @@ local to a view.
 This page explains the tradeoff. The [Introduction](../introduction.md) teaches the
 working model; you can build an app without reading this explanation.
 
-## The gravity well: ten years of React state management
+## State that lives in the component
 
 A component can own state, fetch data, derive a result and render it. That is
 convenient for a small widget. As several screens need the same state, its ownership

@@ -205,7 +205,7 @@ an input whose captured value was replaced by a marker; classification is not a
 way to preserve secret replay inputs. [Keep secrets out of traces](how-to/keep-secrets-out-of-traces.md)
 explains those boundaries.
 
-## Fresh ids: the minting ladder
+## Where a new id comes from
 
 A new todo needs an id. An id ends up in app-db, so like the clock it can't come from
 `(random-uuid)` inside the handler. In order of preference:
@@ -227,7 +227,7 @@ the running total of a ledger. Two fresh frames fed the same events therefore fi
 in the same state, provided handlers read nothing but `:db`, the event and recorded
 facts. A handler that reads the clock or storage in its body uses a value the ledger
 never recorded, and replay diverges. Declared requirements, recordable grades and the
-minting ladder all exist to prevent that.
+rules for new ids all exist to prevent that.
 
 This is what lets a bug report's list of events become a regression test that
 rebuilds the bad state in a fresh frame ([Test a pipeline run](testing/pipeline-runs.md)).
