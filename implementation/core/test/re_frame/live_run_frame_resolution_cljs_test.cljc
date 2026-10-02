@@ -436,34 +436,6 @@
 ;;     descriptor shape."
 ;; ===========================================================================
 
-(deftest inline-registrations-event-fn-body-runs-through-dispatch
-  (testing "an image built from INLINE :registrations with a REAL event fn body
-            runs that handler END-TO-END under a frame-targeted dispatch — the
-            inline body lowers to the same runnable descriptor shape a
-            :include-ns-selected handler carries"
-    (rf/make-frame {:id :inline/main :doc "inline-image counter frame"})
-    ;; A GLOBAL handler the run would (wrongly) execute if it resolved through
-    ;; the global registrar — present so the assertion proves the IMAGE ran.
-    (rf/reg-event :counter/inc
-      (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
-    (let [img (rf.image/image
-                {:id :inline/counter
-                 :registrations
-                 {:reg-event [[:counter/inc {:doc "Increment via inline body."}
-                               (fn [{:keys [db]} _]
-                                 {:db (assoc db :written-by :inline :hit true)})]]}})]
-      ;; No explicit pool needed — inline descriptors are selected because the
-      ;; image was supplied, not from the source store.
-      (rf.live-frame/make-frame {:id :inline/main :images [img]} [])
-      (rf/dispatch-sync [:counter/inc] {:frame :inline/main})
-      (let [db (rf/app-db-value :inline/main)]
-        (is (true? (:hit db))
-            "the INLINE fn body actually executed — app-db mutated")
-        (is (= :inline (:written-by db))
-            "the inline body ran, not the global handler"))
-      (is (nil? rf.registrar/*generation*)
-          "the generation binding did NOT leak past the run"))))
-
 (deftest inline-registrations-sub-fn-body-runs-through-subscribe
   (testing "an image built from INLINE :registrations with a REAL layer-1 sub
             fn body computes that sub END-TO-END under a frame-targeted

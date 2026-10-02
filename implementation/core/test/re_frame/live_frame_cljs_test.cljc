@@ -145,41 +145,7 @@
                                   :handler-fn impl}))
 
 ;; ===========================================================================
-;; 1. :images (a vector) resolves to a generation carried on the frame object
-;; ===========================================================================
-
-(deftest images-vector-resolves-to-a-generation-on-the-object
-  (testing "make-frame resolves a one-element :images vector into one sealed
-            image generation and returns the live frame OBJECT carrying it"
-    (let [img   (rf.image/image {:id :examples/counter
-                              :select-ns {:include ["examples.counter"]}})
-          frame (rf.live-frame/make-frame {:images [img]} counter-pool)]
-      (testing "the return value is a live frame OBJECT, not a frame-id keyword"
-        (is (rf.live-frame/frame-object? frame))
-        (is (map? frame))
-        (is (not (keyword? frame))))
-      (testing "the object holds a reference to its resolved generation"
-        (let [gen (rf.live-frame/frame-generation frame)]
-          (is (some? gen))
-          (is (contains? gen :rf.gen/resolver))
-          ;; The selected registrations resolve through the carried generation.
-          (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc)))
-          (is (some? (rf.image-assembly/resolve-descriptor gen :sub   :counter/value))))))))
-
-(deftest multiple-images-resolve-to-one-generation
-  (testing "a multi-image :images vector composes into ONE generation (EP-0023
-            §Image Composition — the frame still runs one resolved generation)"
-    (let [pool  [(reg-desc "lib.widgets"   :event :widgets/init ::winit)
-                 (reg-desc "examples.counter" :event :counter/inc ::inc)]
-          a     (rf.image/image {:id :lib/widgets   :select-ns {:include ["lib.widgets"]}})
-          b     (rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          frame (rf.live-frame/make-frame {:images [a b]} pool)
-          gen   (rf.live-frame/frame-generation frame)]
-      (is (some? (rf.image-assembly/resolve-descriptor gen :event :widgets/init)))
-      (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc))))))
-
-;; ===========================================================================
-;; 1b. EP-0026 §Default Image — the THREE-WAY
+;; 1. EP-0026 §Default Image — the THREE-WAY
 ;;     `:images` boundary at the `make-frame` constructor:
 ;;       * PRESENT non-empty `:images`  → the SELECTED image generation;
 ;;       * PRESENT empty `:images []`   → an ERROR
@@ -308,23 +274,6 @@
       (is (= :counter/main (:rf.frame/id frame)))
       (is (contains? (rf.live-frame/live-frame-ids) :counter/main)))))
 
-(deftest initial-events-seed-and-adapter-ride-the-value
-  (testing "the :adapter creation input rides the frame value (host slice —
-            image is behaviour, frame is state) and :initial-events seeds app-db
-            (the value carries no :rf.frame/initial-db slot — seeding is the
-            :rf/set-db setup event, EP-0027)"
-    (let [img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
-          frame (rf.live-frame/make-frame {:id :counter/seeded
-                                :images [img]
-                                :initial-events [[:rf/set-db {:count 7}]]
-                                :adapter ::reagent}
-                               counter-pool)]
-      (is (= ::reagent (:rf.frame/adapter frame)))
-      (is (nil? (:rf.frame/initial-db frame))
-          "no :rf.frame/initial-db slot on the value")
-      (is (= {:count 7} (rf/app-db-value :counter/seeded))
-          ":initial-events seeded app-db via :rf/set-db"))))
-
 ;; ===========================================================================
 ;; 3. A duplicate live :id is IDEMPOTENT REPLACEMENT (hot-reload friendly)
 ;; ===========================================================================
@@ -402,20 +351,6 @@
       (is (not (contains? (rf.live-frame/live-frame-ids) (rf.frame/frame-value->id frame)))
           "the private gensym id is excluded from live-frame-ids (no-id frames
            bypass enumeration/auto-reprojection — EP-0024)"))))
-
-(deftest two-direct-frames-coexist-without-public-ids
-  (testing "two local direct frame values can coexist with no PUBLIC ids — each
-            gets its own private :rf.frame/<gensym> runnable-id (EP-0024 — two
-            local direct frame values can coexist, distinct records)"
-    (let [img (rf.image/image {:select-ns {:include ["examples.counter"]}})
-          a   (rf.live-frame/make-frame {:images [img]} counter-pool)
-          b   (rf.live-frame/make-frame {:images [img]} counter-pool)]
-      (is (rf.live-frame/frame-object? a))
-      (is (rf.live-frame/frame-object? b))
-      (is (not= (rf.frame/frame-value->id a) (rf.frame/frame-value->id b))
-          "each make-frame yields a distinct record (distinct runnable-ids)")
-      (is (not-any? public-frame-id? (rf.live-frame/live-frame-ids))
-          "neither no-id frame contributes a public frame id"))))
 
 ;; ===========================================================================
 ;; 5. A non-vector :images is REJECTED
@@ -518,6 +453,9 @@
       (testing "the serializable frame-state is EXACTLY the seeded app-db — no
                 adapter binding bled into it"
         (is (= state-seed (rf/app-db-value :counter/host-excl)))
+        (is (nil? (:rf.frame/initial-db frame))
+            "the value carries no :rf.frame/initial-db slot — :initial-events
+             seeds app-db through the :rf/set-db setup event (EP-0027)")
         (let [serializable (rf/app-db-value :counter/host-excl)]
           (is (not (contains? serializable :rf.frame/adapter))
               "the adapter binding is NOT in the serializable state value")

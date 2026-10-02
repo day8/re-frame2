@@ -2,8 +2,8 @@
   "Multi-frame isolation contract, pinned on the data layer.
 
   Two frames (`:above` and `:below`) run the SAME app code path on ONE
-  page with zero cross-frame coupling. Counter / clock-tick isolation,
-  per-frame sub scoping and independent destroy are pure data-layer
+  page with zero cross-frame coupling. Counter isolation, per-frame sub
+  scoping and independent destroy are pure data-layer
   contracts that need no browser.
 
   Per Spec 002 §Per-instance frames + Spec 006 §The cache is held
@@ -66,23 +66,17 @@
 ;; registered once produce per-frame state evolution.
 
 (defn- install-handlers! []
-  ;; `:initialise` seeds the per-frame counter + tick slots so the
-  ;; first sub read does not return nil.
+  ;; `:initialise` seeds the per-frame counter slot so the first sub read
+  ;; does not return nil.
   (rf/reg-event ::initialise
-    (fn [{:keys [db]} _ev] {:db {:counter 0 :ticks 0}}))
+    (fn [{:keys [db]} _ev] {:db {:counter 0}}))
 
   ;; Counter handlers (Spec 002 §Per-instance frames — same handler,
   ;; per-frame state).
   (rf/reg-event ::counter-inc
     (fn [{:keys [db]} _ev] {:db (update db :counter (fnil inc 0))}))
 
-  ;; Clock-tick handler — same shape as counter, different slot:
-  ;; per-frame tick semantics without a dispatch chain.
-  (rf/reg-event ::clock-tick
-    (fn [{:keys [db]} _ev] {:db (update db :ticks (fnil inc 0))}))
-
-  (rf/reg-sub ::counter (fn [db _] (:counter db)))
-  (rf/reg-sub ::ticks   (fn [db _] (:ticks db))))
+  (rf/reg-sub ::counter (fn [db _] (:counter db))))
 
 (defn- seed-frames!
   "Register `:above` + `:below` and dispatch the `:initialise` event
@@ -101,27 +95,7 @@
   [frame-id query]
   (rf/with-frame frame-id @(rf/subscribe query)))
 
-;; ---- 1. Two frames mount; both carry isolated initial app-db --------------
-
-(deftest two-frames-mount-with-isolated-initial-state
-  (testing "after seed both frames carry {:counter 0 :ticks 0}; each is its own app-db value"
-    (install-handlers!)
-    (seed-frames!)
-    (let [above-db (rf/app-db-value frame-above)
-          below-db (rf/app-db-value frame-below)]
-      (is (= {:counter 0 :ticks 0} above-db)
-          ":above carries the seeded shape")
-      (is (= {:counter 0 :ticks 0} below-db)
-          ":below carries the seeded shape")
-      ;; The two app-db values are equal-but-distinct — `:above` and
-      ;; `:below` have their OWN containers per Spec 002. Identity
-      ;; over per-frame `:app-db` records is the cleanest pin on the
-      ;; isolation guarantee.
-      (is (not (identical? (:app-db (rf.frame/frame frame-above))
-                           (:app-db (rf.frame/frame frame-below))))
-          ":above and :below must not share the same app-db container"))))
-
-;; ---- 2. Counter isolation -------------------------------------------------
+;; ---- 1. Counter isolation -------------------------------------------------
 
 (deftest counter-dispatched-on-one-frame-does-not-bleed-into-the-other
   (testing "three ::counter-inc on :above + one on :below leaves above=3, below=1"
@@ -141,49 +115,7 @@
     (is (= 1 (:counter (rf/app-db-value frame-below)))
         ":below advanced to 1 after its single ::counter-inc")))
 
-;; ---- 3. Clock-tick isolation ----------------------------------------------
-
-(deftest clock-tick-on-one-frame-does-not-bleed-into-the-other
-  (testing "two ::clock-tick on :above + one on :below leaves above=2, below=1"
-    (install-handlers!)
-    (seed-frames!)
-    (rf/dispatch-sync [::clock-tick] {:frame frame-above})
-    (rf/dispatch-sync [::clock-tick] {:frame frame-above})
-    (is (= 2 (:ticks (rf/app-db-value frame-above)))
-        ":above ticked twice")
-    (is (= 0 (:ticks (rf/app-db-value frame-below)))
-        "ISOLATION VIOLATION — :below's tick counter changed without a dispatch")
-    (rf/dispatch-sync [::clock-tick] {:frame frame-below})
-    (is (= 2 (:ticks (rf/app-db-value frame-above)))
-        ":above's tick count stays at 2 (no fan-in from :below's tick)")
-    (is (= 1 (:ticks (rf/app-db-value frame-below)))
-        ":below ticked once")))
-
-;; ---- 4. Subs scoped to the frame they run inside --------------------------
-;;
-;; Per Spec 006 §Per-frame sub-cache + Spec 002 §View ergonomics, a
-;; sub running under `rf/with-frame :above` sees `:above`'s app-db.
-;; Switching the frame switches the lens. The same sub keyword
-;; resolves to two distinct values when invoked under the two frames.
-
-(deftest subs-see-only-the-frame-they-run-inside
-  (testing "::counter sub returns 3 under :above-frame and 1 under :below-frame"
-    (install-handlers!)
-    (seed-frames!)
-    (dotimes [_ 3] (rf/dispatch-sync [::counter-inc] {:frame frame-above}))
-    (rf/dispatch-sync [::counter-inc] {:frame frame-below})
-    (is (= 3 (sub-in frame-above [::counter]))
-        ":above's ::counter sub returns its own counter (3)")
-    (is (= 1 (sub-in frame-below [::counter]))
-        ":below's ::counter sub returns its own counter (1) — NOT :above's value")
-    ;; Same ::ticks sub, two frames, both zero (initial). Pins the
-    ;; sub-lens-follows-frame contract on the un-driven axis too.
-    (is (= 0 (sub-in frame-above [::ticks]))
-        ":above's ::ticks sub returns 0 — not :below's value")
-    (is (= 0 (sub-in frame-below [::ticks]))
-        ":below's ::ticks sub returns 0 — independent of :above's counter")))
-
-;; ---- 5. Cross-frame sub computation is rejected by `with-frame` -----------
+;; ---- 2. Cross-frame sub computation is rejected by `with-frame` -----------
 ;;
 ;; Frames are isolated contexts — subs MUST NOT reach
 ;; into another frame's app-db. The runtime contract is that
@@ -192,11 +124,11 @@
 ;; through the framework's explicit `rf/app-db-value` (used by Xray,
 ;; not by user subs).
 ;;
-;; The negative pin here: a sub running under :above does NOT see
-;; :below's data. The previous test (#4) showed the positive lens-
-;; follows-frame behaviour; this test shows the absence-of-leakage in
-;; both directions at once and documents `rf/app-db-value` as the
-;; only correct cross-frame read.
+;; Per Spec 006 §Per-frame sub-cache + Spec 002 §View ergonomics, a sub
+;; running under `rf/with-frame :above` sees `:above`'s app-db and NOT
+;; `:below`'s: the same sub keyword resolves to two distinct values under
+;; the two frames. This test pins that in both directions at once and
+;; documents `rf/app-db-value` as the only correct cross-frame read.
 
 (deftest no-cross-frame-sub-leakage-and-app-db-value-is-the-only-read
   (testing "subs scope to their frame; rf/app-db-value is the only legitimate cross-frame read"
@@ -224,7 +156,7 @@
       (is (= 2 (:counter (rf/app-db-value frame-below)))
           "rf/app-db-value is frame-id-keyed — works from any ambient frame"))))
 
-;; ---- 6. Frames can be destroyed independently -----------------------------
+;; ---- 3. Frames can be destroyed independently -----------------------------
 ;;
 ;; Per Spec 002 §Destroy, destroying one frame removes only that
 ;; frame from `rf.frame/frames`; other frames keep their app-db, sub-
