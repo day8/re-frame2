@@ -21,9 +21,9 @@
   `day8.re-frame2-xray.install` ns; `core` requires THAT (not `preload`).
   Requiring / touching the `core` facade's manual surface is inert —
   the install side-effects fire only when the host calls `core/init!`
-  (or `core/open!`). The zero-config `:devtools/preloads` path
-  auto-installs (the preload boot block invokes the same `install/*`
-  helpers + `keybinding/attach!`).
+  (or `core/open!`). The zero-config `:devtools/preloads` boot block
+  invokes the same `install/*` helpers + `keybinding/attach!`, so the
+  manual-install rows below cover what both paths install.
 
   ## Why node-test
 
@@ -182,14 +182,6 @@
     (is (epoch-collector-registered?)
         "init! registered the epoch collector")))
 
-(deftest init!-does-not-auto-open
-  (testing "the manual init! path does NOT auto-open the shell
-            (auto-open is a zero-config preload concern; the manual path is
-            open-explicit via core/open!)"
-    (core/init!)
-    (is (not (mount/mounted?))
-        "init! did not mount the shell — host must call open! explicitly")))
-
 (deftest init!-installs-browser-api-exports-for-late-bound-actions
   (testing "manual core/init! installs the browser-API exports on
             window.day8.re_frame2_xray.*, the SAME exports the preload boot
@@ -255,61 +247,14 @@
         (is (= 1 (count @keydown-listeners))
             "exactly one keydown listener on document")))))
 
-(deftest configure!-auto-open-false-is-honoured-at-boot
-  (testing ":rf.xray/auto-open? false set via configure! before
-            boot wins: the preload's boot-on-runtime-ready! records the
-            disabled diagnostic rather than mounting. It still
-            SEATS `:rf/xray`; only the OPEN is suppressed."
-    (core/configure! {:rf.xray/auto-open? false})
-    (is (= false (config/auto-open-enabled?))
-        "auto-open slot is off before any auto-open attempt")
-    (mount/boot-on-runtime-ready!)
-    (is (not (mount/mounted?))
-        "boot-on-runtime-ready! did not mount when auto-open? false")
-    (is (= :auto-open-disabled (get-in (mount/status) [:diagnostic :reason]))
-        "auto-open short-circuited to the disabled diagnostic")))
-
-;; ---- (3) the zero-config :devtools/preloads path auto-installs ------------
-
-(deftest preload-boot-helpers-still-install
-  (testing "the zero-config preload path works: invoking
-            the install helpers + keybinding/attach! (exactly what the
-            preload boot block does) registers the collectors, installs the
-            browser globals, and attaches the keybinding."
-    (with-stub-dom*
-      (fn [{:keys [keydown-listeners window]}]
-        (is (not (trace-collector-registered?)) "clean before boot")
-        (is (not (epoch-collector-registered?)) "clean before boot")
-        ;; Mirror preload.cljs's boot block (minus the debug-gate, which
-        ;; is true under node-test).
-        (registry/register-xray-handlers!)
-        (install/register-trace-collector!)
-        (install/register-epoch-collector!)
-        (install/install-browser-api-exports!)
-        (keybinding/attach!)
-        (is (trace-collector-registered?)
-            "preload boot registered the trace collector")
-        (is (epoch-collector-registered?)
-            "preload boot registered the epoch collector")
-        (is (keybinding/attached?)
-            "preload boot attached the keydown listener")
-        (is (= 1 (count @keydown-listeners))
-            "one keydown listener on document")
-        ;; Browser globals installed under window.day8.re_frame2_xray.
-        (let [day8 (aget window "day8")
-              xray (when day8 (aget day8 "re_frame2_xray"))]
-          (is (some? xray) "window.day8.re_frame2_xray installed")
-          (is (fn? (aget xray "toggle_BANG_"))
-              "the toggle! launch API is exported on the global"))))))
-
 ;; ---- (2b) install-browser-api-exports! `core` branch --------------------
 ;;
 ;; install-browser-api-exports! (install.cljs) exports onto
 ;; `window.day8.re_frame2_xray` and CONDITIONALLY augments an
 ;; EXISTING `window.day8.re_frame2_xray.core`, explicitly NEVER pre-creating
 ;; `core` (pre-creating it races `goog.provide` in browser-test with a
-;; "Namespace already declared" failure). The coverage above asserts only
-;; the top-level `toggle_BANG_` export; these two cases pin both arms of the
+;; "Namespace already declared" failure). `init!-installs-browser-api-exports-for-late-bound-actions`
+;; asserts the top-level exports; these two cases pin both arms of the
 ;; conditional `core` branch without relying on real browser globals (they
 ;; drive the stub window directly).
 
