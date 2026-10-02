@@ -210,12 +210,13 @@
       (is (= :rf.error/unknown-egress-profile (:rf.error/id data))
           "an unknown profile throws through the wrapper, carrying the
            closed-enum rejection id")
-      ;; The epoch-boundary guard routes through the SAME shared
-      ;; `re-frame.projection/unknown-egress-profile-ex` builder as the in-file
-      ;; guard — one reason, two call sites — so its thrown shape is IDENTICAL
-      ;; to the builder's, named with the epoch boundary helper's :where. The
-      ;; builder's greppability token, human sentence, :where and :recovery are
-      ;; pinned by `projection_cljs_test`'s `unknown-profile-throws`.
+      ;; `rf/project-egress` resolves the profile before it dispatches on
+      ;; `:kind`, so the epoch record is refused by the shared
+      ;; `re-frame.projection/unknown-egress-profile-ex` builder every guard
+      ;; uses, the epoch boundary's own included — its thrown shape is
+      ;; IDENTICAL to the builder's. The builder's greppability token, human
+      ;; sentence, :where and :recovery are pinned by `projection_cljs_test`'s
+      ;; `unknown-profile-throws`.
       (let [canonical (rf.projection/unknown-egress-profile-ex
                         'rf/project-egress :rf.egress/not-real)]
         (is (= (ex-message canonical) msg)
