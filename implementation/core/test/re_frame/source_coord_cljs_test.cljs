@@ -35,12 +35,12 @@
     (let [evs (record-traces
                (fn []
                  (rf/dispatch-sync [:rf2-ts1a/missing])))
-          [miss] (errors-of evs :rf.error/no-such-handler)]
-      (let [cs (:rf.trace/call-site miss)]
-        (is (symbol? (:ns cs)) "call-site captured")
-        (is (integer? (:line cs)))
-        (is (not (contains? (:tags miss) :rf.trace/call-site))
-            ":rf.trace/call-site lives at top level, not under :tags")))))
+          [miss] (errors-of evs :rf.error/no-such-handler)
+          cs     (:rf.trace/call-site miss)]
+      (is (symbol? (:ns cs)) "call-site captured")
+      (is (integer? (:line cs)))
+      (is (not (contains? (:tags miss) :rf.trace/call-site))
+          ":rf.trace/call-site lives at top level, not under :tags"))))
 
 (deftest cljs-dispatch-owning-fn-omits-call-site
   (testing "CLJS: the owning-ns fn-form re-frame.router/dispatch-sync! does
