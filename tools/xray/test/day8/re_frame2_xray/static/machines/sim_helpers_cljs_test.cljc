@@ -109,22 +109,15 @@
 
 ;; ---- (1) initial-snapshot -----------------------------------------------
 
-(deftest initial-snapshot-builds-seed-from-flat-definition
-  (let [snap (sim-h/initial-snapshot flat-definition)]
-    (is (= :idle (:state snap)))
-    (is (= {:counter 0} (:data snap)))))
-
-(deftest initial-snapshot-defaults-data-to-empty-map
-  (let [snap (sim-h/initial-snapshot {:initial :a :states {:a {}}})]
-    (is (= :a (:state snap)))
-    (is (= {} (:data snap))
-        "missing :data slot defaults to {}")))
-
-(deftest initial-snapshot-returns-nil-for-bad-input
-  (is (nil? (sim-h/initial-snapshot nil)))
-  (is (nil? (sim-h/initial-snapshot {}))
-      "no :initial slot → nil")
-  (is (nil? (sim-h/initial-snapshot "not a map"))))
+(deftest initial-snapshot-shallow-read-seeds-state-and-data-or-nil
+  ;; Rows: a flat definition; a missing :data slot, which defaults to {};
+  ;; then nil, a map with no :initial slot, and a non-map, which all read nil.
+  (are [definition snap] (= snap (sim-h/initial-snapshot definition))
+    flat-definition               {:state :idle :data {:counter 0}}
+    {:initial :a :states {:a {}}} {:state :a :data {}}
+    nil                           nil
+    {}                            nil
+    "not a map"                   nil))
 
 ;; ---- (1b) seeding THROUGH THE ENGINE ------------------------------------
 ;;
@@ -134,15 +127,6 @@
 ;; compound node (every later step recording a phantom `:auth → :auth`) or
 ;; with a nil snapshot. The engine computes the right answer; the sim asks
 ;; it rather than re-deriving it.
-
-(deftest initial-snapshot-seeds-a-compound-root-at-the-engine-leaf
-  (testing "a compound :initial descends its own :initial chain to a leaf
-            path — the value the ENGINE seeds, not the compound node"
-    (let [snap (sim-h/initial-snapshot hierarchical-definition engine-seed)]
-      (is (= [:auth :form] (:state snap))
-          "descends :auth → :form rather than resting on the compound :auth")
-      (is (= (:state (engine-seed hierarchical-definition)) (:state snap))
-          "identical to the engine's own initial snapshot"))))
 
 (deftest initial-snapshot-seeds-a-parallel-root-with-a-region-map
   (testing "a :type :parallel root seeds a region→state map, not nil"
@@ -180,20 +164,16 @@
 
 ;; ---- (2) event-id-suggestions -------------------------------------------
 
-(deftest event-id-suggestions-aggregates-all-on-keys
-  (let [suggestions (sim-h/event-id-suggestions flat-definition)]
-    (is (= [:err :ok :reset :retry :start] suggestions)
-        "all distinct :on keys, sorted by string")))
-
-(deftest event-id-suggestions-walks-compound-states
-  (let [suggestions (sim-h/event-id-suggestions hierarchical-definition)]
-    (is (= #{:submit :ok} (set suggestions))
-        "nested :states are walked")))
-
-(deftest event-id-suggestions-handles-nil-and-empty
-  (is (= [] (sim-h/event-id-suggestions nil)))
-  (is (= [] (sim-h/event-id-suggestions {})))
-  (is (= [] (sim-h/event-id-suggestions {:initial :a :states {:a {}}}))))
+(deftest event-id-suggestions-aggregates-the-on-keys-of-every-state
+  ;; Rows: every distinct :on key, sorted by string; the nested :states of a
+  ;; compound definition are walked; nil, empty and :on-less definitions
+  ;; answer [].
+  (are [definition ids] (= ids (sim-h/event-id-suggestions definition))
+    flat-definition               [:err :ok :reset :retry :start]
+    hierarchical-definition       [:ok :submit]
+    nil                           []
+    {}                            []
+    {:initial :a :states {:a {}}} []))
 
 ;; ---- (3) available-transitions ------------------------------------------
 
@@ -1060,7 +1040,7 @@
       (is (nil? (:last-error s1))
           "a successful step clears the prior rejection"))))
 
-(deftest step-sim-compound-seed-no-longer-phantom-steps
+(deftest step-sim-from-a-compound-seed-records-a-real-transition
   (testing "engine seeding and the engine fold together: seeded at the
             engine's leaf, a declared event is a REAL transition — where a
             shallow seed would leave the sim stuck at the compound node
@@ -1141,40 +1121,24 @@
   (is (= ":idle"  (sim-h/format-state-display :idle)))
   (is (= "[:auth :form]" (sim-h/format-state-display [:auth :form]))))
 
-(deftest format-destination-renders-a-target
-  (testing "every row that has a target renders the arrow and the target"
-    (is (= "→ :done" (sim-h/format-destination {:target :done})))
-    (is (= "→ [:auth :form]"
-           (sim-h/format-destination {:target [:auth :form]})))
-    (is (= "→ :same-state" (sim-h/format-destination {:target :same-state})))))
-
-(deftest format-destination-renders-an-action-only-row
-  (testing "a targetless row has no target to show
-            and is not handed a fabricated one. It reads as Spec 005's own
-            word for the geometry, with the action NAMED where the
-            definition names it, because the action is the whole of what
-            such a transition does"
-    (is (= "↻ internal :bump"
-           (sim-h/format-destination {:target nil :action :bump})))
-    (is (= "↻ internal :bump"
-           (sim-h/format-destination {:action :bump}))
-        "an absent :target reads the same as an explicit nil")
-    (is (= "↻ internal (fn)"
-           (sim-h/format-destination {:action (fn [_] nil)}))
-        "an inline fn action has no readable spelling, as `format-delay-key`
-         already says of a fn delay key")
-    (is (= "↻ internal" (sim-h/format-destination {}))
-        "neither target nor action — the forbidden-transition idiom, a
-         deliberate event consumer")
-    (testing "THE CONTROL — no row renders a bare arrow with nothing after
-              it, which a renderer that always led with the arrow would
-              produce for a targetless row"
-      (doseq [row [{:target nil :action :bump} {} {:action (fn [_] nil)}]]
-        (let [s (sim-h/format-destination row)]
-          (is (not= "→ " s))
-          (is (= "↻" (subs s 0 1))
-              (str "a targetless row leads with the internal glyph; got "
-                   (pr-str s))))))))
+(deftest format-destination-renders-the-target-or-the-internal-glyph
+  (testing "a row with a target renders the arrow and the target. A
+            targetless row has no target to show and is not handed a
+            fabricated one: it reads as Spec 005's own word for the
+            geometry, with the action NAMED where the definition names it,
+            because the action is the whole of what such a transition does.
+            An absent :target reads the same as an explicit nil; an inline
+            fn action has no readable spelling, as `format-delay-key` already
+            says of a fn delay key; and a row with neither target nor action
+            is the forbidden-transition idiom, a deliberate event consumer"
+    (are [row label] (= label (sim-h/format-destination row))
+      {:target :done}                "→ :done"
+      {:target [:auth :form]}        "→ [:auth :form]"
+      {:target :same-state}          "→ :same-state"
+      {:target nil :action :bump}    "↻ internal :bump"
+      {:action :bump}                "↻ internal :bump"
+      {:action (fn [_] nil)}         "↻ internal (fn)"
+      {}                             "↻ internal")))
 
 (deftest format-event-display-pr-strs
   (is (= "" (sim-h/format-event-display nil)))
