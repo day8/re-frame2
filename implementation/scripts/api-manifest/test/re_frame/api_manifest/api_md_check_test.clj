@@ -1,6 +1,6 @@
 (ns re-frame.api-manifest.api-md-check-test
   "Regression tests for the spec/API.md projection check's qualifier
-  resolution.
+  resolution and kind grading.
 
   THE HAZARD. The manifest carries the SAME bare var `adapter` for FOUR
   distinct namespaces (`re-frame.adapter.{reagent,uix}` and
@@ -30,12 +30,13 @@
 ;; intentionally-bare var (`reg-event` — the EP-0018 one-form public event
 ;; registrar) for the bare-row path.
 (def ^:private synthetic-rows
-  [{:namespace "re-frame.adapter.reagent" :var "adapter" :tier :adapter}
-   {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter}
-   {:namespace "re-frame.fresco.substrate" :var "adapter" :tier :adapter}
-   {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation}
-   {:namespace "re-frame.interop" :var "debug-enabled?" :tier :implementation}
-   {:namespace "re-frame.core"            :var "reg-event" :tier :front-porch}])
+  [{:namespace "re-frame.adapter.reagent" :var "adapter" :tier :adapter :kind :var}
+   {:namespace "re-frame.adapter.uix"     :var "adapter" :tier :adapter :kind :var}
+   {:namespace "re-frame.fresco.substrate" :var "adapter" :tier :adapter :kind :var}
+   {:namespace "re-frame.ssr"             :var "adapter" :tier :implementation :kind :fn}
+   {:namespace "re-frame.interop" :var "debug-enabled?" :tier :implementation :kind :var}
+   {:namespace "re-frame.core"            :var "reg-event" :tier :front-porch :kind :macro}
+   {:namespace "re-frame.core"            :var "image" :tier :advanced :kind :macro}])
 
 (defn- problems-for
   "Run `reconcile` over `api-rows` against the synthetic manifest, with the
@@ -143,6 +144,56 @@
       (is (= 1 (count problems)))
       (is (= :tier-mismatch (:kind (first problems))))
       (is (= #{:front-porch} (:manifest-tiers (first problems)))))))
+
+;; ---------------------------------------------------------------------------
+;; Kind grading: the M/Fn cell's kind must match the manifest's :kind.
+;; ---------------------------------------------------------------------------
+
+(deftest kind-mismatch-flagged
+  (testing "a row whose name and tier resolve but whose kind disagrees with
+            the manifest is a kind-mismatch, on both row shapes"
+    (let [[bare-problem :as bare-problems]
+          (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind :fn
+                          :line 1 :raw "reg-event"}])
+          [qualified-problem :as qualified-problems]
+          (problems-for [{:var "debug-enabled?" :qualifier "re-frame.interop"
+                          :tier :implementation :kind :macro
+                          :line 2 :raw "re-frame.interop/debug-enabled?"}])]
+      (is (= 1 (count bare-problems)))
+      (is (= :kind-mismatch (:kind bare-problem)))
+      (is (= :fn (:api-kind bare-problem)))
+      (is (= #{:macro} (:manifest-kinds bare-problem)))
+      (is (= 1 (count qualified-problems)))
+      (is (= :kind-mismatch (:kind qualified-problem)))
+      (is (= #{:var} (:manifest-kinds qualified-problem)))))
+  (testing "control: the matching kind, and an unmapped (nil) kind, are clean"
+    (is (empty? (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind :macro
+                                :line 1 :raw "reg-event"}])))
+    (is (empty? (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind nil
+                                :line 1 :raw "reg-event"}])))))
+
+(deftest planted-kind-cell-is-red-end-to-end
+  (testing "END-TO-END: an API.md row whose M/Fn cell says `Fn` for a manifest
+            macro parses to :fn and reconciles to a kind-mismatch"
+    (let [lines    [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
+                    [2 "|---|---|---|---|---|---|"]
+                    [3 "| `image` | Fn | `(image spec)` | v1 | advanced | 002 |"]]
+          parsed   (rf.api-manifest.api-md-check/parse-var-rows lines)
+          problems (problems-for parsed)]
+      (is (= [:fn] (map :kind parsed)))
+      (is (= [:kind-mismatch] (map :kind problems)))
+      (is (= 3 (:line (first problems))))))
+  (testing "control: the same row with the true `M` marker is clean, and the
+            parser maps every marker the table uses"
+    (let [parsed (rf.api-manifest.api-md-check/parse-var-rows
+                   [[1 "| API | M/Fn | Signature | Status | Tier | Spec |"]
+                    [2 "|---|---|---|---|---|---|"]
+                    [3 "| `image` | M | `(image spec)` | v1 | advanced | 002 |"]
+                    [4 "| `reg-event` | M/Fn (CLJS) | sig | v1 | front-porch | 001 |"]
+                    [5 "| `adapter` | Var (map) | sig | v1 | adapter | 006 |"]
+                    [6 "| `frame-root` | Component (Reagent) | sig | v1 | front-porch | 002 |"]])]
+      (is (= [:macro :macro :var nil] (map :kind parsed)))
+      (is (empty? (problems-for (take 3 parsed)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Live smoke: the committed spec/API.md + manifest reconcile clean.
