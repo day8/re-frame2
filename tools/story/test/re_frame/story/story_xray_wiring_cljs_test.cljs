@@ -183,9 +183,6 @@
           ;; (b) the variant's :setup cascade is observable in Xray.
           (let [cascades (xray-e2e/xray-cascades)
                 events   (into #{} (map :event) cascades)]
-            (is (pos? (count cascades))
-                "Xray's trace-buffer carries at least the variant's
-                 cascade — the bus → :trace-buffer wiring fired.")
             (is (contains? events [:counter/initialise])
                 "the variant's `[:counter/initialise]` event surfaces as
                  a cascade in Xray — proving the variant's :setup
