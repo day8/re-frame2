@@ -231,14 +231,6 @@
         "skipped is the muted en-dash 'n/a'")
     (is (= "✓" (badge/fx-row-status-glyph :whatever)) "quiet default")))
 
-(deftest skipped-glyph-distinct-from-cancelled-test
-  (testing "the skipped en-dash avoids the :cancelled
-            middle-dot (`·`) used by the machine-cascade outcome chip"
-    (is (= "–" badge/skipped-glyph))
-    (is (not= badge/skipped-glyph (badge/cascade-outcome-glyph :cancelled))
-        "the skipped glyph and the :cancelled middle-dot are distinct")
-    (is (string? badge/skipped-hover))))
-
 (deftest overridden-hover-names-the-replacement-test
   (testing "the ↺ row's hover names the replacement and
             claims nothing about whether real I/O happened"

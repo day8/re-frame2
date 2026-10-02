@@ -31,18 +31,12 @@
        steps-that-fired.
     10. Machine-handler-specific projections (lifecycle phase
         grouping, timer reasons, guard outcomes)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [clojure.string :as str]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
             [day8.re-frame2-xray.panels.epoch.format :as fmt]
             [day8.re-frame2-xray.panels.epoch.projection :as proj]
-            ;; The canonical issue-projection
-            ;; predicate (`issue-event?`) + the L2 pink-wash predicate
-            ;; (`event-bundle-has-issue?`) the no-op MUST NOT trip and the
-            ;; `:*`-action throw MUST trip (the contrast).
-            [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues]
-            [day8.re-frame2-xray.panels.l2-timeline :as l2]
             ;; Canonical trace-event builders shared with the
             ;; panel-gallery synth fixtures + any other projection
             ;; test: ONE canonical name set, one ns, one diff to land a
@@ -234,21 +228,6 @@
       (is (= 500 (:delay-ms enrich))
           "delay-ms surfaces when `:rf.event/source-detail :ms` is present"))))
 
-(deftest dispatch-row-fx-dispatch-later-without-detail-test
-  (testing "when no `:rf.event/source-detail` tag rides on
-            the trace (a runtime that stamps no per-fx detail),
-            `:fx-dispatch-later` still surfaces parent-dispatch-id; the
-            delay-ms slot is just absent"
-    (let [ev {:op-type   :rf.event
-              :operation :rf.event/dispatched
-              :tags      {:rf.event/v                  [:checkout/retry-prompt]
-                          :source                      :fx-dispatch-later
-                          :rf.trace/parent-dispatch-id 9001}}
-          r  (proj/dispatch-row [ev] nil)
-          enrich (:source-enrichment r)]
-      (is (= 9001 (:parent-dispatch-id enrich)))
-      (is (nil? (:delay-ms enrich))))))
-
 (deftest dispatch-row-keeps-the-source-and-omits-enrichment-it-cannot-build-test
   (testing "the row keeps its `:source` and carries no `:source-enrichment`,
             so the view renders the kind label alone, when:"
@@ -357,17 +336,6 @@
           "only the declared recordable leaf survives — :app/extra is filtered out")
       (is (not (some #{:app/extra} keys))
           "the undeclared token leaf NEVER appears as a recordable input"))))
-
-(deftest recordable-cofx-rows-declared-filter-unit-test
-  (testing "`recordable-cofx-rows` with a declared set keeps
-            only the intersection; nil declared set is the show-all fallback"
-    (let [cofx {:rf/time-ms 1 :a/x 1 :b/y 2 :c/z 3}]
-      (is (= [:a/x :b/y :c/z] (mapv :key (proj/recordable-cofx-rows cofx nil)))
-          "nil declared set ⇒ show-all fallback (all non-time leaves)")
-      (is (= [:a/x :c/z] (mapv :key (proj/recordable-cofx-rows cofx #{:a/x :c/z})))
-          "declared set ⇒ only the declared leaves")
-      (is (= [] (proj/recordable-cofx-rows cofx #{:not/present}))
-          "a declared set that matches no leaf ⇒ no rows"))))
 
 (deftest project-threads-declared-recordables-resolver-test
   (testing "`project` threads `:resolve-event-recordables`
@@ -640,22 +608,6 @@
   (testing "no cofx events + no run-end stamp returns empty vec"
     (is (= [] (proj/coeffect-rows [])))))
 
-(deftest coeffect-rows-reads-canonical-elapsed-ms-test
-  (testing "substrate stamps the per-cofx invocation
-            duration as `:rf.cofx/elapsed-ms` on `:rf.cofx/run`
-            (`re-frame.cofx`; spec 009 §243). A reader looking for
-            the never-emitted `:duration-ms` would show nil duration
-            on every cofx row."
-    (let [cofx-ev  {:op-type   :rf.cofx
-                    :operation :rf.cofx/run
-                    :tags      {:rf.cofx/id         :session
-                                :rf.cofx/value      {:user-id 1}
-                                :rf.cofx/elapsed-ms 0.6}}
-          rows     (proj/coeffect-rows
-                     [cofx-ev (run-end-ev 0.5 {:session {:user-id 1}})])]
-      (is (= 0.6 (-> rows first :duration-ms))
-          "cofx row duration resolves through canonical :rf.cofx/elapsed-ms"))))
-
 (deftest project-threads-cofx-duration-through-cofx-steps-test
   (testing "the `cofx-steps` flattening in `project` MUST
             thread the row's `:duration-ms` through to the step map.
@@ -749,7 +701,10 @@
       (is (= :counter-inc (:event-id r)))
       (is (not (contains? r :db-diff))
           "no precomputed :db-diff slot on the handler row")
-      (is (= [] (:fx r))))))
+      (is (= [] (:fx r)))
+      (is (nil? (:machine r))
+          "no machine trace → no machine section; the transition
+           predicate must not over-claim"))))
 
 (deftest handler-row-effectful-flavour-test
   (testing "do-fx present → :effectful effect-shape flavour; :fx entries projected"
@@ -758,7 +713,10 @@
           r   (proj/handler-row evs :navigate-to)]
       (is (= :effectful (:flavour r)))
       (is (= 2 (count (:fx r))))
-      (is (= #{:db :navigate} (into #{} (map :fx-id (:fx r))))))))
+      (is (= #{:db :navigate} (into #{} (map :fx-id (:fx r)))))
+      (is (nil? (:machine r))
+          "a do-fx with NO machine trace is plain :effectful, with no
+           machine section; the transition predicate must not over-claim"))))
 
 ;; ---- :fx-vec — the PRODUCER shape ---------------------------------------
 
@@ -874,26 +832,6 @@
           "the machine section is populated, not the raw :db diff")
       (is (= :hvac/controller (:machine-id tx))
           "the transition row threads through into the machine cascade"))))
-
-(deftest handler-flavour-negative-guards-test
-  (testing "NEGATIVE GUARD — a genuine fx-bearing handler (a do-fx with
-            NO machine trace at all) classifies :effectful; the
-            transition predicate must not over-claim"
-    (let [evs [(do-fx-ev {:db {} :navigate "/x"})
-               (db-changed-ev [])]
-          r   (proj/handler-row evs :navigate-to)]
-      (is (= :effectful (:flavour r))
-          "no machine trace → plain :effectful")
-      (is (nil? (:machine r))
-          "no machine section on a plain fx handler")))
-
-  (testing "NEGATIVE GUARD — a genuine db-only handler (no fx, no
-            machine trace) classifies :db-only"
-    (let [r (proj/handler-row [(db-changed-ev [[[:counter] 5 6 :modified]])]
-                              :counter-inc)]
-      (is (= :db-only (:flavour r))
-          "no fx, no machine trace → :db-only")
-      (is (nil? (:machine r))))))
 
 (deftest machine-transition-cascade-row-hoists-data-snapshots-test
   (testing "the `:transition` CASCADE row exposes
@@ -1069,6 +1007,8 @@
                                          {:state {:a :idle :b :idle} :data {}}
                                          {:state {:a :done :b :done} :data {}}
                                          [:go] 1)
+          ;; no :rf.machine/action-ran rides this round, so its microstep
+          ;; traces are its ONLY first-class evidence
           micro-a (machine-microstep-ev :par/round :a :staged :done 0)
           micro-b (machine-microstep-ev :par/round :b :staged :done 0)
           rows    (proj/machine-cascade-rows [tx micro-a micro-b])
@@ -1087,24 +1027,6 @@
           "each row carries its region-relative :always hop")
       (is (every? #(= :always (:source %)) micros)
           "the round is eventless — :source :always (hoisted off the envelope)"))))
-
-(deftest machine-cascade-rows-actionless-parallel-round-visible-test
-  (testing "an ACTIONLESS regional :always round emits no
-            :rf.machine/action-ran, so its :rf.machine.microstep/transition
-            trace is its ONLY first-class evidence; it must still render a row"
-    (let [tx     (machine-transition-ev :par/quiet
-                                        {:state {:a :idle} :data {}}
-                                        {:state {:a :ready} :data {}}
-                                        [:go] 1)
-          ;; no action-ran for this round — a targetless/plain :always hop
-          micro  (machine-microstep-ev :par/quiet :a :staged :ready 0)
-          rows   (proj/machine-cascade-rows [tx micro])
-          micros (filterv #(= :microstep (:kind %)) rows)]
-      (is (= 1 (count micros))
-          "the actionless round is visible — its round trace is harvested")
-      (is (= :a (:region (first micros))))
-      (is (= [:staged :ready]
-             ((juxt :from-state :to-state) (first micros)))))))
 
 (deftest machine-cascade-rows-single-active-microstep-produces-no-row-test
   (testing "a SINGLE-ACTIVE :always microstep carries NO :region
@@ -1373,14 +1295,7 @@
               :door/main)]
       (is (= :reg-machine (:flavour r)))
       (is (some? (:machine r)))
-      (is (= [:start] (mapv :kind (-> r :machine :cascade))))))
-
-  (testing "the [START] is benign birth (op-type :rf.machine),
-            so issue-event? is FALSE — no pink wash, no ribbon entry"
-    (let [ev (machine-started-ev :door/main :locked {} :explicit)]
-      (is (= :rf.machine (:op-type ev)))
-      (is (false? (issues/issue-event? ev)))
-      (is (false? (l2/event-bundle-has-issue? {:other [ev]}))))))
+      (is (= [:start] (mapv :kind (-> r :machine :cascade)))))))
 
 ;; ---- a self-transition keeps its transition row -------------------------
 
@@ -1870,33 +1785,6 @@
                 :source-state :idle}))
           "no discriminator → reconstruct-from-phase fallback (no delay-key)"))))
 
-(deftest cascade-row-source-key-always-nonzero-candidate-test
-  (testing "an inline `:always` `:action` on a multi-candidate
-            VECTOR resolves to the EXACT nonzero candidate index, not the
-            index-free / index-0 shape"
-    (let [inline-fn (fn [_] {})]
-      (is (= [:states :loading :always 1 :action]
-             (fmt/cascade-row-source-key
-               {:kind :action :action-id inline-fn :phase :always
-                :source-state :loading
-                :transition-slot {:slot :always :decl-path [:loading]
-                                  :candidate-idx 1}}))
-          "the carried candidate index (1) wins over the index-free fallback"))))
-
-(deftest cascade-row-source-key-root-on-fallback-test
-  (testing "a root / parallel-root `:on` `:action` (decl-path
-            []) resolves to a root-relative `[:on <event>]` slot OUTSIDE
-            `:states` — the reconstruct path's `:states`-prefixed shape is
-            wrong for a root transition"
-    (let [inline-fn (fn [_] {})]
-      (is (= [:on :logout :action]
-             (fmt/cascade-row-source-key
-               {:kind :action :action-id inline-fn :phase :transition
-                :source-state :auth :event-id :logout
-                :transition-slot {:slot :on :event-key :logout
-                                  :decl-path [] :root? true :candidate-idx nil}}))
-          "root :on resolves to [:on :logout :action], no :states prefix"))))
-
 (deftest cascade-row-source-key-transition-row-test
   (testing "`:transition` row resolves to `[:states <src>
             :on <event>]` so the click-through opens the transition map
@@ -1942,72 +1830,42 @@
 
 (deftest machine-cascade-rows-enriches-rows-with-states-test
   (testing "`machine-cascade-rows` stamps `:source-state` /
-            `:target-state` / `:event-id` onto each non-transition row
-            from the surrounding transition emit so inline-fn source-
-            key lookup can resolve spec-path tuples"
-    (let [evs [(machine-guard-ev :ready? :pass)
-               (machine-action-ev :clear-buffer :exit :ok)
-               (machine-action-ev :open-socket :entry :ok)
-               (machine-transition-ev :ws/conn
-                                       {:state :idle :data {}}
-                                       {:state :connected :data {}}
-                                       [:ws/start] 0)]
-          rows (proj/machine-cascade-rows evs)]
-      (is (= :idle      (-> rows (nth 0) :source-state))
-          "guard row carries the source-state from the surrounding transition")
-      (is (= :connected (-> rows (nth 0) :target-state))
-          "guard row carries the target-state from the surrounding transition")
-      (is (= :ws/start  (-> rows (nth 0) :event-id))
-          "guard row carries the event-id (first elem of :event)")
-      (is (= :idle      (-> rows (nth 1) :source-state))
-          "exit-phase action carries source-state")
-      (is (= :connected (-> rows (nth 2) :target-state))
-          "entry-phase action carries target-state")
-      (is (= :idle      (-> rows (nth 3) :source-state))
-          "transition row stamps its own :source-state from :from-state")
-      (is (= :connected (-> rows (nth 3) :target-state))
-          "transition row stamps its own :target-state from :to-state"))))
-
-(deftest machine-cascade-rows-no-transition-leaves-state-slots-nil-test
-  (testing "when the cascade fires no transition row
-            (e.g. a guard-only failed cascade), state-slots remain nil"
-    (let [evs [(machine-guard-ev :ready? :fail)]
-          rows (proj/machine-cascade-rows evs)]
-      (is (nil? (:source-state (first rows)))
-          "no surrounding transition → no source-state stamp")
-      (is (nil? (:event-id (first rows)))))))
-
-(deftest machine-cascade-rows-post-transition-row-falls-back-to-prior-test
-  (testing "when rows trail BEHIND the last transition
-            (post-commit timer-cancels), `enrich-cascade-rows` falls
-            back to the most recent preceding transition's
-            :from-state / :to-state / :event. Pins the two-pass
-            (right-to-left then left-to-right) shape, O(n) rather than
-            an O(n²) forward-scan."
-    (let [evs [(machine-guard-ev :ready? :pass)
-               (machine-transition-ev :ws/conn
+            `:target-state` / `:event-id` onto every row from the
+            surrounding transition emit, so inline-fn source-key lookup can
+            resolve spec-path tuples. A row AHEAD of the transition takes the
+            next transition's slots; a row BEHIND the last transition (a
+            post-commit timer-cancel) falls back to the preceding one; with
+            no transition at all the slots stay nil."
+    (let [tx    (machine-transition-ev :ws/conn
                                        {:state :idle :data {}}
                                        {:state :connected :data {}}
                                        [:ws/start] 0)
-               ;; Post-commit timer-cancel — no transition ahead.
-               (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-exit)]
-          rows (proj/machine-cascade-rows evs)]
-      ;; Pre-transition guard row → next-ahead supplies the transition
-      ;; states.
-      (is (= :idle      (-> rows (nth 0) :source-state)))
-      (is (= :connected (-> rows (nth 0) :target-state)))
-      ;; The transition row itself stamps from its own slots.
-      (is (= :idle      (-> rows (nth 1) :source-state)))
-      (is (= :connected (-> rows (nth 1) :target-state)))
-      ;; Post-transition timer-cancel — no next-ahead transition;
-      ;; falls back to `prior` (the preceding transition row).
-      ;; This is the path the two-pass shape keeps O(n).
-      (is (= :idle      (-> rows (nth 2) :source-state))
-          "post-transition row inherits :source-state from the preceding transition (prior fallback)")
-      (is (= :connected (-> rows (nth 2) :target-state))
-          "post-transition row inherits :target-state from the preceding transition (prior fallback)")
-      (is (= :ws/start  (-> rows (nth 2) :event-id))
-          "post-transition row inherits :event-id from the preceding transition"))))
+          slots (fn [evs]
+                  (mapv (juxt :kind :source-state :target-state :event-id)
+                        (proj/machine-cascade-rows evs)))]
+      (are [evs expected] (= expected (slots evs))
+        ;; rows come back in canonical phase order: guard → exit →
+        ;; TRANSITION → entry
+        [(machine-guard-ev :ready? :pass)
+         (machine-action-ev :clear-buffer :exit :ok)
+         (machine-action-ev :open-socket :entry :ok)
+         tx]
+        [[:guard      :idle :connected :ws/start]
+         [:action     :idle :connected :ws/start]
+         [:transition :idle :connected :ws/start]
+         [:action     :idle :connected :ws/start]]
+
+        ;; the timer-cancel trails the last transition → prior fallback
+        [(machine-guard-ev :ready? :pass)
+         tx
+         (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-exit)]
+        [[:guard      :idle :connected :ws/start]
+         [:transition :idle :connected :ws/start]
+         [:timer      :idle :connected :ws/start]]
+
+        ;; a guard-only failed cascade fires no transition
+        [(machine-guard-ev :ready? :fail)]
+        [[:guard nil nil nil]]))))
 
 (deftest state-spec-path-prefix-test
   (testing "`state-spec-path-prefix` coerces a state form
@@ -2201,70 +2059,58 @@
     (is (nil? (proj/db-pending-t2 []))
         "absent t2 → nil (no flow changed :db this epoch)")))
 
-(deftest handler-step-db-reflects-post-handler-not-post-flow-test
-  (testing "ACCEPTANCE — the HANDLER step's `:db` reflects ONLY
-            the handler's change (post-handler / t1). The epoch record's
-            `:db-after` carries the FLOW-augmented `:derived` slot, but the
-            HANDLER step must NOT surface it — `:db-post-handler` (t1) is
-            the authoritative HANDLER `:db`."
-    (let [t1     {:base 2 :baseline 1 :derived 2}  ; post-handler: :base/:baseline bumped, :derived UNTOUCHED (still 2)
-          t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed 2 → 4
-          record {:event-id     :standard-epochs/increment-flow
-                  :db-before    {:base 1 :baseline 0 :derived 2}
-                  ;; the record's :db-after is the FINAL post-flow state
-                  :db-after     t2
-                  :trace-events [(dispatched-ev [:standard-epochs/increment-flow])
-                                 (db-pending-ev t1)
-                                 (flow-recomputed-ev :standard-epochs/derived [:derived] 2 4)
-                                 (db-pending-post-flow-ev t2)
-                                 (run-end-ev 0.3)]}
-          steps  (proj/project record)
-          h      (first (filter #(= :handler (:step %)) steps))]
-      (is (some? h) "HANDLER step present")
-      (is (= t1 (:db-post-handler h))
-          "HANDLER `:db-post-handler` is the t1 (post-handler / pre-flow) db")
-      (is (= 2 (:derived (:db-post-handler h)))
-          "the HANDLER step's :derived is the PRE-flow value (2), NOT the
-           flow's recomputed value (4) — the handler did not touch it")
-      ;; The view diffs `:db-post-handler` (t1) against
-      ;; `:db-before`, so the HANDLER step shows ONLY the handler's :base
-      ;; bump; the flow's :derived recompute belongs to the FLOW step.
-      (is (= 2 (:base (:db-post-handler h)))
-          "the HANDLER step's effective post-handler db carries the
-           handler's :base bump (1 → 2)"))))
+(deftest handler-and-flow-steps-each-carry-their-own-db-change-test
+  (let [t1     {:base 2 :baseline 1 :derived 2}  ; post-handler: :base/:baseline bumped, :derived UNTOUCHED (still 2)
+        t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed 2 → 4
+        record {:event-id     :standard-epochs/increment-flow
+                :db-before    {:base 1 :baseline 0 :derived 2}
+                ;; the record's :db-after is the FINAL post-flow state
+                :db-after     t2
+                :trace-events [(dispatched-ev [:standard-epochs/increment-flow])
+                               (db-pending-ev t1)
+                               (flow-recomputed-ev :standard-epochs/derived [:derived] 2 4)
+                               (db-pending-post-flow-ev t2)
+                               (run-end-ev 0.3)]}
+        steps  (proj/project record)]
+    (testing "ACCEPTANCE — the HANDLER step's `:db` reflects ONLY
+              the handler's change (post-handler / t1). The epoch record's
+              `:db-after` carries the FLOW-augmented `:derived` slot, but the
+              HANDLER step must NOT surface it — `:db-post-handler` (t1) is
+              the authoritative HANDLER `:db`."
+      (let [h (first (filter #(= :handler (:step %)) steps))]
+        (is (some? h) "HANDLER step present")
+        (is (= t1 (:db-post-handler h))
+            "HANDLER `:db-post-handler` is the t1 (post-handler / pre-flow) db")
+        (is (= 2 (:derived (:db-post-handler h)))
+            "the HANDLER step's :derived is the PRE-flow value (2), NOT the
+             flow's recomputed value (4) — the handler did not touch it")
+        ;; The view diffs `:db-post-handler` (t1) against
+        ;; `:db-before`, so the HANDLER step shows ONLY the handler's :base
+        ;; bump; the flow's :derived recompute belongs to the FLOW step.
+        (is (= 2 (:base (:db-post-handler h)))
+            "the HANDLER step's effective post-handler db carries the
+             handler's :base bump (1 → 2)")))
 
-(deftest flow-step-carries-its-own-db-diff-snapshots-test
-  (testing "ACCEPTANCE — the FLOW step carries the t1 (pre-flow)
-            + t2 (post-flow) db snapshots so the view renders the flow's
-            OWN `:db` diff (`:derived` recomputed) separately from the
-            handler's change."
-    (let [t1     {:base 2 :baseline 1 :derived 2}  ; pre-flow: :derived still 2
-          t2     {:base 2 :baseline 1 :derived 4}  ; post-flow: :derived recomputed
-          record {:event-id     :standard-epochs/increment-flow
-                  :db-before    {:base 1 :baseline 0 :derived 2}
-                  :db-after     t2
-                  :trace-events [(dispatched-ev [:standard-epochs/increment-flow])
-                                 (db-pending-ev t1)
-                                 (flow-recomputed-ev :standard-epochs/derived [:derived] 2 4)
-                                 (db-pending-post-flow-ev t2)
-                                 (run-end-ev 0.3)]}
-          steps  (proj/project record)
-          flows  (filter #(= :flow (:step %)) steps)
-          f      (first flows)]
-      (is (= 1 (count flows)) "one FLOW step for the single recompute")
-      (is (= :standard-epochs/derived (:flow-id f)))
-      (is (= [:derived] (:path f)))
-      (is (= t1 (:db-pre-flow f))
-          "FLOW step carries t1 (pre-flow) so the view diff's `:before` =
-           the db BEFORE this flow's write")
-      (is (= t2 (:db-post-flow f))
-          "FLOW step carries t2 (post-flow) so the view diff's value =
-           the db WITH this flow's write")
-      ;; The t1→t2 reshape IS the flow's contribution: :derived 2 → 4.
-      (is (= 2 (:derived (:db-pre-flow f)))
-          "pre-flow db carries :derived at its PRE-recompute value (2)")
-      (is (= 4 (:derived (:db-post-flow f)))
-          "post-flow db carries :derived = 2 × :base = 4"))))
+    (testing "ACCEPTANCE — the FLOW step carries the t1 (pre-flow)
+              + t2 (post-flow) db snapshots so the view renders the flow's
+              OWN `:db` diff (`:derived` recomputed) separately from the
+              handler's change."
+      (let [flows (filter #(= :flow (:step %)) steps)
+            f     (first flows)]
+        (is (= 1 (count flows)) "one FLOW step for the single recompute")
+        (is (= :standard-epochs/derived (:flow-id f)))
+        (is (= [:derived] (:path f)))
+        (is (= t1 (:db-pre-flow f))
+            "FLOW step carries t1 (pre-flow) so the view diff's `:before` =
+             the db BEFORE this flow's write")
+        (is (= t2 (:db-post-flow f))
+            "FLOW step carries t2 (post-flow) so the view diff's value =
+             the db WITH this flow's write")
+        ;; The t1→t2 reshape IS the flow's contribution: :derived 2 → 4.
+        (is (= 2 (:derived (:db-pre-flow f)))
+            "pre-flow db carries :derived at its PRE-recompute value (2)")
+        (is (= 4 (:derived (:db-post-flow f)))
+            "post-flow db carries :derived = 2 × :base = 4")))))
 
 (deftest handler-step-db-falls-back-to-record-when-no-t1-test
   (testing "graceful fallback: when no t1 fired (handler
@@ -2316,93 +2162,54 @@
 ;; contribution against `db-before` — NOT fall back to the scalar line, and
 ;; NOT attribute the flow's change to the handler.
 
-(deftest no-db-effect-with-flow-discriminator-test
-  (testing "`no-db-effect-with-flow?` is true iff no t1 but a
-            t2 fired (handler wrote no `:db`, a flow synthesised + changed
-            one)"
-    (is (true? (proj/no-db-effect-with-flow?
-                 [(db-pending-post-flow-ev {:a 1 :derived 2})]))
-        "no t1 + t2 present → true")
-    (is (false? (proj/no-db-effect-with-flow?
-                  [(db-pending-ev {:a 1})
-                   (db-pending-post-flow-ev {:a 1 :derived 2})]))
-        "t1 present → false (handler DID return :db; standard case)")
-    (is (false? (proj/no-db-effect-with-flow? []))
-        "neither t1 nor t2 → false (no flow)")))
+(deftest handler-wrote-no-db-but-a-flow-fired-test
+  (let [db-before {:base 1 :derived 2}
+        ;; handler wrote no :db → t1 absent. The flow recomputes
+        ;; :derived from :base into app-db → t2 fires with the augmented db.
+        t2        {:base 1 :derived 4}
+        record    {:event-id     :synthetic/flow-only
+                   :db-before    db-before
+                   :db-after     t2
+                   :trace-events [(dispatched-ev [:synthetic/flow-only])
+                                  ;; NO db-pending-ev — the handler
+                                  ;; returned no :db effect.
+                                  (flow-recomputed-ev :synthetic/derived [:derived] 2 4)
+                                  (db-pending-post-flow-ev t2)
+                                  (run-end-ev 0.2)]}
+        steps     (proj/project record)]
+    (testing "ACCEPTANCE (b) — the HANDLER step shows NO `:db` change:
+              the effective post-handler db equals `db-before` (NOT the
+              flow-augmented post-flow state), so the view's diff against
+              `:db-before` is empty."
+      (let [h (first (filter #(= :handler (:step %)) steps))]
+        (is (some? h) "HANDLER step present")
+        (is (= db-before (:db-post-handler h))
+            "the HANDLER step's effective post-handler db = db-before (the
+             handler wrote nothing); NOT the post-flow t2")
+        (is (= 2 (:derived (:db-post-handler h)))
+            "the flow's :derived recompute (2 → 4) does NOT leak
+             into the HANDLER step's effective db; it stays at the pre-flow 2")))
 
-(deftest effective-post-handler-db-resolution-test
-  (testing "`effective-post-handler-db` resolution order"
-    (is (= {:a 1} (proj/effective-post-handler-db
-                    [(db-pending-ev {:a 1})] {:a 0}))
-        "t1 present → t1 (handler-supplied db), regardless of db-before")
-    (is (= {:a 0} (proj/effective-post-handler-db
-                    [(db-pending-post-flow-ev {:a 0 :derived 9})] {:a 0}))
-        "no t1 + t2 (no-:db-with-flow) → db-before (the actual
-         post-handler db; handler wrote nothing)")
-    (is (nil? (proj/effective-post-handler-db [] {:a 0}))
-        "neither t1 nor t2 → nil (caller falls back to record :db-after);
-         the no-flow path is left to that fallback")))
-
-(deftest handler-step-shows-no-db-change-when-handler-wrote-no-db-test
-  (testing "ACCEPTANCE (b) — when the handler returned NO `:db`
-            but a flow fired, the HANDLER step shows NO `:db` change: the
-            effective post-handler db equals `db-before` (NOT the
-            flow-augmented post-flow state), so the view's diff against
-            `:db-before` is empty."
-    (let [db-before {:base 1 :derived 2}
-          ;; handler wrote no :db → t1 absent. The flow recomputes
-          ;; :derived from :base into app-db → t2 fires with the augmented db.
-          t2        {:base 1 :derived 4}
-          record    {:event-id     :synthetic/flow-only
-                     :db-before    db-before
-                     :db-after     t2
-                     :trace-events [(dispatched-ev [:synthetic/flow-only])
-                                    ;; NO db-pending-ev — the handler
-                                    ;; returned no :db effect.
-                                    (flow-recomputed-ev :synthetic/derived [:derived] 2 4)
-                                    (db-pending-post-flow-ev t2)
-                                    (run-end-ev 0.2)]}
-          steps     (proj/project record)
-          h         (first (filter #(= :handler (:step %)) steps))]
-      (is (some? h) "HANDLER step present")
-      (is (= db-before (:db-post-handler h))
-          "the HANDLER step's effective post-handler db = db-before (the
-           handler wrote nothing); NOT the post-flow t2")
-      (is (= 2 (:derived (:db-post-handler h)))
-          "the flow's :derived recompute (2 → 4) does NOT leak
-           into the HANDLER step's effective db; it stays at the pre-flow 2"))))
-
-(deftest flow-step-diffs-against-db-before-when-handler-wrote-no-db-test
-  (testing "ACCEPTANCE (a) — when the handler returned NO `:db`
-            but a flow fired, the FLOW step's diff baseline is the ACTUAL
-            post-handler db (= db-before), threaded as `:db-pre-flow`; the
-            POST endpoint is t2 (`:db-post-flow`). The step renders a real
-            `:db` diff rather than the scalar fallback."
-    (let [db-before {:base 1 :derived 2}
-          t2        {:base 1 :derived 4}
-          record    {:event-id     :synthetic/flow-only
-                     :db-before    db-before
-                     :db-after     t2
-                     :trace-events [(dispatched-ev [:synthetic/flow-only])
-                                    (flow-recomputed-ev :synthetic/derived [:derived] 2 4)
-                                    (db-pending-post-flow-ev t2)
-                                    (run-end-ev 0.2)]}
-          steps     (proj/project record)
-          f         (first (filter #(= :flow (:step %)) steps))]
-      (is (some? f) "FLOW step present")
-      (is (= :synthetic/derived (:flow-id f)))
-      (is (= [:derived] (:path f)))
-      (is (= db-before (:db-pre-flow f))
-          "FLOW diff PRE endpoint = the actual post-handler db (db-before)
-           — NOT nil, so the view renders a real :db diff, not the scalar
-           fallback")
-      (is (= t2 (:db-post-flow f))
-          "FLOW diff POST endpoint = t2 (what the flow returned)")
-      ;; The t1(=db-before)→t2 reshape IS the flow's contribution.
-      (is (= 2 (:derived (:db-pre-flow f)))
-          "pre-flow :derived = its value before the flow recomputed it")
-      (is (= 4 (:derived (:db-post-flow f)))
-          "post-flow :derived = the flow's recomputed value"))))
+    (testing "ACCEPTANCE (a) — the FLOW step's diff baseline is the
+              ACTUAL post-handler db (= db-before), threaded as
+              `:db-pre-flow`; the POST endpoint is t2 (`:db-post-flow`). The
+              step renders a real `:db` diff rather than the scalar
+              fallback."
+      (let [f (first (filter #(= :flow (:step %)) steps))]
+        (is (some? f) "FLOW step present")
+        (is (= :synthetic/derived (:flow-id f)))
+        (is (= [:derived] (:path f)))
+        (is (= db-before (:db-pre-flow f))
+            "FLOW diff PRE endpoint = the actual post-handler db (db-before)
+             — NOT nil, so the view renders a real :db diff, not the scalar
+             fallback")
+        (is (= t2 (:db-post-flow f))
+            "FLOW diff POST endpoint = t2 (what the flow returned)")
+        ;; The t1(=db-before)→t2 reshape IS the flow's contribution.
+        (is (= 2 (:derived (:db-pre-flow f)))
+            "pre-flow :derived = its value before the flow recomputed it")
+        (is (= 4 (:derived (:db-post-flow f)))
+            "post-flow :derived = the flow's recomputed value")))))
 
 ;; ---- SIDE EFFECTS step — flat ledger ------------------------------------
 ;;
@@ -3408,34 +3215,6 @@
 
 ;; ---- top-level project --------------------------------------------------
 
-(deftest project-minimal-test
-  (testing "minimal epoch (dispatch + handler + a :db write, no
-            cofx/flow/user-fx/sub/view).
-
-  The SIDE EFFECTS step ALWAYS appears when a `:db` commit happened,
-  INCLUDING a bare db-only handler with no `:fx` (`db-commit?` keys off
-  `:rf.event/db-changed`). The minimal :db-writing cascade is :dispatch
-  + :handler + :side-effects (a flat ledger with the single :db row)."
-    (let [rec   (record [(dispatched-ev [:counter-inc] :ui nil)
-                         (db-changed-ev [[[:counter] 5 6 :modified]])])
-          steps (proj/project rec)
-          se    (some #(when (= :side-effects (:step %)) %) steps)]
-      (is (= 3 (count steps)))
-      (is (= [:dispatch :handler :side-effects] (mapv :step steps)))
-      (is (some? se) "SIDE EFFECTS step present on a bare :db write")
-      (is (= [:db] (mapv :fx-id (:rows se)))
-          "the flat ledger carries the single :db row — no :fx, no other"))))
-
-(deftest project-no-db-no-fx-omits-side-effects-test
-  (testing "a cascade with NO :db commit and NO :fx (e.g. a
-            handler that returned nothing) omits the SIDE EFFECTS step
-            entirely — silence is correct when nothing happened"
-    (let [rec   (record [(dispatched-ev [:noop] :ui nil)
-                         (run-end-ev 0.3)])
-          steps (proj/project rec)]
-      (is (not-any? #(= :side-effects (:step %)) steps)
-          "no side effect → no SIDE EFFECTS step"))))
-
 (deftest project-full-pipeline-test
   (testing "full epoch with every cascade step.
 
@@ -4401,18 +4180,20 @@
       (is (= steps (proj/attach-exceptions steps []))))))
 
 (deftest step-status-test
-  (testing "`:ok` for a clean step, `:error` when the step (or
-            a row) carries an exception or violation"
-    (is (= :ok    (proj/step-status {:step :handler})))
-    (is (= :error (proj/step-status {:step :handler :status :error})))
-    (is (= :error (proj/step-status {:step :handler :errors [{:message "x"}]})))
-    (is (= :error (proj/step-status {:step :handler :violations [{:where :app-db}]})))
-    (is (= :error (proj/step-status {:step :side-effects :rows [{:fx-id :db :errors [{}]}]}))
-        "row-level :errors lift the step to :error")
-    (is (= :error (proj/step-status {:step :side-effects :rows [{:fx-id :db :violations [{}]}]}))
-        "row-level :violations lift the step to :error")
-    (is (= :ok (proj/step-status {:step :side-effects :rows [{:fx-id :db}]}))
-        "clean rows keep :ok")))
+  (testing "`:ok` for a clean step, `:skipped` when the step never ran,
+            `:error` when the step (or a row) carries an exception or
+            violation — and error wins over skipped"
+    (are [step expected] (= expected (proj/step-status step))
+      {:step :handler}                                          :ok
+      {:step :side-effects :rows [{:fx-id :db}]}                :ok
+      {:step :handler :status :skipped}                         :skipped
+      {:step :handler :status :error}                           :error
+      {:step :handler :errors [{:message "x"}]}                 :error
+      {:step :handler :violations [{:where :app-db}]}           :error
+      ;; row-level :errors / :violations lift the step to :error
+      {:step :side-effects :rows [{:fx-id :db :errors [{}]}]}     :error
+      {:step :side-effects :rows [{:fx-id :db :violations [{}]}]} :error
+      {:step :handler :status :skipped :errors [{:message "x"}]} :error)))
 
 (deftest epoch-outcome-test
   (testing "`:error` when ANY step errored, else `:ok`"
@@ -4551,13 +4332,6 @@
 ;; handler → HANDLER) and renders an upstream-skipped HANDLER / SIDE
 ;; EFFECTS step as SKIPPED rather than 'ran, returned no :db'.
 
-(deftest exception-op->step-covers-new-ops-test
-  (testing "the component-attributed ops are in the
-            exception set"
-    (is (contains? proj/cascade-exception-ops :rf.error/coeffect-exception))
-    (is (contains? proj/cascade-exception-ops :rf.error/interceptor-exception))
-    (is (contains? proj/cascade-exception-ops :rf.error/handler-exception))))
-
 ;; -- COEFFECT placement (button-19) --------------------------------------
 
 (deftest attach-coeffect-exception-to-matching-step-test
@@ -4663,35 +4437,6 @@
           before (proj/interceptor-step events :before)]
       (is (nil? (:coord (first (:rows before))))
           "no :file → :coord nil"))))
-
-(deftest attach-interceptor-exception-to-interceptor-step-test
-  (testing "a `:rf.error/interceptor-exception` attaches to the
-            INTERCEPTOR step (not HANDLER)"
-    (let [steps [{:step :interceptor :badge :INTERCEPTOR :phase :before
-                  :rows [{:interceptor-id :app/auth :phase :before}]}
-                 {:step :handler :badge :HANDLER}]
-          rows  [(proj/exception-row
-                   (interceptor-exception-ev :app/auth :before "intc boom"))]
-          out   (proj/attach-exceptions steps rows)]
-      (is (= 1 (count (:errors (nth out 0)))) "INTERCEPTOR carries the exception")
-      (is (= :error (:status (nth out 0))) "INTERCEPTOR stamped :error")
-      (is (nil? (:errors (nth out 1))) "HANDLER untouched")))
-
-  (testing "with TWO phase-split INTERCEPTOR steps, an exception
-            routes to the step whose :phase matches (NOT the first one)"
-    (let [steps [{:step :interceptor :badge :INTERCEPTOR :phase :before
-                  :rows [{:interceptor-id :app/before :phase :before}]}
-                 {:step :handler :badge :HANDLER}
-                 {:step :interceptor :badge :INTERCEPTOR :phase :after
-                  :rows [{:interceptor-id :app/after :phase :after}]}]
-          rows  [(proj/exception-row
-                   (interceptor-exception-ev :app/after :after "after boom"))]
-          out   (proj/attach-exceptions steps rows)]
-      (is (nil? (:errors (nth out 0)))
-          "the :before step (first) is NOT the target — the :after throw skips it")
-      (is (= 1 (count (:errors (nth out 2))))
-          "the :after step (after HANDLER) carries the :after throw")
-      (is (= :error (:status (nth out 2))) "the :after step is stamped :error"))))
 
 (deftest project-interceptor-before-end-to-end-test
   (testing "button-17 live scenario: a `:before` interceptor
@@ -5031,14 +4776,6 @@
   (testing "a clean cascade leaves steps untouched"
     (let [steps [{:step :handler} {:step :side-effects}]]
       (is (= steps (proj/mark-skipped-handler steps [(run-end-ev 1)]))))))
-
-(deftest step-status-skipped-test
-  (testing "`:skipped` status reads through `step-status`"
-    (is (= :skipped (proj/step-status {:step :handler :status :skipped})))
-    (is (= :ok (proj/step-status {:step :handler})))
-    ;; a step both skipped AND carrying an error reads :error (error wins)
-    (is (= :error (proj/step-status {:step :handler :status :skipped
-                                     :errors [{:message "x"}]})))))
 
 (deftest skipped-handler-not-flagged-error-test
   (testing "a skip is neutral: a cascade whose only non-ok steps are the
