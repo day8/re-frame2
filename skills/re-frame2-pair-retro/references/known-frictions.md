@@ -2,6 +2,8 @@
 
 Use this file as a pattern-check, not a substitute for session evidence. If the current session resembles one of these classes, flag it as a possible recurring product gap rather than a one-off.
 
+**Check what the session could use.** The "already ships" notes below describe the reviewed current surface, which may differ from the session's build. Use supplied tool results, catalogue output or the recap to judge what that session exposed; a current checkout establishes today's behaviour. An absent feature is an observed limitation, and unknown availability keeps the discoverability diagnosis tentative. Use the [catalogue / build-capability guidance](#tool-catalogue--build-capability-uncertainty) without probing the runtime or asking for extra evidence unless it would change the finding.
+
 ## Common classes (framework-agnostic)
 
 ### Runtime discovery and attachment brittleness
