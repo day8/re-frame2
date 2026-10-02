@@ -74,11 +74,13 @@ Pair-program on a **live, running re-frame2 application** (a browser tab behind 
 
 ## What this skill changes — say so before you do it
 
+Stay within the requested task: answer read-only questions using reads and pure evaluation. "Try this handler fix" authorizes the relevant hot-swap and verification; announce the operation and proceed. The [experiment loop](references/recipes.md#experiment-loop) covers live comparisons.
+
 You are operating on the developer's own running app, so every write is real. Tell the user before any of these, and why:
 
 - **`dispatch` and `replay-epoch` run the app's real handlers** — HTTP requests, navigation, storage writes and `:dispatch-later`s fire exactly as a user click would, and none of them is undone by a later restore. When you only need the consequence, use `dispatch-dry-run`, which suppresses declared effects and rolls the frame back.
 - **`eval-cljs` can do anything the page can**, is on by default, and is not covered by the write or privacy gates. Hot-swapped handlers and REPL-set state are ephemeral (gone on page reload); source edits with `Edit` / `Write` are permanent.
-- **`restore-epoch` and `replace-app-db` rewrite frame-state wholesale** and refuse (`:rf.error/writes-disabled`) unless the operator launched the server with `--allow-writes`. That gate is the operator's decision, not yours — relay the refusal rather than routing around it through an eval form.
+- **`restore-epoch` and `replace-app-db` rewrite frame-state wholesale** and refuse (`:rf.error/writes-disabled`) unless the operator launched the server with `--allow-writes`. Relay a refusal; a restore request alone does not authorize an eval workaround. If the operator explicitly directs a raw-eval restore, use the [documented backstop](references/ops.md#time-travel-epoch-restore) and identify that it runs outside the structured gate and audit envelope.
 
 Everything else — `orient`, the reads, traces, epochs, recordings, screen reads — is read-only. You cannot reload the browser; ask the user to.
 
@@ -206,8 +208,7 @@ Start with the leaf matching the task and load more only as the work needs them.
 - **A `reg-event` handler returning `{:db <bare-map>}` replaces app-db wholesale** (it does not merge), so a throwaway probe driven by a **live** `dispatch` wipes the frame's app-db, unrecoverable without `restore-epoch`. Two safe paths: prefer `dispatch-dry-run` (rolls back), or if you must commit return `{:db (assoc db …)}` from the live `db` cofx — never a bare literal map. Full treatment: [recipes.md §Experiment loop](references/recipes.md#experiment-loop).
 - **Keep it in re-frame2's vocabulary.** Dispatch, reg-event, reg-sub, reg-machine, frame, epoch — speak the app's language. Avoid `reset!` of a frame's app-db except when surgically needed, and say so when you do.
 - **On ambiguous/failing tool resolution, read the project config (`shadow-cljs.edn`, `deps.edn`) rather than bouncing off the tool.** "Which build is this port?" / "where does this artefact live?" usually sits in the source config in plain sight.
-- **Experiment, don't speculate.** When an answer isn't obvious, probe at the REPL against live data.
-- **Validate before proposing.** Compose a hot-swap/suggestion form and run it against current state first.
+- **Validate in the requested scope.** Ground a diagnosis or proposal in observed inputs and pure evaluation. For a requested experiment or fix, hot-swap or edit the relevant code and check the resulting live state before claiming success.
 - **Narrow detail as you go.** Summaries first; drill into a specific epoch, diff, sub-run, or render entry on request.
 - **Always resolve UI references to source first.** When the user mentions a button, view, panel, or "the thing I clicked", run `dom/source-at` *before* speculating. Reporting `re-com/button at app/cart/view.cljs:84` grounds the conversation in a file the user can open; *"probably the Save button somewhere in the profile view"* doesn't.
 - **Surface restore limits.** Before any time-travel experiment, walk the cascade's effects and tell the user which effects already fired and cannot be reversed.
