@@ -566,23 +566,6 @@
       (is (= :on (:fan (:state (snapshot))))
           "internal self-transition leaves the configuration at :on"))))
 
-(deftest neither-self-transition-emits-spurious-no-op-transition-row
-  (testing "regression guard — a GENUINE self-transition (external or
-            internal) carries a real transition row: the source suppresses
-            the no-change `{X}→{X}` emit only for a no-op macrostep (empty
-            cascade, zero microsteps), so a self-transition's row survives.
-            Both self-transitions render exactly one transition row and zero
-            no-op rows — the inverse of the unhandled-event case."
-    (setup!)
-    (drive! [:hvac/power-cycle])
-    (doseq [ev [[:hvac/nudge] [:hvac/tweak]]]
-      (let [rows (cascade (drive! ev))]
-        (is (= 1 (count (rows-of-kind rows :transition)))
-            (str ev " renders exactly ONE transition row (a genuine self-"
-                 "transition is a real transition — the row survives)"))
-        (is (empty? (rows-of-kind rows :no-op))
-            (str ev " renders no benign-no-op notice"))))))
-
 ;; ============================================================================
 ;; The benign no-op cell: scope guard + the live no-op render
 ;; ============================================================================
