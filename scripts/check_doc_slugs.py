@@ -49,13 +49,14 @@ Notes on what is and isn't checked:
     * Every RELATIVE link's target must exist, whatever its kind — a page, a
       source file, an image, a directory — and only a `.md` target has its
       `#anchor` graded, because only a page has a slug index (`#L12` on a
-      source file names a line). The existence check is the only gate on a
-      link that leaves the docs trees (`../../../implementation/…`):
-      `mkdocs_hooks.py` rewrites those to GitHub URLs before the MkDocs build
-      validates links, so `mkdocs build --strict` cannot see a renamed source
-      file break one. A site URL is resolved as a PAGE first — a dot in a
-      page's basename is not an extension, so a static file's existence is
-      asked only once no Markdown route claims the path.
+      source file names a line). For a link that leaves the docs trees this
+      existence check is usually the only gate: `mkdocs_hooks.py` rewrites
+      the cross-tree forms it knows (`../../../implementation/…`,
+      `examples/`, `tools/`, `skills/`, root files) to GitHub URLs before the
+      MkDocs build validates links, so `mkdocs build --strict` cannot see a
+      renamed source file break one. A site URL is resolved as a PAGE first —
+      a dot in a page's basename is not an extension, so a static file's
+      existence is asked only once no Markdown route claims the path.
     * Same-file anchors (no path, just #foo) are validated against the
       current file's index. No target-file check is needed.
     * Cross-tree links resolve relative to the linking file (..  segments
