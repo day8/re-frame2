@@ -83,8 +83,7 @@
 (deftest empty-registry-returns-empty-map
   (testing "(sub-algebra-view) returns {} (not nil) when no subs are registered"
     (rf.registrar/clear-all!)
-    (is (= {} (rf.subs.tooling/sub-algebra-view)))
-    (is (map? (rf.subs.tooling/sub-algebra-view)))))
+    (is (= {} (rf.subs.tooling/sub-algebra-view)))))
 
 (deftest facade-publishes-no-algebra-view-alias
   ;; The absence pin: the
@@ -112,7 +111,6 @@
   (testing "a layer-1 reg-sub exposes the full ephemeral / on-demand / cache-entry node"
     (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
     (let [node ((rf.subs.tooling/sub-algebra-view) :cart/items)]
-      (is (some? node))
       (is (has-fixed-classifications? node)
           "layer-1 sub carries the fixed derivation / ephemeral / on-demand / cache-entry classifications")
       (is (= :cart/items (:id node)))
@@ -182,8 +180,6 @@
       (is (= [:fact :article/page] (:output node)))
       (is (= :parametric (:inputs node))
           "the static graph reports the :parametric marker, never fabricated edges")
-      (is (not (vector? (:inputs node)))
-          "the parametric edge set must NOT be presented as a static vector")
       (is (fn? (:input-producer node))
           "a parametric node surfaces the input-fn as an opaque :input-producer token"))))
 
@@ -197,7 +193,6 @@
     (rf.subs/reg-runtime-sub :rf.route/params
                           (fn [runtime-db _] (get-in runtime-db [:rf.runtime/routing :current :params])))
     (let [node ((rf.subs.tooling/sub-algebra-view) :rf.route/params)]
-      (is (some? node))
       (is (has-fixed-classifications? node)
           "a runtime sub is also an ephemeral / on-demand / cache-entry derivation")
       (is (= [:fact :rf.route/params] (:output node)))
@@ -215,7 +210,6 @@
     (rf.subs/reg-frame-state-sub :rf/whole-state
                               (fn [frame-state _] frame-state))
     (let [node ((rf.subs.tooling/sub-algebra-view) :rf/whole-state)]
-      (is (some? node))
       (is (has-fixed-classifications? node))
       (is (= [:fact :rf/whole-state] (:output node)))
       (is (= [[:frame-state []]] (:inputs node))
@@ -235,7 +229,6 @@
       ;; Dev-instrumentation arm (see ns docstring §Posture split).
       ;; Source coords are reflection metadata, elided in production.
       (when rf.interop/debug-enabled?
-        (is (some? source) ":source map is present when the registration carried coords")
         (is (some? (:ns source))     ":ns captured at the call site")
         (is (number? (:line source)) ":line captured at the call site")
         (is (some? (:file source))   ":file captured at the call site")))))
