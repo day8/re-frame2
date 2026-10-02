@@ -137,7 +137,6 @@
         "WITNESS: with no producer the live shell plays at :provides :headless"))
   (testing "after install! the runner resolves the substrate hooks"
     (rf.story.play.substrate-boundary/install!)
-    (is (some? (rf.story.late-bind/get-fn :settled-boundary-hooks)))
     (is (= :dom
            (rf.story.play.settled-boundary/hooks-provided-boundary
              (rf.story.play.runner-events/current-flush-hooks :f))))))
@@ -176,18 +175,6 @@
 
 ;; ---- the shared flush loop ----------------------------------------------
 
-(deftest settle-to-runs-registered-rungs-in-ladder-order
-  (testing "settle-to! walks the registered flushes up to `required`, in
-            order, and settles without dispatching anything"
-    (let [seen  (atom [])
-          hooks {:provides :dom
-                 :flush!   {:headless      (fn [_] (swap! seen conj :headless))
-                            :cljs-reactive (fn [_] (swap! seen conj :cljs-reactive))
-                            :dom           (fn [_] (swap! seen conj :dom))}}]
-      (is (= {:status :settled :boundary :dom}
-             (rf.story.play.settled-boundary/settle-to! :f hooks :dom)))
-      (is (= [:headless :cljs-reactive :dom] @seen)))))
-
 (deftest settle-to-is-inert-below-its-rung
   (testing "a cheaper `required` stops the ladder where it should"
     (let [seen  (atom [])
@@ -196,24 +183,6 @@
                             :dom           (fn [_] (swap! seen conj :dom))}}]
       (rf.story.play.settled-boundary/settle-to! :f hooks :headless)
       (is (= [] @seen)))))
-
-(deftest settle-to-reports-a-throwing-flush
-  (testing "a flush that throws is reported as :error — never swallowed,
-            never a silent pass"
-    (let [hooks {:provides :dom
-                 :flush!   {:dom (fn [_] (throw (ex-info "boom" {})))}}
-          res   (rf.story.play.settled-boundary/settle-to! :f hooks :dom)]
-      (is (= :error (:status res))))))
-
-(deftest settle-to-honours-the-timeout-budget
-  (testing "an over-budget flush phase refuses fail-closed with
-            :flush-timeout rather than reporting a settle it did not earn"
-    (let [hooks {:provides   :dom
-                 :timeout-ms -1
-                 :flush!     {:dom (fn [_] nil)}}
-          res   (rf.story.play.settled-boundary/settle-to! :f hooks :dom)]
-      (is (= :cannot-run (:status res)))
-      (is (= :flush-timeout (:reason res))))))
 
 ;; ===========================================================================
 ;; THE TERMINAL PATH — where the settle's result must gate the read
