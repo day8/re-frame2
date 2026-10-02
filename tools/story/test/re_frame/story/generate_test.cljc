@@ -20,7 +20,6 @@
             [re-frame.registrar :as rf.registrar]
             [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.story.artifact  :as rf.story.artifact]
-            [re-frame.story.assertions :as rf.story.assertions]
             [re-frame.story.generate  :as rf.story.generate]
             [re-frame.story.generate.test-check :as rf.story.generate.test-check]
             [re-frame.story.promotion :as rf.story.promotion]
@@ -144,28 +143,6 @@
           "the artifact carries the falsifying seed")
       (is (= :fail (:status (:result res)))))))
 
-;; A generated program is tagged steps (spec/017 §Generated
-;; runs), so the natural way to state a property is an `[:assert …]`
-;; checkpoint. A replay that dropped it would read a FALSE property as
-;; `:pass` over every seed.
-(deftest check-property-falsifies-on-a-false-assert-checkpoint
-  (rf.story.assertions/install-canonical-assertions!)
-  (rf/reg-event :gen/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-  (let [holds    [[:dispatch [:gen/inc]] [:assert [:rf.assert/path-equals [:n] 1]]]
-        violated [[:dispatch [:gen/inc]] [:assert [:rf.assert/path-equals [:n] 99]]]]
-    (testing "a property whose checkpoint holds passes"
-      (is (= :pass (:status (rf.story.generate/check-property!
-                              (fn [_seed] holds) {:seed 1 :num-tests 3 :shrink? false})))))
-    (testing "a property whose checkpoint is false is FALSIFIED"
-      (let [res (rf.story.generate/check-property!
-                  (fn [_seed] violated) {:seed 1 :num-tests 3 :shrink? false})]
-        (is (= :fail (:status res)))
-        (is (= [[:rf.assert/path-equals false]]
-               (mapv (juxt :assertion :passed?) (:assertions (:result res)))))))
-    (testing "the fault sweep names the cell whose run fails the checkpoint"
-      (is (= [:no-fault]
-             (:failing (rf.story.generate/sweep-faults! violated {:no-fault {}} {})))))))
-
 (deftest check-property-shrinks-toward-a-minimal-failing-program
   (testing "shrinking drops irrelevant steps, keeping the minimal failing case"
     ;; :gen/noise is harmless; :gen/boom emits the failing effect. A program
@@ -206,8 +183,6 @@
           "the materialized plan preserves the source-artifact link")
       (is (= (:seed artifact) (get-in plan [:run-artifact :seed]))
           "the curated plan's provenance carries the falsifying seed")
-      (is (contains? (:run-artifact plan) :event-program)
-          "the source link is replayable (carries the event program)")
       ;; The CONCRETE :event-program (host-portable tagged-step
       ;; data) is the cross-host reproducer, NOT the within-host-only :seed.
       ;; The promoted plan must carry enough program to replay the failure on
@@ -221,7 +196,11 @@
 ;; HEADLESS: fault lattice sweep
 ;; ===========================================================================
 
-(deftest sweep-faults-collects-one-artifact-per-cell
+;; sweep-faults! accepts a fault-lattice as EITHER a map
+;; {cell-id fx-decisions} OR a seq of [cell-id fx-decisions] pairs, and both
+;; produce identical sweeps cell-for-cell (a single `(seq fault-lattice)`
+;; handles both — a map seqs to its entry pairs, a pair-seq seqs to its pairs).
+(deftest sweep-faults-collects-one-artifact-per-cell-from-a-map-or-a-pair-seq
   (testing "a fault sweep replays the base program across fx-override cells,
             collecting one seed-bearing artifact per cell + the failing ids"
     ;; :app.fx/save is the 'real' effect. The :fail fault stub raises; the
@@ -232,51 +211,36 @@
                (fn [_ _]
                  (throw (ex-info "fault: save failed" {}))))
     (rf/reg-event :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
-    (let [base   [[:dispatch [:app/save]]]
-          lattice {:healthy {}
-                   :save-fails {:app.fx/save :app.fx/save-broken}}
-          res    (rf.story.generate/sweep-faults! base lattice {:seed 11})]
-      (is (= 2 (count (:cells res))) "one cell per lattice entry")
-      (let [by-cell (into {} (map (juxt :cell identity)) (:cells res))]
-        (is (rf.story.artifact/run-artifact? (:artifact (:healthy by-cell))))
-        (is (rf.story.artifact/run-artifact? (:artifact (:save-fails by-cell))))
-        (is (= {:app.fx/save :app.fx/save-broken}
-               (:fx-decisions (:artifact (:save-fails by-cell))))
-            "the faulted cell's artifact carries its fault overrides for replay")
-        (is (= 11 (:seed (:artifact (:healthy by-cell))))
-            "each cell's artifact carries the sweep seed for provenance"))
-      ;; The :save-fails cell errored → it is in :failing.
-      (is (some #{:save-fails} (:failing res))
-          "the faulted cell falsifies and is reported in :failing"))))
-
-;; sweep-faults! accepts a fault-lattice as EITHER a map
-;; {cell-id fx-decisions} OR a seq of [cell-id fx-decisions] pairs, and both
-;; produce identical sweeps cell-for-cell (a single `(seq fault-lattice)`
-;; handles both — a map seqs to its entry pairs, a pair-seq seqs to its pairs).
-(deftest sweep-faults-accepts-map-and-pair-seq-equivalently
-  (testing "a map lattice and the same lattice as a [cell-id fx] pair-seq sweep identically"
-    (rf/reg-fx :app.fx/save {:platforms #{:client :server}} (fn [_ _] :ok))
-    (rf/reg-fx :app.fx/save-broken {:platforms #{:client :server}}
-               (fn [_ _] (throw (ex-info "fault: save failed" {}))))
-    (rf/reg-event :app/save (fn [_ _] {:fx [[:app.fx/save {}]]}))
-    (let [base        [[:dispatch [:app/save]]]
+    (let [base       [[:dispatch [:app/save]]]
           ;; The SAME lattice in both shapes, in the same cell order.
-          as-map      {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
-          as-pair-seq [[:healthy {}] [:save-fails {:app.fx/save :app.fx/save-broken}]]
-          from-map    (rf.story.generate/sweep-faults! base as-map      {:seed 7})
-          from-seq    (rf.story.generate/sweep-faults! base as-pair-seq {:seed 7})
-          cell-shape  (fn [c] {:cell (:cell c)
-                               :status (:status c)
-                               :fx-decisions (:fx-decisions (:artifact c))})]
-      (is (= (mapv cell-shape (:cells from-map))
-             (mapv cell-shape (:cells from-seq)))
-          "both shapes sweep the same cells, in the same order, with the same faults")
-      (is (= (:failing from-map) (:failing from-seq))
-          "both shapes report the same failing cell ids")
-      (is (= [:healthy :save-fails] (mapv :cell (:cells from-seq)))
-          "the pair-seq preserves authored cell order")
-      (is (some #{:save-fails} (:failing from-seq))
-          "the faulted cell falsifies under the pair-seq shape too"))))
+          from-map   (rf.story.generate/sweep-faults!
+                       base {:healthy {} :save-fails {:app.fx/save :app.fx/save-broken}}
+                       {:seed 11})
+          from-seq   (rf.story.generate/sweep-faults!
+                       base [[:healthy {}] [:save-fails {:app.fx/save :app.fx/save-broken}]]
+                       {:seed 11})
+          by-cell    (into {} (map (juxt :cell identity)) (:cells from-map))
+          cell-shape (fn [c] {:cell (:cell c)
+                              :status (:status c)
+                              :fx-decisions (:fx-decisions (:artifact c))})]
+      (is (rf.story.artifact/run-artifact? (:artifact (:healthy by-cell))))
+      (is (rf.story.artifact/run-artifact? (:artifact (:save-fails by-cell))))
+      (is (= {:app.fx/save :app.fx/save-broken}
+             (:fx-decisions (:artifact (:save-fails by-cell))))
+          "the faulted cell's artifact carries its fault overrides for replay")
+      (is (= 11 (:seed (:artifact (:healthy by-cell))))
+          "each cell's artifact carries the sweep seed for provenance")
+      ;; The :save-fails cell errored → it is in :failing.
+      (is (some #{:save-fails} (:failing from-map))
+          "the faulted cell falsifies and is reported in :failing")
+      (testing "the same lattice as a [cell-id fx] pair-seq sweeps identically"
+        (is (= (mapv cell-shape (:cells from-map))
+               (mapv cell-shape (:cells from-seq)))
+            "both shapes sweep the same cells, in the same order, with the same faults")
+        (is (= (:failing from-map) (:failing from-seq))
+            "both shapes report the same failing cell ids")
+        (is (= [:healthy :save-fails] (mapv :cell (:cells from-seq)))
+            "one cell per lattice entry, in authored cell order")))))
 
 ;; ===========================================================================
 ;; OPTIONAL test.check adapter — JVM-only

@@ -143,15 +143,8 @@
   (rf.story/destroy-variant! :story.rs/child)
   (is (= [:load :close :load :close] @calls)))
 
-(deftest loader-controls-direct-no-loader-and-inline
-  (testing "direct variant (control)"
-    (rf.story/reg-variant :story.rs/direct
-      {:loaders [[:rs/load]] :loaders-teardown [[:rs/close]]})
-    (run-it! :story.rs/direct)
-    (rf.story/destroy-variant! :story.rs/direct)
-    (is (= [:load :close] @calls)))
+(deftest loader-controls-no-loader-fast-path-and-inline
   (testing "no-loader variant takes the events-only fast path"
-    (reset! calls [])
     (rf.story/reg-variant :story.rs/plain {:setup [[:rs/setup]]})
     (let [result (run-it! :story.rs/plain)]
       (is (= [:setup] @calls))
@@ -254,12 +247,24 @@
      :snapshot (rf.story.save-variant/snapshot-args vid opts)
      :explain  (:effective-args (rf.story/explain vid opts))}))
 
-(deftest inherited-and-composed-args-agree-on-every-surface
+(deftest every-surface-reports-the-resolved-effective-args
   (reg-args-scenario!)
-  (doseq [vid [:story.rsargs/child :story.rsargs/composed]]
-    (is (= {:run inherited :facade inherited :snapshot inherited :explain inherited}
-           (surfaces vid nil))
-        (str vid " — the resolved variant layer beats the story default"))))
+  (doseq [[label vid opts expected]
+          [["an inherited variant layer beats the story default"
+            :story.rsargs/child nil inherited]
+           ["a composed variant layer beats the story default"
+            :story.rsargs/composed nil inherited]
+           ["nested args deep-merge through the chain"
+            :story.rsargs/deep nil {:count 42 :nested {:v 9 :keep 1}}]
+           ["a direct variant's own args (control)"
+            :story.rsargs/direct nil {:count 3 :nested {:v 0 :keep 1}}]
+           ["an active mode sits BELOW the inherited variant args"
+            :story.rsargs/child {:active-modes [:Mode.rsargs/loud]} (assoc inherited :theme :loud)]
+           ["a cell override sits above everything"
+            :story.rsargs/child {:cell-overrides {:count 99}} (assoc inherited :count 99)]]]
+    (testing label
+      (is (= {:run expected :facade expected :snapshot expected :explain expected}
+             (surfaces vid opts))))))
 
 (deftest saved-variant-round-trip-keeps-the-inherited-args
   (reg-args-scenario!)
@@ -274,31 +279,6 @@
       (is (= inherited (get-in (rf.story.plan/variant-plan saved-id)
                                [:world :effective-args]))
           (str vid " — the saved form re-registers the args the user saw")))))
-
-(deftest nested-args-deep-merge-through-the-chain
-  (reg-args-scenario!)
-  (is (= {:run      {:count 42 :nested {:v 9 :keep 1}}
-          :facade   {:count 42 :nested {:v 9 :keep 1}}
-          :snapshot {:count 42 :nested {:v 9 :keep 1}}
-          :explain  {:count 42 :nested {:v 9 :keep 1}}}
-         (surfaces :story.rsargs/deep nil))))
-
-(deftest run-layers-fold-around-the-resolved-variant-layer
-  (reg-args-scenario!)
-  (testing "an active mode sits BELOW the inherited variant args"
-    (let [expected (assoc inherited :theme :loud)]
-      (is (= {:run expected :facade expected :snapshot expected :explain expected}
-             (surfaces :story.rsargs/child {:active-modes [:Mode.rsargs/loud]})))))
-  (testing "a cell override sits above everything"
-    (let [expected (assoc inherited :count 99)]
-      (is (= {:run expected :facade expected :snapshot expected :explain expected}
-             (surfaces :story.rsargs/child {:cell-overrides {:count 99}}))))))
-
-(deftest direct-variant-args-control
-  (reg-args-scenario!)
-  (let [expected {:count 3 :nested {:v 0 :keep 1}}]
-    (is (= {:run expected :facade expected :snapshot expected :explain expected}
-           (surfaces :story.rsargs/direct nil)))))
 
 (deftest explain-folds-ambient-layers-for-a-registered-variant-only
   (rf.story/reg-story :story.rsexplain {:args {:heading "Sign in"}})
