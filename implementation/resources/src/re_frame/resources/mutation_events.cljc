@@ -1573,8 +1573,9 @@
                     :work/id work-id :generation generation :scope cscope
                     :snapshot-id snapshot-id
                     :affected-keys (vec opt-ks)
-                    ;; per-key revision observed at apply time (the conflict-check
-                    ;; basis the SETTLE step compares) + the forward op shape.
+                    ;; per-key revision observed BEFORE this apply's bump + the
+                    ;; forward op shape (the SETTLE step compares the recorded
+                    ;; post-apply `:applied-revision` instead).
                     :revisions (mapv (fn [{:keys [resource/key revision forward]}]
                                        {:resource/key key :revision revision :forward forward})
                                      opt-inverse)

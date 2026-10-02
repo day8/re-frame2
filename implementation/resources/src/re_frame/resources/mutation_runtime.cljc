@@ -415,8 +415,9 @@
           :tags           (if entry (:tags entry) (or tags #{})))
         ;; EP-0019 Decision 2: the optimistic apply is an authoritative durable
         ;; write — it bumps the per-entry `:revision` write identity, so the
-        ;; recorded inverse's `:revision` (observed BEFORE this bump) lets the
-        ;; settle-time conflict check detect a competing write.
+        ;; recorded inverse's post-apply `:applied-revision` (which includes
+        ;; this bump) lets the settle-time conflict check detect a competing
+        ;; write.
         rf.resources.state/bump-revision)))
 
 (defn apply-optimistic-remove
