@@ -4,11 +4,10 @@ description: >
   Migrates a re-frame v1.x ClojureScript codebase to re-frame2 in place: swaps
   re-frame/re-frame for day8/re-frame2 + a view adapter, applies the
   mechanical (Type A) rules, runs the project's own gates, and holds every
-  judgment-call (Type B) site for the author. Use whenever the user wants to
-  migrate, upgrade or port a re-frame v1 app, asks what breaks from v1 to v2,
-  or shows v1-only code or a post-bump build failure: re-frame.db,
+  judgment-call (Type B) site for the author. Use when asked to migrate or upgrade a re-frame v1 app, explain v1-to-v2
+  breaking changes, or repair post-upgrade failures involving re-frame.db,
   dispatch-with, reg-event-db / reg-event-fx, reg-global-interceptor,
-  reg-sub-raw, :<- subs, ^:flush-dom, re-frame.alpha, re-frame-test, top-level
+  reg-sub-raw, legacy sub sugar, ^:flush-dom, re-frame.alpha, re-frame-test, top-level
   :dispatch / :dispatch-n keys, http-fx / :http-xhrio, async-flow-fx,
   re-frame-10x. Not for new re-frame2 code (re-frame2), greenfield setup
   (re-frame2-setup), Reagent-to-Fresco views (reagent-migration), or a running
@@ -63,7 +62,7 @@ Exit when the project compiles, tests pass, the boot smoke-test comes back clean
 ## Cardinal rules (the invariants)
 
 1. **[`MIGRATION.md`](https://github.com/day8/re-frame2/blob/main/migration/from-re-frame-v1/README.md) is the source of truth — don't invent rules.** Every rewrite cites a rule id (`M-N` or `O-N`), so the author can audit it. A call site that matches no rule and is not on the preserved list is flagged for the author, never guessed at. A genuinely ambiguous rule becomes an upstream `day8/re-frame2` issue ([`issue-filing.md`](references/issue-filing.md)); don't edit `MIGRATION.md`.
-2. **Type A is applied; Type B is asked first.** Type A is mechanical, unambiguous and observably identical. Type B depends on intent the code does not reveal — identify the site, explain the risk, wait for the decision. (The loud/silent axis in [`breaking-changes.md`](references/breaking-changes.md) tells you how a miss will surface, not whether to ask.)
+2. **Type A is applied; Type B is asked first.** Type A is mechanical, unambiguous and observably identical. Type B depends on intent the code does not reveal — identify the site, explain the risk, and wait for an unresolved decision. Apply decisions the author has already supplied for that site or rule; include them in the report rather than asking again. Revisit a decision only when new evidence changes its consequences. (The loud/silent axis in [`breaking-changes.md`](references/breaking-changes.md) tells you how a miss will surface, not whether to ask.)
 3. **Smallest correct diff.** No style refactors, no renames the author didn't ask for, no new features (frames, schemas, machines, `reg-view`) unless the author asked for the O-rules. Apply M-rules in order, M-0 first. JVM interop (`.clj` test runners, fixtures) is in scope.
 4. **Announce, then sweep.** Type A rewrites edit source in place, so before a multi-file sweep post the rule (*"M-8 — fold top-level `:dispatch` into `:fx`"*), the number of files matched and a one-line example diff, then proceed. The request to migrate already authorised Type A work; the announcement lets the author scope-limit a sweep they can see coming, and needs no second acknowledgement. Unresolved Type B decisions go to the author in **one batch** at the end of the sweep ([`sequencing.md`](references/sequencing.md)), not one interruption per site.
 5. **Run the gates you discover.** Find the project's own noninteractive install / compile / test commands (`deps.edn` aliases, `shadow-cljs.edn` builds, `package.json` scripts, `project.clj`, `bb.edn`, the README), run them, and record each command and result in the report — never hand the author a command to run and paste back. The host agent's permission model governs execution; run nothing destructive, privileged, deploy-shaped or unrelated to the migration. The one gate that may need a person is the Phase-4 boot smoke-test: drive it yourself when a runtime is connected (a `re-frame2-pair` MCP, a shadow-cljs nREPL); otherwise hand over the checklist in [`runtime-smoke-test.md`](references/runtime-smoke-test.md) and report the smoke as **pending**, not the migration as complete. The corpus-provenance checks (`rev-parse` / `remote get-url` / `ls-tree`, [`setup.md` §Pin the migration corpus](references/setup.md#pin-the-migration-corpus-before-reading-it)), the `rg` inventories and the M-73 codemod (a `clojure` git-dependency run, [`auto-call-site-rewrites.md` §M-73](references/auto-call-site-rewrites.md#m-73--one-event-registration-form-reg-event)) run under the same allow-list.
@@ -157,7 +156,7 @@ Load a leaf when its phase or rule comes up; none needs reading up front.
 - [ ] For a 10x project, **both** halves of the Xray swap landed: 10x dependency + preload dropped at M-0, and Xray dependency + preload + `[data-rf-xray-host]` host + npm peer-deps (`@xyflow/react`, `elkjs`) wired after M-40, panel verified (`Ctrl+Shift+C`). Dropping the dead preload alone leaves the author with no devtools. (No 10x → nothing to check.)
 - [ ] Report written per `MIGRATION.md` Part 2 / [`output-format.md`](references/output-format.md), with every item held for the author listed.
 
-Hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. If you want Fresco views, **`reagent-migration`** is the optional second step — staying on Reagent is a first-class, fully-supported choice. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
+Report any unresolved Type B sites or pending smoke / clean-checkout / release checks as remaining work, with the next action; the migration remains incomplete. Once the [done checklist](#done-checklist) is satisfied, hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. If you want Fresco views, **`reagent-migration`** is the optional second step — staying on Reagent is a first-class, fully-supported choice. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
 
 ## Anti-patterns
 

@@ -8,6 +8,12 @@ The recommended order to walk the migration rules. Restated so a partial migrati
 Phase 0a — Inventory-and-plan  (incl. the SILENT-fail app-source grep)
  │
  ▼
+Phase 0b — React-19 / Reagent-2 floor gate (GO before any dep edit)
+ │
+ ▼
+Phase 1 — Orient (pinned corpus, dependencies, test suite)
+ │
+ ▼
 Phase 2 — Bump (M-0)
  │
  └──> compile + tests
