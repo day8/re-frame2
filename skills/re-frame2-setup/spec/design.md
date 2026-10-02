@@ -41,11 +41,11 @@ Unless the author explicitly says UIx, scaffold against Reagent — Reagent v2 i
 
 ### L5 — Don't write tests for the author
 
-The skill stops at "the counter mounts". The scaffold's `events_test.cljs` is the template's starter file, shipped because the scaffold is the template's emission (L13) — it is not the skill authoring tests. Anything after that — events, subs, machines, schemas, test-authoring — is the main `re-frame2` skill (which itself defers test-writing to the author per its own Q14 lock).
+The scaffold's `events_test.cljs` is the template's starter file, shipped because the scaffold is the template's emission (L13) — it is not the skill authoring tests. The setup skill runs that starter, compiles the app and starts the server; browser mounting and hot reload remain unverified until observed. Anything after setup — events, subs, machines, schemas, test-authoring — is the main `re-frame2` skill.
 
 ### L6 — Q14 — NO verification module; the skill still runs the build
 
-No `references/verify.md` leaf. But the skill is the **executor**: it writes the files, points the framework coordinates at something that resolves, runs `npm install`, runs a terminating `npx shadow-cljs compile app`, starts the dev server, and reports the actual URL. What it never does is claim the browser mounted from compile success alone — the Done checklist in SKILL.md lists the mount conditions and the author confirms them in the open page.
+No `references/verify.md` leaf. But the skill is the **executor**: it writes the files, points the framework coordinates at something that resolves, runs `npm install`, runs a terminating `npx shadow-cljs compile app` and the included starter test, starts the dev server, and reports each result and the actual URL. The Done checklist in SKILL.md distinguishes those observed results from browser smoke checks at handoff. A browser check remains unverified until observed; compilation never proves a mount.
 
 ### L7 — No bead-ids in user-facing skill content
 
@@ -86,7 +86,7 @@ The manual route is NOT folded into the generator, and that is deliberate: it is
 ### In scope
 
 - Authors starting a new directory (or an existing empty CLJS project) that needs re-frame2 wiring.
-- The six canonical steps: write the thirteen files → point the framework coordinates → `npm install` → terminating compile → watch → report.
+- The six canonical steps: write the thirteen files → point the framework coordinates → `npm install` → terminating compile and included starter test → watch → report observed results and browser smoke checks.
 - Reagent v2 as the default substrate; UIx as the four-file swap (L4).
 - Troubleshooting the common build failures (SKILL.md's Troubleshooting section: the unresolvable pre-publish coordinate, missing `.cljs` namespace vs missing npm React, missing `rf/init!`, missing `<main id="app">`, `:init-fn` mismatch).
 

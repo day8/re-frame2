@@ -19,10 +19,10 @@ An explicit framework revision also controls dependency resolution: the skill us
 The skill runs the setup commands itself:
 
 1. Writes the scaffold from the project template. Before a Clojars release, it resolves the framework and Story through the matching checkout or pinned git dependency described above.
-2. Installs, then runs a terminating `npx shadow-cljs compile app`.
+2. Installs, then runs a terminating `npx shadow-cljs compile app` and the included starter test (`npm test` on the default scaffold).
 3. Starts the watch and reports the URL it printed. If 8280 is taken, it moves the port and reports the one the watch actually used. The watch keeps running in the background; stop it when you are finished.
 
-A successful compile proves the build. Open the reported URL and click `+1` to confirm the count advances from 0 to 1. Also check that saving a view repaints without losing the count and that `#/stories` opens the counter story. The scaffold carries a starter test (`npm test`); these checks complete the setup evidence, so a browser check that has not happened remains pending.
+A successful compile proves the build; the starter-test result proves the tested event and subscription behaviour. Open the reported URL and click `+1` to confirm the count advances from 0 to 1. Also check that saving a view repaints without losing the count and that `#/stories` opens the counter story. The handoff separates the verified build, test and server results from these browser checks, which remain unverified until observed.
 
 Nothing else is set up on day one: schemas, Xray and the rest attach later, on request, and writing further tests, schemas or features is the [`re-frame2`](re-frame2.md) skill's job. UIx instead of Reagent is a swap of a few files, on explicit request. Fresco is not a scaffold option: a new project starts on an adapter and can move its views later with [reagent-migration](reagent-migration.md).
 
