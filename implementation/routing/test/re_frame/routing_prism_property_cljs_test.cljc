@@ -134,7 +134,7 @@
   "The CEDN-1 canonical order of `ks` — the order BOTH prism legs use,
   computed via the shared identity rule the implementation sorts by."
   [ks]
-  (vec (sort-by rf.identity/canonical-bytes ks)))
+  (vec (sort-by rf.identity/canonical-bytes rf.identity/compare-canonical-bytes ks)))
 
 ;; ---- the property --------------------------------------------------------
 
@@ -421,3 +421,29 @@
       (is (= (assoc (expected-string-query (remove #{:page} ks)) :page default-page)
              (:query m))
           "query membership/values did not round-trip with the default filled"))))
+
+;; ---- UTF-8 byte order where it parts from host string order --------------
+;;
+;; CEDN-1 orders map keys by their tokens' UTF-8 bytes, while a host string
+;; sort orders UTF-16 code units. The two disagree on exactly one pairing: a
+;; supplementary character (a surrogate pair) against a BMP character at or
+;; above U+E000. Every drawn and fixed key above is ASCII, where the orders
+;; coincide, so this pairing is pinned here. Both inputs list the U+10000 key
+;; FIRST, so neither leg can pass by keeping its input order.
+
+(deftest query-key-order-is-utf8-byte-order-on-both-legs
+  (testing "a U+E000 key orders before a U+10000 key on both prism legs:
+            UTF-8 EE 80 80 precedes F0 90 80 80, where UTF-16 order
+            (E000 against D800 DC00) puts the surrogate pair first"
+    (rf/reg-route :route/wide {} "/wide")
+    (let [bmp    "\uE000"
+          astral "\uD800\uDC00"]
+      (is (= "/wide?%EE%80%80=1&%F0%90%80%80=2"
+             (rf.routing/route-url {:to    :route/wide
+                                    :query (array-map astral "2" bmp "1")}))
+          "route-url emitted the U+10000 key before the U+E000 key")
+      (let [q (:query (rf.routing/match-url "/wide?%F0%90%80%80=2&%EE%80%80=1"))]
+        (is (= {bmp "1" astral "2"} q)
+            "query membership/values did not round-trip")
+        (is (= [bmp astral] (vec (keys q)))
+            "match-url returned the U+10000 key before the U+E000 key")))))

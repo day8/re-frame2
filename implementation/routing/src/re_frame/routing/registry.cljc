@@ -1068,8 +1068,9 @@
   `match-url(route-url(...))` returns canonical route data and \"query keys are
   emitted in deterministic canonical order\" — both prism legs share ONE order.
 
-  The sort is by the key's shared CEDN-1 byte identity (the same order the
-  CEDN-1 map encoding uses), total over the mixed-kind keys a `:query` may
+  The sort compares the keys' CEDN-1 tokens by their UTF-8 bytes
+  (`re-frame.identity/compare-canonical-bytes`, the same order the CEDN-1 map
+  encoding uses), total over the mixed-kind keys a `:query` may
   carry (declared keys are promoted to keywords, undeclared keys stay strings
   — `canonical-bytes` tags each kind, so a keyword `:page` and a string
   `\"page\"` never collide and order deterministically). Applied AFTER the raw
@@ -1082,7 +1083,9 @@
   ;; past 8 query keys. `(apply array-map nil)` is `{}`, so an empty query
   ;; is unchanged.
   (apply array-map
-         (mapcat identity (sort-by (comp rf.identity/canonical-bytes key) query))))
+         (mapcat identity (sort-by (comp rf.identity/canonical-bytes key)
+                                   rf.identity/compare-canonical-bytes
+                                   query))))
 
 ;; ---- `:query-defaults`: the ONE fill rule and its emission inverse ---------
 ;;
@@ -2029,8 +2032,9 @@
          ;; URL — a stable href for caching / dedupe /
          ;; identical-route-target? no-op detection / SSR-hydration parity,
          ;; rather than a URL that varies with map literal order. The sort
-         ;; is by the key's canonical EDN identity (the same order the
-         ;; CEDN-1 map encoding uses), so it is total over the mixed-kind
+         ;; compares the keys' CEDN-1 tokens by their UTF-8 bytes
+         ;; (`compare-canonical-bytes`, the same order the CEDN-1 map
+         ;; encoding uses), so it is total over the mixed-kind
          ;; query keys a route may carry. An array-map preserves this sorted
          ;; order downstream through validation and emission.
          ;;
@@ -2048,6 +2052,7 @@
                          (apply array-map
                                 (mapcat identity
                                         (sort-by (comp rf.identity/canonical-bytes key)
+                                                 rf.identity/compare-canonical-bytes
                                                  (remove (fn [[_ v]] (nil? v))
                                                          query-params)))))
          pattern      (:path route-meta)
