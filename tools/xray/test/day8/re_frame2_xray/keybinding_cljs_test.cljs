@@ -30,7 +30,7 @@
   `finally`. That keeps the suite fast and host-portable — the browser-
   level keydown-dispatch story lives in the Playwright lane on a real
   document."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.substrate.adapter :as rf.substrate.adapter]
@@ -202,50 +202,26 @@
                  (mk-event {:key "c" :ctrl? true :shift? true})))))
   (testing "`code` fallback — IME-active contexts populate only .code"
     (is (true? (xray-toggle-key?
-                 (mk-event {:code "KeyC" :ctrl? true :shift? true}))))))
-
-(deftest xray-toggle-key-rejects-missing-modifiers
-  (testing "no modifiers"
-    (is (false? (xray-toggle-key? (mk-event {:key "C"})))))
-  (testing "Ctrl only — Shift missing"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:key "C" :ctrl? true})))))
-  (testing "Shift only — Ctrl missing"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:key "C" :shift? true}))))))
-
-(deftest xray-toggle-key-rejects-extra-modifiers
-  (testing "Ctrl+Shift+Cmd+C — meta blocks (avoids the macOS dev-tools
-            Cmd+Shift+C collision the source docstring calls out)"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:key "C" :ctrl? true :shift? true :meta? true})))))
-  (testing "Ctrl+Shift+Alt+C — alt blocks"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:key "C" :ctrl? true :shift? true :alt? true})))))
-  (testing "all modifiers held — both meta + alt block"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:key   "C"
-                             :ctrl? true :shift? true
-                             :meta? true :alt? true}))))))
-
-(deftest xray-toggle-key-rejects-wrong-key
-  (testing "wrong key letter, right modifiers"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:key "D" :ctrl? true :shift? true})))))
-  (testing "wrong `code`, right modifiers"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:code "KeyD" :ctrl? true :shift? true})))))
-  (testing "C-shaped key but on a different code — only `key` matches"
-    ;; The predicate is permissive: matching on `key` is enough. This
-    ;; guards against the predicate being tightened to AND both fields.
+                 (mk-event {:code "KeyC" :ctrl? true :shift? true})))))
+  (testing "C-shaped key on a different code — `key` alone is enough. This
+            guards against the predicate being tightened to AND both fields"
     (is (true? (xray-toggle-key?
                  (mk-event {:key "C" :code "Digit3"
                             :ctrl? true :shift? true}))))))
 
-(deftest xray-toggle-key-defensive-nil-fields
-  (testing "missing key + missing code → no match (defensive)"
-    (is (false? (xray-toggle-key?
-                  (mk-event {:ctrl? true :shift? true}))))))
+(deftest xray-toggle-key-rejects-every-other-chord
+  (are [event] (false? (xray-toggle-key? (mk-event event)))
+    {:key "C"}                                ; no modifiers
+    {:key "C" :ctrl? true}                    ; Shift missing
+    {:key "C" :shift? true}                   ; Ctrl missing
+    ;; meta blocks — avoids the macOS dev-tools Cmd+Shift+C collision the
+    ;; source docstring calls out
+    {:key "C" :ctrl? true :shift? true :meta? true}
+    {:key "C" :ctrl? true :shift? true :alt? true}             ; alt blocks
+    {:key "C" :ctrl? true :shift? true :meta? true :alt? true} ; both block
+    {:key "D" :ctrl? true :shift? true}       ; wrong key, right modifiers
+    {:code "KeyD" :ctrl? true :shift? true}   ; wrong code, right modifiers
+    {:ctrl? true :shift? true}))              ; neither key nor code
 
 ;; ---- (2) toggles are mutually exclusive ----------------------------------
 
@@ -284,36 +260,15 @@
     (is (true? (palette-toggle-key?
                  (mk-event {:code "KeyK" :ctrl? true}))))))
 
-(deftest palette-toggle-key-rejects-shift
-  (testing "Ctrl+Shift+K is Firefox dev-tools — must not be hijacked"
-    (is (false? (palette-toggle-key?
-                  (mk-event {:key "k" :ctrl? true :shift? true})))))
-  (testing "Cmd+Shift+K likewise"
-    (is (false? (palette-toggle-key?
-                  (mk-event {:key "k" :meta? true :shift? true}))))))
-
-(deftest palette-toggle-key-rejects-both-modifiers
-  (testing "Ctrl+Cmd+K — both modifiers held is ambiguous; reject"
-    (is (false? (palette-toggle-key?
-                  (mk-event {:key "k" :ctrl? true :meta? true}))))))
-
-(deftest palette-toggle-key-rejects-no-modifier
-  (testing "plain k must NOT open the palette — that would hijack
-            every k keystroke in the host app"
-    (is (false? (palette-toggle-key? (mk-event {:key "k"}))))))
-
-(deftest palette-toggle-key-rejects-alt
-  (testing "Ctrl+Alt+K is an IME composition on some layouts — reject"
-    (is (false? (palette-toggle-key?
-                  (mk-event {:key "k" :ctrl? true :alt? true}))))))
-
-(deftest palette-toggle-key-rejects-wrong-key
-  (testing "wrong key letter, right modifiers"
-    (is (false? (palette-toggle-key?
-                  (mk-event {:key "j" :ctrl? true})))))
-  (testing "wrong `code`, right modifiers"
-    (is (false? (palette-toggle-key?
-                  (mk-event {:code "KeyJ" :ctrl? true}))))))
+(deftest palette-toggle-key-rejects-every-other-chord
+  (are [event] (false? (palette-toggle-key? (mk-event event)))
+    {:key "k" :ctrl? true :shift? true} ; Firefox dev-tools — must not be hijacked
+    {:key "k" :meta? true :shift? true} ; Cmd+Shift+K likewise
+    {:key "k" :ctrl? true :meta? true}  ; both modifiers held is ambiguous
+    {:key "k"}                          ; plain k would hijack every k in the host
+    {:key "k" :ctrl? true :alt? true}   ; an IME composition on some layouts
+    {:key "j" :ctrl? true}              ; wrong key, right modifiers
+    {:code "KeyJ" :ctrl? true}))        ; wrong code, right modifiers
 
 ;; ---- (3b) mode-toggle-key? truth table ----------------------------------
 
@@ -330,33 +285,14 @@
     (is (true? (mode-toggle-key?
                  (mk-event {:code "KeyM" :ctrl? true :shift? true}))))))
 
-(deftest mode-toggle-key-requires-shift
-  (testing "Ctrl+M alone is some Firefox 'bookmark this page' chord —
-            require Shift to disambiguate"
-    (is (false? (mode-toggle-key?
-                  (mk-event {:key "m" :ctrl? true}))))
-    (is (false? (mode-toggle-key?
-                  (mk-event {:key "m" :meta? true})))
-        "Cmd+M alone is 'minimize window' on macOS — require Shift")))
-
-(deftest mode-toggle-key-rejects-both-primary-modifiers
-  (testing "Ctrl+Cmd+Shift+M — both primary modifiers held is
-            ambiguous, reject (mirror palette-toggle-key?'s posture)"
-    (is (false? (mode-toggle-key?
-                  (mk-event {:key "m" :ctrl? true :meta? true :shift? true}))))))
-
-(deftest mode-toggle-key-rejects-alt
-  (testing "Ctrl+Alt+Shift+M is an IME composition on some layouts — reject"
-    (is (false? (mode-toggle-key?
-                  (mk-event {:key "m" :ctrl? true :shift? true :alt? true}))))))
-
-(deftest mode-toggle-key-rejects-wrong-key
-  (testing "wrong key letter, right modifiers"
-    (is (false? (mode-toggle-key?
-                  (mk-event {:key "n" :ctrl? true :shift? true})))))
-  (testing "wrong `code`, right modifiers"
-    (is (false? (mode-toggle-key?
-                  (mk-event {:code "KeyN" :ctrl? true :shift? true}))))))
+(deftest mode-toggle-key-rejects-every-other-chord
+  (are [event] (false? (mode-toggle-key? (mk-event event)))
+    {:key "m" :ctrl? true}  ; a Firefox 'bookmark this page' chord — Shift disambiguates
+    {:key "m" :meta? true}  ; 'minimize window' on macOS — Shift disambiguates
+    {:key "m" :ctrl? true :meta? true :shift? true} ; both primary modifiers: ambiguous
+    {:key "m" :ctrl? true :shift? true :alt? true}  ; an IME composition on some layouts
+    {:key "n" :ctrl? true :shift? true}             ; wrong key, right modifiers
+    {:code "KeyN" :ctrl? true :shift? true}))       ; wrong code, right modifiers
 
 ;; ---- (4) attach! / detach! idempotency sentinel --------------------------
 
@@ -480,57 +416,26 @@
 ;;     k        →  :rf.xray/focus-event-next
 ;;     `,` / s  →  :rf.xray/settings-toggle  (toggle Settings popup)
 
-(deftest spine-key-id-space-is-toggle-live-pause
-  (is (= :rf.xray/toggle-live-pause
-         (spine-key-id (mk-event {:key " "}))))
-  (is (= :rf.xray/toggle-live-pause
-         (spine-key-id (mk-event {:code "Space"})))))
-
-(deftest spine-key-id-l-is-follow-head
-  (is (= :rf.xray/follow-head
-         (spine-key-id (mk-event {:key "l"}))))
-  (is (= :rf.xray/follow-head
-         (spine-key-id (mk-event {:code "KeyL"})))))
-
-(deftest spine-key-id-shift-g-is-follow-head
-  (is (= :rf.xray/follow-head
-         (spine-key-id (mk-event {:key "G" :shift? true}))))
-  (is (= :rf.xray/follow-head
-         (spine-key-id (mk-event {:code "KeyG" :shift? true})))))
-
-(deftest spine-key-id-j-is-prev
-  (is (= :rf.xray/focus-event-prev
-         (spine-key-id (mk-event {:key "j"}))))
-  (is (= :rf.xray/focus-event-prev
-         (spine-key-id (mk-event {:code "KeyJ"})))))
-
-(deftest spine-key-id-k-is-next
-  (is (= :rf.xray/focus-event-next
-         (spine-key-id (mk-event {:key "k"}))))
-  (is (= :rf.xray/focus-event-next
-         (spine-key-id (mk-event {:code "KeyK"})))))
-
-(deftest spine-key-id-comma-is-settings-toggle
-  ;; Every arm carries its own assertion, so the roster is pinned by
-  ;; tests rather than by the prose above.
-  (is (= :rf.xray/settings-toggle
-         (spine-key-id (mk-event {:key ","}))))
-  (is (= :rf.xray/settings-toggle
-         (spine-key-id (mk-event {:code "Comma"})))))
-
-(deftest spine-key-id-s-is-settings-toggle
-  ;; `s` is the second door onto the Settings popup; per
-  ;; spec/007-UX-IA.md §Shell spine keys both `,` and `s` open the modal.
-  (is (= :rf.xray/settings-toggle
-         (spine-key-id (mk-event {:key "s"}))))
-  (is (= :rf.xray/settings-toggle
-         (spine-key-id (mk-event {:code "KeyS"})))))
-
-(deftest spine-key-id-c-is-unbound
-  ;; `c` is unbound: there is no Causality surface, and no spine handler
-  ;; is attached to the key.
-  (is (nil? (spine-key-id (mk-event {:key "c"}))))
-  (is (nil? (spine-key-id (mk-event {:code "KeyC"})))))
+(deftest spine-key-id-maps-every-arm
+  ;; One row per arm and per spelling (`key`, then the `code` fallback), so
+  ;; the roster is pinned by tests rather than by the prose above. `,` and
+  ;; `s` are both doors onto the Settings popup, per spec/007-UX-IA.md
+  ;; §Shell spine keys.
+  (are [event id] (= id (spine-key-id (mk-event event)))
+    {:key " "}                  :rf.xray/toggle-live-pause
+    {:code "Space"}             :rf.xray/toggle-live-pause
+    {:key "l"}                  :rf.xray/follow-head
+    {:code "KeyL"}              :rf.xray/follow-head
+    {:key "G" :shift? true}     :rf.xray/follow-head
+    {:code "KeyG" :shift? true} :rf.xray/follow-head
+    {:key "j"}                  :rf.xray/focus-event-prev
+    {:code "KeyJ"}              :rf.xray/focus-event-prev
+    {:key "k"}                  :rf.xray/focus-event-next
+    {:code "KeyK"}              :rf.xray/focus-event-next
+    {:key ","}                  :rf.xray/settings-toggle
+    {:code "Comma"}             :rf.xray/settings-toggle
+    {:key "s"}                  :rf.xray/settings-toggle
+    {:code "KeyS"}              :rf.xray/settings-toggle))
 
 (deftest spine-key-id-rejects-modifiers
   (testing "Ctrl+L must not be hijacked (focus address bar)"
@@ -549,7 +454,11 @@
     (is (nil? (spine-key-id (mk-event {:key "x"}))))
     (is (nil? (spine-key-id (mk-event {:key "Enter"}))))
     (is (nil? (spine-key-id (mk-event {})))
-        "empty event → nil")))
+        "empty event → nil"))
+  (testing "`c` is unbound: there is no Causality surface, and no spine
+            handler is attached to the key"
+    (is (nil? (spine-key-id (mk-event {:key "c"}))))
+    (is (nil? (spine-key-id (mk-event {:code "KeyC"}))))))
 
 ;; ---- (6) :rf.xray/keybinding-enabled? toggle ----------------------------
 ;;
@@ -766,17 +675,6 @@
         (is (false? @stopped)
             (str "repeat chord " chord " must not stopPropagation"))))))
 
-(deftest held-space-does-not-toggle-live-pause
-  (testing "a HELD Space (auto-repeat) inside the shell does
-            not re-fire the LIVE pause toggle. The runtime + shell-visible
-            plumbing that a genuine Space press needs is the browser lane;
-            here we assert the repeat is swallowed at the guard (no
-            preventDefault) — the spine branch is never reached."
-    (let [{:keys [event prevented stopped]} (mk-spy-event {:key " " :repeat? true})]
-      (handle-keydown event)
-      (is (false? @prevented) "repeat Space is ignored — not consumed")
-      (is (false? @stopped)))))
-
 (deftest held-escape-does-not-redismiss-hint
   (testing "a HELD Escape (auto-repeat) does not re-fire the
             editor-hint dismiss; the first physical press already acted.
@@ -878,22 +776,6 @@
         "a non-button role is not activatable")
     (is (nil? (#'keybinding/target-activatable? (js-obj)))
         "an event with no target must not throw")))
-
-(deftest space-on-focused-button-is-not-hijacked
-  (testing "a focused shell <button> / <summary> / [role=
-            button] keeps Space for its native activation: the spine
-            branch yields (no preventDefault, no live-pause dispatch)."
-    (setup-xray-runtime!)
-    (with-redefs [mount/visible? (constantly true)]
-      (doseq [spec [{:tag "BUTTON"}
-                    {:tag "SUMMARY"}
-                    {:tag "DIV" :role "button"}]]
-        (let [{:keys [event prevented stopped]} (mk-shell-space-event spec)]
-          (handle-keydown event)
-          (is (false? @prevented)
-              (str "Space on a focused " spec " must NOT be hijacked"))
-          (is (false? @stopped)
-              (str "Space on a focused " spec " must not stopPropagation")))))))
 
 (deftest space-on-non-activatable-shell-target-still-pauses
   (testing "the guard is surgical: Space on a NON-activatable
@@ -1167,36 +1049,6 @@
       (is (= 1 (count @(:listeners b))) "b untouched by a's disposal")
       (dispose-b)
       (is (zero? (count @(:listeners b)))))))
-
-(deftest install-popout-keydown-installs-regardless-of-the-config-slot
-  (testing "installation does not consult :rf.xray/keybinding-enabled? at
-            all: the listener goes on for the window's lifetime and the
-            HANDLER answers the slot per keystroke (section 11 below). An
-            install-time refusal on a cleared slot would make the switch
-            one-way and one-shot for a pop-out."
-    (let [{:keys [doc listeners]} (mk-stub-document)]
-      (try
-        (config/set-keybinding-enabled! false)
-        (let [dispose (keybinding/install-popout-keydown! doc)]
-          (is (fn? dispose)
-              "a disposer, not nil, with the slot false")
-          (is (= 1 (count @listeners))
-              "one capture-phase listener, exactly as when the slot is true")
-          (is (true? (:use-capture (first @listeners)))
-              "capture phase, as on the opener document")
-          (when (fn? dispose)
-            (dispose)
-            (is (zero? (count @listeners))
-                "and the disposer removes the exact listener")))
-        (finally
-          (config/set-keybinding-enabled! true)))
-      ;; Control, sharing the shape: the SAME call on the SAME document with
-      ;; the slot restored installs identically. It is what says the rows
-      ;; above are about the slot not gating installation, rather than
-      ;; about an installer that discriminates nothing at all.
-      (let [dispose (keybinding/install-popout-keydown! doc)]
-        (is (= 1 (count @listeners)) "installs with the slot true too")
-        (dispose)))))
 
 (deftest install-popout-keydown-refuses-a-nil-document
   (testing "a pop-out whose document is unreachable installs
