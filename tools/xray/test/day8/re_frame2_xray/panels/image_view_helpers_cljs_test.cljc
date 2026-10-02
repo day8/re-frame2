@@ -18,8 +18,8 @@
   `:images?`) and the display strings. All algebra is pure `data -> data`, so
   this runs under the JVM test target with hand-built generation/frame fixtures
   (the inert shapes `assemble` / `make-frame` produce)."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.image-view-helpers :as h]))
 
 ;; ---- fixtures: the inert shapes the EP-0023 core surfaces produce -------
@@ -78,23 +78,16 @@
 
 ;; ---- descriptor-provenance ----------------------------------------------
 
-(deftest descriptor-provenance-source-ns
-  (testing "a registered descriptor projects to its source-namespace provenance"
-    (is (= {:kind :ns :ns "docs.counter.v2"}
-           (h/descriptor-provenance inc-desc)))))
-
-(deftest descriptor-provenance-inline
-  (testing "an inline descriptor projects to its image id + inline coordinate"
-    (is (= {:kind :inline :image :test/small :inline [:reg-event :counter/inc]}
-           (h/descriptor-provenance inline-desc)))))
-
-(deftest descriptor-provenance-standard
-  (testing "a framework standard descriptor projects to the standard marker"
-    (is (= {:kind :standard} (h/descriptor-provenance standard-desc)))))
-
-(deftest descriptor-provenance-unknown
-  (testing "a descriptor with no recognizable provenance projects to :unknown"
-    (is (= {:kind :unknown} (h/descriptor-provenance {:kind :event :id :x})))))
+(deftest descriptor-provenance-projects-each-provenance-kind
+  (testing "a registered descriptor projects to its source namespace, an
+            inline one to its image id + inline coordinate, a framework
+            standard one to the standard marker, and one with no
+            recognisable provenance to :unknown"
+    (are [descriptor expected] (= expected (h/descriptor-provenance descriptor))
+      inc-desc              {:kind :ns :ns "docs.counter.v2"}
+      inline-desc           {:kind :inline :image :test/small :inline [:reg-event :counter/inc]}
+      standard-desc         {:kind :standard}
+      {:kind :event :id :x} {:kind :unknown})))
 
 ;; ---- project-generation: image as a [kind id] descriptor set -------------
 
