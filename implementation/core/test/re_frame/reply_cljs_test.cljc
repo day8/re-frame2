@@ -134,15 +134,15 @@
   ;; by value; a Date is EDN (#inst), but a durable reply timestamp is an
   ;; epoch-millisecond long (EP-0010), never a host Date.
   (testing "a host Date in the reply is a host handle (CLJS js/Date, JVM java.util.Date)"
-    (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
-      (let [probs (rf.reply/validate-reply {:status :ok :value {:settled-at d}})
-            path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
-        (is (= [:value :settled-at] path) "the problem reports the exact path to the Date"))))
+    (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))
+          probs (rf.reply/validate-reply {:status :ok :value {:settled-at d}})
+          path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
+      (is (= [:value :settled-at] path) "the problem reports the exact path to the Date")))
   (testing "a host RegExp in the reply is a host handle (CLJS js/RegExp, JVM java.util.regex.Pattern)"
-    (let [re #?(:cljs (js/RegExp. "x") :clj (java.util.regex.Pattern/compile "x"))]
-      (let [probs (rf.reply/validate-reply {:status :error :error {:kind :x :re re}})
-            path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
-        (is (= [:error :re] path) "the problem reports the exact path to the RegExp"))))
+    (let [re #?(:cljs (js/RegExp. "x") :clj (java.util.regex.Pattern/compile "x"))
+          probs (rf.reply/validate-reply {:status :error :error {:kind :x :re re}})
+          path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
+      (is (= [:error :re] path) "the problem reports the exact path to the RegExp")))
   (testing "the durable-target guard rejects a non-EDN host object in a public field too"
     (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
       (try
