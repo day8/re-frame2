@@ -41,10 +41,9 @@
       [:span "w-" n])
     ;; The Var was defined.
     (let [resolved (resolve `widget-a)]
-      (is (some? resolved)
-          "the macro defs a Var named after the supplied symbol")
       (is (fn? @resolved)
-          "the Var holds a callable render fn"))
+          "the macro defs a Var named after the supplied symbol, holding a
+           callable render fn"))
     ;; And the registry slot is populated under the auto-derived id.
     ;; The id is taken from (ns-name *ns*) at macro-expansion time,
     ;; which for this test file is `re-frame.reg-view-test` —
@@ -101,10 +100,9 @@
             args vector should be — throws at macroexpand"
     (let [reason (reg-view-error-reason
                    (fn [] (eval `(rf/reg-view bad-cc (reagent.core/create-class {})))))]
-      (is (some? reason)
-          "macroexpand throws when the second arg is a create-class call")
       (is (re-find #"args vector" reason)
-          ":reason points at the missing args vector")
+          "macroexpand throws when the second arg is a create-class call, and
+           its :reason points at the missing args vector")
       (is (re-find #"reg-view\*" reason)
           ":reason points the user at the reg-view* escape hatch"))))
 
@@ -113,10 +111,9 @@
             the args vector should be — throws at macroexpand"
     (let [err (reg-view-error-reason
                 (fn [] (eval `(rf/reg-view bad-comp (~'compute-render-fn)))))]
-      (is (some? err)
-          "macroexpand throws when the second arg is a non-fn call")
       (is (re-find #"args vector" err)
-          "the message points at the missing args vector"))))
+          "macroexpand throws when the second arg is a non-fn call, and the
+           message points at the missing args vector"))))
 
 ;; ---- error message template ----------------------------------------------
 
@@ -148,7 +145,6 @@
             defn-style"
     (rf/reg-view docced "the doc" [n] [:p n])
     (let [v (resolve `docced)]
-      (is (some? v))
       (is (fn? @v)))))
 
 ;; ---- return-value contract -----------------------------------------------

@@ -115,14 +115,15 @@
     (doseq [[kind id] kinds]
       (testing (str kind)
         (let [ed (caught-ex-data #(register! kind id {:spec [:map]}))]
-          (is (some? ed)
-              (str "reg-" (name kind) " with a retired `:spec` key must throw"))
-          (is (= :rf.error/retired-registration-key (:rf.error/id ed))
-              "the throw carries the canonical discriminator")
-          (is (= :spec (:retired-key ed)) ":retired-key names the offending key")
-          (is (= :schema (:replacement ed)) ":replacement names the v2 key `:schema`")
-          (is (= kind (:kind ed)) ":kind names the registrar kind")
-          (is (= :fix-registration (:recovery ed))))))))
+          (is (= {:rf.error/id  :rf.error/retired-registration-key
+                  :retired-key  :spec
+                  :replacement  :schema
+                  :kind         kind
+                  :recovery     :fix-registration}
+                 (select-keys ed [:rf.error/id :retired-key :replacement :kind :recovery]))
+              (str "reg-" (name kind) " with a retired `:spec` key throws the
+                    canonical discriminator, naming the offending key, its v2
+                    replacement `:schema`, the registrar kind and the recovery")))))))
 
 ;; ---- unknown bare key — WARNING -------------------------------------------
 
@@ -146,10 +147,10 @@
             (is (= 1 (count warns))
                 (str "reg-" (name kind) " emits exactly one unknown-key warning"))
             (let [{:keys [tags]} (first warns)]
-              (is (= kind (:kind tags)) ":kind names the registrar kind")
-              (is (= id (:id tags)) ":id names the registration")
-              (is (= [:bogus-key] (:unknown-keys tags))
-                  ":unknown-keys names exactly the offending bare key")
+              (is (= {:kind kind :id id :unknown-keys [:bogus-key]}
+                     (select-keys tags [:kind :id :unknown-keys]))
+                  "the warning names the registrar kind, the registration, and
+                   exactly the offending bare key")
               (is (contains? (set (:known tags)) :doc)
                   ":known carries the recognised bare vocabulary")
               (is (string? (:reason tags))))))))))
