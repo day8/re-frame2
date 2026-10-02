@@ -82,7 +82,10 @@
   (testing "A story declares the authoring layer once; its variants inherit
             it and declare nothing. `[:world :substrates]` is where
             `canonical/render-host-scope` reads it, so an absent slot is a
-            silent Reagent render."
+            silent Reagent render. It is the DEFAULT side-table lookup that
+            resolves the story here — no `:story-lookup` is threaded — so a
+            fold that only worked through an injected test double would
+            leave the production path without it."
     (rf.story.registrar/reg-story* :story.scope-sub
       {:doc "declares the authoring layer once, for every variant"
        :component  :views/probe
@@ -90,14 +93,7 @@
     (rf.story.registrar/reg-variant* :story.scope-sub/child {:doc "declares nothing"})
     (is (= #{:fresco}
            (get-in (rf.story.plan/variant-plan :story.scope-sub/child)
-                   [:world :substrates]))))
-
-  (testing "and it is the DEFAULT side-table lookup that resolves it — no
-            `:story-lookup` was threaded above. A fold that only worked
-            through an injected test double would leave the production path
-            without it."
-    (is (= #{:fresco}
-           (:substrates (rf.story.registrar/handler-meta :story :story.scope-sub))))))
+                   [:world :substrates])))))
 
 (deftest the-variant-still-wins-over-its-story
   (testing "precedence is variant-chain FIRST, then the story — the same
@@ -202,28 +198,15 @@
 ;; 3 · the deliberate consequence — the view-args contract follows the subject
 ;; ===========================================================================
 
-(deftest the-view-args-schema-follows-a-story-level-component
-  (testing "folding `:component` makes the plan compiler's
-            view-args schema resolution see the story-level subject too.
-            That is the point, not a side effect: the explicit-view-input
-            contract must not apply or not apply depending on WHICH body
-            happens to name the view."
-    (reg-view-meta! :views/widget {:rf/props [:map [:label :string]]})
-    (rf.story.registrar/reg-story* :story.scope-schema
-      {:doc "parent carries the subject" :component :views/widget})
-    (rf.story.registrar/reg-variant* :story.scope-schema/v
-      {:doc "varies by args" :args {:label "Hi"}})
-    (is (= [:map [:label :string]]
-           (get-in (rf.story.plan/variant-plan :story.scope-schema/v)
-                   [:world :view-args-schema])))))
-
 (deftest a-missing-required-view-input-fails-under-a-story-level-component
-  (testing "and the schema is ENFORCED, not merely copied — a required view
-            input the variant never supplies fails plan construction with
-            `:rf.error/story-view-args-invalid`, exactly as it does when
-            the variant names the component itself. Without this row the
-            row above would pass on a plan that carried the schema and
-            checked nothing."
+  (testing "folding `:component` makes the plan compiler's view-args
+            schema resolution see the story-level subject too. That is the
+            point, not a side effect: the explicit-view-input contract must
+            not apply or not apply depending on WHICH body happens to name
+            the view. And the schema is ENFORCED, not merely copied — a
+            required view input the variant never supplies fails plan
+            construction with `:rf.error/story-view-args-invalid`, exactly
+            as it does when the variant names the component itself."
     (reg-view-meta! :views/strict {:rf/props [:map [:label :string]]})
     (rf.story.registrar/reg-story* :story.scope-strict
       {:doc "parent carries the subject" :component :views/strict})
@@ -231,6 +214,6 @@
     (let [e (try (rf.story.plan/variant-plan :story.scope-strict/v)
                  nil
                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e e))]
-      (is (some? e) "plan construction failed")
-      (is (= :rf.error/story-view-args-invalid (:rf.error/id (ex-data e))))
+      (is (= :rf.error/story-view-args-invalid (:rf.error/id (ex-data e)))
+          "plan construction failed")
       (is (= :views/strict (:component (ex-data e)))))))

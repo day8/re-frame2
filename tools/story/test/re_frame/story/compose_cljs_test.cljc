@@ -10,7 +10,7 @@
 
   Named `-cljs-test` so the `:node-test` build's `cljs-test$` ns-regexp
   selects it; a bare `-test` name would run it on the JVM only."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [are deftest is testing]]
             [re-frame.story.plan :as rf.story.plan]
             [re-frame.story.schemas :as rf.story.schemas]))
 
@@ -116,35 +116,20 @@
 ;; silently drop them from every composed variant.
 ;; ===========================================================================
 
-(deftest fragment-loaders-compose-and-append
-  (testing "a composed fragment's :loaders append BEFORE the variant's own"
-    (let [fragments {:fragment/socket {:loaders [[:socket/open]]}}
-          variants  {:story.x/v {:compose [:fragment/socket]
-                                 :loaders [[:socket/subscribe]]}}
-          p (compose-plan :story.x/v
-                          {:variants variants :fragments fragments})]
-      (is (= [[:socket/open] [:socket/subscribe]]
-             (get-in p [:world :loaders]))))))
-
-(deftest fragment-loaders-teardown-composes-and-appends
-  (testing "a composed fragment's :loaders-teardown appends BEFORE the
-            variant's own"
-    (let [fragments {:fragment/socket {:loaders-teardown [[:socket/close]]}}
-          variants  {:story.x/v {:compose          [:fragment/socket]
-                                 :loaders-teardown [[:socket/unsubscribe]]}}
-          p (compose-plan :story.x/v
-                          {:variants variants :fragments fragments})]
-      (is (= [[:socket/close] [:socket/unsubscribe]]
-             (get-in p [:world :loaders-teardown]))))))
-
-(deftest fragment-loaders-alone-still-fold-in
-  (testing "a fragment's :loaders fold in even when the variant declares
-            none of its own"
-    (let [fragments {:fragment/socket {:loaders [[:socket/open]]}}
-          variants  {:story.x/v {:compose [:fragment/socket]}}
-          p (compose-plan :story.x/v
-                          {:variants variants :fragments fragments})]
-      (is (= [[:socket/open]] (get-in p [:world :loaders]))))))
+(deftest fragment-loaders-and-teardown-append-ahead-of-the-variants-own
+  (are [slot fragment own expected]
+       (= expected
+          (get-in (compose-plan :story.x/v
+                                {:variants  {:story.x/v (merge {:compose [:fragment/socket]} own)}
+                                 :fragments {:fragment/socket fragment}})
+                  [:world slot]))
+    :loaders          {:loaders [[:socket/open]]}           {:loaders [[:socket/subscribe]]}
+                      [[:socket/open] [:socket/subscribe]]
+    :loaders-teardown {:loaders-teardown [[:socket/close]]} {:loaders-teardown [[:socket/unsubscribe]]}
+                      [[:socket/close] [:socket/unsubscribe]]
+    ;; a fragment's :loaders fold in even when the variant declares none of its own
+    :loaders          {:loaders [[:socket/open]]}           {}
+                      [[:socket/open]]))
 
 (deftest fragment-decorators-compose-in-globals-story-fragment-variant-order
   (testing "a composed fragment's :decorators fold into [:world :decorators]
@@ -185,36 +170,25 @@
 ;;  appear N times; the runner would otherwise expand it into N duplicate
 ;;  grouped check records for one logical check id.)
 
-(deftest inherited-check-recomposed-appears-once
-  (testing "a check both INHERITED (via :extends) and re-named in :compose rides :expect :checks once"
-    (let [checks   {:check/clean {:assertions [[:rf.assert/no-warnings]]}}
-          variants {:story.k/parent {:checks [:check/clean]}
-                    :story.k/child  {:extends :story.k/parent
-                                     :compose [:check/clean]}}
-          p (compose-plan :story.k/child
-                          {:variants variants :checks checks})]
-      (is (= [:check/clean] (get-in p [:expect :checks]))
-          "the check appears exactly once despite inherit + compose")
-      (is (= [:check/clean] (get-in p [:explain :checks]))))))
-
-(deftest check-composed-twice-appears-once
-  (testing "a check named twice in one :compose list rides :expect :checks once"
-    (let [checks   {:check/clean {:assertions [[:rf.assert/no-warnings]]}}
-          variants {:story.k/dup {:compose [:check/clean :check/clean]}}
-          p (compose-plan :story.k/dup
-                          {:variants variants :checks checks})]
-      (is (= [:check/clean] (get-in p [:expect :checks]))))))
-
-(deftest check-dedup-preserves-first-seen-order
-  (testing "dedup keeps first-seen order: own check, then a distinct composed check"
-    (let [checks   {:check/a {:assertions [[:rf.assert/no-warnings]]}
-                    :check/b {:assertions [[:rf.assert/no-warnings]]}}
-          variants {:story.k/order {:checks  [:check/a]
-                                    :compose [:check/b :check/a]}}
-          p (compose-plan :story.k/order
-                          {:variants variants :checks checks})]
-      (testing "own :check/a first, then the new composed :check/b — :check/a not repeated"
-        (is (= [:check/a :check/b] (get-in p [:expect :checks])))))))
+(deftest a-check-rides-expect-checks-once-in-first-seen-order
+  (let [checks {:check/clean {:assertions [[:rf.assert/no-warnings]]}
+                :check/a     {:assertions [[:rf.assert/no-warnings]]}
+                :check/b     {:assertions [[:rf.assert/no-warnings]]}}]
+    (doseq [[label variants vid expected]
+            [["a check both INHERITED (via :extends) and re-named in :compose rides once"
+              {:story.k/parent {:checks [:check/clean]}
+               :story.k/child  {:extends :story.k/parent :compose [:check/clean]}}
+              :story.k/child [:check/clean]]
+             ["a check named twice in one :compose list rides once"
+              {:story.k/dup {:compose [:check/clean :check/clean]}}
+              :story.k/dup [:check/clean]]
+             ["dedup keeps first-seen order: own :check/a first, then the new
+               composed :check/b — :check/a not repeated"
+              {:story.k/order {:checks [:check/a] :compose [:check/b :check/a]}}
+              :story.k/order [:check/a :check/b]]]]
+      (testing label
+        (let [p (compose-plan vid {:variants variants :checks checks})]
+          (is (= expected (get-in p [:expect :checks]) (get-in p [:explain :checks]))))))))
 
 ;; ===========================================================================
 ;; :extends inheritance — checks inherit; assertions + script do not
@@ -275,16 +249,12 @@
                      :fragment/nested {:compose [:fragment/leaf]
                                        :setup   [[:dispatch [:nested]]]}}
           variants  {:story.x/v {:compose [:fragment/nested]}}
-          opts      {:variants variants :fragments fragments}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-compose-nested-fragment"
-            (compose-plan :story.x/v opts)))
-      (let [data (try (compose-plan :story.x/v opts)
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
-        (is (= :rf.error/story-compose-nested-fragment (:rf.error/id data)))
-        (is (= :fragment/nested (:fragment/id data)))
-        (is (= :compose (:offending-key data)))))))
+          opts      {:variants variants :fragments fragments}
+          data      (try (compose-plan :story.x/v opts)
+                          (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+      (is (= :rf.error/story-compose-nested-fragment (:rf.error/id data)))
+      (is (= :fragment/nested (:fragment/id data)))
+      (is (= :compose (:offending-key data))))))
 
 (deftest fragment-extending-variant-fails
   (testing "a composed fragment carrying :extends also FAILS (flat fragments)"
@@ -319,19 +289,16 @@
     (let [fragments {:fragment/http-a {:fx-overrides {:rf.http/fetch :stub-a}}
                      :fragment/http-b {:fx-overrides {:rf.http/fetch :stub-b}}}
           variants  {:story.x/v {:compose [:fragment/http-a :fragment/http-b]}}
-          opts      {:variants variants :fragments fragments}]
-      (is (thrown-with-msg?
-            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
-            #"story-compose-conflict"
-            (compose-plan :story.x/v opts)))
-      (let [data (try (compose-plan :story.x/v opts)
-                      (catch #?(:clj Exception :cljs :default) e (ex-data e)))
-            c    (first (:conflicts data))]
-        (is (= :rf.error/story-compose-conflict (:rf.error/id data)))
-        (is (= :fx-overrides (:field c)))
-        (is (= :rf.http/fetch (:key c)))
-        (is (= #{:fragment/http-a :fragment/http-b} (set (:sources c))))
-        (is (= #{:stub-a :stub-b} (set (:values c))))))))
+          opts      {:variants variants :fragments fragments}
+          data      (try (compose-plan :story.x/v opts)
+                          (catch #?(:clj Exception :cljs :default) e (ex-data e)))]
+      (is (= :rf.error/story-compose-conflict (:rf.error/id data)))
+      (is (= [{:field   :fx-overrides
+               :key     :rf.http/fetch
+               :sources [:fragment/http-a :fragment/http-b]
+               :values  [:stub-a :stub-b]}]
+             (:conflicts data))
+          "the conflict names the field, the key, and each source's value in declared order"))))
 
 (deftest identical-fragment-overrides-do-not-conflict
   (testing "two composed fragments setting the SAME fx-id to the SAME value → no conflict"
@@ -365,13 +332,13 @@
         (is (= :variant-stub
                (get-in p [:world :frame :fx-overrides :rf.http/fetch]))))
       (testing "explain records the resolved conflict: winner, losing sources, rule"
-        (let [c (first (get-in p [:explain :strict-conflicts]))]
-          (is (= :fx-overrides (:field c)))
-          (is (= :rf.http/fetch (:key c)))
-          (is (= :variant-stub (:winner c)))
-          (is (= :variant (:winning-source c)))
-          (is (= #{:fragment/http-a :fragment/http-b} (set (:losing-sources c))))
-          (is (= :variant-owned-wins (:rule c))))))))
+        (is (= [{:field          :fx-overrides
+                 :key            :rf.http/fetch
+                 :winner         :variant-stub
+                 :winning-source :variant
+                 :losing-sources [:fragment/http-a :fragment/http-b]
+                 :rule           :variant-owned-wins}]
+               (get-in p [:explain :strict-conflicts])))))))
 
 (deftest variant-owned-fills-only-its-key
   (testing "variant-owned-wins is per-KEY: the variant fills its key, the fragment fills the rest"
@@ -426,18 +393,12 @@
                                      :rf.http/alpha :va
                                      :rf.http/mid   :vm
                                      :rf.http/beta  :vb}}}
-          opts      {:variants variants :fragments fragments}
-          keys-of   (fn [p] (mapv :key (get-in p [:explain :strict-conflicts])))
-          p         (compose-plan :story.x/v opts)
-          order     (keys-of p)]
-      (testing "every owned key surfaces a resolved entry"
-        (is (= #{:rf.http/alpha :rf.http/beta :rf.http/mid :rf.http/zeta}
-               (set order))))
-      (testing "the order is the stable sort, not the (out-of-order) declared order"
-        (is (= (sort-by pr-str order) order)))
-      (testing "recompiling yields the IDENTICAL order (no hash-map iteration leak)"
-        (is (= order (keys-of (compose-plan :story.x/v opts))))
-        (is (= order (keys-of (compose-plan :story.x/v opts))))))))
+          p         (compose-plan :story.x/v {:variants variants :fragments fragments})]
+      (is (= [:rf.http/alpha :rf.http/beta :rf.http/mid :rf.http/zeta]
+             (mapv :key (get-in p [:explain :strict-conflicts])))
+          "every owned key surfaces a resolved entry, in the stable sorted
+           order rather than the out-of-order declared one — an exact
+           vector on both lanes, so no hash-map iteration order leaks"))))
 
 ;; ===========================================================================
 ;; No `:resolve-conflicts` escape hatch in P1
