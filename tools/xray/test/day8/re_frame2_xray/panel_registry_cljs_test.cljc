@@ -151,7 +151,12 @@
     (is (= [:epoch :appdb] (mapv :id (reg/tabs-for-mode :dynamic)))
         "only Dynamic tabs surface for :dynamic")
     (is (= [:catalogue] (mapv :id (reg/tabs-for-mode :static)))
-        "only Static tabs surface for :static")))
+        "only Static tabs surface for :static"))
+  (testing "tab-ids-for-mode is the same partition as an id set — it
+            drives the select-tab event's contains? guard, so unknown ids
+            land as no-ops"
+    (is (= #{:epoch :appdb} (reg/tab-ids-for-mode :dynamic)))
+    (is (= #{:catalogue} (reg/tab-ids-for-mode :static)))))
 
 (deftest tabs-for-mode-sorts-by-order-ascending
   (testing "lower :order comes first regardless of registration order"
@@ -192,20 +197,7 @@
     (is (nil? (reg/tab-by-id :static :epoch))
         "a real id under the WRONG mode → nil (composite key miss)")))
 
-;; ---- (6) tab-ids-for-mode -----------------------------------------------
-
-(deftest tab-ids-for-mode-is-the-id-set
-  (testing "tab-ids-for-mode is the set of ids registered for the mode —
-            drives the select-tab event's contains? guard so unknown ids
-            land as no-ops"
-    (reg/reg-l4-tab! (dynamic-tab :epoch 0))
-    (reg/reg-l4-tab! (dynamic-tab :appdb 1))
-    (reg/reg-l4-tab! {:id :catalogue :label "Catalogue" :mnem "c"
-                      :modes #{:static} :order 0 :panel (stub-panel)})
-    (is (= #{:epoch :appdb} (reg/tab-ids-for-mode :dynamic)))
-    (is (= #{:catalogue} (reg/tab-ids-for-mode :static)))))
-
-;; ---- (7) default-tab-for-mode -------------------------------------------
+;; ---- (6) default-tab-for-mode -------------------------------------------
 
 (deftest default-tab-for-mode-is-the-lowest-order-tab
   (testing "default-tab-for-mode is the FIRST tab in tabs-for-mode order —
@@ -215,7 +207,7 @@
     (is (= :epoch (reg/default-tab-for-mode :dynamic))
         "the lowest-:order tab is the default landing tab")))
 
-;; ---- (8) unreg-l4-tab! — drops every mode for an id ---------------------
+;; ---- (7) unreg-l4-tab! — drops every mode for an id ---------------------
 
 (deftest unreg-l4-tab-drops-id-across-modes
   (testing "unreg-l4-tab! removes the id's entries under EVERY mode (the
@@ -239,7 +231,7 @@
     (reg/unreg-l4-tab! :never-registered)
     (is (= [:epoch] (mapv :id (reg/tab-entries))))))
 
-;; ---- (9) reset-for-test! ------------------------------------------------
+;; ---- (8) reset-for-test! ------------------------------------------------
 
 (deftest reset-for-test-clears-the-registry
   (testing "reset-for-test! clears every entry so a fixture can drive a

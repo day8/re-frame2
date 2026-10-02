@@ -9,11 +9,11 @@
   `:state/special`) when nothing registers the `:state/*` axis, so the
   registrar's `validate-tag-membership!` throws.
 
-  This smoke locks that at the framework + author level:
+  Story's own suite locks the framework half: `story_cljs_test`'s
+  `cljs-state-axis-tags-survive-variant-registration` registers a variant
+  carrying every `:state/*` value at once, in this same `:node-test`
+  build. This smoke locks the author half:
 
-  - **State-axis lock**: a synthetic `reg-variant` carrying every
-    `:state/*` value at once succeeds without throwing — pinning that
-    Story's canonical install covers the magnitude axis end-to-end.
   - **Gallery-id grammar lock**: `rf.story.schemas/story-id?` rejects a
     malformed id (a slash in a story id, say), which aborts that
     gallery's registrations — and the per-gallery cascade in
@@ -26,7 +26,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.set]
             [re-frame.story :as rf.story]
-            [re-frame.story.schemas :as rf.story.schemas]
             [day8.re-frame2-xray.focus :as focus]
             ;; Per-gallery register-all! drive. Each
             ;; namespace's bottom-of-file `(register-all!)` fires at
@@ -58,33 +57,6 @@
   (test-fn))
 
 (use-fixtures :each reset-and-install)
-
-;; ---- `:state/*` axis is canonical --------------------------------------
-
-(deftest cascade-a-state-axis-tags-validate-on-variant-registration
-  (testing "the canonical install registers every :state/* tag"
-    (is (every? #(rf.story/registered? :tag %) rf.story.schemas/canonical-state-tags))
-    (is (= 5 (count rf.story.schemas/canonical-state-tags))
-        "the axis ships five magnitude values"))
-  (testing "registering a variant tagged with every :state/* value at once
-            does NOT raise :rf.error/unknown-tag, which would brick the
-            panel-gallery"
-    (rf.story/reg-story :story.cascade-a.smoke
-      {:doc       "State-axis smoke story."
-       :component :smoke/comp
-       :tags      #{:dev}})
-    (doseq [state-tag rf.story.schemas/canonical-state-tags]
-      (let [vid (keyword "story.cascade-a.smoke" (name state-tag))]
-        (rf.story/reg-variant vid
-          {:doc    (str "Variant carrying " (pr-str state-tag))
-           :setup []
-           :tags   #{:dev state-tag}})
-        (is (rf.story/registered? :variant vid)
-            (str "variant for " (pr-str state-tag)
-                 " registered without unknown-tag error")))))
-  (testing "each :state/* tag carries the :state axis classifier
-            so the sidebar tag-filter UI can group it (SB9 facet parity)"
-    (is (= rf.story.schemas/canonical-state-tags (rf.story/tags-by-axis :state)))))
 
 ;; ---- Dynamic-tab gallery coverage + documented exclusions ----
 ;;
