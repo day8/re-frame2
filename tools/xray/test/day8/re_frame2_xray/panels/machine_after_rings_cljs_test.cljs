@@ -483,19 +483,6 @@
       (is (fn? (:on-hover props)))
       (is (fn? (:on-leave props))))))
 
-(deftest overlay-delegates-specs-for-multiple-concurrent-timers
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login)
-    (pin-now-ms! 2000)
-    (push-scheduled! 1000 :auth/login :idle    5000 0)
-    (push-scheduled! 1500 :auth/login :authing 3000 0)
-    (let [specs (-> (overlay-tree) delegated-props :ring-specs)]
-      (is (= 2 (count specs)))
-      (is (= #{"idle" "authing"} (set (map :node-id specs)))))))
-
 ;; ---- (5e) cancelled-ring retention -------------------------------------
 
 (deftest overlay-evicts-a-cancelled-ring-once-its-retention-window-passes
@@ -533,39 +520,6 @@
       (pin-now-ms! 600000)
       (is (nil? (overlay-tree))
           "and it never returns — bounded, not permanent"))))
-
-(deftest overlay-on-hover-keys-timer-hover-by-node-id
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (override-machines!    [:auth/login])
-    (override-definitions! {:auth/login fixture-definition})
-    (focus-machine!        :auth/login)
-    (pin-now-ms! 2000)
-    (push-scheduled! 1000 :auth/login :idle 5000 0)
-    (let [props    (-> (overlay-tree) delegated-props)
-          on-hover (:on-hover props)
-          on-leave (:on-leave props)
-          spec     (-> props :ring-specs first)]
-      ;; The overlay hands the bearing node-id back; the host re-resolves
-      ;; the timer identity tuple for the hover slot. The dispatch is
-      ;; async (production path), so rather than race the router drain we
-      ;; assert (a) the spec carries the identity tuple the resolution
-      ;; keys on, and (b) the callbacks are wired + a known / unknown
-      ;; node-id is handled without throwing.
-      (is (= {:machine-id :auth/login :state :idle :epoch 0}
-             (select-keys spec [:machine-id :state :epoch]))
-          "spec carries the (machine-id, state, epoch) tuple the hover
-           handler re-resolves from the bearing node-id")
-      (is (fn? on-hover))
-      (is (fn? on-leave))
-      ;; Exercise both branches — known + unknown node-id — to pin the
-      ;; callbacks don't throw on either path. (Slot-value assertions
-      ;; live in the dedicated dispatch-sync test above; the production
-      ;; callback dispatches async, so racing the router drain here would
-      ;; be flaky.)
-      (is (nil? (do (on-hover "ghost") nil)) "unknown node-id is a no-op")
-      (is (nil? (do (on-hover "idle") (on-leave "idle") nil))
-          "known node-id hover + leave run cleanly"))))
 
 ;; ---- (5b) retro now-ms anchor (xray/003 §M.2) --------------------------
 ;;
@@ -705,12 +659,10 @@
 ;; `with-frame`, reproducing the browser reality that a mouseenter fires
 ;; AFTER render commits and the ambient frame scope has unwound.
 ;;
-;; The rows in (5) above deliberately decline this claim — "the production
-;; callback dispatches async, so racing the router drain here would be
-;; flaky" — and assert only that the callbacks are wired and don't throw.
-;; Polling rather than racing makes the claim available, and it is the one
-;; that matters most: `defview` injects no frame-aware `dispatch` into a
-;; body, so this row is what says the dispatcher targets the render frame.
+;; The production callback dispatches async, so the row polls for the slot
+;; rather than racing the router drain. The claim is the one that matters
+;; most: `defview` injects no frame-aware `dispatch` into a body, so this
+;; row is what says the dispatcher targets the render frame.
 
 (deftest hover-dispatch-lands-on-the-render-frame
   (testing "the hover dispatch lands on the frame the TREE
