@@ -703,6 +703,24 @@
              "play beta's step owns its dispatch AND its re-dispatch — EXACT")))))
 
 #?(:clj
+   (deftest assert-dom-skipped-on-jvm-is-cannot-run
+     (testing "a no-DOM :assert-dom step (JVM) records NO slot pass — it
+              folds to :rf.assert/dom-visible, is evaluated by the DOM
+              executor (no DOM → skipped), and the run is :cannot-run, not a
+              false-green pass (spec/017 §`:cannot-run`)"
+       (rf.story/reg-variant :story.bridge/dom-skip
+         {:setup      []
+          :script {:auto-run? false
+                        :script    [[:assert-dom "div.foo" :visible]]}})
+       (rf.story.async/deref-blocking (rf.story/run-variant :story.bridge/dom-skip) 5000)
+       (let [final (run-blocking :story.bridge/dom-skip)
+             slot  (rf.story/read-assertions :story.bridge/dom-skip)]
+         (is (= :cannot-run (:status final))
+             "a DOM-skip-only run is :cannot-run, not :pass or :fail")
+         (is (empty? (filterv #(true? (:passed? %)) slot))
+             "a skipped (no-DOM) :assert-dom contributes no passing record")))))
+
+#?(:clj
    (deftest assert-dom-skipped-unified-result-is-cannot-run
      (testing "the UNIFIED run-result (rf.story/run-variant's resolved value),
               not just run-state, reads :cannot-run for a DOM-skip-only
@@ -711,10 +729,10 @@
               :rf.story/assertions entry, so a record-result-map that dropped
               the run-state's :cannot-run refusals would aggregate zero
               records + a clean tape to :pass (vacuous green) while run-state
-              read :cannot-run — a consumer-disagreement false-GREEN. A
-              no-DOM :assert-dom folds to :rf.assert/dom-visible and the DOM
-              executor skips it; `dom-step-skipped-on-jvm` reads the same
-              refusal off run-blocking's run-state."
+              read :cannot-run — a consumer-disagreement false-GREEN. This
+              exercises the unified-result PATH (the
+              assert-dom-skipped-on-jvm-is-cannot-run test discards the
+              result and checks only run-blocking's run-state)."
        (rf.story/reg-variant :story.bridge/dom-skip-unified
          {:setup      []
           :script {:script [[:assert-dom "div.foo" :visible]]}})
