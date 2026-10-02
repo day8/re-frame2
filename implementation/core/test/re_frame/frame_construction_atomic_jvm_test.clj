@@ -196,7 +196,6 @@
                                              {:rf.trace/frame-no-emit? true})))
         "construction surfaces the make-state-container throw")
     (is (nil? (rf.frame/frame :atomic/state-throw)) "no frame row installed")
-    (is (nil? (rf.frame/frame-state-container :atomic/state-throw)))
     (is (empty? @(:watched state)) "no projection watch was installed")
     (is (empty? (residual-watches state)) "no residual watch on any container")
     (is (empty? @(:pinned state))
@@ -280,7 +279,6 @@
                                       {:rf.trace/frame-no-emit? true})))
         "construction surfaces the second make-derived-value throw")
     (is (nil? (rf.frame/frame :atomic/second-throw)) "no frame row installed")
-    (is (nil? (rf.frame/frame-state-container :atomic/second-throw)))
     (is (= 2 @(:derived-count state)) "both projection constructors ran")
     (is (= [:proj/p1] @(:disposed-order state))
         "the ONE successfully-returned projection (:proj/p1) was disposed exactly

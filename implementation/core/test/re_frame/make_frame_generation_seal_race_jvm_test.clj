@@ -54,7 +54,6 @@
   comparison simply never differs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as rf.error-emit]
             [re-frame.flows :as rf.flows]
             [re-frame.frame :as rf.frame]
             [re-frame.live-frame :as rf.live-frame]
@@ -126,51 +125,46 @@
     (let [reached (CountDownLatch. 1)
           release (CountDownLatch. 1)
           runs    (atom 0)
-          errors  (atom [])]
-      (rf.error-emit/register-error-listener! ::recorder
-                             (fn [record] (swap! errors conj record)))
-      (let [a (binding [rf.frame/*upsert-decide-probe*
-                        (window-probe :seal-race/a reached release)]
-                (future (rf/make-frame {:id  :seal-race/a
-                                        :doc "the constructor parked mid-window"})))]
-        (is (await! reached settle-ms)
-            "the constructor parked inside the window")
+          a       (binding [rf.frame/*upsert-decide-probe*
+                          (window-probe :seal-race/a reached release)]
+                  (future (rf/make-frame {:id  :seal-race/a
+                                          :doc "the constructor parked mid-window"})))]
+      (is (await! reached settle-ms)
+          "the constructor parked inside the window")
 
-        ;; THE PRECONDITION that makes this window the narrow one it is. The
-        ;; in-flight frame is NOT in `frames`, so the registration hook about
-        ;; to fire sees nothing image-loaded and takes the hot-path skip.
-        (is (nil? (rf.frame/frame :seal-race/a))
-            "the parked constructor's record is not published yet")
-        (is (empty? (rf.live-frame/live-frame-ids))
-            "NO image-loaded frame exists — the hook's skip will fire")
+      ;; THE PRECONDITION that makes this window the narrow one it is. The
+      ;; in-flight frame is NOT in `frames`, so the registration hook about
+      ;; to fire sees nothing image-loaded and takes the hot-path skip.
+      (is (nil? (rf.frame/frame :seal-race/a))
+          "the parked constructor's record is not published yet")
+      (is (empty? (rf.live-frame/live-frame-ids))
+          "NO image-loaded frame exists — the hook's skip will fire")
 
-        ;; THE RACING REGISTRATION. Its hook fires now, against an empty
-        ;; live-frame set, and marks nothing.
-        (rf/reg-event :seal-race/late
-          (fn [{:keys [db]} _]
-            (swap! runs inc)
-            {:db (assoc db :late :ran)}))
+      ;; THE RACING REGISTRATION. Its hook fires now, against an empty
+      ;; live-frame set, and marks nothing.
+      (rf/reg-event :seal-race/late
+        (fn [{:keys [db]} _]
+          (swap! runs inc)
+          {:db (assoc db :late :ran)}))
 
-        (.countDown release)
-        (is (some? (deref a settle-ms ::timeout)) "the constructor completed")
-        (is (some? (rf.frame/frame :seal-race/a)) "the frame is published")
+      (.countDown release)
+      (is (some? (deref a settle-ms ::timeout)) "the constructor completed")
+      (is (some? (rf.frame/frame :seal-race/a)) "the frame is published")
 
-        ;; THE END STATE. Without the construction-path mark the frame would
-        ;; resolve through a generation sealed BEFORE `:seal-race/late` was
-        ;; registered, so this dispatch would be a no-op reported as
-        ;; `:rf.error/no-such-handler` — for a handler `rf.registrar/lookup` is
-        ;; holding at this very moment.
-        (rf/dispatch-sync [:seal-race/late] {:frame :seal-race/a})
-        (rf.error-emit/unregister-error-listener! ::recorder)
+      ;; THE END STATE. Without the construction-path mark the frame would
+      ;; resolve through a generation sealed BEFORE `:seal-race/late` was
+      ;; registered, so this dispatch would be a no-op reported as
+      ;; `:rf.error/no-such-handler` — for a handler `rf.registrar/lookup` is
+      ;; holding at this very moment.
+      (rf/dispatch-sync [:seal-race/late] {:frame :seal-race/a})
 
-        (is (empty? (filter #(= :rf.error/no-such-handler (:error %)) @errors))
-            (str "the frame resolved :seal-race/late through a generation "
-                 "sealed before it was registered — the registration issued "
-                 "during construction was LOST"))
-        (is (= 1 @runs)
-            "the handler registered during construction ran exactly once")
-        (is (= :ran (:late (rf/app-db-value :seal-race/a)))
-            "the frame is not permanently stale")))))
+      (is (= 1 @runs)
+          (str "the handler registered during construction ran exactly once "
+               "— a frame resolving through a generation sealed before "
+               "it was registered would report :rf.error/no-such-handler "
+               "and never run it, the registration LOST"))
+      (is (= :ran (:late (rf/app-db-value :seal-race/a)))
+          "the frame is not permanently stale"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. THE SCOPE CONTROL. The same race with a frame ALREADY live takes the

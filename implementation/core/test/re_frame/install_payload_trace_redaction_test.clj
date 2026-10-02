@@ -183,8 +183,8 @@
     (let [standard (some #(when (= [:event :rf/install-frame-state] [(:kind %) (:id %)]) %)
                          (rf.image-assembly/standard-descriptors))]
       (is (= [[]] (:sensitive (rf.registrar/handler-meta :event :rf/install-frame-state))))
-      (is (some? standard) "precondition: the install event is an image standard")
-      (is (= [[]] (:sensitive standard))))))
+      (is (= [[]] (:sensitive standard))
+          "the install event is an image standard carrying the same declaration"))))
 
 (deftest a-refused-install-egresses-no-secret-it-carried
   (testing "a refused install's error record, as the frame's `:errors` sink

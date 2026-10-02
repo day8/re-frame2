@@ -48,12 +48,11 @@
               prompt     (deref competitor 2000 ::blocked)]
           (try
             (is (= :rf.error/frame-construction-in-progress prompt)
-                "the foreign thread gets the typed loss without waiting for setup")
+                "the foreign thread gets the typed loss without waiting for setup:
+                 its terminal outcome was already available before release")
             (finally
               (.countDown release)))
           (is (some? @owner))
-          (is (= prompt @competitor)
-              "the competitor's terminal outcome was already available before release")
           (is (= #{:owner}
                  (get-in (rf.frame/frame :construction-thread/same-id) [:config :tags]))
               "only the reservation owner commits"))))))
