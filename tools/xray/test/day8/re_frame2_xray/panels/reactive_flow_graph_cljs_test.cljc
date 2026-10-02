@@ -62,9 +62,9 @@
             reader count; a sub with no, empty or single readers carries none"
     (are [readers expected]
          (= expected
-            (-> (g/layout {:level-1-subs [(cond-> {:sub-id :s :changed? true}
-                                            (some? readers) (assoc :readers readers))]})
-                :nodes :l1 first :shared-count))
+            (let [out (g/layout {:level-1-subs [(cond-> {:sub-id :s :changed? true}
+                                                  (some? readers) (assoc :readers readers))]})]
+              (:shared-count (-> out :nodes :l1 first))))
       nil           nil
       []            nil
       [:v1]         nil
