@@ -13,7 +13,8 @@
     - the SCOPE-only fail-loud-if-absent guard (`require-live-frame-for-scope!`);
     - the frame-root `:id` guard (`require-frame-root-id!`);
     - the did-you-mean rejectors both ways (`reject-frame-provider-id!` /
-      `reject-frame-root-frame!`).
+      `reject-frame-root-frame!`), through the public `rf/frame-root` /
+      `rf/frame-provider` surfaces.
 
   The React function component (`frame-root-fc`) two-pass commit-owned lifecycle
   under a real DOM (first render emits no subtree; ENSURE in useLayoutEffect;
@@ -144,31 +145,9 @@
       (is (nil? (rf.frame/frame :root/boom))
           "no half-created frame is left registered — the partial frame was torn down"))))
 
-(deftest acquire-frame-root-setup-in-band-handler-throw-rethrows-and-leaves-no-frame
-  (testing "a throwing acquire destroys the just-created frame, then
-            rethrows — holds for an IN-BAND handler-body throw too, not just an
-            escaping throw. A [:rf/set-db :not-a-map] bad-arg step raises
-            :rf.error/set-db-bad-value from inside the handler; the chain catches
-            it (in-band :rf.error/handler-exception) and dispatch-sync returns nil
-            NORMALLY. Under strict construction run-setup-events! detects that
-            captured in-band failure, tears the partial frame down, and rethrows
-            :rf.error/initial-events-step-failed — which propagates out of
-            acquire-frame-root!."
-    (let [thrown (atom nil)]
-      (try
-        (rf.views.frame-boundary/acquire-frame-root!
-          {:id :root/setdb-boom
-           :images [app-image]
-           :initial-events [[:rf/set-db {:seeded true}]
-                            [:rf/set-db :not-a-map]]})
-        (catch :default e (reset! thrown e)))
-      (is (some? @thrown)
-          "the in-band handler-body throw RETHROWS out of acquire-frame-root!")
-      (is (= :rf.error/initial-events-step-failed
-             (:rf.error/id (ex-data @thrown)))
-          "the rethrown error is the setup-step failure naming the failing step")
-      (is (nil? (rf.frame/frame :root/setdb-boom))
-          "no half-created frame is left registered — the partial frame was torn down"))))
+;; The IN-BAND route — a `[:rf/set-db :not-a-map]` step the chain catches — is
+;; pinned through make-frame by `frame_initial_events_cljs_test`'s
+;; `a-failing-setup-step-tears-down-the-partial-frame-on-every-detection-route`.
 
 ;; ---- fail-loud: ENSURE frame-root needs a keyword :id --------------------
 
@@ -182,20 +161,6 @@
     (is (thrown-with-msg? :default #":rf.error/frame-root-missing-id"
           (rf.views.frame-boundary/require-frame-root-id! "root/str" 'rf/frame-root))
         "a non-keyword :id fails loud")))
-
-;; ---- fail-loud: did-you-mean both ways ----------------------
-
-(deftest reject-frame-provider-id-names-frame-root
-  (testing "frame-provider given :id fails loud naming frame-root"
-    (is (thrown-with-msg? :default #":rf.error/frame-provider-given-id"
-          (rf.views.frame-boundary/reject-frame-provider-id! :some/frame 'rf/frame-provider))
-        "an :id on a SCOPE provider is a configuration error")))
-
-(deftest reject-frame-root-frame-names-frame-provider
-  (testing "frame-root given :frame fails loud naming frame-provider"
-    (is (thrown-with-msg? :default #":rf.error/frame-root-given-frame"
-          (rf.views.frame-boundary/reject-frame-root-frame! :some/frame 'rf/frame-root))
-        "a :frame on an ENSURE root is a configuration error")))
 
 ;; ---- fail-loud: SCOPE-only shape needs a LIVE frame ----------------------
 

@@ -498,34 +498,34 @@
 ;; handler" is `rf.trace/*handler-scope*` being bound (the router binds it for the
 ;; duration of a handler's run and ONLY then; a bare ambient `with-frame` scope
 ;; does not bind it), so a genuine TOP-LEVEL construction still runs setup
-;; synchronously.
+;; synchronously. The make-frame route is pinned on both hosts by
+;; `frame_initial_events_cljs_test`'s `frame-construction-in-handler-fails-loud`;
+;; this file pins the anon-record route that shares the guard.
 
-(deftest make-frame-in-handler-fails-loud
-  (testing "make-frame called inside a handler fails
-            :rf.error/frame-construction-in-handler and leaves no half-registered
-            child (EP-0027 §Construction)"
-    ;; EP-0002: the parent frame is the carried scope for the bare
-    ;; parent dispatch below — register `:rf/default` explicitly (the fixture
-    ;; does not synthesise it) and target it.
+(deftest make-frame-record-in-handler-fails-loud
+  (testing "make-frame / make-anon-frame-record! from inside a handler also fails
+            loud — it shares the make-frame construction guard (EP-0027)"
     (rf/make-frame {:id :rf/default})
-    (let [caught (atom nil)]
-      (rf/reg-event :child/boot
-        (fn [{:keys [db]} _] {:db (assoc db :child-booted? true)}))
-      (rf/reg-event :parent/spawn-child
+    (let [caught (atom nil)
+          before (rf/frame-ids)]
+      (rf/reg-event :sub-actor/boot
+        (fn [{:keys [db]} _] {:db (assoc db :booted? true)}))
+      (rf/reg-event :parent/spawn-sub-actor
         (fn [{:keys [db]} _]
-          ;; Capture the construction throw inside the handler so we can assert
-          ;; its id without depending on how dispatch-sync surfaces it.
           (reset! caught
-                  (try (rf/make-frame {:id :child :initial-events [[:child/boot]]})
+                  (try (rf.frame/make-anon-frame-record!
+                         {:initial-events [[:sub-actor/boot]]})
                        nil
                        (catch clojure.lang.ExceptionInfo e
                          (:rf.error/id (ex-data e)))))
           {:db db}))
-      (rf/dispatch-sync [:parent/spawn-child] {:frame :rf/default})
+      (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
       (is (= :rf.error/frame-construction-in-handler @caught)
-          "a handler-time make-frame fails loud")
-      (is (nil? (rf.frame/frame :child))
-          "the just-created child container was torn back down — no half-registered frame"))))
+          "a handler-time make-anon-frame-record! fails loud")
+      ;; The anon id is minted inside the refused call, so the witness is the
+      ;; whole registered set rather than one id.
+      (is (= before (rf/frame-ids))
+          "no half-registered child frame is left behind"))))
 
 (deftest make-frame-construction-failure-leaves-no-registrar-or-trace-residue
   (testing "a make-frame whose frame CONSTRUCTION fails (no adapter
@@ -595,31 +595,6 @@
       (is (nil? (rf/frame-meta :h1vqa4/owned)) "destroyed frame is gone")
       (is (= gen-before (rf.source-store/store-generation))
           "destroy does not move the source-store generation either"))))
-
-(deftest make-frame-record-in-handler-fails-loud
-  (testing "make-frame / make-anon-frame-record! from inside a handler also fails
-            loud — it shares the make-frame construction guard (EP-0027)"
-    (rf/make-frame {:id :rf/default})
-    (let [caught (atom nil)
-          before (rf/frame-ids)]
-      (rf/reg-event :sub-actor/boot
-        (fn [{:keys [db]} _] {:db (assoc db :booted? true)}))
-      (rf/reg-event :parent/spawn-sub-actor
-        (fn [{:keys [db]} _]
-          (reset! caught
-                  (try (rf.frame/make-anon-frame-record!
-                         {:initial-events [[:sub-actor/boot]]})
-                       nil
-                       (catch clojure.lang.ExceptionInfo e
-                         (:rf.error/id (ex-data e)))))
-          {:db db}))
-      (rf/dispatch-sync [:parent/spawn-sub-actor] {:frame :rf/default})
-      (is (= :rf.error/frame-construction-in-handler @caught)
-          "a handler-time make-anon-frame-record! fails loud")
-      ;; The anon id is minted inside the refused call, so the witness is the
-      ;; whole registered set rather than one id.
-      (is (= before (rf/frame-ids))
-          "no half-registered child frame is left behind"))))
 
 ;; ---- Spec 002 §Frame presets — closed v1 expansion table -----------------
 ;;
