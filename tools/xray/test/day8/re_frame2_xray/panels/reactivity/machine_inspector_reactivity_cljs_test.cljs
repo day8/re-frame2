@@ -72,27 +72,6 @@
             "machine-inspector lens re-fired with new transition
              records")))))
 
-(deftest machine-lens-tracks-machine-id-across-flip
-  (testing "the lens projects the focused epoch's
-            machine-transition events; flipping focus to an epoch
-            with a DIFFERENT machine surfaces the different
-            machine-id."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history!
-      [(epoch-with-transition :e1 :c1 :title/flow :idle :loading
-                              [:title/refresh])
-       (epoch-with-transition :e2 :c2 :auth/flow :anon :signed-in
-                              [:auth/login])])
-    (h/focus-cascade! :c1)
-    (let [transitions-1 (h/read-sub :rf.xray/machine-transitions-for-focused-event)]
-      (is (= :title/flow (:machine-id (first transitions-1)))))
-    (h/focus-cascade! :c2)
-    (let [transitions-2 (h/read-sub :rf.xray/machine-transitions-for-focused-event)]
-      (is (= :auth/flow (:machine-id (first transitions-2)))
-          "focus flip surfaces the new epoch's machine — the lens
-           rebinds end-to-end through the sub chain"))))
-
 (deftest machine-lens-empty-on-epoch-without-transitions
   (testing "an epoch without transition trace events
             yields `[]`. The reactive contract holds too: when

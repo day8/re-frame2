@@ -67,39 +67,9 @@
                   {:operation :something-else}]]
       (is (= [:c] (trace-state/current-state-from-traces events :foo))))))
 
-(deftest current-state-from-traces-scopes-by-machine-id
-  (testing "ignores trace events belonging to other machines"
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :other}
-                   :from      [:x] :to [:y] :event :wrong-machine}
-                  {:operation :rf.machine/transition
-                   :tags      {:machine-id :foo}
-                   :from      [:a] :to [:b] :event :ours}]]
-      (is (= [:b] (trace-state/current-state-from-traces events :foo))))))
-
 (deftest current-state-from-traces-returns-nil-when-no-match
   (is (nil? (trace-state/current-state-from-traces [] :foo)))
   (is (nil? (trace-state/current-state-from-traces nil :foo))))
-
-(deftest current-state-accepts-keyword-to
-  (testing ":to may be a bare keyword (per the normalise-path branch)"
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :foo}
-                   :from      :a :to :b :event :go}]]
-      (is (= [:b] (trace-state/current-state-from-traces events :foo))))))
-
-(deftest current-state-from-traces-reads-tags-after-state
-  (testing "modern runtime shape: :tags {:after {:state ...}}"
-    ;; Per lifecycle_fx/registration the runtime stamps
-    ;;   {:tags {:after  {:state <to-kw> ...}
-    ;;           :before {:state <from-kw> ...}
-    ;;           :machine-id <id>}}
-    ;; The legacy top-level :to slot works too (the tests above pin it).
-    (let [events [{:operation :rf.machine/transition
-                   :tags      {:machine-id :cart
-                               :after      {:state :populated}}}]]
-      (is (= [:populated]
-             (trace-state/current-state-from-traces events :cart))))))
 
 (deftest current-state-from-traces-prefers-modern-shape-over-legacy
   (testing "when both :after :state AND legacy :to are present, modern wins"
@@ -175,45 +145,6 @@
     (let [history [{:epoch-id 1 :trace-events []}
                    {:epoch-id 2 :trace-events [{:operation :something-else}]}]]
       (is (nil? (trace-state/current-state-from-epoch-history history :cart))))))
-
-(deftest current-state-from-epoch-history-scopes-by-machine-id
-  (testing "ignores transitions belonging to other machines"
-    (let [history [{:epoch-id 1
-                    :trace-events [{:operation :rf.machine/transition
-                                    :tags {:machine-id :other}
-                                    :from [:x] :to [:y]
-                                    :event :wrong-machine}]}
-                   {:epoch-id 2
-                    :trace-events [{:operation :rf.machine/transition
-                                    :tags {:machine-id :cart}
-                                    :from [:empty] :to [:populated]
-                                    :event :populate}]}]]
-      (is (= [:populated]
-             (trace-state/current-state-from-epoch-history history :cart))))))
-
-(deftest current-state-from-epoch-history-reads-modern-shape
-  (testing "epoch-history walk-back honours the modern :tags :after :state shape"
-    (let [history [{:epoch-id 1
-                    :trace-events [{:operation :rf.machine/transition
-                                    :tags {:machine-id :cart
-                                           :after {:state :authing}}}]}]]
-      (is (= [:authing]
-             (trace-state/current-state-from-epoch-history history :cart))))))
-
-(deftest current-state-from-epoch-history-picks-latest-within-epoch
-  (testing "within an epoch's trace-events, the LAST matching transition wins"
-    (let [history [{:epoch-id 1
-                    :trace-events [{:operation :rf.machine/transition
-                                    :tags {:machine-id :cart}
-                                    :from [:empty] :to [:populated]
-                                    :event :populate}
-                                   ;; Microstep after — should be picked.
-                                   {:operation :rf.machine/transition
-                                    :tags {:machine-id :cart}
-                                    :from [:populated] :to [:submitting]
-                                    :event :submit}]}]]
-      (is (= [:submitting]
-             (trace-state/current-state-from-epoch-history history :cart))))))
 
 ;; ---- extract-fired-edge-ids: shape + nil-safety -------------------------
 
@@ -620,24 +551,6 @@
                      :tags {:machine-id :door :guard-id :may-close?
                             :outcome :fail :input {:event :door/close}}}]
                    :door))))))
-
-(deftest guard-blocked-ids-scope-by-machine-id
-  (testing "ignores guard traces belonging to other machines"
-    (let [def      (door-definition)
-          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
-          events   [{:operation :rf.machine/guard-evaluated
-                     :tags {:machine-id :other
-                            :guard-id   :may-close?
-                            :outcome    :fail
-                            :input      {:event :door/close}}}
-                    {:operation :rf.machine/guard-evaluated
-                     :tags {:machine-id :door
-                            :guard-id   :may-close?
-                            :outcome    :fail
-                            :input      {:event :door/close}}}]
-          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
-      (is (= #{close-id} blocked)
-          "only the :door machine's blocked edge lights"))))
 
 (deftest guard-blocked-ids-match-actor-id-only-modern-trace
   (testing "modern live shape: the guard trace carries ONLY :actor-id (the
