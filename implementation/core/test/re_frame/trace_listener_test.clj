@@ -8,7 +8,9 @@
        events. (1 and 2 are pinned by `surviving-streams-still-register`.)
     3. Synchronous, per-event delivery: `dispatch-sync` returns only after
        every registered listener has been invoked once per emitted trace
-       event (no async wait, no batching).
+       event (no async wait, no batching). Every test here reads its
+       deliveries the moment `dispatch-sync` returns, so an async delivery
+       fails them all.
     4. Event-emission order: a listener sees events in the order the runtime
        fired them. Strictly increasing `:id`s across every delivery also rule
        out a duplicated or batched delivery. (Per Spec 009 §Resolved decisions, listener-call order
@@ -22,14 +24,15 @@
     7. Production elision is gated on `re-frame.interop/debug-enabled?`:
        `emit!` and the user-facing listener emit path are wrapped in the
        compile-time gate so Closure DCE strips them in `:advanced` builds
-       with `goog.DEBUG=false`.
+       with `goog.DEBUG=false`. That is a claim about a production build, so
+       it is pinned in one: `re-frame.trace-listener-elision-prod-test` runs
+       under `:advanced` + `goog.DEBUG=false`.
     8. Re-registration with the same key replaces; only the last handler
        fires for that key. (Pinned by `trace-listener-lifecycle` in
        `trace_test.clj` — not duplicated here.)
 
   JVM-only by intent; the listener API is platform-agnostic."
-  (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
             [re-frame.registrar :as rf.registrar]
@@ -87,24 +90,6 @@
 ;; lane BY DEFAULT.  Mechanism + rationale: `scripts/test-core-prod-gate.sh`.
 
 ;; ---- 2. Synchronous, per-event delivery -----------------------------------
-
-(deftest ^:requires-debug synchronous-delivery
-  (testing "listener has been called by the time dispatch-sync returns — no async wait"
-    (let [seen (atom [])]
-      (rf/register-listener! :trace ::sync (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :sync/ping (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
-      ;; The contract: dispatch-sync returns only after every listener has
-      ;; been invoked for every emitted trace event in the cascade. No
-      ;; sleep, no Thread/yield, no future deref. If `(seq @seen)` is empty
-      ;; here, delivery isn't synchronous.
-      (rf/dispatch-sync [:sync/ping])
-      (is (seq @seen)
-          "listener was invoked synchronously, before dispatch-sync returned")
-      (is (some #(and (= :rf.event (:op-type %))
-                      (= :rf.event/dispatched (:operation %)))
-                @seen)
-          "the :rf.event/dispatched trace was delivered synchronously")
-      (rf/unregister-listener! :trace ::sync))))
 
 (deftest ^:requires-debug in-cascade-emits-land-in-the-ring
   (testing "every IN-CASCADE listener event also appears in the frame's ring
@@ -181,22 +166,6 @@
 
 ;; ---- 5. Frame-aware tagging -----------------------------------------------
 
-(deftest ^:requires-debug trace-events-carry-frame-tag
-  (testing "a trace event for a specific frame carries :frame frame-id under :tags"
-    (let [seen (atom [])]
-      (rf/make-frame {:id :frame/scoped :doc "scoped"})
-      (rf/register-listener! :trace ::framed (fn [ev] (swap! seen conj ev)))
-      (rf/reg-event :framed/ping (fn [{:keys [db]} _] {:db (assoc db :ping? true)}))
-      (rf/dispatch-sync [:framed/ping] {:frame :frame/scoped})
-      (let [dispatched (->> @seen
-                            dispatched-events
-                            (filter #(= [:framed/ping] (get-in % [:tags :rf.event/v])))
-                            first)]
-        (is dispatched ":rf.event/dispatched trace was delivered for the framed dispatch")
-        (is (= :frame/scoped (get-in dispatched [:tags :frame]))
-            ":frame frame-id is carried under :tags per Spec 009 §The trace event model"))
-      (rf/unregister-listener! :trace ::framed))))
-
 (deftest ^:requires-debug different-frames-carry-distinct-frame-tags
   (testing "events emitted on behalf of different frames carry their respective :frame ids"
     (rf/make-frame {:id :frame/a})
@@ -215,35 +184,6 @@
         (is a "frame :frame/a's :rf.event/dispatched delivered with its frame tag")
         (is b "frame :frame/b's :rf.event/dispatched delivered with its frame tag"))
       (rf/unregister-listener! :trace ::multi))))
-
-;; ---- 6. Production-elision contract (structural) -------------------------
-
-(deftest ^:requires-debug emit-rides-debug-flag
-  (testing "the listener-emission body is wrapped in interop/debug-enabled?"
-    ;; The production-elision contract is that no listener invocation, event-map
-    ;; allocation, or buffer push happens when the flag is false at compile
-    ;; time. We assert the source contains the gate at the right call sites;
-    ;; combined with the `:elision-probe` build (Spec 009 §Production-elision
-    ;; verification) that exercises the surface in production, this protects
-    ;; the elision contract.
-    ;;
-    ;; Source is read via the CLASSPATH RESOURCE, not a cwd-relative path:
-    ;; the JVM cwd is `implementation/core/` under the canonical per-artefact
-    ;; gate (which CI runs) but `implementation/` under the combined
-    ;; `implementation/deps.edn` `:test` alias, where the file lives at
-    ;; `core/src/...`, so a relative `(slurp "src/re_frame/trace.cljc")` would
-    ;; throw FileNotFoundException there. `io/resource` finds
-    ;; `re_frame/trace.cljc` on the classpath regardless of cwd.
-    (let [res (io/resource "re_frame/trace.cljc")
-          _   (assert res
-                      (str "emit-rides-debug-flag cannot locate "
-                           "re_frame/trace.cljc on the classpath — the core "
-                           "src dir must be on the test classpath."))
-          src (slurp res)]
-      (is (re-find #"\(defn-? emit![\s\S]*?interop/debug-enabled\?" src)
-          "emit! body is gated on interop/debug-enabled?")
-      (is (re-find #"\(defn-? emit-error![\s\S]*?interop/debug-enabled\?" src)
-          "emit-error! body is gated on interop/debug-enabled?"))))
 
 ;; ---- clear-listeners! direct contract pin --------------------------------
 ;;
@@ -273,8 +213,6 @@
             b-count-1 (count @seen-b)
             c-count-1 (count @seen-c)]
         (is (pos? a-count-1) "listener A received events from the first dispatch")
-        (is (pos? b-count-1) "listener B received events from the first dispatch")
-        (is (pos? c-count-1) "listener C received events from the first dispatch")
         ;; All three listeners observed the same number of events (per-
         ;; event delivery, not batching).
         (is (= a-count-1 b-count-1 c-count-1)
@@ -327,14 +265,11 @@
       (let [e    (try (verb-fn) nil
                       (catch clojure.lang.ExceptionInfo ex ex))
             data (ex-data e)]
-        (is (some? e) "an unknown stream throws an ExceptionInfo")
         (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
             ":rf.error/id is the canonical machine discriminator")
         ;; The headline assertion: bare :where carrying the SYMBOL.
         (is (= where-sym (:where data))
             ":where is the bare canonical slot holding the 'rf/<surface> symbol")
-        (is (symbol? (:where data))
-            ":where value is a symbol (not a runtime keyword)")
         (is (not (contains? data :rf/where))
             "there is no non-canonical :rf/where slot")
         (is (= :fix-registration (:recovery data))
@@ -361,30 +296,9 @@
 ;; `:observability` policy or the `(rf/configure! {:observability …})` process
 ;; default. The always-on substrates are the implementation-tier registries
 ;; `re-frame.event-emit` / `re-frame.error-emit` (exercised directly all over
-;; this test tree).
-
-(deftest ^:requires-debug retired-always-on-streams-are-unknown-to-the-facade
-  (testing "`:events` and `:errors` are not members of the closed
-            vocabulary, so both verbs refuse them exactly as they refuse any
-            other unknown stream, and the refusal names the TWO raw dev
-            streams"
-    (doseq [stream  [:events :errors]
-            verb-fn [#(rf/register-listener! % ::k (fn [_]))
-                     #(rf/unregister-listener! % ::k)]]
-      (let [e    (try (verb-fn stream) nil
-                      (catch clojure.lang.ExceptionInfo ex ex))
-            data (ex-data e)]
-        (is (some? e)
-            (str stream " is refused by the facade"))
-        (is (= :rf.error/unknown-listener-stream (:rf.error/id data))
-            (str stream " throws the unknown-listener-stream category"))
-        (is (= stream (:stream data)) ":stream names the refused member")
-        (is (= #{:trace :epoch} (:valid data))
-            ":valid is the two-member raw dev vocabulary")
-        (is (not (contains? (:valid data) :events))
-            ":events is not in the vocabulary")
-        (is (not (contains? (:valid data) :errors))
-            ":errors is not in the vocabulary")))))
+;; this test tree). The facade's refusal of both streams by both verbs is
+;; pinned on every lane by
+;; `re-frame.emit-recorder-bracket-cljs-test/the-public-facade-no-longer-offers-the-always-on-streams`.
 
 (deftest ^:requires-debug surviving-streams-still-register
   (testing "the two members of the vocabulary are accepted. `:trace`
@@ -406,4 +320,3 @@
                    (catch clojure.lang.ExceptionInfo _ ::threw)))
         ":epoch is a member — it degrades or registers, it never throws")
     (rf/unregister-listener! :epoch ::ep)))
-
