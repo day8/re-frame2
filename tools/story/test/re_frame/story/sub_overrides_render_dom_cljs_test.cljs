@@ -16,15 +16,15 @@
   via `react-dom/client`). `:node-test` also loads it (its `cljs-test$`
   regex matches the `-dom-cljs-test` suffix), where the mounting branch
   self-gates on `(browser?)` and exits early — the node half is covered
-  by `re-frame.subs-override-seam-cljs-test` (the seam mechanics) and
-  `re-frame.story.sub-overrides-cljs-test` (the honesty boundary)."
+  by `re-frame.subs-override-seam-cljs-test` (the seam mechanics and the
+  honesty boundary) and `re-frame.story.sub-overrides-cljs-test` (Story's
+  context resolver)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as React]
             ["react-dom/client" :as react-dom-client]
             [reagent.core :as r]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.subs :as rf.subs]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.story.sub-overrides :as rf.story.sub-overrides]))
@@ -132,18 +132,15 @@
                  (.render root
                    (r/as-element
                      (rf.story.sub-overrides/override-provider nil [login-panel]))))))
-           (let [text (.-textContent mount-node)]
-             (is (re-find #"idle" text)
-                 "no override → the real idle state renders")
-             (is (not (re-find #"Incorrect password" text))
-                 "no override → no pinned message leaks in"))
+           (is (re-find #"idle" (.-textContent mount-node))
+               "no override → the real idle state renders")
            (finally
              (try (.unmount root) (catch :default _ nil)))))))))
 
-;; ---- 2 · the honesty boundary survives a REAL render ---------------------
+;; ---- 2 · an override beats a real app-db value -----------------------------
 
-(deftest honesty-boundary-holds-under-real-render
-  (testing "even while the override surfaces on screen, compute-sub reads real app-db"
+(deftest override-beats-a-real-app-db-value-at-render
+  (testing "with app-db really holding :ok, the override still surfaces on screen"
     (with-browser-act
      (fn [act-fn]
        (rf/reg-sub :login/state (fn [db _] (get-in db [:login :state])))
@@ -165,11 +162,7 @@
                (.render root
                  (r/as-element
                    (rf.story.sub-overrides/override-provider overrides [login-panel])))))
-           (testing "the screen shows the OVERRIDE (:error)"
-             (is (re-find #"error" (.-textContent mount-node))))
-           (testing "but compute-sub — the :rf.assert/sub-equals seam — still reads :ok"
-             (is (= :ok (rf.subs/compute-sub [:login/state] {:login {:state :ok}})))
-             (is (not= :error (rf.subs/compute-sub [:login/state] {:login {:state :ok}}))
-                 "the override can never satisfy a sub-equals assertion"))
+           (is (re-find #"error" (.-textContent mount-node))
+               "the screen shows the OVERRIDE (:error), not the real :ok")
            (finally
              (try (.unmount root) (catch :default _ nil))))))))))

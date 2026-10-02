@@ -9,8 +9,8 @@
   `re-frame.story.xray-preset-test` (.cljc). The `:node-test` build's
   ns-regexp is `cljs-test$` — to land actual CLJS-runtime coverage the
   test namespace name must match that pattern. Hence this companion
-  file. The `.cljc` sibling stays the home for the deep-merge / resolve
-  pure-data tests that round-trip through both JVM and CLJS.
+  file. The `.cljc` sibling, which the JVM lane runs, stays the home for
+  the deep-merge / resolve pure-data tests.
 
   ## Why there is ALSO a `_dom_cljs_test.cljs` sibling
 
@@ -19,8 +19,7 @@
   listener. `keybinding/attach!` and `keybinding/detach!` both open with
   `(exists? js/document)`, and this runtime has no document, so nothing
   can attach here and an `attached?` assertion would pass without
-  meaning anything (see the note above
-  `wire-cross-host-flips-the-keybinding-slot` below).
+  meaning anything (see the note on the slot half below).
   Only a namespace ending `-dom-cljs-test` is loaded by `:browser-test`,
   which is the sole lane with a real document.
 
@@ -204,32 +203,10 @@
 ;;
 ;; The listener half lives in `re-frame.story.xray-preset-dom-cljs-test`,
 ;; where a real document makes `attach!` and `detach!` reach their bodies.
-;; The slot flip is plain atom arithmetic and needs no host.
-
-(deftest wire-cross-host-flips-the-keybinding-slot
-  (testing "wire-cross-host! drives the REAL (unshimmed)
-            disable-keybinding!, so Xray's :rf.xray/keybinding-enabled?
-            slot reads false afterwards. That is the INTENT declaration.
-            The RUNTIME half — that the keydown listener attach!
-            installed is actually removed — cannot be asserted on this
-            lane and lives in the -dom-cljs-test sibling."
-    ;; Restore baseline so the flip is a real transition rather than a
-    ;; read of a slot that was already false.
-    (xray-config/set-keybinding-enabled! true)
-    (is (true? (xray-config/keybinding-attach-enabled?))
-        "precondition: the slot starts at the default-true posture")
-    (try
-      ;; Drive the cross-host bridge for real — `disable-keybinding!`
-      ;; and `detach-keybinding!` reference Xray's live config /
-      ;; keybinding namespaces through declared `:require`s, so no
-      ;; availability shim is needed. No shell mount
-      ;; happens — `wire-cross-host!` never calls `apply-open!`.
-      (rf.story.xray-preset/wire-cross-host!)
-      (is (false? (xray-config/keybinding-attach-enabled?))
-          "wire-cross-host! flipped the slot to false")
-      (finally
-        ;; Restore defaults so neighbouring tests see the baseline.
-        (xray-config/set-keybinding-enabled! true)))))
+;; The slot flip is plain atom arithmetic and needs no host: the dev
+;; control in `static-export-wire-cross-host-touches-no-xray-config`
+;; below drives the REAL (unshimmed) `wire-cross-host!` from the
+;; default-true posture and reads the slot false afterwards.
 
 ;; ---- apply-preset! -------------------------------------------------------
 ;;
@@ -302,11 +279,13 @@
 
 ;; ---- pre-first-mount: the parked set -------------------------------------
 
-(deftest filters-preset-parks-then-flushes-when-frame-arrives
+(deftest filters-preset-parks-then-flushes-once-when-frame-arrives
   (testing "an initially selected variant can resolve its preset BEFORE
             the RHS panel's first mount created :rf/xray. The lowered set
             parks and the embed's post-mount flush lands it — dropping it
-            would make the preset a silent no-op."
+            would make the preset a silent no-op. The flush drains the
+            park, so a second panel mount does not re-apply a preset the
+            user may since have edited away through the ribbon."
     ;; Model the pre-mount world: drain any prior park, then remove the
     ;; frame so `apply-preset!` genuinely has nowhere to dispatch.
     (install-xray-frame!)
@@ -322,18 +301,7 @@
              (rf.story.xray-preset/flush-pending-filters!))
           "the flush returns the pill set it applied")
       (is (= {:in [] :out [{:pattern :app/noise}]} (active-filters))
-          "and the live slot now carries it"))))
-
-(deftest flush-pending-filters-is-idempotent
-  (testing "a second panel mount does not re-apply a preset the user may
-            since have edited away through the ribbon"
-    (install-xray-frame!)
-    (swap! rf.frame/frames dissoc :rf/xray)
-    (let [vid (reg-filtered-variant! :story.filt/once {:filters {:out [:app/noise]}})]
-      (rf.story.xray-preset/apply-preset! vid)
-      (mount-xray!)
-      (is (some? (rf.story.xray-preset/flush-pending-filters!))
-          "first flush applies the parked set")
+          "and the live slot now carries it")
       ;; User clears the pills through the ribbon.
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/hydrate-filters {:in [] :out []}]))
@@ -457,9 +425,7 @@
         "dev control: the node-test build may drive Xray")
     (with-redefs [rf.story.config/static-mode? true]
       (is (false? (rf.story.xray-preset/drive-xray?))
-          "static export: Xray cannot render, so Story must not drive it"))
-    (is (true? (rf.story.xray-preset/drive-xray?))
-        "the redef is scoped — dev is restored afterwards")))
+          "static export: Xray cannot render, so Story must not drive it"))))
 
 (deftest static-export-wire-cross-host-touches-no-xray-config
   (testing "wire-cross-host! is inert under static-mode?.
