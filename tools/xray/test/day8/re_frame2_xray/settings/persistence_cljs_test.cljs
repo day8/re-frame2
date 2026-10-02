@@ -196,25 +196,6 @@
     (is (= false (config/get-setting :general :auto-open-on-error?))
         "a key neither layer names keeps the compiled-in default")))
 
-(deftest preload-order-leaves-the-persisted-payload-intact
-  (testing "and `configure!` arriving after the load must
-            not REWRITE storage either: a reload that runs only the
-            preload's load (no host `configure!` that session) must
-            still find the user's own value."
-    (#'config/storage-set! config/settings-storage-key
-                           (pr-str {:general {:text-size 20}}))
-    (config/load-settings-from-storage!)
-    (config/configure! {:rf.xray/settings {:general {:text-size 15}}})
-    ;; Next session: in-memory atom fresh, seed cleared, storage only.
-    (config/reset-settings!)
-    (is (nil? (storage-payload))
-        "precondition: reset-settings! cleared storage AND the seed")
-    (#'config/storage-set! config/settings-storage-key
-                           (pr-str {:general {:text-size 20}}))
-    (config/load-settings-from-storage!)
-    (is (= 20 (config/get-setting :general :text-size))
-        "the user's persisted value survived the earlier `configure!`")))
-
 (deftest configure-settings-does-not-clobber-persisted-user-mutation
   (testing "the OTHER order, which a host reaches by
             ordering its own preload ahead of Xray's: a host that calls

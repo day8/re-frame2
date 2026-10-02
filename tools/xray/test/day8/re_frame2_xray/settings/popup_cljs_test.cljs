@@ -231,10 +231,6 @@
             the override resolve to a valid URI immediately so the user
             edits from a known baseline."
     (let [seed @#'view/custom-template-seed]
-      (is (string? seed) "the seed is a string")
-      (is (not= "" seed)
-          "the seed is NOT the empty string (empty templates break
-           click-to-source)")
       (is (= "vscode://file/{path}:{line}:{column}" seed)
           "the seed echoes the framework-default :vscode URI shape so
            the chip resolves to a working URI immediately")

@@ -319,11 +319,7 @@
     (effects/apply-panel-width! 1700 1280)
     (let [clamped (config/get-setting :general :panel-width-px)]
       (is (= 1152 clamped)
-          "clamped to 0.9 × 1280")
-      (is (<= clamped (* 0.9 1280))
-          "and therefore inside the documented ceiling")
-      (is (>= clamped config/min-panel-width-px)
-          "never below the floor"))
+          "clamped to 0.9 × 1280"))
     ;; Storage converged: a fresh in-memory atom reloaded from the
     ;; payload reads the clamped value, not the original 1700.
     (reset! config/settings config/default-settings)
