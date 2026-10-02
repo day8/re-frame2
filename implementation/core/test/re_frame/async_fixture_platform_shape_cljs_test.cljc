@@ -92,7 +92,7 @@
 
 (deftest default-shape-is-still-the-fn-form-on-both-hosts
   (testing "omitting :async? yields a callable fn-form fixture on every host"
-    (let [fx (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
-      (let [ran? (atom false)]
-        (fx (fn [] (reset! ran? true)))
-        (is (true? @ran?) "and invoking it as a function runs the body")))))
+    (let [fx (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+          ran? (atom false)]
+      (fx (fn [] (reset! ran? true)))
+      (is (true? @ran?) "and invoking it as a function runs the body"))))

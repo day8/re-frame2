@@ -134,14 +134,14 @@
                     [noop-icpt-value]
                     (fn [{:keys [db]} _] {:db db}))
                   nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (let [data (ex-data ex)]
-        (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id data)))
-        (is (= 'rf/reg-event (:where data)))
-        (is (= :fix-registration (:recovery data)))
-        (is (= [noop-icpt-value] (:got data)))
-        (is (re-find #"positional interceptor vector is retired" (:reason data)))
-        (is (re-find #":interceptors" (:expected data))))))
+                  (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data ex)]
+      (is (= :rf.error/reg-event-bad-middle-slot (:rf.error/id data)))
+      (is (= 'rf/reg-event (:where data)))
+      (is (= :fix-registration (:recovery data)))
+      (is (= [noop-icpt-value] (:got data)))
+      (is (re-find #"positional interceptor vector is retired" (:reason data)))
+      (is (re-find #":interceptors" (:expected data)))))
 
   (testing "the vector-middle rejection happens BEFORE the registry slot is written"
     (try (rf/reg-event :test.bpmszk/vector-no-side-effect
@@ -170,13 +170,13 @@
                     {:interceptors noop-icpt-value}     ;; a bare map, not a vector
                     (fn [{:keys [db]} _] {:db db}))
                   nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (let [data (ex-data ex)]
-        (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id data)))
-        (is (= "reg-event" (:reg-fn data)))
-        (is (= :test.bpmszk/bad-nonvec (:id data)))
-        (is (= :fix-registration (:recovery data)))
-        (is (re-find #"non-vector" (:reason data))))))
+                  (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data ex)]
+      (is (= :rf.error/reg-event-bad-interceptors (:rf.error/id data)))
+      (is (= "reg-event" (:reg-fn data)))
+      (is (= :test.bpmszk/bad-nonvec (:id data)))
+      (is (= :fix-registration (:recovery data)))
+      (is (re-find #"non-vector" (:reason data)))))
 
   (testing "a vector with a structurally-malformed entry (a string — neither ref nor value) throws bad-interceptors"
     ;; EP-0022 reference-only: a bare keyword is a valid interceptor REFERENCE
@@ -199,15 +199,15 @@
                     {:interceptors [noop-icpt-value]}
                     (fn [{:keys [db]} _] {:db db}))
                   nil
-                  (catch clojure.lang.ExceptionInfo e e))]
-      (let [data (ex-data ex)]
-        (is (= :rf.error/inline-interceptor-removed (:rf.error/id data)))
-        (is (= "reg-event" (:reg-fn data)))
-        (is (= :test.0adhqs9/inline (:id data)))
-        (is (= :fix-registration (:recovery data)))
-        (is (= noop-icpt-value (:offending data)))
-        (is (re-find #"reference-only" (:reason data)))
-        (is (re-find #"reg-interceptor" (:reason data))))))
+                  (catch clojure.lang.ExceptionInfo e e))
+          data (ex-data ex)]
+      (is (= :rf.error/inline-interceptor-removed (:rf.error/id data)))
+      (is (= "reg-event" (:reg-fn data)))
+      (is (= :test.0adhqs9/inline (:id data)))
+      (is (= :fix-registration (:recovery data)))
+      (is (= noop-icpt-value (:offending data)))
+      (is (re-find #"reference-only" (:reason data)))
+      (is (re-find #"reg-interceptor" (:reason data)))))
 
   ;; A registered ref mixed with an inline value, and a ref to an UNREGISTERED
   ;; interceptor, are pinned by `re-frame.reg-interceptor-cljs-test`'s

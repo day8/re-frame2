@@ -85,11 +85,9 @@
         {:db (update db :items conj sku)}))
 
     (rf/dispatch-sync [:cart/seed])
-    (let [before (rf/app-db-value :rf/default)]
-      (rf/dispatch-sync [:cart/add :milk])
-      (let [after (rf/app-db-value :rf/default)]
-        (is (= [:milk] (get-in after [:cart :items]))
-            "the changed slice was spliced back into full app-db at [:cart]")))))
+    (rf/dispatch-sync [:cart/add :milk])
+    (is (= [:milk] (get-in (rf/app-db-value :rf/default) [:cart :items]))
+        "the changed slice was spliced back into full app-db at [:cart]")))
 
 (deftest path-nested-interceptors-compose
   (testing "nested path interceptors stack + unwind correctly"
@@ -284,19 +282,19 @@
     (let [inline (rf.interceptor/->interceptor*
                    :id     :stale/inline
                    :before (fn [ctx] ctx)
-                   :after  (fn [ctx] ctx))]
-      ;; The dispatch-time arm stamps :where rf/resolve-chain — distinct from the
-      ;; registration-time guard's :where rf/reg-event. This is the whole point of
-      ;; the belt-and-braces: a stale inline value that somehow slips past
-      ;; registration still loud-fails at chain assembly.
-      (let [ex (try (rf.interceptor-registry/resolve-chain [inline])
-                    nil
-                    (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
-        (is (= :rf.error/inline-interceptor-removed (:rf.error/id (ex-data ex))))
-        (is (= 'rf/resolve-chain (:where (ex-data ex)))
-            "the dispatch-time :where distinguishes it from the registration-time rf/reg-event seam")
-        (is (= inline (:entry (ex-data ex)))
-            "the offending inline entry rides the error data")))))
+                   :after  (fn [ctx] ctx))
+          ;; The dispatch-time arm stamps :where rf/resolve-chain — distinct
+          ;; from the registration-time guard's :where rf/reg-event. This is
+          ;; the whole point of the belt-and-braces: a stale inline value that
+          ;; somehow slips past registration still loud-fails at chain assembly.
+          ex     (try (rf.interceptor-registry/resolve-chain [inline])
+                      nil
+                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo) e e))]
+      (is (= :rf.error/inline-interceptor-removed (:rf.error/id (ex-data ex))))
+      (is (= 'rf/resolve-chain (:where (ex-data ex)))
+          "the dispatch-time :where distinguishes it from the registration-time rf/reg-event seam")
+      (is (= inline (:entry (ex-data ex)))
+          "the offending inline entry rides the error data"))))
 
 (deftest resolve-chain-dispatch-time-malformed-entry-invalid-ref
   (testing "a structurally-malformed chain entry reaching resolve-chain directly is :rf.error/invalid-interceptor-ref"

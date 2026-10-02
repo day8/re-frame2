@@ -180,7 +180,7 @@
             even one present on the token"
     (let [had-time? (atom ::unset)]
       (rf/reg-event :cofx-test/declares-nothing
-        (fn [{:keys [rf/time-ms] :as cofx} _]
+        (fn [cofx _]
           (reset! had-time? (contains? cofx :rf/time-ms))
           {}))
       (rf/dispatch-sync [:cofx-test/declares-nothing]
