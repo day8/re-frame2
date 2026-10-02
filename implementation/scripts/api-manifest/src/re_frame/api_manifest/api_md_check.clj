@@ -5,9 +5,16 @@
   — the human-readable reference whose every var-row carries a Tier
   column. This check validates that projection against the generated
   manifest (`spec/api-manifest.edn`): every var-row in API.md must resolve
-  to a manifest row, and the Tier the row states must MATCH the manifest's
-  `:tier`. A row that names a var the manifest does not carry — or states a
-  tier that disagrees with the manifest — fails the check (red in CI).
+  to a manifest row, the Tier the row states must MATCH the manifest's
+  `:tier`, and the kind its `M/Fn` cell states must MATCH the manifest's
+  `:kind`. A row that names a var the manifest does not carry — or states a
+  tier or kind that disagrees with the manifest — fails the check (red in CI).
+
+  KIND MARKERS. The `M/Fn` cell's leading marker states the kind: `Fn` is
+  `:fn`, `M` is `:macro`, `Var` is `:var` (`kind-markers`). A cell such as
+  `M/Fn (CLJS)` is graded by its leading `M`, because the manifest is derived
+  on the JVM where the name is a macro. `Component` has no manifest
+  counterpart, so a `Component` row is graded on name and tier only.
 
   WHAT COUNTS AS A VAR-ROW. API.md mixes var-rows (one public fn / macro /
   Var) with keyword-addressed-registration rows (events / subs / fx /
@@ -113,6 +120,11 @@
   [cell]
   (boolean (var-kind-token cell)))
 
+(def ^:private kind-markers
+  "The `M/Fn` cell's leading marker -> the manifest `:kind` it states.
+   `Component` is absent because the manifest has no component kind."
+  {"Fn" :fn "M" :macro "Var" :var})
+
 (def adapter-aliases
   "The documented `:require [<ns> :as <alias>]` adapter aliases API.md uses
    to qualify the substrate-adapter surfaces (spec/API.md §UIx adapter
@@ -179,8 +191,9 @@
   "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines,
    separate from `parse-api-md-var-rows` so parser DISAPPEARANCE is
    unit-testable with synthetic lines, like the pure `reconcile` core.
-   Returns the `[{:var :qualifier :tier :line :raw}
+   Returns the `[{:var :qualifier :tier :kind :line :raw}
    ...]` vector — exactly the fields `reconcile` reads, and nothing else.
+   `:kind` is nil for a marker `kind-markers` does not map.
 
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
@@ -217,6 +230,7 @@
                          (conj! parsed-rows {:var       bare
                                              :qualifier qualifier
                                              :tier      documented-tier
+                                             :kind      (get kind-markers (var-kind-token kind-cell))
                                              :line      line-number
                                              :raw       (second identifier-match)})))
                 (recur remaining tier-column-index parsed-rows))
@@ -256,7 +270,8 @@
 
    `rows`               — manifest rows (each `{:namespace :var :tier ...}`).
    `api-rows`           — parsed API.md var-rows `{:var :qualifier :tier
-                          :line :raw}` (`:qualifier` nil for a bare row).
+                          :kind :line :raw}` (`:qualifier` nil for a bare
+                          row, `:kind` nil for an unmapped marker).
    `known-unmanifested` — set of bare var-name strings knowingly
                           unmanifested (the `:api-md-known-unmanifested`
                           allowlist; bare rows only).
@@ -269,39 +284,37 @@
    `:missing` (this is what catches a stale/wrong/unknown qualifier on a
    duplicate bare var). BARE rows keep the name-resolution latitude: any
    manifest row with the bare name carrying the tier satisfies them, and
-   the bare-name allowlist applies."
+   the bare-name allowlist applies.
+
+   KIND is graded once the tier holds, against the manifest rows that
+   matched on name AND tier: the row's `:kind` must be one of theirs. A row
+   whose `:kind` is nil (an unmapped marker) is not graded on kind."
   [{:keys [rows api-rows known-unmanifested aliases]}]
-  (let [;; bare var-name -> set of tiers the manifest carries for that name
-        by-name (reduce (fn [acc {:keys [var tier]}]
-                          (update acc var (fnil conj #{}) tier))
-                        {} rows)
-        ;; strict [namespace var] -> set of tiers (a [ns var] pair is unique
-        ;; in the manifest, so each set is a singleton — but a set keeps the
-        ;; not-contains? tier check uniform with the bare path).
-        by-ns+var (reduce (fn [acc {:keys [namespace var tier]}]
-                            (update acc [namespace var] (fnil conj #{}) tier))
-                          {} rows)]
-    (keep (fn [{:keys [var qualifier tier line raw]}]
-            (if qualifier
-              ;; QUALIFIED: resolve the qualifier to an exact namespace,
-              ;; then require an exact [namespace var] manifest pair.
-              (let [resolved-namespace (get aliases qualifier qualifier)
-                    manifest-tiers     (get by-ns+var [resolved-namespace var])]
-                (cond
-                  (nil? manifest-tiers)
-                  {:kind :missing :var var :raw raw :line line :api-tier tier}
-                  (not (contains? manifest-tiers tier))
-                  {:kind :tier-mismatch :var var :raw raw :line line
-                   :api-tier tier :manifest-tiers manifest-tiers}))
-              ;; BARE: by-name latitude + bare-name allowlist.
-              (let [manifest-tiers (get by-name var)]
-                (cond
-                  (contains? known-unmanifested var) nil
-                  (nil? manifest-tiers)
-                  {:kind :missing :var var :raw raw :line line :api-tier tier}
-                  (not (contains? manifest-tiers tier))
-                  {:kind :tier-mismatch :var var :raw raw :line line
-                   :api-tier tier :manifest-tiers manifest-tiers}))))
+  (let [;; bare var-name -> the manifest rows carrying that name
+        by-name   (group-by :var rows)
+        ;; strict [namespace var] -> the manifest rows carrying that pair (a
+        ;; [ns var] pair is unique in the manifest, so each is a singleton —
+        ;; but a seq keeps the tier and kind checks uniform with the bare path).
+        by-ns+var (group-by (juxt :namespace :var) rows)]
+    (keep (fn [{:keys [var qualifier tier kind line raw]}]
+            (let [;; QUALIFIED: resolve the qualifier to an exact namespace,
+                  ;; then require an exact [namespace var] manifest pair.
+                  ;; BARE: by-name latitude + bare-name allowlist.
+                  matched        (if qualifier
+                                   (get by-ns+var [(get aliases qualifier qualifier) var])
+                                   (get by-name var))
+                  manifest-tiers (set (map :tier matched))
+                  manifest-kinds (set (keep #(when (= tier (:tier %)) (:kind %)) matched))]
+              (cond
+                (and (nil? qualifier) (contains? known-unmanifested var)) nil
+                (empty? matched)
+                {:kind :missing :var var :raw raw :line line :api-tier tier}
+                (not (contains? manifest-tiers tier))
+                {:kind :tier-mismatch :var var :raw raw :line line
+                 :api-tier tier :manifest-tiers manifest-tiers}
+                (and kind (not (contains? manifest-kinds kind)))
+                {:kind :kind-mismatch :var var :raw raw :line line
+                 :api-kind kind :manifest-kinds manifest-kinds})))
           api-rows)))
 
 (defn floor-violation
@@ -327,8 +340,8 @@
 
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
-   every API.md var-row resolves to a manifest row with a MATCHING tier;
-   false (with a printed report) on any mismatch."
+   every API.md var-row resolves to a manifest row with a MATCHING tier and
+   kind; false (with a printed report) on any mismatch."
   []
   (let [manifest   (rf.api-manifest.gen/read-committed-manifest)
         rows       (:vars manifest)
@@ -386,16 +399,19 @@
       :else
       (do (binding [*out* *err*]
             (println "DRIFT: spec/API.md var-rows disagree with spec/api-manifest.edn.")
-            (println "Each API.md var-row's Tier must match the manifest (regenerate the")
-            (println "manifest + reconcile the sidecar/API.md). Problems:")
-            (doseq [{:keys [kind raw line api-tier manifest-tiers]} problems]
+            (println "Each API.md var-row's Tier and M/Fn kind must match the manifest")
+            (println "(regenerate the manifest + reconcile the sidecar/API.md). Problems:")
+            (doseq [{:keys [kind raw line api-tier manifest-tiers api-kind manifest-kinds]} problems]
               (case kind
                 :missing
                 (println (format "  L%-4d MISSING: `%s` (API.md, tier %s) has no manifest row"
                                  line raw api-tier))
                 :tier-mismatch
                 (println (format "  L%-4d TIER:    `%s` API.md says %s; manifest says %s"
-                                 line raw api-tier manifest-tiers)))))
+                                 line raw api-tier manifest-tiers))
+                :kind-mismatch
+                (println (format "  L%-4d KIND:    `%s` API.md says %s; manifest says %s"
+                                 line raw api-kind manifest-kinds)))))
           false))))
 
 (defn -main [& _]
