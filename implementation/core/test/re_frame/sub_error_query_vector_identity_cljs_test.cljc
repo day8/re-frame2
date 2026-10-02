@@ -193,9 +193,3 @@
           "corpus listener elides the dispatched event's sensitive arg")
       (is (= [:some/event :rf/redacted] (:event (only @sink-seen)))
           "observability sink elides the dispatched event's sensitive arg"))))
-
-;; ---------------------------------------------------------------------------
-;; 5. The generic walker's integer-path-matches-coordinate behaviour holds
-;;    (the caller's opt-out must not weaken position-precise app-db elision —
-;;    elision_test.clj's own pin lives in JVM; this is the CLJC restatement).
-;; ---------------------------------------------------------------------------

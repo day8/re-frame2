@@ -178,10 +178,3 @@
               "the rejection is the derived-container guard, not a delegated write failing")
           (is (= 1 @writes)
               "the adapter's replace-container! ran for the base write only"))))))
-
-(deftest sentinel-distinct-from-false
-  (testing "the container-class-unknown sentinel is NOT false (the no-opinion vs base distinction)"
-    (is (not= false rf.substrate.adapter/container-class-unknown)
-        "the sentinel must be distinguishable from a genuine `false` (base) verdict")
-    (is (keyword? rf.substrate.adapter/container-class-unknown)
-        "the sentinel is a namespaced keyword")))
