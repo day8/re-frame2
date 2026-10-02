@@ -71,26 +71,21 @@
 (deftest identical-inputs-reuse-the-same-sealed-generation
   (testing "two assemblies of the SAME image over an UNCHANGED live source store
             return the SAME sealed generation object — not merely equal, but
-            identical? — so a request-scoped frame does not re-seal"
+            identical? — so a request-scoped frame does not re-seal. The key is
+            by VALUE, not by image object identity: a SEPARATELY-constructed
+            image with an equal spec hits the same cache slot"
     (record! "shop.cart" :event :cart/add ::add)
     (let [img  (rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})
           gen1 (rf.image-assembly/assemble [img])
-          gen2 (rf.image-assembly/assemble [img])]
-      (is (= gen1 gen2) "the two generations are equal")
+          gen2 (rf.image-assembly/assemble [img])
+          gen3 (rf.image-assembly/assemble
+                 [(rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})])]
       (is (identical? gen1 gen2)
           "the SECOND assembly reused the cached object — it did NOT re-seal")
+      (is (identical? gen1 gen3)
+          "equal-by-value image specs resolve to the one cached generation")
       (is (= 1 (rf.image-assembly/cache-size))
           "exactly one generation is cached for the one composition"))))
-
-(deftest distinct-equal-image-values-still-hit
-  (testing "two SEPARATELY-constructed image values with equal specs hit the
-            same cache slot — the key is by VALUE, not by image object identity"
-    (record! "shop.cart" :event :cart/add ::add)
-    (let [gen1 (rf.image-assembly/assemble [(rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})])
-          gen2 (rf.image-assembly/assemble [(rf.image/image {:id :shop/main :select-ns {:include ["shop.cart"]}})])]
-      (is (identical? gen1 gen2)
-          "equal-by-value image specs resolve to the one cached generation")
-      (is (= 1 (rf.image-assembly/cache-size))))))
 
 ;; ===========================================================================
 ;; 2. INVALIDATION — a changed SELECTED descriptor (source-store generation)

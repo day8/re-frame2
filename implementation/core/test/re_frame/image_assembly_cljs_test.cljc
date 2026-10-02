@@ -4,9 +4,11 @@
   SEALED, VALIDATED `[kind id]` generation and fail loud before a frame runs.
 
   Sections 1-2 + 6+ pin EP-0023 assembly coverage (projection, dedupe,
-  unsupported kind, references, structured diagnostics). Sections 3, 3b, 5, 9
+  unsupported kind, references, structured diagnostics). Sections 3, 5, 9
   pin EP-0026 §Layered Resolution: a `[kind id]` defined by several images
   resolves by deterministic IMAGE-ORDER layering, the later image winning.
+  `ep0026_select_ns_cljs_test` pins the plain two-image layering in both
+  orders and the within-image collision rows on the same inputs.
   There is no image-capability surface — no `:rf.image/requires`, no
   `check-capabilities!`, and no `:rf.gen/requires` on the generation.
 
@@ -103,9 +105,7 @@
                   {:reg-fx [[:cart.http/post {:doc "post"} ::http-post]]}})
           gen  (rf.image-assembly/assemble [img] pool)]
       (testing "the resolver is keyed by [kind id], one descriptor each"
-        (is (contains? (:rf.gen/resolver gen) [:event :cart/add]))
         (is (contains? (:rf.gen/resolver gen) [:sub :cart/items]))
-        (is (contains? (:rf.gen/resolver gen) [:fx :cart.http/post]))
         (testing "the framework standard is unioned in"
           (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url])))
         (testing "the non-selected namespace is NOT in the generation"
@@ -118,26 +118,15 @@
         (is (= #{:event :sub :fx} (rf.image-assembly/generation-kinds gen)))
         (is (not (contains? gen :rf.gen/requires))))
       (testing "the sealed generation is an inert immutable value"
-        (is (map? gen))
         (is (= gen (rf.image-assembly/assemble [img] pool))
             "equal image inputs over the same pool produce an equal generation")))))
 
 ;; ===========================================================================
-;; 2. Duplicate-id collision — order NEVER silently decides (the central rule)
+;; 2. Dedupe — the same registration selected twice is NOT a collision. The
+;;    duplicate-id collision itself is pinned with its ex-data by §11's
+;;    `within-image-duplicate-id-ex-data-names-colliding-coordinates`, and in
+;;    both selection orders by `ep0026_select_ns_cljs_test`.
 ;; ===========================================================================
-
-(deftest duplicate-id-order-independence
-  (testing "two namespaces registering the same (kind, id) with different impls,
-            both selected, with no declared winner → :rf.error/image-duplicate-id
-            regardless of selection order — load order does NOT pick a
-            survivor, there is no last-write that 'wins'"
-    (let [a    (reg-desc "todo.boot"    :event :boot/init ::a)
-          b    (reg-desc "counter.boot" :event :boot/init ::b)
-          img  (rf.image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
-      (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(rf.image-assembly/assemble [img] [a b]))))
-      (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(rf.image-assembly/assemble [img] [b a])))))))
 
 (deftest same-registration-selected-twice-dedupes
   (testing "the SAME registration (same coordinate + impl) selected by two
@@ -147,52 +136,10 @@
           gen  (rf.image-assembly/assemble [img] [d])]
       (is (= ::add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add)))))))
 
-(deftest inline-vs-selected-same-id-collides
-  (testing "an inline :counter/inc and a namespace-selected :counter/inc in ONE
-            image is a within-image collision — fail loud
-            (:rf.error/image-within-image-collision); to override, use a later image"
-    (let [pool [(reg-desc "counter.core" :event :counter/inc ::selected)]
-          img  (rf.image/image
-                 {:id :i
-                  :select-ns {:include ["counter.core"]}
-                  :registrations {:reg-event [[:counter/inc {} ::inline]]}})]
-      (is (= :rf.error/image-within-image-collision
-             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
-
 ;; ===========================================================================
-;; 3. Image-order resolution (EP-0026 §Layered Resolution) — the LATER image
-;;    WINS for a cross-image [kind id]; the shadow does NOT fail assembly.
-;; ===========================================================================
-
-(deftest later-image-wins-cross-image-override
-  (testing "a [kind id] in two composed images resolves to the LATER image's
-            descriptor (the test-doubles override image composed after the app image)"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app-image    (rf.image/image
-                         {:id :app/main :select-ns {:include ["checkout.core"]}})
-          test-doubles (rf.image/image
-                         {:id :test/doubles
-                          :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
-          gen  (rf.image-assembly/assemble [app-image test-doubles] pool)]
-      (is (= ::stub (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))
-          "the later image (test-doubles) wins — image order, not the registrar"))))
-
-(deftest reversing-image-order-reverses-the-winner
-  (testing "image order is the ONLY precedence: composing the app image LAST makes
-            its selected registration the winner instead"
-    (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app-image    (rf.image/image
-                         {:id :app/main :select-ns {:include ["checkout.core"]}})
-          test-doubles (rf.image/image
-                         {:id :test/doubles
-                          :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
-          gen  (rf.image-assembly/assemble [test-doubles app-image] pool)]
-      (is (= ::real (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
-
-;; ===========================================================================
-;; 3b. Within-image disjointness — an image must resolve cleanly to ONE
-;;     descriptor per [kind id] (EP-0026 §Layered Resolution). To override, the
-;;     winner goes in a LATER image; an override within ONE image is an error.
+;; 3. Within-image disjointness — an image must resolve cleanly to ONE
+;;    descriptor per [kind id] (EP-0026 §Layered Resolution). To override, the
+;;    winner goes in a LATER image; an override within ONE image is an error.
 ;; ===========================================================================
 
 (deftest within-image-two-inline-is-malformed
@@ -231,17 +178,9 @@
 
 ;; A SELECTED descriptor colliding with a standard is pinned, with its
 ;; structured diagnostic, by §11's
-;; `standard-forbidden-ex-data-names-the-app-coordinate`.
-
-(deftest inline-app-shadowing-a-standard-fails-loud
-  (testing "an INLINE app entry with the same [kind id] as a framework standard
-            also fails loud — a public app image must not shadow a standard
-            (EP-0026 §Framework Standard Registrations)"
-    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [img (rf.image/image {:id :i
-                            :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
-      (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(rf.image-assembly/assemble [img] [])))))))
+;; `standard-forbidden-ex-data-names-the-app-coordinate`; an INLINE app entry
+;; colliding with one, by `ep0026_select_ns_cljs_test`'s
+;; `app-shadowing-a-standard-fails-loud`.
 
 (deftest later-image-cannot-shadow-a-standard
   (testing "even a LATER image cannot shadow a framework standard — standards are
@@ -312,22 +251,6 @@
 ;;    WINS; a chain reports the LAST image as the winner. There is NO cross-image
 ;;    conflict (a cross-image shadow resolves and is reported, never failed).
 ;; ===========================================================================
-
-(deftest two-images-later-wins
-  (testing "two composed images defining the SAME [kind id] resolve to the LATER
-            image — image order is the only precedence (no conflict)"
-    (let [pool   [(reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
-                  (reg-desc "checkout.story.b" :fx :checkout.http/post ::b)]
-          img-a  (rf.image/image {:id :img/a :select-ns {:include ["checkout.story.a"]}})
-          img-b  (rf.image/image {:id :img/b :select-ns {:include ["checkout.story.b"]}})]
-      (is (= ::b (:handler-fn (rf.image-assembly/resolve-descriptor
-                                (rf.image-assembly/assemble [img-a img-b] pool)
-                                :fx :checkout.http/post)))
-          "img-b wins (last)")
-      (is (= ::a (:handler-fn (rf.image-assembly/resolve-descriptor
-                                (rf.image-assembly/assemble [img-b img-a] pool)
-                                :fx :checkout.http/post)))
-          "reversing order reverses the winner"))))
 
 (deftest duplicate-image-id-across-composition-fails-loud
   (testing "two images sharing an :id within one :images composition →

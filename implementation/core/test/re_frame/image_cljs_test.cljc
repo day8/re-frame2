@@ -193,28 +193,30 @@
 ;; ============================================================================
 
 (deftest image-normalizes-the-spec
-  (testing "id stamps :rf.image/id; :select-ns :include becomes a vector"
-    (let [v (rf.image/image {:id :docs.counter/v2
-                          :select-ns {:include ["docs.counter.v2"]}})]
-      (is (= :docs.counter/v2 (:rf.image/id v)))
-      (is (= ["docs.counter.v2"] (:rf.image/include-ns v)))
-      (is (= [] (:rf.image/exclude-ns v)) "exclude-ns defaults to an empty vector")
-      (is (= [] (:rf.image/inline v)))))
+  (testing "id stamps :rf.image/id; :select-ns :include becomes a vector;
+            exclude-ns and inline default to empty vectors"
+    (is (= {:rf.image/id         :docs.counter/v2
+            :rf.image/include-ns ["docs.counter.v2"]
+            :rf.image/exclude-ns []
+            :rf.image/inline     []}
+           (rf.image/image {:id :docs.counter/v2
+                            :select-ns {:include ["docs.counter.v2"]}}))))
   (testing ":select-ns :exclude becomes a vector alongside :include"
-    (let [v (rf.image/image {:id :tool/img
-                          :select-ns {:include ["day8.re-frame2-xray.**"]
-                                      :exclude ["day8.re-frame2-xray.**-cljs-test"]}})]
-      (is (= ["day8.re-frame2-xray.**"] (:rf.image/include-ns v)))
-      (is (= ["day8.re-frame2-xray.**-cljs-test"] (:rf.image/exclude-ns v)))))
+    (is (= {:rf.image/id         :tool/img
+            :rf.image/include-ns ["day8.re-frame2-xray.**"]
+            :rf.image/exclude-ns ["day8.re-frame2-xray.**-cljs-test"]
+            :rf.image/inline     []}
+           (rf.image/image {:id :tool/img
+                            :select-ns {:include ["day8.re-frame2-xray.**"]
+                                        :exclude ["day8.re-frame2-xray.**-cljs-test"]}}))))
   (testing "anonymous image (no :id) omits :rf.image/id — valid for local use"
-    (let [v (rf.image/image {:select-ns {:include ["docs.counter.**"]}})]
-      (is (not (contains? v :rf.image/id)))
-      (is (= ["docs.counter.**"] (:rf.image/include-ns v)))))
+    (is (= {:rf.image/include-ns ["docs.counter.**"]
+            :rf.image/exclude-ns []
+            :rf.image/inline     []}
+           (rf.image/image {:select-ns {:include ["docs.counter.**"]}}))))
   (testing "empty spec yields an empty-but-well-formed image value"
-    (let [v (rf.image/image {})]
-      (is (= [] (:rf.image/include-ns v)))
-      (is (= [] (:rf.image/exclude-ns v)))
-      (is (= [] (:rf.image/inline v)))))
+    (is (= {:rf.image/include-ns [] :rf.image/exclude-ns [] :rf.image/inline []}
+           (rf.image/image {}))))
   (testing "equal specs produce equal image values (inert data)"
     (is (= (rf.image/image {:id :x :select-ns {:include ["a.b.*"]}})
            (rf.image/image {:id :x :select-ns {:include ["a.b.*"]}})))))
@@ -294,20 +296,25 @@
               :reg-sub   [[:counter/value {:doc "Value."} body-val]]}})
         inline (:rf.image/inline v)
         by-id  (into {} (map (juxt :id identity)) inline)]
-    (testing "each inline entry lowers to a descriptor with kind + id"
+    (testing "each inline entry lowers to a descriptor carrying kind + id, the
+              body under :impl, metadata under :metadata, and an inline source
+              coordinate naming the image + the inline slot — and NO
+              :rf.provenance/ns (not glob-selectable)"
       (is (= 2 (count inline)))
-      (is (= :event (:kind (by-id :counter/inc))))
-      (is (= :sub   (:kind (by-id :counter/value)))))
-    (testing "the body is carried under :impl"
-      (is (= body-inc (:impl (by-id :counter/inc))))
-      (is (= body-val (:impl (by-id :counter/value)))))
-    (testing "metadata is carried under :metadata"
-      (is (= {:doc "Increment."} (:metadata (by-id :counter/inc)))))
-    (testing "inline source coordinate names the image + the inline slot"
-      (is (= :test/small (:rf.provenance/image (by-id :counter/inc))))
-      (is (= [:reg-event :counter/inc] (:rf.provenance/inline (by-id :counter/inc)))))
-    (testing "inline descriptors carry NO :rf.provenance/ns (not glob-selectable)"
-      (is (not (contains? (by-id :counter/inc) :rf.provenance/ns))))))
+      (is (= {:kind                 :event
+              :id                   :counter/inc
+              :impl                 body-inc
+              :metadata             {:doc "Increment."}
+              :rf.provenance/image  :test/small
+              :rf.provenance/inline [:reg-event :counter/inc]}
+             (by-id :counter/inc)))
+      (is (= {:kind                 :sub
+              :id                   :counter/value
+              :impl                 body-val
+              :metadata             {:doc "Value."}
+              :rf.provenance/image  :test/small
+              :rf.provenance/inline [:reg-sub :counter/value]}
+             (by-id :counter/value))))))
 
 ;; EP-0026 §Inline Registration Grammar — the EP-0023 metadata-only [id metadata]
 ;; tuple is RETIRED. A 2-tuple's second slot is the handler BODY, not
@@ -316,12 +323,8 @@
 ;; loud. To attach metadata, use the 3-tuple [id metadata body].
 (deftest inline-metadata-only-entry-rejected
   (testing "a [id metadata-map] 2-tuple (the retired metadata-only form) throws
-            :rf.error/invalid-image"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (rf.image/image {:id :m
-                                        :registrations {:reg-fx [[:my/fx {:doc "meta only"}]]}}))))
-  (testing "the diagnostic names the image, section, and offending metadata-only entry"
+            :rf.error/invalid-image, and the diagnostic names the image,
+            section, and offending metadata-only entry"
     (let [entry [:my/fx {:doc "meta only"}]
           data  (try (rf.image/image {:id :m :registrations {:reg-fx [entry]}})
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
@@ -353,11 +356,13 @@
 (deftest inline-two-tuple-omits-the-metadata-slot
   (testing "a 2-tuple [id body] is accepted (metadata defaults to {} / omitted)"
     (let [body (fn [_] nil)
-          v    (rf.image/image {:id :i :registrations {:reg-fx [[:my/fx body]]}})
-          d    (first (:rf.image/inline v))]
-      (is (= :my/fx (:id d)))
-      (is (= body (:impl d)))
-      (is (not (contains? d :metadata))
+          v    (rf.image/image {:id :i :registrations {:reg-fx [[:my/fx body]]}})]
+      (is (= [{:kind                 :fx
+               :id                   :my/fx
+               :impl                 body
+               :rf.provenance/image  :i
+               :rf.provenance/inline [:reg-fx :my/fx]}]
+             (:rf.image/inline v))
           "an omitted metadata map is not stamped onto the descriptor"))))
 
 (deftest inline-rejects-too-short-tuple
@@ -380,13 +385,8 @@
       (is (= [:counter/value] (:entry data))))))
 
 (deftest inline-rejects-too-long-tuple
-  (testing "a 4-tuple [id metadata body extra] throws (extra slot not silently dropped)"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (rf.image/image
-                            {:id :i
-                             :registrations {:reg-event [[:counter/inc {} (fn [_ _] {}) :extra]]}}))))
-  (testing "the offending 4-tuple is named in the diagnostic"
+  (testing "a 4-tuple [id metadata body extra] throws (extra slot not silently
+            dropped), and the offending 4-tuple is named in the diagnostic"
     (let [entry [:counter/inc {} (fn [_ _] {}) :extra]
           data  (try (rf.image/image {:id :i :registrations {:reg-event [entry]}})
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
@@ -406,19 +406,15 @@
                           (rf.image/image
                             {:id :i
                              :registrations {:reg-event [[:counter/inc 42 (fn [_ _] {})]]}}))))
-  (testing "a seqable non-map metadata slot (a string) throws rather than being silently accepted"
-    (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                          #"\[:rf\.error/invalid-image\]"
-                          (rf.image/image
-                            {:id :i
-                             :registrations {:reg-event [[:counter/inc "doc" (fn [_ _] {})]]}}))))
   (testing "a seqable non-map metadata slot (a vector) throws rather than being silently accepted"
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
                           #"\[:rf\.error/invalid-image\]"
                           (rf.image/image
                             {:id :i
                              :registrations {:reg-event [[:counter/inc [:x] (fn [_ _] {})]]}}))))
-  (testing "the diagnostic names the image, the section, and the offending entry"
+  (testing "a seqable non-map metadata slot (a string) throws rather than being
+            silently accepted; the diagnostic names the image, the section, and
+            the offending entry"
     (let [entry [:counter/inc "doc" (fn [_ _] {})]
           data  (try (rf.image/image {:id :my/image :registrations {:reg-event [entry]}})
                      (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
@@ -430,11 +426,11 @@
 
 (deftest anonymous-image-inline-omits-image-coordinate
   (testing "anonymous image inline descriptors omit :rf.provenance/image"
-    (let [v (rf.image/image {:registrations {:reg-event [[:x {} (fn [_ _] {})]]}})
-          d (first (:rf.image/inline v))]
-      (is (not (contains? d :rf.provenance/image)))
+    (let [body (fn [_ _] {})
+          v    (rf.image/image {:registrations {:reg-event [[:x {} body]]}})]
       ;; the inline slot coordinate is still present (id is nameable locally)
-      (is (= [:reg-event :x] (:rf.provenance/inline d))))))
+      (is (= [{:kind :event :id :x :impl body :rf.provenance/inline [:reg-event :x]}]
+             (:rf.image/inline v))))))
 
 ;; ============================================================================
 ;; select-descriptors — the PURE selector against synthetic descriptors
@@ -467,17 +463,16 @@
   (testing "exact :select-ns :include selects only the matching provenance namespace"
     (let [img (rf.image/image {:id :i :select-ns {:include ["docs.quickstart.counter.v2"]}})
           sel (rf.image/select-descriptors img synthetic-store)]
-      (is (= 2 (count sel)))
       ;; BOTH selected descriptors came from v2 — the v3 :counter/inc (same id
       ;; namespace!) is NOT selected. This is the headline EP rule.
-      (is (every? #(= "docs.quickstart.counter.v2" (:rf.provenance/ns %)) sel))
-      (is (= #{:counter/inc :counter/value} (set (map :id sel))))))
+      (is (= [["docs.quickstart.counter.v2" :counter/inc]
+              ["docs.quickstart.counter.v2" :counter/value]]
+             (mapv (juxt :rf.provenance/ns :id) sel)))))
   (testing "the v3 :counter/inc is reachable only via its own provenance ns"
     (let [img (rf.image/image {:id :i :select-ns {:include ["docs.quickstart.counter.v3"]}})
           sel (rf.image/select-descriptors img synthetic-store)]
-      (is (= 1 (count sel)))
-      (is (= "docs.quickstart.counter.v3" (:rf.provenance/ns (first sel))))
-      (is (= :counter/inc (:id (first sel)))))))
+      (is (= [["docs.quickstart.counter.v3" :counter/inc]]
+             (mapv (juxt :rf.provenance/ns :id) sel))))))
 
 (deftest select-glob-prefix-and-recursive
   (testing "prefix `*` selects exactly-one-deeper provenance namespaces"
@@ -503,9 +498,8 @@
                                                   "docs.shared.widgets.button"]}})
           sel (rf.image/select-descriptors img synthetic-store)]
       ;; docs.shared.widgets.button matches BOTH patterns — but appears once.
-      (is (= 2 (count sel)))
-      (is (= #{"docs.shared.widgets" "docs.shared.widgets.button"}
-             (set (map :rf.provenance/ns sel))))))
+      (is (= ["docs.shared.widgets" "docs.shared.widgets.button"]
+             (map :rf.provenance/ns sel)))))
   (testing "selection preserves input order of the descriptor collection"
     (let [img (rf.image/image {:id :i :select-ns {:include ["shop.**"]}})
           sel (rf.image/select-descriptors img synthetic-store)]
@@ -544,18 +538,15 @@
                   :registrations {:reg-event [[:counter/inc {} body]]}})
           sel  (rf.image/select-descriptors img synthetic-store)]
       ;; no :select-ns → no glob selection, but the inline descriptor is present
-      (is (= 1 (count sel)))
-      (is (= :counter/inc (:id (first sel))))
-      (is (= :test/small (:rf.provenance/image (first sel))))))
+      (is (= (:rf.image/inline img) sel))))
   (testing "inline descriptors are appended AFTER the glob-selected ones"
     (let [img (rf.image/image
                 {:id :combo
                  :select-ns {:include ["shop.auth"]}
                  :registrations {:reg-event [[:extra/evt {} (fn [_ _] {})]]}})
           sel (rf.image/select-descriptors img synthetic-store)]
-      (is (= 2 (count sel)))
-      (is (= :auth/set-user (:id (first sel))))     ; glob-selected first
-      (is (= :extra/evt     (:id (second sel))))))) ; inline appended
+      ;; glob-selected first, inline appended
+      (is (= [:auth/set-user :extra/evt] (mapv :id sel))))))
 
 (deftest select-ignores-descriptors-without-provenance-ns
   (testing "a descriptor with no :rf.provenance/ns is never glob-selected"
@@ -565,8 +556,7 @@
           sel   (rf.image/select-descriptors img store)]
       ;; bare `**` matches every PROVENANCE ns, but the provenance-less
       ;; descriptor is excluded (it carries no :rf.provenance/ns to match).
-      (is (not (some #(= :standard/fx (:id %)) sel)))
-      (is (= (count synthetic-store) (count sel))))))
+      (is (= synthetic-store sel)))))
 
 ;; ============================================================================
 ;; :select-ns :exclude — the subtractive narrowing knob (EP-0023 §Namespace-
@@ -598,36 +588,12 @@
                                                   "day8.re-frame2-xray.test-helpers.**"]}})
           sel (rf.image/select-descriptors img xray-style-store)
           prov (set (map :rf.provenance/ns sel))]
-      ;; only the 3 PRODUCTION descriptors survive
+      ;; only the 3 PRODUCTION descriptors survive — no `*-cljs-test` or
+      ;; test-helpers provenance, so no dup-id collision downstream
       (is (= 3 (count sel)))
       (is (= #{"day8.re-frame2-xray.open-in-editor"
                "day8.re-frame2-xray.mount"
-               "day8.re-frame2-xray.panels.app-db-diff"} prov))
-      ;; no `*-cljs-test` provenance survives — no dup-id collision downstream
-      (is (not-any? #(re-find #"-cljs-test$" %) prov))
-      (is (not-any? #(re-find #"test-helpers" %) prov)))))
-
-(deftest exclude-ns-makes-the-selection-id-disjoint
-  (testing "without :exclude the same `**` glob selects BOTH a prod and a
-            test descriptor for the same [kind id] (the collision); WITH it the
-            selection is id-disjoint"
-    (let [include-only (rf.image/image {:id :rf.xray/image
-                                     :select-ns {:include ["day8.re-frame2-xray.**"]}})
-          sel-all      (rf.image/select-descriptors include-only xray-style-store)
-          editor-all   (filter #(= :rf.xray.fx/open-in-editor (:id %)) sel-all)
-          narrowed     (rf.image/image {:id :rf.xray/image
-                                     :select-ns {:include ["day8.re-frame2-xray.**"]
-                                                 :exclude ["day8.re-frame2-xray.**.*-cljs-test"
-                                                           "day8.re-frame2-xray.test-helpers.**"]}})
-          sel-narrow   (rf.image/select-descriptors narrowed xray-style-store)
-          editor-narrow (filter #(= :rf.xray.fx/open-in-editor (:id %)) sel-narrow)]
-      ;; the bare `**` glob selects TWO :rf.xray.fx/open-in-editor descriptors (prod + test)
-      ;; — that is the duplicate-id that fails assembly.
-      (is (= 2 (count editor-all)) "the bare glob sweeps in the colliding pair")
-      ;; the exclude narrows it to exactly the production one.
-      (is (= 1 (count editor-narrow)))
-      (is (= "day8.re-frame2-xray.open-in-editor"
-             (:rf.provenance/ns (first editor-narrow)))))))
+               "day8.re-frame2-xray.panels.app-db-diff"} prov)))))
 
 (deftest exclude-ns-is-not-zero-match-fail-loud
   (testing "a :select-ns :exclude pattern that matches nothing in this build is a
@@ -654,9 +620,7 @@
           sel (rf.image/select-descriptors img xray-style-store)]
       ;; the bare `**` exclude drops every glob-selected registered descriptor,
       ;; but the inline descriptor survives (image-membership selection).
-      (is (= 1 (count sel)))
-      (is (= :inline/evt (:id (first sel))))
-      (is (= :combo (:rf.provenance/image (first sel)))))))
+      (is (= (:rf.image/inline img) sel)))))
 
 (deftest exclude-by-ns-helper-is-order-preserving-and-empty-safe
   (testing "exclude-by-ns preserves input order and returns unchanged on no

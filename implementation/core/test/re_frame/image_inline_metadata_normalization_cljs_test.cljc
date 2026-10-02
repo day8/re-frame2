@@ -151,9 +151,8 @@
                           {:doc "only a note"} body)]
           (is (not (contains? d :doc))
               "no top-level :doc for a doc-only inline entry in production")
-          (is (not (contains? (:metadata d) :doc))
-              "no nested [:metadata :doc] — the doc-only map is not resurrected")
           (is (nil? (:metadata d))
-              "the nested :metadata map is dropped once it reduces to empty")
+              "no nested [:metadata :doc] — the doc-only map is not resurrected:
+               the nested :metadata map is dropped once it reduces to empty")
           (is (fn? (:handler-fn d))
               "the runnable slot is still installed for a doc-only entry"))))))
