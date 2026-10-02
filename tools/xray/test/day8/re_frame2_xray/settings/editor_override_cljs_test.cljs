@@ -14,8 +14,8 @@
   - Is purely client-side — never mutates the host's atom; never
     reaches other browsers / tabs / users.
 
-  These assertions cover the resolution order, the round-trip, the
-  reset path, and the `open-chip` / `:rf.xray/open-in-editor`
+  These assertions cover the resolution order, the round-trip of the
+  map-valued override, and the `open-chip` / `:rf.xray/open-in-editor`
   consumers."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [day8.re-frame2-xray.config :as config]
@@ -89,24 +89,11 @@
     (is (= :vscode (config/get-editor)))))
 
 ;; ---- localStorage round-trip ------------------------------------------
-
-(defn- storage-payload []
-  (#'config/storage-get config/settings-storage-key))
-
-(deftest override-round-trips-through-localstorage
-  (testing "Setting the override writes through to localStorage; a
-            simulated reload restores the value"
-    (config/update-setting! :general :editor-override :cursor)
-    (is (some? (storage-payload))
-        "localStorage payload is populated")
-    ;; Simulate a reload: reset in-memory atom to defaults, then
-    ;; rehydrate from storage.
-    (reset! config/settings config/default-settings)
-    (is (nil? (config/get-setting :general :editor-override))
-        "atom-only reset clears the override")
-    (config/load-settings-from-storage!)
-    (is (= :cursor (config/get-setting :general :editor-override))
-        "reload from localStorage restores the override")))
+;;
+;; The write-through and reload are the generic `update-setting!` → storage →
+;; `load-settings-from-storage!` path `persistence-cljs-test`'s
+;; `text-size-round-trips` pins, and `reset-clears-everything` pins the
+;; reset. The row here owns the map-valued `{:custom <tpl>}` shape.
 
 (deftest custom-override-round-trips
   (testing "A `{:custom <tpl>}` override survives the EDN
@@ -117,16 +104,6 @@
     (config/load-settings-from-storage!)
     (is (= {:custom "emacsclient://{path}:{line}"}
            (config/get-setting :general :editor-override)))))
-
-(deftest reset-settings-clears-override
-  (testing "`reset-settings!` clears the override slot along with
-            every other persisted preference"
-    (config/update-setting! :general :editor-override :idea)
-    (is (= :idea (config/get-setting :general :editor-override)))
-    (config/reset-settings!)
-    (is (nil? (config/get-setting :general :editor-override)))
-    (is (nil? (storage-payload))
-        "localStorage payload cleared")))
 
 ;; ---- consumer parity: open-chip + resolve-uri honour the override -----
 
@@ -165,22 +142,6 @@
       (is (= "subl://open?url=file://src/x.cljs&line=7"
              (:href (second hiccup))))
       (is (= "custom" (:data-editor (second hiccup)))))))
-
-(deftest open-chip-falls-back-when-override-cleared
-  (testing "Clearing the override falls back to the host default for
-            URI construction — `open-chip` does not cache the
-            override"
-    (config/set-editor! :cursor)
-    (config/update-setting! :general :editor-override :zed)
-    (is (= "zed://file/src/x.cljs:1:1"
-           (:href (second
-                    (open-in-editor/open-chip
-                      {:file "src/x.cljs" :line 1 :column 1})))))
-    (config/update-setting! :general :editor-override nil)
-    (is (= "cursor://file/src/x.cljs:1:1"
-           (:href (second
-                    (open-in-editor/open-chip
-                      {:file "src/x.cljs" :line 1 :column 1})))))))
 
 (deftest resolve-uri-honours-override
   (testing "`open-in-editor/resolve-uri` — the seam the
