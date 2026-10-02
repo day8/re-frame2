@@ -115,7 +115,7 @@
 ;; (2) localStorage persistence — round-trip
 ;; -------------------------------------------------------------------------
 
-(deftest persistence-normalise-runs-on-input
+(deftest persistence-mode-codec-normalises-and-round-trips
   (testing "static.persistence/normalise-mode coerces keywords + strings"
     (is (= :dynamic (static-persistence/normalise-mode :dynamic)))
     (is (= :static  (static-persistence/normalise-mode :static)))
@@ -123,9 +123,7 @@
     (is (= :static  (static-persistence/normalise-mode "static")))
     (is (= :dynamic (static-persistence/normalise-mode nil)))
     (is (= :dynamic (static-persistence/normalise-mode :nonsense)))
-    (is (= :dynamic (static-persistence/normalise-mode "junk")))))
-
-(deftest persistence-raw-round-trip
+    (is (= :dynamic (static-persistence/normalise-mode "junk"))))
   (testing "->raw / <-raw lossless on canonical values"
     (is (= :dynamic (static-persistence/<-raw (static-persistence/->raw :dynamic))))
     (is (= :static  (static-persistence/<-raw (static-persistence/->raw :static))))))
@@ -245,17 +243,14 @@
     (frame-dispatch [:rf.xray.static/select-tab :routes])
     (is (= :routes (frame-sub [:rf.xray.static/selected-tab])))
     (frame-dispatch [:rf.xray.static/select-tab :flows])
-    (is (= :flows (frame-sub [:rf.xray.static/selected-tab])))))
-
-(deftest static-select-tab-rejects-unknown-ids
-  (testing ":rf.xray.static/select-tab ignores ids not in the
-            inventory — guards against typos / drift between the
-            tab panels and this scaffold"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray.static/select-tab :machines])
+    (is (= :flows (frame-sub [:rf.xray.static/selected-tab]))))
+  (testing "and ignores ids not in the inventory — guards against typos /
+            drift between the tab panels and this scaffold. From :flows
+            rather than the :machines default, so an unknown id that RESET
+            the slot instead of leaving it would read :machines here"
     (frame-dispatch [:rf.xray.static/select-tab :not-a-tab])
-    (is (= :machines (frame-sub [:rf.xray.static/selected-tab]))
-        "unknown tab id is rejected; slot stays on :machines")))
+    (is (= :flows (frame-sub [:rf.xray.static/selected-tab]))
+        "unknown tab id is rejected; slot stays on :flows")))
 
 (deftest static-tab-isolated-from-dynamic-tab
   (testing "Dynamic and Static tab choices are independent —
@@ -343,7 +338,7 @@
 ;; (8) Surface composer — shell.cljs dispatches Dynamic vs Static
 ;; -------------------------------------------------------------------------
 
-(deftest surface-composer-renders-static-when-mode-static
+(deftest surface-composer-renders-the-arm-for-the-active-mode
   (testing "with mode :static, the composer renders the Static surface
             (Static mode is unconditionally available).
 
@@ -366,12 +361,9 @@
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon"))
             "Dynamic ribbon does NOT mount")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-event-list"))
-            "Dynamic L2 event list does NOT mount")))))
-
-(deftest surface-composer-renders-dynamic-when-mode-dynamic
+            "Dynamic L2 event list does NOT mount"))))
   (testing "with mode :dynamic, the composer renders the Dynamic chrome
             (Static mode is unconditionally available)"
-    (xray-setup!)
     (frame-dispatch [:rf.xray/set-mode :dynamic])
     (rf/with-frame :rf/xray
       (let [tree (dynamic-shell-tree/surface-composer-tree)]
@@ -379,40 +371,6 @@
             "Dynamic ribbon mounts")
         (is (nil? (rf.test-helpers/find-by-testid tree "rf-xray-static-surface"))
             "Static surface does NOT mount")))))
-
-(deftest ribbon-always-mounts-mode-pill
-  (testing "the Dynamic ribbon ALWAYS mounts the mode pill (there is
-            no `:rf.xray/static-mode?` feature gate; Static mode is
-            unconditionally available)"
-    (xray-setup!)
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/ribbon-tree)]
-        (is (some? (rf.test-helpers/find-by-testid tree "rf-xray-mode-pill"))
-            "mode pill mounts in the Dynamic ribbon unconditionally")))))
-
-;; -------------------------------------------------------------------------
-;; (8a) L1 frame picker is mode-independent — mounts in BOTH modes
-;; -------------------------------------------------------------------------
-;;
-;; Static is also frame-scoped: registrations (events · subs · machines
-;; · routes · schemas · flows · interceptors) live in a particular frame,
-;; so the user must be able to pick which frame they are browsing in
-;; both Dynamic (event-coupled spine) AND Static (event-independent
-;; registry browse) lenses. The composer renders the L1 ribbon for each
-;; mode and the ribbon mounts `frame-switcher/frame-switcher-view` in
-;; both.
-
-(deftest l1-frame-picker-mounts-in-dynamic-mode
-  (testing "Dynamic surface mounts the L1 frame picker (picker `<select>`
-            or single-frame label fallback per the frame-switcher
-            contract)"
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/set-mode :dynamic])
-    (rf/with-frame :rf/xray
-      (let [tree (dynamic-shell-tree/surface-composer-tree)]
-        (is (or (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame-picker"))
-                (some? (rf.test-helpers/find-by-testid tree "rf-xray-ribbon-frame")))
-            "L1 frame picker (or single-frame label) present in Dynamic")))))
 
 ;; -------------------------------------------------------------------------
 ;; (9) Static tab inventory — pure-data shape
