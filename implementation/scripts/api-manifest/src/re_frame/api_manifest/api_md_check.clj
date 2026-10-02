@@ -13,15 +13,15 @@
   KIND MARKERS. The `M/Fn` cell's leading marker states the kind: `Fn` is
   `:fn`, `M` is `:macro`, `Var` is `:var` (`kind-markers`). A cell such as
   `M/Fn (CLJS)` is graded by its leading `M`, because the manifest is derived
-  on the JVM where the name is a macro. `Component` has no manifest
-  counterpart, so a `Component` row is graded on name and tier only.
+  on the JVM where the name is a macro. A component is a `Fn` row whose
+  parenthetical names it as one (`Fn (UIx component)`).
 
   WHAT COUNTS AS A VAR-ROW. API.md mixes var-rows (one public fn / macro /
   Var) with keyword-addressed-registration rows (events / subs / fx /
   cofx) and schema rows. Only the first kind carries a `:tier` for a
   *var*. A row is a var-row iff:
     - its first table cell is a single back-tick-quoted identifier, and
-    - its `M/Fn` cell begins with `Fn`, `M`, `Var`, or `Component`
+    - its `M/Fn` cell begins with `Fn`, `M`, or `Var`
       (the closed set of var-kind markers API.md uses).
   Keyword rows (`:rf.http/managed`, `:rf/route`, …) and prose-celled rows
   are skipped — they are not vars and carry no Tier-for-a-var.
@@ -107,22 +107,22 @@
 
 (defn- var-kind-token
   "The var-kind marker token beginning the `M/Fn` cell, or nil when the cell
-   is a keyword-registration or prose cell. `Fn` / `M` / `Var` / `Component`
-   is the CLOSED set of var-kind markers API.md's `M/Fn` cell uses — a cell
+   is a keyword-registration or prose cell. `Fn` / `M` / `Var` is the
+   CLOSED set of var-kind markers API.md's `M/Fn` cell uses — a cell
    whose marker drifts outside it is not recognised and the row disappears
    from the parse, which is the collapse the non-vacuity floor catches."
   [cell]
-  (second (re-find #"^(Fn|M|Var|Component)\b" (str/trim cell))))
+  (second (re-find #"^(Fn|M|Var)\b" (str/trim cell))))
 
 (defn- var-kind-marker?
-  "True when the M/Fn cell denotes a VAR row (a fn / macro / Var /
-   component), as opposed to a keyword-registration or prose cell."
+  "True when the M/Fn cell denotes a VAR row (a fn / macro / Var), as
+   opposed to a keyword-registration or prose cell."
   [cell]
   (boolean (var-kind-token cell)))
 
 (def ^:private kind-markers
-  "The `M/Fn` cell's leading marker -> the manifest `:kind` it states.
-   `Component` is absent because the manifest has no component kind."
+  "The `M/Fn` cell's leading marker -> the manifest `:kind` it states,
+   one entry per marker `var-kind-token` recognises."
   {"Fn" :fn "M" :macro "Var" :var})
 
 (def adapter-aliases
@@ -193,7 +193,6 @@
    unit-testable with synthetic lines, like the pure `reconcile` core.
    Returns the `[{:var :qualifier :tier :kind :line :raw}
    ...]` vector — exactly the fields `reconcile` reads, and nothing else.
-   `:kind` is nil for a marker `kind-markers` does not map.
 
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
@@ -271,7 +270,7 @@
    `rows`               — manifest rows (each `{:namespace :var :tier ...}`).
    `api-rows`           — parsed API.md var-rows `{:var :qualifier :tier
                           :kind :line :raw}` (`:qualifier` nil for a bare
-                          row, `:kind` nil for an unmapped marker).
+                          row).
    `known-unmanifested` — set of bare var-name strings knowingly
                           unmanifested (the `:api-md-known-unmanifested`
                           allowlist; bare rows only).
@@ -288,7 +287,7 @@
 
    KIND is graded once the tier holds, against the manifest rows that
    matched on name AND tier: the row's `:kind` must be one of theirs. A row
-   whose `:kind` is nil (an unmapped marker) is not graded on kind."
+   carrying no `:kind` is not graded on kind."
   [{:keys [rows api-rows known-unmanifested aliases]}]
   (let [;; bare var-name -> the manifest rows carrying that name
         by-name   (group-by :var rows)

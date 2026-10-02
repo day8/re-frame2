@@ -166,7 +166,7 @@
       (is (= 1 (count qualified-problems)))
       (is (= :kind-mismatch (:kind qualified-problem)))
       (is (= #{:var} (:manifest-kinds qualified-problem)))))
-  (testing "control: the matching kind, and an unmapped (nil) kind, are clean"
+  (testing "control: the matching kind, and a row carrying no kind, are clean"
     (is (empty? (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind :macro
                                 :line 1 :raw "reg-event"}])))
     (is (empty? (problems-for [{:var "reg-event" :qualifier nil :tier :front-porch :kind nil
@@ -191,8 +191,8 @@
                     [3 "| `image` | M | `(image spec)` | v1 | advanced | 002 |"]
                     [4 "| `reg-event` | M/Fn (CLJS) | sig | v1 | front-porch | 001 |"]
                     [5 "| `adapter` | Var (map) | sig | v1 | adapter | 006 |"]
-                    [6 "| `frame-root` | Component (Reagent) | sig | v1 | front-porch | 002 |"]])]
-      (is (= [:macro :macro :var nil] (map :kind parsed)))
+                    [6 "| `frame-root` | Fn (Reagent component) | sig | v1 | front-porch | 002 |"]])]
+      (is (= [:macro :macro :var :fn] (map :kind parsed)))
       (is (empty? (problems-for (take 3 parsed)))))))
 
 ;; ---------------------------------------------------------------------------
