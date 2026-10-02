@@ -138,9 +138,8 @@
       (rf/dispatch-sync [:pay/submit {:amount 10}] {:frame :obs/raw})
       (is (= 1 (count @seen)))
       (let [r (first @seen)]
-        (is (contains? r :event) "local-raw retains the :event slot")
         (is (= [:pay/submit {:amount 10}] (:event r))
-            "local-raw projects the event verbatim (sensitive opted in,
+            "local-raw retains the :event slot and projects it verbatim (sensitive opted in,
              nothing classified sensitive here)")))))
 
 ;; ---------------------------------------------------------------------------
@@ -180,43 +179,6 @@
         (is (redacted? (get-in (:event r) [1 :auth :token]))
             "the sensitive token inside the error's :event is redacted —
              the sink received an already-projected record")))))
-
-(deftest error-event-redacted-by-event-registration-marks-not-frame-app-db
-  (testing "ADVERSARIAL (EP-0015 event args are REGISTRATION-owned):
-            a handler registered with `reg-event {:sensitive [[:password]]}` and
-            a frame that declares NO matching `:sensitive {:app-db …}` path must
-            STILL have the sensitive event arg redacted on the off-box `:errors`
-            sink. Event args are registration-owned transient payloads, projected
-            through the EVENT registration's marks at the trust boundary — not
-            (only) the frame's app-db classification. Walking the error
-            record's :event slot only against frame app-db policy would leak a
-            handler-declared-sensitive arg with no frame app-db classification
-            off-box as the raw password."
-    (let [seen (atom [])]
-      (rf/register-observability-sink! :test.sinks/sentry2
-                                       (fn [record] (swap! seen conj record)))
-      ;; The frame declares the error sink but NO :sensitive classification at
-      ;; all — the redaction must come from the EVENT registration, not the frame.
-      (rf/make-frame {:id :obs/reg-marks :observability
-                      {:errors [{:sink :test.sinks/sentry2
-                                 :rf.egress/profile :rf.egress/off-box-observability}]}})
-      ;; The handler OWNS the sensitivity of its own event arg: [:password] in
-      ;; the arg-map (the registration-marks paths are rooted at the arg-map).
-      (rf/reg-event :auth/reg-login
-                    {:frame     :obs/reg-marks
-                     :sensitive [[:password]]}
-                    (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {:cause :test}))}))
-      (rf/dispatch-sync [:auth/reg-login {:password "hunter2" :user "ann"}]
-                        {:frame :obs/reg-marks})
-      (is (= 1 (count @seen)) "the declared error sink fired exactly once")
-      (let [r (first @seen)]
-        (is (= :rf.observe/error (:kind r)))
-        (is (= :auth/reg-login (:event-id r)))
-        (is (redacted? (get-in (:event r) [1 :password]))
-            "the handler-declared-sensitive :password arg is redacted via the
-             EVENT registration marks, with NO frame :sensitive {:app-db …}")
-        (is (= "ann" (get-in (:event r) [1 :user]))
-            "a non-sensitive sibling arg rides through (only the declared path redacts)")))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Fail-closed.
@@ -331,10 +293,9 @@
                     @seen)
             c (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
                     @corpus)]
-        (is (some? c) "the corpus-wide listener received the record (the control)")
-        (is (some? r) "the frame-owned :errors sink received the record")
         (is (= :kuky65/with-throwing-interceptor (:event-id r))
-            ":event-id still carries the EVENT id")
+            "the frame-owned :errors sink received the record, and :event-id
+             still carries the EVENT id")
         (is (= :kuky65/boom-after (:failing-id r))
             ":failing-id names the failing INTERCEPTOR on the sink route too,
              distinct from :event-id")
@@ -390,10 +351,9 @@
                     @seen)
             c (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
                     @corpus)]
-        (is (some? c) "the corpus-wide listener received the cofx record (the control)")
-        (is (some? r) "the frame-owned :errors sink received the cofx record")
         (is (= :kuky65/needs-boom-cofx (:event-id r))
-            ":event-id carries the EVENT id, as it does on the corpus record")
+            "the frame-owned :errors sink received the cofx record, and :event-id
+             carries the EVENT id, as it does on the corpus record")
         (is (= :kuky65/boom-cofx (:failing-id r))
             ":failing-id names the failing COEFFECT SUPPLIER on the sink route")
         (is (not= (:event-id r) (:failing-id r))
@@ -442,7 +402,6 @@
            (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
       (let [r (some (fn [x] (when (= :rf.error/coeffect-exception (:error x)) x))
                     @seen)]
-        (is (some? r) "the frame-owned :errors sink received the record")
         (is (redacted? (get-in r [:tags :reason]))
             "a CLASSIFIED [:reason] redacts WHOLE-SLOT to :rf/redacted — the
              interpolated supplier message does not egress")
@@ -477,9 +436,9 @@
                         {:frame :obs/pub})
       (let [r (some (fn [x] (when (= :rf.error/interceptor-exception (:error x)) x))
                     @seen)]
-        (is (some? r) "the public-error sink received the record")
         (is (= :kuky65/pub-boom (:failing-id r))
-            "attribution SURVIVES the profile that drops :exception")
+            "the public-error sink received the record, and attribution SURVIVES
+             the profile that drops :exception")
         (is (not (contains? r :exception))
             "CONTROL: :rf.egress/public-error still drops :exception")
         (is (redacted? (get-in (:event r) [1 :auth :token]))

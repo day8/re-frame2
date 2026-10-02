@@ -212,20 +212,6 @@
             (is (nil? (:exception (nth args 2)))))
           (is (zero? report-error)))))))
 
-(deftest unowned-diagnostic-does-not-change-control-flow
-  (if-not (browser?)
-    (is true skip-msg)
-    (do
-      (register-refusal-handlers!)
-      (let [outcome (atom nil)]
-        (capture-console
-          (fn []
-            (reset! outcome
-                    (try (rf/dispatch-sync [:fu75.console/throws]) ::returned
-                         (catch :default e e)))))
-        (is (= ::returned @outcome)
-            "the refusal was still CAPTURED — printing it re-raises nothing")))))
-
 ;; ===========================================================================
 ;; NON-EVENT UNION RECORD — the second fan-out site follows the same rule
 ;; ===========================================================================

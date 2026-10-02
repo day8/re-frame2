@@ -21,7 +21,8 @@
 
   Seam-level counterparts (same walker, observed through the egress seams):
   the conformance fixture `data-classification-event-arg-sensitive-path-
-  redacts.edn` and `observability_routing_cljs_test` pin leg 1 end-to-end;
+  redacts.edn` and `error_record_event_registration_redaction_cljs_test` pin
+  leg 1 end-to-end;
   this ns pins all three legs at the unit seam.
 
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
