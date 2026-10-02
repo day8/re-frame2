@@ -23,7 +23,6 @@
              ids))))
   (testing "every entry carries the required slots"
     (doseq [entry rf.story.ui.docs/docs-toc-entries]
-      (is (some? (:id entry)))
       (is (some? (:label entry)))
       (is (integer? (:level entry))))))
 
@@ -44,7 +43,6 @@
   (testing "no prose workspace + uncompilable plan → prose / status / schema
             entries pruned; the unconditional entries remain"
     (let [out (rf.story.ui.docs/visible-toc-entries :story.fake/variant)]
-      (is (not-any? #(#{"docs-prose" "docs-status" "docs-schema"} (:id %)) out))
       (is (= ["docs-args" "docs-decorators" "docs-parameters"
               "docs-evidence" "docs-tags"]
              (mapv :id out))))))
