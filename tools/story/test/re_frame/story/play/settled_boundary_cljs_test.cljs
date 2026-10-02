@@ -60,24 +60,9 @@
     (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
                 bf [:cljs.chain/a] rf.story.play.settled-boundary/headless-flush-hooks
                 :headless [:dispatch [:cljs.chain/a]])]
-      (is (= :settled (:status res)))
-      (is (= :headless (:boundary res)))
+      (is (= {:status :settled :boundary :headless} res))
       (is (= [:a :b :c] (:hops (rf/app-db-value bf)))
           "the queued re-dispatch cascade drained to fixed point before return"))))
-
-(deftest cljs-headless-refuses-dom-step
-  (testing "a :dom-requiring step under the headless runner refuses with
-            :cannot-run and does NOT dispatch the event on CLJS"
-    (let [fired (atom false)]
-      (rf/reg-event :cljs.dom/should-not-fire
-        (fn [{:keys [db]} _] (reset! fired true) {:db db}))
-      (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
-                  bf [:cljs.dom/should-not-fire] rf.story.play.settled-boundary/headless-flush-hooks
-                  :dom [:click "button"])]
-        (is (= :cannot-run (:status res)))
-        (is (= :dom      (:required-boundary res)))
-        (is (= :headless (:provided-boundary res)))
-        (is (false? @fired) "fail-closed: the event is not dispatched")))))
 
 (deftest cljs-flush-error-not-swallowed
   (testing "a throwing flush fn surfaces :error on CLJS, never a silent pass"

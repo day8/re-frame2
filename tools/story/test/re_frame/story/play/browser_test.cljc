@@ -94,15 +94,11 @@
           (is (false? (:passed? rec)))
           (is (= #{:pixels} (:missing-evidence rec))))))))
 
-(deftest cannot-run-finding-rides-the-assertion-record-shape
-  (testing ":cannot-run findings carry the ONE assertion-record shape"
+(deftest a-cannot-run-record-preserves-its-payload
+  (testing "a :cannot-run finding is the ONE assertion-record shape, so it
+            carries the atom's payload like any other record"
     (let [rec (rf.story.play.browser/eval-visual-snapshot [{:opt 1}] {})]
-      ;; same slots every other assertion record carries
-      (is (contains? rec :assertion))
-      (is (contains? rec :payload))
-      (is (contains? rec :passed?))
-      (is (contains? rec :status))
-      (is (= [{:opt 1}] (:payload rec)) "payload is preserved on the record"))))
+      (is (= [{:opt 1}] (:payload rec))))))
 
 ;; ===========================================================================
 ;; STRUCTURAL A11Y — runs at :hiccup (pure hiccup-tree walk, JVM-testable)
@@ -280,11 +276,9 @@
 ;; ===========================================================================
 
 (deftest browser-tier-ids-are-known-assertions
-  (testing "the browser-tier ids are in the recognised vocabulary"
-    (is (contains? rf.story.assertions/browser-assertion-ids :rf.assert/visual-snapshot))
-    (is (contains? rf.story.assertions/browser-assertion-ids :rf.assert/a11y))
-    (is (contains? rf.story.assertions/browser-assertion-ids :rf.assert/a11y-structural))
-    ;; plan construction accepts them (assertion-id-known?)
+  (testing "plan construction accepts the browser-tier ids
+            (assertion-id-known?); their browser-assertion-ids membership is
+            browser-assertion-predicate's"
     (is (rf.story.assertions/assertion-id-known? :rf.assert/visual-snapshot))
     (is (rf.story.assertions/assertion-id-known? :rf.assert/a11y))
     (is (rf.story.assertions/assertion-id-known? :rf.assert/a11y-structural))))

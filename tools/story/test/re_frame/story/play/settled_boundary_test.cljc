@@ -63,16 +63,19 @@
 
 (deftest cannot-run-refusal-shape
   (testing "refusal carries required + provided + reason + step"
-    (let [r (rf.story.play.settled-boundary/cannot-run-refusal :dom :headless [:click "b"])]
-      (is (= :cannot-run (:status r)))
-      (is (= :dom        (:required-boundary r)))
-      (is (= :headless   (:provided-boundary r)))
-      (is (= :runner-below-required-boundary (:reason r)))
-      (is (= [:click "b"] (:step r)))))
-  (testing "an explicit reason (e.g. flush timeout) is preserved"
-    (let [r (rf.story.play.settled-boundary/cannot-run-refusal :dom :headless nil :flush-timeout)]
-      (is (= :flush-timeout (:reason r)))
-      (is (not (contains? r :step)) "nil step is omitted"))))
+    (is (= {:status            :cannot-run
+            :required-boundary :dom
+            :provided-boundary :headless
+            :reason            :runner-below-required-boundary
+            :step              [:click "b"]}
+           (rf.story.play.settled-boundary/cannot-run-refusal :dom :headless [:click "b"]))))
+  (testing "an explicit reason (e.g. flush timeout) is preserved, and a nil
+            step is omitted"
+    (is (= {:status            :cannot-run
+            :required-boundary :dom
+            :provided-boundary :headless
+            :reason            :flush-timeout}
+           (rf.story.play.settled-boundary/cannot-run-refusal :dom :headless nil :flush-timeout)))))
 
 ;; ---- pure: the default headless flush-hooks ------------------------------
 
@@ -127,8 +130,7 @@
       (fn [{:keys [db]} _] {:db (update db :hops (fnil conj []) :c)}))
     (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
                 bf [:chain/a] rf.story.play.settled-boundary/headless-flush-hooks :headless [:dispatch [:chain/a]])]
-      (is (= :settled (:status res)))
-      (is (= :headless (:boundary res)))
+      (is (= {:status :settled :boundary :headless} res))
       ;; The entire synchronous cascade has settled — all three hops are
       ;; present immediately, no async tick required.
       (is (= [:a :b :c] (:hops (rf/app-db-value bf)))
@@ -144,9 +146,12 @@
       (let [res (rf.story.play.settled-boundary/dispatch-and-settle!
                   bf [:dom/should-not-fire] rf.story.play.settled-boundary/headless-flush-hooks
                   :dom [:click "button"])]
-        (is (= :cannot-run (:status res)))
-        (is (= :dom      (:required-boundary res)))
-        (is (= :headless (:provided-boundary res)))
+        (is (= {:status            :cannot-run
+                :required-boundary :dom
+                :provided-boundary :headless
+                :reason            :runner-below-required-boundary
+                :step              [:click "button"]}
+               res))
         (is (false? @fired)
             "the event is NOT dispatched when the boundary cannot be satisfied")))))
 
@@ -162,8 +167,7 @@
                                :dom           (fn [_] (swap! flushed conj :dom))}}]
       (rf/reg-event :dom/click (fn [{:keys [db]} _] {:db (assoc db :clicked true)}))
       (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:dom/click] hooks :dom [:click "b"])]
-        (is (= :settled (:status res)))
-        (is (= :dom     (:boundary res)))
+        (is (= {:status :settled :boundary :dom} res))
         (is (true? (:clicked (rf/app-db-value bf))) "event dispatched")
         (is (= [:headless :reactive :dom] @flushed)
             "flushes run in ladder order up to and including the required boundary")))))
@@ -177,8 +181,7 @@
       (rf/reg-event :dom/x (fn [{:keys [db]} _] {:db db}))
       (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:dom/x] hooks :dom [:click "b"])]
         (is (= :error (:status res)))
-        (is (re-find #"flush boom" (:error res)))
-        (is (not= :settled (:status res)) "a flush failure is never a settled pass")))))
+        (is (re-find #"flush boom" (:error res)))))))
 
 (deftest timeout-ms-bounds-flush-phase-and-refuses
   (testing "a flush phase that exceeds the hooks' :timeout-ms stops the
@@ -198,12 +201,13 @@
                                :dom           (fn [_] (swap! ran conj :dom))}}]
       (rf/reg-event :timeout/fired (fn [{:keys [db]} _] {:db (assoc db :fired true)}))
       (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:timeout/fired] hooks :dom [:click "b"])]
-        (is (= :cannot-run    (:status res)))
-        (is (= :flush-timeout (:reason res)))
-        (is (= :dom           (:required-boundary res)))
-        (is (= :dom           (:provided-boundary res)))
-        (is (= [:click "b"]   (:step res)))
-        (is (not= :settled (:status res)) "a flush timeout is never a settled pass")
+        (is (= {:status            :cannot-run
+                :required-boundary :dom
+                :provided-boundary :dom
+                :reason            :flush-timeout
+                :step              [:click "b"]}
+               res)
+            "a flush timeout is a fail-closed refusal, never a settled pass")
         (is (empty? @ran)
             "the over-budget flush phase ran no flush fn (deadline already past)")
         (is (true? (:fired (rf/app-db-value bf)))
@@ -240,13 +244,14 @@
                                                   (while (< (rf.interop/now-ms) stop) nil)))}}]
       (rf/reg-event :timeout/terminal (fn [{:keys [db]} _] {:db (assoc db :fired true)}))
       (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:timeout/terminal] hooks :dom [:click "b"])]
-        (is (not= :settled (:status res))
-            "an over-budget TERMINAL flush is never a settled pass")
-        (is (= :cannot-run    (:status res)))
-        (is (= :flush-timeout (:reason res)))
-        (is (= :dom           (:required-boundary res)))
-        (is (= :dom           (:provided-boundary res)))
-        (is (= [:click "b"]   (:step res)))
+        (is (= {:status            :cannot-run
+                :required-boundary :dom
+                :provided-boundary :dom
+                :reason            :flush-timeout
+                :step              [:click "b"]}
+               res)
+            "an over-budget TERMINAL flush is a fail-closed refusal, never a
+             settled pass")
         (is (= [:reactive :dom] @ran)
             "the terminal flush DID run (it was within budget on entry); the
              refusal is detected by the post-flush deadline re-check")
@@ -266,7 +271,6 @@
                               :dom           (fn [_] (swap! ran conj :dom))}}]
       (rf/reg-event :timeout/ok (fn [{:keys [db]} _] {:db (assoc db :ok true)}))
       (let [res (rf.story.play.settled-boundary/dispatch-and-settle! bf [:timeout/ok] hooks :dom [:click "b"])]
-        (is (= :settled (:status res)))
-        (is (= :dom     (:boundary res)))
+        (is (= {:status :settled :boundary :dom} res))
         (is (= [:reactive :dom] @ran) "all flushes ran under a generous budget")
         (is (true? (:ok (rf/app-db-value bf))))))))
