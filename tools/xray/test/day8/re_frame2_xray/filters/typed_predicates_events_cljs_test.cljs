@@ -93,7 +93,6 @@
       (rf/dispatch-sync [:rf.xray/filter-by-machine :form])
       (rf/dispatch-sync [:rf.xray/filter-by-fx :rf.http/managed])
       (let [filters @(rf/subscribe [:rf.xray/active-filters])]
-        (is (= 3 (count (:in filters))))
         (is (= [{:pattern :auth/*}
                 {:kind :machine :params {:machine-id :form}}
                 {:kind :fx :params {:fx-id :rf.http/managed}}]

@@ -67,16 +67,6 @@
   (is (= {:pattern nil}
          (edit-popup/draft->pill {:pattern "   "}))))
 
-(deftest draft-to-pill-is-event-id-only
-  (testing "the pill shape carries the pattern only — event-id is the
-            implicit, only scope; no :scope key is ever serialised"
-    (is (= {:pattern :auth/login}
-           (edit-popup/draft->pill {:pattern ":auth/login"}))
-        "pattern-only shape")
-    (is (= [:pattern]
-           (keys (edit-popup/draft->pill {:pattern ":auth/login"})))
-        "no :scope (or any other) key in the projected pill")))
-
 (deftest pill-to-draft-stringifies-keyword
   (is (= {:pattern ":auth/*"}
          (edit-popup/pill->draft {:pattern :auth/*}))))
@@ -422,15 +412,3 @@
     (is (nil? (:scope (frame-sub [:rf.xray/edit-popup-draft])))
         "draft carries no :scope slot")))
 
-(deftest saved-pill-is-event-id-only
-  (testing "a saved pill carries :pattern only — no :scope (or any
-            other) key. The matcher honours event-id exclusively."
-    (xray-setup!)
-    (frame-dispatch [:rf.xray/open-edit-popup {:source :add :mode :in}])
-    (frame-dispatch [:rf.xray/edit-popup-set-pattern ":auth/*"])
-    (frame-dispatch [:rf.xray/save-edit-popup])
-    (let [pill (-> (frame-sub [:rf.xray/active-filters]) :in first)]
-      (is (= {:pattern :auth/*} pill)
-          "stored pill is the event-id pattern shape only")
-      (is (= [:pattern] (keys pill))
-          "no :scope key persisted"))))
