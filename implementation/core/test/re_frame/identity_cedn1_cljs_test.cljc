@@ -12,6 +12,7 @@
   shadow-cljs `:node-test` build and the JVM cognitect runner discover it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
+            [clojure.string :as str]
             [re-frame.identity :as rf.identity]))
 
 ;; ---- deterministic PRNG (mirrors path-laws-cljs-test) --------------------
@@ -134,6 +135,100 @@
                     (recur (inc i) (lcg-next s1))
                     [v])
                   (recur (inc i) (lcg-next s1))))))))))
+
+;; ---- UTF-8 byte order, not UTF-16 code-unit order -------------------------
+;;
+;; CEDN-1 sorts map keys and set elements by their UTF-8 BYTES. The host string
+;; comparators order UTF-16 code units, and the two orders disagree in exactly
+;; one place: a supplementary character (a surrogate pair) against a BMP
+;; character at or above U+E000. The discriminating pair is therefore
+;;
+;;   U+E000   BMP, private use   1 code unit  E000        UTF-8 EE 80 80
+;;   U+10000  supplementary      2 code units D800 DC00   UTF-8 F0 90 80 80
+;;
+;; Code-unit order puts U+10000 first (D800 < E000); byte order puts U+E000
+;; first (EE < F0). An ASCII or low-BMP payload cannot tell the two apart, so
+;; the control deftest below pins that ordinary ordering did not move. The
+;; strings are built from explicit code points so the source stays pure ASCII
+;; (a literal surrogate pair is easily mangled into two lone halves).
+
+(def ^:private high-bmp (str (char 0xE000)))
+(def ^:private astral (str (char 0xD800) (char 0xDC00)))
+
+(defn- utf8-bytes
+  "The unsigned UTF-8 bytes of `s` — an oracle that shares nothing with the
+  encoder's comparator."
+  [s]
+  #?(:clj  (mapv #(bit-and % 0xFF) (.getBytes ^String s "UTF-8"))
+     :cljs (vec (js/Array.from (.encode (js/TextEncoder.) s)))))
+
+(defn- compare-bytes
+  "Lexicographic order over two byte vectors, a proper prefix first. (`compare`
+  on vectors orders by length first, so it is not this.)"
+  [xs ys]
+  (or (first (remove zero? (map compare xs ys)))
+      (compare (count xs) (count ys))))
+
+(defn- byte-sorted [tokens]
+  (sort-by utf8-bytes compare-bytes tokens))
+
+(defn- set-bytes-by [sort-fn xs]
+  (str "q#{" (str/join " " (sort-fn (map rf.identity/canonical-bytes xs))) "}"))
+
+(defn- map-bytes-by [sort-fn m]
+  (let [vtok (into {} (map (fn [[k v]] [(rf.identity/canonical-bytes k)
+                                        (rf.identity/canonical-bytes v)]))
+                   m)]
+    (str "m{" (str/join " " (mapcat (fn [kt] [kt (vtok kt)]) (sort-fn (keys vtok)))) "}")))
+
+(def ^:private boundary-pool
+  "Strings spanning every UTF-8 length boundary and both sides of the
+  surrogate block, plus a proper-prefix pair."
+  ["" "a" "ab" "z"
+   (str (char 0x7F)) (str (char 0x80)) (str (char 0x7FF)) (str (char 0x800))
+   (str (char 0xD7FF)) high-bmp (str (char 0xFFFD)) (str (char 0xFFFF))
+   astral
+   (str (char 0xD83D) (char 0xDE00))   ; U+1F600
+   (str (char 0xDBFF) (char 0xDFFF))   ; U+10FFFF, the last code point
+   (str "a" high-bmp) (str "a" astral)])
+
+(deftest utf8-byte-order-of-map-keys-and-set-elements
+  (testing "the pair is discriminating: code-unit order and byte order disagree on it"
+    (is (neg? (compare astral high-bmp)) "code-unit order puts U+10000 first")
+    (is (pos? (compare-bytes (utf8-bytes astral) (utf8-bytes high-bmp)))
+        "UTF-8 byte order puts U+E000 first"))
+  (testing "a mixed map orders its keys by UTF-8 bytes: U+E000 before U+10000"
+    (is (= (str "m{s:\"a\" k::ascii s:\"" high-bmp "\" k::high-bmp s:\"" astral "\" k::astral}")
+           (rf.identity/canonical-bytes {astral :astral, high-bmp :high-bmp, "a" :ascii}))))
+  (testing "a mixed set orders its elements by UTF-8 bytes: U+E000 before U+10000"
+    (is (= (str "q#{s:\"a\" s:\"" high-bmp "\" s:\"" astral "\"}")
+           (rf.identity/canonical-bytes #{astral high-bmp "a"}))))
+  (testing "keyword and composite tokens follow the same byte order"
+    (is (= (str "q#{k::" high-bmp " k::" astral "}")
+           (rf.identity/canonical-bytes #{(keyword astral) (keyword high-bmp)})))
+    (is (= (str "m{v[s:\"" high-bmp "\"] i:2 v[s:\"" astral "\"] i:1}")
+           (rf.identity/canonical-bytes {[astral] 1, [high-bmp] 2}))))
+  (testing "set and map order agree with a UTF-8 byte sort across every boundary"
+    (is (= (set-bytes-by byte-sorted boundary-pool)
+           (rf.identity/canonical-bytes (set boundary-pool))))
+    (is (= (map-bytes-by byte-sorted (zipmap boundary-pool (range)))
+           (rf.identity/canonical-bytes (zipmap boundary-pool (range)))))))
+
+(deftest ordinary-ordering-is-unchanged
+  ;; The control. Everywhere except a surrogate meeting U+E000-U+FFFF, UTF-8
+  ;; byte order IS code-unit order, so these bytes are the host-sorted bytes.
+  (testing "ASCII and BMP below the surrogate block: a pinned literal"
+    (is (= (str "m{k::a i:1 k::b i:2 s:\"a\" i:3 s:\"" (char 0xE9) "\" i:4 s:\""
+                (char 0x4E2D) "\" i:5}")
+           (rf.identity/canonical-bytes {(str (char 0x4E2D)) 5, :b 2, (str (char 0xE9)) 4,
+                                         "a" 3, :a 1}))))
+  (testing "pools that never mix a surrogate with U+E000-U+FFFF sort exactly as the host does"
+    (doseq [pool [["b" "a" "ab" "" "z" (str (char 0xE9)) (str (char 0x4E2D)) (str (char 0xD7FF))]
+                  [high-bmp (str (char 0xFFFD)) (str (char 0xFFFF)) (str (char 0xF900))]
+                  [astral (str (char 0xD83D) (char 0xDE00)) (str (char 0xDBFF) (char 0xDFFF))]]]
+      (is (= (set-bytes-by sort pool) (rf.identity/canonical-bytes (set pool))))
+      (is (= (map-bytes-by sort (zipmap pool (range)))
+             (rf.identity/canonical-bytes (zipmap pool (range))))))))
 
 ;; ---- vector/list/set distinctness + type tags ----------------------------
 

@@ -105,6 +105,20 @@
   {:call :canonical-bytes :value #{:m :x :a} :expect "q#{k::a k::m k::x}"}
   {:call :canonical-identical :a #{:m :x :a} :b #{:a :x :m}}
 
+  ;; --- UTF-8 BYTE order, not UTF-16 code-unit order ---------------------
+  ;; U+E000 is EE 80 80 in UTF-8 and U+10000 is F0 90 80 80, so byte order
+  ;; puts U+E000 first. A host string comparator orders UTF-16 code units,
+  ;; where U+10000 is the surrogate pair D800 DC00 and sorts BEFORE E000 —
+  ;; the one place the two orders disagree (a supplementary character against
+  ;; a BMP character at or above U+E000). A port sorting by code point or by
+  ;; UTF-8 bytes passes; one sorting by UTF-16 code unit fails here.
+  {:call :canonical-bytes
+   :value {"\uD800\uDC00" :astral "\uE000" :high-bmp "a" :ascii}
+   :expect "m{s:\"a\" k::ascii s:\"\uE000\" k::high-bmp s:\"\uD800\uDC00\" k::astral}"}
+  {:call :canonical-bytes
+   :value #{"\uD800\uDC00" "\uE000" "a"}
+   :expect "q#{s:\"a\" s:\"\uE000\" s:\"\uD800\uDC00\"}"}
+
   ;; --- HETEROGENEOUS map keys (the EP's named fixture obligation): a
   ;;     vector key alongside a keyword key, both canonically ordered by
   ;;     their key CEDN-1 bytes.
