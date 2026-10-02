@@ -134,14 +134,10 @@
           :rf2-3un2g/recorder
           (fn [record] (reset! seen record)))
         (rf/dispatch-sync [:rf2-3un2g/prod-error-handler])
-        (is (some? @seen)
-            "error-emit listener fired under disabled debug gate")
         (let [sc (:source-coord @seen)]
-          (is (some? sc)
-              "`:source-coord` rides the tight error-record under
-               disabled debug gate — Sentry-style shippers see it")
           (is (symbol? (:ns sc))
-              ":source-coord :ns is a symbol")
+              "`:source-coord` rides the tight error-record under disabled debug
+               gate — Sentry-style shippers see it — and its :ns is a symbol")
           (is (integer? (:line sc))
               ":source-coord :line is an integer")
           (is (string? (:file sc))

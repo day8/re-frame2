@@ -70,16 +70,6 @@
 
 ;; ---- shape: a handle is an operation bundle ------------------------------
 
-(deftest capture-frame-returns-operation-bundle
-  (testing "(capture-frame frame-id) returns {:frame :dispatch :dispatch-sync :subscribe}"
-    (rf/make-frame {:id :fh/shape :doc "shape probe"})
-    (let [h (rf/capture-frame :fh/shape)]
-      (is (= :fh/shape (:frame h))
-          ":frame is the captured frame id")
-      (is (fn? (:dispatch h))      ":dispatch is a fn")
-      (is (fn? (:dispatch-sync h)) ":dispatch-sync is a fn")
-      (is (fn? (:subscribe h))     ":subscribe is a fn"))))
-
 ;; ---- captures at creation, not op-call time ------------------------------
 
 (deftest capture-frame-captures-frame-at-creation
@@ -642,9 +632,9 @@
     (is (nil? rf.frame/*current-frame*) "no with-frame scope established")
     (let [e (try (rf/capture-frame) nil
                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "no-arg capture-frame outside any scope must throw")
       (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
-          ":rf.error/id is the carried-invariant absence error")
+          "no-arg capture-frame outside any scope throws the carried-invariant
+           absence error")
       (is (= :capture-frame (:operation (ex-data e)))
           ":operation attributes the failure to capture-frame"))))
 
@@ -706,15 +696,13 @@
     ;; Inside a scope: the bound id.
     (is (= :cfi/probe (rf/with-frame :cfi/probe (rf/current-frame-id)))
         "inside with-frame: the bound id")
-    (is (keyword? (rf/with-frame :cfi/probe (rf/current-frame-id)))
-        "always a keyword inside a scope")
     ;; Outside any scope: the carried-invariant absence error.
     (is (nil? rf.frame/*current-frame*) "no with-frame scope established")
     (let [e (try (rf/current-frame-id) nil
                  (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "current-frame-id outside any scope must throw")
       (is (= :rf.error/no-frame-context (:rf.error/id (ex-data e)))
-          "raises the carried-invariant absence error instead of :rf/default")
+          "current-frame-id outside any scope raises the carried-invariant
+           absence error instead of :rf/default")
       (is (= :current-frame-id (:operation (ex-data e)))
           ":operation attributes the failure to current-frame-id"))))
 

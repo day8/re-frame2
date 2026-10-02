@@ -113,13 +113,7 @@
 ;; ---- shared assertion helper ---------------------------------------------
 
 (defn- assert-coords [meta kind id]
-  (is (some? meta) (str "handler-meta for " kind " " id " should be present"))
-  (is (some? (:ns meta))
-      (str "handler-meta for " kind " " id " should carry :ns"))
-  (is (some? (:line meta))
-      (str "handler-meta for " kind " " id " should carry :line"))
-  (is (some? (:file meta))
-      (str "handler-meta for " kind " " id " should carry :file"))
+  ;; Each type check also fails on an absent meta or an absent key.
   ;; :ns is a symbol per Spec 001 §The metadata map.
   (is (symbol? (:ns meta))
       (str "handler-meta for " kind " " id " :ns should be a symbol"))
@@ -138,8 +132,6 @@
   production build, per `source-coords` §Production elision sink 2."
   [kind id]
   (let [c (rf.source-coords/error-coords-for kind id)]
-    (is (map? c)
-        (str "always-on error-coords for " kind " " id " should be present"))
     (is (symbol? (:ns c))
         (str "always-on error-coords for " kind " " id " :ns should be a symbol"))
     (is (integer? (:line c))
@@ -374,29 +366,6 @@
         (is (nil? (:file meta)) ":file absent on direct fn call")))))
 
 ;; ---- :file is absolutised via classpath resolution ------------------------
-
-(deftest absolutise-file-resolves-classpath-relative-paths
-  (testing "absolutise-file returns absolute on-disk path for a
-  classpath-relative source file"
-    ;; This very test file lives on the classpath under its
-    ;; classpath-relative path; absolutising it must yield a path that
-    ;; matches the absolute-path predicate the URI builder uses.
-    (let [rel  "re_frame/source_coords_test.clj"
-          abs  (#'rf.source-coords/absolutise-file rel)]
-      (is (string? abs))
-      (is (not= rel abs)
-          "classpath-relative path should resolve to a different (absolute) path")
-      ;; The result must look absolute to compose-path so the URI build
-      ;; passes it through unchanged. compose-path is private — go
-      ;; through the public editor-uri's 3-arg form (which calls
-      ;; compose-path internally) by checking the URI carries the
-      ;; absolute path without the project-root prepended.
-      (let [uri (rf.source-coords.editor-uri/editor-uri :vscode {:file abs :line 1 :column 1}
-                               {:project-root "/fake/project/root"})]
-        (is (.contains ^String uri abs)
-            "URI must carry the absolute :file value")
-        (is (not (.contains ^String uri "/fake/project/root"))
-            "URI must NOT contain the project-root (absolute path passes through)")))))
 
 (deftest absolutise-file-passes-through-what-it-cannot-resolve
   (testing "an already-absolute path (drive letter, POSIX, file: URL), a

@@ -21,7 +21,7 @@
   either resolves to the real source path (the common shadow-cljs path) or
   is omitted entirely (when no form-meta `:file` is available and `*file*`
   is the sentinel)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [are deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.adapter.context :as rf.adapter.context]
             [re-frame.source-coords :as rf.source-coords]
@@ -143,22 +143,22 @@
 ;; against the REAL `re-frame.adapter.context/format-source-coord` so the
 ;; format + parse pair can never drift apart.
 
-(deftest parse-source-coord-canonical-shape
-  (testing "a four-segment value parses to {:ns :handler-id :line :col}"
-    (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
-           (rf.source-coords/parse-source-coord "counter.core:counter-buttons:47:11")))))
+(deftest parse-source-coord-reads-the-four-segment-value
+  (testing "a four-segment value parses to {:ns :handler-id :line :col}; `?`
+            placeholders parse the id portion with nil line/col; a dotted ns
+            and a hyphenated handler-id parse cleanly"
+    (are [s expected] (= expected (rf.source-coords/parse-source-coord s))
+      "counter.core:counter-buttons:47:11"
+      {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
 
-(deftest parse-source-coord-degraded-placeholders
-  (testing "`?` placeholders parse the id portion; line/col are nil"
-    (is (= {:ns "rf.x" :handler-id "programmatic" :line nil :col nil}
-           (rf.source-coords/parse-source-coord "rf.x:programmatic:?:?")))
-    (is (= {:ns "ns.x" :handler-id "view" :line 42 :col nil}
-           (rf.source-coords/parse-source-coord "ns.x:view:42:?")))))
+      "rf.x:programmatic:?:?"
+      {:ns "rf.x" :handler-id "programmatic" :line nil :col nil}
 
-(deftest parse-source-coord-dotted-and-hyphenated
-  (testing "dotted ns + hyphenated handler-id parse cleanly"
-    (is (= {:ns "my-app.cart.view" :handler-id "apply-coupon-button" :line 125 :col 4}
-           (rf.source-coords/parse-source-coord "my-app.cart.view:apply-coupon-button:125:4")))))
+      "ns.x:view:42:?"
+      {:ns "ns.x" :handler-id "view" :line 42 :col nil}
+
+      "my-app.cart.view:apply-coupon-button:125:4"
+      {:ns "my-app.cart.view" :handler-id "apply-coupon-button" :line 125 :col 4})))
 
 (deftest parse-source-coord-malformed-returns-nil
   (testing "malformed input returns nil and never throws"
@@ -202,23 +202,17 @@
 ;; can never drift apart — the data-rf-view analogue of the parse-source-coord
 ;; round-trip above.
 
-(deftest parse-view-id-namespaced-keyword
-  (testing "a stringified namespaced keyword parses back to the keyword"
-    (is (= :rf.foo/bar (rf.source-coords/parse-view-id ":rf.foo/bar")))))
-
-(deftest parse-view-id-bare-keyword
-  (testing "a leading-colon body with no slash → unqualified keyword"
-    (is (= :bare (rf.source-coords/parse-view-id ":bare")))))
-
-(deftest parse-view-id-raw-string
-  (testing "a non-colon-prefixed value is a non-keyword id, returned verbatim"
-    (is (= "raw-string" (rf.source-coords/parse-view-id "raw-string")))))
-
-(deftest parse-view-id-nil-and-non-string
-  (testing "nil / non-string input returns nil and never throws"
-    (is (nil? (rf.source-coords/parse-view-id nil)))
-    (is (nil? (rf.source-coords/parse-view-id 42)))
-    (is (nil? (rf.source-coords/parse-view-id :keyword)))))
+(deftest parse-view-id-reads-the-attribute-value
+  (testing "a stringified keyword (namespaced or bare) parses back to the
+            keyword; a non-colon-prefixed value is a non-keyword id returned
+            verbatim; nil / non-string input returns nil and never throws"
+    (are [v expected] (= expected (rf.source-coords/parse-view-id v))
+      ":rf.foo/bar" :rf.foo/bar
+      ":bare"       :bare
+      "raw-string"  "raw-string"
+      nil           nil
+      42            nil
+      :keyword      nil)))
 
 (deftest format-view-id-then-parse-round-trips
   (testing "(parse-view-id (format-view-id id)) recovers the registry id"

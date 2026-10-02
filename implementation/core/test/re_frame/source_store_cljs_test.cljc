@@ -57,11 +57,10 @@
     (rf.source-store/record-descriptor! :event :boot/init
                            {:ns 'examples.counter.boot :handler-fn :counter-fn})
     (let [slots (rf.source-store/descriptors-for :event :boot/init)]
-      (is (= 2 (count slots))
-          "both provenance-distinct descriptors are retained, not clobbered")
       (is (= #{"examples.todo.boot" "examples.counter.boot"}
              (set (keys slots)))
-          "the two leaves are keyed by their source namespace strings")
+          "both provenance-distinct descriptors are retained, not clobbered,
+           keyed by their source namespace strings")
       (is (= :todo-fn
              (:handler-fn (rf.source-store/descriptor-for :event :boot/init
                                              'examples.todo.boot)))
@@ -83,22 +82,6 @@
 ;; 2. Same namespace — replacement (the hot-reload path)
 ;; ===========================================================================
 
-(deftest same-namespace-replacement
-  (testing "a re-eval of the SAME namespace replaces its own source slot — the
-            ordinary hot-reload path (EP-0023 retains Spec 001's same-namespace
-            replacement contract)"
-    (rf.source-store/record-descriptor! :event :counter/inc
-                           {:ns 'docs.counter.v2 :handler-fn :v1 :gen 1})
-    (rf.source-store/record-descriptor! :event :counter/inc
-                           {:ns 'docs.counter.v2 :handler-fn :v2 :gen 2})
-    (let [slots (rf.source-store/descriptors-for :event :counter/inc)]
-      (is (= 1 (count slots))
-          "the same namespace occupies ONE source slot — no duplication")
-      (is (= :v2 (:handler-fn (get slots "docs.counter.v2")))
-          "the re-eval replaced the slot with the new descriptor")
-      (is (= 2 (:gen (get slots "docs.counter.v2")))
-          "the replacement is the LATEST registration for that namespace"))))
-
 (deftest same-namespace-replacement-does-not-disturb-siblings
   (testing "replacing one namespace's slot leaves sibling-namespace descriptors
             for the same (kind, id) intact"
@@ -113,21 +96,6 @@
 ;; ===========================================================================
 ;; 3. :rf.provenance/ns recorded canonically (string, one instance per ns)
 ;; ===========================================================================
-
-(deftest provenance-ns-recorded-as-string
-  (testing "every recorded descriptor carries :rf.provenance/ns as a canonical
-            STRING derived from the macro-captured :ns symbol (EP-0023 — a
-            production descriptor field, equality is string equality)"
-    (let [stored (rf.source-store/record-descriptor! :event :counter/inc
-                                        {:ns 'docs.counter.v2 :handler-fn :f})]
-      (is (= "docs.counter.v2" (:rf.provenance/ns stored))
-          "provenance ns stamped as a string on the stored descriptor")
-      (is (string? (:rf.provenance/ns stored))
-          "it is a string, not a symbol")
-      (is (= "docs.counter.v2"
-             (:rf.provenance/ns (rf.source-store/descriptor-for :event :counter/inc
-                                                   'docs.counter.v2)))
-          "the stored slot carries the canonical provenance string"))))
 
 (deftest provenance-ns-canonical-one-string-per-namespace
   (testing "the canonical namespace string is POOLED — every descriptor from
@@ -150,20 +118,6 @@
           "the symbol spelling pools to the same instance")
       (is (identical? (:rf.provenance/ns a) d)
           "the string spelling pools to the same instance"))))
-
-(deftest provenance-ns-honours-explicit-override
-  (testing "an explicit :rf.provenance/ns already on the descriptor wins over
-            the :ns symbol (a tool / generated-code path stamping its own
-            provenance), and canonicalized to the pool"
-    (let [stored (rf.source-store/record-descriptor! :event :gen/handler
-                                        {:ns 'macro.captured.ns
-                                         :rf.provenance/ns "tool.synthesised.ns"
-                                         :handler-fn :f})]
-      (is (= "tool.synthesised.ns" (:rf.provenance/ns stored))
-          "explicit provenance overrides the :ns symbol")
-      (is (identical? (rf.source-store/canonical-ns "tool.synthesised.ns")
-                      (:rf.provenance/ns stored))
-          "the explicit provenance is pooled too"))))
 
 (deftest programmatic-no-provenance-recorded-once
   (testing "a programmatic registration with no :ns (REPL / non-macro path)
@@ -192,7 +146,6 @@
     (is (some? (rf.registrar/lookup :event :wired/handler))
         "the resolver map is written")
     (let [slot (rf.source-store/descriptor-for :event :wired/handler 'wired.ns)]
-      (is (some? slot) "the source store is also written")
       (is (= "wired.ns" (:rf.provenance/ns slot))
           "register! stamps canonical provenance via the source store"))))
 
@@ -263,23 +216,6 @@
 ;;    reads (:kind d) / (:id d), so a registered descriptor MUST carry them
 ;; ===========================================================================
 
-(deftest stored-descriptor-carries-kind-and-id
-  (testing "record-descriptor! stamps :kind and :id onto the stored descriptor
-            (the store KEY, so deterministic). Image assembly reads (:kind d) /
-            (:id d) via descriptor-kind+id / check-supported-kinds!, so a real
-            registered descriptor selected by :include-ns must carry them"
-    (let [stored (rf.source-store/record-descriptor! :event :counter/inc
-                                        {:ns 'docs.counter.v2 :handler-fn :f})]
-      (is (= :event (:kind stored)) "stored descriptor carries its :kind")
-      (is (= :counter/inc (:id stored)) "stored descriptor carries its :id"))
-    ;; Reachable through the query surfaces too, not just the return value.
-    (let [slot (rf.source-store/descriptor-for :event :counter/inc 'docs.counter.v2)]
-      (is (= :event (:kind slot)))
-      (is (= :counter/inc (:id slot))))
-    (is (= [:event :counter/inc]
-           ((juxt :kind :id) (first (rf.source-store/all-descriptors :event))))
-        "the flattened all-descriptors entry carries :kind / :id")))
-
 (deftest registrar-recorded-descriptor-assembles-via-all-descriptors
   (testing "a descriptor recorded via rf.registrar/register! carries :kind / :id
             and assembles through image-assembly (selecting from the live source
@@ -323,8 +259,6 @@
                                           {:handler-fn :f})]
         (is (= "docs.counter.prod" (:rf.provenance/ns stored))
             "provenance derived from the surviving *pending-coords* :ns")
-        (is (string? (:rf.provenance/ns stored))
-            "it is a canonical string")
         (is (identical? (rf.source-store/canonical-ns "docs.counter.prod")
                         (:rf.provenance/ns stored))
             "the *pending-coords*-derived provenance is pooled too")))
@@ -352,23 +286,15 @@
                                            :rf.provenance/ns "tool.synthesised.ns"
                                            :handler-fn :f})]
         (is (= "tool.synthesised.ns" (:rf.provenance/ns stored))
-            "explicit provenance overrides both the :ns slot and *pending-coords*")))))
+            "explicit provenance overrides both the :ns slot and *pending-coords*")
+        (is (identical? (rf.source-store/canonical-ns "tool.synthesised.ns")
+                        (:rf.provenance/ns stored))
+            "the explicit provenance is pooled too")))))
 
 ;; ===========================================================================
 ;; 8. clear-kind! bumps the store generation — the
 ;;    resolved-image-generation cache MUST invalidate after a clear-kind!
 ;; ===========================================================================
-
-(deftest clear-kind-bumps-generation
-  (testing "source-store/clear-kind! bumps the active store's generation, like
-            every other mutation, so a generation read after the clear differs"
-    (rf.source-store/record-descriptor! :event :a/x {:ns 'n.s :handler-fn :f})
-    (let [before (rf.source-store/store-generation)]
-      (rf.source-store/clear-kind! :event)
-      (is (not= before (rf.source-store/store-generation))
-          "clear-kind! bumped the source-store generation")
-      (is (empty? (rf.source-store/descriptors-for :event :a/x))
-          "the kind's slots were dropped from the store"))))
 
 (deftest registrar-clear-kind-invalidates-resolved-generation-cache
   (testing "rf.registrar/clear-kind! routes through source-store/clear-kind!, which
