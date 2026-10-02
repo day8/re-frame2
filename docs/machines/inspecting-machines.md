@@ -1,93 +1,38 @@
-# 10. Inspecting and testing
+# Inspecting and testing
+
+<a id="10-inspecting-and-testing"></a>
 
 <a id="inspecting-and-testing"></a>
 <a id="inspecting-and-testing-machines"></a>
 
-Machines are ordinary re-frame2 state and ordinary re-frame2 events.
-
-That gives you four inspection surfaces:
-
-| Surface | Use it to answer |
-|---|---|
-| `[:rf/machine id]` | What state is this machine in now? |
-| `[:rf.machine/has-tag? id tag]` | Is this semantic state true? |
-| [Xray Machine Inspector](../xray/08-machine-inspector.md) | What did this event do? |
-| `machine-transition` | Is this transition table correct? |
-
-## Read the live snapshot
-
-```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])
-;; => {:state :submitting
-;;     :data  {:attempts 1 :error nil}
-;;     :tags  #{:auth/busy}}
-```
-
-The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed to a **singleton**. A spawned actor's snapshot exists from the moment it is spawned. For busy, read-only, connected and similar questions, ask a [tag](tags.md) instead; `[:rf.machine/has-tag? id tag]` returns `false` for an unknown or not-yet-started machine.
-
-## Use Xray
-
-When a flow misbehaves, [Xray's Machine Inspector](../xray/08-machine-inspector.md) shows which event moved the machine there, read from the trace stream.
-
-A good debugging loop:
-
-1. reproduce the behaviour;
-2. click the event row in Xray;
-3. open the machine inspector;
-4. compare before-state and after-state;
-5. inspect the guard and action records;
-6. if the topology is surprising, inspect the static machine definition.
-
-## Trace records
-
-Machines emit trace records through the standard trace bus. There is no separate machine log.
-
-You will most often see records for:
-
-- transition selected (`:rf.machine/transition`);
-- guard evaluated (`:rf.machine/guard-evaluated`);
-- action ran (`:rf.machine/action-ran`);
-- timer scheduled, fired, cancelled, or stale (`:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/cancelled`, `:rf.machine.timer/stale-after`);
-- actor spawned, finished, or destroyed (`:rf.machine.spawn/spawned`, `:rf.machine/done`, `:rf.machine/destroyed`);
-- unhandled event no-op (`:rf.machine.event/unhandled-no-op`).
-
-A guard trace tells you:
-
-```clojure
-{:operation :rf.machine/guard-evaluated
- :tags {:actor-id :auth.login/flow
-        :guard-id :under-retry-limit
-        :state    :submitting
-        :outcome  :pass}}   ;; :pass | :fail | :threw
-```
-
-An action trace tells you:
-
-```clojure
-{:operation :rf.machine/action-ran
- :tags {:actor-id  :auth.login/flow
-        :action-id :issue-request
-        :phase     :entry
-        :outcome   {:fx [[:rf.http/managed …]]}}}   ;; the return value; :ok when it returns nil; :rf.error/action-threw
-```
-
-Those records are what Xray renders. You can also tap the stream yourself in development with `(rf/register-listener! :trace …)`.
-
-## Jump to source with `handler-meta`
-
-Machine guards and actions are addressable through handler metadata.
-
-```clojure
-(rf/handler-meta {:source :store :kind :machine-guard :id [:auth.login/flow :under-retry-limit]})
-
-(rf/handler-meta {:source :store :kind :machine-action :id [:auth.login/flow :issue-request]})
-```
-
-In development this can include captured source, file, line, and handler function metadata. Production builds elide development-only source details.
+Test the login table with `machine-transition` before running its effects.
+When a live flow behaves differently, inspect its snapshot and the event
+that changed it.
 
 ## Unit-test with `machine-transition`
 
-A transition is a pure function of the definition, a snapshot and a trigger. The [first machine's test](tutorial.md#step-6--test-it-a-transition-is-a-pure-function) imports [`login-flow`](tutorial.md#the-complete-machine) and calls `rf.machines/machine-transition` on it directly. The result is one plain map:
+A transition is a pure function of the definition, a snapshot and a trigger. The [first machine's test](tutorial.md#step-6--test-it-a-transition-is-a-pure-function) imports [`login-flow`](tutorial.md#the-complete-machine) and calls `rf.machines/machine-transition` on it directly:
+
+Cover a refused trigger as well as a successful one:
+
+```clojure
+(ns app.login-test
+  (:require [clojure.test :refer [deftest is]]
+            [re-frame.machines :as rf.machines]
+            [app.login :refer [login-flow]]))
+
+(deftest empty-credentials-do-not-submit
+  (let [before {:state :idle :data {:attempts 0 :error nil}}
+        result (rf.machines/machine-transition
+                 login-flow before [:auth.login/submit {:email "" :password ""}])]
+    (is (= :ok (:status result)))
+    (is (false? (:handled? result)))
+    (is (= before (:snapshot result)))
+    (is (empty? (:fx result)))))
+```
+
+Add cases for unknown triggers, the last permitted retry and a thrown
+callback when the table has one. The result is one plain map:
 
 ```clojure
 {:status :ok  :snapshot {:state … :data … :tags …} :fx [[:rf.http/managed …] …] :handled? true}   ;; success
@@ -103,35 +48,6 @@ Effects are asserted as data: the HTTP request is not performed, and the test
 inspects the returned `:fx` description. This call starts from the snapshot you
 provide; it does not boot a singleton, execute timers or actors, or run the
 registered schema-validation boundary. Test those behaviors through a frame.
-
-Cover a refused trigger as well as a successful one:
-
-```clojure
-(let [before {:state :idle :data {:attempts 0 :error nil}}
-      result (rf.machines/machine-transition
-               login-flow before [:auth.login/submit {:email "" :password ""}])]
-  (is (= :ok (:status result)))
-  (is (false? (:handled? result)))
-  (is (= before (:snapshot result)))
-  (is (empty? (:fx result))))
-```
-
-Use the `login-flow` and `is` imports from the tutorial test. Add cases for
-unknown triggers, the last permitted retry, and a thrown callback when the
-table has one.
-
-## Testing registered definitions
-
-If a machine is already registered and you want its registered definition, read it off the registration. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec is stored under the reserved `:rf/machine` key.
-
-```clojure
-(rf.machines/machine-transition
-  (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))
-  snapshot
-  trigger)
-```
-
-Most tests should import the transition table value directly. Use registered metadata when the registration itself is part of what you are testing.
 
 ## Three useful test levels
 
@@ -173,6 +89,30 @@ At the pure testing surface, a guard or action that throws yields the `:status :
 
 At runtime, the same failure aborts the macrostep atomically. The previous snapshot remains visible. The error is reported as `:rf.error/machine-action-exception` (a thrown guard does not fall through to the next candidate).
 
+## Read the live snapshot
+
+```clojure
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => {:state :submitting
+;;     :data  {:attempts 1 :error nil}
+;;     :tags  #{:auth/busy}}
+```
+
+The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed to a **singleton**. A spawned actor's snapshot exists from the moment it is spawned. For busy, read-only, connected and similar questions, ask a [tag](tags.md) instead; `[:rf.machine/has-tag? id tag]` returns `false` for an unknown or not-yet-started machine.
+
+## Use Xray
+
+When a flow misbehaves, [Xray's Machine Inspector](../xray/08-machine-inspector.md) shows which event moved the machine there, read from the trace stream.
+
+A good debugging loop:
+
+1. reproduce the behaviour;
+2. click the event row in Xray;
+3. open the machine inspector;
+4. compare before-state and after-state;
+5. inspect the guard and action records;
+6. if the topology is surprising, inspect the static machine definition.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -183,3 +123,64 @@ At runtime, the same failure aborts the macrostep atomically. The previous snaps
 
 A `nil` snapshot from `[:rf/machine id]` is covered in
 [First machine → Troubleshooting](tutorial.md#troubleshooting).
+## Advanced
+
+### Trace records
+
+Machines emit trace records through the standard trace bus. There is no separate machine log.
+
+You will most often see records for:
+
+- transition selected (`:rf.machine/transition`);
+- guard evaluated (`:rf.machine/guard-evaluated`);
+- action ran (`:rf.machine/action-ran`);
+- timer scheduled, fired, cancelled, or stale (`:rf.machine.timer/scheduled`, `:rf.machine.timer/fired`, `:rf.machine.timer/cancelled`, `:rf.machine.timer/stale-after`);
+- actor spawned, finished, or destroyed (`:rf.machine.spawn/spawned`, `:rf.machine/done`, `:rf.machine/destroyed`);
+- unhandled event no-op (`:rf.machine.event/unhandled-no-op`).
+
+A guard trace tells you:
+
+```clojure
+{:operation :rf.machine/guard-evaluated
+ :tags {:actor-id :auth.login/flow
+        :guard-id :under-retry-limit
+        :state    :submitting
+        :outcome  :pass}}   ;; :pass | :fail | :threw
+```
+
+An action trace tells you:
+
+```clojure
+{:operation :rf.machine/action-ran
+ :tags {:actor-id  :auth.login/flow
+        :action-id :issue-request
+        :phase     :entry
+        :outcome   {:fx [[:rf.http/managed …]]}}}   ;; the return value; :ok when it returns nil; :rf.error/action-threw
+```
+
+Those records are what Xray renders. You can also tap the stream yourself in development with `(rf/register-listener! :trace …)`.
+
+### Jump to source with `handler-meta`
+
+Machine guards and actions are addressable through handler metadata.
+
+```clojure
+(rf/handler-meta {:source :store :kind :machine-guard :id [:auth.login/flow :under-retry-limit]})
+
+(rf/handler-meta {:source :store :kind :machine-action :id [:auth.login/flow :issue-request]})
+```
+
+In development this can include captured source, file, line, and handler function metadata. Production builds elide development-only source details.
+
+### Testing registered definitions
+
+If a machine is already registered and you want its registered definition, read it off the registration. There is no `machine-meta` accessor: a machine is an `:event` registration carrying `:rf/machine? true`, and its spec is stored under the reserved `:rf/machine` key.
+
+```clojure
+(rf.machines/machine-transition
+  (:rf/machine (rf/handler-meta {:source :store :kind :event :id :auth.login/flow}))
+  snapshot
+  trigger)
+```
+
+Most tests should import the transition table value directly. Use registered metadata when the registration itself is part of what you are testing.

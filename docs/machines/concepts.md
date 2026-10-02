@@ -1,12 +1,14 @@
-# 2. The table
+# The table
+
+<a id="2-the-table"></a>
 
 <a id="concepts"></a>
 <a id="the-model"></a>
 <a id="state-machines"></a>
 
-The [first machine](tutorial.md) used a handful of keys. This page explains
-each part of the table and the rules the runtime follows when a transition
-runs.
+Use guards to choose a transition and actions to update private data or
+describe effects. This page explains how those parts of the login table
+work together.
 
 ## The idea
 
@@ -27,27 +29,19 @@ A table has five everyday parts:
 <a id="register-and-drive"></a>
 <a id="registering-and-running-it"></a>
 
-A machine **is** an event handler. `reg-machine` compiles the table into a
-`reg-event` whose body reads the live [snapshot](glossary.md#snapshot), takes a
-transition, writes the new snapshot, and returns the action's effects.
+The [first machine](tutorial.md) defines `login-flow`. Register that value
+under an event id:
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.machines])   ;; forget this → :rf.error/machines-artefact-missing
+(ns app.login
+  (:require [re-frame.core :as rf]
+            [re-frame.machines]))   ;; forget this → :rf.error/machines-artefact-missing
 
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-Two registration shapes:
-
-| Shape | Use when |
-| --- | --- |
-| `defmachine` + `reg-machine` | Named, reusable specs (Xray click-to-source on guards and actions) |
-| Inline `reg-machine` with a **literal** map | Small local machines |
-
-Avoid `(def m {…})` then `(reg-machine :id m)`. The macro never sees the
-literal, so source stamps are empty and dev warns
-`:rf.warning/machine-source-unstamped`.
+`reg-machine` registers an event handler that reads the snapshot, takes a
+transition, writes the next snapshot and returns the action effects.
 
 Drive it with `dispatch`, as the [first machine](tutorial.md#step-1--your-first-machine)
 does: the event id is the machine id, and the second element is the trigger
@@ -60,94 +54,6 @@ the table matches. Read it with the framework subscription:
 
 The snapshot lives in [runtime-db](../core/glossary.md#runtime-db), so undo,
 time-travel, and SSR hydration work without extra wiring.
-
-## See one run
-
-A tiny clickable machine, not the login flow. Use it to feel a
-self-transition. Click into the cell and press **`Ctrl-Enter`**
-(**`Cmd-Enter`** on macOS):
-
-```cljs-rf2
-(require '[re-frame.core :as rf])
-
-(rf/reg-machine :turnstile/flow
-  {:initial :locked
-   :data    {:coins 0 :pushes 0}
-   :actions {:take-coin  (fn [{data :data}] {:data (update data :coins  inc)})
-             :count-push (fn [{data :data}] {:data (update data :pushes inc)})}
-   :states
-   {:locked   {:on {:coin {:target :unlocked :action :take-coin}
-                    :push {:target :locked   :action :count-push}}}
-    :unlocked {:on {:push {:target :locked}
-                    :coin {:target :unlocked :action :take-coin}}}}})
-
-(rf/reg-view turnstile-view []
-  (let [{:keys [state data]} (or @(subscribe [:rf/machine :turnstile/flow])
-                                 {:state :locked :data {:coins 0 :pushes 0}})
-        open? (= state :unlocked)]
-    [:div {:style {:font-family "sans-serif"}}
-     [:p "state: " [:strong {:style {:color (if open? "green" "crimson")}} (str state)]]
-     [:p "coins: " (:coins data) " · pushes: " (:pushes data)]
-     [:button {:on-click #(dispatch [:turnstile/flow [:coin]])} "insert coin"]
-     [:button {:on-click #(dispatch [:turnstile/flow [:push]])} "push"]]))
-
-[rf/frame-root {:id :demo}
- [turnstile-view]]
-```
-
-!!! tip "Try it"
-
-    Push while locked — the door stays locked, but the push counter climbs (a
-    **self-transition** with an action). Dispatch an unknown event
-    `[:turnstile/flow [:wat]]` — silent no-op (benign
-    `:rf.machine.event/unhandled-no-op` trace). Almost every *other* mistake
-    (bad target, missing guard name) fails loud at **registration**.
-
-## The snapshot
-
-<a id="the-snapshot--state-data-tags"></a>
-
-```clojure
-{:state :submitting
- :data  {:attempts 1 :error nil}
- :tags  #{:auth/busy}}   ;; omitted when no active state declares tags
-```
-
-| Slot | Role |
-| --- | --- |
-| `:state` | Discrete state — keyword (flat), path vector (hierarchy), or region map (parallel) |
-| `:data` | Machine-private memory |
-| `:tags` | Runtime-projected union of active states' tags |
-
-A live snapshot also carries framework-owned `:rf/*` keys, at its root and
-inside `:data`. The snapshots printed in this guide show only those a page is
-about, so compare the slots you care about rather than a whole `:data` map,
-and never write one of those keys yourself.
-
-`[:rf/machine id]` is `nil` until the first event. A view that renders earlier
-should fall back to the definition's `:initial` and `:data`. To boot a
-singleton eagerly instead, dispatch the reserved start marker at startup:
-`(rf/dispatch [:auth.login/flow [:rf.machine/start]])`. It runs the initial
-entry — `:entry` actions fire, `:after` timers arm — and stops; it never
-matches an `:on` transition. The first ordinary event runs the same initial
-entry before it is handled, and either way those `:entry` actions see `:event`
-as `[:rf.machine/start]`, never the trigger that started the machine.
-
-Do not build views that switch on detailed `:state` shapes unless the exact
-state is the product decision. For "busy", "read-only", "connected", use
-[state tags](tags.md).
-
-`:data` must survive `pr-str` and `read-string`: no functions, atoms or host
-objects. That is what lets a snapshot persist. Save the machines from
-`frame-state-value` and hand them back at boot with `:rf/install-frame-state`,
-which restores spawned children and re-arms `:after` timers without re-running
-`:entry` ([Persist and restore](persist-and-restore.md)).
-
-In every frame that has an `:id`, a hot reload keeps the live snapshot and
-applies the new table from the next event; a frame made without an `:id` keeps
-the table it was made with. If the reload removed the current state, the
-machine restarts from `:initial` before handling that event, and reports
-`:rf.error/machine-state-not-in-definition`.
 
 ## Transition forms
 
@@ -322,8 +228,110 @@ a coeffect. To reach anything else:
 | --- | --- |
 | Fact from outside | Put it on the **event** when you dispatch |
 | Write outside the machine | Return `:fx [[:dispatch […]]]` — a real, named event |
-| Clock / random / host fact | Declare a [coeffect](../core/coeffects.md) on the named guard or action — do **not** call `(js/Date.now)` |
-| A subscription's value | Declare `{:rf/sub [:feature/flags] :as :app/flags}` in the named guard's or action's `:rf.cofx/requires` (`:as` takes a namespaced id); it is read once, before the transition |
+| Clock, random value or subscription | Declare a [coeffect](../core/coeffects.md) on a named guard or action; see [Advanced](#declared-coeffects) |
+
+Actions describe effects; only the transition's `:target` chooses the next
+state.
+
+## The snapshot
+
+<a id="the-snapshot--state-data-tags"></a>
+
+```clojure
+{:state :submitting
+ :data  {:attempts 1 :error nil}
+ :tags  #{:auth/busy}}   ;; omitted when no active state declares tags
+```
+
+| Slot | Role |
+| --- | --- |
+| `:state` | Discrete state — keyword (flat), path vector (hierarchy), or region map (parallel) |
+| `:data` | Machine-private memory |
+| `:tags` | Runtime-projected union of active states' tags |
+
+A live snapshot also carries framework-owned `:rf/*` keys, at its root and
+inside `:data`. The snapshots printed in this guide show only those a page is
+about, so compare the slots you care about rather than a whole `:data` map,
+and never write one of those keys yourself.
+
+`[:rf/machine id]` is `nil` until the first event. A view that renders earlier
+should fall back to the definition's `:initial` and `:data`. To boot a
+singleton eagerly instead, dispatch the reserved start marker at startup:
+`(rf/dispatch [:auth.login/flow [:rf.machine/start]])`. It runs the initial
+entry — `:entry` actions fire, `:after` timers arm — and stops; it never
+matches an `:on` transition. The first ordinary event runs the same initial
+entry before it is handled, and either way those `:entry` actions see `:event`
+as `[:rf.machine/start]`, never the trigger that started the machine.
+
+Do not build views that switch on detailed `:state` shapes unless the exact
+state is the product decision. For "busy", "read-only", "connected", use
+[state tags](tags.md).
+
+`:data` must survive `pr-str` and `read-string`: no functions, atoms or host
+objects. That is what lets a snapshot persist. Save the machines from
+`frame-state-value` and hand them back at boot with `:rf/install-frame-state`,
+which restores spawned children and re-arms `:after` timers without re-running
+`:entry` ([Persist and restore](persist-and-restore.md)).
+
+## Unhandled events are no-ops
+
+<a id="one-thing-that-wont-throw-the-unhandled-event"></a>
+
+If the current state has no transition for an event, the machine ignores it.
+The snapshot does not move. A benign `:rf.machine.event/unhandled-no-op`
+trace records the drop.
+
+Broken definitions, such as a target or guard that does not exist, throw at
+registration. Read the `:rf.error/id` in the exception's `ex-data` and fix the
+named part. The [API reference](../api/re-frame.machines.md#registration-errors)
+lists the grammar and registration errors.
+
+## Testing
+
+<a id="testing-transitions-are-pure-function-calls"></a>
+
+`machine-transition` calculates the next snapshot and effect descriptions
+without executing them. [Inspecting and testing](inspecting-machines.md#unit-test-with-machine-transition)
+shows how to test an accepted submit and a guard-blocked one.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
+| Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
+| Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
+| Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
+| Action reports `:rf.error/machine-action-wrote-db` | Returned `:db`, which is dropped | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
+| Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
+| External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |
+| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; a targetless `:always` whose action makes its guard false is the safe loop. The default bound is 16 |
+
+A missing artefact (`:rf.error/machines-artefact-missing`, or
+`:rf.error/no-such-fx` on `:rf.http/managed`) is covered in
+[First machine → Troubleshooting](tutorial.md#troubleshooting).
+## Advanced
+
+### Registration and hot reload
+
+Two registration shapes:
+
+| Shape | Use when |
+| --- | --- |
+| `defmachine` + `reg-machine` | Named, reusable specs (Xray click-to-source on guards and actions) |
+| Inline `reg-machine` with a **literal** map | Small local machines |
+
+Avoid `(def m {…})` then `(reg-machine :id m)`. The macro never sees the
+literal, so source stamps are empty and dev warns
+`:rf.warning/machine-source-unstamped`.
+
+In every frame that has an `:id`, a hot reload keeps the live snapshot and
+applies the new table from the next event; a frame made without an `:id` keeps
+the table it was made with. If the reload removed the current state, the
+machine restarts from `:initial` before handling that event, and reports
+`:rf.error/machine-state-not-in-definition`.
+
+### Declared coeffects
 
 A declared coeffect arrives under **`:rf.cofx`** on the callback map. Read it
 there, `(:rf/time-ms (:rf.cofx ctx))` — it is *not* a top-level `:rf/time-ms`
@@ -340,49 +348,15 @@ an undeclared key is not ensured, so it can read `nil`, and `reg-machine` warns
         (< (- time-ms (:first-attempt-at data)) 60000))}}
 ```
 
-Actions never choose the next state. Only the transition's `:target` moves
-the machine.
-
-## Unhandled events are no-ops
-
-<a id="one-thing-that-wont-throw-the-unhandled-event"></a>
-
-If the current state has no transition for an event, the machine ignores it.
-The snapshot does not move. A benign `:rf.machine.event/unhandled-no-op`
-trace records the drop.
-
-That does not hide mistakes. Broken definitions throw at `reg-machine`, not
-on first dispatch: a missing target, guard or action name
-(`:rf.error/machine-unresolved-target`, `-unresolved-guard`,
-`-unresolved-action`), an invalid timeout shape, an illegal `:final?`
-combination. The unhandled event is the one intentionally quiet case.
-
-Keys are checked too. A state or transition map takes a closed set of bare
-keys, so a typo or an XState spelling (`:invoke`, `:cond`) throws
-`:rf.error/machine-unknown-node-key`, and the message names the valid keys.
-Put your own annotations under a namespaced key (`:my.app/note`) or `:meta`.
-Every refusal is an `ex-info` carrying `:rf.error/id` in its `ex-data`
-([Errors that throw](../core/errors.md#the-errors-that-throw-not-trace)), and
-[Registration errors](../api/re-frame.machines.md#registration-errors) lists
-every id.
-
-## State node keys
-
-Besides `:on`, `:entry` and `:exit`, a state takes keys that later pages
-teach: child states, eventless and delayed transitions, deadlines, history,
-parallel regions, actors, tags and final states. The root is a state too, and
-also holds the machine's own blocks, such as `:data`, `:guards` and `:actions`.
-[Machine spec](../api/re-frame.machines.md#machine-spec) in the API reference
-lists every key and the page that teaches it.
-
-## Self-transitions and wildcards
+### Self-transitions and wildcards
 
 <a id="self-transitions-and-wildcards"></a>
 <a id="self-transitions-internal-by-default-external-on-demand"></a>
 <a id="wildcard-transitions-handle-a-whole-class-of-events"></a>
 
-Self-moves do not re-enter by default. The turnstile's push-while-locked
-counts a push without leaving `:locked`. Three shapes:
+A leaf self-transition runs its action without re-entering the state by
+default. In the exercise below, pushing a locked turnstile counts a push
+without leaving `:locked`.
 
 | Shape | Effect |
 | --- | --- |
@@ -418,7 +392,49 @@ transition). A **missing** key is a silent no-op. A bare id like `:go` has
 no `:ns/*` tier — only exact or `:*`. A guard-blocked exact match can fall
 through to a wildcard.
 
-## Final states
+### See one run
+
+This optional turnstile exercise isolates self-transitions. It has no HTTP
+or form setup. Click into the cell and press **`Ctrl-Enter`**
+(**`Cmd-Enter`** on macOS):
+
+```cljs-rf2
+(require '[re-frame.core :as rf])
+
+(rf/reg-machine :turnstile/flow
+  {:initial :locked
+   :data    {:coins 0 :pushes 0}
+   :actions {:take-coin  (fn [{data :data}] {:data (update data :coins  inc)})
+             :count-push (fn [{data :data}] {:data (update data :pushes inc)})}
+   :states
+   {:locked   {:on {:coin {:target :unlocked :action :take-coin}
+                    :push {:target :locked   :action :count-push}}}
+    :unlocked {:on {:push {:target :locked}
+                    :coin {:target :unlocked :action :take-coin}}}}})
+
+(rf/reg-view turnstile-view []
+  (let [{:keys [state data]} (or @(subscribe [:rf/machine :turnstile/flow])
+                                 {:state :locked :data {:coins 0 :pushes 0}})
+        open? (= state :unlocked)]
+    [:div {:style {:font-family "sans-serif"}}
+     [:p "state: " [:strong {:style {:color (if open? "green" "crimson")}} (str state)]]
+     [:p "coins: " (:coins data) " · pushes: " (:pushes data)]
+     [:button {:on-click #(dispatch [:turnstile/flow [:coin]])} "insert coin"]
+     [:button {:on-click #(dispatch [:turnstile/flow [:push]])} "push"]]))
+
+[rf/frame-root {:id :demo}
+ [turnstile-view]]
+```
+
+!!! tip "Try it"
+
+    Push while locked — the door stays locked, but the push counter climbs (a
+    **self-transition** with an action). Dispatch an unknown event
+    `[:turnstile/flow [:wat]]` — silent no-op (benign
+    `:rf.machine.event/unhandled-no-op` trace). Almost every *other* mistake
+    (bad target, missing guard name) fails loud at **registration**.
+
+### Final states
 
 <a id="final-states"></a>
 <a id="final-states-when-a-machine-is-done"></a>
@@ -440,7 +456,7 @@ only beside `:final?`.
 Nested finals and parent `:on-done` live in
 [Hierarchical states](hierarchical-states.md) and [Actors](actors.md).
 
-## Schemas
+### Schemas
 
 <a id="validating-a-machines-data"></a>
 <a id="validating-a-machines-completion-output"></a>
@@ -450,13 +466,10 @@ A machine can validate its private `:data` in development. Require
 says nothing:
 
 ```clojure
-(rf/reg-machine :auth.login/flow
-  {:initial :idle
-   :data    {:attempts 0 :error nil}
-   :schemas {:data [:map
-                    [:attempts :int]
-                    [:error [:maybe :string]]]}
-   :states  {…}})
+;; Add to the root of login-flow.
+:schemas {:data [:map
+                 [:attempts :int]
+                 [:error [:maybe :string]]]}
 ```
 
 A failed data validation rolls the transition back before the bad snapshot
@@ -475,17 +488,16 @@ A `[:rf/machine id]` subscription carries the same classification: its
 slots (and size-mark any declared `:large` paths) exactly as machine traces do,
 while reading the sub in-process returns the real values.
 
-## Testing
+### State node keys
 
-<a id="testing-transitions-are-pure-function-calls"></a>
+Besides `:on`, `:entry` and `:exit`, a state takes keys that later pages
+teach: child states, eventless and delayed transitions, deadlines, history,
+parallel regions, actors, tags and final states. The root is a state too, and
+also holds the machine's own blocks, such as `:data`, `:guards` and `:actions`.
+[Machine spec](../api/re-frame.machines.md#machine-spec) in the API reference
+lists every key and the page that teaches it.
 
-The table is a value, so `(rf.machines/machine-transition definition snapshot trigger)`
-returns the next snapshot and the described effects as data. The
-[first machine](tutorial.md#step-6--test-it-a-transition-is-a-pure-function)
-tests login this way; [Inspecting and testing](inspecting-machines.md) covers
-the rest.
-
-## Raise and internal events
+### Raise and internal events
 
 <a id="when-the-table-grows"></a>
 <a id="when-the-machine-grows"></a>
@@ -499,20 +511,3 @@ shows a complete example and explains ordering and depth limits.
 
 <a id="when-to-reach-for-a-machine--and-when-not"></a>
 <a id="when-to-reach-for-a-machine"></a>
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-| --- | --- | --- |
-| Dev warning `:rf.warning/machine-source-unstamped` | `(def m {…})` then `reg-machine` | Use `defmachine`, or pass a literal map |
-| Registration throws `:rf.error/machine-unresolved-guard` (or `-action`, `-target`) | Named ref missing from the table | Add the name, or fix the typo |
-| Registration throws `:rf.error/machine-unknown-node-key` | A misspelt or XState key (`:invoke`, `:cond`), or `:on-done` on a leaf | Use a key the message lists; namespace your own |
-| Registration throws `:rf.error/machine-bad-action-form` | `:entry`, `:exit` or `:action` is a vector | One fn or action id; call several from one fn |
-| Action reports `:rf.error/machine-action-wrote-db` | Returned `:db`, which is dropped | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
-| Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
-| External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |
-| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; a targetless `:always` whose action makes its guard false is the safe loop. The default bound is 16 |
-
-A missing artefact (`:rf.error/machines-artefact-missing`, or
-`:rf.error/no-such-fx` on `:rf.http/managed`) is covered in
-[First machine → Troubleshooting](tutorial.md#troubleshooting).

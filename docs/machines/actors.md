@@ -1,156 +1,221 @@
-# 8. Actors
+# Actors
 
+<a id="8-actors"></a>
 <a id="actors"></a>
 <a id="actors-spawning-child-machines"></a>
 
-Every machine so far has been a **singleton**: one `reg-machine` id, one live
-instance in the frame. `[:rf/machine :auth.login/flow]` is that instance, or
-`nil` before the first event.
+The login request should stop when the user cancels or its deadline expires.
+Put that request in a child machine and spawn it on `:submitting`. Leaving
+that state destroys the child and aborts the managed HTTP request it issued.
 
-A **spawned** actor is another live instance of a machine **type**, created
-at run time. It gets an allocated id (`:auth/request#1`). Use one when you
-need many concurrent instances, or a child whose lifetime is bound to a
-parent state.
-
-Login stays the singleton. The HTTP request becomes a spawned child: it
-starts when `:submitting` is entered and is destroyed on every exit.
+The login flow remains a **singleton**, one live instance per frame. Each
+request is a **spawned actor**, a new instance with its own allocated id.
 
 ## State-bound spawn
 
-Put `:spawn` on a state node. Entering the state creates the child. Leaving the
-state — by any transition — destroys it. On the
-[machine root](hierarchical-states.md#the-machine-root), the child lives as
-long as the machine.
-
-The singleton login machine spawns a request actor on `:submitting`:
+Register the child type before the parent can enter `:submitting`. It starts
+the request in its initial state's `:entry` and reports by reaching a final
+state:
 
 ```clojure
-(rf/reg-machine :auth/request
+(ns app.login
+  (:require [re-frame.core :as rf]
+            [re-frame.machines]
+            [re-frame.http.managed]))
+
+(rf/defmachine login-request
   {:initial :running
-   :data    {}
+   :data {}
+   :sensitive [[:data :credentials] [:data :token]]
 
    :actions
    {:issue-request
-    ;; The tutorial's managed request, addressed to this actor's own id.
-    (fn [{data :data}]
+    (fn [{:keys [data]}]
       {:fx [[:rf.http/managed
-             {:request    {:method :post :url "/api/login"
-                           :body (:credentials data)
-                           :request-content-type :json}
-              :decode     :json
+             {:request {:method :post :url "/api/login"
+                        :body (:credentials data)
+                        :request-content-type :json
+                        :sensitive? true}
+              :decode :json
               :on-success [(:rf/self-id data) [:server-ok]]
               :on-failure [(:rf/self-id data) [:server-err]]}]]})
-
     :keep-token
-    (fn [{data :data [_ {:keys [value]}] :event}]
-      {:data (assoc data :token (:token value))})}
+    (fn [{[_ reply] :event}]
+      {:data {:token (get-in reply [:value :token])}})
+    :keep-error
+    (fn [{[_ reply] :event}]
+      {:data {:reason (:error reply)}})}
 
    :states
-   {:running
-    {:entry :issue-request
-     :on    {:server-ok {:target :done
-                         :action :keep-token}
-             :server-err :failed}}
+   {:running {:entry :issue-request
+              :on {:server-ok {:target :done :action :keep-token}
+                   :server-err {:target :failed :action :keep-error}}}
     :done   {:final? true :output-key :token}
-    :failed {:final? true :error? true}}})
+    :failed {:final? true :error? true :output-key :reason}}})
 
-:submitting
-{:tags  #{:auth/busy}
- :spawn {:machine-id :auth/request
-         :data       (fn [{:keys [event]}]
-                       {:credentials (second event)})
-         :on-done    {:target :authed
-                      :action (fn [{data :data ev :event}]
-                                {:data (assoc data :token (:result (nth ev 2)))})}
-         :on-error   {:target :error-shown}}
- :on    {:auth.login/cancel :idle}}
+(rf/reg-machine :auth/request login-request)
 ```
 
-`:auth.login/flow` is still the singleton. `:auth/request` is the **type**.
-Each visit to `:submitting` allocates a new spawned id. Leaving
-`:submitting` — success, error, cancel, timeout — destroys that actor.
+The runtime puts `:rf/self-id` in the child's `:data`. Addressing HTTP replies
+to that id keeps them with this request instance. The
+[`:sensitive` declarations](../core/how-to/keep-secrets-out-of-traces.md#classify-subsystem-data-on-the-subsystem)
+redact credentials and the token in machine traces.
 
-The child reports by finishing, and sends its parent nothing. `:done` names
-`:token` as its `:output-key`; the parent's `:on-done` is a transition to
-`:authed` whose action reads that value at `(:result (nth ev 2))`. `:failed`
-routes the parent through `:on-error` instead, and there `(nth ev 2)` is the
-failure payload itself: the error leaf's `:output-key` slot (`nil` here, since
-`:failed` names none), or the exception details when a child action threw.
-
-A larger shipped case binds one socket actor to a parent that spans several
-children:
+In the [tutorial's `login-flow`](tutorial.md#the-complete-machine), add these
+two parent actions, replace its `:submitting` node, and register the updated
+table again. The other guards, actions and states stay as defined there:
 
 ```clojure
-;; cf. examples/patterns/websocket
-(rf/reg-machine :ws/connection
-  {:initial :disconnected
-   :data    {:url nil :auth-token nil}
+;; Add under :actions.
+:store-child-session
+(fn [{event :event}]
+  {:fx [[:dispatch [:auth.session/store
+                    {:token (:result (nth event 2))}]]]})
 
-   :actions
-   {:record-options
-    (fn [{data :data [_ {:keys [url auth-token]}] :event}]
-      {:data (assoc data :url url :auth-token auth-token)})}
+:record-child-error
+(fn [{data :data event :event}]
+  (let [reason (nth event 2)]
+    {:data {:attempts (inc (:attempts data))
+            :error (or (:message reason) "Login failed.")}}))
 
-   :states
-   {:disconnected
-    {:on {:ws/connect {:target :active
-                       :action :record-options}}}
-
-    :active
-    {:spawn {:machine-id :websocket/socket
-             :data       (fn [{snap :snapshot}]
-                           {:url        (-> snap :data :url)
-                            :auth-token (-> snap :data :auth-token)})}
-     :on {:ws/closed :reconnecting
-          :ws/fatal  :failed}
-     :initial :connecting
-     :states  {:connecting     {:on {:ws/opened :authenticating}}
-               :authenticating {:on {:ws/auth-ok :connected}}
-               :connected      {}}}
-
-    :reconnecting {:on {:ws/connect :active}}
-    :failed       {:on {:ws/connect :active}}}})
+;; Replace under :states.
+:submitting
+{:tags #{:auth/busy}
+ :spawn {:machine-id :auth/request
+         :data (fn [{:keys [event]}]
+                 {:credentials (second event)})
+         :on-done {:target :authed :action :store-child-session}
+         :on-error [{:target :error-shown
+                     :guard :under-retry-limit
+                     :action :record-child-error}
+                    {:target :locked-out :action :record-child-error}]
+         :timeout "PT8S"
+         :on-timeout [{:target :error-shown
+                       :guard :under-retry-limit
+                       :action :record-timeout}
+                      {:target :locked-out :action :record-timeout}]}
+ :on {:auth.login/cancel :idle}}
 ```
 
-The socket is spawned on the `:active` *parent*, so one actor spans
-`:connecting` → `:authenticating` → `:connected`.
+The parent now enters `:submitting` without issuing HTTP itself. Each visit
+spawns a fresh `:auth/request` instance. The child's initial entry issues the
+request; success, failure, timeout or cancel leaves `:submitting` and cleans
+up that instance. The session handler still stores the token in app-db,
+while the login machine keeps only its attempt count and error.
+
+Put `:spawn` on a [compound parent](hierarchical-states.md#parent-lifecycle-spans-child-states)
+when one child should span several states. On the
+[machine root](hierarchical-states.md#the-machine-root), it lasts for the
+whole machine's life.
 
 <a id="fan-out-and-join-with-spawn-all"></a>
 
-A state carries at most one `:spawn`. For concurrent children, use
-[`:spawn-all`](fan-out-and-join.md), or put one `:spawn` on an active state
-in each parallel region when the children have independent lifetimes.
-Sibling states in a compound run one at a time.
-One state cannot declare both (`:rf.error/machine-spawn-all-with-spawn`).
-Events are not forwarded to children; dispatch to the child id yourself. To
-read a child's snapshot:
+A state carries one `:spawn`. Use [fan-out and join](fan-out-and-join.md) for
+several children with one completion policy, or separate spawns in parallel
+regions for independent lifetimes.
+
+## When a child finishes
+
+A child finishes by entering a **root-level** `:final?` leaf. `:output-key`
+selects the value from its `:data` to report. The runtime destroys the child
+before notifying the parent.
+
+The parent's `:on-done` takes either a transition or a data fold:
+
+| Form | Use it when |
+| --- | --- |
+| `{:target :authed :action :store-child-session}` | Success should move the parent and describe effects |
+| `(fn [{:keys [data result]}] (assoc data :profile result))` | Success should update the parent's private data |
+
+A transition action receives a trigger shaped like
+`[:rf.machine.spawn/done invoke-id {:result token ...}]`, so it reads
+`(:result (nth event 2))`. A fold receives `result` directly and returns the
+parent's whole next data map. The completion event then runs the parent's
+normal transition calculation, so an `:always` guard may use the folded data.
+
+`:on-error` takes a transition. Its third trigger element is the error
+payload itself, without a `:result` wrapper. In this example it is the
+`:reason` slot from the child's failed leaf. A thrown child action reports
+exception details instead.
+
+A final leaf nested inside a compound finishes only that sub-flow; it does
+not finish the whole child. [Nested final states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states)
+explains that distinction. A resting screen such as the parent's `:authed`
+omits `:final?`.
+
+## Cancellation
+
+Leaving the spawn-bearing state destroys its child on every exit path. A
+parent's destruction or a frame's `destroy-frame!` also destroys the children
+that its declarative `:spawn` and `:spawn-all` created. Unmounting a view or
+changing a route does not itself destroy the frame.
+
+Destroy aborts in-flight managed HTTP issued by that actor, cancels its
+`:after` timers and releases its resource owners. The login child's
+self-addressed reply is then suppressed as stale; it cannot complete the
+next request instance.
+
+A reply addressed to an ordinary event outside the actor still dispatches
+with `:status :cancelled` and
+`:error {:kind :rf.http/aborted :reason :actor-destroyed}`. Choose the
+self-addressed form above when a reply should lose relevance with its actor.
+
+## Timeouts
+
+The spawn's `:timeout` and `:on-timeout` arm a deadline on the parent state.
+The eight seconds in the example include the child's whole lifetime,
+including any retries it implements. When the deadline transition leaves
+`:submitting`, the child is destroyed.
+
+The equivalent state-level form is `:after {8000 ...}` on `:submitting`.
+Use either form. [Timeout durations](automatic-transitions.md#timeout-durations)
+are positive integer milliseconds or ISO-8601 strings; `"8s"` is not accepted.
+
+## Messaging
+
+Send an ordinary event to the actor's id:
 
 ```clojure
-@(rf/subscribe [:rf/machine actor-id])
+{:fx [[:dispatch [child-id [:request/cancel]]]]}
 ```
 
-## Spawn spec keys
+The child must handle that trigger in its table. Events sent to the parent
+are not forwarded automatically. For the login example, sending
+`[:auth.login/flow [:auth.login/cancel]]` to the parent is enough: its exit
+destroys the child.
 
-Supply `:machine-id` or `:definition`, not both.
+Read a live child's snapshot with the same subscription as a singleton:
 
-| Key | Meaning |
-|---|---|
-| `:machine-id` | registered machine type to spawn |
-| `:definition` | inline machine definition instead of a registered id |
-| `:data` | child's initial data — a map, or `(fn [{:keys [snapshot event]}] …)` evaluated on entry against the **post-action** snapshot |
-| `:id-prefix` | base for the allocated id (`:websocket/socket#1`); defaults to `:machine-id`, so a `:definition` spawn needs it or `:fixed-actor-id`. Ids are counters, never `gensym`, and each parent keeps its own: two parent machines spawning one type need distinct prefixes |
-| `:start` | first event sent to the newborn |
-| `:on-done` | transition when the child reaches a successful final state — or, as a fn, a `:data` fold |
-| `:on-error` | transition when the child reaches an error final state or fails |
-| `:timeout` / `:on-timeout` | wall-clock deadline on this child's lifetime; lowers onto the state's `:after` |
-| `:fixed-actor-id` | explicit actor id for a per-state singleton |
+```clojure
+@(rf/subscribe [:rf/machine child-id])
+```
 
-A supplied `:data` map replaces the child definition's initial data; it does
-not merge with the defaults. If needed, merge those defaults in the `:data`
-function. The [API reference](../api/re-frame.machines.md#declarative-spawn-and-spawn-all)
-records the exact forms and defaults.
+## Troubleshooting
 
-## Child runtime stamps
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `:rf.error/machine-spawn-unregistered-type` and no child snapshot | The child type was not registered | Register `:auth/request` before entering `:submitting` |
+| Parent stores `nil` after success | The action read the completion as a raw HTTP reply | Read `(:result (nth event 2))`; the child already extracted the token |
+| Request continues after cancel | The parent issued HTTP itself or did not leave the spawning state | Issue HTTP in the child and transition out of `:submitting` |
+| `:rf.error/machine-spawn-all-duplicate-id` when two parents spawn one type | Both parents allocate the same default prefix | Give their spawns distinct `:id-prefix` values |
+| Socket, interval or Worker remains open after destroy | It is a custom effect's handle | Close it in the child's `:exit` |
+
+## Advanced
+
+### Spawn spec keys
+
+For the normal state-bound request, supply `:machine-id`, a `:data` function
+and the parent's completion transitions. `:data` may also be a map; a supplied
+map replaces the child definition's defaults, so merge defaults explicitly
+when they are needed. The function receives `{:snapshot ... :event ...}`
+after the parent's transition action has run.
+
+Use `:definition` for an inline child instead of `:machine-id`. An inline
+child needs an `:id-prefix` or `:fixed-actor-id` to name its instances. The
+[spawn reference](../api/re-frame.machines.md#declarative-spawn-and-spawn-all)
+records every key and default.
+
+### Child runtime stamps
 
 A **declaratively** spawned child gets three reserved keys in its `:data`:
 
@@ -171,7 +236,7 @@ A **declaratively** spawned child gets three reserved keys in its `:data`:
 A hand-emitted `[:rf.machine/spawn …]` stamps only `:rf/self-id`. There is no
 structural parent, so pass a correspondent address through `:data` yourself.
 
-## Recording the spawned id
+### Recording the spawned id
 
 A declarative `:spawn` writes the new id into the **parent's** `:data` under
 `:rf/spawned`, keyed by the spawning state's path. A `:spawn-all` stores a
@@ -189,7 +254,7 @@ The slot clears itself when the actor is destroyed. A later read returns `nil`,
 not a dead id. Outside a machine, read the same slot off the parent's snapshot:
 `(get-in @(rf/subscribe [:rf/machine :ws/connection]) [:data :rf/spawned [:active]])`.
 
-## Starting the child
+### Starting the child
 
 The child always runs its initial `:entry` cascade first. Prefer putting startup
 work there.
@@ -202,18 +267,6 @@ If you omit `:start`, the runtime also dispatches a synthetic
 :spawn {:machine-id :worker
         :start      [:worker/start {:shard :a}]}
 ```
-
-## Messaging
-
-There is one messaging primitive: `dispatch` to the actor id.
-
-```clojure
-{:fx [[:dispatch [child-id [:worker/cancel]]]]}
-```
-
-A parent gets the id from `:rf/spawned`, or — when it chose the address —
-from its own `:data`. A child gets the parent from `:rf/parent-id`. There is no
-separate *send* verb.
 
 ### `:fixed-actor-id`
 
@@ -238,55 +291,7 @@ same address. Spawning at an occupied fixed id destroys the previous actor
 first, running its exits. A dispatch to that address reaches the current
 incarnation; use distinct addresses when both instances must stay alive.
 
-## When a child finishes
-
-A one-shot child reports success by entering a **root-level**
-[`:final?`](concepts.md#final-states) leaf and naming the `:data` slot to hand
-up with `:output-key`, as `:auth/request`'s `:done` does above. Instead of
-moving, the parent can fold that value into its own `:data`:
-
-```clojure
-:submitting
-{:spawn {:machine-id :auth/request
-         :data       (fn [{:keys [event]}]
-                       {:credentials (second event)})
-         :on-done    (fn [{:keys [data result]}]
-                       (assoc data :token result))
-         :on-error   :error-shown}
- :on    {:auth.login/cancel :idle}}
-```
-
-- **`:on-done` is a transition or a data-fold, chosen by its value.** An
-    `:on`-shaped value — `{:target :configured :action …}`, a keyword or path
-    target, or guarded candidates — moves the parent like `:on-error`, with
-    the result at `(:result (nth ev 2))`. A fn is a data-fold:
-    `(fn [{:keys [data result]}] new-data)`. The fold itself does not move the
-    parent — but the completion **event** then flows into the parent's ordinary
-    macrostep, so the parent *can* advance on it. Fold the result in `:on-done`
-    and let an `:always` guard read it:
-
-    ```clojure
-    :configuring
-    {:spawn  {:machine-id :app/loader
-              :on-done    (fn [{:keys [data result]}] (assoc data :config result))}
-     :always [{:guard :config-loaded? :target :loading-deps}]}
-    ```
-
-    An explicit `:on {:rf.machine.spawn/done {:target :loading-deps}}` works too,
-    and fires only on a success: a failed child arrives as
-    `:rf.machine.spawn/error` instead.
-    `:on-done` is applied on the parent's **next** macrostep, not
-    inside the child's teardown cascade.
-
-- **`:on-error` is a transition.** A child that fails — a `:final?` leaf
-    flagged `:error? true`, or a thrown action — routes the parent through that
-    `:on`-shaped spec.
-
-- Entering a root-level `:final?` destroys the child; only then is the
-    parent notified. A nested `:final?` only tells the compound "this sub-flow is
-    done"; see [Hierarchical states](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
-
-## Imperative spawn and destroy
+### Imperative spawn and destroy
 
 Declarative `:spawn` lowers to reserved fx you can also emit from any `:fx`
 vector:
@@ -311,32 +316,7 @@ An unregistered `:machine-id` (and no `:definition`) fails closed:
 
 Destroy is silently idempotent. Destroying an already-gone actor is a no-op.
 
-## Cancellation
-
-A spawned actor is destroyed when:
-
-- the parent exits the spawn-bearing state;
-- its parent is destroyed, when a `:spawn` or `:spawn-all` spawned it (an actor
-  an action hand-emitted outlives its spawner);
-- a timeout or `:after` transition exits that state;
-- a `:spawn-all` join cancels surviving siblings;
-- you emit `[:rf.machine/destroy actor-id]`;
-- the **frame** is torn down with `destroy-frame!`. A view unmount or a
-  route change does **not** destroy the frame — tear one down only when you
-  mean to.
-
-Destroy releases exactly three framework-managed kinds:
-
-- in-flight `:rf.http/managed` requests this actor issued;
-- this actor's armed `:after` timers;
-- `:rf.resource/*` owners this actor holds.
-
-The request is always aborted. A reply addressed to an ordinary event still
-dispatches, with `:status :cancelled` and
-`:error {:kind :rf.http/aborted :reason :actor-destroyed}`. One addressed back
-to the destroyed actor, the `[(:rf/self-id data) …]` shape `:auth/request`
-uses above, is suppressed as `:status :stale` and only traced
-(`:rf.http/stale-suppressed`).
+### Custom effect cleanup
 
 Anything else — a `js/WebSocket`, an interval, a Worker — is owned by an
 effect you register, keyed by the actor's `:rf/self-id`. The handle itself
@@ -371,46 +351,3 @@ closes, and `:exit` runs on every destroy path:
 The [long-running-work example](../../examples/patterns/long_running_work/)
 cancels by leaving `:working`: that exit destroys every surviving child,
 pending `:after` yield-timers included.
-
-## Timeouts
-
-`:timeout` / `:on-timeout` on the spawn spec bounds the child's lifetime. It
-lowers onto the spawn-bearing state's `:after`, so the deadline is anchored to
-that state's entry and spans the child's internal retries:
-
-```clojure
-:authenticating
-{:spawn {:machine-id :auth/request
-         :timeout    "PT30S"
-         :on-timeout {:target :auth-failed}}
- :on    {:cancel :idle
-         :auth-ok :authenticated}}
-```
-
-The same deadline as a state-level `:after`:
-
-```clojure
-:authenticating
-{:spawn {:machine-id :auth/request}
- :after {30000 :auth-failed}
- :on    {:cancel :idle
-         :auth-ok :authenticated}}
-```
-
-One timer mechanism. When it fires, the state exits and the child is
-destroyed. [Timeout durations](automatic-transitions.md#timeout-durations)
-lists the accepted forms. A `:timeout-ms` key on `:spawn` or `:spawn-all`
-makes `reg-machine` throw `:rf.error/spawn-timeout-ms-removed`.
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Parent `:data` never gets the child id | the spawn was hand-emitted from an action's `:fx`, so it carries no declarative invoke-id to key `:rf/spawned` under | Choose an explicit `:fixed-actor-id`, store it in `:data`, or use a declarative `:spawn` |
-| No snapshot, no id; `:rf.error/machine-spawn-unregistered-type` | `:machine-id` is not registered and there is no `:definition` | Register the child type first |
-| Spawn refused with `:rf.error/machine-spawn-all-duplicate-id` | Two parent machines spawn one type, so both mint `<type>#1` | Give each parent's spawn its own `:id-prefix` |
-| Socket / interval / Worker still open after destroy | not a framework-managed resource | Close it in the child's `:exit` |
-| A self-addressed `:on-failure` never fires when the actor is destroyed | the reply target names the actor being torn down, so it is obsolete | Expect no reply — it is suppressed as `:status :stale`. Clean up in the child's `:exit`, or address the reply to an event outside the actor |
-
-`:rf.error/spawn-timeout-ms-removed` is covered in
-[Automatic transitions → Troubleshooting](automatic-transitions.md#troubleshooting).

@@ -1,10 +1,12 @@
-# 1. First machine
+# First machine
+
+<a id="1-first-machine"></a>
 
 <a id="tutorial"></a>
 <a id="tutorial-build-a-login-machine"></a>
 
-This page builds one [**singleton**](glossary.md#singleton) login machine.
-Later pages grow that same flow.
+Build a login flow that validates a submit, retries failed requests and shows
+the result. The final example includes the complete table and a pure test.
 
 ## Step 0 — turn machines on
 
