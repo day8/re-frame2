@@ -107,12 +107,9 @@
             crash, no DOM"
     (is (nil? (rf.story.ui.docs/docs-rollup-view nil)))))
 
-(deftest docs-rollup-view-renders-one-block-per-variant
-  (testing "the rollup pane carries N rollup-variant-block children
-            (one per registered variant under the story). The blocks
-            are emitted as a Reagent for-comprehension so React keys
-            land on the inner ^{:key vid} wrap; pin the count and that
-            each block names its variant-id via :data-variant-id."
+(deftest docs-rollup-view-roots-in-a-section-naming-its-story
+  (testing "the rollup view roots in a `:section` that carries the
+            rollup's data-test and names its story via :data-story-id"
     (register-story-with-variants!)
     (let [hiccup (rf.story.ui.docs/docs-rollup-view :story.rollup)]
       (is (vector? hiccup))

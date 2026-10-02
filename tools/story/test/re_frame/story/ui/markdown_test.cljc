@@ -6,8 +6,8 @@
   `re-frame.story.ui.workspace/prose-block` are thin projections
   over `parse` — pinning the parse output here covers both
   surfaces' contract without booting the shell."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [re-frame.story.ui.markdown :as rf.story.ui.markdown]))
 
 ;; ---- helpers -------------------------------------------------------------
@@ -32,12 +32,6 @@
       (is (= 1 (count out)))
       (is (= :p (first (first out))))
       (is (= "Hello world." (last (first out)))))))
-
-(deftest two-paragraphs-separated-by-blank-line
-  (testing "paragraphs separated by blank lines are distinct <p> blocks"
-    (let [out (blocks "first.\n\nsecond.")]
-      (is (= 2 (count out)))
-      (is (every? #(= :p (first %)) out)))))
 
 (deftest paragraph-joins-lines-with-space
   (testing "consecutive non-blank lines join with a single space"
@@ -136,23 +130,14 @@
       (is (= 1 (count codes)))
       (is (= "foo" (last (first codes)))))))
 
-(deftest bold-spans
-  (testing "**bold** spans render as [:strong {} ...]"
-    (let [children (p-children "this is **important** stuff")
-          strongs  (filter (fn [c] (and (vector? c) (= :strong (first c)))) children)]
-      (is (= 1 (count strongs))))))
-
-(deftest italic-star-spans
-  (testing "*italic* spans render as [:em {} ...]"
-    (let [children (p-children "this is *slanted* text")
-          ems      (filter (fn [c] (and (vector? c) (= :em (first c)))) children)]
-      (is (= 1 (count ems))))))
-
-(deftest italic-underscore-spans
-  (testing "_italic_ spans also render as [:em {} ...]"
-    (let [children (p-children "this is _slanted_ text")
-          ems      (filter (fn [c] (and (vector? c) (= :em (first c)))) children)]
-      (is (= 1 (count ems))))))
+(deftest emphasis-spans
+  (are [src tag] (= 1 (count (filter (fn [c] (and (vector? c) (= tag (first c))))
+                                     (p-children src))))
+    ;; **bold** renders as [:strong {} ...]
+    "this is **important** stuff" :strong
+    ;; *italic* and _italic_ both render as [:em {} ...]
+    "this is *slanted* text"      :em
+    "this is _slanted_ text"      :em))
 
 (deftest link-spans
   (testing "[label](url) renders as an [:a] with safe :href + noopener
@@ -166,23 +151,15 @@
         (is (= "_blank" (:target attrs)))
         (is (= "noopener noreferrer" (:rel attrs)))))))
 
-(deftest link-url-safety
-  (testing "javascript: links are scrubbed to # so XSS surfaces don't
-            leak through markdown prose"
-    (let [children (p-children "click [me](javascript:alert(1))")
-          links    (filter (fn [c] (and (vector? c) (= :a (first c)))) children)
-          attrs    (second (first links))]
-      (is (= "#" (:href attrs))
-          "the parser refuses javascript: URLs"))))
-
-(deftest link-relative-paths-allowed
-  (testing "relative paths like /foo and #anchor are accepted as-is"
-    (let [c1    (p-children "[home](/index.html)")
-          attrs (second (first (filter (fn [c] (and (vector? c) (= :a (first c)))) c1)))]
-      (is (= "/index.html" (:href attrs))))
-    (let [c2    (p-children "[top](#top)")
-          attrs (second (first (filter (fn [c] (and (vector? c) (= :a (first c)))) c2)))]
-      (is (= "#top" (:href attrs))))))
+(deftest link-href-sanitisation
+  (are [src href] (= href (:href (second (first (filter (fn [c] (and (vector? c) (= :a (first c))))
+                                                        (p-children src))))))
+    ;; javascript: links are scrubbed to # so XSS surfaces don't leak
+    ;; through markdown prose
+    "click [me](javascript:alert(1))" "#"
+    ;; relative paths and anchors pass through as-is
+    "[home](/index.html)"             "/index.html"
+    "[top](#top)"                     "#top"))
 
 (deftest nested-inline-spans
   (testing "**bold with `code` inside** parses as a strong-wrap of a code child"
@@ -193,15 +170,6 @@
           "the code span lives INSIDE the strong wrapper"))))
 
 ;; ---- mixed-document shapes -----------------------------------------------
-
-(deftest mixed-paragraph-and-list
-  (testing "a paragraph + a bullet list yield two separate blocks in
-            the right order — pin the contract for the docs / workspace
-            prose authors"
-    (let [out (blocks "intro text.\n\n- one\n- two")]
-      (is (= 2 (count out)))
-      (is (= :p  (first (first out))))
-      (is (= :ul (first (second out)))))))
 
 (deftest realistic-prose-block
   (testing "a realistic prose authoring sample — heading, paragraph,

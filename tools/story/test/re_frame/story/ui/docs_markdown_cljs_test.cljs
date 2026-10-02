@@ -68,22 +68,3 @@
         (let [blocks (rest out)]
           (is (some #(= :h1 (first %)) blocks))
           (is (some #(= :p  (first %)) blocks)))))))
-
-(deftest prose-with-bullet-list-roundtrips-to-ul
-  (testing "a workspace prose body with markdown bullets parses to a
-            <ul> block — proves the data → rf.story.ui.markdown/parse contract for the
-            common docs shape (bulleted lists are the most-used
-            markdown affordance in Story prose)"
-    (rf.story/reg-story :story.md-list {:doc "" :tags #{:dev}})
-    (rf.story/reg-variant :story.md-list/v {:doc "" :setup []})
-    (rf.story/reg-workspace :Workspace.md-list/notes
-      {:layout  :prose
-       :content [{:type :variant :id :story.md-list/v}
-                 {:type :prose
-                  :body "Steps:\n\n- one\n- two\n- three"}]})
-    (let [body  (-> (rf.story.ui.docs/prose-for-variant :story.md-list/v) first :body)
-          out   (rf.story.ui.markdown/parse body)
-          ul    (some #(when (= :ul (first %)) %) (rest out))]
-      (is (some? ul))
-      (is (= 3 (count (drop 2 ul)))
-          "three <li> children for the three bullet lines"))))

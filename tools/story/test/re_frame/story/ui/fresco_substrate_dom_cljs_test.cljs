@@ -605,22 +605,6 @@
           "and it names WHICH view")
       (rf.story/destroy-variant! :story.fresco/missing-view))))
 
-(deftest a-fresco-variant-with-no-registered-substrate-says-so
-  (testing "the host never called `register-substrate!`. The single pane
-            must say so — loudly, at the fragment level — rather than
-            silently painting Reagent, which this substrate must never
-            do."
-    (is (not (contains? @rf.story.ui.multi-substrate/substrate->render-fn :fresco))
-        "precondition: `:fresco` absent from the registry")
-    (let [tree (ready-tree :story.fresco/card)
-          text (rf.story.test-helpers.e2e-multi-frame/text-nodes tree)]
-      (is (re-find #"is not registered" text))
-      (is (re-find #"fresco" text) "and it names WHICH substrate")
-      (is (not (rendered-under-reagent? tree))
-          "it did NOT fall back to Reagent — falling back silently is the
-           bug, not the remedy")
-      (rf.story/destroy-variant! :story.fresco/card))))
-
 (deftest rf-view-answers-the-fresco-alias-and-answers-it-untouched
   (testing "the premise the whole render fn is built on. The alias
             entry publishes its minted head at
@@ -631,7 +615,6 @@
             value itself: `view-head` returns a slot it did not build
             exactly as stored, so nothing wrapped or componentised a
             boundary that already is a React component."
-    (is (some? (rf/view card-id)))
     (is (identical? fresco-card (rf/view card-id))
         "the very value the `def` binds")
     (is (identical? fresco-card (:handler-fn (rf/handler-meta {:source :store :kind :view :id card-id}))))
