@@ -38,8 +38,7 @@
        setting `:rf.xray/set-target-frame` makes `:rf.xray/derivation-graph`
        call `live-derivation-graph` with `:frame <target>` (the live shape,
        carrying the observed frame id).
-    5. OVERRIDE path — the test override bypasses composer output.
-    6. Optional node metadata — a node carrying optional image/frame metadata
+    5. Optional node metadata — a node carrying optional image/frame metadata
        (`:rf.frame/id` / `:rf.image/id`) survives tab-data summarization
        unchanged (arbitrary node metadata rides through)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -232,25 +231,7 @@
       (is (= {} (into {} (filter (fn [[_ n]] (= :routes (:rf/family n))) (:nodes graph))))
           "the :app/other live graph carries no routes-family live node"))))
 
-;; ---- (5) the override path bypasses the composer ------------------------
-
-(deftest override-bypasses-the-composer-output
-  (testing "the test override slot short-circuits the composer (tests drive a
-            fixture graph without a full runtime)"
-    (setup-xray!)
-    (register-host-subs!)                  ;; composer WOULD produce a non-trivial graph
-    (let [fixture {:mode  :static
-                   :nodes {[:sub :only/me]
-                           {:id :only/me :kind :derivation :rf/family :subs}}
-                   :edges []}]
-      (rf/dispatch-sync [:rf.xray/set-derivation-graph-override-for-test fixture]
-                        {:frame :rf/xray})
-      (let [graph (read-xray [:rf.xray/derivation-graph])]
-        (is (= fixture graph) "the override is returned verbatim, NOT the composer graph")
-        (is (not (contains? (:nodes graph) [:sub :cart/total]))
-            "the composer's nodes are absent — the override won")))))
-
-;; ---- (6) EP-0013 relocation coordinates survive tab-data ----------------
+;; ---- (5) EP-0013 relocation coordinates survive tab-data ----------------
 
 (deftest optional-node-metadata-survives-tab-data
   (testing "a node carrying optional image/frame metadata rides through

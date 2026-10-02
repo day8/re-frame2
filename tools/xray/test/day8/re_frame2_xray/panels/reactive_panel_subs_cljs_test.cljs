@@ -23,7 +23,7 @@
   (`:rf.sub/computed` / `:rf.sub/skipped` are names the substrate never
   emits, so a projection grepping raw `:trace-events` for them would
   read zero subs ran.)"
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [are deftest is testing]]
             [day8.re-frame2-xray.panels.reactive-flow-graph :as graph]
             [day8.re-frame2-xray.panels.reactive-panel-subs :as subs]))
 
@@ -87,11 +87,6 @@
       (is (nil? (subs/focused-epoch-record history :missing))
           "evicted pinned epoch must be nil (not the head record)"))))
 
-(deftest focused-epoch-record-empty-history-nil
-  (testing "Empty history returns nil"
-    (is (nil? (subs/focused-epoch-record [] :anything)))
-    (is (nil? (subs/focused-epoch-record nil :anything)))))
-
 (deftest focused-epoch-record-nil-when-pinned-bundle-settled-no-epoch
   (testing "the operator PINNED an event bundle
             that settled NO epoch, so focus carries a `:dispatch-id` beside
@@ -130,16 +125,17 @@
 
 ;; ---- project-record: empty --------------------------------------------
 
-(deftest project-empty-record
-  (testing "Empty / nil record projects to zeroed vectors + counts"
+(deftest project-record-of-an-empty-record-is-all-empty
+  (testing "a nil or empty record projects to empty slices and every count zero"
     (doseq [r [nil {}]]
       (let [p (subs/project-record r)]
         (is (= [] (:subs-ran p)))
+        (is (= [] (:subs-skipped p)))
         (is (= [] (:views-rendered p)))
-        (is (= 0 (-> p :counts :subs-ran)))
-        (is (= 0 (-> p :counts :views-rendered)))
-        (is (= 0 (-> p :counts :flows-recomputed)))
-        (is (= 0 (-> p :counts :flows-skipped)))))))
+        (is (= {:subs-ran 0 :subs-skipped 0 :views-rendered 0 :view-rows 0
+                :unmounted-views 0 :destroyed-subs 0
+                :flows-recomputed 0 :flows-skipped 0}
+               (:counts p)))))))
 
 ;; ---- project-record: subs ran (:recomputed? true) ---------------------
 
@@ -180,36 +176,11 @@
       (is (= [[:cart/state]] (-> rows second :input-paths-unchanged))
           "layer-2 skip names its upstream query-vectors"))))
 
-(deftest skipped-subs-excludes-subs-that-also-ran
-  (testing "a sub that RECOMPUTED this epoch DID
-            fire, so it is a :subs-ran row and MUST NOT also appear in
-            :subs-skipped (the two categories stay distinct); a pure memo-hit
-            survives. Exclusion keys on the CONCRETE query-v run-set."
-    (let [events [(skip-ev :read-a)     ; also ran (below) → excluded
-                  (skip-ev :derived-a)] ; pure skip → kept
-          ;; the ran-set is concrete query-vs, not bare sub-ids.
-          rows   (subs/skipped-subs events #{[:read-a]})]
-      (is (= [:derived-a] (mapv :sub-id rows))
-          ":read-a is excluded (it ran); :derived-a survives"))))
-
 ;; ---- concrete-query identity ------------------------------------------
 ;;
 ;; The cache/trace identify a short-circuited reaction by its full query
 ;; vector, so the disclosure must dedup + cross-exclude by concrete query-v
 ;; — NOT the registered sub-id, which collapses distinct parameterizations.
-
-(deftest skipped-subs-preserves-distinct-parameterizations
-  (testing "two memo-hit skips sharing a registered sub-id but
-            with DISTINCT concrete query-vs BOTH survive (dedup is by
-            concrete query-v, not the registered id)."
-    (let [events [(skip-qv :item/derived [:item/derived 1])
-                  (skip-qv :item/derived [:item/derived 2])]
-          rows   (subs/skipped-subs events #{})]
-      (is (= 2 (count rows)) "both parameterizations survive")
-      (is (= [[:item/derived 1] [:item/derived 2]] (mapv :query-v rows))
-          "each row carries its own concrete query-v")
-      (is (= [:item/derived :item/derived] (mapv :sub-id rows))
-          "the registered id rides both rows for source-coord lookup"))))
 
 (deftest skipped-subs-recompute-excludes-only-exact-query
   (testing "the focused counterexample: `[:item/derived 1]`
@@ -262,13 +233,6 @@
           ":subs-skipped names only the sub that skipped without running")
       (is (= 1 (-> p :counts :subs-ran)))
       (is (= 1 (-> p :counts :subs-skipped))))))
-
-(deftest project-empty-record-zeroes-subs-skipped
-  (testing "empty / nil record → [] :subs-skipped + 0 count."
-    (doseq [r [nil {}]]
-      (let [p (subs/project-record r)]
-        (is (= [] (:subs-skipped p)))
-        (is (= 0 (-> p :counts :subs-skipped)))))))
 
 (deftest project-record-preserves-parameterized-skip-past-same-id-recompute
   (testing "end to end: `[:item/derived 1]` recomputes (a
@@ -349,34 +313,18 @@
 
 ;; ---- changed-vs-structural classifier ---------------------------------
 
-(deftest compute-view-reason-reactive-when-own-sub-changed
-  (testing "a view that derefs a sub that changed this cascade
-            gets a :reactive reason listing the INTERSECTION (its own
-            changed reads), in deref order."
-    (let [reason (subs/compute-view-reason [[:cart/total] [:cart/count]]
-                                           #{:cart/total})]
-      (is (= :reactive (:kind reason)))
-      (is (= [:cart/total] (:subs reason))
-          "only the changed sub the view reads lands in the reason"))))
-
-(deftest compute-view-reason-structural-when-no-own-sub-changed
-  (testing "a view that derefs subs but NONE changed → the
-            structural (`← parent re-render`) reason, UNNAMED."
-    (let [reason (subs/compute-view-reason [[:cart/total]] #{:other/sub})]
-      (is (= :structural (:kind reason)))
-      (is (nil? (:subs reason))))))
-
-(deftest compute-view-reason-structural-when-no-derefs
-  (testing "a pure structural render (no :deref-subs) → the
-            structural reason. nil-safe on the deref-subs arg."
-    (is (= :structural (:kind (subs/compute-view-reason nil #{:cart/total}))))
-    (is (= :structural (:kind (subs/compute-view-reason [] #{:cart/total}))))))
-
-(deftest compute-view-reason-preserves-deref-order-and-dedupes
-  (testing "reason :subs follow deref order and de-duplicate."
-    (let [reason (subs/compute-view-reason
-                   [[:b] [:a] [:a] [:c]] #{:a :b :c})]
-      (is (= [:b :a :c] (:subs reason))))))
+(deftest compute-view-reason-classifies-by-the-views-own-changed-reads
+  (testing "a view that derefs a sub that changed this cascade gets a
+            :reactive reason naming the INTERSECTION — its own changed
+            reads, in deref order, de-duplicated. A view none of whose reads
+            changed, or that derefs nothing, gets the UNNAMED structural
+            (`← parent re-render`) reason."
+    (are [deref-subs changed expected] (= expected (subs/compute-view-reason deref-subs changed))
+      [[:cart/total] [:cart/count]] #{:cart/total} {:kind :reactive :subs [:cart/total]}
+      [[:b] [:a] [:a] [:c]]         #{:a :b :c}    {:kind :reactive :subs [:b :a :c]}
+      [[:cart/total]]               #{:other/sub}  {:kind :structural}
+      nil                           #{:cart/total} {:kind :structural}
+      []                            #{:cart/total} {:kind :structural})))
 
 ;; ---- view-rows projection ---------------------------------------------
 

@@ -2,27 +2,13 @@
   "Pure-data tests for the reactive-flow graph layout (spec/021 §3.2 ·
   Figma `ViewsPanel`).
 
-  Covers `shared-sub-set` (the shared-subscription detector) and `layout`
-  (the node + edge geometry the Views panel renders as inline SVG).
+  Covers `layout` (the node + edge geometry the Views panel renders as
+  inline SVG), including the shared-subscription detector `shared-sub-set`
+  through the `:shared-count` it stamps on each node.
   JVM-runnable — no re-frame frame, no browser."
-  (:require #?(:clj  [clojure.test :refer [deftest is testing]]
-               :cljs [cljs.test    :refer-macros [deftest is testing]])
+  (:require #?(:clj  [clojure.test :refer [are deftest is testing]]
+               :cljs [cljs.test    :refer-macros [are deftest is testing]])
             [day8.re-frame2-xray.panels.reactive-flow-graph :as g]))
-
-;; ---- shared-sub-set ----------------------------------------------------
-
-(deftest shared-sub-set-detects-multi-reader-subs
-  (testing "a sub read by ≥2 views is in the shared set; a 0/1-reader sub
-            is not"
-    (let [subs [{:sub-id :a :readers [:v1 :v2]}
-                {:sub-id :b :readers [:v1]}
-                {:sub-id :c :readers []}
-                {:sub-id :d :readers [:v1 :v2 :v3]}]]
-      (is (= #{:a :d} (g/shared-sub-set subs))))))
-
-(deftest shared-sub-set-nil-safe
-  (is (= #{} (g/shared-sub-set [])))
-  (is (= #{} (g/shared-sub-set [{:sub-id :x}]))))
 
 ;; ---- layout: empty -----------------------------------------------------
 
@@ -71,36 +57,33 @@
       (is (= 1.5 (:elapsed-ms vn)))
       (is (= :rerender (:action vn))))))
 
-(deftest layout-marks-shared-sub-count
-  (testing "a sub read by ≥2 views carries :shared-count"
-    (let [out (g/layout {:level-1-subs [{:sub-id :s :changed? true
-                                         :readers [:v1 :v2]}]})
-          n   (-> out :nodes :l1 first)]
-      (is (= 2 (:shared-count n))))))
-
-(deftest layout-no-shared-count-for-single-reader
-  (let [out (g/layout {:level-1-subs [{:sub-id :s :changed? true :readers [:v1]}]})]
-    (is (nil? (:shared-count (-> out :nodes :l1 first))))))
+(deftest layout-marks-shared-count-only-on-multi-reader-subs
+  (testing "a sub read by two or more views carries :shared-count, its
+            reader count; a sub with no, empty or single readers carries none"
+    (are [readers expected]
+         (= expected
+            (-> (g/layout {:level-1-subs [(cond-> {:sub-id :s :changed? true}
+                                            (some? readers) (assoc :readers readers))]})
+                :nodes :l1 first :shared-count))
+      nil           nil
+      []            nil
+      [:v1]         nil
+      [:v1 :v2]     2
+      [:v1 :v2 :v3] 3)))
 
 ;; ---- layout: edges -----------------------------------------------------
 
-(deftest layout-app-db-fans-out-to-each-level-1
-  (testing "one app-db → L1 edge per Level-1 sub (plain fan-out)"
-    (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}
-                                        {:sub-id :b :changed? false}]})
-          appdb-edges (filter #(= :appdb-l1 (:kind %)) (:edges out))]
-      (is (= 2 (count appdb-edges)))
-      (is (every? #(= :appdb (:from-id %)) appdb-edges)))))
-
 (deftest layout-app-db-edge-changed-tracks-target-sub
-  (testing "the app-db→L1 edge :changed? mirrors the target sub's state
-            (changed propagates, unchanged is cut)"
+  (testing "app-db fans out one edge to each Level-1 sub, in sub order, and
+            each edge's :changed? mirrors its target sub's state (changed
+            propagates, unchanged is cut)"
     (let [out (g/layout {:level-1-subs [{:sub-id :a :changed? true}
-                                        {:sub-id :b :changed? false}]})
-          by-to (into {} (map (juxt :to-id identity))
-                      (filter #(= :appdb-l1 (:kind %)) (:edges out)))]
-      (is (true? (:changed? (get by-to :a))))
-      (is (false? (:changed? (get by-to :b)))))))
+                                        {:sub-id :b :changed? false}]})]
+      (is (= [{:from-id :appdb :to-id :a :changed? true}
+              {:from-id :appdb :to-id :b :changed? false}]
+             (->> (:edges out)
+                  (filter #(= :appdb-l1 (:kind %)))
+                  (mapv #(select-keys % [:from-id :to-id :changed?]))))))))
 
 (deftest layout-level-2-edges-wire-from-input-subs
   (testing "a Level-2 sub draws an edge from each of its input subs;

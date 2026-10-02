@@ -48,7 +48,7 @@
 ;; ---- hiccup walker ------------------------------------------------------
 ;; A thin alias over re-frame.test-helpers.
 ;;
-;; The three Trace rows below are the only testid-PREFIX matches in this
+;; The two Trace rows below are the only testid-PREFIX matches in this
 ;; suite, and they scan through [[trace-status-bar]] for the reason given
 ;; there.
 
@@ -56,7 +56,7 @@
 
 ;; ---- the Trace panel's status bar --------------------------------------
 ;;
-;; The three Trace rows below cannot call `trace/Panel` and hand the result
+;; The two Trace rows below cannot call `trace/Panel` and hand the result
 ;; to a walker. Neither half works.
 ;;
 ;; `trace/Panel` is an `rf.fresco/defview`: a real React function component
@@ -126,7 +126,7 @@
 ;; site (the Trace timeline bar); the pure-data layer is exercised in
 ;; `event_status_colour_cljs_test.cljc`.
 
-(deftest l2-row-no-longer-carries-status-stripe
+(deftest l2-event-row-carries-no-status-stripe
   (testing "the L2 row carries NO `data-rf-xray-status`
             attribute and NO lifecycle status box-shadow (the active row
             is marked by background only)."
@@ -172,7 +172,8 @@
 
 (deftest trace-event-bundle-status-bar-error
   (testing "an errored focused cascade flips the bar to
-            red, through the same helper."
+            red, through the same helper, and the bar carries the
+            canonical status keyword from the one status map."
     (xray-setup!)
     (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
     (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
@@ -181,23 +182,6 @@
       (let [bar (trace-status-bar #(= % (str status-bar-prefix "settled-error")))]
         (is (some? bar))
         (is (= (:red tokens/tokens)
-               (get-in (second bar) [:style :background])))))))
-
-;; ---- (4) single-site vocabulary — the Trace bar ------------------------
-
-(deftest trace-bar-rides-the-canonical-status-vocabulary
-  (testing "the status-colour vocabulary has a
-            SINGLE render site (the Trace timeline bar; the L2 row
-            carries no stripe). The bar resolves to the canonical status
-            keyword from ONE map, NO per-call-site rolling."
-    (xray-setup!)
-    (trace-collector/seed-trace-for-test! (dispatch-trace-ev 1 [:foo/bar]))
-    (trace-collector/seed-trace-for-test! (handler-exception-ev 99 1))
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/select-dispatch-id 1])
-      (let [trace-bar    (trace-status-bar
-                           #(.startsWith ^String % status-bar-prefix))
-            trace-status (:data-rf-xray-status (second trace-bar))]
-        (is (= "settled-error" trace-status)
-            (str "the trace bar rides the canonical vocabulary — "
-                 "trace: " trace-status))))))
+               (get-in (second bar) [:style :background])))
+        (is (= "settled-error" (:data-rf-xray-status (second bar)))
+            "the bar rides the canonical status vocabulary")))))

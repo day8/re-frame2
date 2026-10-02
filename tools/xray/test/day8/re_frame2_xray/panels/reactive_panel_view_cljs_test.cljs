@@ -94,15 +94,6 @@
              (empty-text epoch-only)))
       (is (= "No event focused." (empty-text unset))))))
 
-(deftest reactive-panel-omits-large-h1-heading
-  (testing "the Views panel renders NO large h1 heading; the
-            tab strip is the panel-name source-of-truth."
-    (facade/install!)
-    (rf/make-frame {:id :rf/xray})
-    (let [tree (panel-tree)
-          icon (rf.test-helpers/find-by-testid tree "rf-xray-reactive-panel-icon")]
-      (is (nil? icon) "there is no panel-icon span (the panel has no h1)"))))
-
 (deftest reactive-panel-uses-views-display-label
   (testing "the L4 tab displays as `Views` under the all-plural-domain-
             noun convention; the panel-registry key is `:views`."

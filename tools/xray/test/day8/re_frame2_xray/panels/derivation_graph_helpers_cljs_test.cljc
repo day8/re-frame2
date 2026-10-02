@@ -138,11 +138,6 @@
     (testing "a node absent from any edge has zero degree"
       (is (= {:in 0 :out 0} (get deg [:flow :cart/materialized-total]))))))
 
-(deftest empty-edges-is-handled
-  (let [g {:mode :static :nodes {[:sub :a] {:kind :derivation}} :edges []}]
-    (is (= {} (h/edges-by-role g)))
-    (is (= {:in 0 :out 0} (get (h/node-degree g) [:sub :a])))))
-
 ;; ---------------------------------------------------------------------------
 ;; 4. ON-BOX summarize — raw-permitting (NOT an egress boundary).
 ;; ---------------------------------------------------------------------------

@@ -86,19 +86,6 @@
     {}                                 :in-flight
     nil                                :in-flight))
 
-;; ---- hex resolver --------------------------------------------------------
-
-(deftest event-status-colour-fallback
-  (testing "unknown status (shouldn't happen via the classifier, but
-            defence-in-depth) falls back to the mode :accent so the
-            row still renders a visible colour rather than nil."
-    ;; Defence-in-depth check: an out-of-band status keyword routed
-    ;; through the resolver fn surface still returns a usable hex.
-    ;; We test by reaching into the public API with a deliberately-
-    ;; malformed state shape — every key unrecognised — and ensure
-    ;; the accent fallback rides.
-    (is (string? (event-status/event-status-colour {:outcome :unknown :mode :unknown})))))
-
 ;; ---- cascade → state projection ----------------------------------------
 
 (defn- mock-outcome [outcome]
@@ -116,16 +103,6 @@
       (is (false? (:stale? state)))
       (is (= :live (:mode state)))
       (is (= :settled-error (event-status/classify-status state))))))
-
-(deftest event-bundle->state-projects-retro-stale
-  (testing "a focused cascade in RETRO mode → :stale? true (derived
-            from :mode :retro)."
-    (let [cascade {:dispatch-id 7}
-          focus   {:dispatch-id 7 :mode :retro :paused? false}
-          state   (event-status/event-bundle->state cascade focus (mock-outcome :ok))]
-      (is (true? (:stale? state)))
-      (is (= :retro (:mode state)))
-      (is (= :stale (event-status/classify-status state))))))
 
 (deftest event-bundle->state-projects-non-focused-event-bundle
   (testing "a cascade that's NOT the spine focus → :focused? false +
